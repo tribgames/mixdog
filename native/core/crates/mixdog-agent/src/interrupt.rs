@@ -220,7 +220,12 @@ fn append_observed_output(
             continue;
         }
         answered.push(id.to_owned());
-        messages.push(result.clone());
+        // `recordToolResult` keeps of an early notice its role, content, call id and kind (an error flag stands for the kind it
+        // lacks), nothing more (`turn-interruption.mjs:291`).
+        let kind = result.tool_kind.or(result.message.is_error.then_some(ToolKind::Error));
+        let mut kept = AgentMessage::tool_result(id, result.message.content.clone(), kind.unwrap_or(ToolKind::Normal));
+        kept.tool_kind = kind;
+        messages.push(kept);
     }
     let all_calls: Vec<String> = messages
         .iter()

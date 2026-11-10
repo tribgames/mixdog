@@ -98,7 +98,7 @@ impl ConfigRunSeams {
     }
 
     /// `resolveWorkerCompactPolicy`'s inputs (`compact-policy.mjs`, `context-compaction-policy.mjs`).
-    fn compact_settings(&self, header: &Header, agent_mode: bool) -> CompactSettings {
+    pub(crate) fn compact_settings(&self, header: &Header, agent_mode: bool) -> CompactSettings {
         self.compact_settings_with(header, agent_mode, self.session_compaction(header))
     }
 

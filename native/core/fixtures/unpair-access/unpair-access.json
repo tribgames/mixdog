@@ -1,0 +1,1200 @@
+{
+  "domain": "unpair-access",
+  "recorder": "benchmarks/rust-core/recorders/record-unpair-access.mjs",
+  "credential": "aaaaaaa1",
+  "token": "fcm-token-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "remapped": [
+    {
+      "kind": "webPushKey",
+      "path": "before.webPush.value"
+    },
+    {
+      "kind": "webPushKey",
+      "path": "after.webPush.value"
+    },
+    {
+      "kind": "grantId",
+      "path": "before.files.grant.value.grantId"
+    },
+    {
+      "kind": "version",
+      "path": "before.files.grant.value.version"
+    },
+    {
+      "kind": "transferId",
+      "path": "before.files.transfer.value.transferId"
+    },
+    {
+      "kind": "version",
+      "path": "before.files.transfer.value.version"
+    },
+    {
+      "kind": "assetId",
+      "path": "before.files.transfer.value.media.assetId"
+    },
+    {
+      "kind": "grantId",
+      "path": "before.files.unbegun.value.grantId"
+    },
+    {
+      "kind": "version",
+      "path": "before.files.unbegun.value.version"
+    },
+    {
+      "kind": "accessToken",
+      "path": "before.link.resolve.value.0.accessToken"
+    },
+    {
+      "kind": "dir",
+      "path": "before.link.resolve.value.0.absolutePath"
+    },
+    {
+      "kind": "dir",
+      "path": "before.link.resolve.value.0.projectPath"
+    },
+    {
+      "kind": "dir",
+      "path": "before.chat.value.0.cwd"
+    },
+    {
+      "kind": "dir",
+      "path": "before.chat.value.0.projectPath"
+    },
+    {
+      "kind": "dir",
+      "path": "after.chat.value.0.cwd"
+    },
+    {
+      "kind": "dir",
+      "path": "after.chat.value.0.projectPath"
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "the relay did not remove the pairing",
+      "relayConfirms": false,
+      "revokeOutcome": "rejected: Relay device request failed.",
+      "envelopesAtUnpair": [
+        "revoke-client"
+      ],
+      "desktopClosedPhone": null,
+      "phoneStillAttached": true,
+      "setup": {
+        "setNotificationPreferences": {
+          "id": 100,
+          "ok": true,
+          "value": {
+            "devices": [
+              {
+                "id": "pc",
+                "name": "DESKTOP-IBLP835",
+                "kind": "pc",
+                "online": true,
+                "canNotify": false
+              },
+              {
+                "id": "aaaaaaa1",
+                "name": "Pixel",
+                "kind": "browser",
+                "canNotify": false
+              }
+            ],
+            "preferences": {
+              "pc": {
+                "scope": "all",
+                "events": {
+                  "finished": true,
+                  "question": true,
+                  "approval": true,
+                  "error": false
+                },
+                "automaticRuns": true,
+                "quietHours": {
+                  "enabled": false,
+                  "start": "23:00",
+                  "end": "08:00",
+                  "days": "every",
+                  "allowWaiting": false
+                },
+                "holdWhileDesktopActive": true,
+                "taskbarFlash": true
+              },
+              "aaaaaaa1": {
+                "scope": "off",
+                "events": {
+                  "finished": true,
+                  "question": true,
+                  "approval": true,
+                  "error": false
+                },
+                "automaticRuns": true,
+                "quietHours": {
+                  "enabled": false,
+                  "start": "23:00",
+                  "end": "08:00",
+                  "days": "every",
+                  "allowWaiting": false
+                },
+                "holdWhileDesktopActive": true,
+                "taskbarFlash": true
+              }
+            },
+            "currentDeviceId": "aaaaaaa1"
+          }
+        },
+        "registerNativePush": {
+          "id": 101,
+          "ok": true,
+          "value": true
+        },
+        "registerPushSubscription": {
+          "id": 102,
+          "ok": true,
+          "value": true
+        }
+      },
+      "before": {
+        "chat": {
+          "id": 104,
+          "ok": true,
+          "value": [
+            {
+              "id": "s1",
+              "preview": "s1",
+              "title": "s1",
+              "updatedAt": 1924992005000,
+              "activityAt": 1924992005000,
+              "messageCount": 1,
+              "cwd": "<dir>",
+              "classification": "project",
+              "projectPath": "<dir>"
+            }
+          ]
+        },
+        "terminal": {
+          "id": 105,
+          "ok": true,
+          "value": [
+            {
+              "id": "pwsh",
+              "label": "PowerShell (pwsh)",
+              "path": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+              "default": true
+            },
+            {
+              "id": "windows-powershell",
+              "label": "Windows PowerShell",
+              "path": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+            },
+            {
+              "id": "cmd",
+              "label": "Command Prompt",
+              "path": "C:\\WINDOWS\\System32\\cmd.exe"
+            },
+            {
+              "id": "git-bash",
+              "label": "Git Bash",
+              "path": "C:\\Program Files\\Git\\bin\\bash.exe"
+            }
+          ]
+        },
+        "settings": {
+          "id": 106,
+          "ok": true,
+          "value": {
+            "autoClear": true,
+            "autoCompact": true,
+            "keepAwake": true,
+            "runInBackground": true,
+            "notificationVolume": 100,
+            "sessionAutoArchiveDays": 7,
+            "sessionAutoDeleteDays": 90,
+            "usagePinned": true,
+            "usageRailShortLong": false,
+            "usageAccountsExpanded": false,
+            "usageRailSlotsThree": false,
+            "usageRailSlotsAll": false,
+            "computerControl": false,
+            "computerObserveOnly": false,
+            "browserControl": false,
+            "browserAutoSignIn": true,
+            "browserHidDevices": false,
+            "browserPermissions": {
+              "defaults": {
+                "notifications": "block",
+                "geolocation": "block",
+                "clipboard-write": "allow",
+                "clipboard-read": "ask",
+                "media:video": "ask",
+                "media:audio": "ask",
+                "midi": "ask",
+                "midiSysex": "ask",
+                "idle-detection": "ask",
+                "top-level-storage-access": "ask",
+                "window-management": "ask",
+                "speaker-selection": "ask",
+                "fileSystem": "ask"
+              },
+              "sites": []
+            },
+            "saveChatLogins": true,
+            "computerInstalled": false,
+            "browserInstalled": false
+          }
+        },
+        "notifications": {
+          "id": 107,
+          "ok": true,
+          "value": {
+            "devices": [
+              {
+                "id": "pc",
+                "name": "DESKTOP-IBLP835",
+                "kind": "pc",
+                "online": true,
+                "canNotify": false
+              },
+              {
+                "id": "aaaaaaa1",
+                "name": "Pixel",
+                "kind": "browser",
+                "canNotify": true
+              }
+            ],
+            "preferences": {
+              "pc": {
+                "scope": "all",
+                "events": {
+                  "finished": true,
+                  "question": true,
+                  "approval": true,
+                  "error": false
+                },
+                "automaticRuns": true,
+                "quietHours": {
+                  "enabled": false,
+                  "start": "23:00",
+                  "end": "08:00",
+                  "days": "every",
+                  "allowWaiting": false
+                },
+                "holdWhileDesktopActive": true,
+                "taskbarFlash": true
+              },
+              "aaaaaaa1": {
+                "scope": "off",
+                "events": {
+                  "finished": true,
+                  "question": true,
+                  "approval": true,
+                  "error": false
+                },
+                "automaticRuns": true,
+                "quietHours": {
+                  "enabled": false,
+                  "start": "23:00",
+                  "end": "08:00",
+                  "days": "every",
+                  "allowWaiting": false
+                },
+                "holdWhileDesktopActive": true,
+                "taskbarFlash": true
+              }
+            },
+            "currentDeviceId": "aaaaaaa1"
+          }
+        },
+        "webPush": {
+          "id": 108,
+          "ok": true,
+          "value": "<webPushKey#0>"
+        },
+        "files": {
+          "grant": {
+            "id": 109,
+            "ok": true,
+            "value": {
+              "grantId": "<grantId#0>",
+              "name": "unpair-download.txt",
+              "size": 15,
+              "mime": "text/plain",
+              "version": "<version#0>",
+              "expiresAt": 1924992070000
+            }
+          },
+          "transfer": {
+            "id": 110,
+            "ok": true,
+            "value": {
+              "transferId": "<transferId#0>",
+              "name": "unpair-download.txt",
+              "size": 15,
+              "mime": "text/plain",
+              "version": "<version#0>",
+              "expiresAt": 1924993811000,
+              "rangeMaxBytes": 4194304,
+              "media": {
+                "assetId": "<assetId#0>",
+                "variant": "download",
+                "expiresAt": 1924993811000
+              }
+            }
+          },
+          "unbegun": {
+            "id": 111,
+            "ok": true,
+            "value": {
+              "grantId": "<grantId#1>",
+              "name": "unpair-download.txt",
+              "size": 15,
+              "mime": "text/plain",
+              "version": "<version#0>",
+              "expiresAt": 1924992072000
+            }
+          }
+        },
+        "link": {
+          "resolve": {
+            "id": 112,
+            "ok": true,
+            "value": [
+              {
+                "absolutePath": "<dir>\\unpair-download.txt",
+                "name": "unpair-download.txt",
+                "dir": false,
+                "size": 15,
+                "projectPath": "<dir>",
+                "relPath": "unpair-download.txt",
+                "accessToken": "<accessToken#0>"
+              }
+            ]
+          },
+          "read": {
+            "id": 113,
+            "ok": true,
+            "value": {
+              "content": "unpair download",
+              "mtimeMs": 1924905600000,
+              "binary": false,
+              "tooLarge": false,
+              "encoding": "utf8"
+            }
+          }
+        }
+      },
+      "after": {
+        "chat": {
+          "id": 114,
+          "ok": true,
+          "value": [
+            {
+              "id": "s1",
+              "preview": "s1",
+              "title": "s1",
+              "updatedAt": 1924992015000,
+              "activityAt": 1924992015000,
+              "messageCount": 1,
+              "cwd": "<dir>",
+              "classification": "project",
+              "projectPath": "<dir>"
+            }
+          ]
+        },
+        "terminal": {
+          "id": 115,
+          "ok": true,
+          "value": [
+            {
+              "id": "pwsh",
+              "label": "PowerShell (pwsh)",
+              "path": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+              "default": true
+            },
+            {
+              "id": "windows-powershell",
+              "label": "Windows PowerShell",
+              "path": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+            },
+            {
+              "id": "cmd",
+              "label": "Command Prompt",
+              "path": "C:\\WINDOWS\\System32\\cmd.exe"
+            },
+            {
+              "id": "git-bash",
+              "label": "Git Bash",
+              "path": "C:\\Program Files\\Git\\bin\\bash.exe"
+            }
+          ]
+        },
+        "settings": {
+          "id": 116,
+          "ok": true,
+          "value": {
+            "autoClear": true,
+            "autoCompact": true,
+            "keepAwake": true,
+            "runInBackground": true,
+            "notificationVolume": 100,
+            "sessionAutoArchiveDays": 7,
+            "sessionAutoDeleteDays": 90,
+            "usagePinned": true,
+            "usageRailShortLong": false,
+            "usageAccountsExpanded": false,
+            "usageRailSlotsThree": false,
+            "usageRailSlotsAll": false,
+            "computerControl": false,
+            "computerObserveOnly": false,
+            "browserControl": false,
+            "browserAutoSignIn": true,
+            "browserHidDevices": false,
+            "browserPermissions": {
+              "defaults": {
+                "notifications": "block",
+                "geolocation": "block",
+                "clipboard-write": "allow",
+                "clipboard-read": "ask",
+                "media:video": "ask",
+                "media:audio": "ask",
+                "midi": "ask",
+                "midiSysex": "ask",
+                "idle-detection": "ask",
+                "top-level-storage-access": "ask",
+                "window-management": "ask",
+                "speaker-selection": "ask",
+                "fileSystem": "ask"
+              },
+              "sites": []
+            },
+            "saveChatLogins": true,
+            "computerInstalled": false,
+            "browserInstalled": false
+          }
+        },
+        "notifications": {
+          "id": 117,
+          "ok": true,
+          "value": {
+            "devices": [
+              {
+                "id": "pc",
+                "name": "DESKTOP-IBLP835",
+                "kind": "pc",
+                "online": true,
+                "canNotify": false
+              }
+            ],
+            "preferences": {
+              "pc": {
+                "scope": "all",
+                "events": {
+                  "finished": true,
+                  "question": true,
+                  "approval": true,
+                  "error": false
+                },
+                "automaticRuns": true,
+                "quietHours": {
+                  "enabled": false,
+                  "start": "23:00",
+                  "end": "08:00",
+                  "days": "every",
+                  "allowWaiting": false
+                },
+                "holdWhileDesktopActive": true,
+                "taskbarFlash": true
+              }
+            },
+            "currentDeviceId": "aaaaaaa1"
+          }
+        },
+        "webPush": {
+          "id": 118,
+          "ok": true,
+          "value": "<webPushKey#0>"
+        },
+        "files": {
+          "range": {
+            "id": 119,
+            "ok": false,
+            "error": "This download is no longer available.",
+            "errorCode": "file-download:expired"
+          },
+          "begin": {
+            "id": 120,
+            "ok": false,
+            "error": "This download is no longer available.",
+            "errorCode": "file-download:expired"
+          }
+        },
+        "link": {
+          "read": {
+            "id": 121,
+            "ok": true,
+            "value": {
+              "content": "unpair download",
+              "mtimeMs": 1924905600000,
+              "binary": false,
+              "tooLarge": false,
+              "encoding": "utf8"
+            }
+          }
+        },
+        "screen": {
+          "id": 122,
+          "ok": false,
+          "error": "Remote screen is not allowed for this device."
+        },
+        "secondConnection": {
+          "screen": {
+            "id": 124,
+            "ok": false,
+            "error": "Remote screen is not allowed for this device."
+          }
+        },
+        "notificationsAfterForget": {
+          "id": 126,
+          "ok": true,
+          "value": {
+            "devices": [
+              {
+                "id": "pc",
+                "name": "DESKTOP-IBLP835",
+                "kind": "pc",
+                "online": true,
+                "canNotify": false
+              }
+            ],
+            "preferences": {
+              "pc": {
+                "scope": "all",
+                "events": {
+                  "finished": true,
+                  "question": true,
+                  "approval": true,
+                  "error": false
+                },
+                "automaticRuns": true,
+                "quietHours": {
+                  "enabled": false,
+                  "start": "23:00",
+                  "end": "08:00",
+                  "days": "every",
+                  "allowWaiting": false
+                },
+                "holdWhileDesktopActive": true,
+                "taskbarFlash": true
+              }
+            },
+            "currentDeviceId": "aaaaaaa1"
+          }
+        },
+        "removeNativePush": {
+          "id": 127,
+          "ok": true,
+          "value": true
+        },
+        "removePushSubscription": {
+          "id": 128,
+          "ok": true,
+          "value": true
+        }
+      },
+      "feedEvents": [
+        {
+          "e": "T",
+          "s": 1,
+          "w": {
+            "r": 2,
+            "ip": {
+              "p": 0,
+              "a": [
+                {
+                  "id": "answer",
+                  "kind": "assistant",
+                  "text": "after"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "the relay removed the pairing",
+      "relayConfirms": true,
+      "revokeOutcome": "resolved",
+      "envelopesAtUnpair": [
+        "revoke-client",
+        "list-clients"
+      ],
+      "desktopClosedPhone": null,
+      "phoneStillAttached": false,
+      "setup": {
+        "setNotificationPreferences": {
+          "id": 100,
+          "ok": true,
+          "value": {
+            "devices": [
+              {
+                "id": "pc",
+                "name": "DESKTOP-IBLP835",
+                "kind": "pc",
+                "online": true,
+                "canNotify": false
+              },
+              {
+                "id": "aaaaaaa1",
+                "name": "Pixel",
+                "kind": "browser",
+                "canNotify": false
+              }
+            ],
+            "preferences": {
+              "pc": {
+                "scope": "all",
+                "events": {
+                  "finished": true,
+                  "question": true,
+                  "approval": true,
+                  "error": false
+                },
+                "automaticRuns": true,
+                "quietHours": {
+                  "enabled": false,
+                  "start": "23:00",
+                  "end": "08:00",
+                  "days": "every",
+                  "allowWaiting": false
+                },
+                "holdWhileDesktopActive": true,
+                "taskbarFlash": true
+              },
+              "aaaaaaa1": {
+                "scope": "off",
+                "events": {
+                  "finished": true,
+                  "question": true,
+                  "approval": true,
+                  "error": false
+                },
+                "automaticRuns": true,
+                "quietHours": {
+                  "enabled": false,
+                  "start": "23:00",
+                  "end": "08:00",
+                  "days": "every",
+                  "allowWaiting": false
+                },
+                "holdWhileDesktopActive": true,
+                "taskbarFlash": true
+              }
+            },
+            "currentDeviceId": "aaaaaaa1"
+          }
+        },
+        "registerNativePush": {
+          "id": 101,
+          "ok": true,
+          "value": true
+        },
+        "registerPushSubscription": {
+          "id": 102,
+          "ok": true,
+          "value": true
+        }
+      },
+      "before": {
+        "chat": {
+          "id": 104,
+          "ok": true,
+          "value": [
+            {
+              "id": "s1",
+              "preview": "s1",
+              "title": "s1",
+              "updatedAt": 1924992005000,
+              "activityAt": 1924992005000,
+              "messageCount": 1,
+              "cwd": "<dir>",
+              "classification": "project",
+              "projectPath": "<dir>"
+            }
+          ]
+        },
+        "terminal": {
+          "id": 105,
+          "ok": true,
+          "value": [
+            {
+              "id": "pwsh",
+              "label": "PowerShell (pwsh)",
+              "path": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+              "default": true
+            },
+            {
+              "id": "windows-powershell",
+              "label": "Windows PowerShell",
+              "path": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+            },
+            {
+              "id": "cmd",
+              "label": "Command Prompt",
+              "path": "C:\\WINDOWS\\System32\\cmd.exe"
+            },
+            {
+              "id": "git-bash",
+              "label": "Git Bash",
+              "path": "C:\\Program Files\\Git\\bin\\bash.exe"
+            }
+          ]
+        },
+        "settings": {
+          "id": 106,
+          "ok": true,
+          "value": {
+            "autoClear": true,
+            "autoCompact": true,
+            "keepAwake": true,
+            "runInBackground": true,
+            "notificationVolume": 100,
+            "sessionAutoArchiveDays": 7,
+            "sessionAutoDeleteDays": 90,
+            "usagePinned": true,
+            "usageRailShortLong": false,
+            "usageAccountsExpanded": false,
+            "usageRailSlotsThree": false,
+            "usageRailSlotsAll": false,
+            "computerControl": false,
+            "computerObserveOnly": false,
+            "browserControl": false,
+            "browserAutoSignIn": true,
+            "browserHidDevices": false,
+            "browserPermissions": {
+              "defaults": {
+                "notifications": "block",
+                "geolocation": "block",
+                "clipboard-write": "allow",
+                "clipboard-read": "ask",
+                "media:video": "ask",
+                "media:audio": "ask",
+                "midi": "ask",
+                "midiSysex": "ask",
+                "idle-detection": "ask",
+                "top-level-storage-access": "ask",
+                "window-management": "ask",
+                "speaker-selection": "ask",
+                "fileSystem": "ask"
+              },
+              "sites": []
+            },
+            "saveChatLogins": true,
+            "computerInstalled": false,
+            "browserInstalled": false
+          }
+        },
+        "notifications": {
+          "id": 107,
+          "ok": true,
+          "value": {
+            "devices": [
+              {
+                "id": "pc",
+                "name": "DESKTOP-IBLP835",
+                "kind": "pc",
+                "online": true,
+                "canNotify": false
+              },
+              {
+                "id": "aaaaaaa1",
+                "name": "Pixel",
+                "kind": "browser",
+                "canNotify": true
+              }
+            ],
+            "preferences": {
+              "pc": {
+                "scope": "all",
+                "events": {
+                  "finished": true,
+                  "question": true,
+                  "approval": true,
+                  "error": false
+                },
+                "automaticRuns": true,
+                "quietHours": {
+                  "enabled": false,
+                  "start": "23:00",
+                  "end": "08:00",
+                  "days": "every",
+                  "allowWaiting": false
+                },
+                "holdWhileDesktopActive": true,
+                "taskbarFlash": true
+              },
+              "aaaaaaa1": {
+                "scope": "off",
+                "events": {
+                  "finished": true,
+                  "question": true,
+                  "approval": true,
+                  "error": false
+                },
+                "automaticRuns": true,
+                "quietHours": {
+                  "enabled": false,
+                  "start": "23:00",
+                  "end": "08:00",
+                  "days": "every",
+                  "allowWaiting": false
+                },
+                "holdWhileDesktopActive": true,
+                "taskbarFlash": true
+              }
+            },
+            "currentDeviceId": "aaaaaaa1"
+          }
+        },
+        "webPush": {
+          "id": 108,
+          "ok": true,
+          "value": "<webPushKey#1>"
+        },
+        "files": {
+          "grant": {
+            "id": 109,
+            "ok": true,
+            "value": {
+              "grantId": "<grantId#2>",
+              "name": "unpair-download.txt",
+              "size": 15,
+              "mime": "text/plain",
+              "version": "<version#1>",
+              "expiresAt": 1924992070000
+            }
+          },
+          "transfer": {
+            "id": 110,
+            "ok": true,
+            "value": {
+              "transferId": "<transferId#1>",
+              "name": "unpair-download.txt",
+              "size": 15,
+              "mime": "text/plain",
+              "version": "<version#1>",
+              "expiresAt": 1924993811000,
+              "rangeMaxBytes": 4194304,
+              "media": {
+                "assetId": "<assetId#1>",
+                "variant": "download",
+                "expiresAt": 1924993811000
+              }
+            }
+          },
+          "unbegun": {
+            "id": 111,
+            "ok": true,
+            "value": {
+              "grantId": "<grantId#3>",
+              "name": "unpair-download.txt",
+              "size": 15,
+              "mime": "text/plain",
+              "version": "<version#1>",
+              "expiresAt": 1924992072000
+            }
+          }
+        },
+        "link": {
+          "resolve": {
+            "id": 112,
+            "ok": true,
+            "value": [
+              {
+                "absolutePath": "<dir>\\unpair-download.txt",
+                "name": "unpair-download.txt",
+                "dir": false,
+                "size": 15,
+                "projectPath": "<dir>",
+                "relPath": "unpair-download.txt",
+                "accessToken": "<accessToken#1>"
+              }
+            ]
+          },
+          "read": {
+            "id": 113,
+            "ok": true,
+            "value": {
+              "content": "unpair download",
+              "mtimeMs": 1924905600000,
+              "binary": false,
+              "tooLarge": false,
+              "encoding": "utf8"
+            }
+          }
+        }
+      },
+      "after": {
+        "chat": {
+          "id": 114,
+          "ok": true,
+          "value": [
+            {
+              "id": "s1",
+              "preview": "s1",
+              "title": "s1",
+              "updatedAt": 1924992015000,
+              "activityAt": 1924992015000,
+              "messageCount": 1,
+              "cwd": "<dir>",
+              "classification": "project",
+              "projectPath": "<dir>"
+            }
+          ]
+        },
+        "terminal": {
+          "id": 115,
+          "ok": true,
+          "value": [
+            {
+              "id": "pwsh",
+              "label": "PowerShell (pwsh)",
+              "path": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+              "default": true
+            },
+            {
+              "id": "windows-powershell",
+              "label": "Windows PowerShell",
+              "path": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+            },
+            {
+              "id": "cmd",
+              "label": "Command Prompt",
+              "path": "C:\\WINDOWS\\System32\\cmd.exe"
+            },
+            {
+              "id": "git-bash",
+              "label": "Git Bash",
+              "path": "C:\\Program Files\\Git\\bin\\bash.exe"
+            }
+          ]
+        },
+        "settings": {
+          "id": 116,
+          "ok": true,
+          "value": {
+            "autoClear": true,
+            "autoCompact": true,
+            "keepAwake": true,
+            "runInBackground": true,
+            "notificationVolume": 100,
+            "sessionAutoArchiveDays": 7,
+            "sessionAutoDeleteDays": 90,
+            "usagePinned": true,
+            "usageRailShortLong": false,
+            "usageAccountsExpanded": false,
+            "usageRailSlotsThree": false,
+            "usageRailSlotsAll": false,
+            "computerControl": false,
+            "computerObserveOnly": false,
+            "browserControl": false,
+            "browserAutoSignIn": true,
+            "browserHidDevices": false,
+            "browserPermissions": {
+              "defaults": {
+                "notifications": "block",
+                "geolocation": "block",
+                "clipboard-write": "allow",
+                "clipboard-read": "ask",
+                "media:video": "ask",
+                "media:audio": "ask",
+                "midi": "ask",
+                "midiSysex": "ask",
+                "idle-detection": "ask",
+                "top-level-storage-access": "ask",
+                "window-management": "ask",
+                "speaker-selection": "ask",
+                "fileSystem": "ask"
+              },
+              "sites": []
+            },
+            "saveChatLogins": true,
+            "computerInstalled": false,
+            "browserInstalled": false
+          }
+        },
+        "notifications": {
+          "id": 117,
+          "ok": true,
+          "value": {
+            "devices": [
+              {
+                "id": "pc",
+                "name": "DESKTOP-IBLP835",
+                "kind": "pc",
+                "online": true,
+                "canNotify": false
+              },
+              {
+                "id": "aaaaaaa1",
+                "name": "Pixel",
+                "kind": "browser",
+                "canNotify": false
+              }
+            ],
+            "preferences": {
+              "pc": {
+                "scope": "all",
+                "events": {
+                  "finished": true,
+                  "question": true,
+                  "approval": true,
+                  "error": false
+                },
+                "automaticRuns": true,
+                "quietHours": {
+                  "enabled": false,
+                  "start": "23:00",
+                  "end": "08:00",
+                  "days": "every",
+                  "allowWaiting": false
+                },
+                "holdWhileDesktopActive": true,
+                "taskbarFlash": true
+              },
+              "aaaaaaa1": {
+                "scope": "all",
+                "events": {
+                  "finished": true,
+                  "question": true,
+                  "approval": true,
+                  "error": false
+                },
+                "automaticRuns": true,
+                "quietHours": {
+                  "enabled": false,
+                  "start": "23:00",
+                  "end": "08:00",
+                  "days": "every",
+                  "allowWaiting": false
+                },
+                "holdWhileDesktopActive": true,
+                "taskbarFlash": true
+              }
+            },
+            "currentDeviceId": "aaaaaaa1"
+          }
+        },
+        "webPush": {
+          "id": 118,
+          "ok": true,
+          "value": "<webPushKey#1>"
+        },
+        "files": {
+          "range": {
+            "id": 119,
+            "ok": false,
+            "error": "This download is no longer available.",
+            "errorCode": "file-download:expired"
+          },
+          "begin": {
+            "id": 120,
+            "ok": false,
+            "error": "This download is no longer available.",
+            "errorCode": "file-download:expired"
+          }
+        },
+        "link": {
+          "read": {
+            "id": 121,
+            "ok": false,
+            "error": "The selected-file permission is unavailable.",
+            "errorCode": "SELECTED_FILE_GRANT_UNAVAILABLE"
+          }
+        },
+        "screen": {
+          "id": 122,
+          "unanswered": true
+        },
+        "secondConnection": {
+          "screen": {
+            "id": 124,
+            "unanswered": true
+          }
+        },
+        "notificationsAfterForget": {
+          "id": 126,
+          "ok": true,
+          "value": {
+            "devices": [
+              {
+                "id": "pc",
+                "name": "DESKTOP-IBLP835",
+                "kind": "pc",
+                "online": true,
+                "canNotify": false
+              },
+              {
+                "id": "aaaaaaa1",
+                "name": "Pixel",
+                "kind": "browser",
+                "canNotify": false
+              }
+            ],
+            "preferences": {
+              "pc": {
+                "scope": "all",
+                "events": {
+                  "finished": true,
+                  "question": true,
+                  "approval": true,
+                  "error": false
+                },
+                "automaticRuns": true,
+                "quietHours": {
+                  "enabled": false,
+                  "start": "23:00",
+                  "end": "08:00",
+                  "days": "every",
+                  "allowWaiting": false
+                },
+                "holdWhileDesktopActive": true,
+                "taskbarFlash": true
+              },
+              "aaaaaaa1": {
+                "scope": "all",
+                "events": {
+                  "finished": true,
+                  "question": true,
+                  "approval": true,
+                  "error": false
+                },
+                "automaticRuns": true,
+                "quietHours": {
+                  "enabled": false,
+                  "start": "23:00",
+                  "end": "08:00",
+                  "days": "every",
+                  "allowWaiting": false
+                },
+                "holdWhileDesktopActive": true,
+                "taskbarFlash": true
+              }
+            },
+            "currentDeviceId": "aaaaaaa1"
+          }
+        },
+        "removeNativePush": {
+          "id": 127,
+          "ok": true,
+          "value": false
+        },
+        "removePushSubscription": {
+          "id": 128,
+          "ok": true,
+          "value": false
+        }
+      },
+      "feedEvents": null
+    }
+  ]
+}

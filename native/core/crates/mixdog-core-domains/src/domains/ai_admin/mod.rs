@@ -5,6 +5,7 @@ pub mod account_actions;
 pub mod agent_route_service;
 pub mod chain;
 pub mod chat_routes;
+pub mod model_catalog_feed;
 pub mod model_list;
 pub mod model_warmup;
 pub mod statusline_warmup;
@@ -29,6 +30,8 @@ mod account_actions_tests;
 mod agent_route_tests;
 #[cfg(test)]
 mod chat_routes_tests;
+#[cfg(test)]
+mod model_catalog_feed_tests;
 #[cfg(test)]
 mod model_list_node_tests;
 #[cfg(test)]

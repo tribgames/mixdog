@@ -105,7 +105,6 @@ pub struct Lifecycle {
     effort: Option<String>,
     fast: bool,
     cwd: String,
-    tool_mode: &'static str,
     web_search: bool,
     started: bool,
     turn_started_at: i64,
@@ -178,10 +177,9 @@ fn object(fields: Vec<(&str, Value)>) -> Map<String, Value> {
 }
 
 impl Lifecycle {
-    pub fn new(out: Arc<dyn Sink>, now: Clock, thread_id: String, route: &Route, cwd: &str, tool_mode: &'static str, web_search: bool) -> Self {
+    pub fn new(out: Arc<dyn Sink>, now: Clock, thread_id: String, route: &Route, cwd: &str, web_search: bool) -> Self {
         let Route { provider, model, effort, fast } = route;
         Self {
-            tool_mode,
             out,
             now,
             thread_id,
@@ -261,7 +259,9 @@ impl Lifecycle {
                         "effort": self.effort,
                         "fast": self.fast,
                         "cwd": self.cwd,
-                        "tool_mode": self.tool_mode,
+                        // Node writes `'full'` here whatever mode the runtime was created with
+                        // (`headless-json-lifecycle.mjs:153`): a read-only run says `full` too.
+                        "tool_mode": "full",
                         "approval_mode": "implicit",
                         "delegation": false,
                         "web_search": self.web_search,

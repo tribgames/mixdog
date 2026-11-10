@@ -169,8 +169,10 @@ impl WorkflowHost for ConfigHosts {
         self.ready.ensure(providers).await
     }
 
+    /// `lookupModelMeta(provider, model, { allowFetch: true })` (`web-search-route.mjs:66`): never absent, the bare
+    /// `{id, provider}` placeholder at worst.
     async fn lookup_model_meta(&self, provider: &str, model: &str) -> Option<Value> {
-        catalog_row(&*self.facts, provider, model)
+        Some(self.facts.model_meta_fetching(provider, model).await)
     }
 
     fn web_search_capable(&self, provider: &str, meta: Option<&Value>) -> bool {

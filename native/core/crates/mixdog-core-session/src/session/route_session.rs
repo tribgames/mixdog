@@ -33,6 +33,10 @@ use mixdog_core_ports::ports::domain_sessions::Obj;
 use mixdog_core_run::run_host::route_chain::owner_route_fallbacks;
 use mixdog_core_run::run_host::route_chain::resolve_session_mode;
 
+/// What a route change reads from outside the header, collected by [`RouteChange::lookups`] and
+/// handed to [`RouteChange::route_change`]; each implementation downcasts its own.
+pub type RouteLookups = Box<dyn std::any::Any + Send + Sync>;
+
 /// WP-RUN-HOST's route-change computation (one function, shared with the run's fallback hop):
 /// what a route change does to the session besides its route fields. Node's
 /// `applyRouteContextWindow`, `resetSessionForRouteChange` (cache key, cache options, token
@@ -40,11 +44,18 @@ use mixdog_core_run::run_host::route_chain::resolve_session_mode;
 /// (`cross_provider`, applied only when the route changed), and the pending workspace re-root
 /// with the `# Session` block rebuild. `header` already carries the new route fields; `previous`
 /// is the route (`provider`, `model`) the session ran before.
-/// Async: a new route's tool surface is resolved from a skill list collected at the change, as
-/// Node's `_prepareResumeTools` collects inside the call.
+/// The change itself is synchronous and pure, like Node's `updateSessionRoute`: it runs on the
+/// session's actor, on the header as it stands there (`HeaderUpdates`). What it reads from outside
+/// the header (a new route's tool surface is resolved from a skill list, which Node's
+/// `_prepareResumeTools` collects inside the call) is looked up first, by `lookups`.
 #[async_trait::async_trait]
 pub trait RouteChange: Send + Sync {
-    async fn route_change(&self, header: &Header, route: &Route, previous: &Route, cross_provider: bool) -> HeaderChange;
+    /// The outside reads of the change, awaited on the session's actor over the header the change commits against.
+    async fn lookups(&self, _header: &Header, _route: &Route) -> RouteLookups {
+        Box::new(())
+    }
+
+    fn route_change(&self, header: &Header, route: &Route, previous: &Route, cross_provider: bool, lookups: &RouteLookups) -> HeaderChange;
 
     /// A cleared conversation's environment reset (Node's resetSessionBp3Environment), as the header
     /// change the clear writes in its own patch.
@@ -245,9 +256,7 @@ impl RouteSession for SessionRouteAdapter {
     /// change does to the session, as one durable header change. `false` when the session is
     /// closed or gone.
     async fn update_route(&self, thread: &ThreadId, route: Route, cross_provider: bool) -> Result<bool, PortError> {
-        let Some((_, change)) = self.route_patch(thread, &route, cross_provider).await? else { return Ok(false) };
-        self.threads.patch_header(thread, change.set, change.unset).await?;
-        Ok(true)
+        self.write_route(thread, &route, cross_provider, |_, _| {}).await
     }
 
     async fn record_boundary(&self, thread: &ThreadId, field: &str, boundary: Value) -> Result<bool, PortError> {
@@ -297,63 +306,104 @@ impl RouteSession for SessionRouteAdapter {
 }
 
 impl SessionRouteAdapter {
-    /// The one header change of `updateSessionRoute(id, route, { crossProvider })`: the route's
-    /// fields and what the route change does to the session. `None` when the session is closed
-    /// or gone. The header returned is the one the change was computed from.
-    pub(crate) async fn route_patch(&self, thread: &ThreadId, route: &Route, cross_provider: bool) -> Result<Option<(Header, HeaderChange)>, PortError> {
-        let header = match self.threads.header(thread).await {
-            Ok(header) => header,
-            Err(PortError::NotFound { .. }) => return Ok(None),
-            Err(error) => return Err(error),
-        };
-        if header.get("closed") == Some(&Value::Bool(true)) {
-            return Ok(None);
-        }
-        let mut previous = Route::new();
-        for key in ["provider", "model"] {
-            if let Some(value) = header.get(key) {
-                previous.insert(key.to_owned(), value.clone());
-            }
-        }
-        let mut change = route_fields(&header, &route);
-        let routed = applied(&header, &change);
-        let derived = self.change.route_change(&routed, &route, &previous, cross_provider).await;
-        // The prompt half: a staged workspace change applies on a new route, and the
-        // `# Session` block is rebuilt for the session's cwd.
-        let changed = route_changed(&route, &previous);
-        let prompt = super::worktree::route_prompt_refresh(&super::worktree::PromptView { header: &routed, tier3: None, env: None }, changed);
-        for part in [derived, prompt.change] {
-            for key in part.unset {
-                unset(&mut change, &key);
-            }
-            for (key, value) in part.set {
-                set(&mut change, &key, value);
-            }
-        }
-        set(&mut change, "updatedAt", json!(self.clock.now_ms()));
-        Ok(Some((header, change)))
-    }
 
     /// `advanceAgentRoute`'s one write: `updateSessionRoute(id, route, { crossProvider: true })`
     /// followed by the hop's fields, in the one header change. The route change leaves
     /// `wireRoute` null. The updated header; `None` when the session is closed or gone.
     pub(crate) async fn write_hop(&self, thread: &ThreadId, route: Route, hop: &mixdog_core_run::run_host::route_fallback::HopWrite) -> Result<Option<Header>, PortError> {
-        let Some((header, mut change)) = self.route_patch(thread, &route, true).await? else { return Ok(None) };
-        set(&mut change, "routeFallbacks", Value::Array(hop.chain.clone()));
-        if let Some(primary) = &hop.primary {
-            set(&mut change, "routeFallbackPrimary", primary.clone());
+        let hop = hop.clone();
+        let hop_fields = move |header: &Header, change: &mut HeaderChange| {
+            set(change, "routeFallbacks", Value::Array(hop.chain.clone()));
+            if let Some(primary) = hop.primary.clone() {
+                set(change, "routeFallbackPrimary", primary);
+            }
+            set(change, "routeFallbackIndex", json!(hop.index));
+            set(change, "routeFallbackFailures", Value::Array(hop.failures.clone()));
+            if hop.checkpoint_route_changed
+                && let Some(Value::Object(checkpoint)) = header.get("activeTurnCheckpoint")
+            {
+                let mut checkpoint = checkpoint.clone();
+                checkpoint.insert("routeChanged".into(), Value::Bool(true));
+                set(change, "activeTurnCheckpoint", Value::Object(checkpoint));
+            }
+        };
+        if !self.write_route(thread, &route, true, hop_fields).await? {
+            return Ok(None);
         }
-        set(&mut change, "routeFallbackIndex", json!(hop.index));
-        set(&mut change, "routeFallbackFailures", Value::Array(hop.failures.clone()));
-        if hop.checkpoint_route_changed
-            && let Some(Value::Object(checkpoint)) = header.get("activeTurnCheckpoint")
-        {
-            let mut checkpoint = checkpoint.clone();
-            checkpoint.insert("routeChanged".into(), Value::Bool(true));
-            set(&mut change, "activeTurnCheckpoint", Value::Object(checkpoint));
-        }
-        self.threads.patch_header(thread, change.set, change.unset).await?;
         self.threads.header(thread).await.map(Some)
+    }
+
+    /// `updateSessionRoute` as one read-modify-write on the session's actor, the header's only writer: Node reads
+    /// the live session, lists the skills of its `cwd` (`_prepareResumeTools` -> `collectPromptSkillsCached`),
+    /// computes and writes in one synchronous pass. Here the whole pass is one step of the actor that awaits its
+    /// lookup there, so every other header write (the installation's compaction sync, a folder change) queues
+    /// behind it and the lookup is always for the header it commits against: nothing is retried and nothing can
+    /// fail for a moved header. The lookup reads the skill catalog, never this session's actor. `extra` adds the
+    /// caller's own fields to the same change. `false` when the session is closed or gone.
+    async fn write_route(
+        &self,
+        thread: &ThreadId,
+        route: &Route,
+        cross_provider: bool,
+        extra: impl FnOnce(&Header, &mut HeaderChange) + Send + 'static,
+    ) -> Result<bool, PortError> {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let (change, clock, route) = (self.change.clone(), self.clock.clone(), route.clone());
+        let written = Arc::new(AtomicBool::new(false));
+        let seen = written.clone();
+        let update: super::actor::AwaitingHeaderUpdate = Box::new(move |header| {
+            Box::pin(async move {
+                if header.get("closed") == Some(&Value::Bool(true)) {
+                    return HeaderChange { set: Map::new(), unset: Vec::new() };
+                }
+                let lookups = change.lookups(&header, &route).await;
+                Self::route_write(&*change, &*clock, &header, &route, cross_provider, &lookups, extra, &seen)
+            })
+        });
+        match self.directory.update_header_awaiting(thread, update).await {
+            Ok(()) => Ok(written.load(Ordering::SeqCst)),
+            Err(mixdog_core_api::CoreError::ThreadNotFound { .. }) => Ok(false),
+            Err(error) => Err(mixdog_core_ports::ports::threads::port_error(error)),
+        }
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn route_write(
+        change: &dyn RouteChange,
+        clock: &dyn Clock,
+        header: &Header,
+        route: &Route,
+        cross_provider: bool,
+        lookups: &RouteLookups,
+        extra: impl FnOnce(&Header, &mut HeaderChange),
+        seen: &std::sync::atomic::AtomicBool,
+    ) -> HeaderChange {
+        {
+            let mut previous = Route::new();
+            for key in ["provider", "model"] {
+                if let Some(value) = header.get(key) {
+                    previous.insert(key.to_owned(), value.clone());
+                }
+            }
+            let mut next = route_fields(header, route);
+            let routed = applied(header, &next);
+            let derived = change.route_change(&routed, route, &previous, cross_provider, lookups);
+            // The prompt half: a staged workspace change applies on a new route, and the
+            // `# Session` block is rebuilt for the session's cwd.
+            let changed = route_changed(route, &previous);
+            let prompt = super::worktree::route_prompt_refresh(&super::worktree::PromptView { header: &routed, tier3: None, env: None }, changed);
+            for part in [derived, prompt.change] {
+                for key in part.unset {
+                    unset(&mut next, &key);
+                }
+                for (key, value) in part.set {
+                    set(&mut next, &key, value);
+                }
+            }
+            set(&mut next, "updatedAt", json!(clock.now_ms()));
+            extra(header, &mut next);
+            seen.store(true, std::sync::atomic::Ordering::SeqCst);
+            next
+        }
     }
 }
 
@@ -453,7 +503,7 @@ mod tests {
     struct Change(Mutex<Vec<(Value, Value, bool)>>);
     #[async_trait::async_trait]
     impl RouteChange for Change {
-        async fn route_change(&self, header: &Header, _route: &Route, previous: &Route, cross: bool) -> HeaderChange {
+        fn route_change(&self, header: &Header, _route: &Route, previous: &Route, cross: bool, _: &RouteLookups) -> HeaderChange {
             self.0.lock().unwrap().push((Value::Object(header.clone()), Value::Object(previous.clone()), cross));
             HeaderChange { set: obj(json!({ "contextWindow": 200_000 })), unset: vec!["contextUsageSnapshot".into()] }
         }
@@ -522,7 +572,7 @@ mod tests {
     struct NullWire;
     #[async_trait::async_trait]
     impl RouteChange for NullWire {
-        async fn route_change(&self, _: &Header, _: &Route, _: &Route, _: bool) -> HeaderChange {
+        fn route_change(&self, _: &Header, _: &Route, _: &Route, _: bool, _: &RouteLookups) -> HeaderChange {
             HeaderChange { set: obj(json!({ "wireRoute": null })), unset: Vec::new() }
         }
         fn environment_reset(&self, _: &Header) -> HeaderChange {
@@ -619,7 +669,7 @@ mod tests {
     async fn switch_now_switches_the_conversation_in_place() {
         use mixdog_core_ports::ports::route::SessionRoutes;
         use crate::session::thread_state::SessionThreads;
-        use crate::session::tests::eventually;
+        use crate::eventually_on;
         use crate::session::tests::idle;
         use crate::session::tests::start_thread;
         use crate::session::tests::turn;
@@ -643,7 +693,7 @@ mod tests {
         let directory = Arc::new(SessionDirectory::new(rig.deps()));
         let handle = start_thread(&directory).await;
         turn(&handle, "hello", "op-1").await;
-        eventually(|| (idle(&handle) && handle.cell.view.load_full().items.len() == 2).then_some(())).await;
+        eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && handle.cell.view.load_full().items.len() == 2).then_some(())).await;
         let threads = Arc::new(SessionThreads::new(directory.clone()));
         threads.patch_header(&handle.id, obj(json!({ "provider": "openai", "model": "gpt-a" })), Vec::new()).await.expect("route");
         let change = Arc::new(Change(Mutex::default()));
@@ -674,7 +724,6 @@ mod tests {
     /// the Node real-turn harness run): the header names the route, Auto effort stays unrecorded.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_seated_thread_carries_the_route_fields_node_recorded() {
-        use mixdog_core_ports::ports::route::FollowOptions;
         use mixdog_core_ports::ports::route::SessionRoutes;
         use crate::session::thread_state::SessionThreads;
         let golden: Value = serde_json::from_str(include_str!("route_goldens/node_create_route.json")).expect("golden");
@@ -696,8 +745,7 @@ mod tests {
         );
         let live = Live(obj(golden["route"].clone()));
         let routes = SessionRoutes::new(threads.clone(), threads.clone(), Arc::new(adapter), Arc::new(live));
-        let seat = FollowOptions { apply_to_current_session: true, lease: Some(0), ..FollowOptions::default() };
-        routes.follow(&thread, &seat).await.expect("seat");
+        routes.seat(&thread).await.expect("seat");
         let header = threads.header(&thread).await.expect("header");
         for (key, want) in golden["header"].as_object().expect("recorded header fields") {
             assert_eq!(header.get(key), Some(want), "{key}");

@@ -29,6 +29,7 @@ mod cards;
 pub mod close;
 mod completions;
 mod control;
+mod stop;
 #[cfg(test)]
 mod resumed_tools_tests;
 #[cfg(test)]
@@ -45,6 +46,9 @@ mod thread_list_overlay_tests;
 pub mod heartbeat_catalog;
 pub mod shell_jobs;
 pub mod thread_list;
+pub mod thread_edges;
+#[cfg(test)]
+mod thread_edges_tests;
 pub mod thread_context;
 pub mod tool_events;
 pub mod workspace_sight;
@@ -78,6 +82,8 @@ mod prewarm_signals_tests;
 mod agent_activity_tests;
 #[cfg(test)]
 mod toast_tests;
+#[cfg(test)]
+mod mcp_failure_tests;
 #[cfg(test)]
 mod route_config_tests;
 pub mod dispatch_sessions;
@@ -127,6 +133,7 @@ pub mod run;
 pub mod delegated_host;
 pub mod handoff_questions;
 pub mod runtime_hooks;
+pub mod gateway_usage;
 pub mod notices;
 mod seams;
 mod state;
@@ -172,9 +179,13 @@ mod turn_admission_tests;
 #[cfg(test)]
 mod delete_idle_tests;
 #[cfg(test)]
+mod steer_tests;
+#[cfg(test)]
 mod assembly_tests;
 #[cfg(test)]
 mod recorded_145_tests;
+#[cfg(test)]
+mod phone_chat_tests;
 
 use std::sync::Arc;
 
@@ -335,6 +346,8 @@ pub struct SessionDeps {
     pub quota: quota_lane::SessionQuota,
     pub lanes: SessionLanes,
     pub limits: SessionLimits,
+    /// The writer of `<data>/gateway-usage.local.jsonl`: one event per completed ask.
+    pub gateway_usage: gateway_usage::GatewayUsage,
     /// The prompt-cache warmer told of each turn's start (`noteTurnForCacheWarm`).
     pub warm: Arc<dyn turn_warm::TurnWarmth>,
     /// The built-in skills a live turn hides the loads of (`builtinSkillNamesFor`).
@@ -450,6 +463,17 @@ impl Default for SessionLimits {
 /// A fresh 128-bit feed epoch (P §6.1), lowercase hex.
 fn new_epoch() -> mixdog_core_api::ids::FeedEpoch {
     mixdog_core_api::ids::FeedEpoch::from(uuid::Uuid::new_v4().simple().to_string())
+}
+
+/// A new session id as Node mints it (`mintSessionId`, `session-id.mjs`): `sess_<pid>_<counter>_<ms>_<32 hex>`, the counter a
+/// process-wide sequence that starts at the time of the first mint.
+fn new_session_id(now_ms: i64) -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: std::sync::OnceLock<AtomicU64> = std::sync::OnceLock::new();
+    let counter = NEXT
+        .get_or_init(|| AtomicU64::new(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_millis() as u64)))
+        .fetch_add(1, Ordering::Relaxed);
+    format!("sess_{}_{counter}_{now_ms}_{}", std::process::id(), uuid::Uuid::new_v4().simple())
 }
 
 /// A fresh time-ordered id (turns, queue entries, items created by the core).

@@ -41,6 +41,7 @@ use crate::rpc::RpcError;
 use crate::sse::SseTransport;
 use crate::stdio::StdioSpec;
 use crate::transport::Authorizer;
+use crate::transport::append_stderr_tail;
 use crate::ws::WebSocketTransport;
 use crate::stdio::StdioTransport;
 use crate::transport::IncomingRx;
@@ -108,8 +109,13 @@ pub enum ConnectError {
     Transport(#[from] TransportError),
     #[error(transparent)]
     Rpc(#[from] RpcError),
-    #[error("startup timed out after {0:?}")]
-    StartupTimeout(std::time::Duration),
+    /// The attempt failed; the text is the one the server row shows (scrubbed, with the stderr tail).
+    #[error("{0}")]
+    Failed(String),
+    #[error(
+        "MCP server \"{name}\" startup exceeded {ms}ms budget — raise per-server \"startupTimeoutSec\"/\"startupTimeoutMs\" or env MIXDOG_MCP_STARTUP_TIMEOUT_MS"
+    )]
+    StartupTimeout { name: String, ms: u128 },
     #[error("server was closed")]
     Closed,
 }
@@ -287,7 +293,7 @@ impl McpServer {
             };
             return match &*settled {
                 ServerState::Ready(_) => Ok(()),
-                ServerState::Failed { cause } => Err(ConnectError::Transport(TransportError::Request(cause.clone()))),
+                ServerState::Failed { cause } => Err(ConnectError::Failed(cause.clone())),
                 _ => Err(ConnectError::Closed),
             };
         }
@@ -298,7 +304,10 @@ impl McpServer {
         let opened: Mutex<Option<Arc<RpcClient>>> = Mutex::new(None);
         let outcome = match tokio::time::timeout(self.config.startup_timeout, self.handshake(&opened)).await {
             Ok(result) => result,
-            Err(_) => Err(ConnectError::StartupTimeout(self.config.startup_timeout)),
+            Err(_) => Err(ConnectError::StartupTimeout {
+                name: self.config.name.clone(),
+                ms: self.config.startup_timeout.as_millis(),
+            }),
         };
         match outcome {
             Ok(ready) => {
@@ -309,12 +318,15 @@ impl McpServer {
             }
             Err(error) => {
                 let client = opened.lock().unwrap_or_else(|e| e.into_inner()).take();
+                // A failed handshake carries what the server wrote to stderr (`runBoundedHandshake`).
+                let mut message = error.to_string();
                 if let Some(client) = client {
+                    message = append_stderr_tail(&message, &client.transport().stderr_tail());
                     client.close().await;
                 }
-                let cause = scrub(&error.to_string(), &self.secrets);
-                self.publish(generation, ServerState::Failed { cause });
-                Err(error)
+                let cause = scrub(&message, &self.secrets);
+                self.publish(generation, ServerState::Failed { cause: cause.clone() });
+                Err(ConnectError::Failed(cause))
             }
         }
     }
@@ -410,13 +422,9 @@ impl McpServer {
                     () = client.tools_changed() => server.relist(generation, &client).await,
                 }
             }
-            let cause = closed
-                .borrow()
-                .as_ref()
-                .map(|c| {
-                    if c.stderr_tail.is_empty() { c.reason.clone() } else { format!("{}\n{}", c.reason, c.stderr_tail) }
-                })
-                .unwrap_or_default();
+            // `getMcpServerStatus`: a dead connection reads `MCP server "<name>" closed` and the stderr tail.
+            let tail = closed.borrow().as_ref().map(|c| c.stderr_tail.clone()).unwrap_or_default();
+            let cause = append_stderr_tail(&format!("MCP server \"{}\" closed", server.name()), &tail);
             let cause = scrub(&cause, &server.secrets);
             server.publish(generation, ServerState::Failed { cause });
         });

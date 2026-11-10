@@ -1,0 +1,30 @@
+{
+  "command": "node --experimental-transform-types benchmarks/rust-core/recorders/record-fallback-title.mjs --tree <tree> --ref <commit>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 7154,
+      "path": "golden.json",
+      "sha256": "91d9c0cf7bf21e5f27edc126060f0d0a54fad47e58e894a5fbb6b00990d7bf8e"
+    }
+  ],
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a",
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-fallback-title.mjs",
+  "set": "fallback-title",
+  "totalBytes": 7154
+}

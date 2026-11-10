@@ -56,7 +56,6 @@ use super::durability::DurabilityTask;
 use super::durability::LogInit;
 use super::handle::SessionHandle;
 use super::new_epoch;
-use super::new_id;
 use super::seams::OpenedLog;
 use super::state::Change;
 use super::state::Display;
@@ -183,6 +182,10 @@ pub(crate) struct DirInner {
     owner_teardown: std::sync::OnceLock<Arc<dyn OwnerTeardown>>,
     /// What each runtime's teardown does to its own session (`ExitClose`).
     exit_close: std::sync::OnceLock<Arc<dyn ExitClose>>,
+    /// The shutdown began: the session service is closed.
+    closed: std::sync::atomic::AtomicBool,
+    /// The close work of each unloaded runtime still running, by thread: the next open of the thread waits for it.
+    teardowns: Mutex<HashMap<ThreadId, Vec<oneshot::Receiver<()>>>>,
     /// Cancels the staged-originals deadline timer when the directory goes.
     _prune: tokio_util::sync::DropGuard,
     /// Woken whenever a thread leaves the directory (a test waits on `handle(..)` turning `None`).
@@ -214,6 +217,13 @@ pub(crate) struct CreateSpec {
 
 pub struct SessionDirectory {
     inner: Arc<DirInner>,
+}
+
+impl SessionDirectory {
+    /// The directory a thread's handle reaches back to (it holds the shared state, [`SessionHandle::directory`]).
+    pub(super) fn over(inner: Arc<DirInner>) -> Self {
+        Self { inner }
+    }
 }
 
 /// Counts a create while it runs.
@@ -284,6 +294,8 @@ impl SessionDirectory {
             goal_events: Mutex::new(None),
             owner_teardown: std::sync::OnceLock::new(),
             exit_close: std::sync::OnceLock::new(),
+            closed: Default::default(),
+            teardowns: Default::default(),
             _prune: prune.drop_guard(),
             #[cfg(any(test, feature = "test-support"))]
             left: Default::default(),
@@ -324,6 +336,17 @@ impl SessionDirectory {
         self.inner.loaded(id)
     }
 
+    /// Node's `stop()` sets `closed` first (`session-service.mjs:257`), before it tears the entries down: every session call
+    /// then answers `session service is closed`. [`Self::shutdown_for`] does it as its first step.
+    pub(super) fn begin_close(&self) {
+        self.inner.closed.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Whether the shutdown began (Node's session service `isClosed()`).
+    pub fn is_closed(&self) -> bool {
+        self.inner.closed.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
     /// The turn gate, for the tests that hold a start's admission or a delete's fence.
     #[cfg(test)]
     pub(crate) fn turn_gate(&self) -> &Arc<super::turn_gate::TurnGate> {
@@ -343,11 +366,6 @@ impl SessionDirectory {
     /// `SessionSeams::grants`: the thread's "Allow for this session" grants.
     pub fn grants(&self, id: &ThreadId) -> Arc<mixdog_tools::policy::SessionGrants> {
         self.running(id).grants()
-    }
-
-    /// `RunSettings.thread_window`: the thread's compaction count.
-    pub fn thread_window(&self, id: &ThreadId) -> u64 {
-        self.running(id).thread_window()
     }
 
     pub fn deps(&self) -> &Arc<SessionDeps> {
@@ -595,17 +613,45 @@ impl SessionDirectory {
     }
 
     /// `createCurrentSession` for a thread that has none yet (a control session started before any model was chosen): the
-    /// route the config now resolves to is readied and seated on its record, as a started task's is. A thread that has its
-    /// session, or is not there, is left alone; a config that still names no model leaves it without one.
-    async fn seat_session(&self, id: &ThreadId) -> Result<(), CoreError> {
-        let Some(header) = self.try_stored_header(id).await? else { return Ok(()) };
-        if mixdog_core_ports::ports::route::has_session(&header, &self.rows_of(id.as_str()).await?) {
+    /// route it holds is readied and seated on its record, as a started task's is. This is what every Node trigger of a
+    /// session does - a turn, a goal, `selectBranch` and a provisioning `requestWorktree`, an inherit into the thread - and
+    /// the route change that only moves the route is none. A thread that has its session, or is not there, is left alone;
+    /// a route that names no model is refused as `prepareRoute` refuses it (the start, which Node's reservation catches,
+    /// is the one place that takes it as it is).
+    pub(super) async fn seat_session(&self, id: &ThreadId) -> Result<(), CoreError> {
+        if self.try_stored_header(id).await?.is_none() || self.holds_session(id).await? {
             return Ok(());
         }
         let refused = |message: String| mixdog_core_base::support::failed("route", message);
         let routes = &self.inner.deps.new_route;
-        routes.adopt_control(id).await.map_err(&refused)?;
+        routes.adopt(id, None).await.map_err(&refused)?;
         routes.seat(id).await.map_err(&refused)
+    }
+
+    /// The thread's committed messages hold a user conversation message (`hasUserConversationMessage(session.messages)`): a
+    /// turn that has settled leaves nothing in the live turn, so only the stored rows tell an idle session's conversation.
+    pub async fn holds_user_conversation(&self, id: &ThreadId) -> Result<bool, CoreError> {
+        Ok(super::route_session::has_user_conversation(&self.committed_rows(id).await?))
+    }
+
+    /// The thread holds conversation messages, committed or in the running turn (`session-view.mjs`).
+    pub async fn holds_conversation(&self, id: &ThreadId) -> Result<bool, CoreError> {
+        let mut rows = self.committed_rows(id).await?;
+        if let Some(handle) = self.handle(id) {
+            rows.extend(handle.turn_messages_snapshot().iter().cloned());
+        }
+        Ok(super::thread_settings::has_conversation_messages(&rows))
+    }
+
+    async fn committed_rows(&self, id: &ThreadId) -> Result<Vec<Value>, CoreError> {
+        Ok(self.model_context(id).read().await?.into_iter().map(|(_, body)| body).collect())
+    }
+
+    /// Whether the stored thread has its session (`getSession()?.id`).
+    pub(super) async fn holds_session(&self, id: &ThreadId) -> Result<bool, CoreError> {
+        let Some(header) = self.try_stored_header(id).await? else { return Ok(false) };
+        let rows = if mixdog_core_ports::ports::route::header_names_session(&header) { Vec::new() } else { self.rows_of(id.as_str()).await? };
+        Ok(mixdog_core_ports::ports::route::has_session(&header, &rows))
     }
 
     /// Creates the thread under a fixed `id` (agent homes and room sessions are derived keys, not
@@ -661,6 +707,7 @@ impl SessionDirectory {
     /// then every loaded thread is closed as its runtime's own session ([`ExitClose`]); then every loaded thread stops (a live run is cancelled) and its memory ingest is awaited,
     /// all of them together bounded at 2500 ms.
     pub async fn shutdown_for(&self, reason: &str) {
+        self.begin_close();
         if is_process_exit_reason(reason)
             && let Some(hook) = self.inner.owner_teardown.get()
         {
@@ -850,8 +897,9 @@ impl DirInner {
     }
 
     /// Drops the loaded thread whose cell is `cell` when it still has no subscriber, and
-    /// closes the cell under the shard lock. False when a subscriber came back meanwhile.
-    pub(crate) fn unload(&self, id: &ThreadId, cell: &Arc<ControlCell>) -> bool {
+    /// closes the cell under the shard lock. False when a subscriber came back meanwhile. `teardown` is the unloaded runtime's
+    /// own close work (its memory ingest): it runs from here, and the next open of the thread waits for it ([`Self::settle_teardowns`]).
+    pub(crate) fn unload(&self, id: &ThreadId, cell: &Arc<ControlCell>, teardown: futures::future::BoxFuture<'static, ()>) -> bool {
         let mut shard = lock(self.shard(id));
         let ours = matches!(shard.get(id), Some(Slot_::Loaded(h)) if Arc::ptr_eq(&h.cell, cell));
         // The check and the close are one transition of the admission word: an attach that
@@ -860,9 +908,25 @@ impl DirInner {
             return false;
         }
         shard.remove(id);
+        let (done, finished) = oneshot::channel::<()>();
+        lock(&self.teardowns).entry(id.clone()).or_default().push(finished);
+        tokio::spawn(async move {
+            teardown.await;
+            let _ = done.send(());
+        });
         #[cfg(any(test, feature = "test-support"))]
         self.left.notify_waiters();
         true
+    }
+
+    /// Waits for the teardowns of the runtimes of `id` that unloaded before now (`settleTeardown`, `entries/disposal.mjs:22`):
+    /// a runtime for the same thread must never open while the previous one still closes, as two must never write one session.
+    /// A teardown that ends without finishing (its task dropped) ends the wait too.
+    async fn settle_teardowns(&self, id: &ThreadId) {
+        let pending = lock(&self.teardowns).remove(id).unwrap_or_default();
+        for finished in pending {
+            let _ = finished.await;
+        }
     }
 
     pub(crate) fn deps(&self) -> &Arc<SessionDeps> {
@@ -1003,6 +1067,7 @@ impl DirInner {
                     let me = self.me.upgrade().expect("the directory is alive while used");
                     let thread = id.clone();
                     mixdog_rt::spawn("session-open", TaskClass::Work, async move {
+                        me.settle_teardowns(&thread).await;
                         let result = me.load(&thread, prewarm).await;
                         // `resumeSession`'s `_refreshResumedTools`: a thread opened for use (not
                         // for a delete or an op record) takes its tool surface as it resolves now,
@@ -1208,6 +1273,8 @@ impl DirInner {
             stepped: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             busy: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            prompt_timers: Default::default(),
         });
         let handle = Arc::new(SessionHandle {
             id: id.clone(),
@@ -1269,7 +1336,7 @@ impl DirInner {
         // a warm parked on it re-checks.
         let _settled = super::prewarm_signals::WakeOnDrop(self.deps.code_graph_prewarm.clone());
         let _creating = CreateInFlight::enter(&self.creating);
-        let id = spec.id.unwrap_or_else(|| ThreadId::from(new_id()));
+        let id = spec.id.unwrap_or_else(|| ThreadId::from(super::new_session_id(self.deps.clock.now_ms())));
         let invalid = |path: &str| CoreError::InvalidParams {
             path: path.into(),
             expected: "a shorter value".into(),
@@ -1451,6 +1518,7 @@ impl ThreadDirectory for SessionDirectory {
                 let mut header = Header::new();
                 header.insert("createdAt".into(), json!(now));
                 header.insert("updatedAt".into(), json!(now));
+                header.insert("lastUsedAt".into(), json!(now));
                 // The project the request names: its own path, else the new task's draft (`submitNewTask(prompt, options, draft)`).
                 // The desktop's control session is its own kind, not inferred (Node: `ensureControlSession`): the task
                 // workspace, no project, no classification.
@@ -1486,7 +1554,7 @@ impl ThreadDirectory for SessionDirectory {
                 // Node's `sessionOptions` always applies: with no options a Lead is `full`, denied the goal tools.
                 super::session_options::write_header(&params.session.clone().unwrap_or_default(), &mut header);
                 // `createSession`'s tool surface and `seedToolSurface`, for the id it will have.
-                let id = ThreadId::from(new_id());
+                let id = ThreadId::from(super::new_session_id(self.inner.deps.clock.now_ms()));
                 // The control session is followed by the config's adoption from before its route is first resolved.
                 let starting = if control { Some(self.inner.start(&id)?) } else { None };
                 // The route the thread begins on is settled first: the tools and the prompt below are
@@ -1552,7 +1620,7 @@ impl ThreadDirectory for SessionDirectory {
                 }
                 let mut result = json!({ "thread": handle.cell.view.load_full().summary });
                 if let Some(input) = params.initial_input {
-                    let turn = handle
+                    let started = handle
                         .request(CoreRequest {
                             method: Method("turn/start"),
                             params: json!({
@@ -1563,7 +1631,12 @@ impl ThreadDirectory for SessionDirectory {
                             op: req.op.as_ref().map(|op| OpId::from(format!("{op}:turn"))),
                             ctx: req.ctx.clone(),
                         })
-                        .await?;
+                        .await;
+                    // A first prompt the session refuses leaves no thread behind.
+                    if matches!(&started, Err(CoreError::DomainError { code: Some(code), .. }) if code.as_ref() == super::actor::SUBMIT_REFUSED) {
+                        let _ = super::delete::delete_session(&self.inner, handle.id.as_str(), None).await;
+                    }
+                    let turn = started?;
                     if let Reply::Value(turn) = turn {
                         result["turn"] = turn;
                     }

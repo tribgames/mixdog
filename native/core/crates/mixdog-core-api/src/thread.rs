@@ -42,10 +42,55 @@ pub trait ThreadDirectory: Send + Sync {
     async fn request(&self, req: CoreRequest) -> Result<Reply, CoreError>;
 }
 
+/// A `turn/interrupt` as the control plane receives it.
+#[derive(Clone, Debug)]
+pub struct Stop {
+    /// The turn the client named; none: the thread's active one.
+    pub turn: Option<TurnId>,
+    /// The client's `restorePrompt`.
+    pub restore_prompt: Option<bool>,
+    /// The queued submission an idle stop hands back (`clientSubmissionId`).
+    pub submission_id: Option<String>,
+    /// The caller: its connection's device is the canceller (`abortSession`'s `device`).
+    pub ctx: CallContext,
+}
+
+/// The reply of a stop that handed nothing back: Node's `abortSession` of a prompt that stays where it is.
+pub fn stop_reply(turn: Option<&TurnId>, cancelled: bool) -> Value {
+    let mut reply = serde_json::json!({
+        "cancelRequested": cancelled,
+        "aborted": cancelled,
+        "restoreText": "",
+        "pastedImages": null,
+        "pastedTexts": null,
+        "discardPastedImages": null,
+        "discardPastedTexts": null,
+        "restoredSubmissionIds": [],
+    });
+    if let Some(turn) = turn {
+        reply["turnId"] = serde_json::json!(turn);
+    }
+    reply
+}
+
 /// A loaded thread. Its feed is the thread feed (`feed.id = threadId`).
 #[async_trait]
 pub trait ThreadHandle: FeedSource + RunControl {
     fn id(&self) -> &ThreadId;
+
+    /// `turn/interrupt` in full (Node's `abortSession`): the stop of the active turn, with the prompt it hands back,
+    /// or the idle stop. It waits only to read a handed-back prompt's attachments, and does so before the turn is
+    /// cancelled, as Node does; a prompt with none is stopped at once. Errors: `turnNotActive` when a turn is named
+    /// and is not the running one.
+    async fn stop(&self, stop: Stop) -> Result<Value, CoreError> {
+        let turn = match (&stop.turn, self.active_turn()) {
+            (Some(named), _) => named.clone(),
+            (None, Some(active)) => active,
+            (None, None) => return Ok(stop_reply(None, false)),
+        };
+        self.interrupt(&turn, stop.restore_prompt)?;
+        Ok(stop_reply(Some(&turn), true))
+    }
 
     /// C1 reads and C2 mutations of this thread. A mutation resolves once its command is
     /// durable in the actor (P §7.2), never after model or tool work. A full actor inbox
@@ -62,13 +107,14 @@ pub trait RunControl: Send + Sync {
     /// Errors: `turnNotActive` (no or another active turn), `queueFull` (control lane full).
     fn interrupt(&self, turn: &TurnId, restore_prompt: Option<bool>) -> Result<Value, CoreError>;
 
-    /// `turn/steer`: validates against the run's control cell (active regular run, matching
-    /// turn, non-empty input) and queues the input; the run injects it at its next model-call
-    /// boundary after the entry is durable. Errors: `turnNotActive`, `queueFull`.
-    fn steer(&self, expected_turn: &TurnId, input: Value, op: OpId) -> Result<Value, CoreError>;
+    /// `turn/steer`: validates against the run's control cell (the named queued entry, then an
+    /// active regular run, matching `expected_turn` when one is named) and queues the input; the
+    /// run injects it at its next model-call boundary after the entry is durable. An entry that is
+    /// queued while no matching run exists is accepted as it stands: Node's `prioritizeQueued`
+    /// has no turn precondition. Errors: `queuedEntryNotFound`, `queueFull`.
+    fn steer(&self, expected_turn: Option<&TurnId>, input: Value, op: OpId) -> Result<Value, CoreError>;
 
-    /// The turn the thread's run is in, `None` between runs: what a `turn/steer` that names no
-    /// turn steers.
+    /// The turn the thread's run is in, `None` between runs.
     fn active_turn(&self) -> Option<TurnId>;
 
     /// A client's response to a server request owned by this thread (P §8.4 step 1). Routed to

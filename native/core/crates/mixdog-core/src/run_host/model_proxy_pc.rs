@@ -198,7 +198,7 @@ impl CredentialProbe for RegistryCredentials {
     async fn auth_state(&self, name: &str, entry: &Map<String, Value>) -> Result<&'static str, String> {
         let present = |yes: bool| if yes { "present" } else { "absent" };
         if let Some(variable) = key_environment(entry) {
-            return Ok(present(self.env.var(variable).is_some_and(|value| !value.is_empty())));
+            return Ok(present(self.env.key_var(variable).is_some_and(|value| !value.is_empty())));
         }
         // `modelProxyCredentialProbe`.
         if name == "mixdog-local" || (is_custom(entry) && entry.get("auth").and_then(Value::as_str) == Some("none")) {
@@ -529,12 +529,15 @@ mod tests {
         fail: AtomicBool,
         gated: AtomicBool,
         release: Notify,
+        /// Holds a permit once a measurement has begun.
+        began: Notify,
     }
 
     #[async_trait]
     impl QuotaMeasure for Counting {
         async fn measure(&self, _: &str) -> Result<Measured, String> {
             self.measurements.fetch_add(1, Ordering::SeqCst);
+            self.began.notify_one();
             if self.gated.load(Ordering::SeqCst) {
                 self.release.notified().await;
             }
@@ -565,7 +568,7 @@ mod tests {
     async fn one_measurement_serves_a_window_as_nodes_pc_runtime_shares_it() {
         let twin = twin();
         for scenario in twin["quotaScenarios"].as_array().unwrap() {
-            let counting = Arc::new(Counting { measurements: AtomicUsize::new(0), fail: AtomicBool::new(false), gated: AtomicBool::new(false), release: Notify::new() });
+            let counting = Arc::new(Counting { measurements: AtomicUsize::new(0), fail: AtomicBool::new(false), gated: AtomicBool::new(false), release: Notify::new(), began: Notify::new() });
             let clock = Arc::new(AtomicI64::new(1_000));
             let probe = PcQuotaProbe::new(counting.clone(), Arc::new({
                 let clock = clock.clone();
@@ -584,18 +587,19 @@ mod tests {
                     }
                     "ask" => vec![outcome(&probe.usable(&at("provider"), step["model"].as_str().unwrap()).await)],
                     "burst" => {
-                        let before = counting.measurements.load(Ordering::SeqCst);
                         counting.gated.store(true, Ordering::SeqCst);
                         let provider = at("provider");
                         let asks = futures::future::join_all(step["models"].as_array().unwrap().iter().map(|model| probe.usable(&provider, model.as_str().unwrap())));
-                        let release = async {
-                            while counting.measurements.load(Ordering::SeqCst) == before {
-                                tokio::task::yield_now().await;
+                        tokio::pin!(asks);
+                        mixdog_core_session::session::testing::awaiting(|| "the burst to begin a measurement".to_owned(), async {
+                            tokio::select! {
+                                biased;
+                                () = counting.began.notified() => counting.release.notify_one(),
+                                _ = &mut asks => panic!("the burst ended before a measurement began"),
                             }
-                            tokio::task::yield_now().await;
-                            counting.release.notify_one();
-                        };
-                        let (results, ()) = futures::future::join(asks, release).await;
+                        })
+                        .await;
+                        let results = mixdog_core_session::session::testing::awaiting(|| "the burst's asks to end once the measurement is released".to_owned(), asks).await;
                         counting.gated.store(false, Ordering::SeqCst);
                         results.iter().map(outcome).collect()
                     }

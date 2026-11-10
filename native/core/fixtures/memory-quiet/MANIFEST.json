@@ -1,0 +1,28 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-memory-quiet.mjs --tree <git checkout of b6f10295a2f698afc85332467192de28500bd146> --commit b6f10295a2f698afc85332467192de28500bd146",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 2664,
+      "path": "twin.json",
+      "sha256": "87dbf5f2e069f2db79541df1710a5c95052fb39445d77987eed16f72f883291d"
+    }
+  ],
+  "product": {
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-memory-quiet.mjs",
+  "set": "memory-quiet",
+  "totalBytes": 2664
+}

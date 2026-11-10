@@ -132,7 +132,7 @@ impl Follow {
             return true;
         }
         if let Err(error) = interim(answer.clone()).await {
-            tracing::info!("progress update of {} failed, retried at the next check: {error}", self.args.session_id);
+            mixdog_rt::node_stderr!("mixdog task sessions: progress update of {} failed, retried at the next check: {error}", self.args.session_id);
             return false;
         }
         self.lock().interim_ids.insert(answer.id.clone());
@@ -157,7 +157,7 @@ impl Follow {
     }
 
     fn unwoken(&self, why: &str) -> Woke {
-        tracing::info!("{} could not take its agents' results after the restart: {why}", self.args.session_id);
+        mixdog_rt::node_stderr!("mixdog task sessions: {} could not take its agents' results after the restart: {why}", self.args.session_id);
         Woke::End(End { key: "unwoken".into(), status: "failed".into(), text: RESUME_FAILED_TEXT.into(), now: true, id: String::new() })
     }
 
@@ -325,7 +325,7 @@ impl Follow {
                             None => {
                                 this.stop();
                                 if let Err(error) = (this.args.finish)(end.status, end.text, end.id).await {
-                                    tracing::info!("following {} to its final answer failed: {error}", this.args.session_id);
+                                    mixdog_rt::node_stderr!("mixdog task sessions: following {} to its final answer failed: {error}", this.args.session_id);
                                 }
                             }
                         }

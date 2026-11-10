@@ -88,15 +88,37 @@ try {
   await call('control', 'session.configure', 'setRoute', [route], controlOpen);
   await call('control', 'session.read', 'contextStatus', [{}], controlOpen);
 
+  // What the seed turn left in the second session (its system prompt, tool surface and pre-send check record): the part of
+  // the answer below that the turn machinery wrote, kept raw (the token counts price the real folder paths).
+  const { readSessionLogSync, sessionFromLog } = await import(pathToFileURL(join(nodeTree, 'src', 'runtime', 'agent', 'orchestrator', 'session', 'store', 'session-log-reader.mjs')).href);
+  const log = readSessionLogSync(join(process.env.MIXDOG_DATA_DIR, 'sessions', `${out.ids.second}.log.jsonl`));
+  if (!log?.valid) throw new Error('the second session has no readable log');
+  out.stored = sessionFromLog(log);
+
   // The harness sends the control session's `open` hints with every call, the second session's included.
   await call('second', 'session.read', 'contextStatus', [{}], controlOpen);
   await call('second', 'session.configure', 'setRoute', [route], controlOpen);
-  await call('second', 'session.read', 'contextStatus', [{}], controlOpen);} catch (error) {
+  await call('second', 'session.read', 'contextStatus', [{}], controlOpen);
+
+} catch (error) {
   failure = error;
 }
 try {
   await attached?.close();
 } catch {}
 if (discovery) await client.shutdownDaemon(discovery, { waitForExit: true, timeoutMs: 30_000 }).catch(() => {});
+// The second session's `compaction` after the sequence: the installation's sync came first (at `session.create`), then the seed
+// turn, then the route change above. The route change saves through the store's debounced slot, which the daemon's exit drain
+// records before the process is gone (`pending-writes.mjs`, `takeAllPendingWrites`): the log is read after that, with no wait.
+if (!failure) {
+  try {
+    const { readSessionLogSync, sessionFromLog } = await import(pathToFileURL(join(nodeTree, 'src', 'runtime', 'agent', 'orchestrator', 'session', 'store', 'session-log-reader.mjs')).href);
+    const settled = readSessionLogSync(join(process.env.MIXDOG_DATA_DIR, 'sessions', `${out.ids.second}.log.jsonl`));
+    if (!settled?.valid) throw new Error('the second session has no readable log after the route change');
+    out.afterRoute = { compaction: sessionFromLog(settled).compaction };
+  } catch (error) {
+    failure = error;
+  }
+}
 process.stdout.write(`RESULT ${JSON.stringify(failure ? { failed: String(failure?.stack || failure) } : out)}\n`);
 process.exit(failure ? 1 : 0);

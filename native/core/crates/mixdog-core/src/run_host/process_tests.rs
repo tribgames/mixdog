@@ -43,6 +43,7 @@ use mixdog_core_config::config::Config;
 use mixdog_core_config::config::ConfigLanes;
 
 const CAPS: &str = include_str!("../../../../fixtures/anthropic-caps/golden.json");
+const WIRE_ANTHROPIC: &str = include_str!("../../../../fixtures/wire-anthropic-gemini/anthropic.json");
 const OPENAI: &str = include_str!("../../../../fixtures/openai-facts/golden.json");
 const SCOPE: &str = include_str!("../../../../fixtures/accounting-scope/golden.json");
 
@@ -125,6 +126,54 @@ pub(crate) struct World {
     _dir: tempfile::TempDir,
 }
 
+/// What a provider's `getCachedModelInfo` answers in these worlds: the rows its adapter stored (the listing's records, as
+/// Node's rows state their levels).
+struct StoredRows(Vec<Arc<Value>>);
+
+impl mixdog_ai::catalog::CachedModelInfo for StoredRows {
+    fn cached_row(&self, model: &str) -> Option<Arc<Value>> {
+        self.0.iter().find(|row| row["id"] == model).cloned()
+    }
+}
+
+/// The registry's providers as production binds them (`ProviderReadiness::new` binds `route_provider`), here without
+/// a registry: a provider with listed `records` answers their rows; a custom provider of the config with none holds the
+/// rows its config states, through its real listing (`CustomListing`, which the custom builder hands the registry).
+fn bind_providers(catalog: &CatalogService, providers: &Value, records: &[ModelRecord]) {
+    let mut stored: HashMap<String, Vec<Arc<Value>>> = HashMap::new();
+    for record in records {
+        let mut row = json!({ "id": record.id, "provider": record.provider.as_str(), "reasoningLevels": record.reasoning_efforts, "reasoningOptions": record.picker.reasoning_options });
+        if let Some(custom) = &record.picker.custom_reasoning {
+            row["customReasoning"] = json!(custom);
+        }
+        stored.entry(record.provider.as_str().to_owned()).or_default().push(Arc::new(row));
+    }
+    let mut custom: HashMap<String, Arc<mixdog_ai::providers::custom::listing::CustomListing>> = HashMap::new();
+    for (name, cfg) in providers.as_object().into_iter().flatten().filter(|(name, _)| name.starts_with("custom-")) {
+        let Ok(protocol) = serde_json::from_value(cfg["protocol"].clone()) else { continue };
+        let listing = mixdog_ai::providers::custom::listing::CustomListing::new(
+            name,
+            protocol,
+            cfg["baseURL"].as_str().unwrap_or_default(),
+            Vec::new(),
+            Arc::new(Offline),
+            Arc::new(mixdog_ai::providers::connect::rewrite::StaticCredential(None)),
+            true,
+            cfg,
+            ListingLookup::new(),
+        );
+        custom.insert(name.clone(), Arc::new(listing));
+    }
+    catalog.bind_providers(Arc::new(move |name| {
+        let cached: Option<Arc<dyn mixdog_ai::catalog::CachedModelInfo>> = match (stored.get(name), custom.get(name)) {
+            (Some(rows), _) => Some(Arc::new(StoredRows(rows.clone()))),
+            (None, Some(listing)) => Some(listing.clone()),
+            (None, None) => return None,
+        };
+        Some(mixdog_ai::catalog::RouteProvider { cached, listing: None })
+    }));
+}
+
 async fn catalog_with(dir: &std::path::Path, records: Vec<ModelRecord>) -> Arc<CatalogService> {
     let tokens = mixdog_rt::testing::tokens();
     let mut snapshot = CatalogSnapshot::default();
@@ -141,6 +190,7 @@ pub(crate) async fn world(env: &[(&str, &str)], providers: Value, records: Vec<M
     let tokens = mixdog_rt::testing::tokens();
     let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
     let (config, _) = Config::open(dir.path().join("mixdog-config.json"), Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
+    let providers_config = providers.clone();
     config
         .update_agent(move |doc| {
             doc.insert("providers".into(), providers);
@@ -148,12 +198,14 @@ pub(crate) async fn world(env: &[(&str, &str)], providers: Value, records: Vec<M
         })
         .await
         .unwrap();
+    let catalog = catalog_with(dir.path(), records.clone()).await;
+    bind_providers(&catalog, &providers_config, &records);
     let env: Arc<dyn Environment> = Arc::new(TestEnv(env.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect()));
     let headers = Arc::new(Headers::default());
     let rejections = Arc::new(Rejections::default());
     let services = ProcessServices {
         config,
-        catalog: catalog_with(dir.path(), records).await,
+        catalog,
         listing: ListingLookup::new(),
         network: NetworkProxy::new(Arc::new(mixdog_ai::netproxy::route::ProcessEnv), SystemProxy::default()),
         vault: Arc::new(MemoryVault::default()),
@@ -352,6 +404,32 @@ async fn the_anthropic_caps_are_nodes_floor_live_and_declared_catalog_answers() 
             assert_eq!(caps.effort_levels_for(model), strings(&row["levels"]), "{ctx} levels");
             assert_eq!(caps.effort_levels_empty(model), row["levels"].as_array().unwrap().is_empty(), "{ctx} no levels");
         }
+    }
+}
+
+/// The capabilities `mixdog-ai`'s Anthropic wire test feeds the adapter are what Node's functions answered for the
+/// models of `anthropic.json`, with a catalog that lists them by id only (`_setInMemoryCatalog`). The product's
+/// `CatalogCaps` over such a catalog gives the same answers, so the adapter test's input is the product's.
+#[tokio::test]
+async fn the_anthropic_wire_models_get_nodes_catalog_answers() {
+    let recorded: Value = serde_json::from_str(WIRE_ANTHROPIC).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let caps = CatalogCaps::new(catalog_with(dir.path(), Vec::new()).await, &TestEnv(HashMap::new()));
+    let models = recorded["capabilities"].as_object().unwrap();
+    assert!(!models.is_empty(), "the recording holds no model capabilities");
+    for (model, node) in models {
+        let got = caps.caps(model);
+        let gates = AnthropicEffortGates::for_model(model, got.as_ref());
+        let supports = got.as_ref().is_some_and(|c| c.supports_effort());
+        let adaptive = got.as_ref().is_some_and(|c| c.adaptive_thinking);
+        let flag = |key: &str| node[key].as_bool().unwrap();
+        assert_eq!(supports, flag("supportsEffort"), "{model} supports effort");
+        assert_eq!((gates.xhigh, gates.max), (flag("supportsXhighEffort"), flag("supportsMaxEffort")), "{model} gates");
+        assert_eq!(got.as_ref().is_some_and(|c| !c.manual_thinking), flag("adaptiveOnly"), "{model} adaptive only");
+        assert_eq!(supports && adaptive, flag("effortBeta"), "{model} effort beta");
+        assert_eq!(caps.effort_levels_for(model), strings(&node["effortLevels"]), "{model} effort levels");
+        assert_eq!(got.as_ref().is_some_and(|c| c.thinking_display_updates), flag("progressUpdates"), "{model} progress updates");
+        assert_eq!(got.as_ref().and_then(|c| c.max_output_tokens).map(u64::from), node["declaredOutputTokens"].as_u64(), "{model} declared output tokens");
     }
 }
 

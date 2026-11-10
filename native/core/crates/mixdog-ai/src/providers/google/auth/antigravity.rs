@@ -23,9 +23,12 @@ use serde_json::json;
 use mixdog_core_api::domain::login::LoginFailure;
 
 use crate::oauth::AuthorizeRequest;
+use crate::oauth::CallbackPages;
 use crate::oauth::CredentialFile;
 use crate::oauth::PkceProvider;
 use crate::oauth::Probe;
+use crate::oauth::Refusal;
+use crate::oauth::pages;
 
 use super::Authorization;
 use super::RequestAuth;
@@ -538,7 +541,18 @@ impl PkceProvider for AntigravityLogin {
         authorize_url(request.state, request.code_challenge, request.redirect_uri)
     }
 
-    async fn exchange(&self, code: &str, verifier: &str, redirect_uri: &str) -> Result<Option<String>, LoginFailure> {
+    fn callback_pages(&self) -> CallbackPages {
+        pages::ANTIGRAVITY
+    }
+
+    /// The browser's failure page never quotes an error (it is provider-controlled text): no detail.
+    async fn exchange_checked(&self, code: &str, verifier: &str, redirect_uri: &str) -> Result<Option<String>, Refusal> {
+        self.exchange_login(code, verifier, redirect_uri).await.map_err(Refusal::from)
+    }
+}
+
+impl AntigravityLogin {
+    async fn exchange_login(&self, code: &str, verifier: &str, redirect_uri: &str) -> Result<Option<String>, LoginFailure> {
         let fail = |err: ProviderError| login_failure(&err, "");
         let response = self
             .http
@@ -558,6 +572,8 @@ impl PkceProvider for AntigravityLogin {
             code: "no_refresh_token".into(),
             message: "Google returned no refresh token".into(),
         })?;
+        // `fetchAccountInfo` (`antigravity-oauth-login.mjs:106-120`): the profile is optional, so a request that fails
+        // or is refused reads as an empty one.
         let info = self
             .http
             .send(
@@ -573,16 +589,18 @@ impl PkceProvider for AntigravityLogin {
                 },
                 TOKEN_EXCHANGE,
             )
-            .await
-            .map_err(fail)?;
-        let info_status = info.status;
-        let info_body = info.read_all().await.map_err(fail)?;
-        if !(200..300).contains(&info_status) {
-            return Err(fail(failure(format!("userinfo failed: {info_status}"))));
-        }
-        let profile: Value = serde_json::from_slice(&info_body.body).unwrap_or(Value::Null);
+            .await;
+        let profile: Value = match info {
+            Ok(info) if (200..300).contains(&info.status) => info
+                .read_all()
+                .await
+                .ok()
+                .and_then(|read| serde_json::from_slice(&read.body).ok())
+                .unwrap_or(Value::Null),
+            _ => Value::Null,
+        };
         let email = profile["email"].as_str().unwrap_or("").to_owned();
-        let user_id = profile["id"].as_str().unwrap_or("").to_owned();
+        let user_id = profile["id"].as_str().or_else(|| profile["sub"].as_str()).unwrap_or("").to_owned();
         let assist = CodeAssist {
             http: self.http.as_ref(),
             access_token: &grant.access_token,
@@ -674,6 +692,73 @@ fn no_tier(payload: &Value, email: &str) -> ProviderError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The refresh that outlives its timer reads as the real Node function did (`sites.antigravityRefresh`):
+    /// `AbortSignal.timeout`'s own error.
+    #[tokio::test(start_paused = true)]
+    async fn a_refresh_that_outlives_its_timer_reads_as_nodes() {
+        use crate::oauth::CredentialIo;
+        use crate::transport::site_probe::TimingOut;
+        use crate::transport::site_probe::assert_thrown;
+        use crate::transport::site_probe::assert_transport;
+
+        let dir = tempfile::tempdir().unwrap();
+        let rt = mixdog_rt::testing::tokens();
+        let file = CredentialFile::new(dir.path().join("antigravity-oauth.json"), CredentialIo { read: rt.interactive_io, write: rt.durability_io });
+        let transport = TimingOut::new();
+        let auth = AntigravityAuth::new(transport.clone(), Arc::new(FileTokenStore(file)), Box::new(|| 0));
+        let spent = TokenDoc {
+            access_token: "a".into(),
+            refresh_token: "r".into(),
+            expires_at_ms: 0,
+            project_id: String::new(),
+            tier_id: String::new(),
+            email: String::new(),
+            user_id: String::new(),
+        };
+        let error = auth.refresh(&spent).await.expect_err("never answers");
+        assert_transport("antigravityRefresh", &transport);
+        assert_thrown("antigravityRefresh", &error.message);
+    }
+
+    struct Idle;
+
+    #[async_trait]
+    impl Pause for Idle {
+        async fn pause(&self, _: Duration) {}
+    }
+
+    /// The sign-in's code exchange and its project lookup that outlive their timers read as the real Node functions did
+    /// (`sites.antigravityCodeExchange`, `sites.antigravityProject`): `AbortSignal.timeout`'s own error.
+    #[tokio::test(start_paused = true)]
+    async fn a_sign_in_that_outlives_its_timers_reads_as_nodes() {
+        use crate::oauth::CredentialIo;
+        use crate::transport::site_probe::TimingOut;
+        use crate::transport::site_probe::assert_thrown;
+        use crate::transport::site_probe::assert_transport;
+        use crate::transport::site_probe::login_message;
+
+        let dir = tempfile::tempdir().unwrap();
+        let rt = mixdog_rt::testing::tokens();
+        let file = CredentialFile::new(dir.path().join("antigravity-oauth.json"), CredentialIo { read: rt.interactive_io, write: rt.durability_io });
+        let transport = TimingOut::new();
+        let login = AntigravityLogin {
+            http: transport.clone(),
+            store: Arc::new(FileTokenStore(file)),
+            client_version: "1.0.0".into(),
+            pause: Arc::new(Idle),
+            now_ms: Box::new(|| 0),
+        };
+        let failure = login.exchange("abc", "v", "http://127.0.0.1/cb").await.expect_err("never answers");
+        assert_transport("antigravityCodeExchange", &transport);
+        assert_thrown("antigravityCodeExchange", login_message(&failure));
+
+        let project = TimingOut::new();
+        let assist = CodeAssist { http: project.as_ref(), access_token: "tok", client_version: "1.0.0", email: "" };
+        let error = assist.discover_account(&Idle).await.err().expect("never answers");
+        assert_transport("antigravityProject", &project);
+        assert_thrown("antigravityProject", &error.message);
+    }
 
     #[test]
     fn client_constants_decode_to_the_recorded_refresh_request() {

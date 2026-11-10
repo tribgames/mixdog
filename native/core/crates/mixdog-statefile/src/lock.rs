@@ -26,11 +26,9 @@ use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
 use mixdog_fsio::ReadProof;
+use mixdog_fsio::Unlaned;
 use mixdog_fsio::WriteProof;
 
-use mixdog_rt::InLane;
-
-use crate::WriteLane;
 use crate::publish::rename_retryable;
 
 /// `DEFAULT_LOCK_TIMEOUT_MS`, or `MIXDOG_LOCK_TIMEOUT_MS` when that is a number of at least 0.
@@ -463,8 +461,8 @@ fn take_turn(line: &Arc<Line>, try_once: bool) -> Option<Turn> {
 }
 
 /// Runs `body` holding the lock at `lock`.
-pub(crate) fn locked<L: WriteLane, R>(
-    proof: &InLane<L>,
+pub(crate) fn locked<P: WriteProof, R>(
+    proof: &P,
     lock: &Path,
     opts: &LockOpts,
     body: impl FnOnce() -> R,
@@ -521,4 +519,64 @@ impl<P: WriteProof> Drop for Release<'_, P> {
             let _ = mixdog_fsio::remove_file(self.0, self.1);
         }
     }
+}
+
+/// A lock held by a dedicated thread until this value is dropped: for a body that is async and runs longer than a lane
+/// job may (Node's `withFileLock(lockPath, fn)` around an `await`ed start). `lock_file` is the lock file itself, as Node's
+/// `lockPath` (`pg-spawn.lock`), not a file the lock is named after. The thread takes the lock exactly as [`locked`] does
+/// (the same queue, owner record, reclaim and timeout) and calls `acquired` once with the outcome; dropping the hold, or
+/// a hold whose lock was never taken, releases it.
+pub struct LockHold {
+    release: Option<std::sync::mpsc::Sender<()>>,
+    thread: Option<std::thread::JoinHandle<()>>,
+    taken: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl LockHold {
+    /// Releases the lock and returns once its file is gone. Only for a hold whose `acquired` reported success: a hold still waiting for the lock would be waited for.
+    pub fn release_and_wait(mut self) {
+        drop(self.release.take());
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+impl Drop for LockHold {
+    fn drop(&mut self) {
+        // The thread waits on the receiver: a closed channel is its release. A lock that was taken is waited for until its file is gone (Node's `finally` awaits
+        // `releaseLock`); one still waiting for the lock is not.
+        drop(self.release.take());
+        if self.taken.load(std::sync::atomic::Ordering::SeqCst)
+            && let Some(thread) = self.thread.take()
+        {
+            let _ = thread.join();
+        }
+    }
+}
+
+/// Starts [`LockHold`]'s thread for `lock_file`.
+pub fn hold_lock(lock_file: &Path, opts: &LockOpts, acquired: impl FnOnce(Result<(), LockError>) + Send + 'static) -> LockHold {
+    let (release, released) = std::sync::mpsc::channel::<()>();
+    let (lock, opts) = (lock_file.to_owned(), *opts);
+    let taken = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let taken_in = taken.clone();
+    let thread = std::thread::Builder::new()
+        .name("lock-hold".to_owned())
+        .spawn(move || {
+            let mut acquired = Some(acquired);
+            // The hold's own thread, outside every lane: the case `Unlaned` exists for.
+            let outcome = locked(&Unlaned, &lock, &opts, || {
+                taken_in.store(true, std::sync::atomic::Ordering::SeqCst);
+                if let Some(acquired) = acquired.take() {
+                    acquired(Ok(()));
+                }
+                let _ = released.recv();
+            });
+            if let (Err(error), Some(acquired)) = (outcome, acquired.take()) {
+                acquired(Err(error));
+            }
+        })
+        .expect("spawn the lock-hold thread");
+    LockHold { release: Some(release), thread: Some(thread), taken }
 }

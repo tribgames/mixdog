@@ -197,6 +197,8 @@ async fn a_program_that_does_not_exist_fails_the_step_with_its_spawn_text() {
     assert!(report.steps[0].output.contains("ENOENT"), "{}", report.steps[0].output);
 }
 
+// The limit is the process manager's own: an OS thread enforces it, so no tokio clock (paused or not) moves it. The run
+// waits on the process's exit event.
 #[tokio::test]
 async fn a_command_over_its_time_limit_is_killed_and_reported_timed_out() {
     let dir = tempfile::tempdir().unwrap();
@@ -211,12 +213,14 @@ async fn a_command_over_its_time_limit_is_killed_and_reported_timed_out() {
 async fn a_cancel_kills_the_running_command_and_leaves_the_rest_pending() {
     let dir = tempfile::tempdir().unwrap();
     let cancel = CancellationToken::new();
-    let stop = cancel.clone();
-    tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(400)).await;
-        stop.cancel();
-    });
-    let (report, _) = run_all(vec![sleeper(dir.path()), command("git", &["--version"], dir.path())], &cancel, RunOptions::default()).await;
+    // The cancel lands as the sleeper's step begins: the run kills the process it just started.
+    let report = runner()
+        .run(vec![sleeper(dir.path()), command("git", &["--version"], dir.path())], &cancel, &RunOptions::default(), &mut |event| {
+            if matches!(event, SetupEvent::Running { .. }) {
+                cancel.cancel();
+            }
+        })
+        .await;
     assert_eq!(report.status, SetupStatus::Cancelled);
     assert_eq!(report.steps[0].status, SetupStatus::Cancelled);
     assert_eq!(report.pending.len(), 1);
@@ -493,7 +497,7 @@ async fn a_delete_reaches_the_board_the_routes_the_app_feed_and_the_worktrees() 
     std::fs::write(&routes_file, stored.to_string()).unwrap();
     let maintenance = mixdog_rt::testing::tokens().maintenance_io;
     let deletion = crate::session::purge::SessionDeletion {
-        app: Arc::new(mixdog_core_base::state::SectionFeedState::new(feed)),
+        deleted: crate::session::thread_edges::ThreadDeletions::new(Arc::new(mixdog_core_base::state::SectionFeedState::new(feed))),
         search: None,
         worktrees: Arc::new(open_maintenance(&rig, cancelled.clone())),
         board: board.clone(),
@@ -550,14 +554,16 @@ async fn the_daemon_jobs_reconcile_at_start_and_clean_up_on_the_hour() {
     let maintenance = Arc::new(open_maintenance(&rig, Arc::default()));
     let lines: Arc<Mutex<Vec<String>>> = Arc::default();
     let sink = lines.clone();
+    let logged = Arc::new(tokio::sync::Notify::new());
+    let announce = logged.clone();
     let schedule = MaintenanceSchedule::new();
     let clock: mixdog_core_base::maintenance::Clock = Arc::new(|| 1_000);
-    maintenance.start(&schedule, &clock, Arc::new(move |line| sink.lock().unwrap().push(line.to_owned())), CancellationToken::new());
-    let deadline = std::time::Instant::now() + Duration::from_secs(30);
-    while lines.lock().unwrap().is_empty() {
-        assert!(std::time::Instant::now() < deadline, "the startup reconcile logged nothing");
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
+    maintenance.start(&schedule, &clock, Arc::new(move |line| {
+        sink.lock().unwrap().push(line.to_owned());
+        announce.notify_one();
+    }), CancellationToken::new());
+    // The sink's notification keeps its permit, so a line logged before this wait still wakes it.
+    crate::session::testing::awaiting(|| "the startup reconcile to log what it did".to_owned(), logged.notified()).await;
     assert_eq!(*lines.lock().unwrap(), ["worktree reconcile: removed 1, recovered 0, pruned 0, incomplete 0, errors 0"]);
     let (due, hour) = (1_000 + 3 * 60_000, 60 * 60_000);
     assert!(schedule.run_tasks(false, due - 1).await.ran.is_empty());

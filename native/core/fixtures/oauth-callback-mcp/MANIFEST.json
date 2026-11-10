@@ -1,0 +1,28 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-oauth-callback-mcp.mjs --tree <git checkout of b6f10295a2f698afc85332467192de28500bd146> --commit b6f10295a2f698afc85332467192de28500bd146",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 235745,
+      "path": "golden.json",
+      "sha256": "e2acba09f00267d7145160c3976a41ae8d47e88dd7d6447d825a1bbb64b18ed4"
+    }
+  ],
+  "product": {
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-oauth-callback-mcp.mjs",
+  "set": "oauth-callback-mcp",
+  "totalBytes": 235745
+}

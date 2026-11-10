@@ -8,9 +8,14 @@
 //! the agent (no tool, arguments or text), and the request waits until the user answers it with
 //! the held id (`resolve`) or the run is cancelled, which denies it. It never expires on a timer.
 //!
-//! The audit line and the remembered grant of an answered request are the policy gate's own
-//! (`ToolPolicy::record_decision` runs on the resolution this returns), so unlike Node's hook
-//! there is no separate record seam here.
+//! An answered request is audited twice, as in Node: `settle` records it under the held row's
+//! identity (`record_decision`, before the hold returns) and the policy gate records it again
+//! under the call's identity (`ToolPolicy::record_decision` on the resolution this returns).
+//!
+//! Which runs reach the hold is decided upstream, per ask: the policy gate never asks for a
+//! schedule or webhook run (`ToolPolicy::ask`, Node `isGrantedRun`), so only a room member's ask
+//! arrives, and `HeldApprovals::request` holds it when no approval UI was attached to its thread
+//! when its turn was assembled (Node's hook belongs to the turn, not to the ask).
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -32,6 +37,9 @@ use mixdog_protocol::HeldRunKind;
 use mixdog_protocol::HumanGateResponse;
 use mixdog_protocol::ThreadId;
 use mixdog_protocol::ToolApprovalDecision;
+use mixdog_tools::policy::AuditEntry;
+use mixdog_tools::policy::GrantKey;
+use mixdog_tools::policy::GrantStore;
 use serde_json::Value;
 
 /// The unattended run that owns a thread; `name` is the schedule or webhook name, or a room id.
@@ -47,8 +55,8 @@ pub struct RunInfo {
 pub trait HeldHome: Send + Sync {
     /// The unattended run that owns `thread` (`unattendedRunOf`).
     async fn run_of(&self, thread: &ThreadId) -> Option<RunInfo>;
-    /// An approval UI is attached to the thread's surface (Node: the run has a
-    /// `toolApprovalHook`). A held request is used only when none is.
+    /// An approval UI is attached to the thread's surface (Node: the turn has a
+    /// `toolApprovalHook`). Read once per turn, when its gate is assembled; a held request is used only when none is.
     fn ui_attached(&self, thread: &ThreadId) -> bool;
     /// Posts the row into the agent's home thread (`deliverHeldRequest`). A failure is logged
     /// and never fails the hold.
@@ -59,6 +67,8 @@ pub trait HeldHome: Send + Sync {
     async fn agent_name(&self, agent_id: &str) -> Result<String, String>;
     /// A fresh id suffix; the id is `held_` + this.
     fn new_id(&self) -> String;
+    /// The store an answered request's audit line and grant are written to (`humanGateStore()`).
+    fn grants(&self) -> Arc<dyn GrantStore>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -94,6 +104,8 @@ pub struct HeldRequests {
     home: Arc<dyn HeldHome>,
     now_ms: Arc<dyn Fn() -> i64 + Send + Sync>,
     pending: Mutex<HashMap<String, Entry>>,
+    /// Held while a delivery is started, so the deliveries of all requests start in the order they were posted.
+    starts: Mutex<()>,
 }
 
 /// `clean(value, limit)` of `held-message.mjs`.
@@ -118,13 +130,14 @@ fn scope_of(name: &str) -> Option<ApprovalRemember> {
 
 impl HeldRequests {
     pub fn new(home: Arc<dyn HeldHome>, now_ms: Arc<dyn Fn() -> i64 + Send + Sync>) -> Arc<Self> {
-        Arc::new(Self { home, now_ms, pending: Mutex::new(HashMap::new()) })
+        Arc::new(Self { home, now_ms, pending: Mutex::new(HashMap::new()), starts: Mutex::new(()) })
     }
 
     /// The approval entry point of one thread's run: held when the thread is an unattended run
     /// with no approval UI, the session's own otherwise.
     pub fn gate_for(self: &Arc<Self>, thread: ThreadId, inner: Arc<dyn ApprovalGate>) -> Arc<dyn ApprovalGate> {
-        Arc::new(HeldApprovals { held: Arc::clone(self), thread, inner })
+        let attended = self.home.ui_attached(&thread);
+        Arc::new(HeldApprovals { held: Arc::clone(self), thread, inner, attended })
     }
 
     /// The held requests still waiting (`pendingHeldRequests`).
@@ -194,23 +207,41 @@ impl HeldRequests {
         };
         let (reply, answer) = tokio::sync::oneshot::channel();
         let editable = held.editable.clone().unwrap_or_default();
-        self.lock().insert(id.clone(), Entry { held: held.clone(), remember: offered, editable, outbound, reply });
+        self.lock().insert(id.clone(), Entry { held: held.clone(), remember: offered.clone(), editable, outbound, reply });
         // The run being cancelled drops this future: that denies the request. An answered
         // request is already out of the table, so the guard finds nothing then.
         let _guard = CancelGuard { held: self, id: id.clone() };
-        self.post(&run.agent_id, &held).await;
+        self.post(&run.agent_id, &held);
         let home_agent = agent_home_session_id(&run.agent_id).or_else(|| agent_home_session_id(MIXY_AGENT_ID)).unwrap_or_default();
         // A lane job dropped at shutdown cannot name the agent: no push, logged, like the other shutdown-time failures (the row is already posted).
         match self.home.agent_name(&run.agent_id).await {
             Ok(agent_name) => self.home.push(&HeldPush { session_id: home_agent, agent_id: run.agent_id.clone(), agent_name, request_id: id }),
             Err(error) => tracing::warn!(id, "held request push skipped, the agent name could not be read: {error}"),
         }
-        answer.await.unwrap_or(ApprovalResolution::Cancelled { at: (self.now_ms)() })
+        let resolution = answer.await.unwrap_or(ApprovalResolution::Cancelled { at: (self.now_ms)() });
+        if let ApprovalResolution::Decided { decision, device, .. } = &resolution {
+            let response = decision.response.and_then(|response| serde_json::to_value(response).ok());
+            let response = response.as_ref().and_then(Value::as_str).unwrap_or(if decision.approved { "approve" } else { "deny" });
+            // Before the run goes on to the policy gate's own record of the same answer, as `settle` starts this one first.
+            record_decision(self.home.grants().as_ref(), &held, &offered, decision.approved, response, decision.remember, device).await;
+        }
+        resolution
     }
 
-    async fn post(&self, agent_id: &str, held: &HeldRequest) {
-        if let Err(error) = self.home.deliver(agent_id, held).await {
-            tracing::warn!(id = held.id, "held request could not be delivered: {error}");
+    /// `post(agentId, held)`: starts the delivery and does not wait for it (`void post(...)`). Delivery waits for the home thread's
+    /// queue to persist the row; the push, the answer and the audit never wait on that. Node starts the deliveries in call order
+    /// (`Promise.resolve().then(deliver)`, one microtask each): the delivery is polled to its first wait right here, under `starts`,
+    /// so the home thread's queue sees the pending row before the settled one; the rest of it runs on a task of its own.
+    fn post(&self, agent_id: &str, held: &HeldRequest) {
+        let (home, agent_id, held) = (Arc::clone(&self.home), agent_id.to_owned(), held.clone());
+        let mut delivery = Box::pin(async move {
+            if let Err(error) = home.deliver(&agent_id, &held).await {
+                tracing::warn!(id = held.id, "held request could not be delivered: {error}");
+            }
+        });
+        let _order = self.starts.lock().unwrap_or_else(PoisonError::into_inner);
+        if delivery.as_mut().poll(&mut std::task::Context::from_waker(std::task::Waker::noop())).is_pending() {
+            drop(mixdog_rt::spawn("held-request-deliver", mixdog_rt::TaskClass::Work, delivery));
         }
     }
 
@@ -258,11 +289,53 @@ impl HeldRequests {
         settled.device = Some(clean(&answer.device, 80)).filter(|d| !d.is_empty());
         let at = (self.now_ms)();
         let kind = answer.connection_kind.unwrap_or(ConnectionKind::Desktop);
+        self.post(&settled.agent_id, &settled);
         let _ = entry.reply.send(ApprovalResolution::Decided { decision, device: answer.device, connection_kind: kind, at });
-        self.post(&settled.agent_id, &settled).await;
         true
     }
 
+}
+
+/// `recordHumanDecision(entry.gate, approval)` of `settle`: the audit line of an answered held
+/// request and the grant it may store, under the held row's own identity (the gate Node builds in
+/// `hold`: the run's agent, the row's kind, action, tool and target). The policy gate records the
+/// same answer once more under the call's identity, as `askApproval` does after the hold returns.
+/// A scope the row did not offer stores nothing, and neither does `session`: the gate has no
+/// session to keep it for.
+async fn record_decision(
+    store: &dyn GrantStore,
+    held: &HeldRequest,
+    offered: &[ApprovalRemember],
+    approved: bool,
+    response: &str,
+    remember: Option<ApprovalRemember>,
+    device: &str,
+) {
+    let entry = |decision: &str| AuditEntry {
+        agent_id: held.agent_id.clone(),
+        kind: held.kind.clone(),
+        action: held.action.clone().unwrap_or_default(),
+        tool: held.tool.clone(),
+        target: held.target.clone(),
+        decision: decision.to_owned(),
+        device: device.to_owned(),
+        at_ms: None,
+    };
+    let mut granted = false;
+    if let (true, Some(action), Some(scope)) = (approved, held.action.as_deref().and_then(GrantKey::parse), remember)
+        && matches!(scope, ApprovalRemember::Agent | ApprovalRemember::Always)
+        && offered.contains(&scope)
+    {
+        match store.grant(&held.agent_id, &action, scope, device).await {
+            Ok(stored) => granted = stored,
+            Err(error) => tracing::warn!(id = held.id, "held request grant failed: {error}"),
+        }
+    }
+    for decision in std::iter::once(response).chain(granted.then_some("granted")) {
+        if let Err(error) = store.record_audit(entry(decision)).await {
+            tracing::warn!(id = held.id, "held request audit failed: {error}");
+        }
+    }
 }
 
 fn string_list(value: Option<&Value>) -> Vec<String> {
@@ -288,6 +361,16 @@ fn granting(response: HumanGateResponse) -> bool {
     matches!(response, HumanGateResponse::Approve | HumanGateResponse::EditAndApprove)
 }
 
+/// The composition's approval routing: every run's asks pass the held layer, which decides per ask
+/// (`HeldApprovals::request`) as `resolvePreToolAskApproval` does.
+pub struct HeldGates(pub Arc<HeldRequests>);
+
+impl mixdog_core::run_host::run_approvals::RunApprovals for HeldGates {
+    fn gate_for(&self, thread: &ThreadId, own: Arc<dyn ApprovalGate>) -> Arc<dyn ApprovalGate> {
+        self.0.gate_for(thread.clone(), own)
+    }
+}
+
 /// Mixy's heartbeat counts the held requests still waiting as approvals (`pendingHeldRequests`).
 #[async_trait]
 impl mixdog_services::bots::beat::HeldRequests for HeldRequests {
@@ -310,10 +393,10 @@ impl Drop for CancelGuard<'_> {
         let mut settled = entry.held;
         settled.status = HeldRequestStatus::Denied;
         let home = Arc::clone(&self.held.home);
+        self.held.post(&settled.agent_id, &settled);
+        // The abort's own answer (`reason: 'run cancelled'`, no device) is audited as any other, whether or not the row was delivered.
         drop(mixdog_rt::spawn("held-request-cancel", mixdog_rt::TaskClass::Work, async move {
-            if let Err(error) = home.deliver(&settled.agent_id, &settled).await {
-                tracing::warn!(id = settled.id, "held request could not be delivered: {error}");
-            }
+            record_decision(home.grants().as_ref(), &settled, &entry.remember, false, "deny", None, "").await;
         }));
     }
 }
@@ -322,12 +405,16 @@ struct HeldApprovals {
     held: Arc<HeldRequests>,
     thread: ThreadId,
     inner: Arc<dyn ApprovalGate>,
+    /// Whether an approval UI was attached when the turn was assembled. Node installs `toolApprovalHook` on the session for the whole
+    /// turn when a client starts it (`ask-turn-execute.mjs:284-288`, restored at `:334-338`), so the clients leaving mid-turn changes
+    /// nothing: the card waits in the turn's own queue. A turn assembled with none has none for all of its asks.
+    attended: bool,
 }
 
 #[async_trait]
 impl ApprovalGate for HeldApprovals {
     async fn request(&self, ask: ApprovalAsk) -> ApprovalResolution {
-        if !self.held.home.ui_attached(&self.thread)
+        if !self.attended
             && let Some(run) = self.held.home.run_of(&self.thread).await
         {
             return self.held.hold(&self.thread, run, &ask).await;
@@ -347,6 +434,22 @@ mod tests {
 
     use super::*;
 
+    /// A counter the tests wait on (a semaphore that starts empty).
+    struct Permits(tokio::sync::Semaphore);
+
+    impl Default for Permits {
+        fn default() -> Self {
+            Self(tokio::sync::Semaphore::new(0))
+        }
+    }
+
+    impl std::ops::Deref for Permits {
+        type Target = tokio::sync::Semaphore;
+        fn deref(&self) -> &Self::Target {
+            &self.0
+        }
+    }
+
     #[derive(Default)]
     struct Home {
         attached: AtomicBool,
@@ -355,6 +458,33 @@ mod tests {
         ids: AtomicU64,
         /// Delivery of a settled row never completes (a slow or wedged home thread).
         stall_settled: AtomicBool,
+        store: Arc<mixdog_tools::policy::MemoryGrantStore>,
+        /// One permit per row delivered: the tests wait on the delivery itself.
+        delivered: Permits,
+        /// Every delivery never completes.
+        stall_all: AtomicBool,
+        pushed: Permits,
+        audited: Arc<Permits>,
+        /// The status of every delivery, in the order the deliveries were started (before any wait).
+        started: Mutex<Vec<HeldRequestStatus>>,
+    }
+
+    /// The store, signalling each audit line it takes.
+    struct Audits(Arc<mixdog_tools::policy::MemoryGrantStore>, Arc<Permits>);
+
+    #[async_trait]
+    impl GrantStore for Audits {
+        async fn mode_for(&self, agent_id: &str, action: &GrantKey, shared_only: bool) -> Result<mixdog_tools::policy::PermissionMode, mixdog_tools::policy::StoreError> {
+            self.0.mode_for(agent_id, action, shared_only).await
+        }
+        async fn grant(&self, agent_id: &str, action: &GrantKey, scope: ApprovalRemember, device: &str) -> Result<bool, mixdog_tools::policy::StoreError> {
+            self.0.grant(agent_id, action, scope, device).await
+        }
+        async fn record_audit(&self, entry: AuditEntry) -> Result<(), mixdog_tools::policy::StoreError> {
+            let out = self.0.record_audit(entry).await;
+            self.1.add_permits(1);
+            out
+        }
     }
 
     #[async_trait]
@@ -366,20 +496,26 @@ mod tests {
             self.attached.load(Ordering::SeqCst)
         }
         async fn deliver(&self, agent_id: &str, held: &HeldRequest) -> Result<(), String> {
-            if held.status != HeldRequestStatus::Pending && self.stall_settled.load(Ordering::SeqCst) {
+            self.started.lock().unwrap().push(held.status);
+            if self.stall_all.load(Ordering::SeqCst) || (held.status != HeldRequestStatus::Pending && self.stall_settled.load(Ordering::SeqCst)) {
                 std::future::pending::<()>().await;
             }
             self.rows.lock().unwrap().push((agent_id.to_owned(), held.clone()));
+            self.delivered.add_permits(1);
             Ok(())
         }
         fn push(&self, event: &HeldPush) {
             self.pushes.lock().unwrap().push(event.clone());
+            self.pushed.add_permits(1);
         }
         async fn agent_name(&self, agent_id: &str) -> Result<String, String> {
             Ok(agent_id.to_owned())
         }
         fn new_id(&self) -> String {
             self.ids.fetch_add(1, Ordering::SeqCst).to_string()
+        }
+        fn grants(&self) -> Arc<dyn GrantStore> {
+            Arc::new(Audits(self.store.clone(), self.audited.clone()))
         }
     }
 
@@ -417,13 +553,14 @@ mod tests {
         (home, held, gate)
     }
 
+    /// Waits for the next row to be delivered.
+    async fn next_delivery(home: &Home) {
+        home.delivered.acquire().await.unwrap().forget();
+    }
+
     async fn first_row(home: &Home) -> HeldRequest {
-        loop {
-            if let Some((_, row)) = home.rows.lock().unwrap().first() {
-                return row.clone();
-            }
-            tokio::task::yield_now().await;
-        }
+        next_delivery(home).await;
+        home.rows.lock().unwrap().first().expect("a delivered row").1.clone()
     }
 
     #[tokio::test]
@@ -446,6 +583,7 @@ mod tests {
         assert!(!held.resolve(&row.id, answer).await, "a settled request answers nothing");
         let ApprovalResolution::Decided { decision, device, .. } = waiting.await.unwrap() else { panic!("decided") };
         assert_eq!((decision.approved, decision.remember, device.as_str()), (true, Some(ApprovalRemember::Agent), "Pixel"));
+        next_delivery(&home).await;
         let settled = home.rows.lock().unwrap().last().unwrap().1.clone();
         assert_eq!((settled.status, settled.device.as_deref()), (HeldRequestStatus::Approved, Some("Pixel")));
         assert!(held.pending().is_empty());
@@ -466,7 +604,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_answer_reaches_the_waiting_run_even_when_the_resolving_call_is_cancelled_in_delivery() {
+    async fn an_answer_reaches_the_waiting_run_and_the_resolving_call_returns_while_the_settled_row_is_still_being_delivered() {
         let (home, held, gate) = setup();
         let waiting = tokio::spawn({
             let gate = gate.clone();
@@ -481,9 +619,58 @@ mod tests {
         // The run is answered while the settled row is still being delivered.
         let ApprovalResolution::Decided { decision, .. } = waiting.await.unwrap() else { panic!("decided, not cancelled") };
         assert!(decision.approved);
-        resolving.abort();
-        assert!(resolving.await.unwrap_err().is_cancelled());
+        assert!(resolving.await.unwrap(), "the answer was accepted without waiting for the delivery");
         assert!(held.pending().is_empty());
+    }
+
+    /// Node starts the delivery on its own (`void post`): with a delivery that never completes the push goes out at once, an answer
+    /// reaches the run and is audited, and a cancelled run is denied and audited.
+    #[tokio::test]
+    async fn a_delivery_that_never_completes_holds_back_neither_the_push_nor_the_answer_nor_the_audit() {
+        let (home, held, gate) = setup();
+        home.stall_all.store(true, Ordering::SeqCst);
+        let answered = tokio::spawn({
+            let gate = gate.clone();
+            async move { gate.request(ask()).await }
+        });
+        home.pushed.acquire().await.unwrap().forget();
+        assert_eq!(held.pending().len(), 1);
+        let id = held.pending()[0].id.clone();
+        assert!(held.resolve(&id, HeldAnswer { approved: true, ..HeldAnswer::default() }).await);
+        let ApprovalResolution::Decided { decision, .. } = answered.await.unwrap() else { panic!("decided") };
+        assert!(decision.approved);
+        home.audited.acquire().await.unwrap().forget();
+        assert!(held.pending().is_empty());
+
+        let cancelled = tokio::spawn(async move { gate.request(ask()).await });
+        home.pushed.acquire().await.unwrap().forget();
+        cancelled.abort();
+        let _ = cancelled.await;
+        home.audited.acquire().await.unwrap().forget();
+        assert!(held.pending().is_empty());
+        assert!(home.rows.lock().unwrap().is_empty(), "no row was ever delivered");
+    }
+
+    /// Node starts the deliveries in call order, whatever they wait on (`Promise.resolve().then(deliver)` per `post`): the pending
+    /// row's delivery is under way, waiting on a home thread that never answers, before the answer posts the settled row. Both
+    /// are polled once by hand with no yield in between, so no task of the runtime can have started either for us.
+    #[test]
+    fn deliveries_start_in_the_order_they_are_posted_even_when_the_first_never_completes() {
+        let _ = mixdog_rt::testing::tokens();
+        let home = Arc::new(Home::default());
+        home.stall_all.store(true, Ordering::SeqCst);
+        let held = HeldRequests::new(home.clone(), Arc::new(|| 42));
+        let gate = held.gate_for(ThreadId::from("sess_rmem_abcdef_ann"), Arc::new(Inner));
+        let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+        let mut asking = Box::pin(gate.request(ask()));
+        assert!(asking.as_mut().poll(&mut context).is_pending());
+        assert_eq!(*home.started.lock().unwrap(), [HeldRequestStatus::Pending], "the pending delivery started with the hold");
+        assert_eq!(home.pushes.lock().unwrap().len(), 1);
+        let id = held.pending()[0].id.clone();
+        let mut resolving = Box::pin(held.resolve(&id, HeldAnswer { approved: true, ..HeldAnswer::default() }));
+        assert!(matches!(resolving.as_mut().poll(&mut context), std::task::Poll::Ready(true)));
+        assert_eq!(*home.started.lock().unwrap(), [HeldRequestStatus::Pending, HeldRequestStatus::Approved]);
+        assert!(matches!(asking.as_mut().poll(&mut context), std::task::Poll::Ready(ApprovalResolution::Decided { .. })));
     }
 
     #[tokio::test]
@@ -496,6 +683,7 @@ mod tests {
         first_row(&home).await;
         waiting.abort();
         let _ = waiting.await;
+        next_delivery(&home).await;
         assert!(held.pending().is_empty());
         assert_eq!(home.rows.lock().unwrap().len(), 2, "pending row, then the denied one");
     }
@@ -540,11 +728,34 @@ mod tests {
         assert_eq!(count().await, Ok(0));
     }
 
+    /// The ask goes to the surface's own gate (`Inner`, which answers `Unavailable`): its task finishes before any push is made. A held
+    /// ask pushes and then waits for its answer, so it ends the wait on the push instead of hanging.
+    async fn asked_of_the_surface(home: &Home, gate: Arc<dyn ApprovalGate>) -> ApprovalResolution {
+        let asking = tokio::spawn(async move { gate.request(ask()).await });
+        tokio::select! {
+            answered = asking => answered.expect("the ask settles"),
+            _ = home.pushed.acquire() => panic!("the ask was held, not asked of the surface's own gate"),
+        }
+    }
+
     #[tokio::test]
     async fn an_attached_ui_keeps_its_own_approval() {
-        let (home, _held, gate) = setup();
+        let (home, held, _) = setup();
         home.attached.store(true, Ordering::SeqCst);
-        assert_eq!(gate.request(ask()).await, ApprovalResolution::Unavailable { at: 7 });
+        let gate = held.gate_for(ThreadId::from("sess_rmem_abcdef_ann"), Arc::new(Inner));
+        assert_eq!(asked_of_the_surface(&home, gate).await, ApprovalResolution::Unavailable { at: 7 });
         assert!(home.rows.lock().unwrap().is_empty());
+    }
+
+    /// Node's hook belongs to the turn: the clients leaving mid-turn leaves the turn's asks with its own card.
+    #[tokio::test]
+    async fn a_turn_assembled_with_a_ui_keeps_its_own_approval_after_the_ui_leaves() {
+        let (home, held, _) = setup();
+        home.attached.store(true, Ordering::SeqCst);
+        let gate = held.gate_for(ThreadId::from("sess_rmem_abcdef_ann"), Arc::new(Inner));
+        home.attached.store(false, Ordering::SeqCst);
+        assert_eq!(asked_of_the_surface(&home, gate).await, ApprovalResolution::Unavailable { at: 7 });
+        assert!(home.rows.lock().unwrap().is_empty());
+        assert!(held.pending().is_empty());
     }
 }

@@ -83,6 +83,10 @@ fn forced_providers(requested: &Map<String, Value>, base: &Map<String, Value>) -
 
 impl ProviderReadiness {
     pub fn new(registry: Arc<ProviderRegistry>, catalog: Arc<CatalogService>) -> Arc<Self> {
+        let revision = registry.clone();
+        catalog.bind_revision(move || revision.catalog_revision());
+        let providers = registry.clone();
+        catalog.bind_providers(Arc::new(move |name| providers.route_provider(name)));
         Arc::new(Self { registry, catalog, gate: Mutex::new(Gate::default()), invalidation: OnceLock::new() })
     }
 
@@ -200,6 +204,11 @@ impl ProviderReadiness {
     /// `catalogRevision(reg())`: moves when a provider registers or leaves and at every invalidation.
     pub fn catalog_revision(&self) -> u64 {
         self.registry.catalog_revision()
+    }
+
+    /// Binds `caches.providerModelsLoadSeq` to the catalog's route-meta lookups (see `CatalogService::bind_load_seq`).
+    pub fn bind_load_seq(&self, seq: impl Fn() -> u64 + Send + Sync + 'static) {
+        self.catalog.bind_load_seq(seq);
     }
 
     /// Binds what else an invalidation drops; a second bind is refused.

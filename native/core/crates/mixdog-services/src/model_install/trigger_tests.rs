@@ -259,6 +259,23 @@ fn fetches(server: &Server) -> usize {
     server.hits(&format!("/{DEFAULT_MODEL_ID}/resolve/main/tokenizer.json"))
 }
 
+/// Node's real `ensureStandaloneEnvironment` run over each starting `MIXDOG_EMBED_WARMUP`, then the real `embeddingWarmupCanStart` /
+/// `embeddingOnDemandCanStart` (`fixtures/standalone-defaults`, `record-standalone-defaults.mjs`).
+#[test]
+fn a_standalone_start_gates_the_warmup_as_nodes_does() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/standalone-defaults/twin.json");
+    let twin: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let states = twin["warmup"].as_array().unwrap();
+    assert_eq!(states.len(), 14);
+    for state in states {
+        let value = state["embedWarmup"].as_str().map(str::to_owned);
+        let flags = RuntimeFlags::from_env(&|name| (name == "MIXDOG_EMBED_WARMUP").then(|| value.clone()).flatten());
+        assert_eq!(onnx_runtime_supported(), state["onnxRuntimeSupported"], "{value:?}");
+        assert_eq!(flags.warmup_can_start(), state["warmupCanStart"], "{value:?}");
+        assert_eq!(flags.on_demand_can_start(), state["onDemandCanStart"], "{value:?}");
+    }
+}
+
 #[test]
 fn the_gates_follow_node_for_every_flag_combination() {
     let default = RuntimeFlags::default();

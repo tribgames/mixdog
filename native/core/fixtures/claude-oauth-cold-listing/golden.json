@@ -1,0 +1,144 @@
+{
+  "scenarios": [
+    {
+      "name": "registry-answers",
+      "env": {},
+      "net": [
+        {
+          "status": 200,
+          "body": "{\"version\":\"2.1.500\"}"
+        }
+      ],
+      "fetched": [
+        {
+          "method": "GET",
+          "url": "https://registry.npmjs.org/@anthropic-ai/claude-code/latest"
+        }
+      ],
+      "rows": [
+        {
+          "id": "claude-opus-5-5",
+          "name": "Claude Opus 5.5",
+          "provider": "anthropic-oauth",
+          "family": "opus",
+          "contextWindow": 1000000,
+          "display": "Claude Opus 5.5",
+          "tier": "family",
+          "latest": true
+        },
+        {
+          "id": "claude-fable-5-1",
+          "name": "Claude Fable 5.1",
+          "provider": "anthropic-oauth",
+          "family": "fable",
+          "contextWindow": 1000000,
+          "display": "Claude Fable 5.1",
+          "tier": "family",
+          "latest": true
+        },
+        {
+          "id": "claude-sonnet-5-5",
+          "name": "Claude Sonnet 5.5",
+          "provider": "anthropic-oauth",
+          "family": "sonnet",
+          "contextWindow": 1000000,
+          "display": "Claude Sonnet 5.5",
+          "tier": "family",
+          "latest": true
+        }
+      ]
+    },
+    {
+      "name": "registry-unreachable",
+      "env": {},
+      "net": [
+        {
+          "fail": true
+        }
+      ],
+      "fetched": [
+        {
+          "method": "GET",
+          "url": "https://registry.npmjs.org/@anthropic-ai/claude-code/latest"
+        }
+      ],
+      "rows": [
+        {
+          "id": "claude-opus-5-5",
+          "name": "Claude Opus 5.5",
+          "provider": "anthropic-oauth",
+          "family": "opus",
+          "contextWindow": 1000000,
+          "display": "Claude Opus 5.5",
+          "tier": "family",
+          "latest": true
+        },
+        {
+          "id": "claude-fable-5-1",
+          "name": "Claude Fable 5.1",
+          "provider": "anthropic-oauth",
+          "family": "fable",
+          "contextWindow": 1000000,
+          "display": "Claude Fable 5.1",
+          "tier": "family",
+          "latest": true
+        },
+        {
+          "id": "claude-sonnet-5-5",
+          "name": "Claude Sonnet 5.5",
+          "provider": "anthropic-oauth",
+          "family": "sonnet",
+          "contextWindow": 1000000,
+          "display": "Claude Sonnet 5.5",
+          "tier": "family",
+          "latest": true
+        }
+      ]
+    },
+    {
+      "name": "version-named",
+      "env": {
+        "MIXDOG_CLI_VERSION": "2.1.400"
+      },
+      "net": [
+        {
+          "status": 200,
+          "body": "{\"version\":\"2.1.500\"}"
+        }
+      ],
+      "fetched": [],
+      "rows": [
+        {
+          "id": "claude-opus-5-5",
+          "name": "Claude Opus 5.5",
+          "provider": "anthropic-oauth",
+          "family": "opus",
+          "contextWindow": 1000000,
+          "display": "Claude Opus 5.5",
+          "tier": "family",
+          "latest": true
+        },
+        {
+          "id": "claude-fable-5-1",
+          "name": "Claude Fable 5.1",
+          "provider": "anthropic-oauth",
+          "family": "fable",
+          "contextWindow": 1000000,
+          "display": "Claude Fable 5.1",
+          "tier": "family",
+          "latest": true
+        },
+        {
+          "id": "claude-sonnet-5-5",
+          "name": "Claude Sonnet 5.5",
+          "provider": "anthropic-oauth",
+          "family": "sonnet",
+          "contextWindow": 1000000,
+          "display": "Claude Sonnet 5.5",
+          "tier": "family",
+          "latest": true
+        }
+      ]
+    }
+  ]
+}

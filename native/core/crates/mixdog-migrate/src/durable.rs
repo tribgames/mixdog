@@ -229,6 +229,68 @@ pub fn read(path: &Path) -> Result<Vec<u8>> {
     fs::read(path).map_err(|e| Blocked::io("read", path, e))
 }
 
+/// A file's bytes as they are read from the one open handle, counted and hashed on the way.
+struct Hashing {
+    file: File,
+    hasher: Sha256,
+    size: u64,
+}
+
+impl Read for Hashing {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = self.file.read(buf)?;
+        self.hasher.update(&buf[..n]);
+        self.size += n as u64;
+        Ok(n)
+    }
+}
+
+/// A file opened to be read line by line without holding it whole; `path` names it in errors.
+/// Opened with `open_verified`, the bytes it yields are the bytes `verify` checks.
+pub struct OpenFile {
+    pub path: std::path::PathBuf,
+    reader: std::io::BufReader<Hashing>,
+    expected: Option<(u64, String)>,
+}
+
+impl OpenFile {
+    /// Appends the next line, LF included, to `line`; 0 at the end of the file.
+    pub fn read_line_into(&mut self, line: &mut Vec<u8>) -> Result<usize> {
+        std::io::BufRead::read_until(&mut self.reader, b'\n', line).map_err(|e| Blocked::io("read", &self.path, e))
+    }
+
+    /// Reads what is left of the file, then refuses unless the bytes read through this handle
+    /// are the expected size and hash. What was read before this returns is not to be used.
+    pub fn verify(&mut self) -> Result<()> {
+        let Some((size, sha256)) = &self.expected else { return Ok(()) };        std::io::copy(&mut self.reader, &mut std::io::sink()).map_err(|e| Blocked::io("read", &self.path, e))?;
+        let read = self.reader.get_ref();
+        if read.size != *size || hex(&read.hasher.clone().finalize()) != *sha256 {
+            return Err(Blocked::SourceChanged { path: self.path.clone() });
+        }
+        Ok(())
+    }
+}
+
+fn open_with(path: &Path, expected: Option<(u64, String)>) -> Result<OpenFile> {
+    let file = File::open(path).map_err(|e| Blocked::io("open", path, e))?;
+    let hashing = Hashing { file, hasher: Sha256::new(), size: 0 };
+    Ok(OpenFile {
+        path: path.to_path_buf(),
+        reader: std::io::BufReader::with_capacity(1 << 16, hashing),
+        expected,
+    })
+}
+
+/// `path` opened for a line-by-line read, checked against nothing.
+pub fn open_buffered(path: &Path) -> Result<OpenFile> {
+    open_with(path, None)
+}
+
+/// `path` opened for a line-by-line read that `OpenFile::verify` checks against `size` and `sha256`.
+pub fn open_verified(path: &Path, size: u64, sha256: &str) -> Result<OpenFile> {
+    open_with(path, Some((size, sha256.to_owned())))
+}
+
 /// The bytes of the regular, non-empty file `path` when it holds at most `max_bytes` (judged
 /// by the opened file and by at most `max_bytes + 1` bytes read), else `None`. An empty or
 /// non-regular file is an `InvalidData` error.

@@ -10,10 +10,14 @@
 
 pub mod consts;
 pub mod control;
+pub mod coordinator;
 pub mod frame;
+pub mod media;
 pub mod path;
 pub mod receiver;
 pub mod sender;
+pub mod session;
+pub mod signal;
 pub mod split;
 
 /// A violation of the transport contract (`remote transport: invalid <what>.`).

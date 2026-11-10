@@ -70,10 +70,15 @@ impl RouteWindows for Windows {
 struct Threads {
     tools: Vec<ToolDefinition>,
     asked: Mutex<Vec<String>>,
+    /// The heir session's header, when the target is a session that exists.
+    heir: Option<Header>,
 }
 
 #[async_trait]
 impl MeasuredThreads for Threads {
+    async fn header(&self, _: &ThreadId) -> Option<Header> {
+        self.heir.clone()
+    }
     async fn tools(&self, thread: &ThreadId) -> Vec<ToolDefinition> {
         self.asked.lock().unwrap().push(format!("tools {}", thread.as_str()));
         self.tools.clone()
@@ -109,25 +114,39 @@ fn inherit_target(target: &Value) -> InheritTarget {
         provider: target["provider"].as_str().unwrap().to_owned(),
         model: target["model"].as_str().unwrap().to_owned(),
         selected_context_window: None,
+        session: None,
         tools_of: Some(ThreadId::from("current".to_owned())),
         source: Some(ThreadId::from("source".to_owned())),
     }
 }
 
+/// The header a session holds of Node's session object: its route, window fields and installed `compaction`.
+fn heir_header(target: &Value) -> Header {
+    ["provider", "model", "contextWindow", "rawContextWindow", "effectiveContextWindowPercent", "autoCompactTokenLimit", "compactBoundaryTokens", "compaction"]
+        .into_iter()
+        .map(|key| (key.to_owned(), target[key].clone()))
+        .collect()
+}
+
 /// Every recorded target and conversation: the same `known`, `used` and `limit` as Node's
-/// `inheritanceFit`, and a compaction plan exactly where Node's `inheritanceCompactionPlan` has one.
+/// `inheritanceFit`, and a compaction plan (with its budget) exactly where Node's `inheritanceCompactionPlan` has one. A route
+/// is measured on the catalog's windows with `{ auto: true }` (a preflight); a session on its own header, installed
+/// compaction included (`inheritFrom` into an existing heir).
 #[tokio::test]
 async fn every_recorded_fit_equals_nodes() {
     let golden = golden();
     let (_dir, config) = seams().await;
-    let (mut differ, mut checked) = (Vec::new(), 0);
+    let (mut differ, mut checked, mut sessions) = (Vec::new(), 0, 0);
     for case in golden["cases"].as_array().unwrap() {
         let (name, conversation) = (case["target"].as_str().unwrap(), case["conversation"].as_str().unwrap());
-        let target = &golden["targets"][name];
+        let session = case["kind"] == "session";
+        let target = if session { &golden["sessions"][name] } else { &golden["targets"][name] };
         let rows: Vec<Value> = golden["conversations"][conversation].as_array().unwrap().iter().filter(|row| row["role"] != "system").cloned().collect();
-        let threads = Arc::new(Threads { tools: tools_of(target), asked: Mutex::new(Vec::new()) });
+        let heir = session.then(|| heir_header(target));
+        let threads = Arc::new(Threads { tools: tools_of(target), asked: Mutex::new(Vec::new()), heir });
         let fit = HostInheritanceFit::new(Arc::new(Windows(target.clone())), config.clone(), threads);
-        let basis = fit.basis(&inherit_target(target), &rows).await;
+        let heir_target = InheritTarget { session: session.then(|| ThreadId::from("heir".to_owned())), ..inherit_target(target) };
+        let basis = fit.basis(&heir_target, &rows).await;
         let want = &case["fit"];
         let got = match &basis {
             Some(basis) => json!({ "known": true, "fits": basis.used < basis.limit, "used": basis.used, "limit": basis.limit }),
@@ -135,12 +154,14 @@ async fn every_recorded_fit_equals_nodes() {
         };
         let want = json!({ "known": want["known"], "fits": want["fits"], "used": want["used"], "limit": want["limit"] });
         let compactable = basis.as_ref().is_some_and(|basis| basis.compactable);
-        if got != want || compactable != (case["compactable"] == Value::Bool(true)) {
-            differ.push(format!("{name} / {conversation}: Rust {got} (plan {compactable}), Node {want} (plan {})", case["compactable"]));
+        let budget = fit.compaction_budget(&heir_target).await;
+        if got != want || compactable != (case["compactable"] == Value::Bool(true)) || budget != case["budgetTokens"].as_u64() {
+            differ.push(format!("{name} / {conversation}: Rust {got} (plan {compactable}, budget {budget:?}), Node {want} (plan {}, budget {})", case["compactable"], case["budgetTokens"]));
         }
         checked += 1;
+        sessions += usize::from(session);
     }
-    assert!(checked >= 80, "{checked}");
+    assert!(checked >= 110 && sessions >= 30, "{checked} checked, {sessions} of a session");
     assert!(differ.is_empty(), "{} differ: {}", differ.len(), differ.iter().take(10).cloned().collect::<Vec<_>>().join(" ; "));
 }
 
@@ -151,7 +172,7 @@ async fn the_opening_sessions_tools_and_the_sources_media_are_read() {
     let golden = golden();
     let (_dir, config) = seams().await;
     let target = &golden["targets"]["anthropic_mid"];
-    let threads = Arc::new(Threads { tools: tools_of(target), asked: Mutex::new(Vec::new()) });
+    let threads = Arc::new(Threads { tools: tools_of(target), asked: Mutex::new(Vec::new()), heir: None });
     let fit = HostInheritanceFit::new(Arc::new(Windows(target.clone())), config.clone(), threads.clone());
     let rows = vec![json!({ "role": "user", "content": "hello" })];
     assert!(fit.basis(&inherit_target(target), &rows).await.is_some());

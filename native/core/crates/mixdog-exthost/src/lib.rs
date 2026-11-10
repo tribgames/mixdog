@@ -28,10 +28,13 @@ mod schedule;
 mod shared;
 mod stream;
 mod syntax;
+mod visualize_panes;
 
 pub use browser::RenderBrowser;
 pub use browser::RenderBrowserConfig;
 pub use document::DocumentService;
+pub use document::RelayFiles;
+pub use visualize_panes::VisualizePanes;
 pub use domain_browser::BrowserService;
 pub use domain_visualize::VisualizeService;
 pub use domain_visualize::required_tab_command;

@@ -30,6 +30,8 @@ use super::patch::obj_str;
 use super::patch::split_patch_sections;
 use super::patch::turn_changes_reply;
 use super::patch::unknown_state_change_file;
+use super::ports::GitOptions;
+use super::ports::IGNORED_PATHS_TIMEOUT;
 use super::review_diff::Obj;
 use super::review_diff::REVIEW_FILE_PATCH_SHOW_MAX_BYTES;
 use super::review_diff::ReviewPatchBudget;
@@ -484,7 +486,7 @@ impl Inner {
         let mut input = paths.join("\0").into_bytes();
         input.push(0);
         // 0: some are ignored, 1: none; anything else (no repository) flags none.
-        if let Ok(result) = self.git.run(root, &args, input).await
+        if let Ok(result) = self.git.run_with(root, &args, input, &GitOptions::timeout(IGNORED_PATHS_TIMEOUT)).await
             && result.code == 0 {
                 ignored = String::from_utf8_lossy(&result.stdout).split('\0').filter(|s| !s.is_empty()).map(str::to_owned).collect();
             }

@@ -1,0 +1,1015 @@
+{
+  "case": "interactive-toggled",
+  "mode": "interactive-toggled",
+  "script": "gated",
+  "json": false,
+  "runtimeOptions": {
+    "toolMode": "full",
+    "approvalMode": "implicit",
+    "disallowDelegation": true,
+    "autoWakeCompletions": false,
+    "webSearch": true,
+    "memory": true
+  },
+  "code": 0,
+  "stdout": [
+    "final answer\n"
+  ],
+  "stderr": [],
+  "requests": [
+    {
+      "path": "/v1/messages",
+      "model": "claude-sonnet-4-6",
+      "tools": [
+        {
+          "name": "find",
+          "description": "Fuzzy filename/directory path lookup; returns paths only. Only when the target path is unknown and cannot be directly resolved but a fragment is known; general discovery: glob.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "query": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S",
+                "description": "Filename/path fragment; space-separated fragments AND-match within one path."
+              },
+              "path": {
+                "type": "string",
+                "description": "Base directory; omit for the current Project."
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Max paths; default 25; 0 unlimited."
+              },
+              "include_noise": {
+                "type": "boolean",
+                "description": "Also search gitignored trees."
+              }
+            },
+            "required": [
+              "query"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "glob",
+          "description": "Wildcard file-path lookup under a known directory; directories never match. No preliminary listing. Unknown base: find first with a known path fragment.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "maxItems": 10
+                  }
+                ],
+                "description": "Union of patterns under one base; separate calls for other bases or per-pattern results."
+              },
+              "path": {
+                "type": "string",
+                "description": "Known existing base directory; omit for the current Project."
+              },
+              "sort": {
+                "type": "string",
+                "enum": [
+                  "natural",
+                  "mtime"
+                ],
+                "description": "mtime default (newest first); natural = raw walk order, cheaper on huge trees."
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Max entries; default 100; 0 unlimited."
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "include_noise": {
+                "type": "boolean",
+                "description": "Also search gitignored trees."
+              }
+            },
+            "required": [
+              "pattern"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "list",
+          "description": "Return a known directory's immediate entries (path + type); no wildcard. Only when those entries or metadata are needed, not to re-confirm a known listing or before read/glob.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "description": "Known directory; defaults to the current Project."
+              },
+              "hidden": {
+                "type": "boolean",
+                "description": "Include dotfiles."
+              },
+              "meta": {
+                "type": "boolean",
+                "description": "Per-entry size bytes, UTC mtime, octal mode; text files also get a line count."
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100,
+                "description": "Max entries; default 100; 0 = no page cap (absolute cap still applies)."
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "grep",
+          "description": "Search literal/regex file contents (single-line ripgrep); returns path:line blocks with context, patch-ready. Broad reconnaissance: mode:files; locating: context:0; every pattern and scope in one call, and the anchors are the windows for one read. Symbol relations: code_graph.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "maxItems": 10
+                  }
+                ],
+                "description": "Ripgrep regex(es); escape literal metacharacters."
+              },
+              "path": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 10,
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                ],
+                "description": "Plain file/directory scopes; omit for Project root. Every pattern searches every path; pattern/path pairs need separate calls."
+              },
+              "glob": {
+                "type": "string",
+                "description": "Relative glob filter evaluated inside path, e.g. \"*.cs\" or \"src/**/*.ts\"; for exact/absolute paths use path instead."
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "content",
+                  "files",
+                  "count"
+                ],
+                "description": "content default; files lists matching paths; count totals all patterns together per file."
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Requested results; default 250; 0 unlimited. Context output caps at 40 blocks; continue via the returned offset."
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "context": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 200,
+                "description": "Omit for automatic context; 0 for matches only."
+              },
+              "include_noise": {
+                "type": "boolean",
+                "description": "Also search gitignored trees."
+              },
+              "text": {
+                "type": "boolean",
+                "description": "Search binary data as text (archives/Git objects not decoded)."
+              }
+            },
+            "required": [
+              "pattern"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "code_graph",
+          "description": "Code structure and relations from the parsed graph, no text matching. symbols → file outline rows `[export ]kind name (Lstart-end) signature`; find_symbol returns declaration/body; references adds usages; callers/callees return locations; dependents/impact → importers and blast radius. Exact identifiers: find_symbol/references/callers/callees; keywords: symbol_search/search; literal text and regex belong to grep. Prefer it over read/grep for declarations and relations. symbols already outlines a file: never pair it with overview for one need.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "overview",
+                  "imports",
+                  "dependents",
+                  "related",
+                  "impact",
+                  "symbols",
+                  "find_symbol",
+                  "symbol_search",
+                  "search",
+                  "references",
+                  "callers",
+                  "callees"
+                ],
+                "description": "File modes (files[]): overview, imports, dependents, related, impact. symbols with files[] gives the file outline; other modes use symbols[]."
+              },
+              "files": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                ],
+                "description": "Paths, project-relative or absolute; required for file modes, symbol queries span all files."
+              },
+              "symbols": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                ],
+                "description": "Exact identifiers/keywords; required for symbol modes, optional outline filter. Every symbol searches every file; distinct pairs need separate calls."
+              },
+              "body": {
+                "type": "boolean",
+                "description": "true for implementation, false for locations; find_symbol defaults true, references is opt-in."
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 500,
+                "description": "Max results; modes may cap lower."
+              },
+              "depth": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 5,
+                "description": "Overview hierarchy or caller traversal depth; default 1."
+              },
+              "cwd": {
+                "type": "string",
+                "description": "Explicit root outside the project; omit for project root."
+              }
+            },
+            "required": [
+              "mode"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "read",
+          "description": "Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "file_path": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 10,
+                    "items": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "file_path": {
+                              "type": "string"
+                            },
+                            "offset": {
+                              "type": "integer",
+                              "minimum": 1
+                            },
+                            "limit": {
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 100000
+                            }
+                          },
+                          "required": [
+                            "file_path"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "description": "Overlapping windows of one file merge. A glob fans out to ≤10 newest files."
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "1-based start line; default 1; batch default."
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100000,
+                "description": "Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages."
+              },
+              "pages": {
+                "type": "string",
+                "description": "PDF page range \"N\" or \"N-M\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count."
+              }
+            },
+            "required": [
+              "file_path"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "edit",
+          "description": "Replace exact text in one file. old_string must match once unless replace_all is true. Every non-overlapping edit of the stage in one response, using existing text, not text another edit creates; many files → one edit per file. Widened replacements keep intervening lines verbatim.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "file_path": {
+                "type": "string"
+              },
+              "old_string": {
+                "type": "string",
+                "description": "Exact target text. Empty only to create a missing file or fill an empty file; never overwrites non-empty files and is not an absence check."
+              },
+              "new_string": {
+                "type": "string",
+                "description": "Replacement text; may be empty to delete. Must differ from old_string."
+              },
+              "replace_all": {
+                "type": "boolean",
+                "default": false,
+                "description": "Replace all occurrences of old_string."
+              }
+            },
+            "required": [
+              "file_path",
+              "old_string",
+              "new_string"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "git",
+          "description": "Run Git here, never through shell. An array runs in order and stops on failure; batch read-only commands in one. diff for known changes, status to discover them; history only when needed. git diff or git diff -- <paths> includes untracked files. Set include_stage_ids:true to select changes, then action:stage with diff_id/change_ids. Staging rejects stale or cross-Project diffs and returns per-file staged counts. Worktrees are managed only: action:worktree; git worktree add/remove/list/prune map to managed operations (add -b keeps the session in place; add --detach makes a read-only snapshot worktree, removed when its turn ends, and is the one add a delegated worker may run; list --porcelain stays raw git; move/lock/unlock/repair are refused). Merge or remove only when the user asks.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": [
+                  "command",
+                  "stage",
+                  "worktree"
+                ],
+                "description": "Default command. stage uses diff_id/change_ids instead of command. worktree uses worktree_action and its fields."
+              },
+              "command": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1,
+                    "maxItems": 10
+                  }
+                ],
+                "description": "Full commands starting with git; shell-style quoting, no pipes/redirects/substitution (a && chain runs as the array). Mutations allowed."
+              },
+              "output_limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000,
+                "description": "Body line cap; staging IDs are not capped. Default 500; git log defaults to 100. A cut ends with [output capped …] naming how to continue."
+              },
+              "include_stage_ids": {
+                "type": "boolean",
+                "description": "Include staging IDs outside the body cap for git diff or git diff -- <paths> only. Default false."
+              },
+              "diff_id": {
+                "type": "string",
+                "description": "stage: exact diff_id from git diff."
+              },
+              "change_ids": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1,
+                    "maxItems": 50
+                  }
+                ],
+                "description": "stage: exact change ID or IDs to stage, including new files."
+              },
+              "worktree_action": {
+                "type": "string",
+                "enum": [
+                  "enter",
+                  "return",
+                  "merge",
+                  "remove",
+                  "list",
+                  "prune"
+                ],
+                "description": "enter: create or re-enter the managed worktree (branch: that branch, create: new); return: back to the project folder, worktree kept; merge: into its merge target; remove; list; prune."
+              },
+              "session_id": {
+                "type": "string",
+                "description": "enter/return/merge/remove: another session (it must be idle); default the caller."
+              },
+              "name": {
+                "type": "string",
+                "description": "enter: the new worktree name (branch <prefix><name>)."
+              },
+              "branch": {
+                "type": "string",
+                "description": "enter: use the worktree of this branch instead. remove: this session's worktree of that branch."
+              },
+              "create": {
+                "type": "boolean",
+                "description": "enter with branch: create that branch."
+              },
+              "carry": {
+                "type": "string",
+                "enum": [
+                  "leave",
+                  "carry"
+                ],
+                "description": "enter: the user answer to WORKTREE_DIRTY_CHOICE (uncommitted project-folder changes)."
+              },
+              "confirm_large": {
+                "type": "boolean",
+                "description": "enter or git worktree add: the user accepted the WORKTREE_LARGE_REPO_CONFIRM size."
+              },
+              "force": {
+                "type": "boolean",
+                "description": "remove: discard dirty/unmerged work; only on explicit user request."
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "shell",
+          "description": "Run programs, builds, tests and computation. Never use shell commands/scripts for work other tools cover: Get-Content/gc/cat/type→read; Get-ChildItem/dir/ls→list/glob/find; Select-String/findstr→grep; Set-Content/Add-Content/Out-File/`>`→edit; git→git (-C <dir> for other folders); gh→github, except what it lacks (repo rename/settings, account switching); code structure→code_graph. Holds 60s; then, or on input/task notification, backgrounds with task_id (command keeps running). Completion is automatic; never poll, and never sleep/poll-loop inside the shell (background:true or wait_ms instead; for an external job, background a command that exits when it ends). Result needed now: task wait. Independent long runs: background:true; cancel when done.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "command": {
+                "type": "string",
+                "description": "Command. PowerShell: ; between independent commands, if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } between dependent ones; no Bash heredocs or </dev/null; Select-Object shapes program output, not file reads; multiline python/node via @'…'@ | python - (node -); 2>$null; /c/→C:\\; $PID is reserved."
+              },
+              "cwd": {
+                "type": "string",
+                "description": "Working directory; default the Project. Use it instead of cd/Set-Location."
+              },
+              "timeout_ms": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Hard kill deadline in ms (omit or 0 = none), separate from the 60s hold; set one for throwaway probes so a slow check fails fast."
+              },
+              "wait_ms": {
+                "type": "integer",
+                "minimum": 1000,
+                "maximum": 600000,
+                "description": "Hold in ms before a still-running command moves to the background (default 60000). Usually omit; for a long finite command needed next, set up to 600000."
+              },
+              "background": {
+                "type": "boolean",
+                "description": "Start in the background at once (servers, watchers, `npm run dev`); returns task_id right away."
+              }
+            },
+            "required": [
+              "command"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "task",
+          "description": "Manage shell tasks. Completion is delivered automatically; wait only when you need the result now, never poll with read. wait returns when the task finishes, or when new user input or any task notification arrives (the task keeps running). read/wait return new output, prioritizing the tail on completion. Use read on the log path for omitted content.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "task_id": {
+                "type": "string",
+                "description": "Shell task_id; required for read/wait/cancel."
+              },
+              "action": {
+                "type": "string",
+                "enum": [
+                  "list",
+                  "read",
+                  "wait",
+                  "cancel"
+                ],
+                "description": "list all; read next output; wait for completion and next output; cancel task."
+              },
+              "timeout_ms": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Wait ceiling in ms; else current output at the ceiling. Default 300000; clamped to 10000-3600000."
+              },
+              "output": {
+                "type": "string",
+                "enum": [
+                  "new",
+                  "tail"
+                ],
+                "description": "read/wait only. Default new; tail re-reads recent output without advancing the cursor, after an interruption or context loss. Up to 8 KiB per stream while running, 12 KiB on completion or replay; original logs are preserved."
+              }
+            },
+            "required": [
+              "action"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "ask_user",
+          "description": "Ask the user multiple-choice questions and wait. Only for a decision only the user can make, with clear options; never for minor choices or approval of requested work, and open questions go in chat. Do not repeat the options in your message. A step only the user can do on a page or app (CAPTCHA, human check, sign-in, 2FA, a password) goes to handoff_user, never a request in plain chat. Load handoff_user directly if needed; browser/computer skills are not prerequisites.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "questions": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 4,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "question": {
+                      "type": "string",
+                      "description": "Full question, without the options."
+                    },
+                    "header": {
+                      "type": "string",
+                      "maxLength": 12,
+                      "description": "Chip label."
+                    },
+                    "options": {
+                      "type": "array",
+                      "minItems": 2,
+                      "maxItems": 4,
+                      "description": "Distinct; free text is added, never \"Other\".",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "label": {
+                            "type": "string",
+                            "maxLength": 80,
+                            "description": "1-5 words."
+                          },
+                          "description": {
+                            "type": "string",
+                            "description": "One-sentence tradeoff."
+                          }
+                        },
+                        "required": [
+                          "label",
+                          "description"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "multi_select": {
+                      "type": "boolean"
+                    },
+                    "recommended": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "Recommended option index."
+                    }
+                  },
+                  "required": [
+                    "question",
+                    "header",
+                    "options"
+                  ]
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "load_tool",
+          "description": "Load full schemas for missing deferred tool names/aliases; a connector name loads all its tools; batch needed names in one call.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "names": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1
+                  }
+                ],
+                "description": "Exact name(s)/aliases."
+              }
+            },
+            "required": [
+              "names"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "todo",
+          "description": "The step list for this request; the Lead and each agent keep their own. Use it whenever the work has three or more steps or several asks (a delegated brief with several parts counts); skip it only for a single step or a plain answer. Create it before the first real action: init with every ask as its own item, in order, covering investigation through verification. A follow-up that adds to the request: append its asks and any steps you discover; init is for a new, unrelated request and refuses while items are open. An item is named by its outcome in 3-8 words and keeps that exact wording; it is how you refer to it — lost the wording: view, never guess. Keep it current while you work, not at the end: the moment an item is finished and its result is read, mark it done with your next call — never batch completions. The runtime keeps exactly one item in progress; done moves it to the next. Send todo beside your next real tool call; when no real call is due, call it alone rather than skip the update. Mark an item done only after reading its result; an item waiting on the user, an agent or a shell stays open.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "op": {
+                "type": "string",
+                "enum": [
+                  "init",
+                  "start",
+                  "done",
+                  "drop",
+                  "append",
+                  "rm",
+                  "view"
+                ]
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1,
+                "maxItems": 50,
+                "description": "init (one default phase) / append: item wordings."
+              },
+              "phases": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "minItems": 1,
+                      "maxItems": 50
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "items"
+                  ],
+                  "additionalProperties": false
+                },
+                "description": "init: named phases instead of items."
+              },
+              "item": {
+                "type": "string",
+                "description": "start/done/drop/rm: exact item wording."
+              },
+              "phase": {
+                "type": "string",
+                "description": "append: target phase (default last; new name adds one)."
+              },
+              "note": {
+                "type": "string",
+                "description": "done: optional one-line evidence."
+              }
+            },
+            "required": [
+              "op"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "session",
+          "description": "Inspect sessions or control another by exact ID, never a guessed one. send acknowledges queue intake, not completion: promise a report of it only when its result has reportsBack: true. create returns status: started — started, not done yet; it reports its final answer, after the agents it started finish, unless its result says reportsBack: false. reportsBack: false carries reportsBackReason, the reason to tell the user. Cancel/delete require the user’s request. Other actions affect only the current session. A new session’s initial location (Project folder branch or its own worktree) is set here, with create’s worktree; worktree operations on existing sessions (enter, return, merge, remove, list, prune) use the git tool’s action:\"worktree\". Pass files on with attachments; a reported turn returns the files it produced as attachments.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": [
+                  "status",
+                  "list",
+                  "bots",
+                  "read",
+                  "send",
+                  "cancel",
+                  "delete",
+                  "create",
+                  "rename",
+                  "compact",
+                  "fork",
+                  "set-project",
+                  "list-projects",
+                  "favorite",
+                  "archive",
+                  "suggest"
+                ],
+                "description": "status defaults to current; list pages sessions, without sub-agent or archived ones unless include_agents/include_archived; bots shows each bot’s activity, work, approvals, routines and attention flags, or with session_id (a bot id or its chat) its routines and recent sessions; read returns latest items; send queues prompt (reportsBack: the turn result reports back here); cancel stops the turn; delete removes the session. create (bot conversations; only for a big multi-step plan, smaller work goes to agent) starts a visible agent task session from brief (started, not done yet); unknown Project: list-projects first, still ambiguous: ask the user. compact runs after this turn; fork copies it without switching. suggest (Mixy’s chat only) records a proposal made to the user under key; value false records that the user declined it."
+              },
+              "title": {
+                "type": "string",
+                "description": "rename: new current-session title; create: task title; suggest: the proposal in one line."
+              },
+              "key": {
+                "type": "string",
+                "description": "suggest: stable action:target key, e.g. pause-routine:daily-news; the same key refreshes its proposal."
+              },
+              "session_id": {
+                "type": "string",
+                "description": "ID from list; required for read/send/cancel/delete, optional for status/bots. send/cancel/delete cannot target the caller. read/send/status also take a bot id (its home chat)."
+              },
+              "prompt": {
+                "type": "string",
+                "description": "send: message to enqueue; loads a cold session."
+              },
+              "to": {
+                "type": "string",
+                "description": "send to a group room (sess_room_*): the member bot it is for, by agent id or room name (or start prompt with @name); only that member answers. A member session (sess_rmem_*) is never a send target."
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100,
+                "description": "list/read: maximum rows, default 25; bots: sessions, default 10. Output: 8KiB per page, 12KiB for initial read tail; follow nextOffset/nextTextOffset for more."
+              },
+              "cursor": {
+                "type": "string",
+                "description": "list: returned nextCursor."
+              },
+              "include_agents": {
+                "type": "boolean",
+                "description": "list: also sub-agent sessions, default false; your own agents: agent list/status."
+              },
+              "include_archived": {
+                "type": "boolean",
+                "description": "list: also archived sessions (archived: true), default false."
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "read: newest items to skip, default 0 (tail). Use nextOffset for older pages; appends/rewinds shift positions."
+              },
+              "text_offset": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "read: UTF-16 text position from nextTextOffset; requires offset, limit:1, item_id."
+              },
+              "item_id": {
+                "type": "string",
+                "description": "read: returned item id; rejects a shifted position instead of reading another item."
+              },
+              "path": {
+                "type": "string",
+                "description": "Existing directory; implies set-project. Resolve names with list-projects first. Shell cd does not switch Project."
+              },
+              "compact": {
+                "type": "boolean",
+                "description": "fork: compact the copy."
+              },
+              "value": {
+                "type": "boolean",
+                "description": "favorite/archive: on or off; suggest: false = the user declined it."
+              },
+              "brief": {
+                "type": "string",
+                "description": "create: self-contained instruction, the first message."
+              },
+              "project": {
+                "type": "string",
+                "description": "create: registered Project name or existing directory."
+              },
+              "worktree": {
+                "type": "object",
+                "description": "create: where the new session starts, never carrying uncommitted changes. {mode:\"branch\"}: the Project folder on its current branch. {mode:\"worktree\", name?}: its own new managed worktree (name: letters, digits, \".\", \"_\", \"-\"; default from the title); a non-git folder or unregistered Project is an error. Omitted: the user’s New task default. The brief is sent only once the session is placed.",
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "branch",
+                      "worktree"
+                    ]
+                  },
+                  "name": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "description": "mode worktree: worktree name."
+                  }
+                },
+                "required": [
+                  "mode"
+                ],
+                "additionalProperties": false
+              },
+              "confirm_large": {
+                "type": "boolean",
+                "description": "create: only after the user confirmed the large-repository warning (WORKTREE_LARGE_REPO_CONFIRM, with its size) for the worktree."
+              },
+              "model": {
+                "type": "string",
+                "description": "create: provider/model, preset, or a model menu display name (e.g. \"Claude Opus 5.5\", case-insensitive; a trailing effort word is read as effort); default is the Lead model (else the last-used one)."
+              },
+              "effort": {
+                "type": "string",
+                "description": "create/send: reasoning effort setting of the session (auto, or a level its model supports, e.g. low, medium, high, xhigh, max); wins over one in model. send: bots may change only task sessions they created. status shows effort and fast."
+              },
+              "notify": {
+                "type": "boolean",
+                "description": "create: report results back, default true."
+              },
+              "attachments": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 8,
+                "description": "send/create: files the target turn receives as real attachments (images, PDF/Office, text): an attachment of this conversation by its file name (a user upload, e.g. its [Image: source: name]) or id (a reported file’s [attachment:id]), or a file path inside this session’s folders. Secret files are refused."
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      ],
+      "toolResults": [],
+      "served": {
+        "text": "",
+        "calls": [
+          {
+            "id": "toolu_1_0",
+            "name": "read",
+            "input": {
+              "path": "a.txt"
+            }
+          },
+          {
+            "id": "toolu_1_1",
+            "name": "web_search",
+            "input": {
+              "query": "x"
+            }
+          },
+          {
+            "id": "toolu_1_2",
+            "name": "web_fetch",
+            "input": {
+              "url": "http://127.0.0.1/"
+            }
+          },
+          {
+            "id": "toolu_1_3",
+            "name": "recall",
+            "input": {
+              "query": "x"
+            }
+          },
+          {
+            "id": "toolu_1_4",
+            "name": "memory",
+            "input": {
+              "action": "list"
+            }
+          }
+        ],
+        "inputTokens": 21,
+        "outputTokens": 11,
+        "stopReason": "tool_use"
+      }
+    },
+    {
+      "path": "/v1/messages",
+      "model": "claude-sonnet-4-6",
+      "tools": [],
+      "toolResults": [
+        {
+          "tool_use_id": "toolu_1_0",
+          "is_error": false,
+          "content": "[lines 1-1]\nhello\n[lines 1-1 of 1]"
+        },
+        {
+          "tool_use_id": "toolu_1_1",
+          "is_error": true,
+          "content": "Error: tool \"web_search\" is disabled in settings by the user. Do not retry unless the user turns it back on."
+        },
+        {
+          "tool_use_id": "toolu_1_2",
+          "is_error": true,
+          "content": "Error: tool \"web_fetch\" is disabled in settings by the user. Do not retry unless the user turns it back on."
+        },
+        {
+          "tool_use_id": "toolu_1_3",
+          "is_error": true,
+          "content": "Error: tool \"recall\" is disabled in settings by the user. Do not retry unless the user turns it back on."
+        },
+        {
+          "tool_use_id": "toolu_1_4",
+          "is_error": true,
+          "content": "Error: tool \"memory\" is disabled in settings by the user. Do not retry unless the user turns it back on."
+        }
+      ],
+      "served": {
+        "text": "final answer",
+        "calls": [],
+        "inputTokens": 22,
+        "outputTokens": 12,
+        "stopReason": "end_turn"
+      }
+    }
+  ],
+  "files": {
+    "a.txt": "hello\n"
+  },
+  "usage": {
+    "schemaVersion": 1,
+    "sessions": [
+      {
+        "sessionId": "sess_exec_readonly",
+        "agentRole": "primary",
+        "models": [
+          "claude-sonnet-4-6"
+        ],
+        "inputTokens": 43,
+        "cacheTokens": 0,
+        "cacheWriteTokens": 0,
+        "outputTokens": 23,
+        "toolCallCountApprox": 0
+      }
+    ],
+    "totals": {
+      "inputTokens": 43,
+      "cacheTokens": 0,
+      "cacheWriteTokens": 0,
+      "outputTokens": 23,
+      "toolCallCountApprox": 0
+    }
+  }
+}

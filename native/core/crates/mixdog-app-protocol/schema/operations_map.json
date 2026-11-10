@@ -1103,8 +1103,8 @@
       "list": "operations",
       "name": "browserRemoteWebrtcSignal",
       "target": {
-        "kind": "internal",
-        "target": "WebRTC runs in mixdog-remote (SPEC R36)"
+        "kind": "method",
+        "target": "browser/webrtcSignal"
       }
     },
     {
@@ -1672,6 +1672,7 @@
           "room/update",
           "room/continue",
           "room/leave",
+          "room/reset",
           "room/remove"
         ]
       }
@@ -2168,6 +2169,7 @@
           "room/update",
           "room/continue",
           "room/leave",
+          "room/reset",
           "room/remove"
         ]
       }
@@ -2920,7 +2922,7 @@
       "name": "fileDownloadAuthorize",
       "target": {
         "kind": "method",
-        "target": "transfer/beginRead"
+        "target": "transfer/authorizeRead"
       }
     },
     {
@@ -2928,7 +2930,7 @@
       "name": "fileDownloadBegin",
       "target": {
         "kind": "method",
-        "target": "transfer/beginRead"
+        "target": "transfer/redeemGrant"
       }
     },
     {
@@ -2944,7 +2946,7 @@
       "name": "fileDownloadFinish",
       "target": {
         "kind": "method",
-        "target": "transfer/endRead"
+        "target": "transfer/finishRead"
       }
     },
     {
@@ -3152,7 +3154,7 @@
       "name": "previewProjectFile",
       "target": {
         "kind": "method",
-        "target": "transfer/beginRead"
+        "target": "projectFs/previewFile"
       }
     },
     {
@@ -3168,7 +3170,7 @@
       "name": "previewProjectFileRange",
       "target": {
         "kind": "method",
-        "target": "transfer/readRange"
+        "target": "projectFs/previewRange"
       }
     },
     {

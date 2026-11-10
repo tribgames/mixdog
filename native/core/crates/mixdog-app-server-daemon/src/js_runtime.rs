@@ -233,6 +233,37 @@ mod tests {
         assert!(matches!(resolve(&exe, None), Err(JsRuntimeError::NotInstalled { .. })));
     }
 
+    /// Node reads `<STANDALONE_ROOT>/defaults/shipped-history.json` with `STANDALONE_ROOT` = `<package>/src`; the boot retirement
+    /// (`compose_flip::real_core`) roots its pass at `package_root.join("src")`, so on a plain (dev / server) install the history is read
+    /// from this very file.
+    #[test]
+    fn the_retirement_reads_the_history_node_reads_in_a_plain_install() {
+        let root = tempfile::tempdir().unwrap();
+        let js = fixture(root.path());
+        let history = js.package_root.join("src").join("defaults").join("shipped-history.json");
+        assert_eq!(std::fs::read(history).unwrap(), std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../../src/defaults/shipped-history.json")).unwrap());
+    }
+
+    /// A packaged desktop starts `mixdogd` with `MIXDOG_ROOT` at the unpacked tree while `packageRoot` is inside the archive; the
+    /// retirement then reads `<MIXDOG_ROOT>/defaults/shipped-history.json` and never the archive.
+    #[test]
+    fn the_retirement_reads_the_history_under_mixdog_root_in_a_packaged_install() {
+        let root = tempfile::tempdir().unwrap();
+        let unpacked = root.path().join("resources").join("runtime.asar.unpacked").join("node_modules").join("mixdog").join("src");
+        copy_dir(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../../src/defaults"), &unpacked.join("defaults"));
+        let archive_package = root.path().join("resources").join("runtime.asar").join("node_modules").join("mixdog");
+        let data = root.path().join("data");
+        let env_root = unpacked.clone().into_os_string();
+        let paths = crate::compose_flip::retirement_paths(&archive_package, &data, &|name| (name == "MIXDOG_ROOT").then(|| env_root.clone()));
+        assert_eq!(paths.root, unpacked);
+        assert!(paths.root.join("defaults").join("shipped-history.json").is_file());
+        assert_eq!(paths.data, data);
+        let unset = crate::compose_flip::retirement_paths(&archive_package, &data, &|_| None);
+        assert_eq!(unset.root, archive_package.join("src"));
+        let empty = crate::compose_flip::retirement_paths(&archive_package, &data, &|_| Some(std::ffi::OsString::new()));
+        assert_eq!(empty.root, archive_package.join("src"), "an empty MIXDOG_ROOT counts as unset");
+    }
+
     #[test]
     fn the_fixture_install_resolves() {
         let root = tempfile::tempdir().unwrap();

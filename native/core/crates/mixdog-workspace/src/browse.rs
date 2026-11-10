@@ -9,6 +9,7 @@ use serde_json::json;
 
 use crate::error::WsError;
 use crate::error::WsResult;
+use crate::nodeerr::AtPath;
 use crate::pathguard::canonical;
 
 /// `HOST_DIRECTORY_LIST_LIMIT`: entries per listing; the client sees `truncated` past it.
@@ -58,11 +59,12 @@ fn validated_path(value: &str) -> WsResult<String> {
 /// not one: `Dirent.isDirectory()`).
 #[allow(clippy::disallowed_methods, reason = "runs as a lane job")]
 fn directory_names(raw: &str, include_hidden: bool) -> WsResult<(String, Vec<String>)> {
-    let canonical_dir = canonical(Path::new(&validated_path(raw)?))?;
-    if !std::fs::metadata(&canonical_dir)?.is_dir() {
-        return Err(WsError::invalid("path is not a directory."));
+    let given = validated_path(raw)?;
+    let canonical_dir = canonical(Path::new(&given)).at("realpath", Path::new(&given))?;
+    if !std::fs::metadata(&canonical_dir).at("stat", &canonical_dir)?.is_dir() {
+        return Err(WsError::plain("path is not a directory."));
     }
-    let listing = std::fs::read_dir(&canonical_dir)?;
+    let listing = std::fs::read_dir(&canonical_dir).at("scandir", &canonical_dir)?;
     let mut names = Vec::new();
     for entry in listing {
         let entry = entry?;

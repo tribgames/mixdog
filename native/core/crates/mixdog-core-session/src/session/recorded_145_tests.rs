@@ -50,7 +50,7 @@ use super::thread_list::RowOverlay;
 use super::thread_list::ThreadListService;
 use mixdog_protocol::ThreadSummary;
 
-struct NoDocuments;
+pub(super) struct NoDocuments;
 
 #[async_trait]
 impl DocumentText for NoDocuments {
@@ -65,7 +65,7 @@ impl DocumentText for NoDocuments {
     }
 }
 
-struct StoreProjector;
+pub(super) struct StoreProjector;
 
 impl IndexProjector for StoreProjector {
     fn project(&self, data: &Path, db: &Path, sessions: &[String]) -> Result<(), String> {
@@ -99,7 +99,7 @@ async fn migrated() -> (tempfile::TempDir, MigrationRoots) {
     (dir, roots)
 }
 
-async fn threads_over(data: &Path) -> Arc<StoreThreads> {
+pub(super) async fn threads_over(data: &Path) -> Arc<StoreThreads> {
     let tokens = mixdog_rt::testing::tokens();
     let root = data.to_path_buf();
     let index = tokens
@@ -118,7 +118,7 @@ async fn threads_over(data: &Path) -> Arc<StoreThreads> {
     )
 }
 
-struct Idle;
+pub(super) struct Idle;
 
 impl ListOverlay for Idle {
     fn of(&self, _: &ThreadId) -> RowOverlay {
@@ -126,7 +126,7 @@ impl ListOverlay for Idle {
     }
 }
 
-struct NoRooms;
+pub(super) struct NoRooms;
 
 #[async_trait]
 impl ListRooms for NoRooms {
@@ -142,7 +142,7 @@ impl ListRooms for NoRooms {
 async fn thread_list_on_the_migrated_directory_is_what_1_4_5_listed() {
     let (_dir, roots) = migrated().await;
     let threads = threads_over(&roots.data).await;
-    let list = ThreadListService::new(Arc::new(threads.index().clone()), Arc::new(Idle), Arc::new(NoRooms));
+    let list = ThreadListService::new(Arc::new(threads.index().clone()), Arc::new(Idle), Arc::new(NoRooms), Arc::new(super::testing::FixedTaskWorkspace("/tasks")));
     let answer = value(&list, request(LIST, json!({ "limit": 50 }), None)).await.expect("thread/list");
     let got = answer["data"].as_array().expect("data");
     let recorded = answers();

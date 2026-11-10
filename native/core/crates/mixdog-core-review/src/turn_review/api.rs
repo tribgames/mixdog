@@ -5,7 +5,9 @@ use mixdog_core_api::turn_review::AgentReview;
 use mixdog_core_api::turn_review::CallChange;
 use mixdog_core_api::turn_review::ChangesRead;
 use mixdog_core_api::turn_review::Reply;
+use mixdog_core_api::turn_review::ReviewChanged;
 use mixdog_core_api::turn_review::ReviewError;
+use mixdog_core_api::turn_review::ReviewUnsubscribe;
 use mixdog_core_api::turn_review::ReviewRead;
 use mixdog_core_api::turn_review::TurnOpen;
 use mixdog_core_api::turn_review::TurnReviewApi;
@@ -44,6 +46,10 @@ impl TurnReviewApi for TurnReview {
         self.inner.worktrees.note_change(paths);
     }
 
+    fn on_review_changed(&self, listener: ReviewChanged) -> ReviewUnsubscribe {
+        self.inner.worktrees.on_review_changed(listener)
+    }
+
     async fn begin_turn(&self, worktree: &str, session_id: &str, open: TurnOpen) -> Option<TurnToken> {
         self.inner.begin_turn(worktree, session_id, open).await
     }
@@ -64,10 +70,13 @@ impl TurnReviewApi for TurnReview {
         // The session's own deletion takes the marker, and its stored first-seen file contents,
         // with it.
         let (inner, id) = (self.inner.clone(), session_id.to_owned());
-        mixdog_rt::spawn("turn_review.forget_session", mixdog_rt::TaskClass::Work, async move {
+        let removal = mixdog_rt::spawn("turn_review.forget_session", mixdog_rt::TaskClass::Work, async move {
             inner.store.forget_session_change_history_marker(&id).await;
             inner.baselines.forget(&id).await;
         });
+        let mut forgets = self.inner.forgets.lock().unwrap_or_else(|e| e.into_inner());
+        forgets.retain(|task| !task.is_finished());
+        forgets.push(removal);
     }
 
     async fn turn_review_diff(&self, _worktree: &str, session_id: &str, read: ReviewRead) -> Reply {

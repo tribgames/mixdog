@@ -10,6 +10,7 @@ use std::time::Duration;
 use chrono::{DateTime, SecondsFormat, Utc};
 use chrono_tz::Tz;
 use serde_json::{Map, Value, json};
+use tokio_util::sync::CancellationToken;
 
 use super::ports::{ChannelSettings, ProbeError, PublicBase, WebhookPatch, WebhookProbe, is_truthy};
 use super::runtime::ChannelRuntime;
@@ -76,10 +77,16 @@ pub struct AdminDeps {
     pub clock: Arc<dyn Clock>,
     /// The zone a schedule without one runs in.
     pub local_tz: Tz,
+    /// `envFlag('MIXDOG_DISABLE_CHANNEL_START')`: the runtime is never started on its own.
+    pub channel_start_disabled: bool,
+    /// `isCloseRequested()`: cancelled when the app starts closing.
+    pub close_requested: CancellationToken,
 }
 
 pub struct ChannelAdmin {
     d: AdminDeps,
+    /// Itself, for the deferred start that outlives a save call.
+    this: std::sync::Weak<ChannelAdmin>,
 }
 
 /// `String(value)` for the values a save may carry.
@@ -317,7 +324,7 @@ fn same_timing(existing: &Schedule, when_cron: &Option<String>, when_at: Option<
 
 impl ChannelAdmin {
     pub fn new(deps: AdminDeps) -> Arc<Self> {
-        Arc::new(Self { d: deps })
+        Arc::new_cyclic(|this| Self { d: deps, this: this.clone() })
     }
 
     // ---- reads -------------------------------------------------------------------------
@@ -381,8 +388,12 @@ impl ChannelAdmin {
     pub async fn get_channel_setup(&self) -> Done {
         let webhook = self.d.settings.webhook().await?;
         let mut view = serde_json::to_value(webhook).map_err(|e| e.to_string())?;
+        // `channelSetup` (channel-admin.mjs:707-715) reads the rows first and the identity file
+        // after them, so a start that lands in between shows its identity with the older rows.
+        let schedules = self.list_schedules().await?;
+        let webhooks = self.list_webhooks().await?;
         view["publicUrl"] = self.d.base.hook_public_base().await?.into();
-        Ok(json!({"webhook": view, "schedules": self.list_schedules().await?, "webhooks": self.list_webhooks().await?}))
+        Ok(json!({"webhook": view, "schedules": schedules, "webhooks": webhooks}))
     }
 
     // ---- the settings and the runtime --------------------------------------------------
@@ -397,15 +408,42 @@ impl ChannelAdmin {
         });
     }
 
-    /// The first automation created while the app is already running: the boot-time start
-    /// check has passed, so start the runtime now (a no-op when it is up).
-    fn ensure_automation(&self) {
-        let runtime = Arc::clone(&self.d.runtime);
-        tokio::spawn(async move {
-            if let Err(error) = runtime.start_automation().await {
-                tracing::warn!("mixdog channels: automation start failed: {error}");
-            }
+    /// `scheduleChannelStart(0)` / `scheduleAutomationAutostart`: returns at once; the start
+    /// happens afterwards, owned by the runtime (a shutdown ends and joins it). When the
+    /// deferred callback runs it asks `hasActiveAutomation` (`onChannelStartTimer`): only enabled
+    /// schedules or webhooks start the runtime (a no-op when it is up), and
+    /// `MIXDOG_DISABLE_CHANNEL_START` or a close in progress starts nothing. A save calls it after
+    /// its reload request (`ensureAutomationRuntime`); the daemon calls it once it is serving,
+    /// which is the boot-time start check.
+    pub fn schedule_automation_start(&self) {
+        self.schedule_start(true);
+    }
+
+    /// The session directory's busy state (`getActiveTurnCount() > 0` / `getSessionCreatePromise()`).
+    pub fn bind_busy(&self, probe: super::runtime::BusyProbe) {
+        self.d.runtime.bind_busy(probe);
+    }
+
+    /// `wakeDeferredWarmups()`: the busy state changed.
+    pub fn wake_deferred_start(&self) {
+        self.d.runtime.wake_parked_start();
+    }
+
+    /// `scheduleAutomationAutostart`: the boot-time start, which does not wait for an idle runtime.
+    pub fn schedule_automation_autostart(&self) {
+        self.schedule_start(false);
+    }
+
+    fn schedule_start(&self, busy_aware: bool) {
+        if self.d.channel_start_disabled {
+            return;
+        }
+        let Some(admin) = self.this.upgrade() else { return };
+        let active: super::runtime::ActiveProbe = Arc::new(move || {
+            let admin = Arc::clone(&admin);
+            Box::pin(async move { admin.has_active_automation().await })
         });
+        self.d.runtime.schedule_automation_start(&self.d.close_requested, active, busy_aware);
     }
 
     pub async fn set_webhook_config(&self, patch: &Value) -> Done {
@@ -504,7 +542,7 @@ impl ChannelAdmin {
     pub async fn save_schedule(&self, entry: &Value) -> Done {
         let saved = self.save_schedule_row(entry).await?;
         self.reload_soon();
-        self.ensure_automation();
+        self.schedule_automation_start();
         Ok(saved)
     }
 
@@ -586,7 +624,7 @@ impl ChannelAdmin {
         self.d.schedules.set_enabled(&id, enabled).await?.ok_or_else(|| format!("schedule \"{id}\" does not exist"))?;
         self.reload_soon();
         if enabled {
-            self.ensure_automation();
+            self.schedule_automation_start();
         }
         Ok(json!({"name": id, "enabled": enabled}))
     }
@@ -596,7 +634,7 @@ impl ChannelAdmin {
     pub async fn save_webhook(&self, entry: &Value) -> Done {
         let saved = self.save_webhook_row(entry).await?;
         self.reload_soon();
-        self.ensure_automation();
+        self.schedule_automation_start();
         Ok(saved)
     }
 
@@ -679,7 +717,7 @@ impl ChannelAdmin {
         self.d.webhooks.set_enabled(&id, enabled).await?.ok_or_else(|| format!("webhook \"{id}\" does not exist"))?;
         self.reload_soon();
         if enabled {
-            self.ensure_automation();
+            self.schedule_automation_start();
         }
         Ok(json!({"name": id, "enabled": enabled}))
     }

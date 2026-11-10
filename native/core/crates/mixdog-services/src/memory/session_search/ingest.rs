@@ -118,7 +118,7 @@ pub struct SessionSearchIngest {
 
 fn log_failure(what: &str, error: &MemoryError) {
     if !matches!(error, MemoryError::Cancelled) {
-        eprintln!("[session-search] {what} failed: {}", error.message());
+        mixdog_rt::node_stderr!("[session-search] {what} failed: {}", error.message());
     }
 }
 

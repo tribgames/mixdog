@@ -1,6 +1,7 @@
 #[macro_use]
 mod compact_support;
 mod agent_tool;
+mod bridge_calls;
 mod compact_commit;
 mod compact_context_status;
 mod compact_dropped;
@@ -22,6 +23,7 @@ mod jobs;
 mod native_search;
 mod nested;
 mod policy_gate;
+mod result_kind;
 mod run_loop;
 mod settings_service;
 mod tail_rules;

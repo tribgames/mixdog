@@ -19,6 +19,8 @@ use super::ModelsDev;
 use super::lookup::Lookup;
 use super::record::Capability;
 use super::rosters::Rosters;
+use super::route_meta::RouteProvider;
+use super::route_meta::RouteProviders;
 use crate::oauth::CredentialIo;
 use crate::transport::http::HttpSend;
 use super::ModelsDevSource;
@@ -49,6 +51,16 @@ pub struct CatalogService {
     /// The startup refresh is expected and has not settled (`rt.startupProviderCatalogRefreshPending`): set when the
     /// warm-up loop is armed, so a job scheduled before the refresh began waits for it too.
     startup_pending: std::sync::atomic::AtomicBool,
+    /// `modelMetaByRoute` and its placeholder keys (`lookupModelMeta`).
+    pub(super) meta: std::sync::Mutex<super::facts::MetaMemo>,
+    /// `catalogRevision(reg())`, bound by the readiness that owns the registry; 0 until bound.
+    revision: arc_swap::ArcSwapOption<Box<dyn Fn() -> u64 + Send + Sync>>,
+    /// `caches.providerModelsLoadSeq`, bound by the provider-models cache that owns it; 0 until bound.
+    load_seq: arc_swap::ArcSwapOption<Box<dyn Fn() -> u64 + Send + Sync>>,
+    /// `reg().getProvider`, bound by the readiness that owns the registry.
+    providers: arc_swap::ArcSwapOption<RouteProviders>,
+    /// `scheduleProviderModelWarmup`, bound by the provider-models cache that performs the warm-up.
+    warmup: arc_swap::ArcSwapOption<Box<dyn Fn() + Send + Sync>>,
 }
 
 impl CatalogService {
@@ -73,10 +85,63 @@ impl CatalogService {
             settled: std::sync::Mutex::new(Vec::new()),
             refreshing: std::sync::atomic::AtomicUsize::new(0),
             startup_pending: std::sync::atomic::AtomicBool::new(false),
+            meta: std::sync::Mutex::default(),
+            revision: arc_swap::ArcSwapOption::empty(),
+            load_seq: arc_swap::ArcSwapOption::empty(),
+            providers: arc_swap::ArcSwapOption::empty(),
+            warmup: arc_swap::ArcSwapOption::empty(),
         };
         service.publish_listing();
         service
     }
+
+    /// Binds `catalogRevision(reg())`: the provider registry's catalog revision. The route-meta memo is dropped
+    /// whenever it moves (`syncCatalogRevision`).
+    pub fn bind_revision(&self, revision: impl Fn() -> u64 + Send + Sync + 'static) {
+        let revision: Box<dyn Fn() -> u64 + Send + Sync> = Box::new(revision);
+        let observed = revision();
+        self.revision.store(Some(Arc::new(revision)));
+        self.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner).observe(observed);
+    }
+
+    pub(super) fn catalog_revision(&self) -> u64 {
+        self.revision.load().as_ref().map_or(0, |revision| revision())
+    }
+
+    /// Binds `reg().getProvider(name)`: the registered providers as the route-meta memo asks about them.
+    pub fn bind_providers(&self, providers: RouteProviders) {
+        self.providers.store(Some(Arc::new(providers)));
+    }
+
+    /// Binds `scheduleProviderModelWarmup`: what a non-fetching route-meta miss asks the provider-models cache to do (load
+    /// the catalog, so the placeholder is replaced by the load's rows).
+    pub fn bind_warmup(&self, warmup: impl Fn() + Send + Sync + 'static) {
+        let warmup: Box<dyn Fn() + Send + Sync> = Box::new(warmup);
+        self.warmup.store(Some(Arc::new(warmup)));
+    }
+
+    pub(super) fn schedule_warmup(&self) {
+        if let Some(warmup) = self.warmup.load().as_ref() {
+            warmup();
+        }
+    }
+
+    /// `reg().getProvider(name)`; `None` when none is registered (or none is bound).
+    pub(super) fn route_provider(&self, name: &str) -> Option<RouteProvider> {
+        (self.providers.load().as_ref()?)(name)
+    }
+
+    /// Binds `caches.providerModelsLoadSeq`, the sequence the provider-models cache above the catalog keeps (read with
+    /// the registry revision synced, as `lookupModelMeta` reads it). 0 until bound.
+    pub fn bind_load_seq(&self, seq: impl Fn() -> u64 + Send + Sync + 'static) {
+        let seq: Box<dyn Fn() -> u64 + Send + Sync> = Box::new(seq);
+        self.load_seq.store(Some(Arc::new(seq)));
+    }
+
+    pub(super) fn load_seq(&self) -> u64 {
+        self.load_seq.load().as_ref().map_or(0, |seq| seq())
+    }
+
 
     /// The catalog as the daemon composes it, the one place that decides which layers it has: cold-started
     /// from `initial`, with the models.dev table, the LiteLLM table (`litellm-catalog.json`, fetched and cached

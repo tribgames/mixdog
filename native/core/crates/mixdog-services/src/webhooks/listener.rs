@@ -65,7 +65,7 @@ impl WebhookListener {
             match TcpListener::bind((Ipv4Addr::LOCALHOST, port)).await {
                 Ok(listener) => break listener,
                 Err(e) if e.kind() == ErrorKind::AddrInUse && port < max_port => {
-                    tracing::info!("webhook: port {port} already in use, trying {}", port + 1);
+                    mixdog_rt::node_stderr!("mixdog webhook: port {port} already in use, trying {}", port + 1);
                     port += 1;
                 }
                 Err(e) if e.kind() == ErrorKind::AddrInUse => {
@@ -75,7 +75,7 @@ impl WebhookListener {
             }
         };
         let port = listener.local_addr().map_err(|e| format!("listen error: {e}"))?.port();
-        tracing::info!("webhook: listening on 127.0.0.1:{port}");
+        mixdog_rt::node_stderr!("mixdog webhook: listening on 127.0.0.1:{port}");
         let stop = CancellationToken::new();
         let listening = service.listening();
         let accept = tokio::spawn(accept_loop(listener, service, stop.clone()));
@@ -91,7 +91,7 @@ impl WebhookListener {
     pub async fn stop(self) {
         self.stop.cancel();
         let _ = self.accept.await;
-        tracing::info!("webhook: stopped");
+        mixdog_rt::node_stderr!("mixdog webhook: stopped");
     }
 }
 

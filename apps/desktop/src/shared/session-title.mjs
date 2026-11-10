@@ -180,8 +180,11 @@ export function hasMeaningfulSessionTitleText(value) {
  * preview; desktop titles deliberately strip runtime envelopes and payloads.
  */
 // Bounded exact-input memo for the (pure) cleaning stage: the catalog build
-// titles the same preview several times per row.
-const CLEANED_MEMO_LIMIT = 256;
+// titles the same preview several times per row, and titles every row again
+// on each build. At 256 entries a store of a few thousand sessions pushed
+// every title out before the next build asked for it, so each build cleaned
+// them all again (about 1 GB of garbage every two minutes on a busy daemon).
+const CLEANED_MEMO_LIMIT = 16_384;
 const cleanedMemo = new Map();
 export const sessionTitleNormalizationStats = { cleaned: 0 };
 

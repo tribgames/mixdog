@@ -17,7 +17,7 @@ use mixdog_core_ports::ports::route::Route;
 
 use super::deferred_manifest::apply_initial_manifest;
 use mixdog_core_run::run_host::session_context_meta::ContextMeta;
-use super::route_change::RouteFacts;
+use super::route_change::{RouteFacts, SurfaceLookup};
 use super::session_tools::header_scope;
 use super::session_cache_opts::session_provider_cache_opts;
 use mixdog_core_run::run_host::session_context_meta::session_context_meta;
@@ -174,7 +174,7 @@ pub fn resumed_surface_change(surface: &ToolSurface, clock: &dyn Clock, header: 
     let missing: Vec<&String> = old.iter().filter(|name| !available.contains(name)).collect();
     if !missing.is_empty() {
         let names: Vec<&str> = missing.iter().map(|name| name.as_str()).collect();
-        tracing::warn!("[session] Warning: {} tools no longer available: {}", missing.len(), names.join(", "));
+        mixdog_rt::node_stderr!("[session] Warning: {} tools no longer available: {}", missing.len(), names.join(", "));
     }
     change
 }
@@ -206,6 +206,12 @@ fn exposure_change(surface: &ToolSurface, clock: &dyn Clock, header: &Header, mu
 #[async_trait::async_trait]
 pub trait PrepareTools: Send + Sync {
     async fn prepare(&self, header: &Header) -> Option<PreparedTools>;
+
+    /// The skill listing of `cwd`: the one outside read of the preparation, awaited by a route change on the session's actor.
+    async fn skills_listed(&self, cwd: &std::path::Path) -> Result<bool, String>;
+
+    /// [`PrepareTools::prepare`] over a listing already collected: synchronous and pure.
+    fn prepare_with(&self, header: &Header, skills_listed: bool) -> Option<PreparedTools>;
 }
 
 /// The route facts of the running host: the catalog's context windows, the configured cache
@@ -264,8 +270,20 @@ impl RouteFacts for AiRouteFacts {
         session_provider_cache_opts(provider, session_id, agent, header, &(self.auto_clear)())
     }
 
-    async fn surface_change(&self, header: &Header, previous: &Route) -> HeaderChange {
-        let prepared = if is_first_route(previous) { None } else { self.prepare_tools.prepare(header).await };
+    async fn surface_lookup(&self, header: &Header, previous: &Route) -> SurfaceLookup {
+        if is_first_route(previous) {
+            return None;
+        }
+        let cwd = super::resume_tools::header_cwd(header);
+        let listed = self.prepare_tools.skills_listed(&cwd).await;
+        Some((cwd, listed))
+    }
+
+    fn surface_change(&self, header: &Header, previous: &Route, lookup: &SurfaceLookup) -> HeaderChange {
+        let prepared = match lookup {
+            Some((_, Ok(listed))) if !is_first_route(previous) => self.prepare_tools.prepare_with(header, *listed),
+            _ => None,
+        };
         let surface = ToolSurface { host: self.surface_host.as_ref(), clock: self.clock.as_ref() };
         let agent = header.get("agent").and_then(Value::as_str);
         route_surface_change(&surface, self.clock.as_ref(), header, previous, prepared, (self.hidden_agent)(agent))

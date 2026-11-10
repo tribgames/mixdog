@@ -121,6 +121,11 @@ impl Tool for EditTool {
         let shown = display_path(abs.as_path(), &ctx.cwd);
         let full = abs.as_path().display().to_string();
 
+        // `withEditTargetLock` asks `existsSync` before it locks anything: a target that cannot be stat'ed at all (a
+        // missing file, an over-long name, a denied parent) is missing or inaccessible, whatever the cause.
+        if !old.is_empty() && ctx.files.stat(ctx.io.interactive, abs.clone()).await.is_err() {
+            return Err(unreadable(&full, "target is missing or inaccessible"));
+        }
         let _locked = lock_edit_target(ctx, &abs).await?;
         let pre = match &self.state {
             Some(_) => ctx.files.stat(ctx.io.interactive, abs.clone()).await.ok().and_then(|s| FileVersion::of(&s)),

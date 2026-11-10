@@ -1,0 +1,870 @@
+{
+ "systemRoot": "C:\\WINDOWS",
+ "layouts": [
+  {
+   "id": "installer",
+   "files": [
+    "git-bash.exe",
+    "usr/bin/",
+    "cmd/git.exe",
+    "bin/git.exe",
+    "mingw64/bin/git.exe"
+   ],
+   "config": null,
+   "path": "<ROOT>\\cmd",
+   "launch": {
+    "command": "<ROOT>\\mingw64\\bin\\git.exe",
+    "root": "<ROOT>",
+    "msystem": "MINGW64",
+    "msysConfig": []
+   }
+  },
+  {
+   "id": "bin launcher",
+   "files": [
+    "git-bash.exe",
+    "usr/bin/",
+    "cmd/git.exe",
+    "bin/git.exe",
+    "mingw64/bin/git.exe"
+   ],
+   "config": null,
+   "path": "<ROOT>\\bin",
+   "launch": {
+    "command": "<ROOT>\\mingw64\\bin\\git.exe",
+    "root": "<ROOT>",
+    "msystem": "MINGW64",
+    "msysConfig": []
+   }
+  },
+  {
+   "id": "quoted entry with spaces",
+   "files": [
+    "git-bash.exe",
+    "usr/bin/",
+    "cmd/git.exe",
+    "bin/git.exe",
+    "mingw64/bin/git.exe"
+   ],
+   "config": null,
+   "path": "  \"<ROOT>\\cmd\"  ",
+   "launch": {
+    "command": "<ROOT>\\mingw64\\bin\\git.exe",
+    "root": "<ROOT>",
+    "msystem": "MINGW64",
+    "msysConfig": []
+   }
+  },
+  {
+   "id": "empty entries first",
+   "files": [
+    "git-bash.exe",
+    "usr/bin/",
+    "cmd/git.exe",
+    "bin/git.exe",
+    "mingw64/bin/git.exe"
+   ],
+   "config": null,
+   "path": ";; ;<ROOT>\\cmd;",
+   "launch": {
+    "command": "<ROOT>\\mingw64\\bin\\git.exe",
+    "root": "<ROOT>",
+    "msystem": "MINGW64",
+    "msysConfig": []
+   }
+  },
+  {
+   "id": "upper-case directory",
+   "files": [
+    "git-bash.exe",
+    "usr/bin/",
+    "CMD/git.exe",
+    "mingw64/bin/git.exe"
+   ],
+   "config": null,
+   "path": "<ROOT>\\CMD",
+   "launch": {
+    "command": "<ROOT>\\mingw64\\bin\\git.exe",
+    "root": "<ROOT>",
+    "msystem": "MINGW64",
+    "msysConfig": []
+   }
+  },
+  {
+   "id": "clangarm64 only",
+   "files": [
+    "git-bash.exe",
+    "usr/bin/",
+    "cmd/git.exe",
+    "clangarm64/bin/git.exe"
+   ],
+   "config": null,
+   "path": "<ROOT>\\cmd",
+   "launch": {
+    "command": "<ROOT>\\clangarm64\\bin\\git.exe",
+    "root": "<ROOT>",
+    "msystem": "CLANGARM64",
+    "msysConfig": []
+   }
+  },
+  {
+   "id": "mingw32 only",
+   "files": [
+    "git-bash.exe",
+    "usr/bin/",
+    "cmd/git.exe",
+    "mingw32/bin/git.exe"
+   ],
+   "config": null,
+   "path": "<ROOT>\\cmd",
+   "launch": {
+    "command": "<ROOT>\\mingw32\\bin\\git.exe",
+    "root": "<ROOT>",
+    "msystem": "MINGW32",
+    "msysConfig": []
+   }
+  },
+  {
+   "id": "two msystems",
+   "files": [
+    "git-bash.exe",
+    "usr/bin/",
+    "cmd/git.exe",
+    "bin/git.exe",
+    "mingw64/bin/git.exe",
+    "mingw32/bin/git.exe"
+   ],
+   "config": null,
+   "path": "<ROOT>\\cmd",
+   "launch": null
+  },
+  {
+   "id": "no msystem",
+   "files": [
+    "git-bash.exe",
+    "usr/bin/",
+    "cmd/git.exe"
+   ],
+   "config": null,
+   "path": "<ROOT>\\cmd",
+   "launch": null
+  },
+  {
+   "id": "no git-bash.exe",
+   "files": [
+    "usr/bin/",
+    "cmd/git.exe",
+    "mingw64/bin/git.exe"
+   ],
+   "config": null,
+   "path": "<ROOT>\\cmd",
+   "launch": null
+  },
+  {
+   "id": "no usr/bin",
+   "files": [
+    "git-bash.exe",
+    "cmd/git.exe",
+    "mingw64/bin/git.exe"
+   ],
+   "config": null,
+   "path": "<ROOT>\\cmd",
+   "launch": null
+  },
+  {
+   "id": "not cmd or bin",
+   "files": [
+    "git-bash.exe",
+    "usr/bin/",
+    "tools/git.exe",
+    "mingw64/bin/git.exe"
+   ],
+   "config": null,
+   "path": "<ROOT>\\tools",
+   "launch": null
+  },
+  {
+   "id": "git.com beside git.exe",
+   "files": [
+    "git-bash.exe",
+    "usr/bin/",
+    "cmd/git.exe",
+    "bin/git.exe",
+    "mingw64/bin/git.exe",
+    "cmd/git.com"
+   ],
+   "config": null,
+   "path": "<ROOT>\\cmd",
+   "launch": null
+  },
+  {
+   "id": "git.com in an earlier entry",
+   "files": [
+    "git-bash.exe",
+    "usr/bin/",
+    "cmd/git.exe",
+    "bin/git.exe",
+    "mingw64/bin/git.exe",
+    "shim/git.com"
+   ],
+   "config": null,
+   "path": "<ROOT>\\shim;<ROOT>\\cmd",
+   "launch": null
+  },
+  {
+   "id": "another git.exe first",
+   "files": [
+    "git-bash.exe",
+    "usr/bin/",
+    "cmd/git.exe",
+    "bin/git.exe",
+    "mingw64/bin/git.exe",
+    "other/git.exe"
+   ],
+   "config": null,
+   "path": "<ROOT>\\other;<ROOT>\\cmd",
+   "launch": null
+  },
+  {
+   "id": "relative entry first",
+   "files": [
+    "git-bash.exe",
+    "usr/bin/",
+    "cmd/git.exe",
+    "bin/git.exe",
+    "mingw64/bin/git.exe"
+   ],
+   "config": null,
+   "path": "relative\\dir;<ROOT>\\cmd",
+   "launch": null
+  },
+  {
+   "id": "rooted entry without a drive is absolute",
+   "files": [
+    "git-bash.exe",
+    "usr/bin/",
+    "cmd/git.exe",
+    "bin/git.exe",
+    "mingw64/bin/git.exe"
+   ],
+   "config": null,
+   "path": "\\no-such-folder-for-git;<ROOT>\\cmd",
+   "launch": {
+    "command": "<ROOT>\\mingw64\\bin\\git.exe",
+    "root": "<ROOT>",
+    "msystem": "MINGW64",
+    "msysConfig": []
+   }
+  },
+  {
+   "id": "forward slashes",
+   "files": [
+    "git-bash.exe",
+    "usr/bin/",
+    "cmd/git.exe",
+    "bin/git.exe",
+    "mingw64/bin/git.exe"
+   ],
+   "config": null,
+   "path": "<ROOT>/cmd",
+   "launch": {
+    "command": "<ROOT>\\mingw64\\bin\\git.exe",
+    "root": "<ROOT>",
+    "msystem": "MINGW64",
+    "msysConfig": []
+   }
+  },
+  {
+   "id": "no git.exe on PATH",
+   "files": [
+    "git-bash.exe",
+    "usr/bin/",
+    "cmd/git.exe",
+    "bin/git.exe",
+    "mingw64/bin/git.exe"
+   ],
+   "config": null,
+   "path": "<ROOT>\\usr\\bin",
+   "launch": null
+  },
+  {
+   "id": "empty PATH",
+   "files": [
+    "git-bash.exe",
+    "usr/bin/",
+    "cmd/git.exe",
+    "bin/git.exe",
+    "mingw64/bin/git.exe"
+   ],
+   "config": null,
+   "path": "",
+   "launch": null
+  },
+  {
+   "id": "msys config",
+   "files": [
+    "git-bash.exe",
+    "usr/bin/",
+    "cmd/git.exe",
+    "bin/git.exe",
+    "mingw64/bin/git.exe",
+    "etc/git-bash.config"
+   ],
+   "config": "# comment\r\nMSYS=winsymlinks:nativestrict\r\nOTHER=1\nMSYS=error_start=\\x\n  MSYS=indented\n",
+   "path": "<ROOT>\\cmd",
+   "launch": {
+    "command": "<ROOT>\\mingw64\\bin\\git.exe",
+    "root": "<ROOT>",
+    "msystem": "MINGW64",
+    "msysConfig": [
+     "winsymlinks:nativestrict",
+     "error_start=\\x"
+    ]
+   }
+  },
+  {
+   "id": "unc path",
+   "files": [
+    "git-bash.exe",
+    "usr/bin/",
+    "cmd/git.exe",
+    "bin/git.exe",
+    "mingw64/bin/git.exe"
+   ],
+   "config": null,
+   "path": "<UNC>\\cmd",
+   "launch": {
+    "command": "<UNC>\\mingw64\\bin\\git.exe",
+    "root": "<UNC>",
+    "msystem": "MINGW64",
+    "msysConfig": []
+   }
+  }
+ ],
+ "environments": [
+  {
+   "id": "home from USERPROFILE",
+   "layout": "installer",
+   "dirs": [],
+   "lowerSystem32": false,
+   "base": {
+    "PATH": "C:\\x",
+    "USERPROFILE": "C:\\Users\\u"
+   },
+   "env": {
+    "PATH": "<ROOT>\\mingw64\\bin;<ROOT>\\usr\\bin;C:\\Users\\u\\bin;C:\\x",
+    "USERPROFILE": "C:\\Users\\u",
+    "MSYSTEM": "MINGW64",
+    "PLINK_PROTOCOL": "ssh",
+    "HOME": "C:\\Users\\u"
+   }
+  },
+  {
+   "id": "HOME kept",
+   "layout": "installer",
+   "dirs": [],
+   "lowerSystem32": false,
+   "base": {
+    "PATH": "C:\\x",
+    "HOME": "C:\\h",
+    "USERPROFILE": "C:\\Users\\u"
+   },
+   "env": {
+    "PATH": "<ROOT>\\mingw64\\bin;<ROOT>\\usr\\bin;C:\\h\\bin;C:\\x",
+    "HOME": "C:\\h",
+    "USERPROFILE": "C:\\Users\\u",
+    "MSYSTEM": "MINGW64",
+    "PLINK_PROTOCOL": "ssh"
+   }
+  },
+  {
+   "id": "HOME from an existing HOMEPATH",
+   "layout": "installer",
+   "dirs": [
+    "home/"
+   ],
+   "lowerSystem32": false,
+   "base": {
+    "PATH": "C:\\x",
+    "HOMEDRIVE": "",
+    "HOMEPATH": "<ROOT>\\home",
+    "USERPROFILE": "C:\\Users\\u"
+   },
+   "env": {
+    "PATH": "<ROOT>\\mingw64\\bin;<ROOT>\\usr\\bin;<ROOT>\\home\\bin;C:\\x",
+    "HOMEDRIVE": "",
+    "HOMEPATH": "<ROOT>\\home",
+    "USERPROFILE": "C:\\Users\\u",
+    "MSYSTEM": "MINGW64",
+    "PLINK_PROTOCOL": "ssh",
+    "HOME": "<ROOT>\\home"
+   }
+  },
+  {
+   "id": "HOMEPATH that is not a folder",
+   "layout": "installer",
+   "dirs": [],
+   "lowerSystem32": false,
+   "base": {
+    "PATH": "C:\\x",
+    "HOMEDRIVE": "",
+    "HOMEPATH": "<ROOT>\\nowhere",
+    "USERPROFILE": "C:\\Users\\u"
+   },
+   "env": {
+    "PATH": "<ROOT>\\mingw64\\bin;<ROOT>\\usr\\bin;C:\\Users\\u\\bin;C:\\x",
+    "HOMEDRIVE": "",
+    "HOMEPATH": "<ROOT>\\nowhere",
+    "USERPROFILE": "C:\\Users\\u",
+    "MSYSTEM": "MINGW64",
+    "PLINK_PROTOCOL": "ssh",
+    "HOME": "C:\\Users\\u"
+   }
+  },
+  {
+   "id": "HOMEPATH without USERPROFILE",
+   "layout": "installer",
+   "dirs": [],
+   "lowerSystem32": false,
+   "base": {
+    "PATH": "C:\\x",
+    "HOMEDRIVE": "",
+    "HOMEPATH": "<ROOT>\\nowhere"
+   },
+   "env": {
+    "PATH": "<ROOT>\\mingw64\\bin;<ROOT>\\usr\\bin;\\bin;C:\\x",
+    "HOMEDRIVE": "",
+    "HOMEPATH": "<ROOT>\\nowhere",
+    "MSYSTEM": "MINGW64",
+    "PLINK_PROTOCOL": "ssh"
+   }
+  },
+  {
+   "id": "HOMEPATH is the system directory",
+   "layout": "installer",
+   "dirs": [],
+   "lowerSystem32": false,
+   "base": {
+    "PATH": "C:\\x",
+    "HOMEDRIVE": "",
+    "HOMEPATH": "<SYSTEM32>",
+    "USERPROFILE": "C:\\Users\\u"
+   },
+   "env": {
+    "PATH": "<ROOT>\\mingw64\\bin;<ROOT>\\usr\\bin;C:\\Users\\u\\bin;C:\\x",
+    "HOMEDRIVE": "",
+    "HOMEPATH": "C:\\WINDOWS\\System32",
+    "USERPROFILE": "C:\\Users\\u",
+    "MSYSTEM": "MINGW64",
+    "PLINK_PROTOCOL": "ssh",
+    "HOME": "C:\\Users\\u"
+   }
+  },
+  {
+   "id": "HOMEPATH is the system directory in other case",
+   "layout": "installer",
+   "dirs": [],
+   "lowerSystem32": true,
+   "base": {
+    "PATH": "C:\\x",
+    "HOMEDRIVE": "",
+    "HOMEPATH": "<SYSTEM32>",
+    "USERPROFILE": "C:\\Users\\u"
+   },
+   "env": {
+    "PATH": "<ROOT>\\mingw64\\bin;<ROOT>\\usr\\bin;C:\\Users\\u\\bin;C:\\x",
+    "HOMEDRIVE": "",
+    "HOMEPATH": "c:\\windows\\system32",
+    "USERPROFILE": "C:\\Users\\u",
+    "MSYSTEM": "MINGW64",
+    "PLINK_PROTOCOL": "ssh",
+    "HOME": "C:\\Users\\u"
+   }
+  },
+  {
+   "id": "no home at all",
+   "layout": "installer",
+   "dirs": [],
+   "lowerSystem32": false,
+   "base": {
+    "PATH": "C:\\x"
+   },
+   "env": {
+    "PATH": "<ROOT>\\mingw64\\bin;<ROOT>\\usr\\bin;\\bin;C:\\x",
+    "MSYSTEM": "MINGW64",
+    "PLINK_PROTOCOL": "ssh"
+   }
+  },
+  {
+   "id": "HOME ending in a backslash",
+   "layout": "installer",
+   "dirs": [],
+   "lowerSystem32": false,
+   "base": {
+    "PATH": "C:\\x",
+    "HOME": "C:\\h\\"
+   },
+   "env": {
+    "PATH": "<ROOT>\\mingw64\\bin;<ROOT>\\usr\\bin;C:\\h\\bin;C:\\x",
+    "HOME": "C:\\h\\",
+    "MSYSTEM": "MINGW64",
+    "PLINK_PROTOCOL": "ssh"
+   }
+  },
+  {
+   "id": "PLINK_PROTOCOL kept",
+   "layout": "installer",
+   "dirs": [],
+   "lowerSystem32": false,
+   "base": {
+    "PATH": "C:\\x",
+    "PLINK_PROTOCOL": "telnet",
+    "HOME": "C:\\h"
+   },
+   "env": {
+    "PATH": "<ROOT>\\mingw64\\bin;<ROOT>\\usr\\bin;C:\\h\\bin;C:\\x",
+    "PLINK_PROTOCOL": "telnet",
+    "HOME": "C:\\h",
+    "MSYSTEM": "MINGW64"
+   }
+  },
+  {
+   "id": "MSYS prepended",
+   "layout": "msys config",
+   "dirs": [],
+   "lowerSystem32": false,
+   "base": {
+    "PATH": "C:\\x",
+    "MSYS": "existing",
+    "HOME": "C:\\h"
+   },
+   "env": {
+    "PATH": "<ROOT>\\mingw64\\bin;<ROOT>\\usr\\bin;C:\\h\\bin;C:\\x",
+    "MSYS": "error_start=\\x winsymlinks:nativestrict existing",
+    "HOME": "C:\\h",
+    "MSYSTEM": "MINGW64",
+    "PLINK_PROTOCOL": "ssh"
+   }
+  },
+  {
+   "id": "MSYS from the config alone",
+   "layout": "msys config",
+   "dirs": [],
+   "lowerSystem32": false,
+   "base": {
+    "PATH": "C:\\x",
+    "HOME": "C:\\h"
+   },
+   "env": {
+    "PATH": "<ROOT>\\mingw64\\bin;<ROOT>\\usr\\bin;C:\\h\\bin;C:\\x",
+    "HOME": "C:\\h",
+    "MSYSTEM": "MINGW64",
+    "PLINK_PROTOCOL": "ssh",
+    "MSYS": "error_start=\\x winsymlinks:nativestrict"
+   }
+  },
+  {
+   "id": "MSYSTEM replaced",
+   "layout": "installer",
+   "dirs": [],
+   "lowerSystem32": false,
+   "base": {
+    "PATH": "C:\\x",
+    "MSYSTEM": "MINGW32",
+    "HOME": "C:\\h"
+   },
+   "env": {
+    "PATH": "<ROOT>\\mingw64\\bin;<ROOT>\\usr\\bin;C:\\h\\bin;C:\\x",
+    "MSYSTEM": "MINGW64",
+    "HOME": "C:\\h",
+    "PLINK_PROTOCOL": "ssh"
+   }
+  },
+  {
+   "id": "names in other case",
+   "layout": "installer",
+   "dirs": [],
+   "lowerSystem32": false,
+   "base": {
+    "path": "C:\\x",
+    "home": "C:\\h",
+    "Msystem": "X",
+    "plink_protocol": "p"
+   },
+   "env": {
+    "path": "<ROOT>\\mingw64\\bin;<ROOT>\\usr\\bin;C:\\h\\bin;C:\\x",
+    "home": "C:\\h",
+    "Msystem": "MINGW64",
+    "plink_protocol": "p"
+   }
+  },
+  {
+   "id": "two spellings of PATH",
+   "layout": "installer",
+   "dirs": [],
+   "lowerSystem32": false,
+   "base": {
+    "Path": "C:\\lower",
+    "PATH": "C:\\upper",
+    "HOME": "C:\\h"
+   },
+   "env": {
+    "Path": "C:\\lower",
+    "PATH": "<ROOT>\\mingw64\\bin;<ROOT>\\usr\\bin;C:\\h\\bin;C:\\upper",
+    "HOME": "C:\\h",
+    "MSYSTEM": "MINGW64",
+    "PLINK_PROTOCOL": "ssh"
+   }
+  },
+  {
+   "id": "two spellings of HOME",
+   "layout": "installer",
+   "dirs": [],
+   "lowerSystem32": false,
+   "base": {
+    "PATH": "C:\\x",
+    "home": "C:\\low",
+    "HOME": "C:\\up"
+   },
+   "env": {
+    "PATH": "<ROOT>\\mingw64\\bin;<ROOT>\\usr\\bin;C:\\up\\bin;C:\\x",
+    "home": "C:\\low",
+    "HOME": "C:\\up",
+    "MSYSTEM": "MINGW64",
+    "PLINK_PROTOCOL": "ssh"
+   }
+  },
+  {
+   "id": "no PATH",
+   "layout": "installer",
+   "dirs": [],
+   "lowerSystem32": false,
+   "base": {
+    "HOME": "C:\\h"
+   },
+   "env": {
+    "HOME": "C:\\h",
+    "MSYSTEM": "MINGW64",
+    "PLINK_PROTOCOL": "ssh",
+    "PATH": "<ROOT>\\mingw64\\bin;<ROOT>\\usr\\bin;C:\\h\\bin;"
+   }
+  },
+  {
+   "id": "other variables untouched",
+   "layout": "installer",
+   "dirs": [],
+   "lowerSystem32": false,
+   "base": {
+    "PATH": "C:\\x",
+    "HOME": "C:\\h",
+    "Foo": "bar",
+    "EMPTY": ""
+   },
+   "env": {
+    "PATH": "<ROOT>\\mingw64\\bin;<ROOT>\\usr\\bin;C:\\h\\bin;C:\\x",
+    "HOME": "C:\\h",
+    "Foo": "bar",
+    "EMPTY": "",
+    "MSYSTEM": "MINGW64",
+    "PLINK_PROTOCOL": "ssh"
+   }
+  }
+ ],
+ "merges": [
+  {
+   "id": "nothing from the caller",
+   "layout": "installer",
+   "process": {
+    "PATH": "<ROOT>\\cmd;C:\\p",
+    "HOME": "C:\\h"
+   },
+   "set": {},
+   "remove": [],
+   "command": "<ROOT>\\mingw64\\bin\\git.exe",
+   "env": {
+    "PATH": "<ROOT>\\mingw64\\bin;<ROOT>\\usr\\bin;C:\\h\\bin;<ROOT>\\cmd;C:\\p",
+    "HOME": "C:\\h",
+    "MSYSTEM": "MINGW64",
+    "PLINK_PROTOCOL": "ssh"
+   }
+  },
+  {
+   "id": "caller PATH names the install",
+   "layout": "installer",
+   "process": {
+    "PATH": "C:\\p",
+    "HOME": "C:\\h"
+   },
+   "set": {
+    "PATH": "<ROOT>\\cmd;C:\\caller"
+   },
+   "remove": [],
+   "command": "<ROOT>\\mingw64\\bin\\git.exe",
+   "env": {
+    "PATH": "<ROOT>\\mingw64\\bin;<ROOT>\\usr\\bin;C:\\h\\bin;<ROOT>\\cmd;C:\\caller",
+    "HOME": "C:\\h",
+    "MSYSTEM": "MINGW64",
+    "PLINK_PROTOCOL": "ssh"
+   }
+  },
+  {
+   "id": "caller PATH replaces an inherited one",
+   "layout": "installer",
+   "process": {
+    "PATH": "<ROOT>\\cmd;C:\\inherited",
+    "HOME": "C:\\h"
+   },
+   "set": {
+    "PATH": "<ROOT>\\cmd;C:\\caller"
+   },
+   "remove": [],
+   "command": "<ROOT>\\mingw64\\bin\\git.exe",
+   "env": {
+    "PATH": "<ROOT>\\mingw64\\bin;<ROOT>\\usr\\bin;C:\\h\\bin;<ROOT>\\cmd;C:\\caller",
+    "HOME": "C:\\h",
+    "MSYSTEM": "MINGW64",
+    "PLINK_PROTOCOL": "ssh"
+   }
+  },
+  {
+   "id": "caller MSYSTEM",
+   "layout": "installer",
+   "process": {
+    "PATH": "<ROOT>\\cmd",
+    "HOME": "C:\\h"
+   },
+   "set": {
+    "MSYSTEM": "UCRT64"
+   },
+   "remove": [],
+   "command": "<ROOT>\\mingw64\\bin\\git.exe",
+   "env": {
+    "PATH": "<ROOT>\\mingw64\\bin;<ROOT>\\usr\\bin;C:\\h\\bin;<ROOT>\\cmd",
+    "HOME": "C:\\h",
+    "MSYSTEM": "MINGW64",
+    "PLINK_PROTOCOL": "ssh"
+   }
+  },
+  {
+   "id": "caller MSYS with a config",
+   "layout": "msys config",
+   "process": {
+    "PATH": "<ROOT>\\cmd",
+    "HOME": "C:\\h"
+   },
+   "set": {
+    "MSYS": "mine"
+   },
+   "remove": [],
+   "command": "<ROOT>\\mingw64\\bin\\git.exe",
+   "env": {
+    "PATH": "<ROOT>\\mingw64\\bin;<ROOT>\\usr\\bin;C:\\h\\bin;<ROOT>\\cmd",
+    "HOME": "C:\\h",
+    "MSYS": "error_start=\\x winsymlinks:nativestrict mine",
+    "MSYSTEM": "MINGW64",
+    "PLINK_PROTOCOL": "ssh"
+   }
+  },
+  {
+   "id": "caller PLINK_PROTOCOL and HOME",
+   "layout": "installer",
+   "process": {
+    "PATH": "<ROOT>\\cmd",
+    "USERPROFILE": "C:\\Users\\u"
+   },
+   "set": {
+    "PLINK_PROTOCOL": "telnet",
+    "HOME": "C:\\callerhome"
+   },
+   "remove": [],
+   "command": "<ROOT>\\mingw64\\bin\\git.exe",
+   "env": {
+    "PATH": "<ROOT>\\mingw64\\bin;<ROOT>\\usr\\bin;C:\\callerhome\\bin;<ROOT>\\cmd",
+    "USERPROFILE": "C:\\Users\\u",
+    "PLINK_PROTOCOL": "telnet",
+    "HOME": "C:\\callerhome",
+    "MSYSTEM": "MINGW64"
+   }
+  },
+  {
+   "id": "caller removes HOME",
+   "layout": "installer",
+   "process": {
+    "PATH": "<ROOT>\\cmd",
+    "HOME": "C:\\h"
+   },
+   "set": {},
+   "remove": [
+    "HOME"
+   ],
+   "command": "<ROOT>\\mingw64\\bin\\git.exe",
+   "env": {
+    "PATH": "<ROOT>\\mingw64\\bin;<ROOT>\\usr\\bin;\\bin;<ROOT>\\cmd",
+    "MSYSTEM": "MINGW64",
+    "PLINK_PROTOCOL": "ssh"
+   }
+  },
+  {
+   "id": "caller removes USERPROFILE",
+   "layout": "installer",
+   "process": {
+    "PATH": "<ROOT>\\cmd",
+    "USERPROFILE": "C:\\Users\\u"
+   },
+   "set": {},
+   "remove": [
+    "USERPROFILE"
+   ],
+   "command": "<ROOT>\\mingw64\\bin\\git.exe",
+   "env": {
+    "PATH": "<ROOT>\\mingw64\\bin;<ROOT>\\usr\\bin;\\bin;<ROOT>\\cmd",
+    "MSYSTEM": "MINGW64",
+    "PLINK_PROTOCOL": "ssh"
+   }
+  },
+  {
+   "id": "caller sets everything at once",
+   "layout": "msys config",
+   "process": {
+    "PATH": "C:\\p",
+    "MSYS": "inherited",
+    "HOME": "C:\\h"
+   },
+   "set": {
+    "PATH": "<ROOT>\\cmd",
+    "MSYSTEM": "X",
+    "MSYS": "mine",
+    "GIT_TERMINAL_PROMPT": "0"
+   },
+   "remove": [],
+   "command": "<ROOT>\\mingw64\\bin\\git.exe",
+   "env": {
+    "PATH": "<ROOT>\\mingw64\\bin;<ROOT>\\usr\\bin;C:\\h\\bin;<ROOT>\\cmd",
+    "MSYS": "error_start=\\x winsymlinks:nativestrict mine",
+    "HOME": "C:\\h",
+    "MSYSTEM": "MINGW64",
+    "GIT_TERMINAL_PROMPT": "0",
+    "PLINK_PROTOCOL": "ssh"
+   }
+  },
+  {
+   "id": "no install on the caller PATH",
+   "layout": "installer",
+   "process": {
+    "PATH": "<ROOT>\\cmd",
+    "HOME": "C:\\h"
+   },
+   "set": {
+    "PATH": "C:\\nothing",
+    "MSYSTEM": "X"
+   },
+   "remove": [],
+   "command": "git",
+   "env": {
+    "PATH": "C:\\nothing",
+    "HOME": "C:\\h",
+    "MSYSTEM": "X"
+   }
+  }
+ ]
+}

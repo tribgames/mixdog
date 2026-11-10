@@ -1,0 +1,3 @@
+{
+  "file": "[daemon] before ready\n[mod] raw before ready\n[<ISO>] [daemon] ready port=<PORT> pid=<PID> in <MS>ms\n[<ISO>] [daemon] boot-phase phase=daemon-ready status=mark totalMs=<TOTAL>\n[<ISO>] [daemon] after ready\n[<ISO>] [mod] single line\n[<ISO>] [mod] first\n[mod] second\n[<ISO>] [mod] no newline\n[<ISO>] [console.warn] [mod] warned 3\n[<ISO>] [console.error] [mod] errored\n"
+}

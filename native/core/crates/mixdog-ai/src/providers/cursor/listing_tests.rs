@@ -47,6 +47,19 @@ impl BidiOpen for NoRun {
     }
 }
 
+/// The model list that outlives its timer reads as the real Node call did (`sites.cursorModelsCall`): `callCursorUnary`'s
+/// own timer, labelled `Cursor request`.
+#[tokio::test(start_paused = true)]
+async fn a_model_list_that_outlives_its_timer_reads_as_nodes() {
+    use crate::transport::site_probe::{TimingOut, assert_thrown, assert_window};
+
+    let transport = TimingOut::new();
+    let adapter = CursorAdapter::new("cursor-api", None, Some(CLIENT_VERSION_FLOOR.into()), transport.clone(), Arc::new(NoRun), Arc::new(Token));
+    let error = adapter.fetch_models("t").await.expect_err("never answers");
+    assert_window("cursorModelsCall", &transport);
+    assert_thrown("cursorModelsCall", &error.message);
+}
+
 fn adapter(answer: Vec<u8>) -> (Arc<Replay>, CursorAdapter) {
     let http = Arc::new(Replay::new(move |_request: &WireRequest| (200, answer.clone())));
     let adapter = CursorAdapter::new("cursor-api", None, Some(CLIENT_VERSION_FLOOR.into()), http.clone(), Arc::new(NoRun), Arc::new(Token));

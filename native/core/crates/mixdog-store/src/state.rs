@@ -98,6 +98,8 @@ pub struct ProjectRow {
     /// Order among hidden projects.
     pub hidden_rank: Option<i64>,
     pub last_used_at: Option<i64>,
+    /// The registry name, apart from the alias; `None` is not recorded (listed under the alias, else the folder).
+    pub name: Option<String>,
 }
 
 /// The transaction a domain owner writes in: typed writes of its domain rows and of its
@@ -110,11 +112,11 @@ impl StateTx<'_> {
     pub fn put_project(&self, row: &ProjectRow) -> Result<(), DbError> {
         self.tx
             .prepare_cached(
-                "INSERT INTO projects (path, alias, hidden, hidden_rank, last_used_at) VALUES (?1, ?2, ?3, ?4, ?5)
+                "INSERT INTO projects (path, alias, hidden, hidden_rank, last_used_at, name) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
                  ON CONFLICT(path) DO UPDATE SET alias = excluded.alias, hidden = excluded.hidden,
-                   hidden_rank = excluded.hidden_rank, last_used_at = excluded.last_used_at",
+                   hidden_rank = excluded.hidden_rank, last_used_at = excluded.last_used_at, name = excluded.name",
             )?
-            .execute(params![row.path, row.alias, row.hidden, row.hidden_rank, row.last_used_at])?;
+            .execute(params![row.path, row.alias, row.hidden, row.hidden_rank, row.last_used_at, row.name])?;
         Ok(())
     }
 
@@ -234,10 +236,27 @@ struct Shared {
     pool: Arc<ReadPool>,
 }
 
-const PROJECT_SELECT: &str = "SELECT path, alias, hidden, hidden_rank, last_used_at FROM projects";
+/// Brings a `user_version` 1 file to 2 in one transaction. Any other file is left to `open_schema`'s checks.
+pub(crate) fn upgrade_v1(path: &Path) -> Result<(), DbError> {
+    if !path.exists() {
+        return Ok(());
+    }
+    let mut conn = crate::sqlite::open_connection(path)?;
+    let app: i32 = conn.pragma_query_value(None, "application_id", |r| r.get(0))?;
+    let version: i32 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
+    if app == STATE_APPLICATION_ID && version == 1 {
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        tx.execute_batch(crate::schema::sql::STATE_V2_DELTA)?;
+        tx.commit()?;
+    }
+    Ok(())
+}
+
+const PROJECT_SELECT: &str = "SELECT path, alias, hidden, hidden_rank, last_used_at, name FROM projects";
 
 fn project_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<ProjectRow> {
     Ok(ProjectRow {
+        name: r.get(5)?,
         path: r.get(0)?,
         alias: r.get(1)?,
         hidden: r.get(2)?,
@@ -264,6 +283,7 @@ impl CoreState {
     /// any op can start: every `inProgress` op becomes `externalUnknown`; returns how many.
     /// Reads run as jobs on `read_lane`.
     pub fn open(thread: SqliteWriterThread, read_lane: InteractiveIo, path: &Path) -> Result<(CoreState, usize), DbError> {
+        upgrade_v1(path)?;
         let mut conn = open_schema(path, STATE_DDL, STATE_APPLICATION_ID, STATE_USER_VERSION)?;
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let recovered = tx.execute("UPDATE ops SET state = 'externalUnknown' WHERE state = 'inProgress'", [])?;
@@ -284,6 +304,22 @@ impl CoreState {
             sender,
         };
         Ok((state, recovered))
+    }
+
+    /// Test teardown: the writer's connection to the file is replaced by an in-memory one (closing the file; a later write fails
+    /// against an empty database) and the read pool's idle connections close, so the files can be removed while other handles
+    /// still exist. Returns once the writer has done it.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn close(&self) {
+        let (done, closed) = mpsc::channel::<()>();
+        let job: Job = Box::new(move |conn| {
+            *conn = Connection::open_in_memory().expect("an in-memory database opens");
+            let _ = done.send(());
+        });
+        if self.sender.send(job).is_ok() {
+            let _ = closed.recv();
+        }
+        self.shared.pool.close();
     }
 
     /// Runs `f` in one `BEGIN IMMEDIATE` transaction on the writer; commits when it

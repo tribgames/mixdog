@@ -345,6 +345,10 @@ pub struct ListingRules {
     /// name it states is the display name the shared enrichment sees.
     pub publishes_roster: bool,
     pub shape: ListingShape,
+    /// Whether the provider's Node class has `getCachedModelInfo` (the generic compat class, `WireGatewayProvider`,
+    /// Muse Code and OpenCode Go do; MiMo and Command Code do not: `openai-compat.mjs:280`, `wire-gateway.mjs:166`,
+    /// `muse-code-oauth.mjs:442`, `opencode-go-oauth.mjs:329`).
+    pub caches_model_info: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -371,6 +375,7 @@ impl ListingRules {
         servable_only: false,
         publishes_roster: false,
         shape: ListingShape::Compat,
+        caches_model_info: true,
     };
 }
 
@@ -587,6 +592,7 @@ impl CompatProfile {
                 drop_id_containing: &["-tts", "-asr"],
                 publishes_roster: true,
                 shape: ListingShape::Decorated { default_levels: &["minimal", "low", "medium", "high"], seed_when_empty: true },
+                caches_model_info: false,
                 ..ListingRules::COMPAT
             },
             retry: retry::mimo,
@@ -619,7 +625,7 @@ impl CompatProfile {
                 reauth_on_401: true,
             },
             seed_models: &[],
-            listing: ListingRules { servable_only: true, publishes_roster: true, ..ListingRules::COMPAT },
+            listing: ListingRules { servable_only: true, publishes_roster: true, caches_model_info: false, ..ListingRules::COMPAT },
             retry: retry::command_code,
         }
     }

@@ -15,10 +15,14 @@ process.env.MIXDOG_DATA_DIR = mkdtempSync(join(tmpdir(), 'inheritance-fit-'));
 for (const name of Object.keys(process.env)) {
   if (name.startsWith('MIXDOG_AGENT_COMPACT_') || name.startsWith('MIXDOG_TOKEN_CALIBRATION_')) delete process.env[name];
 }
+import { execFileSync } from 'node:child_process';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { FIXTURES_ROOT, commitStage, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
+import { FIXTURES_ROOT, REPO_ROOT, commitStage, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
+
+// The Node release the Rust port is compared with.
+const NODE_COMMIT = execFileSync('git', ['rev-parse', 'b6f10295a^{commit}'], { cwd: REPO_ROOT, encoding: 'utf8' }).trim();
 
 const tree = resolveTree(parseArgs());
 const finalDir = join(FIXTURES_ROOT, 'inheritance-fit');
@@ -87,16 +91,34 @@ const TARGETS = {
   legacy_limit_only: route('openai', 'gpt-x', null, { rawContextWindow: null, compactBoundaryTokens: null, autoCompactTokenLimit: 12_000 }),
 };
 
+// `inheritFrom` into an existing heir measures that session as it is (`inheritanceFit(carried, target)` over the live
+// `target`), so its installed `compaction` section - not `{ auto: true }` - is the policy.
+const SESSIONS = {
+  session_auto_off: route('openai', 'gpt-x', 32_000, { tools: tools(6, 4), compaction: { auto: false } }),
+  session_reserved: route('openai', 'gpt-x', 16_000, { tools: tools(6, 4), compaction: { auto: true, reservedTokens: 3_000 } }),
+  session_buffered: route('anthropic', 'claude-x', 32_000, { tools: tools(12, 8), compaction: { auto: true, bufferTokens: 4_000 } }),
+  session_installed: route('openai', 'gpt-x', 64_000, { compaction: { auto: true, reservedTokens: 800, bufferTokens: 2_000 } }),
+};
+
 const cases = [];
-for (const [targetName, target] of Object.entries(TARGETS)) {
-  const plan = inheritanceCompactionPlan(target);
-  for (const [name, messages] of Object.entries(CONVERSATIONS)) {
-    const fit = inheritanceFit(messages, target);
-    cases.push({ target: targetName, conversation: name, fit: { known: fit.known, fits: fit.fits, used: fit.used, limit: fit.limit, percent: fit.percent, messages: fit.messages }, compactable: plan !== null });
+for (const [kind, targets] of [['route', TARGETS], ['session', SESSIONS]]) {
+  for (const [targetName, target] of Object.entries(targets)) {
+    const plan = inheritanceCompactionPlan(target);
+    for (const [name, messages] of Object.entries(CONVERSATIONS)) {
+      const fit = inheritanceFit(messages, target);
+      cases.push({
+        kind,
+        target: targetName,
+        conversation: name,
+        fit: { known: fit.known, fits: fit.fits, used: fit.used, limit: fit.limit, percent: fit.percent, messages: fit.messages },
+        compactable: plan !== null,
+        budgetTokens: plan?.budgetTokens ?? null,
+      });
+    }
   }
 }
 // The token estimate prices the serialized text (a tool's schema, a replay envelope), so the key
 // order the tools and conversations were built in is part of the input; `writeJson` keeps it.
-writeJson(join(stage, 'golden.json'), { targets: TARGETS, conversations: CONVERSATIONS, cases });
-writeSetManifest(stage, { set: 'inheritance-fit', recorder, command: 'node ' + recorder + ' --tree <tree>', identityTree: tree });
+writeJson(join(stage, 'golden.json'), { targets: TARGETS, sessions: SESSIONS, conversations: CONVERSATIONS, cases });
+writeSetManifest(stage, { set: 'inheritance-fit', recorder, command: 'node ' + recorder + ' --tree <tree>', identityTree: tree, identityRef: NODE_COMMIT });
 commitStage(stage, finalDir);

@@ -1686,6 +1686,7 @@ mod tests {
             id: ThreadId::from("t"),
             window: 1,
             turn: Some(TurnId::from("r")),
+            turn_started_at_ms: None,
         });
         check_request_thread(&MockCodec, &request);
 

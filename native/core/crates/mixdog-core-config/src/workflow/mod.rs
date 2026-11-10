@@ -16,6 +16,7 @@ pub(crate) mod onboarding;
 pub mod pack;
 mod prefs;
 pub(crate) mod presets;
+pub mod retire;
 mod search;
 pub mod sections;
 pub mod thread_settings;

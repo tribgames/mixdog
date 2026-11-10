@@ -679,6 +679,8 @@ fn malformed_tool_arguments_ride_as_data_after_a_finish() {
     let calls = tool_calls_of(&events);
     assert_eq!(calls[0].arguments["__invalidToolArgs"], true);
     assert_eq!(calls[0].arguments["__rawArguments"], "{\"k");
+    // The text the model reads is V8's (`JSON.parse('{"k')` on Node v22.20.0), not the Rust parser's.
+    assert_eq!(calls[0].arguments["__parseError"], "Unterminated string in JSON at position 3 (line 1 column 4)");
 }
 
 // ---------------------------------------------------------------------------
@@ -1652,6 +1654,15 @@ mod liveness {
                     for (key, got) in prices {
                         assert_eq!(got, node[key].as_f64(), "{what}: {} {key}", row.id);
                     }
+                }
+            }
+            // The row `listCompatModels` stores (`provider._enrichedModels`), which `getCachedCompatModelInfo` answers
+            // unchanged, is Node's row key for key. The other providers (mimo, muse, command-code, opencode-go) build
+            // their rows in their own `listModels`, which the stored row does not follow yet.
+            if ["xai", "deepseek", "openrouter"].contains(&case["provider"].as_str().unwrap()) {
+                for (record, node) in rows.iter().zip(expected) {
+                    let stored = crate::catalog::listed_row_of(&case["provider"].as_str().unwrap().into(), record.clone());
+                    assert_eq!(stored.as_ref(), Some(node), "{what}: {} stored row", node["id"]);
                 }
             }
             for (record, node) in rows.iter().zip(expected) {

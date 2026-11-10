@@ -14,10 +14,10 @@
       "command": "node native/core/fixtures/agent/record.mjs (plus record-text-only.mjs, record-tail-reminder.mjs and compact/record.mjs beside it; owned by the agent-loop work package)",
       "fileCount": 74,
       "manifest": "agent/MANIFEST.json",
-      "manifestSha256": "16c17254daa41261cd75d1391710e3d16a2c2652fec9de2e5c8112feda739619",
+      "manifestSha256": "a37a79c2dea0c4d22af22644b508c679451605fd320f41b138d4d18313ebb01a",
       "recorder": "native/core/fixtures/agent/record.mjs",
       "set": "agent",
-      "totalBytes": 1957497
+      "totalBytes": 4220847
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-agent-effects.mjs --tree <tree>",
@@ -774,6 +774,15 @@
       "recorder": "benchmarks/rust-core/recorders/record-restart-settlement.mjs",
       "set": "restart-settlement",
       "totalBytes": 40329
+    },
+    {
+      "command": "(cwd <tree>/apps/desktop) node --import ./scripts/test-env.mjs --import ./scripts/test-tsx.mjs <repo>/benchmarks/rust-core/recorders/record-roster-rows.mjs --tree <tree>",
+      "fileCount": 24,
+      "manifest": "roster-rows/MANIFEST.json",
+      "manifestSha256": "4aec7e2c9306f0246e3b854f83378c3cec3ec093f384bcc55ed1d9c83920e3c4",
+      "recorder": "benchmarks/rust-core/recorders/record-roster-rows.mjs",
+      "set": "roster-rows",
+      "totalBytes": 1788387
     },
     {
       "command": "(cd apps/desktop && node --import tsx ../../benchmarks/rust-core/recorders/record-saved-login.mjs --tree <tree>)",

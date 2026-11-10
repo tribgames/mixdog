@@ -317,7 +317,7 @@ async fn task_matches_the_golden_twins_recorded_from_node() {
         "task-cancel-missing",
     ] {
         let golden = fixture("task", name);
-        assert_eq!(body(rig.task.call(&c, golden["input"].clone()).await), golden["text"].as_str().unwrap(), "{name}");
+        assert_eq!(body(rig.task.execute(&c, golden["input"].clone()).await), golden["text"].as_str().unwrap(), "{name}");
     }
     // The task Node registered: a running shell `sleep 100`, id task-gold.
     let started = body(
@@ -333,6 +333,26 @@ async fn task_matches_the_golden_twins_recorded_from_node() {
     let job = rig.runtime.get(&ThreadId::from("t"), "task-gold").unwrap();
     let shown = job.render(false, Some("")).replace(&super::jobs::shown_path(&rig.dir.path().join("l")), "/l");
     assert_eq!(shown, golden["text"].as_str().unwrap());
+}
+
+/// What Node's `executeBuiltinTool` answers a `task` call whose arguments are wrong (the guard, then the handler):
+/// every case of `fixtures/tool-arg-answers/answers.json` (`record-tool-arg-answers.mjs`), text for text.
+#[tokio::test]
+async fn task_arguments_are_answered_as_nodes_guard_answers_them() {
+    let rig = rig();
+    let c = ctx(&rig, "c0");
+    let answers: JsonValue = serde_json::from_str(&std::fs::read_to_string(format!("{}/../../fixtures/tool-arg-answers/answers.json", env!("CARGO_MANIFEST_DIR"))).unwrap()).unwrap();
+    let mut failures = Vec::new();
+    let mut compared = 0;
+    for case in answers["cases"].as_array().unwrap().iter().filter(|c| c["tool"] == "task") {
+        let got = body(rig.task.call(&c, case["input"].clone()).await);
+        if got != case["text"].as_str().unwrap() {
+            failures.push(format!("{}: want {:?}, got {got:?}", case["name"], case["text"]));
+        }
+        compared += 1;
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    assert!(compared >= 37, "{compared}");
 }
 
 /// Replaces what differs per run: the task id, timestamps and log paths.
@@ -574,7 +594,20 @@ async fn wmic_is_rewritten_for_powershell_with_a_hard_30s_cap_and_refused_withou
 
 struct FakeSurvivors {
     gone: tokio::sync::Notify,
-    kill_works: bool,
+    kill_works: std::sync::atomic::AtomicBool,
+    kills: std::sync::atomic::AtomicUsize,
+    /// A kill that has signalled holds here (when set) until the test lets it report its outcome.
+    after_kill: Option<Arc<tokio::sync::Notify>>,
+}
+
+impl FakeSurvivors {
+    fn new(kill_works: bool) -> Arc<Self> {
+        Arc::new(Self { gone: tokio::sync::Notify::new(), kill_works: kill_works.into(), kills: 0.into(), after_kill: None })
+    }
+
+    fn holding(kill_works: bool, after_kill: Arc<tokio::sync::Notify>) -> Arc<Self> {
+        Arc::new(Self { gone: tokio::sync::Notify::new(), kill_works: kill_works.into(), kills: 0.into(), after_kill: Some(after_kill) })
+    }
 }
 
 #[async_trait]
@@ -582,22 +615,28 @@ impl SurvivorWatch for FakeSurvivors {
     fn survivors(&self, _: &ProcessHandle) -> Option<Survivors> {
         Some(Survivors { reachable: true })
     }
-    async fn wait_gone(&self, _: &ProcessHandle) {
+    async fn wait_gone(&self, _: &ProcessHandle, _: &CancellationToken) -> bool {
         self.gone.notified().await;
+        true
     }
     async fn kill(&self, _: &ProcessHandle) -> bool {
-        if self.kill_works {
+        use std::sync::atomic::Ordering::SeqCst;
+        self.kills.fetch_add(1, SeqCst);
+        let works = self.kill_works.load(SeqCst);
+        if works {
             self.gone.notify_one();
         }
-        self.kill_works
+        if let Some(hold) = &self.after_kill {
+            hold.notified().await;
+        }
+        works
     }
 }
-
 /// A command that finished but left processes running hands them over as a tracked task.
 #[tokio::test]
 async fn surviving_descendants_become_a_tracked_task_that_cancels_and_completes() {
     let rig = rig();
-    let watch = Arc::new(FakeSurvivors { gone: tokio::sync::Notify::new(), kill_works: true });
+    let watch = FakeSurvivors::new(true);
     let mut config = rig.runtime.config.clone_for_test();
     config.survivors = Some(watch.clone());
     let runtime = ExecRuntime::new(config);
@@ -613,13 +652,13 @@ async fn surviving_descendants_become_a_tracked_task_that_cancels_and_completes(
     let cancelled = body(task.call(&c, serde_json::json!({"action": "cancel", "task_id": "task-s1"})).await);
     assert_eq!(cancelled, "status: completed\ntask_id: task-s1\ncancelled: shell/shell");
     let read = body(task.call(&c, serde_json::json!({"action": "read", "task_id": "task-s1"})).await);
-    assert!(read.contains("status: cancelled") && read.ends_with("(no new output)"), "{read}");
+    assert!(read.contains("status: cancelled") && read.ends_with("error: cancelled by task control"), "{read}");
 }
 
 #[tokio::test]
 async fn survivors_that_resist_the_kill_keep_the_task_pending() {
     let rig = rig();
-    let watch = Arc::new(FakeSurvivors { gone: tokio::sync::Notify::new(), kill_works: false });
+    let watch = FakeSurvivors::new(false);
     let mut config = rig.runtime.config.clone_for_test();
     config.survivors = Some(watch);
     let runtime = ExecRuntime::new(config);
@@ -629,6 +668,122 @@ async fn survivors_that_resist_the_kill_keep_the_task_pending() {
     assert_eq!(out, "status: cancel-pending\ntask_id: task-s1\nthe kill was sent and the command itself exited, but processes it started are still alive. They keep being terminated and stay tracked (the folder stays held) until they are gone; re-run task cancel or task read to check again.");
 }
 
+/// What Node's agent reads of a survivors task (`fixtures/shell-survivors/golden.json`, recorded from Node b6f10295a by
+/// `record-shell-survivors.mjs`): the recording's task id and timestamps are placeholders.
+fn survivors_golden() -> JsonValue {
+    serde_json::from_str(include_str!("../../../../fixtures/shell-survivors/golden.json")).unwrap()
+}
+
+fn node_view(text: &str, id: &str) -> String {
+    text.replace(id, "<TASK>")
+        .lines()
+        .map(|line| match line.split_once(": ") {
+            Some((key @ ("started" | "finished"), _)) => format!("{key}: <TIME>"),
+            _ => line.to_owned(),
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// A runtime over `watch` and the survivors task `task-s1` an `echo hi` left behind.
+async fn survivors_rig(rig: &Rig, watch: Arc<FakeSurvivors>) -> (ShellTool, TaskTool, Arc<ExecRuntime>, Arc<Job>) {
+    let mut config = rig.runtime.config.clone_for_test();
+    config.survivors = Some(watch);
+    let runtime = ExecRuntime::new(config);
+    let (shell, task) = (ShellTool::new(runtime.clone()), TaskTool::new(runtime.clone()));
+    shell.call(&ctx(rig, "s1"), serde_json::json!({"command": "echo hi"})).await.unwrap();
+    let tracked = runtime.get(&ThreadId::from("t"), "task-s1").unwrap();
+    (shell, task, runtime, tracked)
+}
+
+async fn view(task: &TaskTool, rig: &Rig, call: &str, args: JsonValue) -> String {
+    node_view(&body(task.call(&ctx(rig, call), args).await), "task-s1")
+}
+
+/// A survivors task that ends on its own reads as Node's does at every step: running without a body, completed with the
+/// result's `(no new output)` (`(no output)` for an explicit tail), and nothing left to cancel afterwards.
+#[tokio::test]
+async fn a_survivors_task_that_ends_on_its_own_reads_as_nodes_does() {
+    let rig = rig();
+    let want = survivors_golden();
+    let watch = FakeSurvivors::new(true);
+    let (_, task, _, tracked) = survivors_rig(&rig, watch.clone()).await;
+    let read = |call: &'static str| view(&task, &rig, call, serde_json::json!({"action": "read", "task_id": "task-s1"}));
+    assert_eq!(read("r1").await, want["natural"]["readRunning"].as_str().unwrap());
+    watch.gone.notify_one();
+    tracked.settled().await;
+    assert_eq!(view(&task, &rig, "w", serde_json::json!({"action": "wait", "task_id": "task-s1", "timeout_ms": 1000})).await, want["natural"]["wait"].as_str().unwrap());
+    assert_eq!(read("r2").await, want["natural"]["read"].as_str().unwrap());
+    assert_eq!(view(&task, &rig, "t", serde_json::json!({"action": "read", "task_id": "task-s1", "output": "tail"})).await, want["natural"]["tail"].as_str().unwrap());
+    assert_eq!(view(&task, &rig, "c", serde_json::json!({"action": "cancel", "task_id": "task-s1"})).await, want["natural"]["cancelAfterEnd"].as_str().unwrap());
+}
+
+/// A cancel ends the task as cancelled with no body, a second cancel finds no task, and the observer's own exit event
+/// arriving while the kill is still reporting cannot make it completed (the cancel is latched before anything is signalled).
+#[tokio::test]
+async fn a_cancelled_survivors_task_stays_cancelled_whichever_exit_event_comes_first() {
+    let rig = rig();
+    let want = survivors_golden();
+    let hold = Arc::new(tokio::sync::Notify::new());
+    let watch = FakeSurvivors::holding(true, hold.clone());
+    let (_, task, _, tracked) = survivors_rig(&rig, watch).await;
+    let cancel = view(&task, &rig, "c1", serde_json::json!({"action": "cancel", "task_id": "task-s1"}));
+    // The kill has signalled; the observer sees the survivors go and finishes before the kill reports.
+    let observer_first = async {
+        tracked.settled().await;
+        hold.notify_one();
+    };
+    let (cancelled, ()) = tokio::join!(cancel, observer_first);
+    assert_eq!(cancelled, want["cancelled"]["cancel"].as_str().unwrap());
+    let got = |call: &'static str, extra: JsonValue| {
+        let mut args = serde_json::json!({"action": "read", "task_id": "task-s1"});
+        args.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        view(&task, &rig, call, args)
+    };
+    assert_eq!(got("r1", serde_json::json!({})).await, want["cancelled"]["read"].as_str().unwrap());
+    assert_eq!(got("r2", serde_json::json!({"output": "tail"})).await, want["cancelled"]["tail"].as_str().unwrap());
+    assert_eq!(view(&task, &rig, "c2", serde_json::json!({"action": "cancel", "task_id": "task-s1"})).await, want["cancelled"]["cancelAgain"].as_str().unwrap());
+}
+
+/// A cancel whose kill could not confirm the survivors gone holds the row and keeps terminating on every observation pass,
+/// until a re-observation finds none: then the hold ends.
+#[tokio::test]
+async fn an_unconfirmed_cancel_keeps_terminating_on_every_pass_until_the_survivors_are_gone() {
+    let rig = rig();
+    let watch = FakeSurvivors::new(false);
+    let (_, task, runtime, tracked) = survivors_rig(&rig, watch.clone()).await;
+    let pending = body(task.call(&ctx(&rig, "c1"), serde_json::json!({"action": "cancel", "task_id": "task-s1"})).await);
+    assert!(pending.starts_with("status: cancel-pending\n"), "{pending}");
+    let held = |runtime: &ExecRuntime| runtime.config.tasks.get("task-s1").unwrap();
+    assert!(held(&runtime).termination_unconfirmed, "the row is held while the processes are not confirmed gone");
+    assert_eq!(held(&runtime).status, mixdog_spawn::tasks::TaskStatus::Cancelled, "the registry state is terminal at the cancel");
+    assert_eq!(watch.kills.load(std::sync::atomic::Ordering::SeqCst), 1);
+    // The next pass of the observation (Node's TERMINATION_RECHECK_MS) terminates them again; this time it works.
+    watch.kill_works.store(true, std::sync::atomic::Ordering::SeqCst);
+    tokio::time::pause();
+    tokio::time::advance(std::time::Duration::from_millis(5_000)).await;
+    tracked.settled().await;
+    assert_eq!(watch.kills.load(std::sync::atomic::Ordering::SeqCst), 2);
+    assert!(!held(&runtime).termination_unconfirmed, "confirmed gone ends the hold");
+}
+
+/// The tracked task started with the command, not when its survivors were observed (`trackSurvivingDescendants` passes
+/// the command's `startedAtMs`): a clock that moves a second per reading shows the first reading, not a later one.
+#[tokio::test]
+async fn a_survivors_task_starts_when_its_command_started() {
+    let rig = rig();
+    let mut config = rig.runtime.config.clone_for_test();
+    config.survivors = Some(FakeSurvivors::new(true));
+    let clock = Arc::new(std::sync::atomic::AtomicU64::new(golden_ms()));
+    config.now_ms = Arc::new({
+        let clock = clock.clone();
+        move || clock.fetch_add(1000, std::sync::atomic::Ordering::SeqCst)
+    });
+    let runtime = ExecRuntime::new(config);
+    let started = body(ShellTool::new(runtime).call(&ctx(&rig, "s1"), serde_json::json!({"command": "echo hi"})).await);
+    assert!(started.contains("\nstarted: 2026-01-02T03:04:05.678Z\n"), "{started}");
+    assert!(clock.load(std::sync::atomic::Ordering::SeqCst) > golden_ms() + 1000, "the clock moved on before the survivors were observed");
+}
 /// `shell` and `task`, built through their runtime constructors, are the definitions Node sends
 /// (`fixtures/tool-definitions/definitions.json`, through `mixdog_js::fixture_tools`): the shell text of the
 /// runtime's shell kind, with and without background tasks, and the task tool for the Lead and for a delegated agent.
@@ -1292,7 +1447,7 @@ async fn a_closing_session_kills_its_shells_and_flags_the_owner_closed() {
 #[tokio::test]
 async fn an_unconfirmed_stop_holds_the_row_until_the_job_ends_or_is_released() {
     let rig = rig();
-    let watch = Arc::new(FakeSurvivors { gone: tokio::sync::Notify::new(), kill_works: false });
+    let watch = FakeSurvivors::new(false);
     let mut config = rig.runtime.config.clone_for_test();
     config.survivors = Some(watch.clone());
     let runtime = ExecRuntime::new(config);

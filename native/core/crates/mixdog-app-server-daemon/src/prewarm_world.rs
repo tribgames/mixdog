@@ -49,6 +49,7 @@ pub struct WarmupSignals {
     pub catalog: Arc<crate::catalog::CatalogWarmup>,
     pub models: Arc<mixdog_core_domains::domains::ai_admin::model_warmup::ModelWarmup>,
     pub statusline: Arc<mixdog_core_domains::domains::ai_admin::statusline_warmup::StatuslineWarmup>,
+    pub channel_admin: Arc<mixdog_services::channels::ChannelAdmin>,
 }
 
 impl CodeGraphPrewarmSignals for WarmupSignals {
@@ -61,6 +62,7 @@ impl CodeGraphPrewarmSignals for WarmupSignals {
         self.catalog.wake();
         self.models.wake();
         self.statusline.wake();
+        self.channel_admin.wake_deferred_start();
     }
 
     fn turn_settled(&self) {
@@ -146,5 +148,25 @@ impl PrewarmWorld for DaemonPrewarmWorld {
     /// `bootProfile(event, detail)`.
     fn profile(&self, event: &str, detail: &str) {
         tracing::debug!(event, detail, "boot profile");
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mixdog_services::task_reports::runtime_state::RuntimeEntry;
+
+    /// The deferred channel start and every warm-up ask `busy_reason`; a turn the session runtime has
+    /// dispatched, or one whose runtime entry is in flight, is `turn-active` (the directory is not asked).
+    #[test]
+    fn a_running_turn_is_turn_active_and_an_idle_runtime_is_not_asked_for_one() {
+        let liveness = RuntimeLiveness::new();
+        let directory = LateDirectory::default();
+        let guard = liveness.dispatched("s1");
+        assert_eq!(busy_reason(&liveness, &directory), Some("turn-active"));
+        drop(guard);
+        liveness.set_entry("s2", RuntimeEntry { stage: Some("streaming".into()), ..RuntimeEntry::default() });
+        assert_eq!(busy_reason(&liveness, &directory), Some("turn-active"));
+        liveness.set_entry("s2", RuntimeEntry { stage: Some("idle".into()), ..RuntimeEntry::default() });
+        assert!(liveness.in_flight_session_activity().working.is_empty());
     }
 }

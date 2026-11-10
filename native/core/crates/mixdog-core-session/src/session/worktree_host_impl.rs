@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use async_trait::async_trait;
+use mixdog_core_api::CoreError;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_ports::ports::threads::ThreadState;
 use mixdog_rt::CancellationToken;
@@ -48,8 +49,6 @@ pub trait HostRuntime: Send + Sync + 'static {
     async fn attended(&self, session_id: &str) -> bool;
     /// The cwd the session's tools run in.
     fn runtime_cwd(&self, session_id: &str) -> String;
-    /// The session has a user conversation message (`hasUserConversationMessage`).
-    fn has_messages(&self, session_id: &str) -> bool;
     /// Retarget the runtime cwd, the cwd override, the last-session cwd and the Lead's pool row.
     async fn set_runtime_cwd(&self, session_id: &str, cwd: &str) -> Result<(), ScmFailure>;
     /// The prompt's `presentedWorkspace`: `{cwd, environmentContext, coreMemoryContext,
@@ -167,7 +166,19 @@ impl WorkspaceHost for SessionWorkspaceHost {
             runtime_cwd: self.runtime.runtime_cwd(session_id),
             workspace,
             desktop_project,
-            has_messages: self.runtime.has_messages(session_id),
+        })
+    }
+
+    async fn has_conversation(&self, session_id: &str) -> Result<bool, ScmFailure> {
+        // `session-view.mjs`: the committed messages or the running turn's.
+        self.directory.holds_conversation(&ThreadId::from(session_id)).await.map_err(port)
+    }
+
+    async fn ensure_session(&self, session_id: &str) -> Result<(), ScmFailure> {
+        self.directory.seat_session(&ThreadId::from(session_id)).await.map_err(|error| match error {
+            // Node's `Error` from `prepareRoute`: its text alone.
+            CoreError::DomainError { message: Some(message), .. } => plain(message.to_string()),
+            other => port(other),
         })
     }
 
@@ -225,7 +236,16 @@ impl WorkspaceHost for SessionWorkspaceHost {
                     return Err(error);
                 }
             };
-            if self.runtime.has_messages(session_id) {
+            // `refreshSessionWorkspaceContext` reads the committed messages (`session.messages`): a settled turn leaves
+            // nothing live, so only the stored rows tell an idle session's conversation.
+            let has_messages = match self.directory.holds_user_conversation(&ThreadId::from(session_id)).await {
+                Ok(has_messages) => has_messages,
+                Err(error) => {
+                    run_undos(undos).await;
+                    return Err(port(error));
+                }
+            };
+            if has_messages {
                 let presented = self.runtime.presented_workspace(session_id).await;
                 let from = change.moved.as_ref().map(|m| (m.from.as_str(), m.changes.as_deref()));
                 let staged = staged_reroot(header.get("workspaceReroot"), &presented, &change.cwd, &context, from);

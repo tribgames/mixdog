@@ -89,7 +89,7 @@ impl SessionState {
         let map: serde_json::Map<String, Value> = self.durable.iter().map(|(k, v)| (k.clone(), Value::from(*v))).collect();
         let saved: Result<()> = set_meta(db, &format!("{KEY_PREFIX}{session_id}"), &Value::Object(map)).await;
         if let Err(error) = saved {
-            tracing::warn!(%error, "[ingest] untimestamped high-water persist failed");
+            mixdog_rt::memory_stderr!("[ingest] untimestamped high-water persist failed: {error}");
         }
     }
 }

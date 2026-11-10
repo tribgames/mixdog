@@ -77,7 +77,10 @@ fn env_with(turn_review: Option<Arc<dyn mixdog_core_api::turn_review::TurnReview
         releases: mixdog_workspace::release::FolderReleases::new(),
     })
     .unwrap();
-    futures_block(service.catalog().add(&root.to_string_lossy(), &CancellationToken::new(), None)).unwrap();
+    // Registered as a row: `project/create` also leaves `.mixdog/project.id` in the folder, which
+    // the recorded folder listings of this project do not have.
+    let row = mixdog_store::state::ProjectRow { path: root.to_string_lossy().into_owned(), alias: None, hidden: false, hidden_rank: None, last_used_at: None, name: None };
+    futures_block(state.write(move |tx| tx.put_project(&row))).unwrap();
     Env { _dir: dir, root, service, state, limits }
 }
 
@@ -92,6 +95,29 @@ async fn call(env: &Env, method: &'static str, params: Value) -> Result<Value, C
     }
 }
 
+/// A call of the desktop's own window (a local connection).
+async fn call_local(env: &Env, method: &'static str, params: Value) -> Result<Value, CoreError> {
+    let ctx = CallContext::connection(ConnectionId(2), Origin::Local, CancellationToken::new());
+    match env.service.call(CoreRequest { method: Method(method), params, op: None, ctx }).await? {
+        Reply::Value(v) => Ok(v),
+        Reply::Subscribe(_) => panic!("unexpected subscribe"),
+    }
+}
+
+/// Node's `Error` for a folder that is no registered project: code `PROJECT_UNAVAILABLE`, text "Project is not available." (`projectScope`
+/// -> `knownPath`, session-host.ts:556; recorded for the phone in apps/mobile/fixtures/phone-files/golden.json, relay scenario
+/// listProjectDir/readProjectFile on an unregistered folder).
+fn unavailable<T>(result: &Result<T, CoreError>) -> bool {
+    matches!(result, Err(CoreError::DomainError { code, message, .. })
+        if code.as_deref() == Some("PROJECT_UNAVAILABLE") && message.as_deref() == Some("Project is not available."))
+}
+
+/// Node's plain `Error` for an entry beyond its project: no code, text "Path is outside the project." (recorded in golden.json, main
+/// scenario readProjectFile `../outside/granted.txt`).
+fn outside_the_project<T>(result: &Result<T, CoreError>) -> bool {
+    matches!(result, Err(CoreError::DomainError { code: None, message, .. }) if message.as_deref() == Some("Path is outside the project."))
+}
+
 struct NoneGone;
 
 #[async_trait::async_trait]
@@ -99,6 +125,65 @@ impl mixdog_workspace::grants::SessionCatalog for NoneGone {
     async fn has(&self, _: &str) -> mixdog_workspace::error::WsResult<bool> {
         Ok(true)
     }
+}
+
+/// A file is answered a window of code points at a time (one connection answer is capped), `nextChar` naming where the next starts;
+/// the pieces joined are the whole text.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_text_file_is_read_in_windows_that_join_to_the_whole() {
+    let env = env();
+    let text = "aé😀b".repeat(5);
+    std::fs::write(env.root.join("w.txt"), &text).unwrap();
+    let root = env.root.to_string_lossy().into_owned();
+    let mut part = call(&env, "projectFs/readText", json!({ "root": root, "rel": "w.txt", "maxChars": 7 })).await.unwrap();
+    let mut joined = part["content"].as_str().unwrap().to_owned();
+    while let Some(next) = part.get("nextChar").and_then(Value::as_u64) {
+        let read_id = part["readId"].clone();
+        part = call(&env, "projectFs/readText", json!({ "root": root, "rel": "w.txt", "readId": read_id, "fromChar": next, "maxChars": 7 })).await.unwrap();
+        joined.push_str(part["content"].as_str().unwrap());
+    }
+    assert_eq!(joined, text);
+}
+
+/// Node read a file once, through one authorized handle (`readProjectTextFileAuthorized`), and answered that one version. The windows of one
+/// read come from the one read the first window made: a file replaced between two windows changes nothing the reader joins. Node's answer
+/// is the recording (apps/mobile/fixtures/phone-files/golden.json, main scenario `readProjectFile toolong.txt`: 1 MiB + 1 byte, so the
+/// phone reads it in windows); the file is made from the recorded text and mtime.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_windows_of_one_read_are_one_version_of_a_file_replaced_between_them() {
+    let golden: Value = serde_json::from_str(include_str!("../../../../../../apps/mobile/fixtures/phone-files/golden.json")).unwrap();
+    let steps = golden["scenarios"]["main"]["steps"].as_array().unwrap();
+    let recorded = steps.iter().find(|step| step["call"] == "readProjectFile" && step["params"][1] == "toolong.txt").unwrap()["frame"]["value"].clone();
+    let text = recorded["content"].as_str().unwrap().to_owned();
+    let at_ms = recorded["mtimeMs"].as_u64().unwrap();
+    let env = env();
+    let file = env.root.join("toolong.txt");
+    let pin = |ms: u64| {
+        let open = std::fs::OpenOptions::new().write(true).open(&file).unwrap();
+        open.set_modified(std::time::UNIX_EPOCH + Duration::from_millis(ms)).unwrap();
+    };
+    std::fs::write(&file, &text).unwrap();
+    pin(at_ms);
+    let root = env.root.to_string_lossy().into_owned();
+    let window = 60_000u64;
+    let mut part = call(&env, "projectFs/readText", json!({ "root": root, "rel": "toolong.txt", "authorized": true, "maxChars": window })).await.unwrap();
+    let mut joined = part["content"].as_str().unwrap().to_owned();
+    // The file is replaced (other text, other time) after the first window.
+    std::fs::write(&file, "c".repeat(text.len())).unwrap();
+    pin(at_ms + 1_000_000);
+    while let Some(next) = part.get("nextChar").and_then(Value::as_u64) {
+        let read_id = part["readId"].clone();
+        part = call(&env, "projectFs/readText", json!({ "root": root, "rel": "toolong.txt", "authorized": true, "readId": read_id, "fromChar": next, "maxChars": window })).await.unwrap();
+        joined.push_str(part["content"].as_str().unwrap());
+    }
+    assert!(joined == text, "the joined windows are the first version of the file ({} of {} bytes)", joined.len(), text.len());
+    // The recording holds the time as the integer JSON text `1767323045000`, the core writes the same number as a float: one JSON number
+    // to the phone. Every other field is compared as it is.
+    assert_eq!(part["mtimeMs"].as_f64(), recorded["mtimeMs"].as_f64(), "the time of the first read");
+    for field in ["binary", "tooLarge", "readOnly", "encoding"] {
+        assert_eq!(part[field], recorded[field], "{field} of the first read");
+    }
+    assert_eq!(part.as_object().unwrap().len(), recorded.as_object().unwrap().len(), "no field more or less than the recording's");
 }
 
 /// The paired device's side of the spec's `transfer/*` (SPEC.md R44): a path outside every project is described
@@ -158,6 +243,179 @@ async fn a_paired_device_reads_one_granted_file_outside_its_projects_and_nothing
     assert!(matches!(plain, Err(CoreError::PermissionDenied { .. })), "{plain:?}");
 }
 
+/// The phone's other file calls over a one-file permission (Node's `remoteFileTarget`): the write, the entry path, the preview with its media
+/// lease, and the preview range all name the granted file alone.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_one_file_permission_writes_names_previews_and_leases_that_file_alone() {
+    let env = env();
+    env.service.set_phone_grants(
+        Arc::new(mixdog_workspace::grants::GrantStore::new(Arc::new(mixdog_workspace::transfer::SystemClock), Arc::new(NoneGone))),
+        Arc::new(|connection: ConnectionId| (connection.0 == 1).then(|| "phone-1".to_owned())),
+    );
+    let outside = env.root.parent().unwrap().join("granted-calls");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("note.txt"), "hi\n").unwrap();
+    std::fs::write(outside.join("pic.png"), [0x89, b'P', b'N', b'G', 1, 2, 3, 4]).unwrap();
+    std::fs::write(outside.join("other.txt"), "secret\n").unwrap();
+    let grant = |name: &str| call(&env, "transfer/grant/mint", json!({ "path": outside.join(name).to_string_lossy() }));
+    let note = grant("note.txt").await.unwrap()["accessToken"].as_str().unwrap().to_owned();
+    let pic = grant("pic.png").await.unwrap()["accessToken"].as_str().unwrap().to_owned();
+    let target = |rel: &str, token: &str| json!({ "root": outside.to_string_lossy(), "rel": rel, "accessToken": token });
+
+    let mut write = target("note.txt", &note);
+    write["content"] = json!("changed\n");
+    write["expectedContent"] = json!("hi\n");
+    call(&env, "projectFs/writeText", write).await.unwrap();
+    assert_eq!(std::fs::read_to_string(outside.join("note.txt")).unwrap(), "changed\n");
+    let mut aside = target("other.txt", &note);
+    aside["content"] = json!("x");
+    aside["expectedContent"] = json!("secret\n");
+    let refused = call(&env, "projectFs/writeText", aside).await;
+    assert!(format!("{refused:?}").contains("The selected-file permission does not match this path."), "{refused:?}");
+    assert_eq!(std::fs::read_to_string(outside.join("other.txt")).unwrap(), "secret\n");
+
+    let named = call(&env, "projectFs/entryPath", target("note.txt", &note)).await.unwrap();
+    assert_eq!(named["path"], outside.join("note.txt").to_string_lossy().as_ref());
+
+    let previewed = call(&env, "projectFs/previewFile", target("pic.png", &pic)).await.unwrap();
+    assert_eq!((previewed["kind"].clone(), previewed["size"].clone()), (json!("image"), json!(8)));
+    let leased = env.service.file_leases().open(previewed["mediaAssetId"].as_str().unwrap()).expect("the preview leased the file");
+    assert_eq!(leased.size, 8);
+    let mut range = target("pic.png", &pic);
+    range["offset"] = json!(4);
+    range["length"] = json!(2);
+    let part = call(&env, "projectFs/previewRange", range).await.unwrap();
+    assert_eq!((part["data"].clone(), part["offset"].clone(), part["size"].clone()), (json!("AQI="), json!(4), json!(8)));
+}
+
+/// `FIXED_NOW_MS` of `lib/phone-files-script.mjs`: the clock the Node recording ran on, given to the backups' clock.
+const PHONE_FILES_NOW_MS: &str = "1780819750000";
+
+/// The phone's editor backups and document previews over a relay connection, replayed from the phone-files recording's relay
+/// scenario (apps/mobile/fixtures/phone-files/golden.json): every backup call is sent as a phone that skips the adapter's
+/// `projectFs/entryPath` step would send it, naming the file by its absolute path (the granted file's path for a call with a
+/// token), and answers Node's frame whole; every document preview's file target goes through the same admission
+/// (`relay_file`), refused as Node refused it before any page was rendered. The recording's folders are mapped onto this
+/// world's: its project on the registered project, its outside folder on a folder beside it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_relay_editor_backup_or_preview_names_a_project_file_or_a_granted_one_only() {
+    // SAFETY: nextest runs each test in its own process, and nothing else in this one reads the environment concurrently yet.
+    unsafe { std::env::set_var("MIXDOG_FIXED_NOW_MS", PHONE_FILES_NOW_MS) };
+    let golden: Value = serde_json::from_str(include_str!("../../../../../../apps/mobile/fixtures/phone-files/golden.json")).unwrap();
+    let recorded_root = golden["root"].as_str().unwrap();
+    let env = env();
+    env.service.set_phone_grants(
+        Arc::new(mixdog_workspace::grants::GrantStore::new(Arc::new(mixdog_workspace::transfer::SystemClock), Arc::new(NoneGone))),
+        Arc::new(|connection: ConnectionId| (connection.0 == 1).then(|| "phone-1".to_owned())),
+    );
+    let outside = env.root.parent().unwrap().join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("granted.txt"), "granted edit\n").unwrap();
+    std::fs::write(outside.join("other.txt"), "other\n").unwrap();
+    std::fs::write(env.root.join("src/a.ts"), "export const a = 1;\n").unwrap();
+    let place = |path: &str| -> String {
+        let (project, out) = (format!("{recorded_root}\\proj"), format!("{recorded_root}\\outside"));
+        if let Some(rest) = path.strip_prefix(&project) {
+            format!("{}{rest}", env.root.to_string_lossy())
+        } else if let Some(rest) = path.strip_prefix(&out) {
+            format!("{}{rest}", outside.to_string_lossy())
+        } else {
+            panic!("{path} is outside the recording's world")
+        }
+    };
+    let mut granted = None;
+    let (mut backups, mut previews) = (0, 0);
+    for step in golden["scenarios"]["relay"]["steps"].as_array().unwrap() {
+        // A `grant` step: the phone holds a one-file permission for this path from here on.
+        if step.get("grant").is_some() {
+            let path = place(step["path"].as_str().unwrap());
+            call(&env, "transfer/grant/mint", json!({ "path": path })).await.unwrap();
+            granted = Some(path);
+            continue;
+        }
+        let (Some(name), params, frame) = (step["call"].as_str(), &step["params"], &step["frame"]) else { continue };
+        let tokened = params[2].is_object();
+        let file = || -> String {
+            // The project and the entry as the phone named them, joined as given (`..` kept).
+            if tokened { granted.clone().unwrap() } else { PathBuf::from(place(params[0].as_str().unwrap())).join(params[1].as_str().unwrap()).to_string_lossy().into_owned() }
+        };
+        let answer = match name {
+            "readEditorBackup" => call(&env, "projectFs/backup/read", json!({ "sourcePath": file() })).await,
+            "deleteEditorBackup" => call(&env, "projectFs/backup/delete", json!({ "sourcePath": file() })).await.map(|_| Value::Null),
+            "writeEditorBackup" => call(&env, "projectFs/backup/write", json!({ "sourcePath": file(), "content": params[2], "expectedContent": params[3] })).await,
+            "previewDocumentPages" => {
+                let (root, rel) = if tokened {
+                    let path = PathBuf::from(granted.clone().unwrap());
+                    (path.parent().unwrap().to_string_lossy().into_owned(), path.file_name().unwrap().to_string_lossy().into_owned())
+                } else {
+                    (place(params[0].as_str().unwrap()), params[1].as_str().unwrap().to_owned())
+                };
+                previews += 1;
+                let admitted = env.service.relay_file(&request("document/previewPages", json!({})), &root, &rel).await;
+                // Node's refusals of the target; a target it took went on to the conversion (whose answer is the worker's).
+                if frame["errorCode"] == "PROJECT_UNAVAILABLE" || frame["error"] == "Path is outside the project." {
+                    admitted.map(|_| Value::Null)
+                } else {
+                    assert!(admitted.is_ok(), "{name} {params}: {admitted:?}");
+                    continue;
+                }
+            }
+            _ => continue,
+        };
+        if name != "previewDocumentPages" {
+            backups += 1;
+        }
+        let got = match answer {
+            Ok(value) => json!({ "ok": true, "value": value }),
+            Err(CoreError::DomainError { code, message, .. }) => {
+                let mut node = json!({ "ok": false, "error": message.as_deref() });
+                if let Some(code) = code.as_deref() {
+                    node["errorCode"] = json!(code);
+                }
+                node
+            }
+            Err(other) => panic!("{name} {params}: {other:?}"),
+        };
+        assert_eq!(&got, frame, "{name} {params}");
+    }
+    assert_eq!((backups, previews), (14, 3));
+    // Nothing was planted for a refused file.
+    let names: Vec<_> = std::fs::read_dir(env.root.parent().unwrap().join("userData").join("editor-backups")).map(|dir| dir.count()).into_iter().collect();
+    assert!(names.iter().all(|count| *count == 0), "{names:?}");
+}
+
+/// A folder whose name only trims to a registered project's is not that project (Node trims the phone's `projectPath` and then
+/// acts on the registry's own root). A relay backup named in such a folder is kept under the project's file, which is what the
+/// admission checked, and never reaches the backup the desktop keeps for the other folder's file.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_relay_backup_is_kept_under_the_file_that_was_admitted() {
+    let env = env();
+    let twin = PathBuf::from(format!("{}\u{a0}", env.root.to_string_lossy()));
+    std::fs::create_dir_all(&twin).unwrap();
+    let source = twin.join("secret.txt").to_string_lossy().into_owned();
+    call_local(&env, "projectFs/backup/write", json!({ "sourcePath": source, "content": "private", "expectedContent": "" })).await.unwrap();
+    let kept = call_local(&env, "projectFs/backup/read", json!({ "sourcePath": source })).await.unwrap();
+    assert_ne!(kept, Value::Null, "the desktop's backup of the other folder's file");
+
+    assert_eq!(call(&env, "projectFs/backup/read", json!({ "sourcePath": source })).await.unwrap(), Value::Null, "the phone reads the project's file's backup: none");
+    call(&env, "projectFs/backup/delete", json!({ "sourcePath": source })).await.unwrap();
+    assert_eq!(call_local(&env, "projectFs/backup/read", json!({ "sourcePath": source })).await.unwrap(), kept, "the phone's delete did not reach it");
+}
+
+/// With no desktop window to render or trash, the calls that need one answer the missing capability (the adapter words it as Node's
+/// "The desktop app is unavailable on this connection.").
+#[tokio::test(flavor = "multi_thread")]
+async fn host_only_file_calls_answer_the_missing_desktop_capability_without_a_window() {
+    let env = env();
+    for (method, extra) in [("projectFs/captureSnapshot", json!({})), ("projectFs/localPageUrl", json!({})), ("projectFs/trash", json!({ "viaHost": true }))] {
+        let mut params = json!({ "root": env.root.to_string_lossy(), "rel": "a.txt" });
+        params.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        let answered = call(&env, method, params).await;
+        assert!(matches!(&answered, Err(CoreError::CapabilityUnavailable { capability, .. }) if &**capability == "desktopHost"), "{method}: {answered:?}");
+    }
+    assert!(env.root.join("a.txt").exists(), "nothing was trashed");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_local_connection_reads_any_absolute_folder_while_a_relay_is_held_to_the_projects() {
     let env = env();
@@ -166,7 +424,7 @@ async fn a_local_connection_reads_any_absolute_folder_while_a_relay_is_held_to_t
     std::fs::write(outside.join("note.txt"), "hello\n").unwrap();
     let params = json!({ "root": outside.to_string_lossy(), "rel": "note.txt" });
     // The `…In` operations of Node take any root the window resolved; the relay is the strict origin.
-    assert!(matches!(call(&env, "projectFs/readText", params.clone()).await, Err(CoreError::PermissionDenied { .. })));
+    assert!(unavailable(&call(&env, "projectFs/readText", params.clone()).await));
     let mut local = request("projectFs/readText", params.clone());
     local.ctx = CallContext::connection(ConnectionId(1), Origin::Local, CancellationToken::new());
     let Reply::Value(read) = env.service.call(local).await.unwrap() else { panic!("readText answers with a value") };
@@ -272,15 +530,74 @@ async fn a_registry_change_and_its_op_row_commit_in_one_transaction() {
     assert_eq!(env.state.projects().await.unwrap().len(), 2);
 }
 
+/// Node's `addProject` / `touchProjectSelected` leave `<project>/.mixdog/project.id` (memory
+/// classification reads only that); the `markers` of the recorded registry cases, replayed through
+/// `project/create` and, for a project registered without one, `project/touch`.
+#[tokio::test(flavor = "multi_thread")]
+async fn project_create_and_touch_leave_the_project_id_marker_node_leaves() {
+    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/store/registry/projects-registry.json")).unwrap();
+    let env = env();
+    let base = env.root.parent().unwrap().join("markers");
+    let mut checked = 0;
+    for case in golden["cases"].as_array().unwrap() {
+        let expected = case["markers"].as_object().unwrap();
+        if expected.is_empty() {
+            continue;
+        }
+        let name = case["name"].as_str().unwrap();
+        for phase in ["create", "touch"] {
+            let root = base.join(phase).join(name);
+            for sub in case["dirs"].as_array().unwrap() {
+                std::fs::create_dir_all(root.join(sub.as_str().unwrap())).unwrap();
+            }
+            let root_text = root.to_string_lossy().into_owned();
+            for op in case["ops"].as_array().unwrap().iter().filter(|op| op["op"] == "add") {
+                let raw = op["path"].as_str().unwrap().replace("<ABS>", &root_text);
+                if raw.is_empty() {
+                    continue;
+                }
+                let path = if std::path::Path::new(&raw).is_absolute() { raw } else { root.join(raw).to_string_lossy().into_owned() };
+                if phase == "create" {
+                    call(&env, "project/create", json!({ "path": path })).await.unwrap();
+                } else {
+                    let real = canonical(std::path::Path::new(&path)).unwrap().to_string_lossy().into_owned();
+                    env.state
+                        .write(move |tx| {
+                            tx.put_project(&mixdog_store::state::ProjectRow {
+                                path: real,
+                                alias: None,
+                                hidden: false,
+                                hidden_rank: None,
+                                last_used_at: None,
+                                name: None,
+                            })
+                        })
+                        .await
+                        .unwrap();
+                    call(&env, "project/touch", json!({ "path": path })).await.unwrap();
+                }
+            }
+            for (sub, text) in expected {
+                let marker = std::fs::read_to_string(root.join(sub).join(".mixdog").join("project.id")).unwrap_or_default();
+                assert_eq!(marker, text.as_str().unwrap(), "{name} ({phase}): marker of {sub}");
+                checked += 1;
+            }
+        }
+    }
+    assert_eq!(checked, 6, "three recorded markers, each through create and touch");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn paths_outside_the_registry_or_project_are_refused_with_permission_denied() {
     let env = env();
     let outside = env.root.parent().unwrap().join("other");
     std::fs::create_dir_all(&outside).unwrap();
-    let denied = |r: Result<Value, CoreError>| matches!(r, Err(CoreError::PermissionDenied { origin: Origin::Relay, .. }));
-    assert!(denied(call(&env, "projectFs/listDir", json!({ "root": outside.to_string_lossy(), "rel": "." })).await));
+    assert!(unavailable(&call(&env, "projectFs/listDir", json!({ "root": outside.to_string_lossy(), "rel": "." })).await));
     let root = env.root.to_string_lossy().into_owned();
-    assert!(denied(call(&env, "projectFs/readText", json!({ "root": root, "rel": "../other/x" })).await));
+    // The phone asks for Node's answer; a local or SSH caller keeps the permission refusal for the same path.
+    assert!(outside_the_project(&call(&env, "projectFs/readText", json!({ "root": root, "rel": "../other/x", "nodeErrors": true })).await));
+    let local = call(&env, "projectFs/readText", json!({ "root": root, "rel": "../other/x" })).await;
+    assert!(matches!(local, Err(CoreError::PermissionDenied { .. })), "{local:?}");
     let ok = call(&env, "projectFs/listDir", json!({ "root": root, "rel": "." })).await.unwrap();
     assert_eq!(ok[0]["name"], "src");
 }
@@ -658,10 +975,11 @@ async fn code_graph_queries_pass_the_tools_arguments_and_return_its_text() {
     let outline = call(&env, "project/codeGraph", json!({ "path": root, "mode": "symbols", "query": "src/main.rs" })).await.unwrap();
     assert_eq!(outline, json!(format!("{root}|{}", json!({ "mode": "symbols", "files": "src/main.rs", "limit": 200 }))));
     let long = "x".repeat(257);
-    let refused = call(&env, "project/codeGraph", json!({ "path": root, "mode": "references", "query": long })).await;
-    assert!(matches!(&refused, Err(CoreError::InvalidParams { expected, .. }) if &**expected == "Symbol is invalid."), "{refused:?}");
+    let too_long = call(&env, "project/codeGraph", json!({ "path": root, "mode": "references", "query": long })).await;
+    assert!(matches!(&too_long, Err(CoreError::InvalidParams { expected, .. }) if &**expected == "Symbol is invalid."), "{too_long:?}");
     let denied = call(&env, "project/codeGraph", json!({ "path": env.root.parent().unwrap().to_string_lossy(), "mode": "symbols", "query": "a" })).await;
-    assert!(matches!(denied, Err(CoreError::PermissionDenied { .. })));
+    // `host.codeGraphQuery` resolves the folder through `projectDirectory` (session-host.ts:776-781).
+    assert!(unavailable(&denied), "{denied:?}");
 }
 
 fn futures_block<F: std::future::Future>(f: F) -> F::Output {
@@ -693,15 +1011,22 @@ fn strip_mtime(mut value: Value) -> Value {
 }
 
 /// The recorded Node error text, as the reason the Rust core must answer with.
-fn expect_error(message: &str, got: &CoreError, ctx: &str) {
+fn expect_error(message: &str, got: &CoreError, ctx: &str, root: &str) {
     let ok = match got {
-        CoreError::PermissionDenied { .. } => message == "Path is outside the project." || message == "Path resolves outside the project.",
         CoreError::PreconditionFailed { .. } => message.starts_with("File changed on disk"),
         CoreError::InvalidParams { expected, .. } => {
             // Search-pattern text is shown to the user: byte-equal. Others map by reason.
             if message.starts_with("Invalid search pattern") { &**expected == message } else { message == "Entry name is invalid." }
         }
-        CoreError::DomainError { code, .. } => message.starts_with("ENOENT") && code.as_deref() == Some("notFound"),
+        // A local caller's refusal of a path beyond the project (Node's service threw its plain `Error`; the phone's answer is the test above).
+        CoreError::PermissionDenied { .. } => message == "Path is outside the project." || message == "Path resolves outside the project.",
+        CoreError::DomainError { code, message: got, .. } => match code.as_deref() {
+            // A system error: Node's whole text, the recorded `<ROOT>` standing for this world's folder.
+            Some("ENOENT") => got.as_deref().map(|text| text.replace(root, "<ROOT>")).as_deref() == Some(message),
+            // Node's plain `Error`: the text, no code.
+            None => got.as_deref() == Some(message),
+            _ => false,
+        },
         _ => false,
     };
     assert!(ok, "{ctx}: recorded {message:?}, got {got:?}");
@@ -749,7 +1074,7 @@ async fn replay(env: &Env, cases: &Value, root: &str, ctx: &str) {
         let got = call(env, method, params).await;
         let label = format!("{ctx} {op} {args}");
         match (case.get("error"), got) {
-            (Some(error), Err(e)) => expect_error(error.as_str().unwrap(), &e, &label),
+            (Some(error), Err(e)) => expect_error(error.as_str().unwrap(), &e, &label, root),
             (None, Ok(value)) => {
                 if let Some(expected) = case.get("result") {
                     assert_eq!(&strip_mtime(value), expected, "{label}");
@@ -776,7 +1101,9 @@ async fn recorded_project_file_operations_replay_identically() {
             ("dir/inner.txt", b"inner\n"),
         ],
     );
-    env.service.catalog().add(&pf.to_string_lossy(), &CancellationToken::new(), None).await.unwrap();
+    // A row, not `project/create`: the recorded listing of this folder has no `.mixdog/project.id`.
+    let row = mixdog_store::state::ProjectRow { path: pf.to_string_lossy().into_owned(), alias: None, hidden: false, hidden_rank: None, last_used_at: None, name: None };
+    env.state.write(move |tx| tx.put_project(&row)).await.unwrap();
     replay(&env, &corpus("files"), &pf.to_string_lossy(), "files").await;
 }
 
@@ -814,7 +1141,11 @@ async fn recorded_transfer_reads_replay_through_the_transfer_methods() {
     assert_eq!(began["mimeType"], entry("authorize")["result"]["mime"]);
     // authorize(outside): a path out of the project is refused.
     let outside = call(&env, "transfer/beginRead", json!({ "source": { "kind": "file", "root": root, "rel": "../x" } })).await;
-    assert!(matches!(outside, Err(CoreError::PermissionDenied { .. })));
+    // Node's `FileDownloadError('outside-project')` (recorded: name FileDownloadError): a refusal the core types as a permission denial, as
+    // `expired` is typed for the "no longer available" one; the download group's adapter gives it Node's text, which
+    // `transfer::tests::a_project_path_beyond_the_project_is_nodes_outside_project_refusal` holds to the recording.
+    assert_eq!(entry("authorize(outside)")["error"]["name"], "FileDownloadError");
+    assert!(matches!(&outside, Err(CoreError::PermissionDenied { .. })), "{outside:?}");
     let id = began["transferId"].as_str().unwrap().to_owned();
     // readRange: the recorded bytes.
     let range = call(&env, "transfer/readRange", json!({ "transferId": id, "offset": 0, "length": 64 })).await.unwrap();
@@ -877,7 +1208,7 @@ async fn recorded_editor_files_replay_identically() {
             let now = std::time::SystemTime::now();
             for i in 0..105u64 {
                 let source = work.join(format!("cap/f{i}.txt")).to_string_lossy().into_owned();
-                call(&env, "projectFs/backup/write", json!({ "sourcePath": source, "content": format!("c{i}"), "expectedContent": "e" })).await.unwrap();
+                call_local(&env, "projectFs/backup/write", json!({ "sourcePath": source, "content": format!("c{i}"), "expectedContent": "e" })).await.unwrap();
                 let file = std::fs::OpenOptions::new().write(true).open(backups.path_of(&source).unwrap()).unwrap();
                 file.set_modified(now - Duration::from_secs(105 - i)).unwrap();
             }
@@ -910,7 +1241,8 @@ async fn recorded_editor_files_replay_identically() {
                 if !std::path::Path::new(root).exists() {
                     // A folder that is not there cannot be a registered project: the boundary refuses it.
                     let denied = call(&env, "projectFs/readEditorSettings", json!({ "root": root, "rel": input["rel"] })).await;
-                    assert!(matches!(denied, Err(CoreError::PermissionDenied { .. })), "{label}: {denied:?}");
+                    // `readEditorSettings` resolves the folder through `host.projectDirectory` (remote-methods.ts:740).
+                    assert!(unavailable(&denied), "{label}: {denied:?}");
                     continue;
                 }
                 env.service.catalog().add(root, &CancellationToken::new(), None).await.unwrap();
@@ -925,7 +1257,10 @@ async fn recorded_editor_files_replay_identically() {
             "project/taskWorkspace" => ("project/taskWorkspace", json!({})),
             other => panic!("{label}: unmapped recorded method {other}"),
         };
-        match (entry.get("error"), call(&env, method, params).await) {
+        // The corpus is the desktop editor's own backups (any file it edits, `project-files.ts`): a local connection's calls. A paired
+        // phone's backups are held to a project or granted file (`a_relay_editor_backup_or_preview_...`).
+        let answer = if method.starts_with("projectFs/backup/") { call_local(&env, method, params).await } else { call(&env, method, params).await };
+        match (entry.get("error"), answer) {
             (Some(error), Err(got)) => {
                 // Node's TypeErrors are this core's invalid params, with the text; its system errors only need to fail.
                 if error["name"] == "TypeError" {
@@ -1059,4 +1394,149 @@ async fn recorded_lsp_registry_and_unsupported_answers_replay() {
         assert_eq!(table[language]["id"], spec.id.as_str(), "{language}");
         assert_eq!(table[language]["args"], json!(spec.args), "{language}");
     }
+}
+
+// ---- the phone's start calls: what Node's `canonicalDirectory`, `knownProject` and `enter` answered (fixtures/phone-chat/host.json) --------
+
+/// The fixture's managed worktrees: `(worktree folder, owner Project, ready)`. A stand-in for the worktree manager's registry behind the daemon's
+/// `SessionProjectWorkspaces::managed`, the one resolver the service takes (`set_managed_projects`).
+struct Worktrees(CoreState, Vec<(String, String, bool)>);
+
+#[async_trait::async_trait]
+impl mixdog_workspace::service::ManagedProjects for Worktrees {
+    async fn owner(&self, path: &str) -> Option<(String, String)> {
+        let real = canonical(std::path::Path::new(path)).ok()?.to_string_lossy().into_owned();
+        let below = |folder: &str| real == folder || real.starts_with(&format!("{folder}{}", std::path::MAIN_SEPARATOR));
+        let (_, owner, _) = self.1.iter().find(|(folder, _, ready)| *ready && below(folder))?;
+        self.0.project(owner).await.ok().flatten()?;
+        Some((owner.clone(), real))
+    }
+}
+
+fn domain(error: &CoreError) -> (Option<String>, Option<String>) {
+    match error {
+        CoreError::DomainError { code, message, .. } => (code.as_ref().map(|c| c.to_string()), message.as_ref().map(|m| m.to_string())),
+        other => panic!("not a domain error: {other:?}"),
+    }
+}
+
+/// The adapter's sequence for `startProject` / `startProjectTask` (remote-protocol-chat-host.ts): the folder the blank snapshot names, and the
+/// folders `project/create` registered (Node's `addProject` calls) on the way.
+async fn start_through_core(env: &Env, call: &str, path: &str) -> (Result<String, CoreError>, Vec<String>) {
+    let mut added = Vec::new();
+    let folder = if call == "startProject" {
+        match self::call(env, "project/create", json!({ "path": path })).await {
+            Ok(created) => {
+                let folder = created["project"]["path"].as_str().unwrap().to_owned();
+                added.push(folder.clone());
+                let _ = self::call(env, "project/touch", json!({ "path": folder })).await;
+                Ok(folder)
+            }
+            Err(error) => Err(error),
+        }
+    } else {
+        match self::call(env, "project/directory", json!({ "path": path, "owner": true })).await {
+            Ok(answer) => {
+                let _ = self::call(env, "project/touch", json!({ "path": path })).await;
+                Ok(answer["path"].as_str().unwrap().to_owned())
+            }
+            Err(error) => Err(error),
+        }
+    };
+    (folder, added)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn recorded_start_calls_resolve_the_folder_node_did() {
+    let fixture: Value = serde_json::from_str(include_str!("../../../../fixtures/phone-chat/host.json")).unwrap();
+    let mut replayed = 0;
+    for case in fixture["cases"].as_array().unwrap().iter().filter(|case| case["group"] == "start" && case["call"] != "startTask") {
+        let name = case["name"].as_str().unwrap();
+        let env = env();
+        let base = env.root.parent().unwrap().to_path_buf();
+        let root = base.to_string_lossy().into_owned();
+        let at = |text: &str| text.replace("<ROOT>/", &format!("{root}/")).replace('/', std::path::MAIN_SEPARATOR_STR);
+        let setup = &case["setup"];
+        for dir in setup["dirs"].as_array().unwrap() {
+            std::fs::create_dir_all(base.join(dir.as_str().unwrap())).unwrap();
+        }
+        for file in setup["files"].as_array().unwrap() {
+            std::fs::write(base.join(file.as_str().unwrap()), "x").unwrap();
+        }
+        let hidden: Vec<String> = setup["hidden"].as_array().unwrap().iter().map(|h| at(h.as_str().unwrap())).collect();
+        let registered: Vec<String> = setup["projects"].as_array().unwrap().iter().map(|p| at(p["path"].as_str().unwrap())).collect();
+        for (rank, path) in registered.iter().chain(hidden.iter().filter(|h| !registered.contains(h))).enumerate() {
+            let tombstone = hidden.contains(path);
+            let row = mixdog_store::state::ProjectRow { path: path.clone(), alias: None, hidden: tombstone, hidden_rank: tombstone.then_some(rank as i64), last_used_at: None, name: None };
+            env.state.write(move |tx| tx.put_project(&row)).await.unwrap();
+        }
+        if setup["worktrees"] == true {
+            let ready = name != "startProjectTask:worktree-not-ready";
+            let folder = canonical(&base.join("wt")).unwrap().to_string_lossy().into_owned();
+            env.service.set_managed_projects(Arc::new(Worktrees(env.state.clone(), vec![(folder, at("<ROOT>/proj"), ready)])));
+        }
+        // `requiredString` (the phone method layer) trims before a call reaches the host; a blank or non-string path never does.
+        let Some(given) = case["args"][0].as_str().map(str::trim).filter(|g| !g.is_empty()) else { continue };
+        let (outcome, added) = start_through_core(&env, case["call"].as_str().unwrap(), &at(given)).await;
+        let node = &case["node"];
+        match (&outcome, node.get("error")) {
+            (Ok(folder), None) => {
+                // What the core decides is the folder; Node's snapshot names it three times (the rest of the snapshot is the chat adapter's, replayed
+                // over this same fixture by remote-protocol-chat-host.test.mjs).
+                let result = &node["result"];
+                for field in [&result["cwd"], &result["currentProject"], &result["desktopSession"]["projectPath"]] {
+                    assert_eq!(*folder, at(field.as_str().unwrap()), "{name}: the folder of the blank snapshot");
+                }
+            }
+            (Err(error), Some(node_error)) => {
+                let (code, message) = domain(error);
+                let node_message = node_error["message"].as_str().unwrap();
+                let mut keys: Vec<&str> = node_error.as_object().unwrap().keys().map(String::as_str).collect();
+                keys.sort();
+                match code.as_deref() {
+                    // The message is the path the OS error names; the client builds Node's whole text from it.
+                    Some("pathMissing") => {
+                        assert_eq!(node_error["name"], "Error", "{name}");
+                        assert_eq!(keys, ["code", "message", "name"], "{name}");
+                        assert_eq!(node_error["code"], "ENOENT", "{name}");
+                        let named = message.unwrap().replace('\\', "/").replace(&root.replace('\\', "/"), "<ROOT>");
+                        assert_eq!(node_message, format!("ENOENT: no such file or directory, realpath '{named}'"), "{name}");
+                    }
+                    Some("notADirectory") => {
+                        assert_eq!(node_error["name"], "TypeError", "{name}");
+                        assert_eq!(keys, ["message", "name"], "{name}");
+                        assert_eq!(message.as_deref(), Some(node_message), "{name}");
+                    }
+                    // Node's registry (`known`, desktop-project-registry.ts) throws a plain `Error` with no code when its store has no
+                    // `listProjectsStrict` (the stand-in store this fixture was recorded with: no `code` in `node_error`), and the coded
+                    // `PROJECT_UNAVAILABLE` when it has one - as the real store (src/runtime/shared/projects.mjs) does, and as the core's
+                    // registry is: it tells a removal from an unreadable table. The real store's whole error is in the files recording.
+                    Some("PROJECT_UNAVAILABLE") => {
+                        assert_eq!(node_error["name"], "Error", "{name}");
+                        assert!(node_error.get("code").is_none(), "{name}: the stand-in store's error carries no code");
+                        let files: Value = serde_json::from_str(include_str!("../../../../../../apps/mobile/fixtures/phone-files/golden.json")).unwrap();
+                        let strict = files["scenarios"]["relay"]["steps"].as_array().unwrap().iter().map(|step| &step["frame"]).find(|frame| frame["errorCode"] == "PROJECT_UNAVAILABLE").unwrap();
+                        assert_eq!(strict["error"], node_message, "{name}: one text in both recordings");
+                        assert_eq!((code.as_deref(), message.as_deref()), (strict["errorCode"].as_str(), strict["error"].as_str()), "{name}: the whole error");
+                    }
+                    other => panic!("{name}: unexpected code {other:?}"),
+                }
+            }
+            (outcome, node) => panic!("{name}: core {outcome:?} against Node {node:?}"),
+        }
+        // The registry afterwards: the touch went to the Project Node touched, and the entered Project lost its tombstone.
+        let rows = env.state.projects().await.unwrap();
+        // Node's store calls, whole: an `addProject` for each Project `project/create` registered, then a `touchProjectSelected` for each Project the
+        // touch reached (the core's `lastUsedAt`).
+        let core_calls: Vec<Value> = added.iter().map(|path| json!(["addProject", path])).chain(rows.iter().filter(|row| row.last_used_at.is_some()).map(|row| json!(["touchProjectSelected", row.path]))).collect();
+        let node_calls: Vec<Value> = node["storeCalls"].as_array().unwrap().iter().map(|call| Value::Array(call.as_array().unwrap().iter().map(|part| json!(at(part.as_str().unwrap()))).collect())).collect();
+        assert_eq!(core_calls, node_calls, "{name}: the store calls");
+        let mut left: Vec<String> = rows.iter().filter(|row| row.hidden).map(|row| row.path.clone()).collect();
+        left.sort();
+        let node_left: Vec<String> = node["hiddenAfter"].as_array().map(|h| h.iter().map(|p| at(p.as_str().unwrap())).collect()).unwrap_or_else(|| hidden.clone());
+        assert_eq!(left, node_left, "{name}: tombstones left");
+        assert!(rows.iter().all(|row| row.hidden || row.hidden_rank.is_none()), "{name}: a rank outlived its tombstone");
+        replayed += 1;
+    }
+    assert_eq!(replayed, 18, "recorded start cases replayed");
 }

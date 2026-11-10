@@ -95,7 +95,7 @@ pub async fn ingest_transcript_tail(ingest: &TranscriptIngest, path: &Path, cwd:
         }
         let Ok(parsed) = json_parse(&line) else {
             // Complete lines never become valid: skip for good, or it blocks every line after it.
-            tracing::info!("[transcript-watch] skipped a damaged line in {base}");
+            mixdog_rt::memory_stderr!("[transcript-watch] skipped a damaged line in {base}");
             boundary.bytes += consumed;
             continue;
         };
@@ -104,7 +104,7 @@ pub async fn ingest_transcript_tail(ingest: &TranscriptIngest, path: &Path, cwd:
             let reference = source_ref(&uuid, index, tail.generation);
             // A fractional ms (a sub-millisecond second stamp) is not a BIGINT: the insert fails as it does in Node.
             if row.ts_ms.fract() != 0.0 {
-                tracing::info!("[transcript-watch] insert error ({reference}): invalid input syntax for type bigint: \"{}\"", mixdog_js::number_to_string(row.ts_ms));
+                mixdog_rt::memory_stderr!("[transcript-watch] insert error ({reference}): invalid input syntax for type bigint: \"{}\"", mixdog_js::number_to_string(row.ts_ms));
                 break;
             }
             let (ts, turn) = (row.ts_ms as i64, index as i32);
@@ -121,7 +121,7 @@ pub async fn ingest_transcript_tail(ingest: &TranscriptIngest, path: &Path, cwd:
                 Ok(n) if n > 0 => count += 1,
                 Ok(_) => {}
                 Err(error) => {
-                    tracing::info!("[transcript-watch] insert error ({reference}): {}", error.message());
+                    mixdog_rt::memory_stderr!("[transcript-watch] insert error ({reference}): {}", error.message());
                     break; // transient: the boundary stays before this line
                 }
             }

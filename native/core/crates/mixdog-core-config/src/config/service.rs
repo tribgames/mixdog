@@ -30,6 +30,7 @@ use super::ConfigEdit;
 use super::ConfigError;
 use super::PUBLISHED_SUBTREES;
 use super::Settings;
+use mixdog_core_base::support::failed;
 use mixdog_core_base::support::wrong_method;
 use crate::tool_modules::ToolModules;
 use crate::tool_modules::ToolModulesError;
@@ -88,7 +89,8 @@ impl ConfigService {
         Self { config, tool_modules, settings, output_styles }
     }
 
-    async fn dispatch(&self, method: &str, params: &Value) -> Result<Value, CoreError> {
+    /// `relay`: a paired phone's call (see [`settings_call`]).
+    async fn dispatch(&self, method: &str, params: &Value, relay: bool) -> Result<Value, CoreError> {
         match method {
             "config/read" => self.read(params),
             "config/value/write" => {
@@ -143,7 +145,7 @@ impl ConfigService {
                 set_worktree_settings(&self.config, &patch).await
             }
             "config/getOutputStyle" | "config/listOutputStyles" => tool(self.output_styles.status().await),
-            other => settings_call(&self.settings, other, params).await,
+            other => settings_call(&self.settings, other, params, relay).await,
         }
     }
 
@@ -175,12 +177,12 @@ impl ConfigService {
     }
 
     async fn write(&self, edits: Vec<ConfigEdit>) -> Result<Value, CoreError> {
-        self.config.batch_write(&edits).await.map_err(core_error)?;
+        let (_, saved) = self.config.batch_write_saved(&edits, SAVED_SUBTREES).await.map_err(core_error)?;
         let values: Vec<Value> = edits
             .iter()
             .map(|edit| self.config.get(&edit.path).unwrap_or(Value::Null))
             .collect();
-        Ok(json!({ "revision": self.config.revision(), "values": values }))
+        Ok(json!({ "revision": self.config.revision(), "values": values, "config": saved }))
     }
 }
 
@@ -207,9 +209,19 @@ fn worktree_view(config: &Config) -> Value {
 }
 
 /// The scalar settings: reads answer the view, writes the view after the change. Argument
-/// names are the Node parameter names.
-async fn settings_call(settings: &Settings, method: &str, params: &Value) -> Result<Value, CoreError> {
+/// names are the Node parameter names. A paired phone (`relay`) may only turn "Allow all actions" off: Node's host
+/// refused turning it on over remote access (`remote-methods.ts` `assertRemoteCapabilityCall`,
+/// `developer-risk-confirm.ts` `isAllowAllActionsEnable`), with the code the clients read (`REMOTE_DESKTOP_ONLY`).
+async fn settings_call(settings: &Settings, method: &str, params: &Value, relay: bool) -> Result<Value, CoreError> {
     let arg = |key: &str| params.get(key).cloned().unwrap_or(Value::Null);
+    if relay && method == "config/setDeveloperOption" && arg("id") == "allowAllActions" && arg("enabled") == true {
+        return Err(CoreError::DomainError {
+            domain: "config".into(),
+            code: Some("REMOTE_DESKTOP_ONLY".into()),
+            message: Some("setDeveloperOption cannot turn on Allow all actions over remote access; use the desktop.".into()),
+            detail: None,
+        });
+    }
     let result = match method {
         "config/getHeartbeatSettings" => return Ok(settings.heartbeat()),
         "config/getReactionSettings" => return Ok(settings.reactions()),
@@ -227,7 +239,7 @@ async fn settings_call(settings: &Settings, method: &str, params: &Value) -> Res
         "config/setReactionsEnabled" => settings.set_reactions_enabled(&arg("enabled")).await,
         "config/setAiSessionTitles" => settings.set_ai_session_titles(&arg("enabled")).await,
         "config/setCacheWarmingEnabled" => settings.set_cache_warming_enabled(&arg("enabled")).await,
-        "config/setSystemShell" => settings.set_system_shell(&arg("command")).await,
+        "config/setSystemShell" => settings.set_system_shell(&arg("input")).await,
         "config/setDeveloperOption" => settings.set_developer_option(&arg("id"), &arg("enabled")).await,
         "config/saveStarterGuideState" => settings.save_starter_guide_state(&arg("state")).await,
         "config/getBotOrder" => return Ok(settings.bot_order()),
@@ -236,6 +248,9 @@ async fn settings_call(settings: &Settings, method: &str, params: &Value) -> Res
     };
     tool(result)
 }
+
+/// The subtrees Node's desktop settings read from the config its locked update returned (`desktopSettingsFromConfig`).
+pub(super) const SAVED_SUBTREES: &[&str] = &["agent", "desktop"];
 
 fn edit_of(params: &Value) -> Result<ConfigEdit, CoreError> {
     let path = params
@@ -295,12 +310,11 @@ pub(super) fn core_error(error: ConfigError) -> CoreError {
     }
 }
 
-/// The setters throw `TypeError` for a bad argument and `Error` for a failed step.
+/// The setters throw `TypeError` for a bad argument and `Error` for a failed step. A `TypeError`
+/// reaches the window as its message, which `invalidParams` would not carry.
 fn tool(result: Result<Value, ToolModulesError>) -> Result<Value, CoreError> {
     result.map_err(|error| match error {
-        ToolModulesError::InvalidArgument(message) => {
-            CoreError::InvalidParams { path: "params".into(), expected: message.into() }
-        }
+        ToolModulesError::InvalidArgument(message) => failed("config", message),
         ToolModulesError::Failed(_) => CoreError::DomainError {
             domain: "config".into(),
             code: Some("settingFailed".into()),
@@ -318,7 +332,8 @@ impl DomainService for ConfigService {
     }
 
     async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
-        Ok(Reply::Value(self.dispatch(req.method.as_str(), &req.params).await?))
+        let relay = req.ctx.origin == mixdog_protocol::Origin::Relay;
+        Ok(Reply::Value(self.dispatch(req.method.as_str(), &req.params, relay).await?))
     }
 
     fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {

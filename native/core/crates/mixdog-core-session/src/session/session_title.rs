@@ -50,6 +50,17 @@ static MEDIA_PLACEHOLDER: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex
 static UNTITLED_PLACEHOLDER: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"(?i)^untitled(?:\s+session)?$").expect("untitled pattern"));
 static REFERENCE_FILES: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"(?i)^\s*reference files:").expect("reference files pattern"));
 
+/// JavaScript truthiness of a stored value: `null`, `false`, `""`, `0` and `-0` are falsy; anything else is truthy.
+fn js_truthy(value: &Value) -> bool {
+    match value {
+        Value::Null => false,
+        Value::Bool(flag) => *flag,
+        Value::Number(number) => number.as_f64().is_some_and(|n| n != 0.0 && !n.is_nan()),
+        Value::String(text) => !text.is_empty(),
+        Value::Array(_) | Value::Object(_) => true,
+    }
+}
+
 /// `isUsableTitle` (`session-fallback-title.mjs`).
 fn is_usable_title(title: &str) -> bool {
     let text = js_trim(title);
@@ -85,7 +96,7 @@ fn is_human_authored_turn(message: &Value) -> bool {
             return false;
         }
         // `IMPORTED_MESSAGE_SOURCE`: an imported turn was typed by a human elsewhere.
-        if meta.get("source").is_some_and(|source| !matches!(source, Value::Null | Value::Bool(false)) && source.as_str() != Some("") && source.as_str() != Some("import")) {
+        if meta.get("source").is_some_and(|source| js_truthy(source) && source.as_str() != Some("import")) {
             return false;
         }
     }
@@ -97,10 +108,11 @@ fn is_human_authored_turn(message: &Value) -> bool {
 /// (`prompt` is `None` for a runtime-injected turn, which never names it). `None` when the session already has a
 /// usable title, a locked or generated one, or nothing in the transcript is usable.
 pub fn fallback_title_change(header: &Map<String, Value>, history: &[Value], prompt: Option<&Value>, now: i64) -> Option<mixdog_store::schema::record::HeaderChange> {
-    if header.get("title").and_then(Value::as_str).is_some_and(is_usable_title) {
+    // `isUsableTitle(session.title)`: `String(title || '')`, so a stored number is its text.
+    if header.get("title").is_some_and(|title| js_truthy(title) && is_usable_title(&mixdog_js::value_to_string(title))) {
         return None;
     }
-    if header.get("titleLocked") == Some(&Value::Bool(true)) || header.get("generatedTitleStage").is_some_and(|stage| !matches!(stage, Value::Null | Value::Bool(false)) && stage.as_str() != Some("")) {
+    if header.get("titleLocked") == Some(&Value::Bool(true)) || header.get("generatedTitleStage").is_some_and(js_truthy) {
         return None;
     }
     let title = history
@@ -771,44 +783,25 @@ mod tests {
         }
     }
 
-    /// Titles Node's `backfillFallbackSessionTitle` (`session-fallback-title.mjs`) gave these histories, run on
-    /// the `src/` of the same commit: the earliest usable human turn wins over the turn's own prompt.
+    /// Node's `backfillFallbackSessionTitle` (`session-fallback-title.mjs`) over each recorded header and transcript
+    /// (`fixtures/fallback-title/golden.json`, recorded by `record-fallback-title.mjs`): the title it set, or that it set none,
+    /// including the stored values JavaScript reads as falsy or truthy.
     #[test]
-    fn a_titleless_session_is_named_from_the_earliest_human_turn_like_node() {
-        let user = |content: &str| json!({ "role": "user", "content": content });
-        let with = |content: &str, extra: Value| {
-            let mut row = user(content);
-            row.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
-            row
-        };
-        let header = |value: Value| value.as_object().unwrap().clone();
-        let titled = |header: Map<String, Value>, history: Vec<Value>, prompt: Option<Value>| {
-            fallback_title_change(&header, &history, prompt.as_ref(), 7).map(|change| {
-                assert_eq!(change.set.get("titleUpdatedAt"), Some(&json!(7)));
-                change.set["title"].as_str().unwrap().to_owned()
-            })
-        };
-        let some = |title: &str| Some(title.to_owned());
-        let none = || header(json!({}));
-
-        assert_eq!(titled(none(), vec![user("Reference files: a"), user("Fix the parser bug please"), user("Second ask")], None), some("Fix the parser bug please"));
-        assert_eq!(titled(none(), vec![user("Earlier human turn")], Some(user("This prompt"))), some("Earlier human turn"), "history before the prompt");
-        assert_eq!(titled(none(), vec![], Some(user("This prompt"))), some("This prompt"), "the prompt when the history has none");
-        assert_eq!(
-            titled(none(), vec![with("goal text", json!({ "meta": { "source": "goal" } })), user("Typed by the human")], None),
-            some("Typed by the human"),
-            "an injected turn never names the session"
-        );
-        assert_eq!(
-            titled(none(), vec![with("x", json!({ "meta": { "synthetic": true } })), with("y", json!({ "internal": true })), user("Real one")], None),
-            some("Real one")
-        );
-        assert_eq!(titled(none(), vec![with("Imported prompt text", json!({ "meta": { "source": "import" } }))], None), some("Imported prompt text"));
-        assert_eq!(titled(none(), vec![user("<system-reminder>x</system-reminder>"), user("After reminder")], None), some("After reminder"));
-        assert_eq!(titled(none(), vec![user("")], None), None, "nothing usable");
-        assert_eq!(titled(header(json!({ "title": "Kept" })), vec![user("Other")], None), None);
-        assert_eq!(titled(header(json!({ "title": "Untitled session" })), vec![user("Replaces untitled")], None), some("Replaces untitled"));
-        assert_eq!(titled(header(json!({ "titleLocked": true })), vec![user("Nope")], None), None);
-        assert_eq!(titled(header(json!({ "generatedTitleStage": "first" })), vec![user("Nope")], None), None);
+    fn a_titleless_session_is_named_as_nodes_backfill_names_it() {
+        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/fallback-title/golden.json")).expect("golden.json");
+        let cases = golden["cases"].as_array().expect("cases");
+        assert_eq!(cases.len(), 21);
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let header = case["header"].as_object().unwrap();
+            let history = case["messages"].as_array().unwrap();
+            let change = fallback_title_change(header, history, None, 7);
+            assert_eq!(change.is_some(), case["changed"] == true, "{name}");
+            if let Some(change) = change {
+                assert_eq!(change.set.get("title"), Some(&case["title"]), "{name}");
+                assert_eq!(change.set.get("titleUpdatedAt"), Some(&json!(7)), "{name}");
+                assert_eq!(case["titleUpdatedAtSet"], true, "{name}");
+            }
+        }
     }
 }

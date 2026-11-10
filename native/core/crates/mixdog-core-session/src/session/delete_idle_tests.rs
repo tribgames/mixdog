@@ -27,7 +27,7 @@ use super::delete::live_refusal;
 use super::seams::RunOutcome;
 use super::testing::Rig;
 use super::testing::lock;
-use super::tests::eventually_on;
+use crate::eventually_on;
 use super::tests::idle;
 use super::tests::start_thread;
 use super::tests::turn;
@@ -107,10 +107,27 @@ impl World {
         }
     }
 
+    /// A completion wakes the thread: its turn runs, until `release`.
+    async fn wake(&self) {
+        self.handle
+            .inbox
+            .send(super::actor::Inbox::TaskNotification {
+                surface: "agent".into(),
+                task_id: "task_agent_1".into(),
+                status: "failed".into(),
+                text: "failed".into(),
+                origin: None,
+                live: true,
+            })
+            .await
+            .expect("the actor runs");
+        eventually_on!(&[&self.handle.cell.stepped], || self.handle.cell.run.load().is_some().then_some(())).await;
+    }
+
     /// The thread's turn runs, until `release`.
     async fn run_turn(&self) {
         turn(&self.handle, "work", "op-turn").await;
-        eventually_on(&[&self.handle.cell.stepped], || self.handle.cell.run.load().is_some().then_some(())).await;
+        eventually_on!(&[&self.handle.cell.stepped], || self.handle.cell.run.load().is_some().then_some(())).await;
     }
 }
 
@@ -175,7 +192,17 @@ async fn replay(name: &str, world: &World) -> Value {
             world.run_turn().await;
             let reply = world.ask(&id, same).await;
             world.release.notify_one();
-            eventually_on(&[&world.handle.cell.stepped], || idle(&world.handle).then_some(())).await;
+            eventually_on!(&[&world.handle.cell.stepped], || idle(&world.handle).then_some(())).await;
+            json!({ "reply": reply })
+        }
+        // A turn in flight that holds no ask lock: Rust wakes the idle thread for a completion with a turn Node would not
+        // run (it wakes only its current session), so the archive flag is read first and the turn still makes it busy.
+        "in-flight-archived" | "in-flight-not-archived" => {
+            world.flags(name == "in-flight-archived", false).await;
+            world.wake().await;
+            let reply = world.ask(&id, same).await;
+            world.release.notify_one();
+            eventually_on!(&[&world.handle.cell.stepped], || idle(&world.handle).then_some(())).await;
             json!({ "reply": reply })
         }
         "not-archived" => {

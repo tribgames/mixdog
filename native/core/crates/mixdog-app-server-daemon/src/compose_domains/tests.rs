@@ -291,7 +291,7 @@ impl ExtensionHost for Quiet {
         Ok(Value::Object(serde_json::Map::new()))
     }
 
-    async fn skills_status(&self) -> Value {
+    async fn skills_status(&self, _: Option<&str>) -> Value {
         json!({})
     }
 }
@@ -410,187 +410,189 @@ impl SetupUiSurface for Quiet {
     async fn settled(&self, _: &ThreadId, _: &str) {}
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[test]
 #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
 #[allow(clippy::disallowed_methods, reason = "test setup")]
-async fn every_method_of_the_domains_built_here_has_a_real_service() {
-    let _one = crate::compose_test_support::exclusive().await;
-    let dir = tempfile::tempdir().unwrap();
-    let tokens = mixdog_rt::testing::tokens();
-    let host: Arc<dyn HostChannel> = Arc::new(MockHostChannel::default());
-    let js = crate::js_runtime::fixture(dir.path());
-    let policy = mixdog_ai::netproxy::NetworkProxy::new(
-        Arc::new(mixdog_ai::netproxy::route::ProcessEnv),
-        mixdog_ai::netproxy::system::SystemProxy::default(),
-    );
-    let clients = Arc::new(mixdog_ai::netproxy::clients::RoutedClients::new(policy.clone(), |_| {
-        reqwest::Client::builder().build()
-    }));
-    // The shipped manifest the voice service reads from the package.
-    let manifests = js.package_root.join("src").join("runtime").join("channels").join("data");
-    std::fs::create_dir_all(&manifests).unwrap();
-    std::fs::write(js.package_root.join("package.json"), r#"{"name":"mixdog","version":"1.4.5"}"#).unwrap();
-    std::fs::write(
-        manifests.join("voice-runtime-manifest.json"),
-        include_str!("../../../../../../src/runtime/channels/data/voice-runtime-manifest.json"),
-    )
-    .unwrap();
-    let core = compose(
-        &tokens,
-        ComposeConfig {
-            data_dir: crate::compose_test_support::data_dir().to_path_buf(),
-            user_data_dir: dir.path().join("userdata"),
-            js_runtime: crate::js_runtime::fixture(dir.path()),
-            ort_library: OrtRuntime::NoBinding,
-            outgoing: mixdog_app_server::Outgoing::new(),
-            ownership: Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()),
-            log: crate::daemon_log::DaemonLog::new(dir.path().join("daemon.log"), tokens.maintenance_io, mixdog_rt::CancellationToken::new()),
-            stop: mixdog_rt::CancellationToken::new(),
-            catalog_http: crate::compose_test_support::offline_http(),
-        },
-    )
-    .await
-    .unwrap();
-    let ext_host = Arc::new(
-        ExtHostPool::new(ExtHostConfig {
-            program: js.program.clone(),
-            args: vec![js.package_root.join("src").join("ext-host").join("worker.mjs").into_os_string()],
-            electron: js.electron,
-            workers: 1,
-            pending_cap: DEFAULT_PENDING_CAP,
-            spawn_io: tokens.spawn_io,
-            render_browser: RenderBrowserConfig {
-                command: None,
-                profile_root: dir.path().join("render-browser"),
-                no_sandbox: false,
+fn every_method_of_the_domains_built_here_has_a_real_service() {
+    crate::compose_test_support::in_child(module_path!(), "every_method_of_the_domains_built_here_has_a_real_service", tokio::runtime::Builder::new_multi_thread(), |dir| async move {
+        let tokens = mixdog_rt::testing::tokens();
+        let host: Arc<dyn HostChannel> = Arc::new(MockHostChannel::default());
+        let js = crate::js_runtime::fixture(&dir);
+        let policy = mixdog_ai::netproxy::NetworkProxy::new(
+            Arc::new(mixdog_ai::netproxy::route::ProcessEnv),
+            mixdog_ai::netproxy::system::SystemProxy::default(),
+        );
+        let clients = Arc::new(mixdog_ai::netproxy::clients::RoutedClients::new(policy.clone(), |_| {
+            reqwest::Client::builder().build()
+        }));
+        // The shipped manifest the voice service reads from the package.
+        let manifests = js.package_root.join("src").join("runtime").join("channels").join("data");
+        std::fs::create_dir_all(&manifests).unwrap();
+        std::fs::write(js.package_root.join("package.json"), r#"{"name":"mixdog","version":"1.4.5"}"#).unwrap();
+        std::fs::write(
+            manifests.join("voice-runtime-manifest.json"),
+            include_str!("../../../../../../src/runtime/channels/data/voice-runtime-manifest.json"),
+        )
+        .unwrap();
+        let core = compose(
+            &tokens,
+            ComposeConfig {
+                data_dir: crate::compose_test_support::data_in(&dir),
+                user_data_dir: dir.join("userdata"),
+                js_runtime: crate::js_runtime::fixture(&dir),
+                ort_library: OrtRuntime::NoBinding,
+                outgoing: mixdog_app_server::Outgoing::new(),
+                ownership: Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()),
+                log: crate::daemon_log::DaemonLog::new(dir.join("daemon.log"), tokens.maintenance_io, mixdog_rt::CancellationToken::new()),
+                stop: mixdog_rt::CancellationToken::new(),
+                catalog_http: crate::compose_test_support::offline_http(),
+                pg_install: None,
             },
-        })
-        .unwrap(),
-    );
-    let (state, _) = mixdog_store::state::CoreState::open(
-        tokens.sqlite_writer_thread,
-        tokens.interactive_io,
-        &dir.path().join("gates.sqlite"),
-    )
-    .unwrap();
-    let mut gates = Vec::new();
-    for scope in OP_SCOPES {
-        let store = Arc::new(StateOpStore::new(state.clone(), scope.into()));
-        gates.push((scope, OpGate::domain(OpScope::Domain(scope.into()), store).await.unwrap()));
-    }
-    let quiet = Arc::new(Quiet);
-    let models = crate::compose::build_models(&tokens, dir.path(), OrtRuntime::NoBinding).unwrap();
-    let app_feed = core.app_feed_core().clone();
-    let state = Arc::new(mixdog_core_base::state::StateRuntime::new(app_feed.clone()));
-    let (config, _) = mixdog_core_config::config::Config::open(
-        dir.path().join("mixdog-config.json"),
-        state.publisher.clone(),
-        mixdog_core_config::config::ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io },
-    )
-    .await
-    .unwrap();
-    let cancel = CancellationToken::new();
-    let local_provider = crate::compose_domains::build_local_provider(dir.path(), core.tidy_processes(), &config, &cancel).unwrap();
-    let held = local_provider.clone();
-    let inputs = DomainInputs {
-        tokens,
-        voice_manifest: serde_json::from_str(include_str!("../../../../../../src/runtime/channels/data/voice-runtime-manifest.json")).unwrap(),
-        paths: DomainPaths {
-            data_dir: dir.path().to_path_buf(),
-            user_data_dir: dir.path().join("userdata"),
-            package_root: js.package_root.clone(),
-            node: js.program.clone(),
-            electron: js.electron,
-        },
-        env: Arc::new(|_| None),
-        app_feed,
-        state,
-        config,
-        scoped_feeds: Arc::new(CoreScopedFeeds::new(
-            FeedLimits { ring_bytes: 1 << 20, max_snapshot_bytes: 1 << 20 },
-            tokens.cpu_interactive,
-        )),
-        host,
-        ext_host,
-        processes: core.tidy_processes().clone(),
-        catalog: core.catalog().service().clone(),
-        models: Models {
-            tick: models.tick.clone(),
-            embeddings: models.embeddings.clone(),
-            effort_judge: models.effort_judge.clone(),
-        },
-        scopes: OpScopeSource::new(gates, Arc::new(NoThreads)),
-        limits: Default::default(),
-        cancel,
-        local_provider,
-        seams: DomainSeams {
-            settings_effects: quiet.clone(),
-            feature_effects: quiet.clone(),
-            local: LocalSeams {
-                media_generator: quiet.clone(),
-            media_ledger: quiet.clone(),
-        voice_progress: quiet.clone(),
-                voice_installer: quiet.clone(),
+        )
+        .await
+        .unwrap();
+        let ext_host = Arc::new(
+            ExtHostPool::new(ExtHostConfig {
+                program: js.program.clone(),
+                args: vec![js.package_root.join("src").join("ext-host").join("worker.mjs").into_os_string()],
+                electron: js.electron,
+                workers: 1,
+                pending_cap: DEFAULT_PENDING_CAP,
+                spawn_io: tokens.spawn_io,
+                render_browser: RenderBrowserConfig {
+                    command: None,
+                    profile_root: dir.join("render-browser"),
+                    no_sandbox: false,
+                },
+            })
+            .unwrap(),
+        );
+        let (state, _) = mixdog_store::state::CoreState::open(
+            tokens.sqlite_writer_thread,
+            tokens.interactive_io,
+            &dir.join("gates.sqlite"),
+        )
+        .unwrap();
+        let mut gates = Vec::new();
+        for scope in OP_SCOPES {
+            let store = Arc::new(StateOpStore::new(state.clone(), scope.into()));
+            gates.push((scope, OpGate::domain(OpScope::Domain(scope.into()), store).await.unwrap()));
+        }
+        let quiet = Arc::new(Quiet);
+        let models = crate::compose::build_models(&tokens, &dir, OrtRuntime::NoBinding).unwrap();
+        let app_feed = core.app_feed_core().clone();
+        let state = Arc::new(mixdog_core_base::state::StateRuntime::new(app_feed.clone()));
+        let (config, _) = mixdog_core_config::config::Config::open(
+            dir.join("mixdog-config.json"),
+            state.publisher.clone(),
+            mixdog_core_config::config::ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io },
+        )
+        .await
+        .unwrap();
+        let cancel = CancellationToken::new();
+        let local_provider = crate::compose_domains::build_local_provider(&dir, core.tidy_processes(), &config, &cancel).unwrap();
+        let held = local_provider.clone();
+        let inputs = DomainInputs {
+            tokens,
+            voice_manifest: serde_json::from_str(include_str!("../../../../../../src/runtime/channels/data/voice-runtime-manifest.json")).unwrap(),
+            paths: DomainPaths {
+                data_dir: dir.clone(),
+                user_data_dir: dir.join("userdata"),
+                package_root: js.package_root.clone(),
+                node: js.program.clone(),
+                electron: js.electron,
             },
-            user_activity: UserActivity::new(
-                HeartbeatStore::new(mixdog_services::bots::state_json::StateJson::new(
-                    dir.path().join("heartbeat.json"),
-                    tokens.durability_io,
-                )),
-                Arc::new(mixdog_services::scheduler::SystemClock),
-            ),
-            remote: remote(&dir.path().join("remote")),
-            local_target: Arc::new(NoDial),
-            notification_clicks: quiet.clone(),
-            browser_surfaces: quiet.clone(),
-            instructions_changed: quiet.clone(),
-            system_proxy: Arc::new(mixdog_ai::netproxy::system::SystemProxy::default()),
-            plugins: PluginSeams { host: quiet.clone(), git: quiet.clone(), announce: Arc::new(|| {}) },
-            setup_ui: quiet.clone(),
-            network_proxy: policy,
-            routed_clients: clients,
-            session_cwds: quiet.clone(),
-            compaction_host: quiet.clone(),
-            workflow_host: quiet.clone(),
-            feature_activity: quiet.clone(),
-            live_route: quiet.clone(),
-            provider_roster: quiet.clone(),
-            quota_resume: Arc::new(QuotaResumeStore::open(dir.path(), tokens.durability_io, CancellationToken::new()).await.unwrap()),
-        },
-    };
-    // The two stages: nothing of the pre-pool stage reads the directory, so it runs first; the
-    // post-directory stage takes the two seams that do. Together they serve every method the
-    // one-call composition served.
-    let pre = crate::compose_domains::compose_domains_pre(&inputs).await.unwrap();
-    assert!(!pre.services.iter().any(|s| s.methods().contains(&"diagnostics/runDoctor")), "the doctor is a post-directory service");
-    // The local-model, domain and scalar setup actions are served by composed owners, none by a mock.
-    let served: Vec<&str> = pre.setup_actions.iter().flat_map(|owner| owner.actions().iter().copied()).collect();
-    assert_eq!(served, EXPECTED_SETUP_ACTIONS);
-    let read: Vec<&str> = pre.status_readers.iter().flat_map(|reader| reader.domains().iter().copied()).collect();
-    assert_eq!(read, ["autoclear", "compaction", "developer", "shell", "update", "worktree", "network-proxy", "output-style", "local-provider", "memory", "profile", "websearch", "onboarding", "workflow", "features", "summary", "model", "media"]);
-    let composed = crate::compose_domains::compose_domains_post(
-        &inputs,
-        crate::compose_domains::PostSeams { session_attachments: quiet.clone(), doctor: quiet.clone(), import_sessions: quiet.clone() },
-        pre,
-    )
-    .await
-    .unwrap();
-    // The one local provider is built first and handed in: the local-provider service holds a second handle to it.
-    assert!(Arc::strong_count(&held) >= 2);
-    // The methods of these services are other owners' (see `OTHER_OWNERS`); all else is here.
-    let mut builder = DomainsBuilder::new();
-    for service in &composed.services {
-        builder.register(service.clone()).unwrap();
-    }
-    let unclaimed = builder.unclaimed();
-    let table = CLIENT_METHODS.iter().map(|spec| spec.method).chain(CLIENT_NOTIFICATIONS.iter().map(|spec| spec.method));
-    let missing: Vec<&str> = table
-        .filter(|method| OWNED.contains(&method.split('/').next().unwrap()))
-        .filter(|method| unclaimed.contains(method))
-        .filter(|method| !OTHER_OWNERS.iter().any(|(name, _)| name == method))
-        .collect();
-    assert!(missing.is_empty(), "owned methods without a service: {missing:?}");
-    // The core's memory stack stops with it: the next real-core test starts the cluster of the shared data directory.
-    core.set_stop_reason("test");
-    core.run_stop_steps().await;
+            env: Arc::new(|_| None),
+            app_feed,
+            state,
+            config,
+            scoped_feeds: Arc::new(CoreScopedFeeds::new(
+                FeedLimits { ring_bytes: 1 << 20, max_snapshot_bytes: 1 << 20 },
+                tokens.cpu_interactive,
+            )),
+            host,
+            ext_host,
+            processes: core.tidy_processes().clone(),
+            catalog: core.catalog().service().clone(),
+            models: Models {
+                tick: models.tick.clone(),
+                embeddings: models.embeddings.clone(),
+                effort_judge: models.effort_judge.clone(),
+            },
+            scopes: OpScopeSource::new(gates, Arc::new(NoThreads)),
+            limits: Default::default(),
+            cancel,
+            local_provider,
+            seams: DomainSeams {
+                settings_effects: quiet.clone(),
+                feature_effects: quiet.clone(),
+                local: LocalSeams {
+                    media_generator: quiet.clone(),
+                media_ledger: quiet.clone(),
+            voice_progress: quiet.clone(),
+                    voice_installer: quiet.clone(),
+                },
+                user_activity: UserActivity::new(
+                    HeartbeatStore::new(mixdog_services::bots::state_json::StateJson::new(
+                        dir.join("heartbeat.json"),
+                        tokens.durability_io,
+                    )),
+                    Arc::new(mixdog_services::scheduler::SystemClock),
+                ),
+                remote: remote(&dir.join("remote")),
+                local_target: Arc::new(NoDial),
+                notification_clicks: quiet.clone(),
+                browser_surfaces: quiet.clone(),
+                visualize_panes: Arc::default(),
+                instructions_changed: quiet.clone(),
+                system_proxy: Arc::new(mixdog_ai::netproxy::system::SystemProxy::default()),
+                plugins: PluginSeams { host: quiet.clone(), git: quiet.clone(), announce: Arc::new(|| {}) },
+                setup_ui: quiet.clone(),
+                network_proxy: policy,
+                routed_clients: clients,
+                session_cwds: quiet.clone(),
+                compaction_host: quiet.clone(),
+                workflow_host: quiet.clone(),
+                feature_activity: quiet.clone(),
+                live_route: quiet.clone(),
+                provider_roster: quiet.clone(),
+                quota_resume: Arc::new(QuotaResumeStore::open(&dir, tokens.durability_io, CancellationToken::new()).await.unwrap()),
+            },
+        };
+        // The two stages: nothing of the pre-pool stage reads the directory, so it runs first; the
+        // post-directory stage takes the two seams that do. Together they serve every method the
+        // one-call composition served.
+        let pre = crate::compose_domains::compose_domains_pre(&inputs).await.unwrap();
+        assert!(!pre.services.iter().any(|s| s.methods().contains(&"diagnostics/runDoctor")), "the doctor is a post-directory service");
+        // The local-model, domain and scalar setup actions are served by composed owners, none by a mock.
+        let served: Vec<&str> = pre.setup_actions.iter().flat_map(|owner| owner.actions().iter().copied()).collect();
+        assert_eq!(served, EXPECTED_SETUP_ACTIONS);
+        let read: Vec<&str> = pre.status_readers.iter().flat_map(|reader| reader.domains().iter().copied()).collect();
+        assert_eq!(read, ["autoclear", "compaction", "developer", "shell", "update", "worktree", "network-proxy", "output-style", "local-provider", "memory", "profile", "websearch", "onboarding", "workflow", "features", "summary", "model", "media"]);
+        let composed = crate::compose_domains::compose_domains_post(
+            &inputs,
+            crate::compose_domains::PostSeams { session_attachments: quiet.clone(), doctor: quiet.clone(), import_sessions: quiet.clone() },
+            pre,
+        )
+        .await
+        .unwrap();
+        // The one local provider is built first and handed in: the local-provider service holds a second handle to it.
+        assert!(Arc::strong_count(&held) >= 2);
+        // The methods of these services are other owners' (see `OTHER_OWNERS`); all else is here.
+        let mut builder = DomainsBuilder::new();
+        for service in &composed.services {
+            builder.register(service.clone()).unwrap();
+        }
+        let unclaimed = builder.unclaimed();
+        let table = CLIENT_METHODS.iter().map(|spec| spec.method).chain(CLIENT_NOTIFICATIONS.iter().map(|spec| spec.method));
+        let missing: Vec<&str> = table
+            .filter(|method| OWNED.contains(&method.split('/').next().unwrap()))
+            .filter(|method| unclaimed.contains(method))
+            .filter(|method| !OTHER_OWNERS.iter().any(|(name, _)| name == method))
+            .collect();
+        assert!(missing.is_empty(), "owned methods without a service: {missing:?}");
+        // The core's memory stack stops with it.
+        core.set_stop_reason("test");
+        core.run_stop_steps().await;
+    });
 }

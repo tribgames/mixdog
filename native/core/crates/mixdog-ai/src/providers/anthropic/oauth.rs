@@ -5,7 +5,9 @@
 //! [`PkceProvider`]); this module supplies only Anthropic's URLs, client id and
 //! token bodies.
 
+use crate::transport::deadlines::TOKEN_ANTHROPIC_REFRESH;
 use crate::transport::deadlines::TOKEN_EXCHANGE;
+use crate::transport::link::Surface;
 use crate::transport::link::deadline_error;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -28,11 +30,16 @@ use serde_json::json;
 use url::Url;
 
 use crate::oauth::AuthorizeRequest;
+use crate::oauth::CallbackPages;
 use crate::oauth::CredentialFile;
 use crate::oauth::PkceProvider;
 use crate::oauth::Probe;
 use crate::oauth::RefreshFailure;
+use crate::oauth::Refusal;
 use crate::oauth::classify_refresh_failure;
+use crate::oauth::http;
+use crate::oauth::pages;
+use crate::oauth::scrub::oauth_body_summary;
 use crate::transport::http::HttpSend;
 
 use super::codec::DEFAULT_CLI_VERSION;
@@ -83,6 +90,19 @@ impl StoredOAuth {
             .as_deref()
             .is_some_and(|t| t.eq_ignore_ascii_case("enterprise"))
     }
+}
+
+/// Whether the access token lasts less than `lease_ms` more; no recorded expiry counts as short.
+fn lease_is_short(stored: &StoredOAuth, now_ms: u64, lease_ms: u64) -> bool {
+    stored.expires_at == 0 || stored.expires_at < now_ms + lease_ms
+}
+
+/// What [`OAuthSession::ensure_lease`] established; metadata only, never token bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LeaseOutcome {
+    pub expires_at: u64,
+    pub remaining_ms: u64,
+    pub refreshed: bool,
 }
 
 /// The access+refresh pair a refresh started from.
@@ -371,10 +391,19 @@ async fn token_call(
     now: u64,
     flow: TokenFlow,
 ) -> Result<StoredOAuth, TokenFailure> {
-    let response = http
-        .send(request, TOKEN_EXCHANGE)
-        .await
-        .map_err(TokenFailure::Failed)?;
+    // The refresh is a bare `setTimeout` abort (`anthropic-oauth-credentials.mjs:313`), the code exchange an
+    // `AbortSignal.timeout` (`:609`).
+    let exchange = match flow {
+        TokenFlow::Refresh => TOKEN_ANTHROPIC_REFRESH,
+        TokenFlow::Login => TOKEN_EXCHANGE,
+    };
+    let response = http.send(request, exchange).await.map_err(|mut error| {
+        // Node words the refresh's `AbortError` itself (`anthropic-oauth-credentials.mjs:404-409`).
+        if flow == TokenFlow::Refresh && error.timed_out {
+            error.message = "Anthropic OAuth token refresh timed out after 30000ms".to_owned();
+        }
+        TokenFailure::Failed(error)
+    })?;
     let reply = response.read_all().await.map_err(TokenFailure::Failed)?;
     let status = reply.status.unwrap_or(0);
     if !(200..300).contains(&status) {
@@ -406,13 +435,16 @@ impl RefreshParts {
         }
     }
 
-    async fn refresh(self, rejected: Option<String>) -> Result<String, ProviderError> {
+    /// `lease_ms`: refresh unless the token outlasts that window (`preflightAnthropicOAuthCredentials`), instead
+    /// of the usual skew.
+    async fn refresh(self, rejected: Option<String>, lease_ms: Option<u64>) -> Result<String, ProviderError> {
         // Reload first: another process may already have rotated the pair.
         let stored = self.stored().await?;
         let now = (self.clock)();
-        let current = match &rejected {
-            Some(token) => stored.access_token != *token,
-            None => !stored.needs_refresh(now),
+        let current = match (&rejected, lease_ms) {
+            (Some(token), _) => stored.access_token != *token,
+            (None, Some(lease)) => !lease_is_short(&stored, now, lease),
+            (None, None) => !stored.needs_refresh(now),
         };
         if current {
             return Ok(stored.access_token);
@@ -482,6 +514,11 @@ impl OAuthSession {
         self.parts.stored().await
     }
 
+    /// Names the account: the credential file it signs in from.
+    pub fn account(&self) -> String {
+        self.parts.file.path().display().to_string()
+    }
+
     /// A usable access token, refreshing first when it is near expiry.
     pub async fn access_token(&self) -> Result<String, ProviderError> {
         let stored = self.stored().await?;
@@ -501,12 +538,37 @@ impl OAuthSession {
     }
 
     async fn refresh(&self, rejected: Option<String>) -> Result<String, ProviderError> {
+        self.refresh_for(rejected, None).await
+    }
+
+    async fn refresh_for(&self, rejected: Option<String>, lease_ms: Option<u64>) -> Result<String, ProviderError> {
         let parts = self.parts.clone();
         self.parts
             .file
-            .refresh_once(async move { parts.refresh(rejected).await })
+            .refresh_once(async move { parts.refresh(rejected, lease_ms).await })
             .await
-            .unwrap_or_else(|expired| Err(deadline_error(expired, DeliveryState::Ambiguous)))
+            .unwrap_or_else(|expired| Err(deadline_error(expired, DeliveryState::Ambiguous, Surface::Socket)))
+    }
+
+    /// `preflightAnthropicOAuthCredentials`: refreshes the credential now unless its access token lasts at least
+    /// `lease_ms` more (no recorded expiry counts as short), whatever the usual skew says; the refreshed pair is
+    /// persisted before this returns. Errors when signed out, when the grant is dead, or when the endpoint grants less
+    /// than the lease. Returns the persisted credential's expiry (epoch ms) and whether a refresh ran.
+    pub async fn ensure_lease(&self, lease_ms: u64) -> Result<LeaseOutcome, ProviderError> {
+        let before = self.stored().await?;
+        if before.reauth_required == Some(true) {
+            return Err(auth_error("Anthropic sign-in expired; sign in again", true));
+        }
+        let refreshed = lease_is_short(&before, (self.parts.clock)(), lease_ms);
+        if refreshed {
+            self.refresh_for(None, Some(lease_ms)).await?;
+        }
+        let after = self.stored().await?;
+        let remaining_ms = after.expires_at.saturating_sub((self.parts.clock)());
+        if remaining_ms < lease_ms {
+            return Err(auth_error(&format!("Anthropic OAuth cannot satisfy the {}s credential lease (provider granted {}s)", lease_ms.div_ceil(1000), remaining_ms / 1000), false));
+        }
+        Ok(LeaseOutcome { expires_at: after.expires_at, remaining_ms, refreshed })
     }
 }
 
@@ -543,6 +605,54 @@ impl AnthropicLogin {
     }
 }
 
+const OPERATION: &str = "[anthropic-oauth] token exchange";
+
+impl AnthropicLogin {
+    /// The code exchange's token call (`exchangeAuthorizationCode`), keeping what Node's failure page quotes: the
+    /// network cause, the endpoint's status with its redacted body (`_tokenEndpointError`), or a malformed answer.
+    async fn token_exchange(
+        &self,
+        request: WireRequest,
+        base: &StoredOAuth,
+        secrets: &[&str],
+    ) -> Result<StoredOAuth, Refusal> {
+        let failed = |message: String| LoginFailure::Failed { code: "token_exchange_failed".into(), message };
+        let unanswered = |error: ProviderError| {
+            let text = http::request_failed(OPERATION, &error);
+            // Only a request that got no answer is worded by `oauthRequestError` (`anthropic-oauth-credentials.mjs:628`).
+            let message = if error.transport.is_some() { text.clone() } else { error.message };
+            Refusal { failure: failed(message), detail: Some(text) }
+        };
+        let response = self.http.send(request, TOKEN_EXCHANGE).await.map_err(unanswered)?;
+        let reply = response.read_all().await.map_err(unanswered)?;
+        let status = reply.status.unwrap_or(0);
+        if !(200..300).contains(&status) {
+            let summary = oauth_body_summary(&String::from_utf8_lossy(&reply.body), secrets);
+            let body = if summary.is_empty() { String::new() } else { format!(": {summary}") };
+            let compatibility = if status == 403 {
+                format!(
+                    " Anthropic returned HTTP 403 for a request sent as claude-cli/{}. Possible causes include OAuth client compatibility, account or scope policy, an intercepting proxy/VPN/WAF, or regional endpoint restrictions. Verify the account has Claude Code access and the required scopes; update Mixdog or set MIXDOG_CLI_VERSION to the installed official Claude Code version; then retry sign-in via /providers without an intercepting network layer if applicable.",
+                    self.cli_version
+                )
+            } else {
+                String::new()
+            };
+            let failure = match token_failure(status, &reply.body) {
+                TokenFailure::Dead => LoginFailure::Denied,
+                TokenFailure::Failed(err) => failed(err.message),
+            };
+            return Err(Refusal { failure, detail: Some(format!("{OPERATION} {status}{body}.{compatibility}")) });
+        }
+        // `oauthResponseJson`: a body that does not parse is named by its status only.
+        let Ok(parsed) = serde_json::from_slice::<Value>(&reply.body) else {
+            let text = format!("{OPERATION} returned a malformed response (HTTP {status})");
+            return Err(Refusal { failure: failed(text.clone()), detail: Some(text) });
+        };
+        apply_token_response(base, &parsed, now_ms(), TokenFlow::Login)
+            .map_err(|err| Refusal::from(failed(err.message)))
+    }
+}
+
 fn blank_credential() -> StoredOAuth {
     StoredOAuth {
         access_token: String::new(),
@@ -567,12 +677,24 @@ impl PkceProvider for AnthropicLogin {
         authorize_url(request.redirect_uri, request.code_challenge, request.state)
     }
 
-    async fn exchange(
+    fn callback_pages(&self) -> CallbackPages {
+        pages::ANTHROPIC
+    }
+
+    async fn exchange_checked(
         &self,
         code: &str,
         verifier: &str,
         redirect_uri: &str,
-    ) -> Result<Option<String>, LoginFailure> {
+    ) -> Result<Option<String>, Refusal> {
+        let code = code.trim();
+        if code.is_empty() {
+            return Err(LoginFailure::Failed {
+                code: "invalid_callback".into(),
+                message: "[anthropic-oauth] authorization code is required".into(),
+            }
+            .into());
+        }
         let state = self.state.lock().unwrap_or_else(PoisonError::into_inner).clone();
         let request = exchange_request(&self.token_url, code, redirect_uri, verifier, &state, &self.cli_version);
         // A fresh sign-in replaces the tokens and the account but keeps the
@@ -582,16 +704,7 @@ impl PkceProvider for AnthropicLogin {
             message: e.message,
         })?;
         let base = existing.unwrap_or_else(blank_credential);
-        let credential = match token_call(self.http.as_ref(), request, &base, now_ms(), TokenFlow::Login).await {
-            Ok(credential) => credential,
-            Err(TokenFailure::Dead) => return Err(LoginFailure::Denied),
-            Err(TokenFailure::Failed(err)) => {
-                return Err(LoginFailure::Failed {
-                    code: "token_exchange_failed".into(),
-                    message: err.message,
-                });
-            }
-        };
+        let credential = self.token_exchange(request, &base, &[code, verifier, &state]).await?;
         self.file
             .save(&Document { oauth: credential })
             .await
@@ -600,6 +713,43 @@ impl PkceProvider for AnthropicLogin {
                 message: e.kind().to_string(),
             })?;
         Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod site_tests {
+    use super::*;
+    use crate::transport::site_probe::TimingOut;
+    use crate::transport::site_probe::assert_thrown;
+    use crate::transport::site_probe::assert_transport;
+
+    /// The refresh that outlives its timer reads as the real Node function did (`sites.anthropicRefresh`): under a bare
+    /// `setTimeout` abort, worded by Node's own catch.
+    #[tokio::test(start_paused = true)]
+    async fn a_refresh_that_outlives_its_timer_reads_as_nodes() {
+        let transport = TimingOut::new();
+        let request = refresh_request("https://x.test/token", "r", "1.0.0");
+        let Err(TokenFailure::Failed(error)) = token_call(transport.as_ref(), request, &blank_credential(), 0, TokenFlow::Refresh).await else {
+            panic!("the token endpoint never answers");
+        };
+        assert_transport("anthropicRefresh", &transport);
+        assert_thrown("anthropicRefresh", &error.message);
+    }
+
+    /// The authorization-code exchange is an `AbortSignal.timeout` fetch whose failure Node words itself
+    /// (`oauthRequestError`, `sites.anthropicCodeExchange`).
+    #[tokio::test(start_paused = true)]
+    async fn a_code_exchange_that_outlives_its_timer_reads_as_nodes() {
+        use crate::oauth::CredentialIo;
+        use crate::transport::site_probe::login_message;
+
+        let dir = tempfile::tempdir().unwrap();
+        let rt = mixdog_rt::testing::tokens();
+        let file = CredentialFile::new(dir.path().join("anthropic-oauth.json"), CredentialIo { read: rt.interactive_io, write: rt.durability_io });
+        let transport = TimingOut::new();
+        let failure = AnthropicLogin::new(file, transport.clone()).exchange("abc", "v", "http://localhost/cb").await.expect_err("never answers");
+        assert_transport("anthropicCodeExchange", &transport);
+        assert_thrown("anthropicCodeExchange", login_message(&failure));
     }
 }
 

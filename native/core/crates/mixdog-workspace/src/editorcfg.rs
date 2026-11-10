@@ -406,7 +406,13 @@ const MAX_BACKUP_CONTENT: usize = 4_194_304;
 const MAX_BACKUP_AGE_MS: i64 = 30 * 24 * 60 * 60 * 1000;
 const MAX_BACKUP_FILES: usize = 100;
 
+/// The backup clock. A debug build (never a release one) reads `MIXDOG_FIXED_NOW_MS` as a pinned instant, so a replay can give the
+/// core the same virtual clock the Node recording ran on.
 pub fn now_ms() -> i64 {
+    #[cfg(debug_assertions)]
+    if let Some(pinned) = std::env::var("MIXDOG_FIXED_NOW_MS").ok().and_then(|raw| raw.parse::<i64>().ok()) {
+        return pinned;
+    }
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
 

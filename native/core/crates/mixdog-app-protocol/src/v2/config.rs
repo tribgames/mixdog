@@ -51,7 +51,8 @@ pub struct ConfigBatchWriteParams {
     pub edits: Vec<ConfigEdit>,
 }
 
-/// The stored value after the write (`initializeIfMissing` returns the kept value).
+/// The stored value after the write (`initializeIfMissing` returns the kept value), and the `agent` and `desktop`
+/// subtrees of the config that same locked update saved (what Node's `updateConfigAsync` returned to the desktop).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
@@ -59,6 +60,7 @@ pub struct ConfigWriteResponse {
     #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub revision: u64,
     pub values: Vec<JsonValue>,
+    pub config: JsonValue,
 }
 
 impl crate::common::HasOpId for ConfigValueWriteParams {

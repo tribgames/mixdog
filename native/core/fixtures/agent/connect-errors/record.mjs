@@ -15,6 +15,18 @@
 //   cutRole    the same with a first chunk that carries only the assistant role (a model event, nothing shown)
 //
 // `--only cut` records the two cut cases alone into the existing golden (the port scan of `badPorts` is slow).
+// `--only probes` records `probes` alone: what the settings page's two custom-provider probes show for the same
+// endpoints (refused, badPort, dns), through the real `discoverCustomProviderModels` and `testCustomProvider` of
+// `provider-admin.mjs` with a stub config module: the discovery error view (`discoveryErrorView` + `sanitizeCustomError`,
+// a raw `fetch` => "fetch failed"), the connection test that gets as far as discovery (its `phase: 'discovery'` result) and
+// the one that sends (a manual model, the SDK => the thrown "Connection error.").
+//
+// `--only transports` records `transports` alone: for each failure kind (refused, dns, reset, badPort, tls, response and
+// connect timeout) what each class of Node call (the SDKs, and the raw `fetch` under each kind of timer) throws; see
+// `recordTransports`.
+//
+// `--only sites` records `sites` alone: the real Node function of each production call site that bounds its request with
+// a timer of its own, run with that timer ended at once against a server that never answers; see `recordSites`.
 //
 // The loop is driven the way `send-phase.mjs` drives it: a `retry_transport` verdict adds one to `transportRetriesUsed`
 // and carries `transportRetryMax` into the next call; a thrown error ends the turn. Waits are recorded, not served
@@ -23,6 +35,7 @@
 //
 // `golden/connect_errors.json`: per case, the error's chain as the provider throws it, and per loop lap (one
 // `sendWithRecovery` call) the provider-level waits (attempts = waits + 1), the loop's own wait, and the verdict.
+import { get as httpGet } from 'node:http';
 import { createServer } from 'node:net';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -34,7 +47,7 @@ const args = process.argv.slice(2);
 const treeAt = args.indexOf('--tree');
 const nodeRoot = resolve(treeAt >= 0 ? args[treeAt + 1] : (process.env.MIXDOG_BENCH_TREE ?? join(here, '..', '..', '..', '..', '..')));
 const scratch = mkdtempSync(join(tmpdir(), 'mixdog-connect-golden-'));
-for (const key of ['MIXDOG_DATA_DIR', 'MIXDOG_HOME', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA']) process.env[key] = join(scratch, key);
+for (const key of ['MIXDOG_DATA_DIR', 'MIXDOG_HOME', 'MIXDOG_DESKTOP_USER_DATA', 'MIXDOG_CONFIG_DIR', 'MIXDOG_RUNTIME_ROOT', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA']) process.env[key] = join(scratch, key);
 process.env.MIXDOG_SKIP_USER_DATA_BACKUP = '1';
 for (const name of ['MIXDOG_TRANSPORT_RETRY_BACKOFF_MS', 'MIXDOG_CONNECTION_RETRY_BACKOFF_MS', 'MIXDOG_RECOVERY_RETRY_BACKOFF_MS']) delete process.env[name];
 mkdirSync(join(here, 'golden'), { recursive: true });
@@ -45,11 +58,20 @@ Math.random = () => 0.5;
 // 0 ms. The sockets' own timers are left alone.
 const waits = [];
 const realSetTimeout = globalThis.setTimeout;
+// While a call site runs for `recordSites`, the timers that bound its request (a `createTimeoutSignal`, a bare
+// `setTimeout(() => controller.abort())`, `AbortSignal.timeout`) are recorded and armed at 1 ms, against a server that
+// never answers: the site's own code throws what it throws when the timer fires, without waiting its 30 s.
+let site = null;
+const SITE_TIMER_CALLERS = ['stall-policy.mjs', 'anthropic-oauth-credentials.mjs', 'provider-admin.mjs', 'openai-oauth-tokens.mjs', 'cursor-wire-transport.mjs', 'opencode-go-usage.mjs', 'api-usage.mjs'];
 globalThis.setTimeout = (callback, ms, ...rest) => {
   const limit = Error.stackTraceLimit;
   Error.stackTraceLimit = 40;
   const stack = new Error().stack ?? '';
   Error.stackTraceLimit = limit;
+  if (site && ms >= 1000 && SITE_TIMER_CALLERS.some((file) => stack.includes(file))) {
+    site.armed.push({ via: 'setTimeout', ms });
+    return realSetTimeout(callback, 1, ...rest);
+  }
   if (!stack.includes('timerSleepWithAbort') && !stack.includes('_defaultAbortSleep')) return realSetTimeout(callback, ms, ...rest);
   waits.push({ by: stack.includes('scheduleTransportReplay') ? 'loop' : 'provider', ms });
   return realSetTimeout(callback, 0, ...rest);
@@ -62,6 +84,8 @@ const { applyRetryAction } = await load(`${orchestrator}/session/loop/send-phase
 const { OpenAICompatProvider } = await load(`${orchestrator}/providers/openai-compat.mjs`);
 const { isProviderRecoveryExhausted, isProviderRecoveryTerminal } = await load(`${orchestrator}/providers/retry-executor.mjs`);
 const { isConnectFailure } = await load(`${orchestrator}/providers/retry-classification.mjs`);
+
+const admin = await load('src/session-runtime/services/provider-admin.mjs');
 
 const MAX_LAPS = 30;
 
@@ -129,6 +153,28 @@ async function record(baseURL) {
   return { laps, ended: ended ?? { kind: 'capped' } };
 }
 
+const portless = (value) => JSON.parse(JSON.stringify(value ?? null).replace(/127\.0\.0\.1:\d+/g, '127.0.0.1:<port>'));
+const cfgMod = { loadConfig: () => ({ providers: {} }), saveConfig() {} };
+
+// The same unsaved input through both probes; the connection test once with a manual model (it sends, no discovery) and
+// once without (it discovers first and stops at the discovery error).
+async function recordProbes(baseURL) {
+  const input = { name: 'Probe', protocol: 'openai-chat', baseURL, apiKey: 'sk-DUMMY-probe-secret-0123456789' };
+  const manual = { ...input, schemaVersion: 2, modelOverrides: { 'm-manual': { manual: true } } };
+  const attempt = async (run) => {
+    try {
+      return { result: portless(await run()) };
+    } catch (error) {
+      return { thrown: portless(String(error.message)) };
+    }
+  };
+  return {
+    discover: await attempt(() => admin.discoverCustomProviderModels(cfgMod, input)),
+    testDiscovery: await attempt(() => admin.testCustomProvider(cfgMod, input)),
+    testSend: await attempt(() => admin.testCustomProvider(cfgMod, manual)),
+  };
+}
+
 const closedPort = () =>
   new Promise((done) => {
     const probe = createServer().listen(0, '127.0.0.1', () => {
@@ -182,6 +228,366 @@ async function badPorts() {
   return found.sort((a, b) => a - b);
 }
 
+// --- transports: what each way Node issues a request shows for each way the request can fail ---------------------
+// Classes (the Node call site decides which a Rust `Exchange` is; `transport/deadlines.rs`):
+//   sdkOpenAI / sdkAnthropic  the pinned SDKs' `chat.completions.create` / `messages.create` on the provider's own client
+//   fetchDispatcher           a raw `fetch` with no timer of its own, on the shared undici dispatcher
+//   fetchSignal               a raw `fetch` under `AbortSignal.timeout`
+//   fetchLabeled              a raw `fetch` under `createTimeoutSignal(…, label)` (`stall-policy.mjs:384`)
+//   fetchAborted              a raw `fetch` whose caller aborts a controller on a bare `setTimeout`
+// Kinds: refused, dns, reset, badPort, tls (a plain server answering the TLS handshake with HTTP), responseTimeout (the
+// server accepts and never answers) and connectTimeout (an address no one answers: 192.0.2.1, TEST-NET-1).
+// Every timer is TRANSPORT_TIMEOUT_MS so the recording takes seconds; the undici connector's own 10 s is waited out once.
+const TRANSPORT_TIMEOUT_MS = 400;
+// A server that accepts and never answers.
+const silent = () =>
+  new Promise((done) => {
+    const server = createServer((socket) => socket.on('error', () => {})).listen(0, '127.0.0.1', () => done({ server, port: server.address().port }));
+  });
+async function recordTransports() {
+  process.env.MIXDOG_LLM_HEADERS_TIMEOUT_MS = String(TRANSPORT_TIMEOUT_MS);
+  process.env.MIXDOG_LLM_BODY_TIMEOUT_MS = String(TRANSPORT_TIMEOUT_MS);
+  const { getLlmDispatcher } = await load('src/runtime/shared/llm/http-agent.mjs');
+  const { createTimeoutSignal } = await load(`${orchestrator}/stall-policy.mjs`);
+  const { AnthropicProvider } = await load(`${orchestrator}/providers/anthropic.mjs`);
+  const dispatcher = getLlmDispatcher();
+  const messages = [{ role: 'user', content: 'hi' }];
+  const clients = {
+    sdkOpenAI: async (base) => {
+      const client = new OpenAICompatProvider('custom-harness', { apiKey: 'fixture', baseURL: base, preconnect: false })._createClient('fixture');
+      client.timeout = TRANSPORT_TIMEOUT_MS;
+      return client.chat.completions.create({ model: 'm', messages });
+    },
+    sdkAnthropic: async (base) => {
+      const client = new AnthropicProvider({ name: 'custom-harness-a', apiKey: 'fixture', baseURL: base })._createClient('fixture');
+      client.timeout = TRANSPORT_TIMEOUT_MS;
+      return client.messages.create({ model: 'm', max_tokens: 16, messages });
+    },
+    fetchDispatcher: (base) => fetch(`${base}/models`, { dispatcher }),
+    fetchSignal: (base) => fetch(`${base}/models`, { dispatcher, signal: AbortSignal.timeout(TRANSPORT_TIMEOUT_MS) }),
+    fetchLabeled: async (base) => {
+      const timer = createTimeoutSignal(null, TRANSPORT_TIMEOUT_MS, 'probe label');
+      try {
+        return await fetch(`${base}/models`, { dispatcher, signal: timer.signal });
+      } finally {
+        timer.cleanup();
+      }
+    },
+    fetchAborted: async (base) => {
+      const controller = new AbortController();
+      const timer = realSetTimeout(() => controller.abort(), TRANSPORT_TIMEOUT_MS);
+      try {
+        return await fetch(`${base}/models`, { dispatcher, signal: controller.signal });
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+  };
+  const plainOnTls = () =>
+    new Promise((done) => {
+      const server = createServer((socket) => {
+        socket.on('error', () => {});
+        socket.once('data', () => socket.end('HTTP/1.1 400 Bad Request\r\ncontent-length: 0\r\n\r\n'));
+      }).listen(0, '127.0.0.1', () => done({ server, port: server.address().port }));
+    });
+  const reset = await resetServer();
+  const quiet = await silent();
+  const tls = await plainOnTls();
+  const kinds = {
+    refused: `http://127.0.0.1:${await closedPort()}/v1`,
+    dns: 'https://connect-errors-no-such-host.invalid/v1',
+    reset: `http://127.0.0.1:${reset.port}/v1`,
+    badPort: 'http://127.0.0.1:9/v1',
+    tls: `https://127.0.0.1:${tls.port}/v1`,
+    responseTimeout: `http://127.0.0.1:${quiet.port}/v1`,
+    connectTimeout: 'https://192.0.2.1/v1',
+  };
+  const out = {};
+  for (const [kind, base] of Object.entries(kinds)) {
+    out[kind] = {};
+    for (const [name, run] of Object.entries(clients)) {
+      try {
+        await run(base);
+        out[kind][name] = { resolved: true };
+      } catch (error) {
+        out[kind][name] = { name: error.name ?? null, message: portless(String(error.message)), chain: chainOf(error) };
+      }
+    }
+  }
+  reset.server.close();
+  quiet.server.close();
+  tls.server.close();
+  return { timeoutMs: TRANSPORT_TIMEOUT_MS, kinds: out };
+}
+
+// --- sites: what each production call site throws when its own timer ends the request ----------------------------------
+// Every site is the real Node function (nothing is stubbed but where the request goes: a server that never answers,
+// `site.port`). Per site: `armed`, the timers that bound the request (`via`, `ms`); `fetchRejected`, what the raw `fetch`
+// rejected with (the call class's text); `thrown`, what the site's own code throws after it (equal to the fetch's text
+// where the site passes it on, a wrapper's text where it does not); `value`, the result of a site that answers.
+async function recordSites() {
+  process.env.MIXDOG_QUIET_PROVIDER_LOG = '1';
+  const providers = `${orchestrator}/providers`;
+  const grokTokens = await load(`${providers}/grok-oauth-tokens.mjs`);
+  const grokLogin = await load(`${providers}/grok-oauth-login.mjs`);
+  const anthropicCredentials = await load(`${providers}/anthropic-oauth-credentials.mjs`);
+  const antigravityTokens = await load(`${providers}/antigravity-oauth-tokens.mjs`);
+  const geminiCatalog = await load(`${providers}/lib/gemini-model-catalog.mjs`);
+  const mimoTokens = await load(`${providers}/mimo-oauth-tokens.mjs`);
+  const commandCodeTokens = await load(`${providers}/command-code-oauth-tokens.mjs`);
+  const museTokens = await load(`${providers}/muse-code-oauth-tokens.mjs`);
+  const devinAuth = await load(`${providers}/devin-auth.mjs`);
+  const compatModels = await load(`${providers}/openai-compat-models.mjs`);
+  const { AnthropicProvider } = await load(`${providers}/anthropic.mjs`);
+  const { createCustomProvider } = await load(`${providers}/custom-provider.mjs`);
+  const cursorAuth = await load(`${providers}/cursor-auth.mjs`);
+  const cursorTransport = await load(`${providers}/cursor-wire-transport.mjs`);
+  const openaiTokens = await load(`${providers}/openai-oauth-tokens.mjs`);
+  const openaiCatalog = await load(`${providers}/openai-oauth-catalog.mjs`);
+  const museLogin = await load(`${providers}/muse-code-oauth-login.mjs`);
+  const antigravityLogin = await load(`${providers}/antigravity-oauth-login.mjs`);
+  const opencodeTokens = await load(`${providers}/opencode-go-oauth-tokens.mjs`);
+  const vertexAuth = await load(`${providers}/vertex-ai-auth.mjs`);
+  const npmVersion = await load(`${providers}/npm-cli-version.mjs`);
+  const stall = await load(`${orchestrator}/stall-policy.mjs`);
+  const devinWire = await load(`${providers}/devin-wire-transport.mjs`);
+  const modelCatalog = await load('src/runtime/shared/llm/model-catalog.mjs');
+  const opencodeUsage = await load(`${providers}/opencode-go-usage.mjs`);
+  const { GrokOAuthProvider } = await load(`${providers}/grok-oauth.mjs`);
+  const { GeminiProvider } = await load(`${providers}/gemini.mjs`);
+  const oauthUsage = await load(`${providers}/oauth-usage.mjs`);
+  const apiUsage = await load(`${providers}/api-usage.mjs`);
+  const grokFile = join(scratch, 'grok-oauth.json');
+  process.env.GROK_OAUTH_CREDENTIALS_PATH = grokFile;
+  // A Grok provider holding a live sign-in, so its catalog reads go straight to the network.
+  const grokProvider = () => {
+    writeFileSync(grokFile, JSON.stringify({ access_token: 'a', refresh_token: 'r', expires_at: Date.now() + 86_400_000 }));
+    return new GrokOAuthProvider({ preconnect: false });
+  };
+  process.env.MIXDOG_LLM_HEADERS_TIMEOUT_MS = String(TRANSPORT_TIMEOUT_MS);
+  process.env.MIXDOG_LLM_BODY_TIMEOUT_MS = String(TRANSPORT_TIMEOUT_MS);
+  // The credential files the refresh sites read, in the scratch tree.
+  const cursorFile = join(scratch, 'cursor-oauth.json');
+  const openaiFile = join(scratch, 'openai-oauth.json');
+  process.env.CURSOR_OAUTH_CREDENTIALS_PATH = cursorFile;
+  process.env.OPENAI_OAUTH_CREDENTIALS_PATH = openaiFile;
+  const signedIn = { access_token: 'a', refresh_token: 'r', expires_at: 1 };
+
+  const xaiToken = 'https://auth.x.ai/oauth2/token';
+  const input = (protocol, path, port) => ({ name: 'Probe', protocol, baseURL: `http://127.0.0.1:${port}${path}`, apiKey: 'sk-DUMMY-probe-secret-0123456789' });
+  // The settings page's probe: the discovery under its own 60 s `withTimeout` (armed first, so it ends the wait) ...
+  const probe = (protocol, path) => async ({ port }) => portless(await admin.discoverCustomProviderModels(cfgMod, input(protocol, path, port)));
+  // ... and the provider's own discovery, as the runtime refresh runs it (the default 10 s window).
+  const listing = (protocol, path) => async ({ port }) => {
+    const provider = await createCustomProvider('custom-listing', input(protocol, path, port));
+    return provider.listModels();
+  };
+  const sites = {
+    grokDiscovery: () => grokTokens.fetchDiscovery(),
+    grokRefresh: () => grokTokens.refreshTokens({ access_token: 'a', refresh_token: 'r', token_endpoint: xaiToken }, { force: true }),
+    grokCodeExchange: () => grokLogin.exchangeAuthorizationCode({ discovery: { token_endpoint: xaiToken }, pkce: { verifier: 'v', challenge: 'c' }, code: 'abc' }),
+    anthropicRefresh: () =>
+      anthropicCredentials.refreshOAuthCredentials({ path: join(scratch, 'anthropic-credentials.json'), accessToken: 'a', refreshToken: 'r', expiresAt: 0 }),
+    antigravityRefresh: async () => {
+      await antigravityTokens.saveTokens({ access_token: 'a', refresh_token: 'r', expires_at: 0 });
+      return antigravityTokens.refreshTokens();
+    },
+    geminiModelList: () => geminiCatalog.fetchGeminiModelPages('k'),
+    mimoProbe: () => mimoTokens.probeTokenPlanBaseUrl('k'),
+    commandCodeIdentity: () => commandCodeTokens.requestCommandCodeJson(commandCodeTokens.WHOAMI_URL, 'k'),
+    museKey: () => museTokens.requestMuseCodeKey('t', { onboard: true }),
+    devinExchange: () => devinAuth.exchangeDevinCode('c', 'v'),
+    compatModelList: ({ port }) => compatModels.fetchCompatModelItems({ name: 'groq', baseURL: `http://127.0.0.1:${port}/v1`, config: {} }, { keyless: true }),
+    anthropicModelList: ({ port }) => new AnthropicProvider({ name: 'custom-harness-a', apiKey: 'fixture', baseURL: `http://127.0.0.1:${port}` }).listModels(),
+    customOpenaiChatListing: listing('openai-chat', '/v1'),
+    customAnthropicListing: listing('anthropic', ''),
+    customOpenaiChatProbe: probe('openai-chat', '/v1'),
+    customAnthropicProbe: probe('anthropic', ''),
+    // Requests that arm no timer of their own: they end at the shared dispatcher's headers timeout (`http-agent.mjs:413`,
+    // 600_000 by default, shortened below for the recording).
+    devinUnary: ({ port }) =>
+      devinWire.devinUnary({
+        baseUrl: `http://127.0.0.1:${port}`,
+        path: '/exa.auth_pb.AuthService/GetUserJwt',
+        requestType: 'GetUserJwtRequest',
+        responseType: 'GetUserJwtResponse',
+        message: { metadata: { apiKey: 'k' } },
+      }),
+    vertexToken: async () => {
+      const adc = join(scratch, 'adc.json');
+      writeFileSync(adc, JSON.stringify({ type: 'authorized_user', client_id: 'c', client_secret: 's', refresh_token: 'r' }));
+      const manager = new vertexAuth.VertexAccessTokenManager({
+        authMode: vertexAuth.VERTEX_ADC_MODE,
+        env: { GOOGLE_APPLICATION_CREDENTIALS: adc },
+        fetchFn: fetch,
+      });
+      return manager.getAccessToken();
+    },
+    antigravityVersion: () => antigravityTokens.ensureAntigravityVersion(),
+    // The catalog loader swallows the failure and logs it: the logged line is what shows.
+    modelsDev: () => modelCatalog.loadModelsDevCatalog({ force: true }),
+    cursorRefresh: async () => {
+      writeFileSync(cursorFile, JSON.stringify(signedIn));
+      return cursorAuth.resolveCursorOAuthAccessToken({ forceRefresh: true });
+    },
+    openaiRefresh: async () => {
+      writeFileSync(openaiFile, JSON.stringify(signedIn));
+      return openaiTokens.refreshStoredTokens({ force: true });
+    },
+    openaiCatalog: () => openaiCatalog.refreshCodexCatalog(async () => ({ access_token: 'a', account_id: 'x' })),
+    museDeviceAuth: () => museLogin.requestDeviceAuthorization(),
+    antigravityCodeExchange: () => antigravityLogin.exchangeAuthorizationCode({ code: 'abc', verifier: 'v' }),
+    antigravityProject: () => antigravityLogin.discoverAccount('tok'),
+    opencodeConsole: () => opencodeTokens.consoleRequest('https://opencode.ai/auth/device/token', { method: 'POST', body: {} }),
+    // The product's own login (`openai-oauth-tokens.mjs` `beginOAuthLogin`). Without a browser it first asks for a device code:
+    // the server has none (404), so it falls back to the browser login, whose callback server the user's browser reaches.
+    // The exchange then never answers; what the user sees is the page that callback gets and how the login settles.
+    openaiCodeExchange: async () => {
+      site.answer = (url) => (url.pathname === '/api/accounts/deviceauth/usercode' ? new Response('', { status: 404 }) : null);
+      const login = await openaiTokens.beginOAuthLogin({ openBrowser: false });
+      const state = new URL(login.url).searchParams.get('state');
+      // The product's `loginOAuth` awaits the settlement at once; so does this, before the browser's request is made.
+      const settled = login.waitForCallback;
+      settled.catch(() => {});
+      const page = await new Promise((resolveGet, rejectGet) => {
+        httpGet(`http://127.0.0.1:1455/auth/callback?code=abc&state=${state}`, (res) => {
+          let body = '';
+          res.on('data', (chunk) => (body += chunk));
+          res.on('end', () => resolveGet({ status: res.statusCode, body }));
+        }).on('error', rejectGet);
+      });
+      site.extra = { page };
+      return await settled;
+    },
+    // The same exchange reached by a pasted code (`completeCode`), as the desktop sign-in does.
+    openaiCodeExchangeManual: async () => {
+      site.answer = (url) => (url.pathname === '/api/accounts/deviceauth/usercode' ? new Response('', { status: 404 }) : null);
+      const login = await openaiTokens.beginOAuthLogin({ openBrowser: false });
+      const settled = login.waitForCallback.catch(() => {});
+      try {
+        return await login.completeCode('abc');
+      } finally {
+        login.cancel();
+        await settled;
+      }
+    },
+    // The status read of the OpenCode Go usage meter: a bare `AbortController` timer, `redirect: 'error'`.
+    opencodeGoUsage: () => opencodeUsage.fetchOpenCodeGoOAuthUsageSnapshot({ access_token: 'a', refresh_token: 'r', org_id: 'o' }),
+    // Both catalogs go out at once; the primary's failure propagates (`grok-oauth.mjs:497`).
+    grokModelList: () => grokProvider()._fetchAllModelItems(),
+    // The proxy catalog is best-effort: its failure is swallowed into `[]` (`grok-oauth.mjs:555`), so the site resolves.
+    grokProxyList: async () => ({ items: await grokProvider()._fetchProxyModelItems() }),
+    // The pasted-code path of the Claude login: the exchange is not exported, `completeCode` runs it.
+    anthropicCodeExchange: async () => {
+      const login = await anthropicCredentials.beginOAuthLogin({ openBrowser: false });
+      const settled = login.waitForCallback.catch(() => {});
+      try {
+        return await login.completeCode('abc');
+      } finally {
+        login.cancel();
+        await settled;
+      }
+    },
+    // `_createGeminiCache` runs the POST inside `withRetry`; it never rejects, it logs the failure and resolves null.
+    geminiCacheCreate: async () => {
+      const provider = new GeminiProvider({ preconnectFn: () => {} });
+      return {
+        entry: await provider._createGeminiCache({
+          apiKey: 'k',
+          model: 'gemini-2.5-pro',
+          ttlSeconds: 300,
+          request: { contents: [{ role: 'user', parts: [{ text: 'x' }] }] },
+          prefix: { cachePrefixContentCount: 1, cachePrefixHash: 'h' },
+          globalCacheKey: 'g',
+          credentialFingerprint: 'f',
+          priorCacheName: null,
+          canAttachState: false,
+          opts: {},
+          currentIter: 0,
+        }),
+      };
+    },
+    // The poll is a bare `fetch` with no timer of its own: it ends at the dispatcher, three failures in a row end the login.
+    cursorPoll: async () => {
+      const login = await cursorAuth.beginCursorOAuthLogin({ openBrowser: false, delayFn: async () => {} });
+      return login.waitForCallback;
+    },
+    opencodeConsoleGet: () => opencodeTokens.consoleGetJson('https://opencode.ai/api/user', { access_token: 'a', refresh_token: 'r' }),
+    // `fetchOptions` of `oauth-usage.mjs`: `AbortSignal.timeout`, `redirect: 'error'`.
+    oauthUsage: () => oauthUsage.fetchOpenAICodexResetCredits({ ensureAuth: async () => ({ access_token: 'a', account_id: 'x' }) }),
+    // `fetchJson` of `api-usage.mjs`: a bare `AbortController` timer.
+    apiUsage: async () => {
+      process.env.XAI_MANAGEMENT_API_KEY = 'k';
+      process.env.XAI_TEAM_ID = 't';
+      try {
+        return await apiUsage.fetchApiUsageSnapshot('xai', { force: true });
+      } finally {
+        delete process.env.XAI_MANAGEMENT_API_KEY;
+        delete process.env.XAI_TEAM_ID;
+      }
+    },
+    vertexMetadataProbe: () => vertexAuth.probeVertexMetadata(),
+    npmVersion: () => npmVersion.fetchRemoteVersion('https://registry.npmjs.org/@openai/codex/latest', npmVersion.parseNpmLatest),
+    // Node's `callCursorUnary` against a server that never answers the handshake: its own timer ends it
+    // (`cursor-wire-transport.mjs:274`), the dashboard reads at the default 5_000, the model list at 15_000
+    // (`cursor-wire-models.mjs:30`). The connect timer of `openCursorStream` ends the stream with its `close` error (`:151`).
+    cursorUsageCall: ({ port }) =>
+      cursorTransport.callCursorUnary({ accessToken: 'a', path: cursorTransport.USAGE_PATH, body: new Uint8Array(), url: `https://127.0.0.1:${port}` }),
+    cursorModelsCall: ({ port }) =>
+      cursorTransport.callCursorUnary({ accessToken: 'a', path: cursorTransport.USAGE_PATH, body: new Uint8Array(), url: `https://127.0.0.1:${port}`, timeoutMs: 15_000 }),
+    cursorConnect: ({ port }) =>
+      new Promise((_, reject) => {
+        cursorTransport.openCursorStream({ accessToken: 'a', url: `https://127.0.0.1:${port}` }).onClose((error) => reject(error));
+      }),
+  };
+
+  const realFetch = globalThis.fetch;
+  const realAbortTimeout = AbortSignal.timeout.bind(AbortSignal);
+  const out = {};
+  for (const [name, run] of Object.entries(sites)) {
+    const quiet = await silent();
+    site = { armed: [], rejected: [], port: quiet.port };
+    AbortSignal.timeout = (ms) => {
+      site.armed.push({ via: 'AbortSignal.timeout', ms });
+      return realAbortTimeout(1);
+    };
+    globalThis.fetch = async (input, init) => {
+      const url = new URL(typeof input === 'string' ? input : input.url);
+      const answered = site.answer?.(url);
+      if (answered) return answered;
+      try {
+        return await realFetch(`http://127.0.0.1:${site.port}${url.pathname}${url.search}`, init);
+      } catch (error) {
+        site.rejected.push({ name: error.name ?? null, message: portless(String(error.message)) });
+        throw error;
+      }
+    };
+    const entry = { armed: null, fetchRejected: null, thrown: null };
+    const realWrite = process.stderr.write.bind(process.stderr);
+    const logged = [];
+    process.stderr.write = (chunk, ...rest) => {
+      if (String(chunk).startsWith('[model-catalog]') || String(chunk).startsWith('[gemini]')) logged.push(portless(String(chunk).trimEnd()));
+      return realWrite(chunk, ...rest);
+    };
+    try {
+      const value = await run({ port: quiet.port });
+      entry.thrown = { resolved: true };
+      if (value !== undefined && name.endsWith('Probe')) entry.value = value;
+    } catch (error) {
+      entry.thrown = { name: error.name ?? null, code: error.code ?? null, message: portless(String(error.message)) };
+    }
+    process.stderr.write = realWrite;
+    if (logged.length) entry.logged = logged;
+    Object.assign(entry, { armed: site.armed, fetchRejected: site.rejected }, site.extra);
+    globalThis.fetch = realFetch;
+    AbortSignal.timeout = realAbortTimeout;
+    site = null;
+    quiet.server.close();
+    out[name] = entry;
+  }
+  return out;
+}
+
 const only = args.includes('--only') ? args[args.indexOf('--only') + 1] : null;
 const goldenFile = join(here, 'golden', 'connect_errors.json');
 const golden = only ? JSON.parse(readFileSync(goldenFile, 'utf8')) : { transportRetryMax: TRANSPORT_RETRY_MAX, badPorts: await badPorts(), cases: {} };
@@ -194,7 +600,16 @@ if (!only) {
   reset.server.close();
   golden.cases.badPort = await record('http://127.0.0.1:9/v1');
 }
-for (const [name, first] of [
+if (!only || only === 'probes') {
+  golden.probes = {
+    refused: await recordProbes(`http://127.0.0.1:${await closedPort()}/v1`),
+    badPort: await recordProbes('http://127.0.0.1:9/v1'),
+    dns: await recordProbes('https://connect-errors-no-such-host.invalid/v1'),
+  };
+}
+if (!only || only === 'transports') golden.transports = await recordTransports();
+if (!only || only === 'sites') golden.sites = await recordSites();
+for (const [name, first] of only && only !== 'cut' ? [] : [
   ['cut', ': open\n\n'],
   ['cutRole', `data: ${JSON.stringify({ id: 'c1', object: 'chat.completion.chunk', model: 'm', choices: [{ index: 0, delta: { role: 'assistant' } }] })}\n\n`],
 ]) {

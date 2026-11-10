@@ -236,7 +236,7 @@ async fn the_timer_sweeps_every_interval_until_cancelled() {
     let errors: Arc<Mutex<Vec<String>>> = Arc::default();
     let sink = errors.clone();
     let cancel = CancellationToken::new();
-    let ended = start(host.clone(), Arc::new(move |line| sink.lock().unwrap().push(line.to_owned())), cancel.clone());
+    let ended = start(host.clone(), Arc::new(now_ms), Arc::new(move |line| sink.lock().unwrap().push(line.to_owned())), cancel.clone());
     tokio::time::sleep(SWEEP_INTERVAL - Duration::from_secs(1)).await;
     assert_eq!(*host.0.lock().unwrap(), 0, "the first pass is an interval after the start");
     tokio::time::sleep(Duration::from_secs(2)).await;
@@ -442,7 +442,7 @@ async fn the_timer_task_ends_after_the_admitted_operation() {
     let entered = Arc::new(tokio::sync::Notify::new());
     let host = Arc::new(Slow { inner: inner.clone(), entered: entered.clone(), finished: Mutex::new(0) });
     let cancel = CancellationToken::new();
-    let ended = start(host.clone(), Arc::new(|_| {}), cancel.clone());
+    let ended = start(host.clone(), Arc::new(now_ms), Arc::new(|_| {}), cancel.clone());
     tokio::time::sleep(SWEEP_INTERVAL + Duration::from_secs(1)).await;
     entered.notified().await;
     cancel.cancel();

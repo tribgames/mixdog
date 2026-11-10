@@ -1,0 +1,152 @@
+{
+  "note": "What a phone receives from lane pushes after it connects: Node (real push-lane module and setRemoteLanes handler) per registration phase, and the core (Rust test native/core/crates/mixdog-app-server/src/tests/lane_pushes.rs) per feed phase. apps/desktop/src/renderer/remote-shim-lifecycle.slow.test.mjs compares them.",
+  "node": {
+    "joinFrames": [
+      "browserApprovalSessions"
+    ],
+    "phases": [
+      {
+        "phase": "connected-before-registration",
+        "registered": null,
+        "heard": {
+          "terminal output": [
+            "termData"
+          ],
+          "folder change": [
+            "folderChanged"
+          ],
+          "language diagnostics": [
+            "lspDiagnostics"
+          ],
+          "visualize state": [
+            "visualizeChanged"
+          ],
+          "activity rail pins": [
+            "activity-rail-pins-changed"
+          ]
+        }
+      },
+      {
+        "phase": "registered-empty",
+        "registered": [],
+        "heard": {
+          "terminal output": [],
+          "folder change": [],
+          "language diagnostics": [],
+          "visualize state": [],
+          "activity rail pins": [
+            "activity-rail-pins-changed"
+          ]
+        }
+      },
+      {
+        "phase": "lane-terminal-registered",
+        "registered": [
+          "terminal"
+        ],
+        "heard": {
+          "terminal output": [
+            "termData"
+          ],
+          "folder change": [],
+          "language diagnostics": [],
+          "visualize state": [],
+          "activity rail pins": [
+            "activity-rail-pins-changed"
+          ]
+        }
+      },
+      {
+        "phase": "lane-terminal-dropped",
+        "registered": [],
+        "heard": {
+          "terminal output": [],
+          "folder change": [],
+          "language diagnostics": [],
+          "visualize state": [],
+          "activity rail pins": [
+            "activity-rail-pins-changed"
+          ]
+        }
+      }
+    ]
+  },
+  "core": [
+    {
+      "phase": "connected",
+      "feed": "none",
+      "frames": []
+    },
+    {
+      "phase": "pushes-before-any-feed",
+      "feed": "app",
+      "frames": []
+    },
+    {
+      "phase": "pushes-before-any-feed",
+      "feed": "lane",
+      "frames": []
+    },
+    {
+      "phase": "app-feed-opened",
+      "feed": "app",
+      "frames": [
+        "response",
+        "snapshot@1"
+      ]
+    },
+    {
+      "phase": "pushes-with-app-feed-only",
+      "feed": "app",
+      "frames": [
+        "evt@2"
+      ]
+    },
+    {
+      "phase": "pushes-with-app-feed-only",
+      "feed": "lane",
+      "frames": []
+    },
+    {
+      "phase": "lane-feed-opened",
+      "feed": "lane",
+      "frames": [
+        "response",
+        "snapshot@2"
+      ]
+    },
+    {
+      "phase": "pushes-with-lane-feed",
+      "feed": "app",
+      "frames": [
+        "evt@3"
+      ]
+    },
+    {
+      "phase": "pushes-with-lane-feed",
+      "feed": "lane",
+      "frames": [
+        "evt@3"
+      ]
+    },
+    {
+      "phase": "lane-feed-closed",
+      "feed": "lane",
+      "frames": [
+        "response"
+      ]
+    },
+    {
+      "phase": "pushes-after-lane-feed-closed",
+      "feed": "app",
+      "frames": [
+        "evt@4"
+      ]
+    },
+    {
+      "phase": "pushes-after-lane-feed-closed",
+      "feed": "lane",
+      "frames": []
+    }
+  ]
+}

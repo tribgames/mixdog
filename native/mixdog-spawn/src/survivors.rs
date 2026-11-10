@@ -1,21 +1,19 @@
-//! The descendants a command leaves running after its root process ended: listed from the job
-//! object (Windows) or process group (Linux), and reported gone by the operating system's own
-//! events — the job's "no active processes" message on Windows, one pidfd per member on Linux —
-//! never by sampling.
+//! The descendants a command leaves running after its root process ended: seen in the job object
+//! (Windows) or by identity in the process table (Linux, macOS), and reported gone by the operating
+//! system's own events where it has them (the job's "no active processes" message, one pidfd per
+//! survivor), by a re-check every 5 s where it has not.
 //!
 //! `mixdog-tools` implements its `SurvivorWatch` trait over [`ProcessSurvivors`] (the trait
 //! lives there, and that crate already depends on this one), method for method:
 //! `survivors` → [`ProcessSurvivors::survivors`], `wait_gone` → [`ProcessSurvivors::wait_gone`],
 //! `kill` → [`ProcessSurvivors::kill`].
 
-use std::time::Duration;
-
 use mixdog_protocol::ProcessHandle;
+use tokio_util::sync::CancellationToken;
 
+use crate::contain::Seen;
+use crate::contain::Waited;
 use crate::manager::LocalProcessManager;
-
-/// How long a kill waits for the operating system to finish ending the processes.
-const KILL_SETTLE: Duration = Duration::from_secs(5);
 
 /// What a finished command left running.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -36,29 +34,38 @@ impl ProcessSurvivors {
     }
 
     /// The survivors of `handle`'s command. `None` when the handle is unknown, its root is still
-    /// running, nothing outlived it, or the platform cannot watch them end.
+    /// running, nothing outlived it, or the platform cannot watch them. A tree that could not be
+    /// inspected is reported as survivors that cannot be signalled, never as none: unknown is not
+    /// gone.
     pub fn survivors(&self, handle: &ProcessHandle) -> Option<SurvivorReport> {
         let proc = self.manager.proc(handle).ok()?;
         if !proc.root_ended() || !proc.containment().watchable() {
             return None;
         }
-        proc.containment().remaining().map(|reachable| SurvivorReport { reachable })
-    }
-
-    /// Completes when the last survivor has ended (at once if none is left).
-    pub async fn wait_gone(&self, handle: &ProcessHandle) {
-        if let Ok(proc) = self.manager.proc(handle) {
-            proc.containment().wait_empty().await;
+        match proc.containment().observe() {
+            Seen::Running { reachable } => Some(SurvivorReport { reachable }),
+            Seen::Unknown => Some(SurvivorReport { reachable: false }),
+            Seen::Gone => None,
         }
     }
 
-    /// Ends them; `true` when a fresh look finds every one gone.
+    /// `waitForShellDescendants`: `true` when the last survivor has ended (at once if none is left, or
+    /// the handle is unknown), `false` when `abort` is raised first. An aborted wait confirms nothing:
+    /// the survivors may still be running.
+    pub async fn wait_gone(&self, handle: &ProcessHandle, abort: &CancellationToken) -> bool {
+        match self.manager.proc(handle) {
+            Ok(proc) => proc.containment().wait_gone(abort).await == Waited::Gone,
+            Err(_) => true,
+        }
+    }
+
+    /// Ends them (`killShellDescendants`); `true` when a fresh look finds every one gone. This is the
+    /// cancel's own schedule, apart from the passive observation of [`Self::wait_gone`], and a look
+    /// that finds nothing left settles it at once.
     pub async fn kill(&self, handle: &ProcessHandle) -> bool {
-        let Ok(proc) = self.manager.proc(handle) else {
-            return true;
-        };
-        proc.containment().kill();
-        let _ = tokio::time::timeout(KILL_SETTLE, proc.containment().wait_empty()).await;
-        proc.containment().remaining().is_none()
+        match self.manager.proc(handle) {
+            Ok(proc) => proc.containment().cancel().await,
+            Err(_) => true,
+        }
     }
 }

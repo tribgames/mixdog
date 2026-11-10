@@ -249,6 +249,13 @@ impl ItemContext<'_> {
         Ok(bytes)
     }
 
+    /// A source opened for a streaming read: a session log is read this way, never whole. The
+    /// caller reads what it needs, then `verify`s the handle against the manifest size and hash
+    /// before it trusts anything it read.
+    pub fn open_source(&self, file: &SourceFile) -> Result<durable::OpenFile> {
+        durable::open_verified(&self.source_path(file)?, file.size, &file.sha256)
+    }
+
     /// Shared sources `key` consumes, in manifest order.
     pub fn shared_for(&self, key: &str) -> Vec<&SourceFile> {
         self.manifest

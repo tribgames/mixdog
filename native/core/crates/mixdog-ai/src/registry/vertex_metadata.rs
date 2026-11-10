@@ -3,6 +3,7 @@
 //! `metadataCredential`, the `metadata` kind of `_grant`).
 
 use crate::transport::deadlines::VERTEX_METADATA;
+use crate::transport::deadlines::VERTEX_TOKEN;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::PoisonError;
@@ -121,7 +122,7 @@ impl MetadataAuth {
                 get(format!(
                     "{METADATA_URL}/instance/service-accounts/default/token"
                 )),
-                VERTEX_METADATA,
+                VERTEX_TOKEN,
             )
             .await
             .map_err(|e| auth_failure(if e.message.is_empty() { "token request failed" } else { &e.message }, None))?;
@@ -174,3 +175,28 @@ impl RequestAuth for MetadataAuth {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod site_tests {
+    use super::*;
+    use crate::transport::site_probe::TimingOut;
+    use crate::transport::site_probe::assert_dispatcher;
+    use crate::transport::site_probe::assert_thrown;
+    use crate::transport::site_probe::assert_transport;
+
+    /// The probe that outlives its timer finds no server, as the real Node function did (`sites.vertexMetadataProbe`); the
+    /// mint arms none and ends at the dispatcher like every Vertex token request (`sites.vertexToken`).
+    #[tokio::test(start_paused = true)]
+    async fn the_probe_and_the_mint_read_as_nodes_when_the_server_never_answers() {
+        let transport = TimingOut::new();
+        let http: Arc<dyn HttpSend> = transport.clone();
+        let found = probe_project(&http).await;
+        assert_transport("vertexMetadataProbe", &transport);
+        assert_eq!(found.map(serde_json::Value::from).unwrap_or(serde_json::Value::Null), crate::transport::site_probe::recorded("vertexMetadataProbe")["value"]);
+
+        let mint = TimingOut::new();
+        let error = MetadataAuth::new(mint.clone(), "p", Box::new(|| 0)).authorize().await.expect_err("never answers");
+        assert_dispatcher("vertexToken", &mint);
+        assert_thrown("vertexToken", &error.message);
+    }
+}

@@ -21,6 +21,7 @@ type CancelHook = Box<dyn FnMut(&[Running]) + Send>;
 pub struct Recorder {
     events: Mutex<Vec<String>>,
     exited: Mutex<bool>,
+    exit_code: Mutex<Option<i32>>,
     exit_signal: Condvar,
     notices: Mutex<Vec<DrainNotice>>,
     published: Mutex<Vec<DiscoveryState>>,
@@ -58,6 +59,11 @@ impl Recorder {
 
     pub fn serving_count(&self) -> usize {
         self.serving.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// The code the process-exit call carried, once it was made.
+    pub fn exit_code(&self) -> Option<i32> {
+        *lock(&self.exit_code)
     }
 
     pub fn has_exited(&self) -> bool {
@@ -123,8 +129,9 @@ impl Publication for Recorder {
 }
 
 impl Exiter for Recorder {
-    fn exit(&self) {
+    fn exit(&self, code: i32) {
         self.note("exit");
+        *lock(&self.exit_code) = Some(code);
         *lock(&self.exited) = true;
         self.exit_signal.notify_all();
     }

@@ -36,6 +36,8 @@ pub struct Built {
     pub user_data_dir: std::path::PathBuf,
     pub package_root: std::path::PathBuf,
     pub js_runtime: crate::compose::JsRuntime,
+    #[cfg(test)]
+    pub pg_install: Option<mixdog_services::memory::boot::PgInstall>,
     pub env: mixdog_core::run_host::run_seams::EnvReader,
     pub app_feed: Arc<mixdog_core_base::feed::CoreFeed>,
     pub scoped_feeds: Arc<dyn mixdog_core_api::feed::ScopedFeeds>,
@@ -50,6 +52,8 @@ pub struct Built {
     pub client_epoch: Arc<dyn mixdog_core_api::ClientEpoch>,
     /// The connection table again (`Outgoing`): `ModelProxyService` sends `modelProxy/run/event` to the asking connection through it.
     pub notifier: Arc<dyn mixdog_core_api::ConnectionNotifier>,
+    /// The host media router: the live view binds its streams' targets here.
+    pub host_media: Arc<mixdog_app_server::HostMedia>,
     pub server_requests: Arc<dyn mixdog_core_api::ServerRequestSink>,
     pub ext_host: Arc<mixdog_exthost::ExtHostPool>,
     pub process_manager: Arc<dyn mixdog_core_api::domain::process::ProcessManager>,
@@ -86,6 +90,8 @@ pub struct Built {
 /// `compose()` registers `core.on_stop("session directory shutdown", real.session_shutdown_step(core.stop_reason()))` first among the stop steps: Node's
 /// `sessionService.stop` (daemon.mjs, right after the heartbeat) closes every runtime, and each close begins with `setCloseRequested(true)`.
 pub struct Real {
+    /// How this start's desktop defaults separation ended; the server's `initialize` reply carries it to the desktop.
+    pub defaults_separation: mixdog_app_protocol::v1::DefaultsSeparation,
     /// The control route's follow of the config (`RouteService::follow_config`), kept for the core's life: dropping it ends the follow.
     pub control_route_sync: mixdog_core_config::config::AdoptionGuard,
     /// The cell `compose()` puts into `ComposedCore` as its `lifecycle` (flip-caller-1): `serving::start` binds the built `Lifecycle` into it.
@@ -144,6 +150,16 @@ pub struct Real {
     pub heartbeat: Arc<mixdog_services::bots::beat::Heartbeat>,
     /// The running timers, set by start_heartbeat; the stop steps read it (Node's stopHeartbeat?.() is null-safe: a stop before the start stops nothing).
     pub heartbeat_run: Arc<std::sync::OnceLock<mixdog_services::bots::beat::RunningHeartbeat>>,
+    /// The sub-agent retention cycle, set by `start_sub_agent_retention`; the stop step takes and ends it.
+    pub sub_agent_retention: Arc<std::sync::Mutex<Option<crate::session_retention::Running>>>,
+    /// The writer of `<data>/gateway-usage.local.jsonl`, the sessions' too.
+    pub gateway_usage: mixdog_core_session::session::gateway_usage::GatewayUsage,
+    /// The core's turn review and the tool pool its sessions run, as composed (the review is what the tools in the pool are wired to). Kept for
+    /// the replay of Node's review recording against the composition (compose::review_restart_tests); a release core does not carry them.
+    #[cfg(test)]
+    pub turn_review: Arc<mixdog_core_review::turn_review::TurnReview>,
+    #[cfg(test)]
+    pub tool_pool: Vec<Arc<dyn mixdog_core_api::domain::tool::Tool>>,
 }
 
 /// A named stop step.
@@ -184,9 +200,34 @@ impl Real {
     }
 }
 impl Real {
+    /// After ready: a data directory that already holds a PostgreSQL cluster starts it off the request path (Node's `startPostgresInBackground`).
+    pub fn open_memory_in_background(&self) {
+        self.memory.open_in_background();
+    }
+
     /// Mixy's heartbeat on its timers (daemon.mjs:1212, `startMixyHeartbeat`: first check after `FIRST_TICK`, then every `TICK`). Idempotent: a second call starts nothing.
     pub fn start_heartbeat(&self) {
         self.heartbeat_run.get_or_init(|| mixdog_services::bots::beat::start_mixy_heartbeat(self.heartbeat.clone(), mixdog_services::bots::beat::FIRST_TICK, mixdog_services::bots::beat::TICK));
+    }
+
+    /// The sub-agent retention cycle (`_retainSubAgents` of the idle cleanup): first pass an interval after the start. Idempotent.
+    pub fn start_sub_agent_retention(&self) {
+        let mut running = self.sub_agent_retention.lock().unwrap_or_else(|e| e.into_inner());
+        if running.is_none() {
+            let host = Arc::new(mixdog_core_session::session::sub_agent_retention::DirectoryRetention::new(self.directory.clone(), self.catalog_index.clone()));
+            *running = Some(crate::session_retention::start(host, Arc::new(mixdog_core_session::session::sub_agent_retention::now_ms)));
+        }
+    }
+
+    /// Cancels the retention cycle and awaits it, before the directory it works through shuts down. A stop before the start ends nothing.
+    pub fn sub_agent_retention_step(&self) -> StopStep {
+        let running = self.sub_agent_retention.clone();
+        ("sub-agent retention", Box::pin(async move {
+            let taken = running.lock().unwrap_or_else(|e| e.into_inner()).take();
+            if let Some(cycle) = taken {
+                cycle.end().await;
+            }
+        }))
     }
 
     /// The idle sweep's store (session/manager/idle-cleanup.mjs): rows from the session index, closes through the directory; `stop` is its shutdown.
@@ -250,6 +291,8 @@ impl Real {
         let (channels, log) = (self.channels.clone(), self.log.clone());
         let channel_step: StopStep = ("channels", Box::pin(async move {
             let reason = reason.get().expect("the release states the stop reason before its first step (ComposedCore::set_stop_reason)");
+            // A deferred automation start (save or boot) ends and is joined first, so it cannot start services after the teardown.
+            channels.shutdown_scheduled_start().await;
             if let Err(error) = mixdog_services::channels::tools::ChannelLifecycle::stop_owned_runtime(&*channels, reason).await {
                 log.log(&format!("channels.stop failed: {error}"));
             }
@@ -273,8 +316,20 @@ impl Real {
                 Err(_) => log.log("voice installer lock release failed: the maintenance lane is full"),
             }
         }));
-        vec![drain, gateway, computers, detach, terminals, channel_step, memory_step, voice]
+        // `settleGatewayUsageWrites` (the teardown's `settlePersistence`): the buffered gateway usage events land and their
+        // compaction runs. The process's `exit` hook (`flushGatewayUsageEventsSync`) is not a stop step: a stuck step skips the
+        // steps, so `compose::flush_at_exit` writes what was recorded since on every release path.
+        let usage = self.gateway_usage.clone();
+        let settle: StopStep = ("gateway usage", Box::pin(async move { usage.settle().await }));
+        vec![settle, drain, gateway, computers, detach, terminals, channel_step, memory_step, voice]
     }
+}
+
+/// Where the boot retirement reads the shipped files (`defaults/shipped-history.json`, skills, agents, ...): the one root every reader of
+/// the shipped files uses, `MIXDOG_ROOT` or else `<package>/src`. A packaged desktop sets `MIXDOG_ROOT` to the unpacked tree, as the
+/// archive itself cannot be read as files.
+pub(crate) fn retirement_paths(package_root: &std::path::Path, data_dir: &std::path::Path, env: &dyn Fn(&str) -> Option<std::ffi::OsString>) -> mixdog_core_config::workflow::WorkflowPaths {
+    mixdog_core_config::workflow::WorkflowPaths { root: mixdog_store::paths::Paths::plugin_root_of(package_root, env), data: data_dir.to_path_buf() }
 }
 
 pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
@@ -282,6 +337,17 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // The app feed has ONE section state: the composed one (`ComposedCore::sections()`, which `serving::start` takes too); a second would split the sections.
     let routes = Arc::new(mixdog_core_base::state::ScopedRouteTable::default());
     let state = Arc::new(StateRuntime { publisher: Arc::new(mixdog_core_base::state::StateHub::new(b.sections.clone(), routes.clone())), routes, app: b.sections.clone() });
+    // Node's `prepareStandaloneEnvironment` (once per process and data dir, at the first runtime start, before any config load) retires the user's untouched copies of
+    // shipped skills, workflows, agents, output styles and orchestration modes into `backups/`, so the shipped versions apply again.
+    {
+        let paths = retirement_paths(&b.package_root, &b.data_dir, &|name| (b.env)(name).map(std::ffi::OsString::from));
+        mixdog_core_base::support::on_lane(b.tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
+            mixdog_core_config::workflow::retire::retire_seeded_copies(lane, &paths, &|| chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
+        })
+        .await
+        .map_err(|e| ComposeError::Config(format!("{e:?}")))?
+        .map_err(ComposeError::Config)?;
+    }
     let (config, _config_changes) = Config::open(
         b.data_dir.join("mixdog-config.json"),
         state.publisher.clone(),
@@ -293,6 +359,12 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // rewritten with only what differs from the defaults (the agent roster as a delta: advisor starts off) and takes the marker.
     let boot_ms = mixdog_core_session::session::Clock::now_ms(&mixdog_core_session::session::SystemClock);
     config.separate_defaults(boot_ms).await.map_err(|e| ComposeError::Config(format!("{e:?}")))?;
+    // From K1 the daemon is the only config writer, so the desktop's one-time `desktop` section separation
+    // (`DesktopSettingsStore.separateDefaults`, which Node's app ran at app-ready, after the daemon had separated the file) runs here, as
+    // a pass of its own with its own backup. Once this returns the `desktop` section is separated, or (as in Node, where the app's catch wrote
+    // `defaults-separation-failed` to its diagnostics log and went on) the failure is on record, the marker unset for the next start's retry.
+    let desktop_ms = mixdog_core_session::session::Clock::now_ms(&mixdog_core_session::session::SystemClock);
+    let defaults_separation = crate::desktop_defaults::separate(&config, desktop_ms).await;
     // Node's notification store stamps `migratedAt: now` when it first loads with no document; so does the boot (notify owner: `audience.rs`
     // reads `migrated_at()` and no longer sees 0 for a store nobody wrote).
     config.stamp_notifications(boot_ms).await.map_err(|e| ComposeError::Config(format!("{e:?}")))?;
@@ -300,7 +372,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let surface_generation = mixdog_core::run_host::surface_host::SurfaceGeneration::default();
 
     // ---- 2. policy, hub, hook bus; the late views and the one secret input ---------------------
-    let PolicyParts { policy, connectors, grants, connector_policy } = build_policy(&b.tokens, &b.data_dir);
+    let PolicyParts { policy: _, connectors, grants, connector_policy } = build_policy(&b.tokens, &b.data_dir);
     // The hook event log (`createHookEventLog`, the hook bus's observer) and the one `HookStatus` over it that the doctor and the `hooks` status read; the first
     // config lookup starts at the process's directory. The bus emits into this log (run-host-34).
     let startup_cwd = std::env::current_dir().map_err(ComposeError::StateDir)?; // the folder the daemon started in: a session with no folder of its own runs hooks here
@@ -312,6 +384,12 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     hub.set_sign_in_notices(Arc::new(mixdog_core::run_host::desktop_notices::ConnectorDesktopNotices(desktop_notices.clone())));
     let late = Arc::new(LateDirectory::default());
     hook_bus.bind_scopes(compose_parts::hook_scope(late.clone())).map_err(|_| ComposeError::AlreadyBound("hook scopes"))?;
+    // The PreToolUse bridge (`attachSessionHooks` `beforeToolHook`): the tool gate asks the hook bus before every call, so a hook's deny or ask reaches the model and the failure log.
+    let policy = {
+        let common = compose_parts::hook_common(late.clone());
+        let source: mixdog_mcp::pre_tool::CommonSource = Arc::new(move |thread: &mixdog_protocol::ThreadId| common(thread.as_str()));
+        Arc::new(mixdog_tools::policy::ToolPolicy::new(grants.clone(), connectors.clone()).with_hook(Arc::new(mixdog_mcp::pre_tool::BusPreToolHook::new(hook_bus.clone(), source))))
+    };
     // The heartbeat state file: the user-activity probe and the `session` tool's suggestions share the one store.
     let heartbeat_store = mixdog_services::bots::beat::HeartbeatStore::new(mixdog_services::bots::state_json::StateJson::new(b.data_dir.join("heartbeat.json"), b.tokens.durability_io));
     // The one UserActivity: the setup/user-activity domain and Mixy's heartbeat both read it (heartbeat-1).
@@ -491,9 +569,9 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // The provider setup chain (wp-ai-svc-23/-25): oauth providers -> gatherer -> cached setup -> dashboards -> effects -> refresh.
     let oauth_providers = mixdog_core_domains::domains::ai_account::production::oauth_providers(&oauth_wiring); // the same Vec `ProviderAdmin` holds
     // wp-ai-svc-27: ONE tracked secret store. The vault goes over it (`AnnouncingStore`, below, at the config-setup seam) and the status holder reads it, so the retry
-    // probe notes its outcome. The desktop notice raise is a no-op while the daemon has no notice channel (Node's `?.raise?.()` is optional too).
+    // probe notes its outcome. The desktop notice raise is the daemon's `notice` section (`DesktopNotices`, the one built at the top of this function).
     let secret_changes = mixdog_core_config::config::secret_changes::SecretChanges::open(config.clone()).await;
-    let (keychain_store, keychain_tracker) = mixdog_secrets::default_store_with_status(b.tokens.durability_io, &b.data_dir, Arc::new(|| {}));
+    let (keychain_store, keychain_tracker) = tracked_secret_store(b.tokens.durability_io, &b.data_dir, &desktop_notices);
     let keychain_live: Arc<dyn mixdog_core_domains::domains::ai_account::setup_cache::KeychainLive> =
         Arc::new(mixdog_core_domains::domains::ai_account::keychain_live::HolderLive::new(keychain_tracker, keychain_store.clone(), b.tokens.durability_io, b.data_dir.clone()));
     // The catalog service's own failure store (never a second one: refresh records into it and `invalidate_accounts` clears it).
@@ -630,6 +708,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             loaded_providers.clone(),
         )),
     });
+    // The `modelCatalog` section (`model/catalog/updated`): the `model/list` rows, pushed when they change.
+    let model_catalog = mixdog_core_domains::domains::ai_admin::model_catalog_feed::ModelCatalogFeed::start(model_list.clone(), state.publisher.clone(), _provider_sync.applied.clone());
     let web_search_models = Arc::new(mixdog_core_domains::domains::ai_admin::web_search_models::WebSearchModelsService::new(
         b.catalog.clone(),
         config.clone(),
@@ -645,9 +725,10 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     ));
     // The ONE readiness invalidation (Node `invalidateProviderCaches()`, wp-ai-svc-24): every cache Node drops there, in one closure.
     readiness.bind_invalidation(Arc::new({
-        let (setup, dashboards, web_search_models, model_list) = (provider_setup.clone(), dashboards.clone(), web_search_models.clone(), model_list.clone());
+        let (setup, dashboards, web_search_models, model_list, model_catalog) = (provider_setup.clone(), dashboards.clone(), web_search_models.clone(), model_list.clone(), model_catalog.clone());
         move || {
             model_list.invalidate();
+            model_catalog.invalidated();
             setup.invalidate();
             dashboards.invalidate();
             web_search_models.invalidate(None);
@@ -699,6 +780,9 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         },
     );
     let agent_listed: Arc<std::sync::OnceLock<mixdog_core_agents::agents::section::ListedHook>> = Arc::new(std::sync::OnceLock::new());
+    // Every `thread/deleted` (the explicit delete and a row that stopped being listed) leaves through this one publisher, which tells the paired
+    // phones' downloads the conversation is gone in the same step, before the notification (bound once the workspace exists).
+    let thread_deletions = mixdog_core_session::session::thread_edges::ThreadDeletions::new(b.sections.clone());
     mixdog_core_agents::agents::section::spawn_agents_section(
         agents.clone(),
         config.changes(),
@@ -782,8 +866,9 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         b.tokens.interactive_io,
         b.data_dir.clone(),
         held_notifier,
+        grants.clone(), // the store the tool gate audits in: an answered held request is audited in it too
     );
-    // The held-request registry Mixy's heartbeat counts (pendingHeldRequests). Its approval entry point HeldRequests::gate_for has no production caller yet (see flip-6.md).
+    // The held-request registry: Mixy's heartbeat counts it (pendingHeldRequests) and every run's approval asks pass its gate (`TurnPathParts.approvals`).
     let held_requests = crate::held_requests::HeldRequests::new(held_home.clone(), now_ms.clone());
 
     // The one bridge fact: the skill gate (`McpInputs.bridges`) and `DomainSeams.feature_activity` both read this value.
@@ -930,6 +1015,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             now: now_ms.clone(),
         }))
     };
+    let visualize_panes = Arc::new(mixdog_exthost::VisualizePanes::default());
     let seams = DomainSeams {
         provider_roster: provider_admin.clone(),
         quota_resume: quota_store.clone(),
@@ -964,6 +1050,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         browser_surfaces: Arc::new(crate::domain_seams::browser_surfaces::FeedSurfaces::new(
             mixdog_core_session::session::terminal_host::AppFeedOpen::new(b.sections.clone(), b.presence.clone()),
         )),
+        visualize_panes: visualize_panes.clone(),
         instructions_changed: crate::domain_seams::profile_changes::InstructionsAnnounce::new(gauge.clone(), Arc::default()),
         plugins: PluginSeams {
             host: extension_host.clone(),
@@ -1047,7 +1134,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let channel_settings: Arc<dyn mixdog_services::channels::ChannelSettings> = Arc::new(crate::domain_seams::channel_stack::ConfigChannelSettings::new(config.clone()));
     let relay_url_env = (b.env)("MIXDOG_RELAY_URL");
     let public_base: Arc<dyn mixdog_services::channels::PublicBase> = Arc::new(crate::domain_seams::channel_stack::HookIdentityBase::new(b.tokens.durability_io, b.data_dir.clone(), relay_url_env.clone()));
-    let channel_agent_runtime: Arc<dyn mixdog_services::channels::AgentRuntime> = Arc::new(crate::domain_seams::channel_stack::RegistryAgentRuntime::new(config.clone(), registry.clone(), b.catalog.clone()));
+    let channel_agent_runtime: Arc<dyn mixdog_services::channels::AgentRuntime> = Arc::new(crate::domain_seams::channel_stack::RegistryAgentRuntime::new(config.clone(), registry.clone()));
     // The webhook event rules (`config.events`): the queue under `<data>/events`, the pipeline, and the sink that hands a fired event to the Lead as a `webhook` channel notification.
     // The Lead `webhook` channel injection (flip-channel-router-1): `injectAndRecord` + the daemon's channel router over the late directory. A webhook has no target session, as in Node's
     // daemon (`getSessionId: () => null`), so the sink is not pinned.
@@ -1083,6 +1170,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         probe: Arc::new(mixdog_services::channels::ports::ReqwestProbe::new(reqwest::Client::new())),
         clock: channel_clock.clone(),
         local_tz,
+        channel_start_disabled: mixdog_services::memory::cycles::config::env_flag((b.env)("MIXDOG_DISABLE_CHANNEL_START").as_deref(), false),
+        close_requested: close_requested.clone(),
     });
     // The effects' channel cell: the stack exists now (it was the cycle with `definitions`).
     agent_channels.bind(Arc::new(crate::domain_seams::agent_effects::ServiceChannels { admin: channel_admin.clone(), runtime: channel_runtime.clone() })).map_err(|_| ComposeError::AlreadyBound("agent channels"))?;
@@ -1115,6 +1204,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             surface_generation.clone(),
         ),
         scoped_feeds: b.scoped_feeds.clone(),
+        toasts: Arc::new(crate::compose_mcp::LateSessionToasts(late.clone())),
         bridges: bridges.clone(),
         hooks: hook_status.clone(),
         hook_observer: hook_log.clone(),
@@ -1182,6 +1272,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let scm = mixdog_scm::engine::Scm::new(b.process_manager.clone(), b.tokens.maintenance_io, b.data_dir.join("scm-scratch"));
     let review_bases = Arc::new(mixdog_scm::worktree::review_bases::CapturedBases::new());
     let turn_review = Arc::new(mixdog_core_review::turn_review::TurnReview::over_scm(scm.clone(), b.tokens.clone(), &b.data_dir, |name| (b.env)(name), review_bases.clone()));
+    mixdog_core_review::turn_review::seams::follow_read_state(turn_review.clone(), &read_state);
     // `getConfigSnapshot({ secrets: false })` (the route hop's `HopDeps.config`, the summary, explorer, maintainer and title hosts): the live agent config. The hosts read its
     // `providers`, `agents`, `default` and the agent roster (`agent_disabled`), all of which are keys of the `agent` section, not of the file's root.
     let config_snapshot: mixdog_core_run::run_host::hop_host::ConfigSnapshot = {
@@ -1361,24 +1452,30 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             .map_err(|e| ComposeError::CatalogIndex(e.to_string()))?
     };
     // The bundled PostgreSQL runtime (downloaded first when the active one is missing or damaged, `ensureRuntime`), then the memory stack.
+    // Node installs the runtime inside the memory start (`supervisor.mjs:484`), which runs at the first memory use and never at daemon boot: so the install is handed to the
+    // stack as what it runs when the database is first opened, not awaited here (a fresh profile downloads about 22 MB and runs `initdb`).
     let pg_runtime = {
         use mixdog_services::memory::pg::runtime_install as pg;
-        pg::ensure_runtime(
-            &pg::InstallOptions {
-                data_dir: b.data_dir.clone(),
-                manifest: pg::Manifest::bundled().map_err(|e| ComposeError::MemoryRuntime(e.to_string()))?,
-                platform: pg::Platform::current(),
-                release_repositories: pg::repositories_env(|name| (b.env)(name)),
-                durability: b.tokens.durability_io,
-                bulk: b.tokens.cpu_bulk,
-                now: now_ms.clone(),
-                progress: None,
-            },
-            &b.cancel,
-        )
-        .await
-        .map_err(|e| ComposeError::MemoryRuntime(e.to_string()))?
-        .runtime_dir
+        let (data_dir, release_repositories, durability, bulk, now) = (b.data_dir.clone(), pg::repositories_env(|name| (b.env)(name)), b.tokens.durability_io, b.tokens.cpu_bulk, now_ms.clone());
+        let production: mixdog_services::memory::boot::PgInstall = Arc::new(move |cancel| {
+            let (data_dir, release_repositories, now) = (data_dir.clone(), release_repositories.clone(), now.clone());
+            Box::pin(async move {
+                let options = pg::InstallOptions {
+                    data_dir,
+                    manifest: pg::Manifest::bundled().map_err(|e| mixdog_services::memory::error::MemoryError::Runtime(e.to_string()))?,
+                    platform: pg::Platform::current(),
+                    release_repositories,
+                    durability,
+                    bulk,
+                    now,
+                    progress: None,
+                };
+                pg::ensure_runtime(&options, &cancel).await.map(|installed| installed.runtime_dir).map_err(|e| mixdog_services::memory::error::MemoryError::Runtime(e.to_string()))
+            })
+        });
+        #[cfg(test)]
+        let production = b.pg_install.clone().unwrap_or(production);
+        mixdog_services::memory::boot::PgRuntimeSource::Install(production)
     };
     let store_threads = Arc::new(mixdog_core_session::session::StoreThreads::new(
         &b.data_dir,
@@ -1399,7 +1496,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         pg_runtime,
         embedder: b.models.embeddings.clone(),
         embedding_provider: config.full().get("embedding").and_then(|e| e.get("provider")).and_then(serde_json::Value::as_str).map(str::to_owned),
-        flags: mixdog_services::memory::runtime::RuntimeFlags::default(),
+        flags: mixdog_services::memory::runtime::RuntimeFlags::from_env(&*b.env),
         progress: None,
         sensitive: sensitive.clone(),
         lane: b.tokens.durability_io,
@@ -1422,7 +1519,6 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     .await
     .map_err(|e| ComposeError::MemoryRuntime(e.to_string()))?;
     // Every later failure of this composition stops the stack, PostgreSQL last (`memoryRuntime.stop`, `daemon.mjs:377,383`); a composed core stops it in its own stop step.
-    let memory = Arc::new(memory);
     b.acquired.on_release("memory", {
         let (memory, log) = (memory.clone(), b.log.clone());
         async move {
@@ -1535,6 +1631,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         mcp.callers.clone(),
         held_home.clone(),
     ))));
+    #[cfg(test)]
+    let kept_tool_pool = tool_pool.clone();
     // ---- 9. the ready rows --------------------------------------------------------------------
     let ready = ready_rows(
         &process,
@@ -1802,6 +1900,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             data_dir: b.data_dir.clone(),
             blobs: store_blobs.clone(),
         }));
+    let snapshot_source = side_wiring.next();
     let inheritance_fit: Arc<dyn mixdog_core_session::session::inheritance::InheritanceFit> = Arc::new(mixdog_core::run_host::inheritance_fit::HostInheritanceFit::process(b.catalog.clone(), config_seams.clone(), side_wiring.next(), compaction_world.clone()));
     let turn_starts = Arc::new(mixdog_core_session::session::LateTurnStarts::default()); // bound to the `AgentRegistry` once wp-agent's constructor exists    // `writeStatuslineRoute` / `clearGatewaySessionRoute`: ONE value, cloned (a clone shares the write queue): the route hop and the session deletion.
     let gateway_routes = mixdog_core_session::session::gateway_routes::GatewaySessionRoutes::new(&b.data_dir, b.tokens.maintenance_io);
@@ -1833,6 +1932,12 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         catalog: b.catalog_warmup.clone(),
         models: model_warmup.clone(),
         statusline: statusline_warmup.clone(),
+        channel_admin: channel_admin.clone(),
+    });
+    // The deferred channel start parks on the same busy probe (`channel-start.mjs:50-56`) and is woken with the warm-ups.
+    channel_admin.bind_busy({
+        let (liveness, late) = (liveness.clone(), late.clone());
+        Arc::new(move || crate::prewarm_world::busy_reason(&liveness, &late))
     });
     // The third wake source: a provider catalog refresh settling (failed or not) wakes every parked background warm-up
     // (`provider-readiness.mjs` `settle` -> `rt.wakeDeferredWarmups()`), the same wake the sessions' busy-state changes give.
@@ -1840,7 +1945,15 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         let signals = session_prewarm.clone();
         Arc::new(move || signals.wake())
     });
+    let gateway_usage = mixdog_core_session::session::gateway_usage::GatewayUsage::new(
+        &b.data_dir,
+        b.tokens.durability_io,
+        clock.clone(),
+        Arc::new(mixdog_ai::catalog::CatalogPricing(b.catalog.clone())),
+        Arc::new(mixdog_core_session::session::gateway_usage::TokioScheduler),
+    );
     let owed = Owed {
+        approvals: Arc::new(crate::held_requests::HeldGates(held_requests.clone())),
         liveness: liveness.clone(),
         search_usage,
         tokens: b.tokens.clone(),
@@ -1885,8 +1998,11 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 auto_resume: auto_resume.clone(),
             };
             let session_surface = surface_generation.clone();
+            let store_threads = store_threads.clone();
+            let thread_deletions = thread_deletions.clone();
             let task_workspace: Arc<dyn mixdog_core_session::session::TaskWorkspace> = agents.clone();
             let new_place = late_new_place.clone();
+            let gateway_usage = gateway_usage.clone();
             let (data_dir, tokens, clock, features, route_change, quota, session_search) = (b.data_dir.clone(), b.tokens.clone(), clock.clone(), (b.server_requests.clone(), built_remote.registry.clone()), route_change.clone(), quota, session_search.clone());
             move |runs| mixdog_core_session::session::SessionDeps {
                 store: store_threads,
@@ -1922,7 +2038,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 inherit: inheritance_fit,
                 route_change,
                 deletion: Arc::new(mixdog_core_session::session::purge::SessionDeletion {
-                    app: sections.clone(),
+                    deleted: thread_deletions.clone(),
                     search: Some(memory_search.clone()),
                     worktrees: worktree_maintenance.clone(),
                     board: job_board.clone(),
@@ -1956,6 +2072,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         snapshots: { let worktree_snapshots: Arc<dyn mixdog_core_session::session::turn_snapshots::TurnSnapshots> = Arc::new(mixdog_core_session::session::turn_snapshots::WorktreeTurnSnapshots::new(snapshot_cleanups.clone(), worktrees.clone())); match &computer_pool { Some(pool) => Arc::new(mixdog_core::run_host::native_tools::SettlingSnapshots::new(worktree_snapshots, pool.clone())), None => worktree_snapshots } }, // wp-session-30; `directory.shutdown()` ends with `snapshots.dispose()`
                 lanes: mixdog_core_session::session::SessionLanes { cpu: tokens.cpu_interactive, io: tokens.interactive_io, durability: tokens.durability_io },
                 limits: Default::default(),
+                gateway_usage,
             }
         }),
         compactors: compactors.clone(), // run-host-33
@@ -2089,6 +2206,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         .bind(Arc::new(mixdog_core_session::session::setup_ui::SessionSetupUi::new(directory.clone())))
         .map_err(|_| ComposeError::AlreadyBound("setup ui"))?;
     model_warmup.start(); // the boot's scheduleProviderModelWarmup() (session.mjs:121): after the model list, the gates and the wakes exist
+    // The boot's scheduleAutomationAutostart() (session.mjs:126) without its 1.5 s timer: the compose has finished, so probe once and start enabled automation now.
+    channel_admin.schedule_automation_autostart();
     setup_warmup.schedule_default(); // the boot's scheduleProviderSetupWarmup() (session.mjs:122), default 300 ms
     // The pool's directory-side cells (true cycles, bound once, in `verify_bound`): the dispatcher is built from the very values the turn's own gate takes (`policy`, `connectors`, the resolver, `HostGateEnv`, the bus dispatch).
     late_dispatcher
@@ -2123,14 +2242,25 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         .map_err(|_| ComposeError::AlreadyBound("turn settings"))?;
     // The tool status the `tools/*` service and the MCP surface read (flip-ce-2): `preview` is async/fallible and `mode` takes the thread's header, no wiring change.
     tool_surface
-        .bind(Arc::new(mixdog_core_ports::ports::tools_status::SessionToolStatus::new(Arc::new(mixdog_core_session::session::thread_state::SessionThreads::new(directory.clone())), surface_host.clone())))
+        .bind(Arc::new(
+            mixdog_core_ports::ports::tools_status::SessionToolStatus::new(Arc::new(mixdog_core_session::session::thread_state::SessionThreads::new(directory.clone())), surface_host.clone())
+                // `tools/toolsStatus` with `snapshot`: the provider request the thread's next send would carry.
+                .with_snapshots(snapshot_source),
+        ))
         .map_err(|_| ComposeError::AlreadyBound("tool surface"))?;
     // flip-gaps-agent, after the directory: the session-close seams, the `cycle1-agent` dispatch (and with it the memory cycles' late LLM), the route positions.
     let runtime_release = Arc::new(mixdog_core_session::session::runtime_release::ThreadRuntimeRelease::new(read_state.clone(), liveness.clone(), worktrees.clone(), worktree_stop.clone()));
     let session_turns = Arc::new(mixdog_core_session::session::agent_registry::flow::SessionTurns::new(directory.clone(), runtime_release).with_shells(b.shell_control.clone()).with_admission(agent_registry.clone())); // flip-agent-worlds-8: without it a turn is not admission-checked (agent-turns.mjs:96,108,116)
     let session_close = Arc::new(mixdog_core_session::session::close::SessionClose::new(directory.clone(), registry.clone(), owned_shells.clone(), read_state.clone()));
     let agent_host = Arc::new(mixdog_core::run_host::agent_world::AgentHost::new(config.clone(), registry.clone())); // kept concrete: `close()` at shutdown
-    let agent_world = Arc::new(mixdog_core::run_host::agent_world::AgentWorld::new(config.clone(), Arc::new(mixdog_core::run_host::agent_world::CatalogWindows(b.catalog.clone())), b.env.clone(), clock_agent.clone()));
+    // The `stall_abort` rows of a stopped dispatch join the tool-failure log, the one buffer and file of this data directory.
+    let stall_failures = mixdog_core_run::run_host::failure_log::FailureWriter::for_data_dir(
+        &b.data_dir,
+        mixdog_core_api::domain::tool::ToolIo { interactive: b.tokens.interactive_io, durability: b.tokens.durability_io, maintenance: b.tokens.maintenance_io },
+        clock_agent.clone(),
+    );
+    let stall_log: mixdog_core::run_host::agent_world::StallLog = Arc::new(move |ctx| stall_failures.record_watchdog_abort(&ctx));
+    let agent_world = Arc::new(mixdog_core::run_host::agent_world::AgentWorld::new(config.clone(), Arc::new(mixdog_core::run_host::agent_world::CatalogWindows(b.catalog.clone())), b.env.clone(), clock_agent.clone(), stall_log));
     // ONE admission, also `AgentParts.admission`.
     let agent_admission = Arc::new(mixdog_core::run_host::admission::ResourceAdmission::new(
         mixdog_core::run_host::admission::Limits::from_env(std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get), &*b.env),
@@ -2281,11 +2411,40 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // catalog ends its grants (Node's `sessionRemoved`).
     let phone_grants = Arc::new(mixdog_workspace::grants::GrantStore::new(
         Arc::new(mixdog_workspace::transfer::SystemClock),
-        Arc::new(CatalogSessions(Arc::new(catalog_index.clone()))),
+        Arc::new(CatalogSessions { sessions: Arc::new(catalog_index.clone()), media: Arc::new(mixdog_services::media::MediaStore::new(&b.data_dir, b.tokens.durability_io)) }),
     ));
+    thread_deletions
+        .on_gone({
+            let workspace = workspace.clone();
+            Arc::new(move |session: &str| workspace.session_removed(session))
+        })
+        .map_err(|()| ComposeError::AlreadyBound("thread deletions"))?;
+    workspace.set_host(b.host.clone());
     workspace.set_phone_grants(phone_grants.clone(), crate::domain_seams::remote::phone_credential(built_remote.registry.clone()));
+    // An unpair ends the device's grants and transfers at once and, once the relay confirmed it, its notification preferences.
+    built_remote
+        .events
+        .bind(Arc::new(crate::domain_seams::remote::PairedDeviceCleanup {
+            grants: phone_grants.clone(),
+            registry: built_remote.registry.clone(),
+            end_transfers: {
+                let workspace = workspace.clone();
+                Arc::new(move |owner| workspace.revoke_device(owner))
+            },
+            end_downloads: {
+                let workspace = workspace.clone();
+                Arc::new(move || workspace.revoke_all_downloads())
+            },
+            config: config.clone(),
+        }))
+        .map_err(|_| ComposeError::AlreadyBound("device cleanup"))?;
     builder.register(workspace.clone() as Arc<dyn mixdog_core_api::service::DomainService>)?;
-    builder.register(Arc::new(mixdog_exthost::DocumentService::new(b.ext_host.clone(), b.user_data_dir.to_string_lossy().into_owned())))?;
+    // A phone's pages: a registered project's entry or its device's granted file (the workspace's catalog and grant
+    // store), or a visualize pane's own file (the tabs the desktop set).
+    builder.register(Arc::new(
+        mixdog_exthost::DocumentService::new(b.ext_host.clone(), b.user_data_dir.to_string_lossy().into_owned())
+            .with_relay_scope(Arc::new(crate::domain_seams::relay_files::WorkspaceRelayFiles(workspace.clone())), visualize_panes.clone()),
+    ))?;
     builder.register(secret.service.clone())?; // `approval/provideSecret`: the same `SecretSlots` as `SecretFill`
     builder.register(Arc::new(mixdog_tools::orch::status::ToolsService::new(tool_surface.clone())))?; // `tools/*`
     builder.register(Arc::new(mixdog_scm::service::ScmHandle(mixdog_scm::service::ScmService::new(
@@ -2317,7 +2476,11 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // (`MemberRelay`). The republish closures of the daemon port read `RoomSummaries`, which is built after the rooms (a cycle through `ThreadListService`): the late cell `LateRoomSummaries`.
     let late_room_summaries = Arc::new(crate::late_session::LateRoomSummaries::default());
     let rooms = Arc::new(mixdog_core_rooms::rooms::records::Rooms::new(mixdog_core_rooms::rooms::store::StateRoomStore::new(b.core_state.clone())));
-    let room_sessions = Arc::new(mixdog_core::run_host::directory_sessions::DirectorySessions::new(directory.clone(), threads.clone()));
+    // Node's one `lastArchiveStamp`, which the host's archive and the rooms' share (`ArchiveStamps`).
+    let archive_stamps: Arc<mixdog_core_session::session::thread_settings::ArchiveStamps> = Arc::default();
+    let room_sessions = Arc::new(
+        mixdog_core::run_host::directory_sessions::DirectorySessions::new(directory.clone(), threads.clone()).with_archive_stamps(archive_stamps.clone()),
+    );
     let maintainer = Arc::new(mixdog_core_rooms::rooms::maintainer::RouteMaintainer::new(Arc::new(mixdog_core::run_host::summary_routes::SummaryRoutes::new(
         summaries.host(&mixdog_core_api::ids::ThreadId::from("room-supervisor"), &mixdog_store::schema::record::Header::new()),
     ))));
@@ -2371,8 +2534,11 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let bot_work = Arc::new(mixdog_services::task_reports::host::BotWork::new({ let summaries = bot_summaries.clone(); Arc::new(move |session: &str| summaries.changed(session)) }));
     let list_overlay = Arc::new(mixdog_core_session::session::thread_list::LiveListOverlay::new(directory.clone(), bot_work)); // wp-session-37: the overlay reads the directory's handles and `bot_work.by_session()`
     let catalog_handle = Arc::new(catalog_index.clone()); // the handle the idle sweep and the heartbeat's catalog read (Node listSessionCatalog)
-    let thread_list = Arc::new(mixdog_core_session::session::thread_list::ThreadListService::new(catalog_handle.clone(), list_overlay.clone(), room_rows));
-    thread_list.observe(phone_grants.clone()); // a session counts as seen when a published catalog lists it (Node's retainSessions)
+    let thread_list = Arc::new(mixdog_core_session::session::thread_list::ThreadListService::new(catalog_handle.clone(), list_overlay.clone(), room_rows, agents.clone()));
+    thread_list.fence(store_threads.clone()); // a list is never older than a write whose reply or notification has gone out
+    // A session counts as seen when a published catalog lists it (Node's seenSessions); the downloads of one that leaves the catalog end in the
+    // step its `thread/deleted` is published (`ThreadDeletions`).
+    thread_list.observe(phone_grants.clone());
     let heartbeat = mixdog_core::run_host::heartbeat_parts::production_heartbeat(mixdog_core::run_host::heartbeat_parts::HeartbeatHolds {
         clock: channel_clock.clone(),
         store: heartbeat_store.clone(),
@@ -2390,11 +2556,12 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         marks: heartbeats.clone(),
     });
     bot_summaries.bind(thread_list.clone(), b.sections.clone()).map_err(|_| ComposeError::AlreadyBound("bot work summaries"))?;
-    let room_summaries = mixdog_core_session::session::thread_list::RoomSummaries::new(thread_list.clone(), b.sections.clone(), directory.clone());
+    // The index writer's row writes reach the app feed: `thread/started`, `thread/summary/updated`, `thread/deleted` (Node's roster push).
+    let room_publication = mixdog_core::run_host::room_publication::wire(thread_list.clone(), b.sections.clone(), thread_deletions.clone(), agents.clone(), &catalog_index, directory.clone(), room_sessions.clone()).map_err(|_| ComposeError::AlreadyBound("thread edges"))?;
+    let (room_summaries, room_host) = (room_publication.summaries, room_publication.host);
     late_room_summaries.bind(room_summaries.clone()).map_err(|_| ComposeError::AlreadyBound("room summaries"))?;
     room_approvals.bind_summaries(room_summaries.clone()).map_err(|_| ComposeError::AlreadyBound("room approvals summaries"))?;
     let republish: Arc<dyn Fn() + Send + Sync> = { let s = room_summaries.clone(); Arc::new(move || s.republish()) };
-    let room_host = Arc::new(mixdog_core_rooms::rooms::sessions::SessionRoomHost::new(agents.clone(), room_sessions.clone(), republish.clone()));
     // Start-up recover (flip-rooms-4): rooms whose exchange a dead process left running are marked interrupted; their summaries are republished.
     if !live_rooms.start(&rooms).await.map_err(|e| ComposeError::Rooms(format!("{e:?}")))?.is_empty() {
         republish();
@@ -2406,9 +2573,11 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         room_host.clone(),
         room_runner.clone(),
         domain_inputs.scopes.scopes("room").map_err(ComposeError::ComposeDomains)?,
+        definition_names.clone(),
     )))?;
-    // A room member's tool approval (wp-session-36): `directory.member_approval(&member)` / `directory.answer_member_approval(..)` and `RoomSummaries::publish_room` exist, but no
-    // port of the rooms stack calls them (`RoomDaemon` has no approval method in flip-rooms-4..15, and the wire section for the decorated view is a Lead decision): not wired.
+    // A room member's tool approval (wp-session-36) is wired through the ports above: `SessionRoomApprovals` is `RoomPorts.approvals` (`answer_member_approval`) and publishes the
+    // decorated view (`RoomSummaries::publish_room`, `thread/roomView/updated`), `DirectoryRoomDaemon::read_snapshot` carries `member_approval` as the snapshot's `toolApproval`, and
+    // `late_room_members` hands a resolved approval back to the rooms. A client answers the member's request as the response to its server request (P §8.3), not through a room method.
     // The workspaces (wp-session-32): the project registry is the concrete `WorkspaceService`; `ProjectConnectors` and the agent connector API share ONE
     // `ConnectorCatalog`; `SessionWorkspaces` is one value for the project service, the thread scm service, `ThreadSettingsParts` and the git tool.
     let project_registry: Arc<dyn mixdog_core_session::project::service::Registry> = workspace.clone();
@@ -2450,12 +2619,13 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         mixdog_core_session::session::worktree::AdmissionGate::new(),
     );
     late_workspaces.bind(Arc::new(workspaces.clone())).map_err(|_| ComposeError::AlreadyBound("session workspaces"))?;
-    project_workspaces
-        .bind(Arc::new(crate::project_workspaces::SessionProjectWorkspaces::new(
-            Arc::new(mixdog_core_session::session::thread_settings::WorkspaceFolders::new(workspace.clone(), b.user_data_dir.clone(), session_lanes())),
-            worktrees.clone(),
-        )))
-        .map_err(|_| ComposeError::AlreadyBound("project workspaces"))?;
+    let resolver = Arc::new(crate::project_workspaces::SessionProjectWorkspaces::new(
+        Arc::new(mixdog_core_session::session::thread_settings::WorkspaceFolders::new(workspace.clone(), b.user_data_dir.clone(), session_lanes())),
+        worktrees.clone(),
+    ));
+    // `project/directory` and `project/touch` take a managed worktree path as Node's `projectScope` does: the one resolver.
+    workspace.set_managed_projects(resolver.clone());
+    project_workspaces.bind(resolver).map_err(|_| ComposeError::AlreadyBound("project workspaces"))?;
     late_turn_admission.bind(Arc::new(workspaces.clone())).map_err(ComposeError::AlreadyBound)?;
 
     // ---- the agent tool (flip-agent-worlds chain, landed at 51e73b496): `assemble(AgentParts{..})`, after the session workspaces (`AgentParts.spawn_admission`) ----
@@ -2591,6 +2761,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             app: b.sections.clone(),
             ops: domain_inputs.scopes.scopes("thread").map_err(ComposeError::ComposeDomains)?,
             surface: surface_generation.clone(),
+            archive_stamps: archive_stamps.clone(),
         },
     )))?;
     // `thread/setWorkflow`, `thread/setOrchestrationMode`, `thread/setOutputStyle`, `thread/switchContext` (`compose-seams.md` "wu-thread-settings", landing wu-thread-settings-3; flip-brief A16): the context switch
@@ -2624,8 +2795,6 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         Arc::new(mixdog_exthost::ExtImageCodec::new(b.ext_host.clone())),
         domain_inputs.scopes.scopes("thread").map_err(ComposeError::ComposeDomains)?,
     )))?;
-    // `ThreadSwitches` is still open (wp-session).
-    let _ = &memory;
     // ---- the services whose constructors the tree and the draft both have (registration-inventory.md; flip-brief.md "Unregistered services") ----
     // memory (`memory/recall`, `memory/memoryControl`): the memory stack's service over the stored sessions it recalls from.
     builder.register(Arc::new(memory.service(Arc::new(mixdog_core_ports::ports::memory_source::SessionRecallSource::new(
@@ -2637,13 +2806,14 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     builder.register(mixdog_services::memory::thread_search::ThreadSearchService::new(memory.search().db().clone()))?;
     // channel/*: the admin and the call dispatch of the channel worker; `ChannelRuntime` is the lifecycle `activate_channel_bridge`/`reload_config` drive.
     // `degraded` is `isChannelsDegraded()`, a constant `false` in Node (`crash-log.mjs:12`).
-    builder.register(Arc::new(mixdog_services::channels::ChannelService::new(
-        channel_admin.clone(),
-        mixdog_services::channels::CallDispatch::new(
-            Arc::new(mixdog_services::channels::bridge::BridgeCalls::new(mixdog_services::channels::ToolDispatch::new(channel_runtime.clone(), channel_work.clone(), Box::new(|| false)))),
-            channel_work.clone(),
-        ),
-    )))?;
+    let channel_calls = mixdog_services::channels::CallDispatch::new(
+        Arc::new(mixdog_services::channels::bridge::BridgeCalls::new(mixdog_services::channels::ToolDispatch::new(channel_runtime.clone(), channel_work.clone(), Box::new(|| false)))),
+        channel_work.clone(),
+    );
+    // `hostState.remoteSession`: the session the bridge is pinned to, published now and at each change of the binding.
+    let session_publisher = state.publisher.clone();
+    channel_calls.observe_binding(Arc::new(move |enabled, session| mixdog_core_domains::domains::host::publish_remote_session(session_publisher.as_ref(), enabled, session)));
+    builder.register(Arc::new(mixdog_services::channels::ChannelService::new(channel_admin.clone(), channel_calls)))?;
     // agent/*, lead, home: definitions with the connector and permission stores the tool gate holds, the Lead's appearance, and the bots' homes.
     // The home threads, one value for the home methods, the lifecycle of the definition calls and Mixy's status: the stored
     // sessions the retire pass reads, and the room ports a deleted agent leaves.
@@ -2776,6 +2946,9 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     });
     let model_proxy = Arc::new(mixdog_core_domains::domains::ai_admin::model_proxy_service::ModelProxyService::new(proxy_runner, b.host.clone(), b.notifier.clone()));
     builder.register(model_proxy.clone())?;
+    // browser/stream, browser/webrtcSignal, browser/screenDisplays, host/browser/page: the phone's live view of Browser Use (SPEC R36).
+    let live_view = Arc::new(crate::live_view::LiveViewService::new(b.host.clone(), b.notifier.clone(), b.host_media.clone(), built_remote.runtime.clone(), b.tokens.media_thread, Arc::new(crate::live_view::PairedScreenAccess::new(crate::domain_seams::remote::phone_credential(built_remote.registry.clone()), crate::domain_seams::remote::screen_revoked(built_remote.registry.clone())))));
+    builder.register(live_view.clone())?;
     // host/claim is answered by the server itself (it owns the connection registry, ClientRequest::HostClaim), so no domain service claims it.
     let mut unclaimed = builder.unclaimed();
     unclaimed.retain(|method| *method != "host/claim");
@@ -2787,10 +2960,10 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // The five owners of per-connection state (run-host-36); `compose()` binds them into `ComposedCore::connection_owners()`, which `verify_bound` checks.
     let connection_owners = crate::connection_close::ConnectionOwnersCell::default();
     connection_owners
-        .bind(crate::connection_close::ConnectionOwners::new(terminal.clone(), screen.clone(), workspace.clone(), composed.system.clone(), built_remote.registry.clone()))
+        .bind(crate::connection_close::ConnectionOwners::new(terminal.clone(), screen.clone(), workspace.clone(), composed.system.clone(), built_remote.registry.clone(), live_view))
         .map_err(|_| ComposeError::AlreadyBound("connection owners"))?;
     crate::compose::verify_bound(&[&*late_new_place, &connection_owners, &*late_agent_status, &*late_turn_admission, &*room_approvals, &*late, &crate::late_session::LateReadinessHook(readiness.clone()), &*late_room_summaries, &*late_computer_hosts, &*late_dispatcher, &*late_catalog, &*late_skills, &*project_workspaces, &*bot_summaries, &*late_reactions, &*late_agent_port,&*late_cycle_llm, &*route_positions, &*live_route, &*agent_channels, &*chat_routes, &*routine_sessions, &mixdog_core::run_host::late_chats::LateAgentChats(late.clone()), &*late_setup_ui, &*late_workspaces, &*path.turn_settings, &*late_new_route, &*late_pending_route, &*late_route_session, &*extension_host, &crate::late_session::LateCallerSessions(late.clone()), &mixdog_core::run_host::compose_parts::LateHeaders(late.clone()), &mixdog_core::run_host::compose_parts::HookCommonCell(late.clone()), &crate::late_session::LateMediaProbe(provider_layer.clone()), &*setup_warmup, &crate::setup_host::ModelWarmupCell(model_warmup.clone()), &crate::setup_host::StatuslineWarmupCell(statusline_warmup.clone()), &*b.thread_gates, &*agent_evidence, &*session_facts, &*held_home, &*live_route, &*tool_surface])?;
-    Ok(Real { control_route_sync, late_lifecycle, connection_owners, local_dialer: late_dialer.clone(), remote: built_remote, directory, agent_dispatch, agent_host, code_graph_cache, exec: b.exec.clone(), maintenance_io: b.tokens.maintenance_io, domains, config, close_requested, resume_timer, goal_recovery, worktree_stop, maintenance_stop, worktree_task, maintenance_loop: std::sync::Mutex::new(maintenance_loop), ledgers: ledger_source, computer: computer_pool, terminal, room_host: room_host_registration, channels: channel_runtime, memory, log: b.log.clone(), publisher: state.publisher.clone(), gateway_routes: gateway_settle, model_proxy, event_pipeline, catalog_index: catalog_handle, heartbeat, heartbeat_run: Arc::default() })
+    Ok(Real { defaults_separation, control_route_sync, late_lifecycle, connection_owners, local_dialer: late_dialer.clone(), remote: built_remote, directory, agent_dispatch, agent_host, code_graph_cache, exec: b.exec.clone(), maintenance_io: b.tokens.maintenance_io, domains, config, close_requested, resume_timer, goal_recovery, worktree_stop, maintenance_stop, worktree_task, maintenance_loop: std::sync::Mutex::new(maintenance_loop), ledgers: ledger_source, computer: computer_pool, terminal, room_host: room_host_registration, channels: channel_runtime, memory, log: b.log.clone(), publisher: state.publisher.clone(), gateway_routes: gateway_settle, model_proxy, event_pipeline, catalog_index: catalog_handle, heartbeat, heartbeat_run: Arc::default(), sub_agent_retention: Arc::default(), gateway_usage, #[cfg(test)] turn_review, #[cfg(test)] tool_pool: kept_tool_pool })
 }
 
 /// `promptConfigSlice(config)` (`prompt-settings.mjs:36`) over the whole in-memory config: `??` falls through on `null`/absent only.
@@ -2804,6 +2977,16 @@ fn prompt_config_slice(root: &serde_json::Map<String, serde_json::Value>) -> ser
     serde_json::json!({ "outputStyle": pick("outputStyle", false), "profile": pick("profile", true), "instructionFiles": pick("instructionFiles", true) })
 }
 
+/// The tracked secret store whose keychain failures raise the `secret-storage-failed` desktop notice (`keychain-cjs.cjs` `_noticeSecretStoreFailure` →
+/// `raiseDesktopNotice('secret-storage', 'secret-storage-failed')`), through the `notice` section.
+fn tracked_secret_store(
+    io: mixdog_rt::DurabilityIo,
+    data_dir: &std::path::Path,
+    notices: &Arc<mixdog_core_domains::notify::desktop_notice::DesktopNotices>,
+) -> (Arc<dyn mixdog_secrets::SecretStore>, Arc<mixdog_secrets::StatusTracker>) {
+    mixdog_secrets::default_store_with_status(io, data_dir, notices.secret_storage_failed())
+}
+
 /// `builtinSkillNamesFor` (`turn-tool-cards.mjs:39-55`): the built-in skills' names, trimmed and lower-cased, from the skill catalog's current list. The read is sync (a live
 /// turn asks while it commits a batch), so it takes the catalog's cached list; a cold or stale list is `None` ("the status could not be read"), as the trait says.
 pub struct CatalogBuiltinSkills(pub Arc<mixdog_mcp::skill_catalog::SkillCatalog>);
@@ -2814,17 +2997,87 @@ impl mixdog_core_session::session::BuiltinSkills for CatalogBuiltinSkills {
     }
 }
 
-/// Whether a session is still in the catalog (`SqliteStore::summary`: a deleted session, or one whose log has no readable
-/// frame, has no row), for the grants a paired phone holds.
-struct CatalogSessions(Arc<mixdog_store::sqlite::SqliteStore>);
+/// The host's catalog for the grants and downloads a paired phone holds: whether a session is still in it (`SqliteStore::summary`: a
+/// deleted session, or one whose log has no readable frame, has no row), the row of one, and the file the media store has for an asset.
+struct CatalogSessions {
+    sessions: Arc<mixdog_store::sqlite::SqliteStore>,
+    media: Arc<mixdog_services::media::MediaStore>,
+}
 
 #[async_trait::async_trait]
 impl mixdog_workspace::grants::SessionCatalog for CatalogSessions {
     async fn has(&self, session_id: &str) -> mixdog_workspace::error::WsResult<bool> {
-        self.0
+        self.sessions
             .summary(session_id)
             .await
             .map(|row| row.is_some())
             .map_err(|error| mixdog_workspace::error::WsError::new(mixdog_workspace::error::Reason::Io, error.to_string()))
+    }
+
+    /// Node's `listSessions()` entry of the conversation: its classification, project and folder as its list row states them.
+    async fn row(&self, session_id: &str) -> mixdog_workspace::error::WsResult<Option<mixdog_workspace::grants::SessionRow>> {
+        let io = |error: String| mixdog_workspace::error::WsError::new(mixdog_workspace::error::Reason::Io, error);
+        let Some(summary) = self.sessions.summary(session_id).await.map_err(|error| io(error.to_string()))? else { return Ok(None) };
+        // Only the three fields a download needs: the stored row is a JSON object, whose other fields are not this seam's to interpret.
+        let row: serde_json::Value = serde_json::from_str(&summary).map_err(|error| io(error.to_string()))?;
+        let text = |key: &str| row.get(key).and_then(serde_json::Value::as_str).map(str::to_owned);
+        // Node's list row (`_desktopSessionSummary`) states the classification and the project under `desktopSession`.
+        let desktop = row.get("desktopSession");
+        let in_desktop = |key: &str| desktop.and_then(|d| d.get(key)).and_then(serde_json::Value::as_str).map(str::to_owned);
+        Ok(Some(mixdog_workspace::grants::SessionRow {
+            project: in_desktop("classification").as_deref() == Some("project"),
+            project_path: in_desktop("projectPath"),
+            cwd: text("cwd").unwrap_or_default(),
+        }))
+    }
+
+    /// The media store's file for an asset (`resolveMediaFile`, original rendition): none for an asset it does not know or whose bytes are
+    /// gone. A file that is not a regular one is handed over all the same: the download refuses it without opening it.
+    async fn media(&self, asset_id: &str) -> mixdog_workspace::error::WsResult<Option<mixdog_workspace::grants::MediaEntry>> {
+        let id = asset_id.to_owned();
+        let located = self
+            .media
+            .run(move |store| store.locate_file(&id))
+            .await
+            .and_then(|found| found)
+            .map_err(|error| mixdog_workspace::error::WsError::new(mixdog_workspace::error::Reason::Io, error.to_string()))?;
+        Ok(located.and_then(|found| {
+            let (mixdog_services::media::store::Located::Readable(entry) | mixdog_services::media::store::Located::Special(entry)) = found;
+            let path = entry.get("path")?.as_str()?.to_owned();
+            Some(mixdog_workspace::grants::MediaEntry { path, mime: entry.get("mime").and_then(serde_json::Value::as_str).map(str::to_owned) })
+        }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mixdog_core_api::mock::MockStatePublisher;
+    use mixdog_core_api::state::SectionChange;
+    use mixdog_protocol::SectionName;
+
+    /// A keychain failure on the daemon's tracked secret store reaches the `notice` section as the notice Node's holder raises
+    /// (`fixtures/desktop-notice/golden.json`, `keychainSteps` "failure": `raiseDesktopNotice('secret-storage', 'secret-storage-failed')`).
+    #[test]
+    fn a_keychain_failure_on_the_tracked_secret_store_raises_the_desktop_notice() {
+        let golden: serde_json::Value = serde_json::from_str(include_str!("../../../fixtures/desktop-notice/golden.json")).unwrap();
+        let step = golden["keychainSteps"].as_array().unwrap().iter().find(|step| step["step"] == "failure").unwrap();
+        let publisher = Arc::new(MockStatePublisher::default());
+        let notices = mixdog_core_domains::notify::desktop_notice::DesktopNotices::new(publisher.clone());
+        let dir = tempfile::tempdir().unwrap();
+        let (_store, tracker) = tracked_secret_store(mixdog_rt::testing::tokens().durability_io, dir.path(), &notices);
+        tracker.note_failure("storage exploded", mixdog_secrets::FailureCode::Other);
+        let delivered: Vec<serde_json::Value> = publisher
+            .published()
+            .into_iter()
+            .map(|(section, key, change)| {
+                assert_eq!(section, SectionName::Notice);
+                let SectionChange::Set(bytes) = change else { panic!("a raise sets the entry") };
+                let notice: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+                assert_eq!(key.as_deref(), notice["key"].as_str());
+                notice
+            })
+            .collect();
+        assert_eq!(serde_json::Value::Array(delivered), step["delivered"]);
     }
 }

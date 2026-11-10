@@ -101,6 +101,14 @@ pub struct LocalProvider {
     confirmations: Mutex<HashMap<String, Receipt>>,
     platform_key: String,
     signal: ChangeSignal,
+    tool_settings: std::sync::OnceLock<std::sync::Weak<dyn ToolSettings>>,
+}
+
+/// `getToolModuleSettings()`: what Node's local-provider settings methods answer after a change.
+/// The owner of that value (the tool-module settings) attaches itself to the provider it reads.
+#[async_trait]
+pub trait ToolSettings: Send + Sync {
+    async fn tool_module_settings(&self) -> Value;
 }
 
 pub struct Parts {
@@ -126,7 +134,7 @@ impl LocalProvider {
         let catalog = Arc::new(Catalog::new(&parts.data_dir, hardware, state, durability));
         let on_exit: Arc<dyn Fn(&Value) + Send + Sync> = Arc::new(|d| {
             if d["expected"] != true {
-                eprintln!("[local-provider] llama-server exit {d}");
+                mixdog_rt::node_stderr!("[local-provider] llama-server exit {d}");
             }
         });
         let server = Arc::new(ServerProcess::new(parts.launcher, parts.health, parts.timing, on_exit).with_signal(signal.clone()));
@@ -144,7 +152,19 @@ impl LocalProvider {
             confirmations: Mutex::default(),
             platform_key: parts.platform_key.unwrap_or_else(|| host_platform_key().to_owned()),
             signal,
+            tool_settings: std::sync::OnceLock::new(),
         })
+    }
+
+    /// Attaches the owner of the tool-module settings (the first one stays).
+    pub fn attach_tool_settings(&self, settings: std::sync::Weak<dyn ToolSettings>) {
+        let _ = self.tool_settings.set(settings);
+    }
+
+    /// The tool-module settings, `None` when no owner was attached or it is gone.
+    pub async fn tool_settings(&self) -> Option<Value> {
+        let owner = self.tool_settings.get()?.upgrade()?;
+        Some(owner.tool_module_settings().await)
     }
 
     /// The change signal: a counter that ticks whenever the value `status()` returns may have

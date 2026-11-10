@@ -18,6 +18,7 @@ schemars = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 ts-rs = { workspace = true, optional = true, features = ["serde-json-impl", "no-serde-warnings"] }
+mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [dev-dependencies]
 # Self dependency: a test build of this package (`cargo test`, `cargo nextest`) resolves the
@@ -25,3 +26,9 @@ ts-rs = { workspace = true, optional = true, features = ["serde-json-impl", "no-
 # `required-features` skipping them. Dev-dependency features do not reach `cargo build`.
 mixdog-app-protocol = { workspace = true, features = ["codegen"] }
 pretty_assertions = { workspace = true }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-js = { workspace = true, features = ["fixture-tools"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-protocol = { workspace = true, features = ["codegen"] }

@@ -799,8 +799,8 @@ export class DesktopServiceClient implements DesktopService {
 
   private async invokeAndPublish(method: DesktopServiceMethod, args: unknown[] = []): Promise<SessionSnapshot> {
     const snapshot = await this.invoke<SessionSnapshot>(method, args);
-    // The core lane answers with the snapshot this process already holds: nothing new to publish.
-    if (!this.options.serviceLane) this.publish(snapshot);
+    // Node's `publishShell`: the blank snapshot of a start call is the shell the window shows (the core lane composes it too).
+    this.publish(snapshot);
     return snapshot;
   }
   startProject(projectPath: string): Promise<SessionSnapshot> {

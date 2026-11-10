@@ -1,0 +1,3537 @@
+{
+  "domain": "live-view-relay",
+  "recorder": "benchmarks/rust-core/recorders/record-live-view.mjs",
+  "scenarios": [
+    {
+      "name": "accept needs a subscription for a browser source and none for a screen",
+      "steps": [
+        {
+          "op": "accept",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "type": "ready",
+            "receiveCodecs": [
+              "video/VP8",
+              "video/H264"
+            ]
+          }
+        },
+        {
+          "op": "set",
+          "subscribed": [
+            [
+              "client_1",
+              "sess_1"
+            ]
+          ]
+        },
+        {
+          "op": "accept",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "type": "ready",
+            "receiveCodecs": [
+              "video/VP8",
+              "video/H264"
+            ]
+          }
+        },
+        {
+          "op": "accept",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "screen",
+              "screenId": "screen-1"
+            },
+            "type": "ready",
+            "receiveCodecs": []
+          }
+        },
+        {
+          "op": "accept",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "type": "nope"
+          }
+        },
+        {
+          "op": "accept",
+          "client": "client_1",
+          "raw": null
+        }
+      ],
+      "recorded": [
+        {
+          "result": {
+            "ok": false,
+            "error": "remote webrtc source is not streamed by this client."
+          },
+          "done": [],
+          "log": [
+            [
+              "subscribed",
+              "client_1",
+              "sess_1",
+              false
+            ]
+          ]
+        },
+        {
+          "done": [],
+          "log": []
+        },
+        {
+          "result": {
+            "ok": true,
+            "value": {
+              "v": 1,
+              "source": {
+                "kind": "browser",
+                "sessionId": "sess_1"
+              },
+              "type": "ready",
+              "receiveCodecs": [
+                "video/VP8",
+                "video/H264"
+              ]
+            }
+          },
+          "done": [],
+          "log": [
+            [
+              "subscribed",
+              "client_1",
+              "sess_1",
+              true
+            ]
+          ]
+        },
+        {
+          "result": {
+            "ok": true,
+            "value": {
+              "v": 1,
+              "source": {
+                "kind": "screen",
+                "screenId": "screen-1"
+              },
+              "type": "ready",
+              "receiveCodecs": []
+            }
+          },
+          "done": [],
+          "log": []
+        },
+        {
+          "result": {
+            "ok": false,
+            "error": "remote webrtc signal type is invalid."
+          },
+          "done": [],
+          "log": []
+        },
+        {
+          "result": {
+            "ok": false,
+            "error": "remote webrtc signal is invalid."
+          },
+          "done": [],
+          "log": []
+        }
+      ]
+    },
+    {
+      "name": "a ready resolves the ice servers, then forwards with them",
+      "steps": [
+        {
+          "op": "set",
+          "subscribed": [
+            [
+              "client_1",
+              "sess_1"
+            ]
+          ]
+        },
+        {
+          "op": "forward",
+          "id": "r1",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "type": "ready",
+            "receiveCodecs": [
+              "video/VP8",
+              "video/H264"
+            ]
+          },
+          "origin": "o1"
+        },
+        {
+          "op": "resolve",
+          "kind": "resolveIceServers",
+          "index": 0,
+          "value": [
+            {
+              "urls": "stun:a"
+            },
+            {
+              "urls": [
+                "turn:b",
+                "turn:c"
+              ],
+              "username": "u",
+              "credential": "p"
+            },
+            {
+              "urls": [
+                "stun:d"
+              ],
+              "credential": 7
+            }
+          ]
+        },
+        {
+          "op": "resolve",
+          "kind": "forward",
+          "index": 0
+        }
+      ],
+      "recorded": [
+        {
+          "done": [],
+          "log": []
+        },
+        {
+          "done": [
+            {
+              "id": "r1",
+              "ok": true,
+              "value": null
+            }
+          ],
+          "log": [
+            [
+              "call",
+              "resolveIceServers",
+              0
+            ]
+          ]
+        },
+        {
+          "done": [],
+          "log": [
+            [
+              "subscribed",
+              "client_1",
+              "sess_1",
+              true
+            ],
+            [
+              "call",
+              "forward",
+              0,
+              "client_1",
+              {
+                "v": 1,
+                "source": {
+                  "kind": "browser",
+                  "sessionId": "sess_1"
+                },
+                "type": "ready",
+                "receiveCodecs": [
+                  "video/VP8",
+                  "video/H264"
+                ]
+              },
+              [
+                {
+                  "urls": [
+                    "stun:a"
+                  ]
+                },
+                {
+                  "urls": [
+                    "turn:b",
+                    "turn:c"
+                  ],
+                  "username": "u",
+                  "credential": "p"
+                },
+                {
+                  "urls": [
+                    "stun:d"
+                  ]
+                }
+              ],
+              "o1"
+            ]
+          ]
+        },
+        {
+          "done": [],
+          "log": []
+        }
+      ]
+    },
+    {
+      "name": "a newer ready makes the older one stale at each await",
+      "steps": [
+        {
+          "op": "set",
+          "subscribed": [
+            [
+              "client_1",
+              "sess_1"
+            ]
+          ]
+        },
+        {
+          "op": "forward",
+          "id": "r1",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "type": "ready",
+            "receiveCodecs": [
+              "video/VP8",
+              "video/H264"
+            ]
+          },
+          "origin": "o1"
+        },
+        {
+          "op": "forward",
+          "id": "r2",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "type": "ready",
+            "receiveCodecs": [
+              "video/VP8"
+            ],
+            "videoLimit": {
+              "maxWidth": 1920,
+              "maxHeight": 1080
+            }
+          },
+          "origin": "o1"
+        },
+        {
+          "op": "resolve",
+          "kind": "resolveIceServers",
+          "index": 0,
+          "value": []
+        },
+        {
+          "op": "resolve",
+          "kind": "resolveIceServers",
+          "index": 1,
+          "value": [
+            {
+              "urls": [
+                "stun:z"
+              ]
+            }
+          ]
+        },
+        {
+          "op": "resolve",
+          "kind": "forward",
+          "index": 0
+        }
+      ],
+      "recorded": [
+        {
+          "done": [],
+          "log": []
+        },
+        {
+          "done": [
+            {
+              "id": "r1",
+              "ok": true,
+              "value": null
+            }
+          ],
+          "log": [
+            [
+              "call",
+              "resolveIceServers",
+              0
+            ]
+          ]
+        },
+        {
+          "done": [
+            {
+              "id": "r2",
+              "ok": true,
+              "value": null
+            }
+          ],
+          "log": [
+            [
+              "call",
+              "resolveIceServers",
+              1
+            ]
+          ]
+        },
+        {
+          "done": [],
+          "log": []
+        },
+        {
+          "done": [],
+          "log": [
+            [
+              "subscribed",
+              "client_1",
+              "sess_1",
+              true
+            ],
+            [
+              "call",
+              "forward",
+              0,
+              "client_1",
+              {
+                "v": 1,
+                "source": {
+                  "kind": "browser",
+                  "sessionId": "sess_1"
+                },
+                "type": "ready",
+                "receiveCodecs": [
+                  "video/VP8"
+                ],
+                "videoLimit": {
+                  "maxWidth": 1920,
+                  "maxHeight": 1080
+                }
+              },
+              [
+                {
+                  "urls": [
+                    "stun:z"
+                  ]
+                }
+              ],
+              "o1"
+            ]
+          ]
+        },
+        {
+          "done": [],
+          "log": []
+        }
+      ]
+    },
+    {
+      "name": "a ready whose client stopped streaming is refused after the ice servers",
+      "steps": [
+        {
+          "op": "set",
+          "subscribed": [
+            [
+              "client_1",
+              "sess_1"
+            ]
+          ]
+        },
+        {
+          "op": "forward",
+          "id": "r1",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "type": "ready",
+            "receiveCodecs": [
+              "video/VP8",
+              "video/H264"
+            ]
+          },
+          "origin": "o1"
+        },
+        {
+          "op": "set",
+          "subscribed": []
+        },
+        {
+          "op": "resolve",
+          "kind": "resolveIceServers",
+          "index": 0,
+          "value": []
+        }
+      ],
+      "recorded": [
+        {
+          "done": [],
+          "log": []
+        },
+        {
+          "done": [
+            {
+              "id": "r1",
+              "ok": false,
+              "error": "remote webrtc source is not streamed by this client."
+            }
+          ],
+          "log": [
+            [
+              "call",
+              "resolveIceServers",
+              0
+            ]
+          ]
+        },
+        {
+          "done": [],
+          "log": []
+        },
+        {
+          "done": [],
+          "log": [
+            [
+              "subscribed",
+              "client_1",
+              "sess_1",
+              false
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "name": "the viewer leaving drops a ready still resolving",
+      "steps": [
+        {
+          "op": "set",
+          "subscribed": [
+            [
+              "client_1",
+              "sess_1"
+            ]
+          ]
+        },
+        {
+          "op": "forward",
+          "id": "r1",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "type": "ready",
+            "receiveCodecs": [
+              "video/VP8",
+              "video/H264"
+            ]
+          },
+          "origin": "o1"
+        },
+        {
+          "op": "viewerLeft",
+          "client": "client_1",
+          "session": "sess_1"
+        },
+        {
+          "op": "resolve",
+          "kind": "resolveIceServers",
+          "index": 0,
+          "value": []
+        }
+      ],
+      "recorded": [
+        {
+          "done": [],
+          "log": []
+        },
+        {
+          "done": [
+            {
+              "id": "r1",
+              "ok": true,
+              "value": null
+            }
+          ],
+          "log": [
+            [
+              "call",
+              "resolveIceServers",
+              0
+            ]
+          ]
+        },
+        {
+          "done": [],
+          "log": [
+            [
+              "viewerLeft",
+              "client_1",
+              "browser:sess_1"
+            ]
+          ]
+        },
+        {
+          "done": [],
+          "log": []
+        }
+      ]
+    },
+    {
+      "name": "an ice server lookup that fails ends the ready with its error",
+      "steps": [
+        {
+          "op": "set",
+          "subscribed": [
+            [
+              "client_1",
+              "sess_1"
+            ]
+          ]
+        },
+        {
+          "op": "forward",
+          "id": "r1",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "type": "ready",
+            "receiveCodecs": [
+              "video/VP8",
+              "video/H264"
+            ]
+          },
+          "origin": "o1"
+        },
+        {
+          "op": "reject",
+          "kind": "resolveIceServers",
+          "index": 0,
+          "message": "no turn"
+        }
+      ],
+      "recorded": [
+        {
+          "done": [],
+          "log": []
+        },
+        {
+          "done": [
+            {
+              "id": "r1",
+              "ok": false,
+              "error": "no turn"
+            }
+          ],
+          "log": [
+            [
+              "call",
+              "resolveIceServers",
+              0
+            ]
+          ]
+        },
+        {
+          "done": [],
+          "log": []
+        }
+      ]
+    },
+    {
+      "name": "a screen ready is authorized for the connection that delivered it, twice",
+      "steps": [
+        {
+          "op": "forward",
+          "id": "r1",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "screen",
+              "screenId": "screen-1"
+            },
+            "type": "ready",
+            "receiveCodecs": []
+          },
+          "origin": "o1"
+        },
+        {
+          "op": "resolve",
+          "kind": "screenAuthorized",
+          "index": 0,
+          "value": true
+        },
+        {
+          "op": "resolve",
+          "kind": "resolveIceServers",
+          "index": 0,
+          "value": []
+        },
+        {
+          "op": "resolve",
+          "kind": "screenAuthorized",
+          "index": 1,
+          "value": true
+        },
+        {
+          "op": "resolve",
+          "kind": "forward",
+          "index": 0
+        }
+      ],
+      "recorded": [
+        {
+          "done": [
+            {
+              "id": "r1",
+              "ok": true,
+              "value": null
+            }
+          ],
+          "log": [
+            [
+              "call",
+              "screenAuthorized",
+              0,
+              "client_1",
+              "o1"
+            ]
+          ]
+        },
+        {
+          "done": [],
+          "log": [
+            [
+              "call",
+              "resolveIceServers",
+              0
+            ]
+          ]
+        },
+        {
+          "done": [],
+          "log": [
+            [
+              "call",
+              "screenAuthorized",
+              1,
+              "client_1",
+              "o1"
+            ]
+          ]
+        },
+        {
+          "done": [],
+          "log": [
+            [
+              "call",
+              "forward",
+              0,
+              "client_1",
+              {
+                "v": 1,
+                "source": {
+                  "kind": "screen",
+                  "screenId": "screen-1"
+                },
+                "type": "ready",
+                "receiveCodecs": []
+              },
+              [],
+              "o1"
+            ]
+          ]
+        },
+        {
+          "done": [],
+          "log": []
+        }
+      ]
+    },
+    {
+      "name": "a screen ready that is not allowed is refused",
+      "steps": [
+        {
+          "op": "forward",
+          "id": "r1",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "screen",
+              "screenId": "screen-1"
+            },
+            "type": "ready",
+            "receiveCodecs": []
+          },
+          "origin": "o1"
+        },
+        {
+          "op": "resolve",
+          "kind": "screenAuthorized",
+          "index": 0,
+          "value": false
+        }
+      ],
+      "recorded": [
+        {
+          "done": [
+            {
+              "id": "r1",
+              "ok": false,
+              "error": "Remote screen is not allowed for this device."
+            }
+          ],
+          "log": [
+            [
+              "call",
+              "screenAuthorized",
+              0,
+              "client_1",
+              "o1"
+            ]
+          ]
+        },
+        {
+          "done": [],
+          "log": []
+        }
+      ]
+    },
+    {
+      "name": "a screen ready allowed first and denied after the ice servers is refused",
+      "steps": [
+        {
+          "op": "forward",
+          "id": "r1",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "screen",
+              "screenId": "screen-1"
+            },
+            "type": "ready",
+            "receiveCodecs": []
+          },
+          "origin": "o1"
+        },
+        {
+          "op": "resolve",
+          "kind": "screenAuthorized",
+          "index": 0,
+          "value": true
+        },
+        {
+          "op": "resolve",
+          "kind": "resolveIceServers",
+          "index": 0,
+          "value": []
+        },
+        {
+          "op": "resolve",
+          "kind": "screenAuthorized",
+          "index": 1,
+          "value": false
+        }
+      ],
+      "recorded": [
+        {
+          "done": [
+            {
+              "id": "r1",
+              "ok": false,
+              "error": "Remote screen is not allowed for this device."
+            }
+          ],
+          "log": [
+            [
+              "call",
+              "screenAuthorized",
+              0,
+              "client_1",
+              "o1"
+            ]
+          ]
+        },
+        {
+          "done": [],
+          "log": [
+            [
+              "call",
+              "resolveIceServers",
+              0
+            ]
+          ]
+        },
+        {
+          "done": [],
+          "log": [
+            [
+              "call",
+              "screenAuthorized",
+              1,
+              "client_1",
+              "o1"
+            ]
+          ]
+        },
+        {
+          "done": [],
+          "log": []
+        }
+      ]
+    },
+    {
+      "name": "connectionRemoved cancels the screen readys still resolving and no others",
+      "steps": [
+        {
+          "op": "set",
+          "subscribed": [
+            [
+              "client_1",
+              "sess_1"
+            ]
+          ]
+        },
+        {
+          "op": "forward",
+          "id": "r1",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "screen",
+              "screenId": "screen-1"
+            },
+            "type": "ready",
+            "receiveCodecs": []
+          },
+          "origin": "o1"
+        },
+        {
+          "op": "forward",
+          "id": "r2",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "type": "ready",
+            "receiveCodecs": [
+              "video/VP8",
+              "video/H264"
+            ]
+          },
+          "origin": "o1"
+        },
+        {
+          "op": "connectionRemoved",
+          "client": "client_1"
+        },
+        {
+          "op": "resolve",
+          "kind": "screenAuthorized",
+          "index": 0,
+          "value": true
+        },
+        {
+          "op": "resolve",
+          "kind": "resolveIceServers",
+          "index": 0,
+          "value": []
+        },
+        {
+          "op": "resolve",
+          "kind": "forward",
+          "index": 0
+        }
+      ],
+      "recorded": [
+        {
+          "done": [],
+          "log": []
+        },
+        {
+          "done": [
+            {
+              "id": "r1",
+              "ok": true,
+              "value": null
+            }
+          ],
+          "log": [
+            [
+              "call",
+              "screenAuthorized",
+              0,
+              "client_1",
+              "o1"
+            ]
+          ]
+        },
+        {
+          "done": [
+            {
+              "id": "r2",
+              "ok": true,
+              "value": null
+            }
+          ],
+          "log": [
+            [
+              "call",
+              "resolveIceServers",
+              0
+            ]
+          ]
+        },
+        {
+          "done": [],
+          "log": []
+        },
+        {
+          "done": [],
+          "log": []
+        },
+        {
+          "done": [],
+          "log": [
+            [
+              "subscribed",
+              "client_1",
+              "sess_1",
+              true
+            ],
+            [
+              "call",
+              "forward",
+              0,
+              "client_1",
+              {
+                "v": 1,
+                "source": {
+                  "kind": "browser",
+                  "sessionId": "sess_1"
+                },
+                "type": "ready",
+                "receiveCodecs": [
+                  "video/VP8",
+                  "video/H264"
+                ]
+              },
+              [],
+              "o1"
+            ]
+          ]
+        },
+        {
+          "done": [],
+          "log": []
+        }
+      ]
+    },
+    {
+      "name": "non-ready signals forward at once; a screen one needs authorization",
+      "steps": [
+        {
+          "op": "forward",
+          "id": "a1",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0001",
+            "generation": 1,
+            "type": "answer",
+            "sdp": "v=0\r\no=- 4611731400430051336 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=fingerprint:sha-256 01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n",
+            "fingerprints": [
+              {
+                "algorithm": "sha-256",
+                "value": "01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA"
+              }
+            ]
+          },
+          "origin": "o1"
+        },
+        {
+          "op": "resolve",
+          "kind": "forward",
+          "index": 0
+        },
+        {
+          "op": "forward",
+          "id": "a2",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "screen",
+              "screenId": "screen-1"
+            },
+            "connectionId": "connection-id-0001",
+            "generation": 1,
+            "type": "answer",
+            "sdp": "v=0\r\no=- 4611731400430051336 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=fingerprint:sha-256 01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n",
+            "fingerprints": [
+              {
+                "algorithm": "sha-256",
+                "value": "01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA"
+              }
+            ]
+          },
+          "origin": "o1"
+        },
+        {
+          "op": "resolve",
+          "kind": "screenAuthorized",
+          "index": 0,
+          "value": false
+        },
+        {
+          "op": "forward",
+          "id": "a3",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "screen",
+              "screenId": "screen-1"
+            },
+            "connectionId": "connection-id-0001",
+            "generation": 1,
+            "type": "answer",
+            "sdp": "v=0\r\no=- 4611731400430051336 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=fingerprint:sha-256 01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n",
+            "fingerprints": [
+              {
+                "algorithm": "sha-256",
+                "value": "01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA"
+              }
+            ]
+          },
+          "origin": "o1"
+        },
+        {
+          "op": "resolve",
+          "kind": "screenAuthorized",
+          "index": 1,
+          "value": true
+        },
+        {
+          "op": "reject",
+          "kind": "forward",
+          "index": 1,
+          "message": "window gone"
+        }
+      ],
+      "recorded": [
+        {
+          "done": [
+            {
+              "id": "a1",
+              "ok": true,
+              "value": null
+            }
+          ],
+          "log": [
+            [
+              "call",
+              "forward",
+              0,
+              "client_1",
+              {
+                "v": 1,
+                "source": {
+                  "kind": "browser",
+                  "sessionId": "sess_1"
+                },
+                "connectionId": "connection-id-0001",
+                "generation": 1,
+                "type": "answer",
+                "sdp": "v=0\r\no=- 4611731400430051336 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=fingerprint:sha-256 01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n",
+                "fingerprints": [
+                  {
+                    "algorithm": "sha-256",
+                    "value": "01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA"
+                  }
+                ]
+              },
+              null,
+              "o1"
+            ]
+          ]
+        },
+        {
+          "done": [],
+          "log": []
+        },
+        {
+          "done": [
+            {
+              "id": "a2",
+              "ok": false,
+              "error": "Remote screen is not allowed for this device."
+            }
+          ],
+          "log": [
+            [
+              "call",
+              "screenAuthorized",
+              0,
+              "client_1",
+              "o1"
+            ]
+          ]
+        },
+        {
+          "done": [],
+          "log": []
+        },
+        {
+          "done": [
+            {
+              "id": "a3",
+              "ok": false,
+              "error": "window gone"
+            }
+          ],
+          "log": [
+            [
+              "call",
+              "screenAuthorized",
+              1,
+              "client_1",
+              "o1"
+            ]
+          ]
+        },
+        {
+          "done": [],
+          "log": [
+            [
+              "call",
+              "forward",
+              1,
+              "client_1",
+              {
+                "v": 1,
+                "source": {
+                  "kind": "screen",
+                  "screenId": "screen-1"
+                },
+                "connectionId": "connection-id-0001",
+                "generation": 1,
+                "type": "answer",
+                "sdp": "v=0\r\no=- 4611731400430051336 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=fingerprint:sha-256 01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n",
+                "fingerprints": [
+                  {
+                    "algorithm": "sha-256",
+                    "value": "01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA"
+                  }
+                ]
+              },
+              null,
+              "o1"
+            ]
+          ]
+        },
+        {
+          "done": [],
+          "log": []
+        }
+      ]
+    },
+    {
+      "name": "a media-ready is dropped while the take-over awaits its fitted picture",
+      "steps": [
+        {
+          "op": "set",
+          "subscribed": [
+            [
+              "client_1",
+              "sess_1"
+            ]
+          ],
+          "awaitingFit": [
+            [
+              "client_1",
+              "sess_1"
+            ]
+          ]
+        },
+        {
+          "op": "forward",
+          "id": "m1",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0001",
+            "generation": 1,
+            "type": "media-ready",
+            "documentId": "p1:2",
+            "geometryGeneration": 1,
+            "pixelWidth": 1170,
+            "pixelHeight": 2532
+          },
+          "origin": "o1"
+        },
+        {
+          "op": "set",
+          "subscribed": [
+            [
+              "client_1",
+              "sess_1"
+            ]
+          ],
+          "awaitingFit": []
+        },
+        {
+          "op": "forward",
+          "id": "m2",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0001",
+            "generation": 1,
+            "type": "media-ready",
+            "documentId": "p1:2",
+            "geometryGeneration": 1,
+            "pixelWidth": 1170,
+            "pixelHeight": 2532
+          },
+          "origin": "o1"
+        },
+        {
+          "op": "resolve",
+          "kind": "forward",
+          "index": 0
+        },
+        {
+          "op": "forward",
+          "id": "m3",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "screen",
+              "screenId": "screen-1"
+            },
+            "connectionId": "connection-id-0001",
+            "generation": 1,
+            "type": "media-ready",
+            "documentId": null,
+            "geometryGeneration": 1,
+            "pixelWidth": 1170,
+            "pixelHeight": 2532
+          },
+          "origin": "o1"
+        },
+        {
+          "op": "resolve",
+          "kind": "screenAuthorized",
+          "index": 0,
+          "value": true
+        },
+        {
+          "op": "resolve",
+          "kind": "forward",
+          "index": 1
+        }
+      ],
+      "recorded": [
+        {
+          "done": [],
+          "log": []
+        },
+        {
+          "done": [
+            {
+              "id": "m1",
+              "ok": true,
+              "value": null
+            }
+          ],
+          "log": [
+            [
+              "awaitingFit",
+              "client_1",
+              "sess_1",
+              true
+            ]
+          ]
+        },
+        {
+          "done": [],
+          "log": []
+        },
+        {
+          "done": [
+            {
+              "id": "m2",
+              "ok": true,
+              "value": null
+            }
+          ],
+          "log": [
+            [
+              "awaitingFit",
+              "client_1",
+              "sess_1",
+              false
+            ],
+            [
+              "call",
+              "forward",
+              0,
+              "client_1",
+              {
+                "v": 1,
+                "source": {
+                  "kind": "browser",
+                  "sessionId": "sess_1"
+                },
+                "connectionId": "connection-id-0001",
+                "generation": 1,
+                "type": "media-ready",
+                "documentId": "p1:2",
+                "geometryGeneration": 1,
+                "pixelWidth": 1170,
+                "pixelHeight": 2532
+              },
+              null,
+              "o1"
+            ]
+          ]
+        },
+        {
+          "done": [],
+          "log": []
+        },
+        {
+          "done": [
+            {
+              "id": "m3",
+              "ok": true,
+              "value": null
+            }
+          ],
+          "log": [
+            [
+              "call",
+              "screenAuthorized",
+              0,
+              "client_1",
+              "o1"
+            ]
+          ]
+        },
+        {
+          "done": [],
+          "log": [
+            [
+              "call",
+              "forward",
+              1,
+              "client_1",
+              {
+                "v": 1,
+                "source": {
+                  "kind": "screen",
+                  "screenId": "screen-1"
+                },
+                "connectionId": "connection-id-0001",
+                "generation": 1,
+                "type": "media-ready",
+                "documentId": null,
+                "geometryGeneration": 1,
+                "pixelWidth": 1170,
+                "pixelHeight": 2532
+              },
+              null,
+              "o1"
+            ]
+          ]
+        },
+        {
+          "done": [],
+          "log": []
+        }
+      ]
+    },
+    {
+      "name": "the ownership gate: offer, promote, promote-ack, demote, demote-ack",
+      "steps": [
+        {
+          "op": "set",
+          "subscribed": [
+            [
+              "client_1",
+              "sess_1"
+            ]
+          ]
+        },
+        {
+          "op": "relayInputAllowed",
+          "client": "client_1",
+          "session": "sess_1"
+        },
+        {
+          "op": "send",
+          "id": "s1",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0001",
+            "generation": 1,
+            "type": "offer",
+            "sdp": "v=0\r\no=- 4611731400430051336 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=fingerprint:sha-256 01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n",
+            "fingerprints": [
+              {
+                "algorithm": "sha-256",
+                "value": "01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA"
+              }
+            ],
+            "iceServers": [
+              {
+                "urls": [
+                  "stun:stun.example.org:3478"
+                ]
+              },
+              {
+                "urls": [
+                  "turn:turn.example.org:3478"
+                ],
+                "username": "u",
+                "credential": "c"
+              }
+            ],
+            "iceTransportPolicy": "all",
+            "geometry": {
+              "generation": 1,
+              "cssWidth": 390,
+              "cssHeight": 844,
+              "deviceScaleFactor": 3,
+              "pixelWidth": 1170,
+              "pixelHeight": 2532
+            },
+            "inputEpoch": 1
+          }
+        },
+        {
+          "op": "relayInputAllowed",
+          "client": "client_1",
+          "session": "sess_1"
+        },
+        {
+          "op": "accept",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0001",
+            "generation": 1,
+            "type": "promote-ack",
+            "inputEpoch": 2
+          }
+        },
+        {
+          "op": "send",
+          "id": "s2",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0001",
+            "generation": 1,
+            "type": "promote",
+            "inputEpoch": 2,
+            "geometryGeneration": 1
+          }
+        },
+        {
+          "op": "accept",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0001",
+            "generation": 1,
+            "type": "promote-ack",
+            "inputEpoch": 3
+          }
+        },
+        {
+          "op": "relayInputAllowed",
+          "client": "client_1",
+          "session": "sess_1"
+        },
+        {
+          "op": "accept",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0001",
+            "generation": 1,
+            "type": "promote-ack",
+            "inputEpoch": 2
+          }
+        },
+        {
+          "op": "relayInputAllowed",
+          "client": "client_1",
+          "session": "sess_1"
+        },
+        {
+          "op": "send",
+          "id": "s3",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0001",
+            "generation": 1,
+            "type": "demote",
+            "inputEpoch": 3,
+            "reason": "channel-failed"
+          }
+        },
+        {
+          "op": "relayInputAllowed",
+          "client": "client_1",
+          "session": "sess_1"
+        },
+        {
+          "op": "accept",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0001",
+            "generation": 1,
+            "type": "demote-ack",
+            "inputEpoch": 2
+          }
+        },
+        {
+          "op": "relayInputAllowed",
+          "client": "client_1",
+          "session": "sess_1"
+        },
+        {
+          "op": "accept",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0001",
+            "generation": 1,
+            "type": "demote-ack",
+            "inputEpoch": 3
+          }
+        },
+        {
+          "op": "relayInputAllowed",
+          "client": "client_1",
+          "session": "sess_1"
+        }
+      ],
+      "recorded": [
+        {
+          "done": [],
+          "log": []
+        },
+        {
+          "result": {
+            "ok": true,
+            "value": true
+          },
+          "done": [],
+          "log": []
+        },
+        {
+          "done": [
+            {
+              "id": "s1",
+              "ok": true,
+              "value": null
+            }
+          ],
+          "log": [
+            [
+              "send",
+              "client_1",
+              {
+                "event": "browserRemoteWebrtc",
+                "payload": {
+                  "v": 1,
+                  "source": {
+                    "kind": "browser",
+                    "sessionId": "sess_1"
+                  },
+                  "connectionId": "connection-id-0001",
+                  "generation": 1,
+                  "type": "offer",
+                  "sdp": "v=0\r\no=- 4611731400430051336 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=fingerprint:sha-256 01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n",
+                  "fingerprints": [
+                    {
+                      "algorithm": "sha-256",
+                      "value": "01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA"
+                    }
+                  ],
+                  "iceServers": [
+                    {
+                      "urls": [
+                        "stun:stun.example.org:3478"
+                      ]
+                    },
+                    {
+                      "urls": [
+                        "turn:turn.example.org:3478"
+                      ],
+                      "username": "u",
+                      "credential": "c"
+                    }
+                  ],
+                  "iceTransportPolicy": "all",
+                  "geometry": {
+                    "generation": 1,
+                    "cssWidth": 390,
+                    "cssHeight": 844,
+                    "deviceScaleFactor": 3,
+                    "pixelWidth": 1170,
+                    "pixelHeight": 2532
+                  },
+                  "inputEpoch": 1
+                }
+              }
+            ]
+          ]
+        },
+        {
+          "result": {
+            "ok": true,
+            "value": true
+          },
+          "done": [],
+          "log": []
+        },
+        {
+          "result": {
+            "ok": true,
+            "value": {
+              "v": 1,
+              "source": {
+                "kind": "browser",
+                "sessionId": "sess_1"
+              },
+              "connectionId": "connection-id-0001",
+              "generation": 1,
+              "type": "promote-ack",
+              "inputEpoch": 2
+            }
+          },
+          "done": [],
+          "log": [
+            [
+              "subscribed",
+              "client_1",
+              "sess_1",
+              true
+            ]
+          ]
+        },
+        {
+          "done": [
+            {
+              "id": "s2",
+              "ok": true,
+              "value": null
+            }
+          ],
+          "log": [
+            [
+              "send",
+              "client_1",
+              {
+                "event": "browserRemoteWebrtc",
+                "payload": {
+                  "v": 1,
+                  "source": {
+                    "kind": "browser",
+                    "sessionId": "sess_1"
+                  },
+                  "connectionId": "connection-id-0001",
+                  "generation": 1,
+                  "type": "promote",
+                  "inputEpoch": 2,
+                  "geometryGeneration": 1
+                }
+              }
+            ]
+          ]
+        },
+        {
+          "result": {
+            "ok": true,
+            "value": {
+              "v": 1,
+              "source": {
+                "kind": "browser",
+                "sessionId": "sess_1"
+              },
+              "connectionId": "connection-id-0001",
+              "generation": 1,
+              "type": "promote-ack",
+              "inputEpoch": 3
+            }
+          },
+          "done": [],
+          "log": [
+            [
+              "subscribed",
+              "client_1",
+              "sess_1",
+              true
+            ]
+          ]
+        },
+        {
+          "result": {
+            "ok": true,
+            "value": true
+          },
+          "done": [],
+          "log": []
+        },
+        {
+          "result": {
+            "ok": true,
+            "value": {
+              "v": 1,
+              "source": {
+                "kind": "browser",
+                "sessionId": "sess_1"
+              },
+              "connectionId": "connection-id-0001",
+              "generation": 1,
+              "type": "promote-ack",
+              "inputEpoch": 2
+            }
+          },
+          "done": [],
+          "log": [
+            [
+              "subscribed",
+              "client_1",
+              "sess_1",
+              true
+            ],
+            [
+              "setImages",
+              "client_1",
+              "sess_1",
+              false
+            ]
+          ]
+        },
+        {
+          "result": {
+            "ok": true,
+            "value": false
+          },
+          "done": [],
+          "log": []
+        },
+        {
+          "done": [
+            {
+              "id": "s3",
+              "ok": true,
+              "value": null
+            }
+          ],
+          "log": [
+            [
+              "setImages",
+              "client_1",
+              "sess_1",
+              true
+            ],
+            [
+              "send",
+              "client_1",
+              {
+                "event": "browserRemoteWebrtc",
+                "payload": {
+                  "v": 1,
+                  "source": {
+                    "kind": "browser",
+                    "sessionId": "sess_1"
+                  },
+                  "connectionId": "connection-id-0001",
+                  "generation": 1,
+                  "type": "demote",
+                  "inputEpoch": 3,
+                  "reason": "channel-failed"
+                }
+              }
+            ]
+          ]
+        },
+        {
+          "result": {
+            "ok": true,
+            "value": false
+          },
+          "done": [],
+          "log": []
+        },
+        {
+          "result": {
+            "ok": true,
+            "value": {
+              "v": 1,
+              "source": {
+                "kind": "browser",
+                "sessionId": "sess_1"
+              },
+              "connectionId": "connection-id-0001",
+              "generation": 1,
+              "type": "demote-ack",
+              "inputEpoch": 2
+            }
+          },
+          "done": [],
+          "log": [
+            [
+              "subscribed",
+              "client_1",
+              "sess_1",
+              true
+            ]
+          ]
+        },
+        {
+          "result": {
+            "ok": true,
+            "value": false
+          },
+          "done": [],
+          "log": []
+        },
+        {
+          "result": {
+            "ok": true,
+            "value": {
+              "v": 1,
+              "source": {
+                "kind": "browser",
+                "sessionId": "sess_1"
+              },
+              "connectionId": "connection-id-0001",
+              "generation": 1,
+              "type": "demote-ack",
+              "inputEpoch": 3
+            }
+          },
+          "done": [],
+          "log": [
+            [
+              "subscribed",
+              "client_1",
+              "sess_1",
+              true
+            ]
+          ]
+        },
+        {
+          "result": {
+            "ok": true,
+            "value": true
+          },
+          "done": [],
+          "log": []
+        }
+      ]
+    },
+    {
+      "name": "an ack of another connection, or before its promote, settles nothing",
+      "steps": [
+        {
+          "op": "set",
+          "subscribed": [
+            [
+              "client_1",
+              "sess_1"
+            ]
+          ]
+        },
+        {
+          "op": "send",
+          "id": "s1",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0001",
+            "generation": 1,
+            "type": "offer",
+            "sdp": "v=0\r\no=- 4611731400430051336 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=fingerprint:sha-256 01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n",
+            "fingerprints": [
+              {
+                "algorithm": "sha-256",
+                "value": "01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA"
+              }
+            ],
+            "iceServers": [
+              {
+                "urls": [
+                  "stun:stun.example.org:3478"
+                ]
+              },
+              {
+                "urls": [
+                  "turn:turn.example.org:3478"
+                ],
+                "username": "u",
+                "credential": "c"
+              }
+            ],
+            "iceTransportPolicy": "all",
+            "geometry": {
+              "generation": 1,
+              "cssWidth": 390,
+              "cssHeight": 844,
+              "deviceScaleFactor": 3,
+              "pixelWidth": 1170,
+              "pixelHeight": 2532
+            },
+            "inputEpoch": 1
+          }
+        },
+        {
+          "op": "accept",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0002",
+            "generation": 1,
+            "type": "promote-ack",
+            "inputEpoch": 2
+          }
+        },
+        {
+          "op": "accept",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0001",
+            "generation": 1,
+            "type": "promote-ack",
+            "inputEpoch": 2
+          }
+        },
+        {
+          "op": "relayInputAllowed",
+          "client": "client_1",
+          "session": "sess_1"
+        },
+        {
+          "op": "send",
+          "id": "s2",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0002",
+            "generation": 1,
+            "type": "promote",
+            "inputEpoch": 2,
+            "geometryGeneration": 1
+          }
+        },
+        {
+          "op": "accept",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0001",
+            "generation": 1,
+            "type": "promote-ack",
+            "inputEpoch": 2
+          }
+        },
+        {
+          "op": "relayInputAllowed",
+          "client": "client_1",
+          "session": "sess_1"
+        },
+        {
+          "op": "send",
+          "id": "s3",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0001",
+            "generation": 1,
+            "type": "demote",
+            "inputEpoch": 5,
+            "reason": "channel-failed"
+          }
+        },
+        {
+          "op": "relayInputAllowed",
+          "client": "client_1",
+          "session": "sess_1"
+        },
+        {
+          "op": "accept",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0001",
+            "generation": 1,
+            "type": "demote-ack",
+            "inputEpoch": 5
+          }
+        },
+        {
+          "op": "relayInputAllowed",
+          "client": "client_1",
+          "session": "sess_1"
+        }
+      ],
+      "recorded": [
+        {
+          "done": [],
+          "log": []
+        },
+        {
+          "done": [
+            {
+              "id": "s1",
+              "ok": true,
+              "value": null
+            }
+          ],
+          "log": [
+            [
+              "send",
+              "client_1",
+              {
+                "event": "browserRemoteWebrtc",
+                "payload": {
+                  "v": 1,
+                  "source": {
+                    "kind": "browser",
+                    "sessionId": "sess_1"
+                  },
+                  "connectionId": "connection-id-0001",
+                  "generation": 1,
+                  "type": "offer",
+                  "sdp": "v=0\r\no=- 4611731400430051336 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=fingerprint:sha-256 01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n",
+                  "fingerprints": [
+                    {
+                      "algorithm": "sha-256",
+                      "value": "01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA"
+                    }
+                  ],
+                  "iceServers": [
+                    {
+                      "urls": [
+                        "stun:stun.example.org:3478"
+                      ]
+                    },
+                    {
+                      "urls": [
+                        "turn:turn.example.org:3478"
+                      ],
+                      "username": "u",
+                      "credential": "c"
+                    }
+                  ],
+                  "iceTransportPolicy": "all",
+                  "geometry": {
+                    "generation": 1,
+                    "cssWidth": 390,
+                    "cssHeight": 844,
+                    "deviceScaleFactor": 3,
+                    "pixelWidth": 1170,
+                    "pixelHeight": 2532
+                  },
+                  "inputEpoch": 1
+                }
+              }
+            ]
+          ]
+        },
+        {
+          "result": {
+            "ok": true,
+            "value": {
+              "v": 1,
+              "source": {
+                "kind": "browser",
+                "sessionId": "sess_1"
+              },
+              "connectionId": "connection-id-0002",
+              "generation": 1,
+              "type": "promote-ack",
+              "inputEpoch": 2
+            }
+          },
+          "done": [],
+          "log": [
+            [
+              "subscribed",
+              "client_1",
+              "sess_1",
+              true
+            ]
+          ]
+        },
+        {
+          "result": {
+            "ok": true,
+            "value": {
+              "v": 1,
+              "source": {
+                "kind": "browser",
+                "sessionId": "sess_1"
+              },
+              "connectionId": "connection-id-0001",
+              "generation": 1,
+              "type": "promote-ack",
+              "inputEpoch": 2
+            }
+          },
+          "done": [],
+          "log": [
+            [
+              "subscribed",
+              "client_1",
+              "sess_1",
+              true
+            ]
+          ]
+        },
+        {
+          "result": {
+            "ok": true,
+            "value": true
+          },
+          "done": [],
+          "log": []
+        },
+        {
+          "done": [
+            {
+              "id": "s2",
+              "ok": true,
+              "value": null
+            }
+          ],
+          "log": [
+            [
+              "send",
+              "client_1",
+              {
+                "event": "browserRemoteWebrtc",
+                "payload": {
+                  "v": 1,
+                  "source": {
+                    "kind": "browser",
+                    "sessionId": "sess_1"
+                  },
+                  "connectionId": "connection-id-0002",
+                  "generation": 1,
+                  "type": "promote",
+                  "inputEpoch": 2,
+                  "geometryGeneration": 1
+                }
+              }
+            ]
+          ]
+        },
+        {
+          "result": {
+            "ok": true,
+            "value": {
+              "v": 1,
+              "source": {
+                "kind": "browser",
+                "sessionId": "sess_1"
+              },
+              "connectionId": "connection-id-0001",
+              "generation": 1,
+              "type": "promote-ack",
+              "inputEpoch": 2
+            }
+          },
+          "done": [],
+          "log": [
+            [
+              "subscribed",
+              "client_1",
+              "sess_1",
+              true
+            ]
+          ]
+        },
+        {
+          "result": {
+            "ok": true,
+            "value": true
+          },
+          "done": [],
+          "log": []
+        },
+        {
+          "done": [
+            {
+              "id": "s3",
+              "ok": true,
+              "value": null
+            }
+          ],
+          "log": [
+            [
+              "send",
+              "client_1",
+              {
+                "event": "browserRemoteWebrtc",
+                "payload": {
+                  "v": 1,
+                  "source": {
+                    "kind": "browser",
+                    "sessionId": "sess_1"
+                  },
+                  "connectionId": "connection-id-0001",
+                  "generation": 1,
+                  "type": "demote",
+                  "inputEpoch": 5,
+                  "reason": "channel-failed"
+                }
+              }
+            ]
+          ]
+        },
+        {
+          "result": {
+            "ok": true,
+            "value": false
+          },
+          "done": [],
+          "log": []
+        },
+        {
+          "result": {
+            "ok": true,
+            "value": {
+              "v": 1,
+              "source": {
+                "kind": "browser",
+                "sessionId": "sess_1"
+              },
+              "connectionId": "connection-id-0001",
+              "generation": 1,
+              "type": "demote-ack",
+              "inputEpoch": 5
+            }
+          },
+          "done": [],
+          "log": [
+            [
+              "subscribed",
+              "client_1",
+              "sess_1",
+              true
+            ]
+          ]
+        },
+        {
+          "result": {
+            "ok": true,
+            "value": true
+          },
+          "done": [],
+          "log": []
+        }
+      ]
+    },
+    {
+      "name": "a new offer, a close and the viewer leaving give the JPEG back",
+      "steps": [
+        {
+          "op": "set",
+          "subscribed": [
+            [
+              "client_1",
+              "sess_1"
+            ]
+          ]
+        },
+        {
+          "op": "send",
+          "id": "s1",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0001",
+            "generation": 1,
+            "type": "offer",
+            "sdp": "v=0\r\no=- 4611731400430051336 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=fingerprint:sha-256 01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n",
+            "fingerprints": [
+              {
+                "algorithm": "sha-256",
+                "value": "01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA"
+              }
+            ],
+            "iceServers": [
+              {
+                "urls": [
+                  "stun:stun.example.org:3478"
+                ]
+              },
+              {
+                "urls": [
+                  "turn:turn.example.org:3478"
+                ],
+                "username": "u",
+                "credential": "c"
+              }
+            ],
+            "iceTransportPolicy": "all",
+            "geometry": {
+              "generation": 1,
+              "cssWidth": 390,
+              "cssHeight": 844,
+              "deviceScaleFactor": 3,
+              "pixelWidth": 1170,
+              "pixelHeight": 2532
+            },
+            "inputEpoch": 1
+          }
+        },
+        {
+          "op": "send",
+          "id": "s2",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0001",
+            "generation": 1,
+            "type": "promote",
+            "inputEpoch": 2,
+            "geometryGeneration": 1
+          }
+        },
+        {
+          "op": "accept",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0001",
+            "generation": 1,
+            "type": "promote-ack",
+            "inputEpoch": 2
+          }
+        },
+        {
+          "op": "send",
+          "id": "s3",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0002",
+            "generation": 1,
+            "type": "offer",
+            "sdp": "v=0\r\no=- 4611731400430051336 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=fingerprint:sha-256 01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n",
+            "fingerprints": [
+              {
+                "algorithm": "sha-256",
+                "value": "01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA"
+              }
+            ],
+            "iceServers": [],
+            "iceTransportPolicy": "all",
+            "geometry": {
+              "generation": 1,
+              "cssWidth": 390,
+              "cssHeight": 844,
+              "deviceScaleFactor": 3,
+              "pixelWidth": 1170,
+              "pixelHeight": 2532
+            },
+            "inputEpoch": 1
+          }
+        },
+        {
+          "op": "relayInputAllowed",
+          "client": "client_1",
+          "session": "sess_1"
+        },
+        {
+          "op": "send",
+          "id": "s4",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0002",
+            "generation": 1,
+            "type": "promote",
+            "inputEpoch": 2,
+            "geometryGeneration": 1
+          }
+        },
+        {
+          "op": "accept",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0002",
+            "generation": 1,
+            "type": "promote-ack",
+            "inputEpoch": 2
+          }
+        },
+        {
+          "op": "send",
+          "id": "s5",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0001",
+            "generation": 1,
+            "type": "close",
+            "reason": "superseded"
+          }
+        },
+        {
+          "op": "relayInputAllowed",
+          "client": "client_1",
+          "session": "sess_1"
+        },
+        {
+          "op": "send",
+          "id": "s6",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0002",
+            "generation": 1,
+            "type": "close",
+            "reason": "superseded"
+          }
+        },
+        {
+          "op": "relayInputAllowed",
+          "client": "client_1",
+          "session": "sess_1"
+        },
+        {
+          "op": "send",
+          "id": "s7",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0003",
+            "generation": 1,
+            "type": "offer",
+            "sdp": "v=0\r\no=- 4611731400430051336 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=fingerprint:sha-256 01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n",
+            "fingerprints": [
+              {
+                "algorithm": "sha-256",
+                "value": "01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA"
+              }
+            ],
+            "iceServers": [],
+            "iceTransportPolicy": "all",
+            "geometry": {
+              "generation": 1,
+              "cssWidth": 390,
+              "cssHeight": 844,
+              "deviceScaleFactor": 3,
+              "pixelWidth": 1170,
+              "pixelHeight": 2532
+            },
+            "inputEpoch": 1
+          }
+        },
+        {
+          "op": "send",
+          "id": "s8",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0003",
+            "generation": 1,
+            "type": "promote",
+            "inputEpoch": 2,
+            "geometryGeneration": 1
+          }
+        },
+        {
+          "op": "accept",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0003",
+            "generation": 1,
+            "type": "promote-ack",
+            "inputEpoch": 2
+          }
+        },
+        {
+          "op": "viewerLeft",
+          "client": "client_1",
+          "session": "sess_1"
+        },
+        {
+          "op": "relayInputAllowed",
+          "client": "client_1",
+          "session": "sess_1"
+        }
+      ],
+      "recorded": [
+        {
+          "done": [],
+          "log": []
+        },
+        {
+          "done": [
+            {
+              "id": "s1",
+              "ok": true,
+              "value": null
+            }
+          ],
+          "log": [
+            [
+              "send",
+              "client_1",
+              {
+                "event": "browserRemoteWebrtc",
+                "payload": {
+                  "v": 1,
+                  "source": {
+                    "kind": "browser",
+                    "sessionId": "sess_1"
+                  },
+                  "connectionId": "connection-id-0001",
+                  "generation": 1,
+                  "type": "offer",
+                  "sdp": "v=0\r\no=- 4611731400430051336 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=fingerprint:sha-256 01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n",
+                  "fingerprints": [
+                    {
+                      "algorithm": "sha-256",
+                      "value": "01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA"
+                    }
+                  ],
+                  "iceServers": [
+                    {
+                      "urls": [
+                        "stun:stun.example.org:3478"
+                      ]
+                    },
+                    {
+                      "urls": [
+                        "turn:turn.example.org:3478"
+                      ],
+                      "username": "u",
+                      "credential": "c"
+                    }
+                  ],
+                  "iceTransportPolicy": "all",
+                  "geometry": {
+                    "generation": 1,
+                    "cssWidth": 390,
+                    "cssHeight": 844,
+                    "deviceScaleFactor": 3,
+                    "pixelWidth": 1170,
+                    "pixelHeight": 2532
+                  },
+                  "inputEpoch": 1
+                }
+              }
+            ]
+          ]
+        },
+        {
+          "done": [
+            {
+              "id": "s2",
+              "ok": true,
+              "value": null
+            }
+          ],
+          "log": [
+            [
+              "send",
+              "client_1",
+              {
+                "event": "browserRemoteWebrtc",
+                "payload": {
+                  "v": 1,
+                  "source": {
+                    "kind": "browser",
+                    "sessionId": "sess_1"
+                  },
+                  "connectionId": "connection-id-0001",
+                  "generation": 1,
+                  "type": "promote",
+                  "inputEpoch": 2,
+                  "geometryGeneration": 1
+                }
+              }
+            ]
+          ]
+        },
+        {
+          "result": {
+            "ok": true,
+            "value": {
+              "v": 1,
+              "source": {
+                "kind": "browser",
+                "sessionId": "sess_1"
+              },
+              "connectionId": "connection-id-0001",
+              "generation": 1,
+              "type": "promote-ack",
+              "inputEpoch": 2
+            }
+          },
+          "done": [],
+          "log": [
+            [
+              "subscribed",
+              "client_1",
+              "sess_1",
+              true
+            ],
+            [
+              "setImages",
+              "client_1",
+              "sess_1",
+              false
+            ]
+          ]
+        },
+        {
+          "done": [
+            {
+              "id": "s3",
+              "ok": true,
+              "value": null
+            }
+          ],
+          "log": [
+            [
+              "setImages",
+              "client_1",
+              "sess_1",
+              true
+            ],
+            [
+              "send",
+              "client_1",
+              {
+                "event": "browserRemoteWebrtc",
+                "payload": {
+                  "v": 1,
+                  "source": {
+                    "kind": "browser",
+                    "sessionId": "sess_1"
+                  },
+                  "connectionId": "connection-id-0002",
+                  "generation": 1,
+                  "type": "offer",
+                  "sdp": "v=0\r\no=- 4611731400430051336 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=fingerprint:sha-256 01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n",
+                  "fingerprints": [
+                    {
+                      "algorithm": "sha-256",
+                      "value": "01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA"
+                    }
+                  ],
+                  "iceServers": [],
+                  "iceTransportPolicy": "all",
+                  "geometry": {
+                    "generation": 1,
+                    "cssWidth": 390,
+                    "cssHeight": 844,
+                    "deviceScaleFactor": 3,
+                    "pixelWidth": 1170,
+                    "pixelHeight": 2532
+                  },
+                  "inputEpoch": 1
+                }
+              }
+            ]
+          ]
+        },
+        {
+          "result": {
+            "ok": true,
+            "value": true
+          },
+          "done": [],
+          "log": []
+        },
+        {
+          "done": [
+            {
+              "id": "s4",
+              "ok": true,
+              "value": null
+            }
+          ],
+          "log": [
+            [
+              "send",
+              "client_1",
+              {
+                "event": "browserRemoteWebrtc",
+                "payload": {
+                  "v": 1,
+                  "source": {
+                    "kind": "browser",
+                    "sessionId": "sess_1"
+                  },
+                  "connectionId": "connection-id-0002",
+                  "generation": 1,
+                  "type": "promote",
+                  "inputEpoch": 2,
+                  "geometryGeneration": 1
+                }
+              }
+            ]
+          ]
+        },
+        {
+          "result": {
+            "ok": true,
+            "value": {
+              "v": 1,
+              "source": {
+                "kind": "browser",
+                "sessionId": "sess_1"
+              },
+              "connectionId": "connection-id-0002",
+              "generation": 1,
+              "type": "promote-ack",
+              "inputEpoch": 2
+            }
+          },
+          "done": [],
+          "log": [
+            [
+              "subscribed",
+              "client_1",
+              "sess_1",
+              true
+            ],
+            [
+              "setImages",
+              "client_1",
+              "sess_1",
+              false
+            ]
+          ]
+        },
+        {
+          "done": [
+            {
+              "id": "s5",
+              "ok": true,
+              "value": null
+            }
+          ],
+          "log": [
+            [
+              "send",
+              "client_1",
+              {
+                "event": "browserRemoteWebrtc",
+                "payload": {
+                  "v": 1,
+                  "source": {
+                    "kind": "browser",
+                    "sessionId": "sess_1"
+                  },
+                  "connectionId": "connection-id-0001",
+                  "generation": 1,
+                  "type": "close",
+                  "reason": "superseded"
+                }
+              }
+            ]
+          ]
+        },
+        {
+          "result": {
+            "ok": true,
+            "value": false
+          },
+          "done": [],
+          "log": []
+        },
+        {
+          "done": [
+            {
+              "id": "s6",
+              "ok": true,
+              "value": null
+            }
+          ],
+          "log": [
+            [
+              "setImages",
+              "client_1",
+              "sess_1",
+              true
+            ],
+            [
+              "send",
+              "client_1",
+              {
+                "event": "browserRemoteWebrtc",
+                "payload": {
+                  "v": 1,
+                  "source": {
+                    "kind": "browser",
+                    "sessionId": "sess_1"
+                  },
+                  "connectionId": "connection-id-0002",
+                  "generation": 1,
+                  "type": "close",
+                  "reason": "superseded"
+                }
+              }
+            ]
+          ]
+        },
+        {
+          "result": {
+            "ok": true,
+            "value": true
+          },
+          "done": [],
+          "log": []
+        },
+        {
+          "done": [
+            {
+              "id": "s7",
+              "ok": true,
+              "value": null
+            }
+          ],
+          "log": [
+            [
+              "send",
+              "client_1",
+              {
+                "event": "browserRemoteWebrtc",
+                "payload": {
+                  "v": 1,
+                  "source": {
+                    "kind": "browser",
+                    "sessionId": "sess_1"
+                  },
+                  "connectionId": "connection-id-0003",
+                  "generation": 1,
+                  "type": "offer",
+                  "sdp": "v=0\r\no=- 4611731400430051336 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=fingerprint:sha-256 01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n",
+                  "fingerprints": [
+                    {
+                      "algorithm": "sha-256",
+                      "value": "01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA"
+                    }
+                  ],
+                  "iceServers": [],
+                  "iceTransportPolicy": "all",
+                  "geometry": {
+                    "generation": 1,
+                    "cssWidth": 390,
+                    "cssHeight": 844,
+                    "deviceScaleFactor": 3,
+                    "pixelWidth": 1170,
+                    "pixelHeight": 2532
+                  },
+                  "inputEpoch": 1
+                }
+              }
+            ]
+          ]
+        },
+        {
+          "done": [
+            {
+              "id": "s8",
+              "ok": true,
+              "value": null
+            }
+          ],
+          "log": [
+            [
+              "send",
+              "client_1",
+              {
+                "event": "browserRemoteWebrtc",
+                "payload": {
+                  "v": 1,
+                  "source": {
+                    "kind": "browser",
+                    "sessionId": "sess_1"
+                  },
+                  "connectionId": "connection-id-0003",
+                  "generation": 1,
+                  "type": "promote",
+                  "inputEpoch": 2,
+                  "geometryGeneration": 1
+                }
+              }
+            ]
+          ]
+        },
+        {
+          "result": {
+            "ok": true,
+            "value": {
+              "v": 1,
+              "source": {
+                "kind": "browser",
+                "sessionId": "sess_1"
+              },
+              "connectionId": "connection-id-0003",
+              "generation": 1,
+              "type": "promote-ack",
+              "inputEpoch": 2
+            }
+          },
+          "done": [],
+          "log": [
+            [
+              "subscribed",
+              "client_1",
+              "sess_1",
+              true
+            ],
+            [
+              "setImages",
+              "client_1",
+              "sess_1",
+              false
+            ]
+          ]
+        },
+        {
+          "done": [],
+          "log": [
+            [
+              "setImages",
+              "client_1",
+              "sess_1",
+              true
+            ],
+            [
+              "viewerLeft",
+              "client_1",
+              "browser:sess_1"
+            ]
+          ]
+        },
+        {
+          "result": {
+            "ok": true,
+            "value": true
+          },
+          "done": [],
+          "log": []
+        }
+      ]
+    },
+    {
+      "name": "send validates a desktop signal and passes the rest through",
+      "steps": [
+        {
+          "op": "send",
+          "id": "s1",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0001",
+            "generation": 1,
+            "type": "offer",
+            "sdp": "v=0\r\no=- 4611731400430051336 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=fingerprint:sha-256 01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n",
+            "fingerprints": [
+              {
+                "algorithm": "sha-256",
+                "value": "01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA"
+              }
+            ],
+            "iceServers": [
+              {
+                "urls": [
+                  "stun:stun.example.org:3478"
+                ]
+              },
+              {
+                "urls": [
+                  "turn:turn.example.org:3478"
+                ],
+                "username": "u",
+                "credential": "c"
+              }
+            ],
+            "iceTransportPolicy": "all",
+            "geometry": {
+              "generation": 1,
+              "cssWidth": 390,
+              "cssHeight": 844,
+              "deviceScaleFactor": 3,
+              "pixelWidth": 1170,
+              "pixelHeight": 2532
+            },
+            "inputEpoch": 0
+          }
+        },
+        {
+          "op": "send",
+          "id": "s2",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "type": "geometry",
+            "geometry": {
+              "generation": 1,
+              "cssWidth": 390,
+              "cssHeight": 844,
+              "deviceScaleFactor": 3,
+              "pixelWidth": 1170,
+              "pixelHeight": 2532
+            }
+          }
+        },
+        {
+          "op": "send",
+          "id": "s3",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0001",
+            "generation": 1,
+            "type": "candidate",
+            "candidate": {
+              "candidate": "candidate:1 1 udp 2122260223 192.168.1.2 54321 typ host generation 0 ufrag abcd network-id 1",
+              "sdpMid": "0",
+              "sdpMLineIndex": 0,
+              "usernameFragment": "abcd"
+            }
+          }
+        },
+        {
+          "op": "send",
+          "id": "s4",
+          "client": "client_1",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "screen",
+              "screenId": "screen-1"
+            },
+            "connectionId": "connection-id-0001",
+            "generation": 1,
+            "type": "close",
+            "reason": "ice-failed",
+            "retryAfterMs": 0
+          }
+        },
+        {
+          "op": "send",
+          "id": "s5",
+          "client": "client_1",
+          "raw": "x"
+        }
+      ],
+      "recorded": [
+        {
+          "done": [
+            {
+              "id": "s1",
+              "ok": false,
+              "error": "remote webrtc input epoch is invalid."
+            }
+          ],
+          "log": []
+        },
+        {
+          "done": [
+            {
+              "id": "s2",
+              "ok": true,
+              "value": null
+            }
+          ],
+          "log": [
+            [
+              "send",
+              "client_1",
+              {
+                "event": "browserRemoteWebrtc",
+                "payload": {
+                  "v": 1,
+                  "source": {
+                    "kind": "browser",
+                    "sessionId": "sess_1"
+                  },
+                  "type": "geometry",
+                  "geometry": {
+                    "generation": 1,
+                    "cssWidth": 390,
+                    "cssHeight": 844,
+                    "deviceScaleFactor": 3,
+                    "pixelWidth": 1170,
+                    "pixelHeight": 2532
+                  }
+                }
+              }
+            ]
+          ]
+        },
+        {
+          "done": [
+            {
+              "id": "s3",
+              "ok": true,
+              "value": null
+            }
+          ],
+          "log": [
+            [
+              "send",
+              "client_1",
+              {
+                "event": "browserRemoteWebrtc",
+                "payload": {
+                  "v": 1,
+                  "source": {
+                    "kind": "browser",
+                    "sessionId": "sess_1"
+                  },
+                  "connectionId": "connection-id-0001",
+                  "generation": 1,
+                  "type": "candidate",
+                  "candidate": {
+                    "candidate": "candidate:1 1 udp 2122260223 192.168.1.2 54321 typ host generation 0 ufrag abcd network-id 1",
+                    "sdpMid": "0",
+                    "sdpMLineIndex": 0,
+                    "usernameFragment": "abcd"
+                  }
+                }
+              }
+            ]
+          ]
+        },
+        {
+          "done": [
+            {
+              "id": "s4",
+              "ok": true,
+              "value": null
+            }
+          ],
+          "log": [
+            [
+              "send",
+              "client_1",
+              {
+                "event": "browserRemoteWebrtc",
+                "payload": {
+                  "v": 1,
+                  "source": {
+                    "kind": "screen",
+                    "screenId": "screen-1"
+                  },
+                  "connectionId": "connection-id-0001",
+                  "generation": 1,
+                  "type": "close",
+                  "reason": "ice-failed",
+                  "retryAfterMs": 0
+                }
+              }
+            ]
+          ]
+        },
+        {
+          "done": [
+            {
+              "id": "s5",
+              "ok": false,
+              "error": "remote webrtc signal is invalid."
+            }
+          ],
+          "log": []
+        }
+      ]
+    },
+    {
+      "name": "screenDisplays needs the connection authorized",
+      "steps": [
+        {
+          "op": "screenDisplays",
+          "id": "d1",
+          "client": "client_1",
+          "origin": "o1"
+        },
+        {
+          "op": "resolve",
+          "kind": "screenAuthorized",
+          "index": 0,
+          "value": false
+        },
+        {
+          "op": "screenDisplays",
+          "id": "d2",
+          "client": "client_1",
+          "origin": "o2"
+        },
+        {
+          "op": "resolve",
+          "kind": "screenAuthorized",
+          "index": 1,
+          "value": true
+        },
+        {
+          "op": "resolve",
+          "kind": "screenDisplays",
+          "index": 0,
+          "value": [
+            {
+              "id": "display-1"
+            }
+          ]
+        }
+      ],
+      "recorded": [
+        {
+          "done": [
+            {
+              "id": "d1",
+              "ok": false,
+              "error": "Remote screen is not allowed for this device."
+            }
+          ],
+          "log": [
+            [
+              "call",
+              "screenAuthorized",
+              0,
+              "client_1",
+              "o1"
+            ]
+          ]
+        },
+        {
+          "done": [],
+          "log": []
+        },
+        {
+          "done": [
+            {
+              "id": "d2",
+              "ok": true,
+              "value": [
+                {
+                  "id": "display-1"
+                }
+              ]
+            }
+          ],
+          "log": [
+            [
+              "call",
+              "screenAuthorized",
+              1,
+              "client_1",
+              "o2"
+            ]
+          ]
+        },
+        {
+          "done": [],
+          "log": [
+            [
+              "call",
+              "screenDisplays",
+              0
+            ]
+          ]
+        },
+        {
+          "done": [],
+          "log": []
+        }
+      ]
+    }
+  ]
+}

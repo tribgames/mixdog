@@ -337,21 +337,29 @@ pub struct FeedTap {
     conn: super::MockConnection,
     /// Every notification already returned: the connection hands each frame out once.
     kept: std::sync::Mutex<Vec<serde_json::Value>>,
+    /// The text prefix of this subscriber's frames: its subscription id.
+    prefix: String,
 }
 
 impl FeedTap {
     /// Subscribes to `feed`: the response is written first, then the snapshot and later frames.
     pub fn attach(feed: &Arc<dyn ScopedFeed>) -> Self {
+        Self::attach_as(feed, 1)
+    }
+
+    /// `attach` as connection `id`: a second subscriber of the same feed (a client that dials again) needs an id of its own.
+    pub fn attach_as(feed: &Arc<dyn ScopedFeed>, id: u64) -> Self {
         use crate::ids::ConnectionId;
         use crate::sink::ConnectionSink;
 
-        let conn = super::MockConnection::new(ConnectionId(1), MockLimits::default());
+        let conn = super::MockConnection::new(ConnectionId(id), MockLimits::default());
         let source: Arc<dyn FeedSource> = feed.clone();
-        let attached = crate::feed::subscribe(&source, SubscriptionId::from("tap"), Window::Fixed, None, &conn)
+        let sub = if id == 1 { "tap".to_owned() } else { format!("tap{id}") };
+        let attached = crate::feed::subscribe(&source, SubscriptionId::from(sub.as_str()), Window::Fixed, None, &conn)
             .expect("attach to an open connection");
         conn.send_control_release(bytes::Bytes::from_static(b"{}"), attached.release)
             .expect("connection open");
-        Self { conn, kept: std::sync::Mutex::new(Vec::new()) }
+        Self { conn, kept: std::sync::Mutex::new(Vec::new()), prefix: format!("{sub}:") }
     }
 
     /// The notifications written to the subscriber, parsed, in order, until `done` holds of them.
@@ -367,7 +375,7 @@ impl FeedTap {
                 seen = before.clone();
                 seen.extend(
                     text.iter()
-                        .filter_map(|frame| frame.strip_prefix("tap:"))
+                        .filter_map(|frame| frame.strip_prefix(self.prefix.as_str()))
                         .map(|frame| serde_json::from_str::<serde_json::Value>(frame).expect("a feed frame is JSON")),
                 );
                 done(&seen)

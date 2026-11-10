@@ -109,6 +109,9 @@ pub struct CoreWiring {
     pub final_barriers: Hook,
     /// The user's `release{pid}` decision on an undecidable prior owner (the verdict gate).
     pub release_decision: Arc<dyn Fn(u32) + Send + Sync>,
+    /// The core's stop steps (`ComposedCore::run_stop_steps`, wired in `serving.rs`). Product limit: the stopped core still holds `state/core.sqlite` and
+    /// `index/store.sqlite` open in this process (the parts holding them outlive the stop and the runtime); only the process exit that ends the
+    /// release (`ProcessExiter::exit`) closes them.
     pub close_data_handles: Hook,
     /// The release's Node-text reason (`CorePort::release_started`), kept for the stop steps.
     pub release_started: Arc<dyn Fn(&str) + Send + Sync>,
@@ -208,7 +211,13 @@ enum Job {
     Barrier { withdraw: bool, done: mpsc::Sender<()> },
 }
 
-type WriteDocument = Box<dyn Fn(&Path, &Discovery) + Send>;
+type WriteDocument = Box<dyn Fn(&Path, &Discovery) -> std::io::Result<()> + Send>;
+
+/// What a publication that still fails after the replace's retries does. Boot-path states (`booting`, `blocked`, `migrating`,
+/// `serving`) are fatal as Node's initial publication is (`daemon.mjs`: the awaited `publishDaemonDiscovery` rejects into
+/// `main().catch`, which shuts down with code 2): a daemon whose discovery file never names it is one no client can reach.
+/// A `draining` state is logged only, as Node logs a failed later republish.
+pub type OnFatal = Box<dyn Fn(&std::io::Error) + Send>;
 
 /// [`Publication`] over `<runtime root>/daemon.json`: the lifecycle contributes the phase, the
 /// blocked record and the drain id; the rest of the document is the template.
@@ -226,16 +235,12 @@ pub struct DiscoveryPublication {
 impl DiscoveryPublication {
     /// `base` carries the pid, endpoints and the core section with its control port; its
     /// `state`, `blocked`, `drain` and `rpc` are replaced on every publish.
-    pub fn new(root: PathBuf, base: Discovery) -> Self {
-        let write: WriteDocument = Box::new(|root, document| {
-            if let Err(error) = discovery::publish(root, document) {
-                tracing::error!(%error, "discovery was not published");
-            }
-        });
-        Self::with_writer(root, base, write)
+    pub fn new(root: PathBuf, base: Discovery, on_fatal: OnFatal) -> Self {
+        let write: WriteDocument = Box::new(discovery::publish);
+        Self::with_writer(root, base, write, on_fatal)
     }
 
-    fn with_writer(root: PathBuf, base: Discovery, write: WriteDocument) -> Self {
+    fn with_writer(root: PathBuf, base: Discovery, write: WriteDocument, on_fatal: OnFatal) -> Self {
         let (jobs, inbox) = mpsc::channel::<Job>();
         let instance_id = base.core.instance_id.clone();
         std::thread::Builder::new()
@@ -243,7 +248,14 @@ impl DiscoveryPublication {
             .spawn(move || {
                 for job in inbox {
                     match job {
-                        Job::Publish(document) => write(&root, &document),
+                        Job::Publish(document) => {
+                            if let Err(error) = write(&root, &document) {
+                                tracing::error!(%error, "discovery was not published");
+                                if document.core.state != CoreState::Draining {
+                                    on_fatal(&error);
+                                }
+                            }
+                        }
                         Job::Barrier { withdraw, done } => {
                             if withdraw && let Err(error) = discovery::withdraw(&root, &instance_id) {
                                 tracing::error!(%error, "discovery was not withdrawn");
@@ -264,6 +276,11 @@ impl DiscoveryPublication {
     /// Records the bound RPC listener; the next `serving` publish names it.
     pub fn set_rpc_port(&self, port: u16) {
         *locked(&self.rpc) = Some(discovery::Port { port });
+    }
+
+    /// The bound RPC listener's port, once `set_rpc_port` has recorded it.
+    pub fn rpc_port(&self) -> Option<u16> {
+        locked(&self.rpc).as_ref().map(|port| port.port)
     }
 
     /// Blocks until every state published so far is on disk. Never call it from a runtime worker.
@@ -310,8 +327,8 @@ pub struct ProcessExiter;
 
 impl Exiter for ProcessExiter {
     #[allow(clippy::disallowed_methods, reason = "this is the one place the core ends its process")]
-    fn exit(&self) {
-        std::process::exit(0);
+    fn exit(&self, code: i32) {
+        std::process::exit(code);
     }
 }
 

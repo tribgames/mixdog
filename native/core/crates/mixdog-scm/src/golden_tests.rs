@@ -786,6 +786,60 @@ async fn a_snapshot_is_locked_for_its_holder_and_leased_as_nodes_is() {
     assert_eq!(listing.lines().filter(|line| line.starts_with("worktree ")).count() as u64, node["worktrees"].as_u64().unwrap());
 }
 
+/// Node's `canonicalPath`, `inspectRepo` and `listWorktrees` over sixteen spellings of the same folders
+/// (`record-canonical-paths.mjs`): relative, `..`, mixed separators, other casing, through a junction, the 8.3 short
+/// name, a trailing separator and a tail that does not exist. The process runs in the sandbox, as the recording did.
+#[tokio::test]
+async fn paths_are_spelled_as_nodes_canonical_path_does() {
+    use crate::worktree::manager::Worktrees;
+    use mixdog_workspace::pathguard::canonical_path;
+    use std::os::windows::process::CommandExt;
+    let golden: Value = serde_json::from_str(include_str!("../../../fixtures/canonical-paths/golden.json")).unwrap();
+    let scratch = tempfile::tempdir().unwrap();
+    let verbatim = std::fs::canonicalize(scratch.path()).unwrap();
+    let base = std::path::PathBuf::from(verbatim.to_string_lossy().trim_start_matches(r"\\?\")).join("Long Folder Name");
+    let repo = base.join("repo");
+    std::fs::create_dir_all(repo.join("sub")).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "first"]);
+    git(&repo, &["worktree", "add", "-q", "-b", "side", base.join("linked").to_str().unwrap()]);
+    let junction = Command::new("cmd").args(["/c", "mklink", "/J"]).arg(base.join("junc")).arg(&repo).output().unwrap();
+    assert!(junction.status.success(), "mklink: {}", String::from_utf8_lossy(&junction.stdout));
+    let short = Command::new("cmd").arg("/c").raw_arg(format!("for %I in (\"{}\") do @echo %~sI", base.display())).output().unwrap();
+    let short = String::from_utf8(short.stdout).unwrap().trim().to_owned();
+    let base_text = base.to_string_lossy().into_owned();
+    assert_ne!(short, base_text, "the sandbox has no 8.3 short name");
+    std::env::set_current_dir(&base).unwrap();
+    let spell = |text: &str| text.replace("<BASE_SHORT>", &short).replace("<BASE_UPPER>", &base_text.to_uppercase()).replace("<BASE>", &base_text);
+    let mask = |text: &str| text.replace(&base_text, "<BASE>");
+    let data = tempfile::tempdir().unwrap();
+    let worktrees = Worktrees::new(scm(), data.path().to_path_buf());
+    let cancel = CancellationToken::new();
+    for case in golden["cases"].as_array().unwrap() {
+        let input = case["input"].as_str().unwrap();
+        let spelled = std::path::PathBuf::from(spell(input));
+        assert_eq!(mask(&canonical_path(&spelled).to_string_lossy()), case["canonical"], "{input}: canonicalPath");
+        let facts = &case["facts"];
+        match worktrees.inspect_repo(&spelled, &cancel).await {
+            Ok(got) => {
+                assert_eq!(mask(&got.project_path.to_string_lossy()), facts["projectPath"], "{input}: projectPath");
+                assert_eq!(mask(&got.top_level.to_string_lossy()), facts["topLevel"], "{input}: topLevel");
+                assert_eq!(mask(&got.common_dir.to_string_lossy()), facts["repoCommonDir"], "{input}: repoCommonDir");
+                assert_eq!(got.current_branch.as_deref(), facts["currentBranch"].as_str(), "{input}: currentBranch");
+                let rows: Vec<String> = worktrees.list_git_worktrees(&mixdog_workspace::pathguard::resolve(&spelled), &cancel).await.unwrap().into_iter().map(|row| mask(&row.path)).collect();
+                assert_eq!(serde_json::json!(rows), case["rows"], "{input}: worktree rows");
+            }
+            Err(failure) => {
+                let mixdog_core_api::CoreError::DomainError { code, detail, .. } = mixdog_core_api::CoreError::from(failure) else { panic!("{input}: not a domain error") };
+                assert_eq!(code.as_deref(), facts["error"].as_str(), "{input}: refusal");
+                let path = serde_json::to_value(detail).unwrap()["projectPath"].as_str().map(mask);
+                assert_eq!(path.as_deref(), facts["projectPath"].as_str(), "{input}: refusal projectPath");
+                assert!(case["rows"].is_null());
+            }
+        }
+    }
+}
+
 #[tokio::test]
 async fn a_snapshot_whose_lease_cannot_be_written_is_rolled_back_whole() {
     use crate::worktree::manager::Worktrees;

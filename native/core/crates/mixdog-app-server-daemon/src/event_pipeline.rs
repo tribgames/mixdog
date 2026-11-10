@@ -366,7 +366,7 @@ impl EventPipeline {
             tracing::warn!("{name}: enqueue failed: {error}");
             return;
         }
-        tracing::info!("{name}: enqueued ({priority})");
+        mixdog_rt::node_stderr!("mixdog event: {name}: enqueued ({priority})");
         if priority == "high" {
             self.process_queue().await;
         }
@@ -380,7 +380,7 @@ impl EventPipeline {
             Ok(None) => return None,
             // An IO fault says nothing about the record: left queued for the next tick.
             Err(error) => {
-                tracing::warn!("queue: read failed for {file}: {error}");
+                mixdog_rt::node_stderr!("mixdog event: queue: read failed for {file}: {error}");
                 return None;
             }
         };
@@ -388,7 +388,7 @@ impl EventPipeline {
             Ok(Value::Object(item)) => Some(item),
             _ => {
                 // Corrupt bytes (or not an event record) can never run: set aside.
-                tracing::warn!("queue: invalid record {file} — quarantined");
+                mixdog_rt::node_stderr!("mixdog event: queue: invalid record {file} — quarantined");
                 self.move_to_processed(file, "corrupt").await;
                 None
             }
@@ -451,7 +451,7 @@ impl EventPipeline {
             };
             let mut batch = head.clone();
             batch.insert("prompt".into(), combined.into());
-            tracing::info!("{name}: processing batch of {}", claimed.len());
+            mixdog_rt::node_stderr!("mixdog event: {name}: processing batch of {}", claimed.len());
             let injected = self.execute(&batch, None).await;
             for (handle, original) in claimed {
                 if injected {
@@ -468,7 +468,7 @@ impl EventPipeline {
         let name = item.get("name").map(js_string).unwrap_or_default();
         let prompt = item.get("prompt").map(js_string).unwrap_or_default();
         if let Err(error) = self.sink.inject(&format!("event:{name}"), &prompt).await {
-            tracing::warn!("{name}: inject failed — requeueing: {error}");
+            mixdog_rt::node_stderr!("mixdog event: {name}: inject failed — requeueing: {error}");
             if let Some(file) = file {
                 self.requeue(file, item).await;
             }
@@ -501,7 +501,7 @@ impl EventPipeline {
             fails
         };
         if fails >= INJECT_MAX_ATTEMPTS {
-            tracing::warn!("queue: {original} failed {fails} inject attempts — dead-lettering");
+            mixdog_rt::node_stderr!("mixdog event: queue: {original} failed {fails} inject attempts — dead-lettering");
             self.move_in_progress(claimed, "failed").await;
             return;
         }
@@ -550,7 +550,7 @@ impl EventPipeline {
             }
         }
         if count > 0 {
-            tracing::info!("queue: requeued {count} stranded in-progress events");
+            mixdog_rt::node_stderr!("mixdog event: queue: requeued {count} stranded in-progress events");
         }
     }
 

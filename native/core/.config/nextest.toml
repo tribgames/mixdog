@@ -2,10 +2,38 @@
 slow-timeout = { period = "30s", terminate-after = 4 }
 fail-fast = false
 
+# `--profile agent`: a crate's suite without the heavy matrices, for a branch that does not touch them.
+# In two hours of twelve checkouts (2026-11-10) these few tests were 60 of 339 test minutes, each real-git
+# replay taking every test thread for one to two minutes of a run whose other 600 tests need seconds. The
+# default profile still runs them all; the merge check uses it.
+[profile.agent]
+default-filter = '''not (
+    (package(mixdog-core-session) & (test(=project::tests::every_recorded_step_equals_nodes_over_real_state) | test(/^session::worktree::worktree_service_tests::/)))
+  | (package(mixdog-migrate) & (test(/^desktop_profile::tests::/) | test(/every_crash_point/)))
+  | (package(mixdog-app-server-daemon) & test(/^verdict::tag_gates::/))
+)'''
+
+# `--profile pg --run-ignored only -p mixdog-app-server-daemon`, the one command of the merge check and of CI: the #[ignore]d tests that compose
+# the real core (the review restart replay of a Node recording among them) and the runner's own cluster proof (`compose_test_support`). They need
+# a Postgres runtime (`MIXDOG_PG_RUNTIME` names an unpacked runtime directory; with it unset or broken the test fails, it does not skip). They are
+# in the `pg-cluster` group below, so they run one at a time, with the time the composed tests get (below).
+[profile.pg]
+default-filter = '''package(mixdog-app-server-daemon) & (
+    test(/^compose::(tests|review_restart_tests)::/)
+  | test(/^server::tests::/)
+  | test(/^serving::tests::start_serves_both/)
+  | test(=compose_domains::tests::every_method_of_the_domains_built_here_has_a_real_service)
+  | test(/^compose_test_support::runner_tests::/)
+)'''
+
 # Each of the two migration crash matrices spreads its fault points over eight work dirs of its own;
 # they run one after the other, so at most eight sync-bound migrations of the pair are in flight.
 [test-groups]
 migration-crash-matrix = { max-threads = 1 }
+# The sixteen recorded-directory crash replays are sync-bound like the matrices: four at once took 37-64 s each
+# (2026-11-10), and with the merge check's eight test threads the eight that started together were all killed at
+# 120 s. Four at a time, whatever the run's thread count; the other threads run the rest of the suite.
+migration-recorded = { max-threads = 4 }
 pg-cluster = { max-threads = 1 }
 tag-gates = { max-threads = 1 }
 
@@ -13,15 +41,46 @@ tag-gates = { max-threads = 1 }
 filter = 'package(mixdog-migrate) & (test(=desktop_profile::tests::the_crash_matrix_ends_in_the_state_of_an_uninterrupted_run) | test(=run::tests::every_crash_point_resumes_to_the_same_tree))'
 test-group = 'migration-crash-matrix'
 
+[[profile.default.overrides]]
+filter = 'package(mixdog-migrate) & binary(it) & test(/^recorded_145::every_crash_point_resumes_to_the_same_tree_on_the_recorded_directory_/)'
+test-group = 'migration-recorded'
+
+# The four migration crash matrices are fsync-bound: each passed in 84-95 s with its temp dirs on an idle drive and
+# was killed at the default 120 s in five of five workspace runs on 2026-11-10 with them on the build drive, which
+# the builds keep 85-99% busy. They are excluded from `--profile agent`; where they do run, they get the time.
+[[profile.default.overrides]]
+filter = 'package(mixdog-migrate) & (test(/^desktop_profile::tests::(a_late_pass_killed_at_every_point|a_late_pass_started_with_a_profile|the_crash_matrix)/) | test(=run::tests::every_crash_point_resumes_to_the_same_tree))'
+slow-timeout = { period = "60s", terminate-after = 6 }
+
 # Every test of mixdog-services' `memory::tests` (documented there as the end-to-end suite over a
 # temporary Postgres cluster) and of `memory::thread_search::tests` starts its own initdb + postmaster
 # (about 4 s and a dozen processes each, fsync-bound). Started together, the postmasters of a run are
 # still in recovery when the tests connect, and shutdowns of the stack queue behind the same disk;
 # one cluster at a time is the load a single test was verified under. Matching the module paths
-# keeps tests added to those modules in the group. The daemon's real-core tests (#[ignore], MIXDOG_PG_RUNTIME) share the one data dir's port the same way.
+# keeps tests added to those modules in the group. The daemon's real-core tests (#[ignore], MIXDOG_PG_RUNTIME) each start a cluster the same way.
 [[profile.default.overrides]]
-filter = 'package(mixdog-services) & (test(/^memory::tests::/) | test(/^memory::thread_search::tests::/)) | (package(mixdog-app-server-daemon) & (test(/^compose::tests::/) | test(/^server::tests::/) | test(/^serving::tests::start_serves_both/)))'
+filter = 'package(mixdog-services) & (test(/^memory::tests::/) | test(/^memory::thread_search::tests::/)) | (package(mixdog-app-server-daemon) & (test(/^compose::(tests|review_restart_tests)::/) | test(/^server::tests::/) | test(/^serving::tests::start_serves_both/) | test(=compose_domains::tests::every_method_of_the_domains_built_here_has_a_real_service) | test(=compose_test_support::runner_tests::a_cluster_left_running_by_a_killed_child_is_ended_before_its_directory_is_removed)))'
 test-group = 'pg-cluster'
+
+# The daemon's real-core tests run their core in a child process under the runner's one budget (`compose_test_support::BUDGET`, 690 s, checked
+# at compile time to stay under this limit): nextest ends the test only after the runner's report, at 720 s. Applies to every profile (`pg` among them).
+# The runner's own cluster test is among them. `compose_test_support::runner_tests::every_composed_test_is_run_by_the_pg_profile_with_its_time`
+# fails when a test using the runner is missing here or from the `pg` filter.
+[[profile.default.overrides]]
+filter = '''package(mixdog-app-server-daemon) & (
+    test(=compose::review_restart_tests::a_core_composed_again_tells_and_answers_as_node_does)
+  | test(=compose::tests::release_runs_the_barriers_then_the_stop_steps_once)
+  | test(=compose::tests::the_release_has_requested_closing_before_its_first_budgeted_step)
+  | test(=compose::tests::the_stop_steps_flush_the_daemon_log_and_then_end_the_run_token)
+  | test(=compose_domains::tests::every_method_of_the_domains_built_here_has_a_real_service)
+  | test(=server::tests::a_client_initializes_and_starts_a_thread_over_the_pair)
+  | test(=server::tests::every_thread_and_turn_method_of_the_table_reaches_a_handler)
+  | test(=server::tests::a_wedged_stop_step_does_not_hold_the_headless_shutdown)
+  | test(=server::tests::shutdown_stops_the_core_in_registration_order_and_refuses_new_clients)
+  | test(=serving::tests::start_serves_both_listeners_and_a_stop_releases_once)
+  | test(=compose_test_support::runner_tests::a_cluster_left_running_by_a_killed_child_is_ended_before_its_directory_is_removed)
+)'''
+slow-timeout = { period = "120s", terminate-after = 6 }
 
 # The two real-git replays of mixdog-core-session each wait on a chain of about 1,400 git processes
 # (7.8 CPU seconds in 72 s for the project replay), so process creation, not CPU, is what the rest of
@@ -30,6 +89,10 @@ test-group = 'pg-cluster'
 [[profile.default.overrides]]
 filter = 'package(mixdog-core-session) & (test(=project::tests::every_recorded_step_equals_nodes_over_real_state) | test(=session::worktree::worktree_service_tests::the_safety_scenarios_leave_the_git_and_disk_state_nodes_left))'
 threads-required = 'num-test-threads'
+# With twelve checkouts building beside it the project replay takes 120-142 s (it passed in 141.87 s alone
+# on 2026-11-10): at the default 120 s it was killed in nine of nine runs of an hour, each a lost two
+# minutes and a failed suite that was then run again.
+slow-timeout = { period = "60s", terminate-after = 6 }
 
 # DS-WS-5 gates a real latency: an external write must reach the subscriber within 400 ms (250 ms of that is the watcher's batching
 # window). The OS watch cannot be given a clock, so the claim can only be measured on a machine that is not busy; beside the git replays

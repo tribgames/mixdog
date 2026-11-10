@@ -1,3 +1,7 @@
+mod long_session_log;
+/// The long-session-log recording and the migrator over one log, shared with the memory test's own binary.
+#[path = "../support/long_log.rs"]
+mod long_log_support;
 mod model_context_corpus;
 mod recorded_145;
 mod recorded_145_readers;

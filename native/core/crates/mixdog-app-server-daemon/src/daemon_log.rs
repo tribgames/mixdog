@@ -111,6 +111,8 @@ struct Shared {
     file_bytes: Mutex<Option<u64>>,
     /// Woken when the drainer finds nothing left (or never ran).
     idle: Notify,
+    /// The memory worker's log (`memory-runtime-proxy.log`), flushed with this one.
+    memory: Mutex<Option<DaemonLog>>,
 }
 
 /// The daemon log. Cloning shares the queue.
@@ -177,6 +179,7 @@ impl DaemonLog {
                 state: Mutex::new(State::default()),
                 file_bytes: Mutex::new(None),
                 idle: Notify::new(),
+                memory: Mutex::new(None),
             }),
         }
     }
@@ -210,7 +213,44 @@ impl DaemonLog {
     /// line bounded as the redirect bounds an argument, then as any log line, without the `[daemon]` tag
     /// (`fixtures/console-redirect/golden.json`, from the real redirect).
     pub fn console_warn(&self, line: &str) {
-        self.raw(&format!("[console.warn] {}", bounded_text(line)));
+        self.console("warn", line);
+    }
+
+    /// `console.<method>(line)` once `installRedirect` has run, as [`Self::console_warn`] for any method.
+    pub fn console(&self, method: &str, line: &str) {
+        self.raw(&format!("[console.{method}] {}", bounded_text(line)));
+    }
+
+    /// The memory worker's stderr: `memory-runtime-proxy.log`, which the daemon's proxy appends `[<ISO>] <chunk>` rows to.
+    /// `memory` is flushed whenever this log is.
+    pub fn attach_memory_log(&self, memory: DaemonLog) {
+        *locked(&self.shared.memory) = Some(memory);
+    }
+
+    /// Where the lines Node writes to its stderr go once the daemon runs (`mixdog_rt::node_log`): what `installRedirect`
+    /// does with a `process.stderr.write` chunk or a `console` call, and the memory worker's stderr mirror.
+    pub fn node_sink(&self) -> mixdog_rt::node_log::Sink {
+        use mixdog_rt::node_log::Origin;
+        let daemon = self.clone();
+        let memory = locked(&self.shared.memory).clone().unwrap_or_else(|| self.clone());
+        Arc::new(move |origin, channel, line| match (origin, channel.console_method()) {
+            (Origin::MemoryWorker, _) => memory.raw(line),
+            (Origin::Daemon, Some(method)) => daemon.console(method, line),
+            (Origin::Daemon, None) => daemon.raw(line),
+        })
+    }
+
+    /// The destination of Node stderr lines while the daemon's own stderr is not redirected (before ready, and for good under
+    /// `MIXDOG_DAEMON_ALLOW_STDERR=1`): the memory worker's stderr is a pipe the spawner mirrors into its proxy log whatever the daemon's
+    /// readiness (`daemon-spawn.mjs:108-116`), and every daemon line is written bare to the descriptor.
+    pub fn memory_sink(&self) -> mixdog_rt::node_log::Sink {
+        use mixdog_rt::node_log::Origin;
+        let daemon = self.clone();
+        let memory = locked(&self.shared.memory).clone().unwrap_or_else(|| self.clone());
+        Arc::new(move |origin, _, line| match origin {
+            Origin::MemoryWorker => memory.raw(line),
+            Origin::Daemon => (daemon.shared.stderr)(&mixdog_rt::node_log::bare(line)),
+        })
     }
 
     /// `console_warn` as a seam a `Fn(&str)` consumer takes.
@@ -228,6 +268,14 @@ impl DaemonLog {
     /// `flush`: returns once every line logged before the call is written (or lost to a failed
     /// write). A lane that refuses the drainer leaves the lines queued for the next line's try.
     pub async fn flush(&self) {
+        let memory = locked(&self.shared.memory).clone();
+        self.flush_own().await;
+        if let Some(memory) = memory {
+            memory.flush_own().await;
+        }
+    }
+
+    async fn flush_own(&self) {
         loop {
             let notified = self.shared.idle.notified();
             tokio::pin!(notified);
@@ -330,6 +378,12 @@ fn rotate_if_needed(lane: &InLane<MaintenanceIo>, file: &dyn LogFile, known: &mu
     file.replace(lane, &tail)?;
     *known = Some(tail.len() as u64);
     Ok(())
+}
+
+/// The two lines `announceDaemonReady` logs once the redirect is installed (daemon.mjs:856-857): the ready line (`ms` as `toFixed(0)`) and the profiler's `daemon-ready` mark
+/// (`totalMs` rounded to one decimal, printed as a JS number: no `.0`).
+pub fn ready_lines(port: u16, pid: u32, ms: f64) -> [String; 2] {
+    [format!("ready port={port} pid={pid} in {ms:.0}ms"), format!("boot-phase phase=daemon-ready status=mark totalMs={}", (ms * 10.0).round() / 10.0)]
 }
 
 #[cfg(test)]
@@ -574,6 +628,126 @@ mod tests {
         assert_eq!(lines.len(), cases.len());
         for (line, case) in lines.iter().zip(cases) {
             assert_eq!(*line, case["line"].as_str().unwrap(), "{}", case["name"]);
+        }
+    }
+
+    /// The `[<ISO>] ` stamps of `text` replaced by `[<ISO>] `, each checked for the exact `toISOString` shape first.
+    fn mask_stamps(text: &str) -> String {
+        let shape = b"dddd-dd-ddTdd:dd:dd.dddZ";
+        let mut out = String::new();
+        let mut rest = text;
+        while let Some(at) = if rest.starts_with('[') { Some(0) } else { rest.find("\n[").map(|i| i + 1) } {
+            out.push_str(&rest[..at]);
+            let body = &rest[at + 1..];
+            let stamped = body.len() > 26
+                && body.as_bytes()[..24].iter().zip(shape).all(|(b, s)| if *s == b'd' { b.is_ascii_digit() } else { b == s })
+                && &body[24..26] == "] ";
+            if stamped {
+                out.push_str("[<ISO>] ");
+                rest = &body[26..];
+            } else {
+                out.push('[');
+                rest = body;
+            }
+        }
+        out.push_str(rest);
+        out
+    }
+
+    /// The bytes `daemon.log` holds after Node's daemon wrote the same lines (`fixtures/daemon-redirect`, recorded from the
+    /// real `createDaemonLog` in a child whose stdout and stderr are the file): bare before ready, one `[<ISO>] ` row per
+    /// write after (a multi-line write stays one row, trailing white space trimmed, `console` calls tagged).
+    #[tokio::test]
+    async fn the_daemon_log_bytes_are_the_ones_nodes_daemon_wrote() {
+        use mixdog_rt::node_log::Channel::ConsoleError;
+        use mixdog_rt::node_log::Channel::ConsoleWarn;
+        use mixdog_rt::node_log::Channel::Stderr;
+        use mixdog_rt::node_log::Origin::Daemon;
+        let golden: Value = serde_json::from_str(include_str!("../../../fixtures/daemon-redirect/golden.json")).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("daemon.log");
+        let fd2 = Arc::new(Mutex::new(String::new()));
+        let into = fd2.clone();
+        let sink: StderrSink = Arc::new(move |text| locked(&into).push_str(text));
+        let log = DaemonLog::with_parts(Arc::new(DiskLogFile::new(path.clone())), tokens().maintenance_io, CancellationToken::new(), Arc::new(system_now_ms), sink);
+        log.log("before ready");
+        locked(&fd2).push_str(&mixdog_rt::node_log::bare("[mod] raw before ready"));
+        log.enable_file_logging();
+        let node = log.node_sink();
+        for line in ready_lines(54366, 4242, 463.4) {
+            log.log(&line);
+        }
+        log.log("after ready");
+        node(Daemon, Stderr, "[mod] single line");
+        node(Daemon, Stderr, "[mod] first\n[mod] second");
+        node(Daemon, Stderr, "[mod] no newline");
+        node(Daemon, ConsoleWarn, "[mod] warned 3");
+        node(Daemon, ConsoleError, "[mod] errored");
+        log.flush().await;
+        let file = String::from_utf8(mixdog_statefile::read_content(&path).unwrap().unwrap()).unwrap();
+        let written = format!("{}{}", locked(&fd2), file);
+        assert_eq!(mask_ready_fields(&mask_stamps(&written)), golden["file"].as_str().unwrap());
+    }
+
+    /// The ready row's port, pid and duration and the mark's `totalMs` replaced by the recording's tokens, each checked for its shape (digits, the mark's optional one decimal).
+    fn mask_ready_fields(text: &str) -> String {
+        let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+        text.split_inclusive('\n')
+            .map(|row| {
+                let body = row.trim_end_matches('\n');
+                let ending = &row[body.len()..];
+                if let Some(rest) = body.strip_prefix("[<ISO>] [daemon] ready port=") {
+                    let (port, rest) = rest.split_once(" pid=").unwrap();
+                    let (pid, rest) = rest.split_once(" in ").unwrap();
+                    let ms = rest.strip_suffix("ms").unwrap();
+                    assert!(digits(port) && digits(pid) && digits(ms), "{body}");
+                    return format!("[<ISO>] [daemon] ready port=<PORT> pid=<PID> in <MS>ms{ending}");
+                }
+                if let Some(total) = body.strip_prefix("[<ISO>] [daemon] boot-phase phase=daemon-ready status=mark totalMs=") {
+                    let (whole, decimal) = total.split_once('.').map_or((total, "0"), |(w, d)| (w, d));
+                    assert!(digits(whole) && decimal.len() == 1 && digits(decimal), "{body}");
+                    return format!("[<ISO>] [daemon] boot-phase phase=daemon-ready status=mark totalMs=<TOTAL>{ending}");
+                }
+                row.to_owned()
+            })
+            .collect()
+    }
+
+    /// The memory worker's stderr and the daemon's own, as Node's real spawner and daemon log left them (`benchmarks/rust-core/recorders/record-daemon-redirect-memory.mjs`):
+    /// the worker's chunks become `memory-runtime-proxy.log` rows whether the daemon is before ready or past it with `MIXDOG_DAEMON_ALLOW_STDERR=1`
+    /// (which skips only `installRedirect`), and the daemon's own lines stay bare on its descriptor in both. Replayed through [`DaemonLog::memory_sink`],
+    /// the sink installed before the core composes.
+    #[tokio::test]
+    async fn the_memory_workers_stderr_is_mirrored_before_ready_and_under_the_opt_out_as_nodes_spawner_did() {
+        use mixdog_rt::node_log::Channel::Stderr;
+        use mixdog_rt::node_log::Origin::Daemon;
+        use mixdog_rt::node_log::Origin::MemoryWorker;
+        let golden: Value = serde_json::from_str(include_str!("../../../fixtures/daemon-redirect/memory-golden.json")).unwrap();
+        // The worker's pipe chunks, as the recording's stub wrote them.
+        let chunks = ["[memory] first\n", "[memory] second\n[memory] third\n", "[memory] padded   \n\n", "[memory] after worker ready\n"];
+        for (scenario, past_ready) in [("before-ready", false), ("allow-stderr", true)] {
+            let dir = tempfile::tempdir().unwrap();
+            let fd2 = Arc::new(Mutex::new(String::new()));
+            let into = fd2.clone();
+            let sink: StderrSink = Arc::new(move |text| locked(&into).push_str(text));
+            let log = DaemonLog::with_parts(Arc::new(DiskLogFile::new(dir.path().join("daemon.log"))), tokens().maintenance_io, CancellationToken::new(), Arc::new(system_now_ms), sink.clone());
+            let memory = DaemonLog::with_parts(Arc::new(DiskLogFile::new(dir.path().join("memory-runtime-proxy.log"))), tokens().maintenance_io, CancellationToken::new(), Arc::new(system_now_ms), sink);
+            log.attach_memory_log(memory);
+            let node = log.memory_sink();
+            if past_ready {
+                log.enable_file_logging();
+            }
+            log.log("daemon line");
+            node(Daemon, Stderr, "[mod] daemon raw");
+            for chunk in chunks {
+                node(MemoryWorker, Stderr, chunk);
+            }
+            log.flush().await;
+            let read = |name: &str| mixdog_statefile::read_content(&dir.path().join(name)).unwrap().map(|bytes| String::from_utf8(bytes).unwrap());
+            let want = &golden[scenario];
+            assert_eq!(*locked(&fd2), want["daemonStderr"].as_str().unwrap(), "{scenario}: the daemon's descriptor");
+            assert_eq!(read("daemon.log").map(|text| mask_stamps(&text)).as_deref(), want["daemonLog"].as_str(), "{scenario}: daemon.log");
+            assert_eq!(mask_stamps(&read("memory-runtime-proxy.log").unwrap()), want["memoryProxyLog"].as_str().unwrap(), "{scenario}: memory-runtime-proxy.log");
         }
     }
 

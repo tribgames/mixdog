@@ -76,6 +76,9 @@ mod worktree_setup_run;
 #[cfg(test)]
 #[path = "worktree_setup_tests.rs"]
 mod worktree_setup_tests;
+#[cfg(test)]
+#[path = "worktree_host_tests.rs"]
+mod worktree_host_tests;
 #[path = "worktree_steps.rs"]
 mod worktree_steps;
 #[path = "worktree_project.rs"]

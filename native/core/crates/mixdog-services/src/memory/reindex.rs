@@ -132,7 +132,7 @@ impl Reindex {
             let ended = async {
                 let flushed = drain_embedding_reindex(|| flush.flush_roots(&token), &token, PASS_PAUSE).await?;
                 if flushed.attempted > 0 {
-                    tracing::info!(
+                    mixdog_rt::memory_stderr!(
                         "[memory-service] embedding reindex passes={} attempted={} ok={} failed={}",
                         flushed.passes,
                         flushed.attempted,
@@ -142,7 +142,7 @@ impl Reindex {
                 }
                 let swept = run_root_embed_sweep(|| flush.sweep_root_text(ROOT_SWEEP_BATCH, &token), &token, ROOT_SWEEP_PAUSE).await?;
                 if swept.replaced > 0 {
-                    tracing::info!("[memory-service] root text sweep steps={} replaced={}", swept.steps, swept.replaced);
+                    mixdog_rt::memory_stderr!("[memory-service] root text sweep steps={} replaced={}", swept.steps, swept.replaced);
                 }
                 Ok::<(), FlushFailure>(())
             }
@@ -150,7 +150,7 @@ impl Reindex {
             if let Err(error) = ended
                 && !token.is_cancelled()
             {
-                tracing::warn!("[memory-service] embedding reindex stopped: {error}");
+                mixdog_rt::memory_stderr!("[memory-service] embedding reindex stopped: {error}");
             }
             // `finally`: this run leaves the slot unless a later one already took it.
             let mut state = this.state.lock().expect("reindex state");
@@ -166,7 +166,18 @@ impl Reindex {
         let running = self.state.lock().expect("reindex state").running.take();
         if let Some(Running { cancel, task, .. }) = running {
             cancel.cancel();
+            // A stop abandoned while it waits ends the run it took.
+            let _abandoned = crate::memory::AbortOnDrop(task.abort_handle());
             let _ = task.await;
+        }
+    }
+
+    /// The stop's bound passed before [`Self::stop`] took the run: it is cancelled and aborted.
+    pub fn abandon(&self) {
+        let running = self.state.lock().expect("reindex state").running.take();
+        if let Some(Running { cancel, task, .. }) = running {
+            cancel.cancel();
+            task.abort();
         }
     }
 

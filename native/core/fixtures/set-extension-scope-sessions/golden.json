@@ -1,0 +1,2292 @@
+{
+  "domain": "set-extension-scope-sessions",
+  "recorder": "benchmarks/rust-core/recorders/record-set-extension-scope-sessions.mjs",
+  "sessions": {
+    "one": {
+      "folder": "<BASE>\\one",
+      "request": {
+        "kind": "skills",
+        "name": "deploy",
+        "projects": [
+          "<BASE>\\one"
+        ]
+      },
+      "status": {
+        "cwd": "<BASE>\\one",
+        "count": 19,
+        "tools": [],
+        "skills": [
+          {
+            "name": "deploy",
+            "enabled": true,
+            "description": "Use when deploying.",
+            "whenToUse": "",
+            "filePath": "<SANDBOX>\\mixdog_data_dir\\skills\\deploy\\SKILL.md",
+            "source": "global",
+            "owner": {
+              "kind": "user"
+            },
+            "editable": true,
+            "toolDependencies": [],
+            "declaredToolDependencies": [],
+            "dependencySource": "none",
+            "dependencyIssues": []
+          },
+          {
+            "name": "review",
+            "enabled": true,
+            "description": "Use when reviewing.",
+            "whenToUse": "",
+            "filePath": "<SANDBOX>\\mixdog_data_dir\\skills\\review\\SKILL.md",
+            "source": "global",
+            "owner": {
+              "kind": "user"
+            },
+            "editable": true,
+            "toolDependencies": [],
+            "declaredToolDependencies": [],
+            "dependencySource": "none",
+            "dependencyIssues": []
+          },
+          {
+            "name": "browser-use",
+            "enabled": false,
+            "description": "Drive the built-in browser tool (Mixdog Browser Use) on a live web page.",
+            "whenToUse": "Mixdog browser: interactive pages, forms, sign-in, web-app tests; not URL text or user-viewed tabs.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\browser-use\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": "browser"
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "browser"
+              },
+              {
+                "type": "tool",
+                "value": "handoff_user"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "browser"
+              },
+              {
+                "type": "tool",
+                "value": "handoff_user"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": []
+          },
+          {
+            "name": "code-tidy",
+            "enabled": false,
+            "description": "Format, lint, apply structural rules, and clean up user-selected code with the tidy tool.",
+            "whenToUse": "Tidy, format, lint, deslop, or clean up code; not new features or bug fixes.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\code-tidy\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": "tidy"
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "tidy"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "tidy"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": []
+          },
+          {
+            "name": "computer-use",
+            "enabled": false,
+            "description": "Drive the built-in computer tool on the local Windows, macOS, or Linux desktop.",
+            "whenToUse": "Operate or check desktop apps, OS dialogs, user-viewed browser tabs; not tool-covered work.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\computer-use\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": "computer"
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "computer"
+              },
+              {
+                "type": "tool",
+                "value": "handoff_user"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "computer"
+              },
+              {
+                "type": "tool",
+                "value": "handoff_user"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": []
+          },
+          {
+            "name": "docx",
+            "enabled": false,
+            "description": "Create, edit, review, or redline a Word document (.docx/.dotx/.docm) with the office tool.",
+            "whenToUse": "Create, edit, or review Word files (.docx/.dotx/.docm), including tracked changes; not PDF/slides.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\docx\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": "office"
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "office"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "office"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": []
+          },
+          {
+            "name": "history-recall",
+            "enabled": true,
+            "description": "Retrieve and interpret prior sessions, decisions, and unfinished work.",
+            "whenToUse": "Prior sessions, decisions, or work to resume; not current repo state or standing user preferences.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\history-recall\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": null
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "recall"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "recall"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": []
+          },
+          {
+            "name": "image",
+            "enabled": true,
+            "description": "Make or edit an image through the media tool (Mixdog Media Studio).",
+            "whenToUse": "Generate or edit still images and assets; not video clips.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\image\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": "media"
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "media"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "media"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": []
+          },
+          {
+            "name": "local-provider",
+            "enabled": true,
+            "description": "Find, install, inspect, repair, or remove Mixdog-managed local GGUF models.",
+            "whenToUse": "Local/offline GGUF or Hugging Face models, GPU fit, or stalled downloads; not hosted providers.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\local-provider\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": null
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "setup"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "setup"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": []
+          },
+          {
+            "name": "memory-management",
+            "enabled": true,
+            "description": "Inspect and curate approved standing user preferences and constraints.",
+            "whenToUse": "Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\memory-management\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": null
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "memory"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "memory"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": []
+          },
+          {
+            "name": "pdf",
+            "enabled": false,
+            "description": "Create, read, search, mark up, fill, merge, secure, or OCR a PDF with the office tool.",
+            "whenToUse": "PDF creation, reading, editing, OCR, forms, security, and table extraction; not Word/slides.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\pdf\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": "office"
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "office"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "office"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": []
+          },
+          {
+            "name": "pptx",
+            "enabled": false,
+            "description": "Create, redesign, or review a PowerPoint deck (.pptx) with the office tool.",
+            "whenToUse": "Create, edit, or review PowerPoint decks, slides, or templates; not Word/PDF/spreadsheets.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\pptx\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": "office"
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "office"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "office"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": []
+          },
+          {
+            "name": "setup",
+            "enabled": true,
+            "description": "Inspect or change persisted Mixdog settings through the built-in setup tool.",
+            "whenToUse": "Settings, not code/local installs: routes, workflows, MCP, plugins, skill toggles, style, profile.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\setup\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": null
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "setup"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "setup"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": []
+          },
+          {
+            "name": "setup-guide",
+            "enabled": true,
+            "description": "Guide a new user through first setup and explain Mixdog concepts.",
+            "whenToUse": "Mixy's first chat; how to start, what to do first, what a Mixdog term means; not one named setting.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\setup-guide\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": null
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "setup"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "setup"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": []
+          },
+          {
+            "name": "skill-creator",
+            "enabled": true,
+            "description": "Create, audit, repair, or simplify your Mixdog skills and their SKILL.md.",
+            "whenToUse": "Create, audit, repair, or edit skills, including activation failures; not ordinary feature work.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\skill-creator\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": null
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "read"
+              },
+              {
+                "type": "tool",
+                "value": "shell"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "read"
+              },
+              {
+                "type": "tool",
+                "value": "shell"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": []
+          },
+          {
+            "name": "test-suite",
+            "enabled": true,
+            "description": "Write, run, diagnose, prune and audit a project's tests without overloading the machine.",
+            "whenToUse": "Write, fix, run, diagnose, prune or audit tests, flaky failures, suite health; not live UI checks.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\test-suite\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": null
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "read"
+              },
+              {
+                "type": "tool",
+                "value": "shell"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "read"
+              },
+              {
+                "type": "tool",
+                "value": "shell"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": []
+          },
+          {
+            "name": "video",
+            "enabled": true,
+            "description": "Make a short video clip through the media tool (Mixdog Media Studio).",
+            "whenToUse": "Generate or extend video, or animate stills; not still-image generation or editing.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\video\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": "media"
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "media"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "media"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": []
+          },
+          {
+            "name": "visualize",
+            "enabled": false,
+            "description": "Show mockups, design options, diagrams, and finished artifacts in the side panel beside the chat.",
+            "whenToUse": "Mockups, previews, design options, diagrams, or showing any finished artifact; not code alone.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\visualize\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": "visualize"
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "visualize"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "visualize"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": []
+          },
+          {
+            "name": "xlsx",
+            "enabled": false,
+            "description": "Create, edit, audit, or model a spreadsheet (.xlsx/.xlsm/.csv/.tsv) with the office tool.",
+            "whenToUse": "Create, edit, audit, or model Excel/CSV/TSV spreadsheets, formulas, or tables; not Word or PDF.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\xlsx\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": "office"
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "office"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "office"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": []
+          }
+        ]
+      },
+      "saved": [
+        {
+          "theme": "dark",
+          "extensionScopes": {
+            "skills": {
+              "deploy": [
+                "<BASE>\\one"
+              ]
+            },
+            "mcp": {},
+            "plugins": {}
+          }
+        }
+      ],
+      "reply": {
+        "cwd": "<BASE>\\one",
+        "count": 19,
+        "tools": [],
+        "skills": [
+          {
+            "name": "deploy",
+            "enabled": true,
+            "description": "Use when deploying.",
+            "whenToUse": "",
+            "filePath": "<SANDBOX>\\mixdog_data_dir\\skills\\deploy\\SKILL.md",
+            "source": "global",
+            "owner": {
+              "kind": "user"
+            },
+            "editable": true,
+            "toolDependencies": [],
+            "declaredToolDependencies": [],
+            "dependencySource": "none",
+            "dependencyIssues": [],
+            "scope": [
+              "<BASE>\\one"
+            ],
+            "inheritedScope": null,
+            "activeHere": true
+          },
+          {
+            "name": "review",
+            "enabled": true,
+            "description": "Use when reviewing.",
+            "whenToUse": "",
+            "filePath": "<SANDBOX>\\mixdog_data_dir\\skills\\review\\SKILL.md",
+            "source": "global",
+            "owner": {
+              "kind": "user"
+            },
+            "editable": true,
+            "toolDependencies": [],
+            "declaredToolDependencies": [],
+            "dependencySource": "none",
+            "dependencyIssues": [],
+            "scope": null,
+            "inheritedScope": null,
+            "activeHere": true
+          },
+          {
+            "name": "browser-use",
+            "enabled": false,
+            "description": "Drive the built-in browser tool (Mixdog Browser Use) on a live web page.",
+            "whenToUse": "Mixdog browser: interactive pages, forms, sign-in, web-app tests; not URL text or user-viewed tabs.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\browser-use\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": "browser"
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "browser"
+              },
+              {
+                "type": "tool",
+                "value": "handoff_user"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "browser"
+              },
+              {
+                "type": "tool",
+                "value": "handoff_user"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": [],
+            "scope": null,
+            "inheritedScope": null,
+            "activeHere": true
+          },
+          {
+            "name": "code-tidy",
+            "enabled": false,
+            "description": "Format, lint, apply structural rules, and clean up user-selected code with the tidy tool.",
+            "whenToUse": "Tidy, format, lint, deslop, or clean up code; not new features or bug fixes.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\code-tidy\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": "tidy"
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "tidy"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "tidy"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": [],
+            "scope": null,
+            "inheritedScope": null,
+            "activeHere": true
+          },
+          {
+            "name": "computer-use",
+            "enabled": false,
+            "description": "Drive the built-in computer tool on the local Windows, macOS, or Linux desktop.",
+            "whenToUse": "Operate or check desktop apps, OS dialogs, user-viewed browser tabs; not tool-covered work.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\computer-use\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": "computer"
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "computer"
+              },
+              {
+                "type": "tool",
+                "value": "handoff_user"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "computer"
+              },
+              {
+                "type": "tool",
+                "value": "handoff_user"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": [],
+            "scope": null,
+            "inheritedScope": null,
+            "activeHere": true
+          },
+          {
+            "name": "docx",
+            "enabled": false,
+            "description": "Create, edit, review, or redline a Word document (.docx/.dotx/.docm) with the office tool.",
+            "whenToUse": "Create, edit, or review Word files (.docx/.dotx/.docm), including tracked changes; not PDF/slides.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\docx\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": "office"
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "office"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "office"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": [],
+            "scope": null,
+            "inheritedScope": null,
+            "activeHere": true
+          },
+          {
+            "name": "history-recall",
+            "enabled": true,
+            "description": "Retrieve and interpret prior sessions, decisions, and unfinished work.",
+            "whenToUse": "Prior sessions, decisions, or work to resume; not current repo state or standing user preferences.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\history-recall\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": null
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "recall"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "recall"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": [],
+            "scope": null,
+            "inheritedScope": null,
+            "activeHere": true
+          },
+          {
+            "name": "image",
+            "enabled": true,
+            "description": "Make or edit an image through the media tool (Mixdog Media Studio).",
+            "whenToUse": "Generate or edit still images and assets; not video clips.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\image\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": "media"
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "media"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "media"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": [],
+            "scope": null,
+            "inheritedScope": null,
+            "activeHere": true
+          },
+          {
+            "name": "local-provider",
+            "enabled": true,
+            "description": "Find, install, inspect, repair, or remove Mixdog-managed local GGUF models.",
+            "whenToUse": "Local/offline GGUF or Hugging Face models, GPU fit, or stalled downloads; not hosted providers.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\local-provider\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": null
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "setup"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "setup"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": [],
+            "scope": null,
+            "inheritedScope": null,
+            "activeHere": true
+          },
+          {
+            "name": "memory-management",
+            "enabled": true,
+            "description": "Inspect and curate approved standing user preferences and constraints.",
+            "whenToUse": "Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\memory-management\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": null
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "memory"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "memory"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": [],
+            "scope": null,
+            "inheritedScope": null,
+            "activeHere": true
+          },
+          {
+            "name": "pdf",
+            "enabled": false,
+            "description": "Create, read, search, mark up, fill, merge, secure, or OCR a PDF with the office tool.",
+            "whenToUse": "PDF creation, reading, editing, OCR, forms, security, and table extraction; not Word/slides.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\pdf\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": "office"
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "office"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "office"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": [],
+            "scope": null,
+            "inheritedScope": null,
+            "activeHere": true
+          },
+          {
+            "name": "pptx",
+            "enabled": false,
+            "description": "Create, redesign, or review a PowerPoint deck (.pptx) with the office tool.",
+            "whenToUse": "Create, edit, or review PowerPoint decks, slides, or templates; not Word/PDF/spreadsheets.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\pptx\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": "office"
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "office"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "office"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": [],
+            "scope": null,
+            "inheritedScope": null,
+            "activeHere": true
+          },
+          {
+            "name": "setup",
+            "enabled": true,
+            "description": "Inspect or change persisted Mixdog settings through the built-in setup tool.",
+            "whenToUse": "Settings, not code/local installs: routes, workflows, MCP, plugins, skill toggles, style, profile.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\setup\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": null
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "setup"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "setup"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": [],
+            "scope": null,
+            "inheritedScope": null,
+            "activeHere": true
+          },
+          {
+            "name": "setup-guide",
+            "enabled": true,
+            "description": "Guide a new user through first setup and explain Mixdog concepts.",
+            "whenToUse": "Mixy's first chat; how to start, what to do first, what a Mixdog term means; not one named setting.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\setup-guide\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": null
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "setup"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "setup"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": [],
+            "scope": null,
+            "inheritedScope": null,
+            "activeHere": true
+          },
+          {
+            "name": "skill-creator",
+            "enabled": true,
+            "description": "Create, audit, repair, or simplify your Mixdog skills and their SKILL.md.",
+            "whenToUse": "Create, audit, repair, or edit skills, including activation failures; not ordinary feature work.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\skill-creator\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": null
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "read"
+              },
+              {
+                "type": "tool",
+                "value": "shell"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "read"
+              },
+              {
+                "type": "tool",
+                "value": "shell"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": [],
+            "scope": null,
+            "inheritedScope": null,
+            "activeHere": true
+          },
+          {
+            "name": "test-suite",
+            "enabled": true,
+            "description": "Write, run, diagnose, prune and audit a project's tests without overloading the machine.",
+            "whenToUse": "Write, fix, run, diagnose, prune or audit tests, flaky failures, suite health; not live UI checks.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\test-suite\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": null
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "read"
+              },
+              {
+                "type": "tool",
+                "value": "shell"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "read"
+              },
+              {
+                "type": "tool",
+                "value": "shell"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": [],
+            "scope": null,
+            "inheritedScope": null,
+            "activeHere": true
+          },
+          {
+            "name": "video",
+            "enabled": true,
+            "description": "Make a short video clip through the media tool (Mixdog Media Studio).",
+            "whenToUse": "Generate or extend video, or animate stills; not still-image generation or editing.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\video\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": "media"
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "media"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "media"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": [],
+            "scope": null,
+            "inheritedScope": null,
+            "activeHere": true
+          },
+          {
+            "name": "visualize",
+            "enabled": false,
+            "description": "Show mockups, design options, diagrams, and finished artifacts in the side panel beside the chat.",
+            "whenToUse": "Mockups, previews, design options, diagrams, or showing any finished artifact; not code alone.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\visualize\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": "visualize"
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "visualize"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "visualize"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": [],
+            "scope": null,
+            "inheritedScope": null,
+            "activeHere": true
+          },
+          {
+            "name": "xlsx",
+            "enabled": false,
+            "description": "Create, edit, audit, or model a spreadsheet (.xlsx/.xlsm/.csv/.tsv) with the office tool.",
+            "whenToUse": "Create, edit, audit, or model Excel/CSV/TSV spreadsheets, formulas, or tables; not Word or PDF.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\xlsx\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": "office"
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "office"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "office"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": [],
+            "scope": null,
+            "inheritedScope": null,
+            "activeHere": true
+          }
+        ]
+      }
+    },
+    "two": {
+      "folder": "<BASE>\\two",
+      "request": {
+        "kind": "skills",
+        "name": "deploy",
+        "projects": [
+          "<BASE>\\one"
+        ]
+      },
+      "status": {
+        "cwd": "<BASE>\\two",
+        "count": 19,
+        "tools": [],
+        "skills": [
+          {
+            "name": "deploy",
+            "enabled": true,
+            "description": "Use when deploying.",
+            "whenToUse": "",
+            "filePath": "<SANDBOX>\\mixdog_data_dir\\skills\\deploy\\SKILL.md",
+            "source": "global",
+            "owner": {
+              "kind": "user"
+            },
+            "editable": true,
+            "toolDependencies": [],
+            "declaredToolDependencies": [],
+            "dependencySource": "none",
+            "dependencyIssues": []
+          },
+          {
+            "name": "review",
+            "enabled": true,
+            "description": "Use when reviewing.",
+            "whenToUse": "",
+            "filePath": "<SANDBOX>\\mixdog_data_dir\\skills\\review\\SKILL.md",
+            "source": "global",
+            "owner": {
+              "kind": "user"
+            },
+            "editable": true,
+            "toolDependencies": [],
+            "declaredToolDependencies": [],
+            "dependencySource": "none",
+            "dependencyIssues": []
+          },
+          {
+            "name": "browser-use",
+            "enabled": false,
+            "description": "Drive the built-in browser tool (Mixdog Browser Use) on a live web page.",
+            "whenToUse": "Mixdog browser: interactive pages, forms, sign-in, web-app tests; not URL text or user-viewed tabs.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\browser-use\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": "browser"
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "browser"
+              },
+              {
+                "type": "tool",
+                "value": "handoff_user"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "browser"
+              },
+              {
+                "type": "tool",
+                "value": "handoff_user"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": []
+          },
+          {
+            "name": "code-tidy",
+            "enabled": false,
+            "description": "Format, lint, apply structural rules, and clean up user-selected code with the tidy tool.",
+            "whenToUse": "Tidy, format, lint, deslop, or clean up code; not new features or bug fixes.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\code-tidy\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": "tidy"
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "tidy"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "tidy"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": []
+          },
+          {
+            "name": "computer-use",
+            "enabled": false,
+            "description": "Drive the built-in computer tool on the local Windows, macOS, or Linux desktop.",
+            "whenToUse": "Operate or check desktop apps, OS dialogs, user-viewed browser tabs; not tool-covered work.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\computer-use\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": "computer"
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "computer"
+              },
+              {
+                "type": "tool",
+                "value": "handoff_user"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "computer"
+              },
+              {
+                "type": "tool",
+                "value": "handoff_user"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": []
+          },
+          {
+            "name": "docx",
+            "enabled": false,
+            "description": "Create, edit, review, or redline a Word document (.docx/.dotx/.docm) with the office tool.",
+            "whenToUse": "Create, edit, or review Word files (.docx/.dotx/.docm), including tracked changes; not PDF/slides.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\docx\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": "office"
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "office"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "office"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": []
+          },
+          {
+            "name": "history-recall",
+            "enabled": true,
+            "description": "Retrieve and interpret prior sessions, decisions, and unfinished work.",
+            "whenToUse": "Prior sessions, decisions, or work to resume; not current repo state or standing user preferences.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\history-recall\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": null
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "recall"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "recall"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": []
+          },
+          {
+            "name": "image",
+            "enabled": true,
+            "description": "Make or edit an image through the media tool (Mixdog Media Studio).",
+            "whenToUse": "Generate or edit still images and assets; not video clips.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\image\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": "media"
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "media"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "media"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": []
+          },
+          {
+            "name": "local-provider",
+            "enabled": true,
+            "description": "Find, install, inspect, repair, or remove Mixdog-managed local GGUF models.",
+            "whenToUse": "Local/offline GGUF or Hugging Face models, GPU fit, or stalled downloads; not hosted providers.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\local-provider\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": null
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "setup"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "setup"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": []
+          },
+          {
+            "name": "memory-management",
+            "enabled": true,
+            "description": "Inspect and curate approved standing user preferences and constraints.",
+            "whenToUse": "Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\memory-management\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": null
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "memory"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "memory"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": []
+          },
+          {
+            "name": "pdf",
+            "enabled": false,
+            "description": "Create, read, search, mark up, fill, merge, secure, or OCR a PDF with the office tool.",
+            "whenToUse": "PDF creation, reading, editing, OCR, forms, security, and table extraction; not Word/slides.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\pdf\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": "office"
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "office"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "office"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": []
+          },
+          {
+            "name": "pptx",
+            "enabled": false,
+            "description": "Create, redesign, or review a PowerPoint deck (.pptx) with the office tool.",
+            "whenToUse": "Create, edit, or review PowerPoint decks, slides, or templates; not Word/PDF/spreadsheets.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\pptx\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": "office"
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "office"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "office"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": []
+          },
+          {
+            "name": "setup",
+            "enabled": true,
+            "description": "Inspect or change persisted Mixdog settings through the built-in setup tool.",
+            "whenToUse": "Settings, not code/local installs: routes, workflows, MCP, plugins, skill toggles, style, profile.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\setup\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": null
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "setup"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "setup"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": []
+          },
+          {
+            "name": "setup-guide",
+            "enabled": true,
+            "description": "Guide a new user through first setup and explain Mixdog concepts.",
+            "whenToUse": "Mixy's first chat; how to start, what to do first, what a Mixdog term means; not one named setting.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\setup-guide\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": null
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "setup"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "setup"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": []
+          },
+          {
+            "name": "skill-creator",
+            "enabled": true,
+            "description": "Create, audit, repair, or simplify your Mixdog skills and their SKILL.md.",
+            "whenToUse": "Create, audit, repair, or edit skills, including activation failures; not ordinary feature work.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\skill-creator\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": null
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "read"
+              },
+              {
+                "type": "tool",
+                "value": "shell"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "read"
+              },
+              {
+                "type": "tool",
+                "value": "shell"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": []
+          },
+          {
+            "name": "test-suite",
+            "enabled": true,
+            "description": "Write, run, diagnose, prune and audit a project's tests without overloading the machine.",
+            "whenToUse": "Write, fix, run, diagnose, prune or audit tests, flaky failures, suite health; not live UI checks.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\test-suite\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": null
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "read"
+              },
+              {
+                "type": "tool",
+                "value": "shell"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "read"
+              },
+              {
+                "type": "tool",
+                "value": "shell"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": []
+          },
+          {
+            "name": "video",
+            "enabled": true,
+            "description": "Make a short video clip through the media tool (Mixdog Media Studio).",
+            "whenToUse": "Generate or extend video, or animate stills; not still-image generation or editing.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\video\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": "media"
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "media"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "media"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": []
+          },
+          {
+            "name": "visualize",
+            "enabled": false,
+            "description": "Show mockups, design options, diagrams, and finished artifacts in the side panel beside the chat.",
+            "whenToUse": "Mockups, previews, design options, diagrams, or showing any finished artifact; not code alone.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\visualize\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": "visualize"
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "visualize"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "visualize"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": []
+          },
+          {
+            "name": "xlsx",
+            "enabled": false,
+            "description": "Create, edit, audit, or model a spreadsheet (.xlsx/.xlsm/.csv/.tsv) with the office tool.",
+            "whenToUse": "Create, edit, audit, or model Excel/CSV/TSV spreadsheets, formulas, or tables; not Word or PDF.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\xlsx\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": "office"
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "office"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "office"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": []
+          }
+        ]
+      },
+      "saved": [
+        {
+          "theme": "dark",
+          "extensionScopes": {
+            "skills": {
+              "deploy": [
+                "<BASE>\\one"
+              ]
+            },
+            "mcp": {},
+            "plugins": {}
+          }
+        }
+      ],
+      "reply": {
+        "cwd": "<BASE>\\two",
+        "count": 19,
+        "tools": [],
+        "skills": [
+          {
+            "name": "deploy",
+            "enabled": true,
+            "description": "Use when deploying.",
+            "whenToUse": "",
+            "filePath": "<SANDBOX>\\mixdog_data_dir\\skills\\deploy\\SKILL.md",
+            "source": "global",
+            "owner": {
+              "kind": "user"
+            },
+            "editable": true,
+            "toolDependencies": [],
+            "declaredToolDependencies": [],
+            "dependencySource": "none",
+            "dependencyIssues": [],
+            "scope": [
+              "<BASE>\\one"
+            ],
+            "inheritedScope": null,
+            "activeHere": false
+          },
+          {
+            "name": "review",
+            "enabled": true,
+            "description": "Use when reviewing.",
+            "whenToUse": "",
+            "filePath": "<SANDBOX>\\mixdog_data_dir\\skills\\review\\SKILL.md",
+            "source": "global",
+            "owner": {
+              "kind": "user"
+            },
+            "editable": true,
+            "toolDependencies": [],
+            "declaredToolDependencies": [],
+            "dependencySource": "none",
+            "dependencyIssues": [],
+            "scope": null,
+            "inheritedScope": null,
+            "activeHere": true
+          },
+          {
+            "name": "browser-use",
+            "enabled": false,
+            "description": "Drive the built-in browser tool (Mixdog Browser Use) on a live web page.",
+            "whenToUse": "Mixdog browser: interactive pages, forms, sign-in, web-app tests; not URL text or user-viewed tabs.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\browser-use\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": "browser"
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "browser"
+              },
+              {
+                "type": "tool",
+                "value": "handoff_user"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "browser"
+              },
+              {
+                "type": "tool",
+                "value": "handoff_user"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": [],
+            "scope": null,
+            "inheritedScope": null,
+            "activeHere": true
+          },
+          {
+            "name": "code-tidy",
+            "enabled": false,
+            "description": "Format, lint, apply structural rules, and clean up user-selected code with the tidy tool.",
+            "whenToUse": "Tidy, format, lint, deslop, or clean up code; not new features or bug fixes.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\code-tidy\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": "tidy"
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "tidy"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "tidy"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": [],
+            "scope": null,
+            "inheritedScope": null,
+            "activeHere": true
+          },
+          {
+            "name": "computer-use",
+            "enabled": false,
+            "description": "Drive the built-in computer tool on the local Windows, macOS, or Linux desktop.",
+            "whenToUse": "Operate or check desktop apps, OS dialogs, user-viewed browser tabs; not tool-covered work.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\computer-use\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": "computer"
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "computer"
+              },
+              {
+                "type": "tool",
+                "value": "handoff_user"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "computer"
+              },
+              {
+                "type": "tool",
+                "value": "handoff_user"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": [],
+            "scope": null,
+            "inheritedScope": null,
+            "activeHere": true
+          },
+          {
+            "name": "docx",
+            "enabled": false,
+            "description": "Create, edit, review, or redline a Word document (.docx/.dotx/.docm) with the office tool.",
+            "whenToUse": "Create, edit, or review Word files (.docx/.dotx/.docm), including tracked changes; not PDF/slides.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\docx\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": "office"
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "office"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "office"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": [],
+            "scope": null,
+            "inheritedScope": null,
+            "activeHere": true
+          },
+          {
+            "name": "history-recall",
+            "enabled": true,
+            "description": "Retrieve and interpret prior sessions, decisions, and unfinished work.",
+            "whenToUse": "Prior sessions, decisions, or work to resume; not current repo state or standing user preferences.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\history-recall\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": null
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "recall"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "recall"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": [],
+            "scope": null,
+            "inheritedScope": null,
+            "activeHere": true
+          },
+          {
+            "name": "image",
+            "enabled": true,
+            "description": "Make or edit an image through the media tool (Mixdog Media Studio).",
+            "whenToUse": "Generate or edit still images and assets; not video clips.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\image\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": "media"
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "media"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "media"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": [],
+            "scope": null,
+            "inheritedScope": null,
+            "activeHere": true
+          },
+          {
+            "name": "local-provider",
+            "enabled": true,
+            "description": "Find, install, inspect, repair, or remove Mixdog-managed local GGUF models.",
+            "whenToUse": "Local/offline GGUF or Hugging Face models, GPU fit, or stalled downloads; not hosted providers.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\local-provider\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": null
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "setup"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "setup"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": [],
+            "scope": null,
+            "inheritedScope": null,
+            "activeHere": true
+          },
+          {
+            "name": "memory-management",
+            "enabled": true,
+            "description": "Inspect and curate approved standing user preferences and constraints.",
+            "whenToUse": "Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\memory-management\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": null
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "memory"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "memory"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": [],
+            "scope": null,
+            "inheritedScope": null,
+            "activeHere": true
+          },
+          {
+            "name": "pdf",
+            "enabled": false,
+            "description": "Create, read, search, mark up, fill, merge, secure, or OCR a PDF with the office tool.",
+            "whenToUse": "PDF creation, reading, editing, OCR, forms, security, and table extraction; not Word/slides.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\pdf\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": "office"
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "office"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "office"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": [],
+            "scope": null,
+            "inheritedScope": null,
+            "activeHere": true
+          },
+          {
+            "name": "pptx",
+            "enabled": false,
+            "description": "Create, redesign, or review a PowerPoint deck (.pptx) with the office tool.",
+            "whenToUse": "Create, edit, or review PowerPoint decks, slides, or templates; not Word/PDF/spreadsheets.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\pptx\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": "office"
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "office"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "office"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": [],
+            "scope": null,
+            "inheritedScope": null,
+            "activeHere": true
+          },
+          {
+            "name": "setup",
+            "enabled": true,
+            "description": "Inspect or change persisted Mixdog settings through the built-in setup tool.",
+            "whenToUse": "Settings, not code/local installs: routes, workflows, MCP, plugins, skill toggles, style, profile.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\setup\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": null
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "setup"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "setup"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": [],
+            "scope": null,
+            "inheritedScope": null,
+            "activeHere": true
+          },
+          {
+            "name": "setup-guide",
+            "enabled": true,
+            "description": "Guide a new user through first setup and explain Mixdog concepts.",
+            "whenToUse": "Mixy's first chat; how to start, what to do first, what a Mixdog term means; not one named setting.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\setup-guide\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": null
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "setup"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "setup"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": [],
+            "scope": null,
+            "inheritedScope": null,
+            "activeHere": true
+          },
+          {
+            "name": "skill-creator",
+            "enabled": true,
+            "description": "Create, audit, repair, or simplify your Mixdog skills and their SKILL.md.",
+            "whenToUse": "Create, audit, repair, or edit skills, including activation failures; not ordinary feature work.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\skill-creator\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": null
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "read"
+              },
+              {
+                "type": "tool",
+                "value": "shell"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "read"
+              },
+              {
+                "type": "tool",
+                "value": "shell"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": [],
+            "scope": null,
+            "inheritedScope": null,
+            "activeHere": true
+          },
+          {
+            "name": "test-suite",
+            "enabled": true,
+            "description": "Write, run, diagnose, prune and audit a project's tests without overloading the machine.",
+            "whenToUse": "Write, fix, run, diagnose, prune or audit tests, flaky failures, suite health; not live UI checks.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\test-suite\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": null
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "read"
+              },
+              {
+                "type": "tool",
+                "value": "shell"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "read"
+              },
+              {
+                "type": "tool",
+                "value": "shell"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": [],
+            "scope": null,
+            "inheritedScope": null,
+            "activeHere": true
+          },
+          {
+            "name": "video",
+            "enabled": true,
+            "description": "Make a short video clip through the media tool (Mixdog Media Studio).",
+            "whenToUse": "Generate or extend video, or animate stills; not still-image generation or editing.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\video\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": "media"
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "media"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "media"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": [],
+            "scope": null,
+            "inheritedScope": null,
+            "activeHere": true
+          },
+          {
+            "name": "visualize",
+            "enabled": false,
+            "description": "Show mockups, design options, diagrams, and finished artifacts in the side panel beside the chat.",
+            "whenToUse": "Mockups, previews, design options, diagrams, or showing any finished artifact; not code alone.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\visualize\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": "visualize"
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "visualize"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "visualize"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": [],
+            "scope": null,
+            "inheritedScope": null,
+            "activeHere": true
+          },
+          {
+            "name": "xlsx",
+            "enabled": false,
+            "description": "Create, edit, audit, or model a spreadsheet (.xlsx/.xlsm/.csv/.tsv) with the office tool.",
+            "whenToUse": "Create, edit, audit, or model Excel/CSV/TSV spreadsheets, formulas, or tables; not Word or PDF.",
+            "filePath": "<TREE>\\src\\defaults\\skills\\xlsx\\SKILL.md",
+            "source": "builtin",
+            "owner": {
+              "kind": "builtin",
+              "feature": "office"
+            },
+            "editable": false,
+            "toolDependencies": [
+              {
+                "type": "tool",
+                "value": "office"
+              }
+            ],
+            "declaredToolDependencies": [
+              {
+                "type": "tool",
+                "value": "office"
+              }
+            ],
+            "dependencySource": "declaration",
+            "dependencyIssues": [],
+            "scope": null,
+            "inheritedScope": null,
+            "activeHere": true
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-desktop-separation.mjs --tree <git checkout of b6f10295a2f698afc85332467192de28500bd146> --commit b6f10295a2f698afc85332467192de28500bd146",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 66212,
+      "path": "twin.json",
+      "sha256": "22f768084773710e748a1d7b439e5a23b383a1e3a708111e17d09a1c7da75f28"
+    }
+  ],
+  "product": {
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-desktop-separation.mjs",
+  "set": "desktop-separation",
+  "totalBytes": 66212
+}

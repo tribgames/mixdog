@@ -231,24 +231,74 @@ async fn a_redeem_posts_nodes_body_with_nodes_headers_and_replays_once() {
 
 #[tokio::test]
 async fn a_refusal_of_the_transport_reads_as_nodes_fetch_failed_or_timeout() {
-    struct Refusing(&'static str);
+    /// Refuses with the message the link gives for the exchange's surface, or with none of the link's (a route the
+    /// proxy policy could not decide: no typed fault).
+    struct Refusing(Option<TransportFault>);
 
     #[async_trait]
     impl HttpSend for Refusing {
-        async fn send(&self, _: WireRequest, _: Exchange) -> Result<HttpResponse, ProviderError> {
+        async fn send(&self, _: WireRequest, exchange: Exchange) -> Result<HttpResponse, ProviderError> {
             let mut error = ProviderError::new(ErrorKind::Transient, DeliveryState::Ambiguous);
-            error.message = self.0.to_owned();
+            error.message = "no route".to_owned();
+            if let Some(fault) = &self.0 {
+                error.transport = Some(fault.clone());
+                error.message = exchange.surface.timeout_text(Duration::from_secs(1)).unwrap();
+            }
             Err(error)
         }
     }
 
-    let get = |message: &'static str| async move { RoutedUsageHttp::new(Arc::new(Refusing(message))).get("https://x.test/a", &[], Duration::from_secs(1)).await.err().unwrap() };
-    // `redirect: 'error'` is the transport's refusal of a 3xx.
-    let redirected = get("unexpected redirect (HTTP 302)").await;
-    assert_eq!((redirected.message.as_str(), redirected.status), ("fetch failed", None));
-    let stalled = get("request timed out after 1000ms").await;
-    assert_eq!(stalled.message, "The operation was aborted due to timeout");
+    let http: Arc<dyn HttpSend> = Arc::new(Refusing(None));
+    // No typed fault: Node's `fetch failed`.
+    let undecided = RoutedUsageHttp::new(http).get("https://x.test/a", &[], Duration::from_secs(1)).await.err().unwrap();
+    assert_eq!((undecided.message.as_str(), undecided.status), ("fetch failed", None));
 }
+
+/// The OAuth usage reads are `AbortSignal.timeout` fetches (`sites.oauthUsage`, `oauth-usage.mjs:247`): the read ends at
+/// Node's window with the signal's own text.
+#[tokio::test(start_paused = true)]
+async fn an_oauth_usage_read_ends_as_nodes_does_when_its_timer_fires() {
+    use crate::transport::site_probe::TimingOut;
+    use crate::transport::site_probe::assert_thrown;
+    use crate::transport::site_probe::assert_transport;
+
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let io = || CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
+    let transport = TimingOut::new();
+    let versions = ClientVersions::new(Net::from(&json!([])), dir.path().to_path_buf(), io(), Arc::new(Vars(HashMap::new())));
+    let usage = OAuthUsage::new(UsageDeps {
+        http: Arc::new(RoutedUsageHttp::new(transport.clone())),
+        source: Arc::new(Flow { auth: json!({ "access_token": "a", "account_id": "x" }), forced: Value::Null, refreshed: Mutex::new(false) }),
+        grok: Arc::new(GrokVersionHeaders::new(versions)),
+        history: Arc::new(History::default()),
+        store: AccountStore::new(dir.path().to_path_buf(), io()),
+        io: io(),
+        log: Arc::new(|_| {}),
+        data_dir: dir.path().join("data"),
+    });
+    let error = usage.fetch_codex_reset_credits("default").await.err().expect("never answers");
+    assert_transport("oauthUsage", &transport);
+    assert_thrown("oauthUsage", &error.message);
+}
+/// The OpenCode Go status read is a bare `AbortController` timer (`sites.opencodeGoUsage`).
+#[tokio::test(start_paused = true)]
+async fn the_opencode_go_status_read_ends_as_nodes_does_when_its_timer_fires() {
+    use crate::transport::site_probe::TimingOut;
+    use crate::transport::site_probe::assert_thrown;
+    use crate::transport::site_probe::assert_transport;
+
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let store = AccountStore::new(dir.path().to_path_buf(), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io });
+    let transport = TimingOut::new();
+    let source = ProviderUsageSource::new(store, transport.clone());
+    let credentials = serde_json::from_value(json!({ "access_token": "a", "refresh_token": "r", "org_id": "o" })).unwrap();
+    let error = source.opencode_status(&credentials).await.expect_err("never answers");
+    assert_transport("opencodeGoUsage", &transport);
+    assert_thrown("opencodeGoUsage", &error.message);
+}
+
 #[tokio::test]
 async fn a_provider_without_a_signed_in_credential_fails_and_one_without_usage_is_left_alone() {
     let dir = tempfile::tempdir().unwrap();

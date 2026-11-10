@@ -254,7 +254,7 @@ async fn the_servers_handshake_and_app_subscribe_start_the_lane_once() {
         core,
         outgoing,
         Arc::new(|_| Some(mixdog_protocol::Origin::Local)),
-        crate::server::server_config(mixdog_app_protocol::limits::Limits::default()),
+        crate::server::server_config(mixdog_app_protocol::limits::Limits::default(), Default::default()),
     )
     .expect("the default limits are valid");
     let connect = |id: u64| {
@@ -312,7 +312,7 @@ async fn a_non_desktop_clients_handshake_starts_the_lane() {
         Arc::new(MockCore::new(&[], MockLimits::default())),
         outgoing,
         Arc::new(|_| Some(mixdog_protocol::Origin::Local)),
-        crate::server::server_config(mixdog_app_protocol::limits::Limits::default()),
+        crate::server::server_config(mixdog_app_protocol::limits::Limits::default(), Default::default()),
     )
     .expect("the default limits are valid");
     let wire = Arc::new(MockConnection::new(ConnectionId(1), MockLimits::default()));

@@ -29,7 +29,6 @@ use mixdog_core_session::session::thread_context::ContextWorld;
 use mixdog_protocol::ProviderId;
 use serde_json::Value;
 
-use super::message_row::message_of;
 use super::session_cache_opts::is_agent_mode_session;
 use super::tool_surface::parse_tool_selection;
 use super::tool_exposure::native_provider_family;
@@ -210,10 +209,7 @@ impl ContextWorld for LiveContextWorld {
         let active = self.session.has_user_conversation(&rows) || rows.iter().any(is_summary_anchor);
         // Node's `session.messages` lead with the system blocks the request is sent with; the turn builds its request from the
         // same header fields (`system_messages`), so the status counts that request, not the transcript alone.
-        let mut messages = super::factory::system_messages(&header);
-        for row in &rows {
-            messages.push(message_of(row).map_err(|e| failed(DOMAIN, e))?);
-        }
+        let messages = super::factory::session_messages(&header, &rows).map_err(|e| failed(DOMAIN, e))?;
         let provider = Some(text(&header, "provider")).filter(|p| !p.is_empty()).unwrap_or_else(|| text(&route, "provider"));
         let model = Some(text(&header, "model")).filter(|m| !m.is_empty()).unwrap_or_else(|| text(&route, "model"));
         let docs: Vec<Value> = header.get("tools").and_then(Value::as_array).cloned().unwrap_or_default();
@@ -489,20 +485,18 @@ mod tests {
 
     #[async_trait]
     impl mixdog_core_session::session::NewThreadRoute for Seat {
-        async fn adopt(&self, _: &ThreadId, _: Option<&Map<String, Value>>) -> Result<Map<String, Value>, String> {
-            Err("the replay starts no task through the route service".to_owned())
+        // `createCurrentSession` on a thread that is there readies its live route, which the replay's cell holds as it is.
+        async fn adopt(&self, thread: &ThreadId, _: Option<&Map<String, Value>>) -> Result<Map<String, Value>, String> {
+            Ok(self.cells.route(thread))
         }
         async fn adopt_control(&self, thread: &ThreadId) -> Result<Map<String, Value>, String> {
             Ok(self.cells.route(thread))
         }
         async fn seat(&self, thread: &ThreadId) -> Result<(), String> {
-            use mixdog_core_ports::ports::route::FollowOptions;
             if text(&self.cells.route(thread), "model").is_empty() {
                 return Ok(());
             }
-            let follow = self.follow.get().expect("the follow is bound");
-            let options = FollowOptions { apply_to_current_session: true, lease: Some(follow.open_lease(thread, None)), ..FollowOptions::default() };
-            follow.follow(thread, &options).await.map(|_| ()).map_err(|e| format!("{e:?}"))
+            self.follow.get().expect("the follow is bound").seat(thread).await.map_err(|e| format!("{e:?}"))
         }
     }
 
@@ -594,23 +588,45 @@ mod tests {
     }
 
     /// The provider registry the readiness holds builds nothing: no replayed call prepares a provider.
-    struct NoBuilds;
+    /// The registry's builder as production has it for a custom provider (`build_custom_parts`): an adapter that lists, and
+    /// the adapter-owned `getCachedModelInfo` of its listing (`CustomListing`, seeded from the config's own rows before any
+    /// listing). The wire is never used by this replay.
+    #[derive(Default)]
+    struct CustomBuilder {
+        listings: std::sync::Mutex<HashMap<String, Arc<mixdog_ai::providers::custom::listing::CustomListing>>>,
+    }
+
     #[async_trait]
-    impl mixdog_ai::registry::providers::ProviderBuilder for NoBuilds {
-        async fn build(&self, name: &str, _: &Value) -> Result<Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>, String> {
-            Err(format!("the replay builds no provider ({name})"))
+    impl mixdog_ai::registry::providers::ProviderBuilder for CustomBuilder {
+        async fn build(&self, name: &str, cfg: &Value) -> Result<Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>, String> {
+            let protocol = serde_json::from_value(cfg["protocol"].clone()).map_err(|error| error.to_string())?;
+            let listing = mixdog_ai::providers::custom::listing::CustomListing::new(
+                name,
+                protocol,
+                cfg["baseURL"].as_str().unwrap_or_default(),
+                Vec::new(),
+                Arc::new(Offline),
+                Arc::new(mixdog_ai::providers::connect::rewrite::StaticCredential(None)),
+                true,
+                cfg,
+                mixdog_ai::catalog::ListingLookup::new(),
+            );
+            self.listings.lock().unwrap().insert(name.to_owned(), Arc::new(listing));
+            Ok(Arc::new(mixdog_core_api::domain::mock::MockProvider::new([])))
+        }
+        fn cached_model_info(&self, name: &str) -> Option<Arc<dyn mixdog_ai::catalog::CachedModelInfo>> {
+            self.listings.lock().unwrap().get(name).map(|listing| listing.clone() as Arc<dyn mixdog_ai::catalog::CachedModelInfo>)
         }
         async fn custom_key_ids(&self, _: &str) -> Result<Vec<String>, String> {
             Ok(Vec::new())
         }
         fn available(&self, _: &str) -> bool {
-            false
+            true
         }
         async fn oauth_credentials_usable(&self, _: &str) -> Result<bool, String> {
             Ok(false)
         }
     }
-
     /// `LiveRouteWriter` over the replay's route cell, without the provider preparation (the replay has no provider to
     /// prepare): the same `refresh_route_fields` over the same config and catalog row.
     struct Writer {
@@ -643,57 +659,6 @@ mod tests {
         }
         fn refresh_statusline_usage(&self, _: &ThreadId, _: &Route) {}
     }
-
-    /// What Node's answer for the task session holds because its seed turn ran: the turn's own conversation (system prompt, tool
-    /// schemas, user prompt) and the compaction record its pre-send check wrote. This replay has no turn machinery, no prompt
-    /// assembly and no tool pool, so these cannot be reproduced here; a difference anywhere else fails the test.
-    const TURN_WRITTEN: &[&str] = &[
-        "$.usedTokens",
-        "$.usedSource",
-        "$.currentEstimatedTokens",
-        "$.freeTokens",
-        "$.compaction.currentEstimatedTokens",
-        "$.compaction.requestReserveTokens",
-        // The status spreads the stored record; this key sits in the pre-send check's write (`send_check.rs`), after `bufferRatio`.
-        "$.compaction.handoffTimeoutMs",
-        "$.compaction.lastCheckedAt",
-        "$.compaction.lastBeforeTokens",
-        "$.compaction.lastAfterTokens",
-        "$.compaction.lastPressureTokens",
-        "$.compaction.lastStage",
-        "$.compaction.lastTrigger",
-        "$.compaction.lastFreshContextError",
-        "$.compaction.lastHandoffSource",
-        "$.compaction.lastError",
-        "$.compaction.lastDurationMs",
-        "$.compaction.lastChanged",
-        "$.compaction.lastFreshContext",
-        "$.compaction.compactCount",
-        "$.compaction.singleShotConsumed",
-        "$.compaction.recentChecks",
-        "$.compaction.pressureTokens",
-        "$.messages.count",
-        "$.messages.estimatedTokens",
-        "$.messages.roles.system.count",
-        "$.messages.roles.system.tokens",
-        "$.messages.roles.user.count",
-        "$.messages.roles.user.tokens",
-        "$.messages.semantic.system.count",
-        "$.messages.semantic.system.tokens",
-        "$.messages.semantic.chat.count",
-        "$.messages.semantic.chat.tokens",
-        "$.messages.semantic.workflow.tokens",
-        "$.request.toolSchemaTokens",
-        "$.request.toolSchemaBreakdown.code",
-        "$.request.toolSchemaBreakdown.mutation",
-        "$.request.toolSchemaBreakdown.other",
-        "$.request.toolSchemaBreakdown.agents",
-        "$.request.toolSchemaBreakdown.web",
-        "$.request.toolSchemaBreakdown.skills",
-        "$.request.toolSchemaBreakdown.control",
-        "$.request.toolSchemaBreakdown.setup",
-        "$.request.reserveTokens",
-    ];
 
     /// The paths at which two answers differ, in document order.
     fn differences(got: &Value, want: &Value, path: &str, out: &mut Vec<String>) {
@@ -733,12 +698,15 @@ mod tests {
         _dir: tempfile::TempDir,
         directory: Arc<mixdog_core_session::session::SessionDirectory>,
         threads: Arc<mixdog_core_session::session::thread_state::SessionThreads>,
+        adapter: Arc<mixdog_core_session::session::route_session::SessionRouteAdapter>,
         cells: Arc<Cells>,
         follow: Arc<mixdog_core_ports::ports::route::SessionRoutes>,
         status: LiveContextStatus,
         usage: Arc<mixdog_core_domains::domains::ai_account::usage::session_usage::SessionUsageService>,
         main: Route,
         ids: HashMap<String, ThreadId>,
+        /// The folder the recorded second session ran in, which the seed turn's prompt names; the status shows it as `$workspace`.
+        workspace: Option<String>,
         /// The real route service over the recording's config and the catalog it states: `setFast` goes through it.
         service: mixdog_core_domains::domains::ai_admin::route_service::RouteService,
         _config_dir: tempfile::TempDir,
@@ -746,6 +714,16 @@ mod tests {
 
     impl Replay {
         async fn new(mode: &str, provider: &Value, config_file: &Value) -> Self {
+            Self::with_change(mode, provider, config_file, |change| change).await
+        }
+
+        /// [`Self::new`] whose route change is `wrap` of the real one.
+        async fn with_change(
+            mode: &str,
+            provider: &Value,
+            config_file: &Value,
+            wrap: impl FnOnce(Arc<crate::run_host::route_change::RunHostRouteChange>) -> Arc<dyn mixdog_core_session::session::route_session::RouteChange>,
+        ) -> Self {
             use mixdog_core_session::session::route_session::SessionRouteAdapter;
             let rig = mixdog_core_session::session::testing::Rig::new();
             let cells = Arc::new(Cells::default());
@@ -754,7 +732,7 @@ mod tests {
             deps.new_route = seat.clone();
             let directory = Arc::new(mixdog_core_session::session::SessionDirectory::new(Arc::new(deps)));
             let threads = Arc::new(mixdog_core_session::session::thread_state::SessionThreads::new(directory.clone()));
-            let change = Arc::new(crate::run_host::route_change::RunHostRouteChange::new(Arc::new(WindowFacts), Arc::new(Fixed)));
+            let change = wrap(Arc::new(crate::run_host::route_change::RunHostRouteChange::new(Arc::new(WindowFacts), Arc::new(Fixed))));
             let adapter = Arc::new(SessionRouteAdapter::new(directory.clone(), threads.clone(), change, Arc::new(Quiet), Arc::new(Quiet), Arc::new(Quiet), rig.clock.clone()));
             let follow = Arc::new(mixdog_core_ports::ports::route::SessionRoutes::new(threads.clone(), threads.clone(), adapter.clone(), cells.clone()));
             seat.follow.set(follow.clone()).ok().expect("one follow");
@@ -766,6 +744,7 @@ mod tests {
                 host: Arc::new(Mode(mode.to_owned())),
                 lowering: Arc::new(|_, _| (Arc::new(TextOnly), Arc::new(TextOnly))),
             };
+            let route_adapter = adapter.clone();
             let session_port: Arc<dyn RouteSession> = adapter;
             let dir = tempfile::tempdir().expect("a folder");
             let usage = usage_service(dir.path(), threads.clone()).await;
@@ -779,8 +758,10 @@ mod tests {
             let io = mixdog_ai::oauth::CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
             let metadata = mixdog_ai::catalog::ModelsDevSource::new(Arc::new(Offline), config_dir.path().to_path_buf(), io);
             let catalog = Arc::new(mixdog_ai::catalog::CatalogService::cold_start(mixdog_ai::catalog::CatalogSnapshot::default(), Vec::new(), metadata).await);
-            let registry = Arc::new(mixdog_ai::registry::providers::ProviderRegistry::new(Arc::new(NoBuilds)));
+            let registry = Arc::new(mixdog_ai::registry::providers::ProviderRegistry::new(Arc::new(CustomBuilder::default())));
             let readiness = mixdog_ai::catalog::ProviderReadiness::new(registry, catalog.clone());
+            // The providers of the config are registered the way the daemon registers them at boot.
+            readiness.ensure_providers_ready(config.agent().get("providers").and_then(Value::as_object).cloned()).await.expect("the providers register");
             let facts = Arc::new(mixdog_core_domains::domains::ai_admin::chain::CatalogFacts { catalog: catalog.clone(), readiness, config: config.clone() });
             let models = Arc::new(mixdog_core_domains::domains::ai_admin::model_list::ModelListService {
                 catalog: catalog.clone(),
@@ -791,7 +772,7 @@ mod tests {
             });
             let writer = Arc::new(Writer { cells: cells.clone(), session: session_port, config: config.clone(), catalog });
             let service = mixdog_core_domains::domains::ai_admin::route_service::RouteService { config, facts, writer, session: follow.clone(), models, controls: directory.clone() };
-            Self { _rig: rig, _dir: dir, directory, threads, cells, follow, status: LiveContextStatus::new(Arc::new(world)), usage, main, ids: HashMap::new(), service, _config_dir: config_dir }
+            Self { _rig: rig, _dir: dir, directory, threads, adapter: route_adapter, cells, follow, status: LiveContextStatus::new(Arc::new(world)), usage, main, ids: HashMap::new(), workspace: None, service, _config_dir: config_dir }
         }
 
         fn id(&self, name: &str) -> ThreadId {
@@ -803,6 +784,18 @@ mod tests {
             let mut text = value.to_string();
             for (name, id) in &self.ids {
                 text = text.replace(&format!("\"{}\"", id.as_str()), &format!("\"${name}\""));
+            }
+            if let Some(raw) = &self.workspace {
+                let raw = serde_json::to_string(raw).expect("json");
+                text = text.replace(&raw, "\"$workspace\"");
+            }
+            serde_json::from_str(&text).expect("json")
+        }
+
+        fn tokenized_back(&self, value: &Value) -> Value {
+            let mut text = value.to_string();
+            for (name, id) in &self.ids {
+                text = text.replace(&format!("\"${name}\""), &format!("\"{}\"", id.as_str()));
             }
             serde_json::from_str(&text).expect("json")
         }
@@ -839,10 +832,69 @@ mod tests {
             self.follow.follow(&id, &options).await.expect("follow");
         }
 
-        /// The user prompt a submit stores on the session.
-        async fn seed(&self, name: &str, prompt: &str) {
+        /// A session Node recorded (`stored`) as this core's header holds it: the ids back, the folder raw, the conversation's
+        /// rows left to the message log, and the system prompt as the blocks it is built from (`SystemBlocks`): Node keeps it as
+        /// the session's leading messages, of which the two untiered ones are `promptBase` and `promptStable` and the `env` one
+        /// `promptEnv`. The prompt names the folder, and a route change rebuilds its `# Session` block from the header's cwd.
+        fn recorded_header(&self, stored: &Value) -> serde_json::Map<String, Value> {
+            let mut recorded = self.tokenized_back(stored);
+            let text_of = |row: &Value| row["content"].as_str().expect("a text block").to_owned();
+            let system: Vec<&Value> = stored["messages"].as_array().expect("messages").iter().filter(|row| row["role"] == "system").collect();
+            let untiered: Vec<String> = system.iter().filter(|row| row.get("cacheTier").is_none()).map(|row| text_of(row)).collect();
+            let [base, stable] = untiered.as_slice() else { panic!("two untiered system messages") };
+            let env = system.iter().find(|row| row["cacheTier"] == "env").map(|row| text_of(row)).expect("the env message");
+            let blocks = recorded.as_object_mut().expect("the stored header");
+            blocks.remove("messages");
+            for (key, text) in [("promptBase", base), ("promptStable", stable), ("promptEnv", &env)] {
+                blocks.insert(key.into(), Value::String(text.clone()));
+            }
+            blocks.clone()
+        }
+
+        /// The user prompt a submit stores on the session, and what Node's seed turn wrote into it that this replay has no
+        /// machinery for (the prompt assembly, the tool surface, the pre-send check): `stored` is the recorded session, and
+        /// each of its header fields the replay's own steps did not produce is installed as the turn left it.
+        async fn seed(&mut self, name: &str, prompt: &str, stored: &Value) {
+            use mixdog_core_ports::ports::threads::HeaderUpdates;
             use mixdog_core_session::session::room_log::RoomLog;
             let row = json!({ "role": "user", "content": prompt, "meta": { "transcript": { "messageId": "seed" } } });
+            // The turn creates the session on the route it has (`turn-prepare.mjs`: `createCurrentSession`).
+            self.follow.seat(&self.id(name)).await.expect("the turn's session");
+            let recorded = Value::Object(self.recorded_header(stored));
+            self.workspace = Some(stored["cwd"].as_str().expect("the cwd").to_owned());
+            self.threads
+                .update_header(
+                    &self.id(name),
+                    Box::new(move |header| {
+                        let mut set = serde_json::Map::new();
+                        for (key, value) in recorded.as_object().expect("the stored header") {
+                            match (header.get(key), value) {
+                                (None, _) if key != "messages" => {
+                                    set.insert(key.clone(), value.clone());
+                                }
+                                // The route change cleared the wire; the turn resolved it before its first request.
+                                (Some(Value::Null), _) if key == "wireRoute" => {
+                                    set.insert(key.clone(), value.clone());
+                                }
+                                (Some(_), _) if key == "cwd" => {
+                                    set.insert(key.clone(), value.clone());
+                                }
+                                // The record the pre-send check wrote joins the one the install made.
+                                (Some(Value::Object(held)), Value::Object(turn)) if key == "compaction" => {
+                                    let mut joined = held.clone();
+                                    for (field, value) in turn {
+                                        joined.entry(field.clone()).or_insert_with(|| value.clone());
+                                    }
+                                    set.insert(key.clone(), Value::Object(joined));
+                                }
+                                _ => {}
+                            }
+                        }
+                        mixdog_store::schema::record::HeaderChange { set, unset: Vec::new() }
+                    }),
+                )
+                .await
+                .expect("the turn's writes");
             let log = mixdog_core_session::session::room_log::SessionRoomLog::new(self.directory.clone());
             assert_eq!(log.append_rows(self.id(name).as_str(), vec![row]).await.expect("store the prompt"), 1);
         }
@@ -886,7 +938,7 @@ mod tests {
                 "setRoute" => replay.set_route(name, &args[0]).await,
                 // The seed turn: its prompt is stored as the turn stores it, which makes the session an active conversation; the
                 // system prompt, tool surface and pre-send check are the turn machinery's, which this replay has none of.
-                "submit" => replay.seed(name, args[0].as_str().expect("the prompt")).await,
+                "submit" => replay.seed(name, args[0].as_str().expect("the prompt"), &golden["stored"]).await,
                 "contextStatus" if name == "control" => {
                     assert_eq!(replay.context_status(name).await, step["value"], "{at}");
                     control_reads += 1;
@@ -895,7 +947,6 @@ mod tests {
                     let (got, want) = (replay.context_status(name).await, &step["value"]);
                     let mut differing = Vec::new();
                     differences(&got, want, "$", &mut differing);
-                    differing.retain(|line| !TURN_WRITTEN.iter().any(|path| line.starts_with(&format!("{path}: "))));
                     assert!(differing.is_empty(), "{at}: {differing:#?}");
                     task_reads += 1;
                 }
@@ -929,6 +980,223 @@ mod tests {
             }
         }
         assert_eq!((control_reads, task_reads), (5, 2), "every recorded status was compared");
+        // What the store holds of the task session's `compaction` after the installation's sync, the seed turn and the route
+        // change, in full: the sync's fields survive the route change.
+        use mixdog_core_ports::ports::threads::ThreadState;
+        let held = replay.threads.header(&replay.id("second")).await.expect("the task session");
+        assert_eq!(held.get("compaction"), Some(&golden["afterRoute"]["compaction"]));
+    }
+
+    /// The route change whose outside read waits on a gate once armed: it says when it has entered the actor and goes on when
+    /// released.
+    struct GatedLookup {
+        inner: Arc<crate::run_host::route_change::RunHostRouteChange>,
+        armed: Arc<std::sync::atomic::AtomicBool>,
+        entered: Arc<tokio::sync::Notify>,
+        release: Arc<tokio::sync::Notify>,
+    }
+    #[async_trait]
+    impl mixdog_core_session::session::route_session::RouteChange for GatedLookup {
+        async fn lookups(&self, header: &Header, route: &Route) -> mixdog_core_session::session::route_session::RouteLookups {
+            if self.armed.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                self.entered.notify_one();
+                self.release.notified().await;
+            }
+            self.inner.lookups(header, route).await
+        }
+        fn route_change(&self, header: &Header, route: &Route, previous: &Route, cross: bool, lookups: &mixdog_core_session::session::route_session::RouteLookups) -> mixdog_store::schema::record::HeaderChange {
+            self.inner.route_change(header, route, previous, cross, lookups)
+        }
+        fn environment_reset(&self, header: &Header) -> mixdog_store::schema::record::HeaderChange {
+            self.inner.environment_reset(header)
+        }
+    }
+
+    /// The recorded task session, as the seed turn left it, with a gated route change.
+    struct Gated {
+        replay: Replay,
+        golden: Value,
+        armed: Arc<std::sync::atomic::AtomicBool>,
+        entered: Arc<tokio::sync::Notify>,
+        release: Arc<tokio::sync::Notify>,
+        id: ThreadId,
+    }
+
+    impl Gated {
+        async fn new() -> Self {
+            let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/context-status-route/golden.json")).expect("golden");
+            let steps = golden["steps"].as_array().expect("steps");
+            let first = steps.iter().find(|step| step["session"] == "control" && step["action"] == "contextStatus").expect("a first control status");
+            let armed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let (entered, release) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Notify::new()));
+            let (a, e, r) = (armed.clone(), entered.clone(), release.clone());
+            let mut replay = Replay::with_change(first["value"]["toolMode"].as_str().expect("toolMode"), &first["value"]["provider"], &golden["config"], move |inner| {
+                Arc::new(GatedLookup { inner, armed: a, entered: e, release: r })
+            })
+            .await;
+            // The task session up to the seed turn, as the recording made it.
+            for step in steps.iter().filter(|step| step["session"] == "second").take(3) {
+                let (name, args) = ("second", step["args"].as_array().expect("args"));
+                match step["action"].as_str().expect("action") {
+                    "createSession" => replay.create(name, &args[0]).await,
+                    "setRoute" => replay.set_route(name, &args[0]).await,
+                    "submit" => replay.seed(name, args[0].as_str().expect("the prompt"), &golden["stored"]).await,
+                    other => panic!("an action the setup does not know: {other}"),
+                }
+            }
+            let id = replay.id("second");
+            Self { replay, golden, armed, entered, release, id }
+        }
+
+        /// Starts the route change Node's `updateSessionInPlace` makes and waits until it is inside the actor, awaiting its lookup.
+        async fn begin_route_change(&self) -> tokio::task::JoinHandle<Result<bool, mixdog_tools::orch::util::PortError>> {
+            use mixdog_core_ports::ports::route::RouteSession;
+            let route: Route = self.golden["inFlight"]["fields"].as_object().cloned().expect("the recorded route fields");
+            self.armed.store(true, std::sync::atomic::Ordering::SeqCst);
+            let routing = tokio::spawn({
+                let (adapter, id) = (self.replay.adapter.clone(), self.id.clone());
+                async move { adapter.update_route(&id, route, false).await }
+            });
+            self.entered.notified().await;
+            routing
+        }
+
+        /// A header write accepted into the actor's inbox (so queued behind the route change), and the header it computed from.
+        async fn submit(&self, write: &str, seen: &Arc<std::sync::Mutex<Vec<Header>>>) -> mixdog_core_session::session::thread_state::PendingHeaderUpdate {
+            let (saved, moved) = (self.golden["inFlight"]["saved"].clone(), self.golden["inFlight"]["movedTo"].clone());
+            let (seen, write) = (seen.clone(), write.to_owned());
+            self.replay
+                .directory
+                .submit_header_update(
+                    &self.id,
+                    Box::new(move |header| {
+                        seen.lock().unwrap().push(header.clone());
+                        match write.as_str() {
+                            "sync" => crate::run_host::compaction_follow::sync_change(header, &saved),
+                            "folder" => mixdog_store::schema::record::HeaderChange { set: [("cwd".to_owned(), moved)].into_iter().collect(), unset: Vec::new() },
+                            "none" => mixdog_store::schema::record::HeaderChange { set: Default::default(), unset: Vec::new() },
+                            other => panic!("an unknown write: {other}"),
+                        }
+                    }),
+                )
+                .await
+                .expect("the write is accepted into the inbox")
+        }
+
+        /// The stored header equals the recorded session `want` in full, but for the times (Node's are its own clock's).
+        async fn assert_header_is(&self, want: &Value, what: &str) {
+            self.assert_header_is_but(want, what, &[]).await;
+        }
+
+        /// [`Self::assert_header_is`] but for the `skipped` fields, which both headers still hold.
+        async fn assert_header_is_but(&self, want: &Value, what: &str, skipped: &[&str]) {
+            use mixdog_core_ports::ports::threads::ThreadState;
+            let mut got = self.replay.threads.header(&self.id).await.expect("the session");
+            let mut want = self.replay.recorded_header(want);
+            for header in [&mut got, &mut want] {
+                assert!(header.get("updatedAt").is_some_and(Value::is_number), "{what}: a stored time");
+                header.remove("updatedAt");
+                for field in skipped {
+                    assert!(header.contains_key(*field), "{what}: {field} is held");
+                    header.remove(*field);
+                }
+            }
+            let mut differing = Vec::new();
+            differences(&Value::Object(got), &Value::Object(want), "$", &mut differing);
+            assert!(differing.is_empty(), "{what}: {differing:#?}");
+        }
+    }
+
+    /// A compaction sync and a folder change submitted while the route change is in flight (accepted into the actor's inbox
+    /// before the lookup is released) apply after it, in the order submitted: each computes from the header the one before left,
+    /// and the stored header ends as Node's live session ends by the same sequence (`inFlight`: the route change, then the sync
+    /// and the folder change in this order or the other), in full.
+    async fn writes_in_flight_end_as_node_ends(order: [&str; 2], recorded: &str) {
+        let gated = Gated::new().await;
+        let routing = gated.begin_route_change().await;
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut pending = Vec::new();
+        for write in order {
+            pending.push(gated.submit(write, &seen).await);
+        }
+        // Both writes are in the inbox now (their submission resolved), and the route change is still awaiting its lookup: it
+        // holds the actor, so neither has run.
+        assert!(!routing.is_finished());
+        for write in &mut pending {
+            assert!(write.still_waiting(), "a queued write waits behind the route change");
+        }
+        assert!(seen.lock().unwrap().is_empty(), "no write has computed yet");
+        gated.release.notify_one();
+        assert!(routing.await.expect("route task").expect("update"), "the route change wrote");
+        for write in pending {
+            write.durable().await.expect("the queued write");
+        }
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 2);
+        assert!(seen[0].get("contextTokens") == Some(&Value::Null), "the first write computed from the header the route change left");
+        let folder_seen = |header: &Header| header.get("cwd") == gated.golden["inFlight"].get("movedTo");
+        assert_eq!(folder_seen(&seen[1]), order[0] == "folder", "the second write computed from the header the first left");
+        gated.assert_header_is(&gated.golden["inFlight"][recorded], recorded).await;
+    }
+
+    /// A route change to another model on a session holding a value its tool surface is resolved from that is not what it
+    /// should be (`schemaAllowedTools`, `mcpScopeId`, `agent`, `preset`, `cwd`, `disallowedTools`): as in Node's pass (no
+    /// throw), the change commits, the model changes, and the stored header equals Node's in full.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_route_change_over_malformed_surface_values_ends_as_nodes_ends() {
+        use mixdog_core_ports::ports::route::RouteSession;
+        use mixdog_core_ports::ports::threads::HeaderUpdates;
+        let probes = Gated::new().await.golden["inFlight"]["surfaceProbes"].as_array().cloned().expect("the recorded probes");
+        assert_eq!(probes.len(), 6);
+        for probe in probes {
+            let key = probe["key"].as_str().expect("key").to_owned();
+            let gated = Gated::new().await;
+            let mut route: Route = gated.golden["inFlight"]["fields"].as_object().cloned().expect("the recorded route fields");
+            let other = probe["model"].as_str().expect("model").to_owned();
+            route.insert("model".into(), json!(other));
+            let value = probe["value"].clone();
+            let held = (key.clone(), value);
+            gated
+                .replay
+                .threads
+                .update_header(&gated.id, Box::new(move |_| mixdog_store::schema::record::HeaderChange { set: [held].into_iter().collect(), unset: Vec::new() }))
+                .await
+                .expect("the malformed value");
+            assert!(probe["thrown"].is_null(), "{key}: Node did not throw");
+            let wrote = gated.replay.adapter.update_route(&gated.id, route, false).await;
+            assert!(wrote.is_ok(), "{key}: the route change did not fail: {wrote:?}");
+            // The tool list and its spec are the surface the route change resolves from the tool pool; this replay wires none,
+            // so they stay as the seed left them (`resume_tools`' `malformed_values_resolve_as_nodes_do` replays the spec
+            // against these same probes). The reset's time is the replay clock's, Node's is its own.
+            gated.assert_header_is_but(&probe["header"], &key, &["tools", "toolSpec", "lastContextTokensUpdatedAt"]).await;
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_sync_then_a_folder_change_in_flight_end_as_nodes_sequence_ends() {
+        writes_in_flight_end_as_node_ends(["sync", "folder"], "syncThenFolder").await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_folder_change_then_a_sync_in_flight_end_as_nodes_sequence_ends() {
+        writes_in_flight_end_as_node_ends(["folder", "sync"], "folderThenSync").await;
+    }
+
+    /// Node's pass cannot be cancelled once begun: it runs to its write. The route change whose caller is dropped while the
+    /// lookup is awaited on the actor still commits, and the header is Node's after the route change, in full.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_route_change_whose_caller_is_dropped_in_flight_still_commits() {
+        let gated = Gated::new().await;
+        let routing = gated.begin_route_change().await;
+        routing.abort();
+        assert!(routing.await.expect_err("the caller was dropped").is_cancelled());
+        gated.release.notify_one();
+        // A write submitted behind it: once it is durable the route change has run.
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let behind = gated.submit("none", &seen).await;
+        behind.durable().await.expect("the queued write");
+        assert!(seen.lock().unwrap()[0].get("contextTokens") == Some(&Value::Null), "the route change ran first");
+        gated.assert_header_is(&gated.golden["inFlight"]["afterRoute"], "afterRoute").await;
     }
 
     /// `snapshotProviderRequestTools` as Node recorded it (`fixtures/request-tools`): the session's tools as its

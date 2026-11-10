@@ -28,6 +28,8 @@ fn object(value: &Value) -> Header {
 
 /// The header of thread `t1` with one writer, as the session actor holds it: an update runs on the
 /// header as it stands, one at a time, and its change is applied before the next.
+const ROUNDS: usize = 50;
+
 struct Store {
     header: Mutex<Header>,
     /// A header write by another party that lands before the next update does.
@@ -35,19 +37,34 @@ struct Store {
     /// Reads that fail, and updates that fail.
     unreadable: bool,
     fails: bool,
+    /// How many of its ROUNDS a rival writer has used: it writes after each read of the header and before each update, which is
+    /// the writer's worst interleaving with the load, and a load that keeps going past its last round has stalled.
+    rival: Option<std::sync::atomic::AtomicUsize>,
 }
 
 impl Store {
     fn of(header: &Value) -> Arc<Self> {
-        Arc::new(Self { header: Mutex::new(object(header)), interloper: Mutex::new(None), unreadable: false, fails: false })
+        Arc::new(Self { header: Mutex::new(object(header)), interloper: Mutex::new(None), unreadable: false, fails: false, rival: None })
+    }
+
+    fn rivaled(header: &Value) -> Arc<Self> {
+        Arc::new(Self { header: Mutex::new(object(header)), interloper: Mutex::new(None), unreadable: false, fails: false, rival: Some(std::sync::atomic::AtomicUsize::new(0)) })
     }
 
     fn failing(header: &Value, unreadable: bool, fails: bool) -> Arc<Self> {
-        Arc::new(Self { header: Mutex::new(object(header)), interloper: Mutex::new(None), unreadable, fails })
+        Arc::new(Self { header: Mutex::new(object(header)), interloper: Mutex::new(None), unreadable, fails, rival: None })
     }
 
     fn snapshot(&self) -> Header {
         self.header.lock().expect("store").clone()
+    }
+
+    /// The rival's next round, failing by assertion when the load is still going after the last.
+    fn rival_writes(&self) {
+        let Some(done) = &self.rival else { return };
+        let round = done.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        assert!(round < ROUNDS, "the load kept reading and updating the header past the writer's {ROUNDS} rounds: it stalled");
+        self.write(Map::from_iter([("title".to_owned(), json!(round)), ("skillLoadedTools".to_owned(), json!(["recall"]))]));
     }
 
     /// Another writer's change, applied as the one writer applies it.
@@ -62,7 +79,9 @@ impl ThreadState for Store {
         if self.unreadable {
             return Err(PortError::Failed { capability: "session".into(), message: "header unreadable".into() });
         }
-        Ok(self.snapshot())
+        let header = self.snapshot();
+        self.rival_writes();
+        Ok(header)
     }
     async fn patch_header(&self, _: &ThreadId, _: Map<String, Value>, _: Vec<String>) -> Result<(), PortError> {
         unreachable!("the arm updates the header through HeaderUpdates")
@@ -81,6 +100,7 @@ impl HeaderUpdates for Store {
         if self.fails {
             return Err(PortError::Failed { capability: "session".into(), message: "header unwritable".into() });
         }
+        self.rival_writes();
         let mut header = self.header.lock().expect("store");
         if let Some(write) = self.interloper.lock().expect("interloper").take() {
             header.extend(write);
@@ -249,20 +269,14 @@ async fn a_write_that_lands_first_is_read_by_the_load_and_kept() {
 async fn a_writer_that_keeps_writing_neither_stalls_the_load_nor_loses_its_keys() {
     let golden = golden();
     let case = &golden["arm"][0];
-    let store = Store::of(&case["before"]);
+    let store = Store::rivaled(&case["before"]);
     let skill = dependencies(&case["dependencies"], &json!([]));
     let arm = arm_of(&store, Switches::default());
-    let writer = {
-        let store = store.clone();
-        async move {
-            for round in 0..50 {
-                store.write(Map::from_iter([("title".to_owned(), json!(round)), ("skillLoadedTools".to_owned(), json!(["recall"]))]));
-                tokio::task::yield_now().await;
-            }
-        }
-    };
-    let thread = thread();
-    let (armed, ()) = tokio::join!(arm.arm(&thread, &skill), writer);
+    let armed = arm.arm(&thread(), &skill).await;
+    // The rest of the writer's rounds, after the load has ended.
+    while store.rival.as_ref().expect("rival").load(std::sync::atomic::Ordering::SeqCst) < ROUNDS {
+        store.rival_writes();
+    }
     armed.expect("armed");
     let header = store.snapshot();
     assert_eq!(header["title"], json!(49));

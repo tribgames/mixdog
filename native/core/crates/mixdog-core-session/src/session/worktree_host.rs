@@ -25,8 +25,6 @@ pub struct SessionView {
     pub workspace: Option<Value>,
     /// The desktop metadata's Project path when its classification is `project`.
     pub desktop_project: Option<String>,
-    /// The session (or its live turn) has conversation messages.
-    pub has_messages: bool,
 }
 
 /// What `assertLeadIdle` reads: the Lead's turn, its workers and jobs, and the background
@@ -89,6 +87,13 @@ pub trait WorkspaceHost: Send + Sync + 'static {
 
     /// The hosted session, or `None`.
     fn session(&self, session_id: &str) -> Option<SessionView>;
+
+    /// The session (or its live turn) has conversation messages (`session-view.mjs`).
+    async fn has_conversation(&self, session_id: &str) -> Result<bool, ScmFailure>;
+
+    /// `ensureSession`: the runtime's session is created when it has none (`createCurrentSession('workspace')`); a route
+    /// that names no model refuses.
+    async fn ensure_session(&self, session_id: &str) -> Result<(), ScmFailure>;
 
     /// Publish `workspace` as the session's in-memory record only (the in-flight marker, then
     /// the stored record again); nothing is saved.

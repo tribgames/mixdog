@@ -3,6 +3,26 @@
 
 use mixdog_core_api::domain::process::ExitStatus;
 
+/// How a wait for a tree to end finished.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Waited {
+    /// A look found nothing of the tree left.
+    Gone,
+    /// The caller's abort was raised first: the tree is neither confirmed gone nor known to run.
+    Aborted,
+}
+
+/// What one look at a command's tree found.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Seen {
+    /// Something is still running; `reachable` is whether this process can signal it.
+    Running { reachable: bool },
+    /// Nothing is left.
+    Gone,
+    /// The tree could not be inspected: nothing is known.
+    Unknown,
+}
+
 #[cfg(windows)]
 mod imp {
     use std::collections::HashMap;
@@ -15,6 +35,7 @@ mod imp {
     use std::sync::atomic::Ordering;
 
     use tokio::sync::Notify;
+    use tokio_util::sync::CancellationToken;
     use windows_sys::Win32::Foundation::CloseHandle;
     use windows_sys::Win32::Foundation::HANDLE;
     use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
@@ -35,9 +56,20 @@ mod imp {
     use windows_sys::Win32::System::JobObjects::TerminateJobObject;
     use windows_sys::Win32::System::Threading::INFINITE;
 
+    use super::Waited;
+
     /// `JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO` (winnt.h), which windows-sys does not export: the
     /// last process of a job ended.
     const JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO: u32 = 4;
+
+    /// Kill-and-wait rounds of a cancel before it reports what is left (`KILL_ROUNDS` of `lib/shell-descendants.mjs`).
+    const KILL_ROUNDS: usize = 3;
+
+    /// `TERMINATION_RECHECK_MS`: how often a job that cannot be asked or watched is asked again.
+    const RECHECK: std::time::Duration = std::time::Duration::from_millis(5_000);
+
+    /// How long one round waits for the job to empty.
+    const KILL_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 
     /// The exit code a terminated job's processes report.
     pub(crate) const KILL_EXIT_CODE: u32 = 137;
@@ -134,8 +166,8 @@ mod imp {
             })
         }
 
-        /// Processes of the job still running.
-        fn active(&self) -> u32 {
+        /// Processes of the job still running; `None` when the job could not be asked.
+        fn active(&self) -> Option<u32> {
             let mut info = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
             let ok = unsafe {
                 QueryInformationJobObject(
@@ -146,19 +178,25 @@ mod imp {
                     std::ptr::null_mut(),
                 )
             };
-            if ok == 0 { 0 } else { info.ActiveProcesses }
+            (ok != 0).then_some(info.ActiveProcesses)
         }
 
-        /// Whether any process of the job is still running.
+        /// Whether any process of the job might still be running: a job that could not be asked is not empty.
         pub(crate) fn occupied(&self) -> bool {
-            self.active() > 0
+            self.active().is_none_or(|active| active > 0)
         }
 
-        /// What is left in the job: `Some(reachable)` while any process runs, `None` when empty.
-        /// Everything in a job can be ended with the job.
-        pub(crate) fn remaining(&self) -> Option<bool> {
-            self.occupied().then_some(true)
+        /// What is left in the job. Everything in a job can be ended with the job.
+        pub(crate) fn observe(&self) -> super::Seen {
+            match self.active() {
+                Some(0) => super::Seen::Gone,
+                Some(_) => super::Seen::Running { reachable: true },
+                None => super::Seen::Unknown,
+            }
         }
+
+        /// A job is not named by a pid, so the root's exit changes nothing about it.
+        pub(crate) fn root_reaped(&self) {}
 
         /// Starts reporting this job to the completion port (once) and returns the signal that
         /// is raised whenever its last process ends. `None` if the port is unavailable.
@@ -198,17 +236,38 @@ mod imp {
             self.signal().is_some()
         }
 
-        /// Completes when no process of the job is running; wakes on the port's message.
-        pub(crate) async fn wait_empty(&self) {
-            let Some(notify) = self.signal() else { return };
+        /// `waitForShellDescendants`: [`Waited::Gone`] when the job is seen empty, [`Waited::Aborted`] when `abort`
+        /// is raised first (already raised: answered before the job is asked).
+        pub(crate) async fn wait_gone(&self, abort: &CancellationToken) -> Waited {
+            if abort.is_cancelled() {
+                return Waited::Aborted;
+            }
+            tokio::select! {
+                biased;
+                () = abort.cancelled() => Waited::Aborted,
+                () = self.until_gone() => Waited::Gone,
+            }
+        }
+
+        /// Completes when the job is seen empty; wakes on the port's message. A job that cannot be asked, or that
+        /// cannot be watched, is not empty: no message will announce its end, so it is asked again every
+        /// `RECHECK`, as Node does where it has no exit event (`TERMINATION_RECHECK_MS`).
+        async fn until_gone(&self) {
+            let Some(notify) = self.signal() else {
+                while self.observe() != super::Seen::Gone {
+                    tokio::time::sleep(RECHECK).await;
+                }
+                return;
+            };
             loop {
                 let mut notified = std::pin::pin!(notify.notified());
                 // Registered before the count is read, so the last exit in between is not missed.
                 notified.as_mut().enable();
-                if !self.occupied() {
-                    return;
+                match self.observe() {
+                    super::Seen::Gone => return,
+                    super::Seen::Running { .. } => notified.await,
+                    super::Seen::Unknown => tokio::time::sleep(RECHECK).await,
                 }
-                notified.await;
             }
         }
 
@@ -235,6 +294,19 @@ mod imp {
             unsafe { TerminateJobObject(self.job, KILL_EXIT_CODE) };
         }
 
+        /// Ends the job and waits, woken by the job's own message, for it to empty (`KILL_ROUNDS` times at most): there
+        /// is no gentle first stop and no grace to give, only the operating system's time to end the processes.
+        pub(crate) async fn cancel(&self) -> bool {
+            for _ in 0..KILL_ROUNDS {
+                self.kill();
+                let _ = tokio::time::timeout(KILL_WAIT, self.until_gone()).await;
+                if !self.occupied() {
+                    return true;
+                }
+            }
+            false
+        }
+
         /// A job object has no gentle stop: the first stop is the forced one, so only the Unix path
         /// of an escalating stop differs.
         pub(crate) fn terminate(&self) {
@@ -254,203 +326,94 @@ mod imp {
 
 #[cfg(unix)]
 mod imp {
-    use std::sync::atomic::AtomicBool;
-    use std::sync::atomic::AtomicI32;
-    use std::sync::atomic::Ordering;
+    use std::sync::OnceLock;
 
-    /// The group of a child started as its own group leader (`setsid` or `process_group(0)`).
+    use crate::osproc::OsReader;
+    use crate::osproc::OsSignals;
+    use crate::osproc::TRACKING;
+    use crate::osproc::TokioClock;
+    use crate::tree::Observation;
+    use crate::tree::Signal;
+    use crate::tree::Tree;
+    use tokio_util::sync::CancellationToken;
+
+    use super::Waited;
+
+    /// The tree of a child started as its own group leader (`setsid` or `process_group(0)`): one
+    /// [`Tree`] follows it by identity, whether the group still has members or not.
     pub(crate) struct Containment {
-        group: AtomicI32,
-        /// The group was seen empty. Its id may be reused by an unrelated group from then on, so
-        /// nothing is sent to it or asked of it again.
-        emptied: AtomicBool,
+        tree: OnceLock<Tree<OsReader, OsSignals, TokioClock>>,
     }
 
     impl Containment {
         pub(crate) fn create() -> std::io::Result<Self> {
-            Ok(Self {
-                group: AtomicI32::new(0),
-                emptied: AtomicBool::new(false),
-            })
+            Ok(Self { tree: OnceLock::new() })
         }
 
+        /// `pid` is our own child, just spawned and not yet reaped: the one moment its start token is
+        /// known to be its own.
         pub(crate) fn adopt(&self, pid: u32) {
-            self.group.store(pid as i32, Ordering::Release);
+            let _ = self.tree.set(Tree::new(OsReader, OsSignals, TokioClock, pid, OsReader::identity(pid)));
+        }
+
+        /// The root has been reaped: its pid and group id are free for reuse from now on.
+        pub(crate) fn root_reaped(&self) {
+            if let Some(tree) = self.tree.get() {
+                tree.root_reaped();
+            }
         }
 
         pub(crate) fn kill(&self) {
-            self.signal(libc::SIGKILL);
+            if let Some(tree) = self.tree.get() {
+                tree.signal_group(Signal::Kill);
+            }
         }
 
         /// SIGTERM to the group: the gentle first stop of an escalating one (`kill` is the second).
         pub(crate) fn terminate(&self) {
-            self.signal(libc::SIGTERM);
-        }
-
-        fn signal(&self, signal: libc::c_int) {
-            let group = self.group.load(Ordering::Acquire);
-            if group > 0 && !self.emptied.load(Ordering::Acquire) {
-                unsafe { libc::kill(-group, signal) };
+            if let Some(tree) = self.tree.get() {
+                tree.signal_group(Signal::Term);
             }
         }
 
-        /// Existence probe of the group (signal 0): `Some(reachable)` while it has members
-        /// (`false` when the kernel refuses us the signal), `None` once it has none.
-        fn probe(&self) -> Option<bool> {
-            let group = self.group.load(Ordering::Acquire);
-            if group <= 0 || self.emptied.load(Ordering::Acquire) {
-                return None;
-            }
-            if unsafe { libc::kill(-group, 0) } == 0 {
-                return Some(true);
-            }
-            if std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM) {
-                return Some(false);
-            }
-            self.emptied.store(true, Ordering::Release);
-            None
-        }
-
-        /// Whether the group still has a member (a zombie awaiting its reaper counts).
+        /// Whether the group might still have a member, for how long a record is kept. It proves
+        /// nothing about who owns the group.
         pub(crate) fn occupied(&self) -> bool {
-            self.probe().is_some()
+            self.tree.get().is_some_and(Tree::group_may_be_occupied)
         }
 
-        /// What is left in the group: `Some(reachable)` while a live process remains, else `None`.
-        pub(crate) fn remaining(&self) -> Option<bool> {
-            #[cfg(target_os = "linux")]
-            {
-                let group = self.group.load(Ordering::Acquire);
-                if group <= 0 || linux::live_members(group).is_empty() {
-                    return None;
-                }
+        /// What is left of the tree.
+        pub(crate) fn observe(&self) -> super::Seen {
+            match self.tree.get().map(Tree::observe) {
+                Some(Observation::Running(_)) => super::Seen::Running { reachable: true },
+                Some(Observation::Unknown) => super::Seen::Unknown,
+                Some(Observation::Gone) | None => super::Seen::Gone,
             }
-            self.probe()
         }
 
-        /// Whether the end of the group can be waited for by event (Linux: one pidfd per member).
+        /// Whether the survivors of this platform can be followed at all: it needs a process table.
         pub(crate) fn watchable(&self) -> bool {
-            #[cfg(target_os = "linux")]
-            {
-                linux::pidfd_supported()
-            }
-            #[cfg(not(target_os = "linux"))]
-            {
-                false
-            }
+            TRACKING
         }
 
-        /// Completes when no live process is left in the group, woken by the members' exits.
-        pub(crate) async fn wait_empty(&self) {
-            #[cfg(target_os = "linux")]
-            {
-                let group = self.group.load(Ordering::Acquire);
-                if group > 0 {
-                    linux::wait_group_empty(group).await;
-                }
-            }
-        }
-    }
-
-    #[cfg(target_os = "linux")]
-    mod linux {
-        use std::os::fd::AsRawFd;
-        use std::os::fd::FromRawFd;
-        use std::os::fd::OwnedFd;
-        use std::sync::Arc;
-
-        /// The live (not zombie) processes whose process group is `group`.
-        pub(super) fn live_members(group: i32) -> Vec<u32> {
-            let Ok(dir) = std::fs::read_dir("/proc") else {
-                return Vec::new();
-            };
-            dir.filter_map(|entry| {
-                let pid: u32 = entry.ok()?.file_name().to_str()?.parse().ok()?;
-                let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-                // The command name may hold spaces and parentheses: the fields follow the last ')'.
-                let rest = &stat[stat.rfind(')')? + 2..];
-                let mut fields = rest.split(' ');
-                let state = fields.next()?;
-                fields.next()?;
-                let pgrp: i32 = fields.next()?.parse().ok()?;
-                (pgrp == group && state != "Z" && state != "X").then_some(pid)
-            })
-            .collect()
-        }
-
-        fn pidfd_open(pid: u32) -> Option<OwnedFd> {
-            let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, pid as libc::pid_t, 0) };
-            (fd >= 0).then(|| unsafe { OwnedFd::from_raw_fd(fd as i32) })
-        }
-
-        pub(super) fn pidfd_supported() -> bool {
-            pidfd_open(std::process::id()).is_some()
-        }
-
-        /// Wakes the blocked waiter when the future that started it is dropped.
-        struct Cancel(Arc<OwnedFd>);
-
-        impl Drop for Cancel {
-            fn drop(&mut self) {
-                let one = 1u64.to_ne_bytes();
-                unsafe { libc::write(self.0.as_raw_fd(), one.as_ptr().cast(), one.len()) };
+        /// Completes when the tree is gone, or aborted ([`Tree::wait_gone`]). A containment that never
+        /// adopted a root has no tree to wait for.
+        pub(crate) async fn wait_gone(&self, abort: &CancellationToken) -> Waited {
+            match self.tree.get() {
+                Some(tree) => tree.wait_gone(abort).await,
+                None => Waited::Gone,
             }
         }
 
-        pub(super) async fn wait_group_empty(group: i32) {
-            let raw = unsafe { libc::eventfd(0, libc::EFD_CLOEXEC) };
-            if raw < 0 {
-                return;
-            }
-            let cancel = Arc::new(unsafe { OwnedFd::from_raw_fd(raw) });
-            let (done, finished) = tokio::sync::oneshot::channel();
-            let waiter_fd = Arc::clone(&cancel);
-            let spawned = std::thread::Builder::new().name("group-wait".to_owned()).spawn(move || {
-                block_until_empty(group, waiter_fd.as_raw_fd());
-                let _ = done.send(());
-            });
-            if spawned.is_err() {
-                return;
-            }
-            let _wake_on_drop = Cancel(cancel);
-            let _ = finished.await;
-        }
-
-        fn block_until_empty(group: i32, cancel: i32) {
-            loop {
-                let members = live_members(group);
-                if members.is_empty() {
-                    return;
-                }
-                let mut watched: Vec<OwnedFd> = Vec::new();
-                let mut fds = vec![libc::pollfd {
-                    fd: cancel,
-                    events: libc::POLLIN,
-                    revents: 0,
-                }];
-                for pid in members {
-                    // A member that vanished since the scan has no pidfd; the next scan drops it.
-                    if let Some(fd) = pidfd_open(pid) {
-                        fds.push(libc::pollfd {
-                            fd: fd.as_raw_fd(),
-                            events: libc::POLLIN,
-                            revents: 0,
-                        });
-                        watched.push(fd);
-                    }
-                }
-                if watched.is_empty() {
-                    continue;
-                }
-                let ready = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, -1) };
-                if ready > 0 && fds[0].revents != 0 {
-                    return;
-                }
+        /// Ends the tree ([`Tree::cancel`]); `true` when a fresh look finds nothing left.
+        pub(crate) async fn cancel(&self) -> bool {
+            match self.tree.get() {
+                Some(tree) => tree.cancel().await,
+                None => true,
             }
         }
     }
 }
-
 pub(crate) use imp::Containment;
 
 #[cfg(all(test, unix))]

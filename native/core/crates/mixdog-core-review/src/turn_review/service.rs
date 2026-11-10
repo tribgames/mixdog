@@ -220,6 +220,9 @@ pub struct Inner {
     pub(super) mutations: Arc<mixdog_rt::KeyedChains>,
     cpu: mixdog_rt::CpuInteractive,
     pub(super) ignored: super::reads::IgnoredCache,
+    /// The deleted sessions' marker and baseline removals still running (`forget_session` does not
+    /// wait for them, as Node's does not).
+    pub(super) forgets: Mutex<Vec<tokio::task::JoinHandle<()>>>,
     write_seq: AtomicU64,
     agent_seq: AtomicU64,
     freeze_seq: AtomicU64,
@@ -256,6 +259,7 @@ impl TurnReview {
                 mutations: mixdog_rt::KeyedChains::new(),
                 cpu,
                 ignored: Mutex::new(IndexMap::new()),
+                forgets: Mutex::new(Vec::new()),
                 write_seq: AtomicU64::new(0),
                 agent_seq: AtomicU64::new(0),
                 freeze_seq: AtomicU64::new(0),

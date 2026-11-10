@@ -2,13 +2,24 @@
 //! grammar (`GET /mgmt/status`, `POST /mgmt/{hold,stop,cancelDrain,release,terminate}`, JSON bodies, `Authorization: Bearer`)
 //! over a fresh loopback connection per request, so it works while the core's RPC runtime is stalled or draining.
 //!
-//! Calls carry no timeout: the control thread answers without awaiting the core, and a caller that wants a bound wraps the call.
+//! Every call is bounded like the Node session client's (`session-client.mjs` `request`), by the Node call that does the
+//! same job; a call past its bound fails with `session timeout: <method> <path>` (code `ESESSIONTIMEOUT`):
+//!
+//! | ctl call | Node call | bound |
+//! |---|---|---|
+//! | `status` | `probeSessionHealth` `GET /health` | 800 ms of silence, 800 ms in all |
+//! | `hold(true)` | `holdInTreeDaemon` `POST /install-hold {action: close}` | 3000 ms of silence |
+//! | `hold(false)`, `cancelDrain` | `holdInTreeDaemon` `{action: release}` (`cancelDrain` has no Node endpoint; it also reopens admission) | 3000 ms of silence |
+//! | `stop`, `release` | `stopInTreeDaemon` `POST /stop` (`release` has no Node endpoint; it also settles a boot) | 3000 ms of silence |
+//! | `terminate` | `shutdownDaemon` `POST /shutdown` (`terminate` has no Node endpoint; it also ends the daemon) | 3000 ms of silence |
+//!
+//! "Silence" is Node's socket `timeout`: every byte moved in either direction resets it.
 
-use std::path::Path;
+use std::{future::Future, path::Path, time::Duration};
 
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::{AsyncReadExt, AsyncWrite, AsyncWriteExt},
     net::TcpStream,
 };
 
@@ -19,12 +30,75 @@ use crate::{
 /// A control reply is a small snapshot; anything larger is a broken peer.
 const MAX_REPLY_BYTES: usize = 1 << 20;
 
+/// The bound of one call: Node's `request({ timeoutMs, deadlineMs })`. `inactivity` is `timeoutMs`, the longest the
+/// connection may stay silent (a trickling reply keeps resetting it); `total` is `deadlineMs`, the longest the call may
+/// last, which only probes set.
+#[derive(Debug, Clone, Copy)]
+struct Bound {
+    inactivity: Duration,
+    total: Option<Duration>,
+}
+
+/// `probeSessionHealth` (`timeoutMs: 800`, `deadlineMs: max(1, timeoutMs)`): `status`.
+const PROBE: Bound = Bound {
+    inactivity: Duration::from_millis(800),
+    total: Some(Duration::from_millis(800)),
+};
+
+/// The lifecycle calls (`/shutdown`, `/stop`, `/install-hold`: `timeoutMs: 3000`, no deadline): `hold`, `stop`,
+/// `cancelDrain`, `release`, `terminate`.
+const LIFECYCLE: Bound = Bound {
+    inactivity: Duration::from_millis(3000),
+    total: None,
+};
+
+/// One request in flight: what its timeout error names and the bound it runs under.
+struct Call {
+    verb: &'static str,
+    path: String,
+    bound: Bound,
+}
+
+impl Call {
+    /// `sessionTimeoutError(method, urlPath)`.
+    fn timed_out(&self) -> CtlError {
+        CtlError::Timeout {
+            method: self.verb,
+            path: self.path.clone(),
+        }
+    }
+
+    /// One connection operation under the inactivity bound (Node's socket `timeout`, reset by every byte moved).
+    async fn idle<T>(&self, op: impl Future<Output = std::io::Result<T>>) -> Result<T, CtlError> {
+        tokio::time::timeout(self.bound.inactivity, op)
+            .await
+            .map_err(|_| self.timed_out())?
+            .map_err(CtlError::Io)
+    }
+
+    /// `write_all` with the silence bound restarted by every write that moves bytes, as Node's socket timer is.
+    async fn write_all<W: AsyncWrite + Unpin>(&self, stream: &mut W, mut bytes: &[u8]) -> Result<(), CtlError> {
+        while !bytes.is_empty() {
+            let moved = self.idle(stream.write(bytes)).await?;
+            if moved == 0 {
+                return Err(CtlError::Io(std::io::ErrorKind::WriteZero.into()));
+            }
+            bytes = &bytes[moved..];
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum CtlError {
     #[error(transparent)]
     Discovery(#[from] DiscoveryError),
     #[error("control listener: {0}")]
     Io(#[from] std::io::Error),
+    /// No answer within the call's bound: the core may be busy with it, not gone (`ESESSIONTIMEOUT`). `path` is the
+    /// request path.
+    #[error("session timeout: {method} {path}")]
+    Timeout { method: &'static str, path: String },
     /// The listener answered something that is not its grammar.
     #[error("bad control reply: {0}")]
     BadReply(String),
@@ -41,11 +115,22 @@ pub enum CtlError {
 }
 
 impl CtlError {
-    /// The refusal code of a `Refused`.
+    /// The refusal code of a `Refused`; `ESESSIONTIMEOUT` for a `Timeout`, the `code` Node's error carries.
     pub fn code(&self) -> Option<&str> {
         match self {
             Self::Refused { code, .. } => Some(code),
+            Self::Timeout { .. } => Some("ESESSIONTIMEOUT"),
             _ => None,
+        }
+    }
+
+    /// What `mixdogd ctl` prints on stderr for a failed call. Only a `Refused` is a refusal: a timeout is the core not
+    /// answering, which Node's callers show as the bare `session timeout: <method> <path>` (`holdInTreeDaemon` and
+    /// `stopInTreeDaemon` carry it as `error`; `probeSessionHealth` and `shutdownDaemon` show only that the core did not answer).
+    pub fn cli_line(&self) -> String {
+        match self {
+            Self::Refused { code, .. } => format!("mixdogd: refused: {code}: {self}"),
+            _ => format!("mixdogd: {self}"),
         }
     }
 }
@@ -210,7 +295,7 @@ impl CtlClient {
     }
 
     pub async fn status(&self) -> Result<CoreStatus, CtlError> {
-        self.request("GET", "status", None).await
+        self.request("GET", "status", None, PROBE).await
     }
 
     /// `hold{on}`: new turn starts are deferred, not refused (LR §5.1 step 1).
@@ -279,33 +364,48 @@ impl CtlClient {
         body: &B,
     ) -> Result<R, CtlError> {
         let body = serde_json::to_vec(body).map_err(|e| CtlError::BadReply(e.to_string()))?;
-        self.request("POST", name, Some(body)).await
+        self.request("POST", name, Some(body), LIFECYCLE).await
     }
 
-    async fn request<R: DeserializeOwned>(
-        &self,
-        verb: &str,
-        name: &str,
-        body: Option<Vec<u8>>,
-    ) -> Result<R, CtlError> {
-        let mut stream = TcpStream::connect(("127.0.0.1", self.endpoint.port)).await?;
+    /// Connects, sends the request and reads the reply; every step runs under the call's inactivity bound.
+    async fn exchange(&self, call: &Call, body: Option<Vec<u8>>) -> Result<Reply, CtlError> {
+        let mut stream = call.idle(TcpStream::connect(("127.0.0.1", self.endpoint.port))).await?;
         let body = body.unwrap_or_default();
         let mut head = format!(
-            "{verb} /mgmt/{name} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nAuthorization: Bearer {}\r\nConnection: close\r\n",
-            self.endpoint.port, self.endpoint.token
+            "{} {} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nAuthorization: Bearer {}\r\nConnection: close\r\n",
+            call.verb, call.path, self.endpoint.port, self.endpoint.token
         );
-        if verb == "POST" {
+        if call.verb == "POST" {
             head.push_str(&format!(
                 "Content-Type: application/json\r\nContent-Length: {}\r\n",
                 body.len()
             ));
         }
         head.push_str("\r\n");
-        stream.write_all(head.as_bytes()).await?;
-        stream.write_all(&body).await?;
-        stream.flush().await?;
+        call.write_all(&mut stream, head.as_bytes()).await?;
+        call.write_all(&mut stream, &body).await?;
+        call.idle(stream.flush()).await?;
+        read_reply(call, &mut stream).await
+    }
 
-        let reply = read_reply(&mut stream).await?;
+    async fn request<R: DeserializeOwned>(
+        &self,
+        verb: &'static str,
+        name: &str,
+        body: Option<Vec<u8>>,
+        bound: Bound,
+    ) -> Result<R, CtlError> {
+        let call = Call {
+            verb,
+            path: format!("/mgmt/{name}"),
+            bound,
+        };
+        let reply = match bound.total {
+            Some(total) => tokio::time::timeout(total, self.exchange(&call, body))
+                .await
+                .map_err(|_| call.timed_out())??,
+            None => self.exchange(&call, body).await?,
+        };
         match reply.status {
             200..=299 => serde_json::from_slice(&reply.body)
                 .map_err(|e| CtlError::BadReply(format!("body: {e}"))),
@@ -330,7 +430,7 @@ struct Reply {
 
 /// Reads one `Content-Length` reply. The listener closes after each reply (`Connection: close`), so a reply without a
 /// length is read to the end of the stream.
-async fn read_reply(stream: &mut TcpStream) -> Result<Reply, CtlError> {
+async fn read_reply(call: &Call, stream: &mut TcpStream) -> Result<Reply, CtlError> {
     let mut buf = Vec::with_capacity(1024);
     let head_end = loop {
         if let Some(i) = find_head_end(&buf) {
@@ -339,7 +439,7 @@ async fn read_reply(stream: &mut TcpStream) -> Result<Reply, CtlError> {
         if buf.len() > MAX_REPLY_BYTES {
             return Err(CtlError::BadReply("header too large".into()));
         }
-        if stream.read_buf(&mut buf).await? == 0 {
+        if call.idle(stream.read_buf(&mut buf)).await? == 0 {
             return Err(CtlError::BadReply("closed inside the header".into()));
         }
     };
@@ -373,14 +473,14 @@ async fn read_reply(stream: &mut TcpStream) -> Result<Reply, CtlError> {
         Some(n) if n > MAX_REPLY_BYTES => return Err(CtlError::BadReply("body too large".into())),
         Some(n) => {
             while body.len() < n {
-                if stream.read_buf(&mut body).await? == 0 {
+                if call.idle(stream.read_buf(&mut body)).await? == 0 {
                     return Err(CtlError::BadReply("closed inside the body".into()));
                 }
             }
             body.truncate(n);
         }
         None => {
-            while stream.read_buf(&mut body).await? != 0 {
+            while call.idle(stream.read_buf(&mut body)).await? != 0 {
                 if body.len() > MAX_REPLY_BYTES {
                     return Err(CtlError::BadReply("body too large".into()));
                 }
@@ -575,6 +675,179 @@ mod tests {
         let refusal = serde_json::to_vec(&wire::ErrorReply::new("notDraining", "no drain")).unwrap();
         let refusal: RefusalBody = serde_json::from_slice(&refusal).unwrap();
         assert_eq!((refusal.code.as_str(), refusal.message.as_str()), ("notDraining", "no drain"));
+    }
+
+    /// A stub core that plays one recorded reply script: accepts, then stays silent, answers after `ms`, or trickles
+    /// (headers and the first piece of the body at once, one more piece every `everyMs`, `chunks` times). The pieces
+    /// are scheduled on the paused clock, so the order against the client's own timers is the clock's, not the host's.
+    async fn scripted_listener(reply: &serde_json::Value, body: String) -> u16 {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let reply = reply.clone();
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let begun = tokio::time::Instant::now();
+            let head = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", body.len());
+            let at = |ms: u64| begun + Duration::from_millis(ms);
+            match reply["kind"].as_str().unwrap() {
+                "silent" => {}
+                "after" => {
+                    tokio::time::sleep_until(at(reply["ms"].as_u64().unwrap())).await;
+                    let _ = stream.write_all(format!("{head}{body}").as_bytes()).await;
+                }
+                "trickle" => {
+                    let every = reply["everyMs"].as_u64().unwrap();
+                    let chunks = reply["chunks"].as_u64().unwrap() as usize;
+                    let bytes = body.as_bytes();
+                    let piece = bytes.len().div_ceil(chunks + 1);
+                    let mut pieces = bytes.chunks(piece);
+                    let first = pieces.next().unwrap();
+                    let _ = stream.write_all(&[head.as_bytes(), first].concat()).await;
+                    for (k, rest) in pieces.enumerate() {
+                        tokio::time::sleep_until(at(every * (k as u64 + 1))).await;
+                        if stream.write_all(rest).await.is_err() {
+                            return;
+                        }
+                    }
+                }
+                other => panic!("unknown reply script {other}"),
+            }
+            // The stream stays open: the peer must see silence, not a close.
+            std::future::pending::<()>().await;
+        });
+        port
+    }
+
+    /// Each recorded Node call and the ctl calls that do the same job (the table in the module docs): the Node call, the
+    /// ctl path, the ctl call.
+    const COUNTERPARTS: [(&str, &str, &str); 7] = [
+        ("GET /health", "/mgmt/status", "status"),
+        ("POST /install-hold close", "/mgmt/hold", "hold"),
+        ("POST /install-hold release", "/mgmt/hold", "unhold"),
+        ("POST /install-hold release", "/mgmt/cancelDrain", "cancelDrain"),
+        ("POST /stop", "/mgmt/stop", "stop"),
+        ("POST /stop", "/mgmt/release", "release"),
+        ("POST /shutdown", "/mgmt/terminate", "terminate"),
+    ];
+
+    async fn invoke(call: &str, c: &CtlClient) -> Result<CoreStatus, CtlError> {
+        match call {
+            "status" => c.status().await,
+            "hold" => c.hold(true).await,
+            "unhold" => c.hold(false).await,
+            "cancelDrain" => c.cancel_drain("d1").await,
+            "stop" => c.stop(StopMode::WhenIdle, StopReason::UserStop, None).await,
+            "release" => c.release(7, "t").await,
+            "terminate" => c.terminate("t").await,
+            other => panic!("unknown ctl call {other}"),
+        }
+    }
+
+    /// `session-client.mjs` `request` as recorded from the real call sites (`fixtures/ctl-timeouts/golden.json`): every
+    /// ctl call, replayed against each reply script of its Node counterpart under the paused clock, ends as Node's did
+    /// (answered, or `session timeout: <method> <path>` with the same code), gives up when the recorded bound says (the
+    /// silence `timeoutMs`, or the `deadlineMs` total when the call has one), and no later than Node did.
+    #[tokio::test(start_paused = true)]
+    async fn every_ctl_call_ends_as_its_node_counterpart_did() {
+        let golden: serde_json::Value =
+            serde_json::from_str(include_str!("../../../fixtures/ctl-timeouts/golden.json")).unwrap();
+        let cases = golden["cases"].as_array().unwrap();
+        assert!(
+            cases.iter().all(|c| COUNTERPARTS.iter().any(|(node_call, ..)| c["nodeCall"] == *node_call)),
+            "every recorded Node call has a ctl counterpart"
+        );
+        for (node_call, ctl_path, call) in COUNTERPARTS {
+            for case in cases.iter().filter(|c| c["nodeCall"] == node_call) {
+                let what = format!("{ctl_path} against {node_call} {}", case["reply"]);
+                let request = &case["request"];
+                let port = scripted_listener(&case["reply"], draining_status().to_string()).await;
+                let started = tokio::time::Instant::now();
+                // The outer bound only keeps a client without a deadline from hanging the test.
+                let outcome = tokio::time::timeout(Duration::from_secs(60), invoke(call, &client(port)))
+                    .await
+                    .unwrap_or_else(|_| panic!("{what}: never ended"));
+                let elapsed = started.elapsed();
+                let answered = outcome.is_ok();
+                let shown = outcome.as_ref().err().map(CtlError::cli_line);
+                match case["settled"].as_str().unwrap() {
+                    "resolved" => assert_eq!(outcome.expect(&what).state, CoreStateName::Draining, "{what}"),
+                    _ => {
+                        let err = outcome.expect_err(&what);
+                        let recorded = &case["error"];
+                        assert_eq!(err.code(), recorded["code"].as_str(), "{what}");
+                        let node_path = request["path"].as_str().unwrap();
+                        let node_method = request["method"].as_str().unwrap();
+                        assert_eq!(
+                            recorded["message"].as_str().unwrap(),
+                            format!("session timeout: {node_method} {node_path}"),
+                            "{what}: Node's text"
+                        );
+                        assert_eq!(err.to_string(), format!("session timeout: {node_method} {ctl_path}"), "{what}");
+                        let silence = request["timeoutMs"].as_u64().unwrap();
+                        let total = request["deadlineMs"].as_u64().unwrap();
+                        let gave_up = if total > 0 { silence.min(total) } else { silence };
+                        assert_eq!(elapsed, Duration::from_millis(gave_up), "{what}");
+                        assert!(elapsed <= Duration::from_millis(case["elapsedMs"].as_u64().unwrap()), "{what}: after Node");
+                    }
+                }
+                // What the Node caller shows or returns (`seen`), projected from what `mixdogd ctl` shows or exits with.
+                let node_path = request["path"].as_str().unwrap();
+                let shown_error = shown.as_deref().map(|line| {
+                    line.strip_prefix("mixdogd: ").expect("a bare error line, not a refusal").replace(ctl_path, node_path)
+                });
+                let ok_word = |word: &'static str, other: &'static str| if answered { word } else { other };
+                let seen = match node_call {
+                    "GET /health" => json!({"health": if answered { json!("ok") } else { json!(null) }}),
+                    "POST /install-hold close" => json!({"status": ok_word("held", "unknown"), "error": shown_error}),
+                    "POST /install-hold release" => json!({"status": ok_word("released", "unknown"), "error": shown_error}),
+                    "POST /stop" => json!({"request": ok_word("sent", "failed"), "error": shown_error}),
+                    "POST /shutdown" => json!({"shutDown": answered}),
+                    other => panic!("no projection for {other}"),
+                };
+                assert_eq!(seen, case["seen"], "{what}: what the caller sees");
+            }
+        }
+    }
+
+    /// The silence bound is restarted by every write that moves bytes (Node's socket `timeout`), not a limit on the whole
+    /// write: a peer that drains a little at intervals shorter than the recorded `timeoutMs` keeps a transfer much longer
+    /// than it alive, and one that stops draining ends it at that bound after its last progress.
+    #[tokio::test(start_paused = true)]
+    async fn a_write_that_keeps_moving_outlasts_the_silence_bound_and_a_stalled_one_ends_at_it() {
+        let golden: serde_json::Value =
+            serde_json::from_str(include_str!("../../../fixtures/ctl-timeouts/golden.json")).unwrap();
+        let silence = golden["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["nodeCall"] == "POST /stop" && c["reply"]["kind"] == "silent")
+            .map(|c| Duration::from_millis(c["request"]["timeoutMs"].as_u64().unwrap()))
+            .unwrap();
+        let call = Call { verb: "POST", path: "/mgmt/stop".into(), bound: LIFECYCLE };
+        assert_eq!(call.bound.inactivity, silence);
+
+        let (mut near, mut far) = tokio::io::duplex(16);
+        let every = silence / 2;
+        // The peer reads one full buffer every half bound, three times: the transfer lasts 1.5 bounds.
+        let drain = tokio::spawn(async move {
+            let begun = tokio::time::Instant::now();
+            let mut buf = [0u8; 16];
+            for k in 1..=3 {
+                tokio::time::sleep_until(begun + every * k).await;
+                far.read_exact(&mut buf).await.unwrap();
+            }
+            far
+        });
+        let started = tokio::time::Instant::now();
+        call.write_all(&mut near, &[7u8; 64]).await.expect("progress keeps the call alive");
+        assert!(started.elapsed() > silence, "the transfer outlasted the bound");
+        let _undrained = drain.await.unwrap();
+
+        // Nobody reads any more: what fits goes in at once, the rest stalls and the call ends one bound later.
+        let stalled = tokio::time::Instant::now();
+        let err = call.write_all(&mut near, &[7u8; 64]).await.unwrap_err();
+        assert_eq!(err.to_string(), "session timeout: POST /mgmt/stop");
+        assert_eq!(stalled.elapsed(), silence);
     }
 
     #[tokio::test]

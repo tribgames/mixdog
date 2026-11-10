@@ -51,24 +51,24 @@ impl RoutineRuntime {
     /// the caller arms the retry) when the queue refuses it.
     async fn queue_result(&self, kind: RoutineKind, row: &RoutineState, item: DeliveryItem, entry: &Value) -> bool {
         if let Err(message) = self.host.deliver_result(&row.owner_agent_id, &row.name, &item).await {
-            tracing::warn!("{} \"{}\": result could not be queued ({message}); retrying later", kind.word(), row.name);
+            mixdog_rt::node_stderr!("mixdog routines: {} \"{}\": result could not be queued ({message}); retrying later", kind.word(), row.name);
             let mut failed = entry.clone();
             failed["state"] = "failed".into();
             failed["error"] = message.into();
             if let Err(error) = self.records.record_delivery(kind, &row.name, &item.run_id, Some(failed)).await {
-                tracing::warn!("{} \"{}\": delivery failure not recorded: {error}", kind.word(), row.name);
+                mixdog_rt::node_stderr!("mixdog routines: {} \"{}\": delivery failure not recorded: {error}", kind.word(), row.name);
             }
             // The home's run row turns into "result not delivered" (retry: `retry_routine_delivery`).
             let run = AnnouncedRun { item, state: "undelivered" };
             if let Err(error) = self.host.announce_run(&row.owner_agent_id, &row.name, &run).await {
-                tracing::warn!("{} \"{}\": run row not shown: {error}", kind.word(), row.name);
+                mixdog_rt::node_stderr!("mixdog routines: {} \"{}\": run row not shown: {error}", kind.word(), row.name);
             }
             return false;
         }
         // A clear that fails leaves the record `pending`: the next recovery re-queues it, which
         // the queue's run-id key turns into a no-op.
         if let Err(error) = self.records.record_delivery(kind, &row.name, &item.run_id, None).await {
-            tracing::warn!("{} \"{}\": delivered result not cleared: {error}", kind.word(), row.name);
+            mixdog_rt::node_stderr!("mixdog routines: {} \"{}\": delivered result not cleared: {error}", kind.word(), row.name);
         }
         true
     }
@@ -105,7 +105,7 @@ impl RoutineRuntime {
             tokio::time::sleep(DELIVERY_RETRY).await;
             rt.retry_armed.store(false, Ordering::SeqCst);
             if let Err(error) = rt.recover_routine_deliveries().await {
-                tracing::warn!("mixdog routines: delivery retry failed: {error}");
+                mixdog_rt::node_stderr!("mixdog routines: delivery retry failed: {error}");
             }
         });
     }

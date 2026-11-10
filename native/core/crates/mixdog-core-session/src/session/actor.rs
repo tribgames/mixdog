@@ -126,6 +126,9 @@ use super::run::SteerInput;
 use super::run::within_priority;
 use super::completions;
 use super::pending;
+use mixdog_core_base::support::coded;
+use super::stop::Facts as PromptFacts;
+use super::stop::PromptState;
 use super::seams::EncodedRecord;
 use super::seams::Shown;
 use super::seams::RunOutcome;
@@ -181,6 +184,10 @@ fn suppressed_execution(entry: &Value) -> Option<String> {
     entry.pointer("/execution/id").and_then(Value::as_str).filter(|id| !id.is_empty()).map(str::to_owned)
 }
 
+/// A header change computed on the actor over a copy of the header as projected, awaiting its outside reads there.
+pub type AwaitingHeaderUpdate =
+    Box<dyn FnOnce(mixdog_store::schema::record::Header) -> futures::future::BoxFuture<'static, mixdog_store::schema::record::HeaderChange> + Send>;
+
 /// A request routed to the actor.
 pub(crate) enum Inbox {
     /// `onGoalStatusChange`: the thread's visible Goal changed.
@@ -235,9 +242,16 @@ pub(crate) enum Inbox {
         header: Option<super::turn_ops::CompactionHeader>,
         tx: oneshot::Sender<Result<super::turn_ops::CompactionCommit, CoreError>>,
     },
+    /// `pushNotice(text, tone)` of the hosted runtime with no `transcript` option: the polished
+    /// text as a toast of the session. Answered once the toast is in the session's state.
+    PushToast { text: String, tone: String, tx: oneshot::Sender<Result<(), CoreError>> },
     /// `HeaderUpdates::update_header`: `update` computes a header change on the actor, from the
     /// header as projected, and the change is written as the next record; answered once durable.
     UpdateHeader { update: mixdog_core_ports::ports::threads::HeaderUpdate, tx: Waiter },
+    /// [`Inbox::UpdateHeader`] whose change awaits an outside read (a route change's skill listing): the actor awaits
+    /// it with no other message handled, so every other writer queues behind it, as behind Node's one synchronous pass.
+    /// The step must not call the same session's actor.
+    UpdateHeaderAwaiting { update: AwaitingHeaderUpdate, tx: Waiter },
     /// A test's injected unwind of the actor.
     #[cfg(test)]
     Unwind(UnwindAt),
@@ -411,8 +425,52 @@ pub(crate) enum Init {
     Open { fenced: Vec<String> },
 }
 
+/// `SUBMISSION_ID_MEMORY` (`session-flow/queue.mjs`).
+const SUBMISSION_MEMORY: usize = 256;
+
+/// The submission ids the thread took and the answer each got, oldest first.
+#[derive(Default)]
+struct Submissions {
+    order: std::collections::VecDeque<String>,
+    answers: std::collections::HashMap<String, Value>,
+}
+
+impl Submissions {
+    fn remember(&mut self, id: &str, answer: Value) {
+        if self.answers.insert(id.to_owned(), answer).is_none() {
+            self.order.push_back(id.to_owned());
+        }
+        while self.order.len() > SUBMISSION_MEMORY {
+            if let Some(oldest) = self.order.pop_front() {
+                self.answers.remove(&oldest);
+            }
+        }
+    }
+
+    fn forget(&mut self, id: &str) {
+        if self.answers.remove(id).is_some() {
+            self.order.retain(|kept| kept != id);
+        }
+    }
+}
+
+/// The trimmed `clientSubmissionId` of a start, if it names one.
+fn submission_id(input: &TurnInput) -> Option<&str> {
+    input.options.as_ref().and_then(|options| options.client_submission_id.as_deref()).map(mixdog_js::js_trim).filter(|id| !id.is_empty())
+}
+
+/// The sender of a user prompt (`transcriptMeta.device`, `options.restorable`).
+#[derive(Clone, Debug, PartialEq)]
+struct Submitter {
+    device: String,
+    /// The composer may take the prompt back when the turn is stopped (Node's `options.restorable !== false`).
+    restorable: bool,
+}
+
 struct RunSlot {
     turn: TurnId,
+    /// The prompt the run started on: what a stop may hand back.
+    prompt: Arc<PromptState>,
     /// The provider of the route the turn started with (`routeMeta.provider`): a route change
     /// during the turn does not move the notices its end raises.
     provider: String,
@@ -427,6 +485,9 @@ struct RunSlot {
     input_item: mixdog_core_api::ids::ItemId,
     /// An automatic Goal turn (`promptSource === 'goal-continuation'`).
     automatic: bool,
+    /// A completion wake. Node wakes only the session it has current, so a wake of any other
+    /// thread has no Node counterpart holding the ask lock (see [`Actor::ask_lock_held`]).
+    wake: bool,
     /// Tool results the turn committed (its tool cards).
     tool_calls: u64,
     cancel: mixdog_agent::cancel::Cancel,
@@ -467,6 +528,8 @@ struct FailedClose<'a> {
 
 /// What a finished turn's close reads of its run ([`SessionActor::close_done`]).
 struct DoneClose<'a> {
+    /// A stop handed the prompt back to a composer: a cancelled turn then shows no end (`reclaimed`, `turn.mjs:610`).
+    reclaimed: bool,
     /// `turnOutcome`: `done` or `cancelled`.
     status: &'static str,
     /// The turn's own `completionVerb`.
@@ -563,6 +626,12 @@ pub(crate) struct SessionActor {
     agent_done: Option<(oneshot::Sender<RunOutcome>, RunOutcome)>,
     /// A turn's input row facts are being read: it starts next, no other turn does.
     starting: bool,
+    /// Who sent the prompt the next run starts on: its device, and whether the composer may take it back. Set where the
+    /// prompt is admitted (`turn/start`, a queued entry that starts), read when the run's input row is built.
+    submitter: Option<Submitter>,
+    /// `createSubmissionMemory`: the answers of the last submissions by `clientSubmissionId`, so a retried send joins the
+    /// original instead of posting the prompt twice. Memory only, as in Node.
+    submissions: Submissions,
     /// A dequeued Goal entry waits on `shouldRunGoalContinuation`: no other turn starts.
     goal_checking: bool,
     /// When a thread nobody ever watched, quiet since, is unloaded (Node's `idleEvictMs` deadline
@@ -574,6 +643,8 @@ pub(crate) struct SessionActor {
     goal_tail: Option<tokio::task::JoinHandle<()>>,
     /// The expiry timer of each toast in the queue (`toastTimers`), by toast id: `thread/clear` and the thread's close cancel them.
     toast_timers: std::collections::HashMap<String, tokio::task::AbortHandle>,
+    /// Callers released by this pump's entries ([`Effect::AfterPublish`]), told once its frames are published.
+    after_publish: Vec<oneshot::Sender<Result<(), CoreError>>>,
     /// The surfaced tool calls running now (`createActiveToolTracker`'s `activeToolCalls`), by call id: category, count and start.
     active_calls: std::collections::BTreeMap<String, (&'static str, i64, i64)>,
     /// How many settings changes this thread announced (`setupChangeSeq`).
@@ -647,6 +718,17 @@ fn id(value: &str) -> Text<{ mixdog_store::schema::bounded::ID_MAX }> {
     Text::try_from(value).expect("core-made ids are short")
 }
 
+/// The code of a `turn/start` the core refuses without a turn or a queue entry (the empty prompt Node's `submitAsync` answers
+/// `false`). A client reads it as "not accepted".
+pub const SUBMIT_REFUSED: &str = "SUBMIT_REFUSED";
+
+/// `promptDisplayText` (`queue-helpers.mjs:89`), trimmed: the display text the options give when it is not blank, else the
+/// prompt's text parts.
+fn display_text(input: &TurnInput) -> String {
+    let given = input.options.as_ref().and_then(|options| options.display_text.as_deref()).filter(|text| !mixdog_js::js_trim(text).is_empty());
+    mixdog_js::js_trim(given.map_or_else(|| prompt_text(input), str::to_owned).as_str()).to_owned()
+}
+
 /// The prompt's text parts, as the user row shows them.
 fn prompt_text(input: &TurnInput) -> String {
     match &input.prompt {
@@ -663,7 +745,7 @@ fn prompt_text(input: &TurnInput) -> String {
 
 /// One queue entry taken back to the composer: what `restoreQueued` reads of it.
 #[derive(Clone, Debug, Default, PartialEq)]
-struct Taken {
+pub(super) struct Taken {
     id: String,
     /// The prompt's text (`entry.text`).
     text: String,
@@ -675,7 +757,7 @@ struct Taken {
 }
 
 impl Taken {
-    fn of(queued: &Queued) -> Self {
+    pub(super) fn of(queued: &Queued) -> Self {
         let text = serde_json::from_value::<PromptContent>(queued.entry["message"].clone())
             .map(|prompt| prompt_text(&TurnInput { prompt, options: None }))
             .unwrap_or_default();
@@ -694,7 +776,7 @@ impl Taken {
 }
 
 /// The entries `restoreQueued(_, selectedId)` takes: the one named, or every one without a name.
-fn restore_taken(queue: &[Queued], selected: Option<&str>) -> Vec<Queued> {
+pub(super) fn restore_taken(queue: &[Queued], selected: Option<&str>) -> Vec<Queued> {
     queue.iter().filter(|queued| selected.is_none_or(|qid| queued.qid == qid)).cloned().collect()
 }
 
@@ -727,7 +809,7 @@ fn merged_pasted(taken: &[Taken], field: impl Fn(&Taken) -> Option<&Value>) -> V
 /// entries' text joined with the composer's, each part only when it is not blank, the pasted maps
 /// merged as queued, and the `file` parts as `content`. The handle reads the attachment references
 /// into the maps and the parts (`restore_hydrate`), which is where `notice` comes from.
-fn restored_reply(taken: &[Taken], current_text: Option<&str>) -> Value {
+pub(super) fn restored_reply(taken: &[Taken], current_text: Option<&str>) -> Value {
     let present = |text: &&str| !mixdog_js::js_trim(text).is_empty();
     let queued_text = taken.iter().map(|entry| entry.text.as_str()).filter(present).collect::<Vec<_>>().join("\n");
     let combined = [queued_text.as_str(), current_text.unwrap_or("")].into_iter().filter(present).collect::<Vec<_>>().join("\n");
@@ -865,11 +947,14 @@ impl SessionActor {
             settling: false,
             agent_done: None,
             starting: false,
+            submitter: None,
+            submissions: Submissions::default(),
             goal_checking: false,
             idle_evict_at: None,
             goal_deferred: false,
             goal_tail: None,
             toast_timers: std::collections::HashMap::new(),
+            after_publish: Vec::new(),
             active_calls: std::collections::BTreeMap::new(),
             setup_changes: 0,
             prompt_appends: Default::default(),
@@ -959,12 +1044,15 @@ impl SessionActor {
                 _ = sleep_until(deadline), if deadline.is_some() => self.on_deadline(),
                 _ = sleep_until(self.idle_evict_at), if self.idle_evict_at.is_some() => self.on_idle_evict(),
                 Some(msg) = self.ch.prod_rx.recv(), if producers_open => self.on_producer(msg),
-                Some(msg) = self.ch.inbox_rx.recv() => self.on_inbox(msg),
+                Some(msg) = self.ch.inbox_rx.recv() => match msg {
+                    Inbox::UpdateHeaderAwaiting { update, tx } => self.update_header_awaiting(update, tx).await,
+                    msg => self.on_inbox(msg),
+                },
                 Some(announced) = settings_changed(&mut settings) => self.on_settings_changed(announced),
                 else => break,
             }
             self.pump();
-            self.cell.turn_held.store(self.turn_held(), SeqCst);
+            self.cell.turn_held.store(self.ask_lock_held(), SeqCst);
             self.cell.turn_pending.store(self.turn_pending(), SeqCst);
             self.cell.ui_busy.store(self.ui_busy(), SeqCst);
             self.cell.compacting.store(self.compactions > 0, SeqCst);
@@ -987,6 +1075,10 @@ impl SessionActor {
         self.cancel_toast_timers();
         self.deps.runtime_hooks.stopped(&self.id);
         self.deps.snapshots.runtime_stopped(&self.id);
+        // `settlePersistence`: the close lands the buffered gateway usage events (and their compaction)
+        // without holding the close.
+        let usage = self.deps.gateway_usage.clone();
+        tokio::spawn(async move { usage.settle().await });
     }
 
     /// `Ctl::Delete`: see its doc.
@@ -1175,9 +1267,7 @@ impl SessionActor {
         let Some(directory) = self.ch.directory.upgrade() else {
             return;
         };
-        if directory.unload(&self.id, &self.cell) {
-            tokio::spawn(self.close_ingest());
-        }
+        directory.unload(&self.id, &self.cell, self.close_ingest());
     }
 
     /// Today's `ingestSessionIntoMemory(session)` over the model context.
@@ -1768,6 +1858,9 @@ impl SessionActor {
         if !notes.is_empty() {
             self.publish(notes);
         }
+        for released in self.after_publish.drain(..) {
+            let _ = released.send(Ok(()));
+        }
         self.publish_cell();
     }
 
@@ -1784,7 +1877,7 @@ impl SessionActor {
     fn release(&mut self, entry: Entry, ordinal: Option<u64>, notes: &mut Vec<Note>) {
         let title = self.acked.sections.title.clone();
         let prompts = self.acked.prompt_history.clone();
-        let queue_len = self.acked.queue.len();
+        let queue_rows = self.acked.queued_rows();
         let asked = |acked: &SessionState| acked.sections.approvals.as_ref().and_then(|approvals| approvals.handoff_questions.clone());
         let asked_before = asked(&self.acked);
         self.acked.apply(&entry.change, ordinal);
@@ -1839,7 +1932,7 @@ impl SessionActor {
             self.deps.agent_signals.session_record(self.id.as_str());
         }
         notes.extend(entry.notes);
-        self.derived_notes(&entry.change, &title, queue_len, notes);
+        self.derived_notes(&entry.change, &title, &queue_rows, notes);
         if let Some(change) = prompt_history::change(&prompts, &self.acked.prompt_history) {
             notes.push(Note::new(
                 "thread/promptHistory/updated",
@@ -1858,7 +1951,7 @@ impl SessionActor {
         &self,
         change: &Change,
         title_before: &Option<String>,
-        queue_before: usize,
+        queue_before: &[Value],
         notes: &mut Vec<Note>,
     ) {
         let thread = &self.id;
@@ -1883,9 +1976,9 @@ impl SessionActor {
                         }
                     }
                 }
-                // An entry edited where it stands changes no row of the queue.
-                Record::Queue(queue) if queue.action != QueueAction::Update => {
-                    let _ = queue_before;
+                // An entry edited where it stands changes no row of the queue, and a queued completion or notification is no row of it:
+                // Node publishes `queued` only when it changes (`isQueuedEntryVisible`, `drain-enqueue.mjs`).
+                Record::Queue(queue) if queue.action != QueueAction::Update && self.acked.queued_rows() != queue_before => {
                     notes.push(Note::new(
                         "thread/queue/changed",
                         &ThreadQueueChangedParams {
@@ -2017,10 +2110,26 @@ impl SessionActor {
                 self.begin_quota_settlement(&turn);
                 self.settle_goal(settle);
             }
+            Effect::AfterPublish(tx) => self.after_publish.push(tx),
         }
     }
 
     fn fail_entry(&mut self, entry: Entry, error: &CoreError) {
+        // A queued prompt whose record was not stored is removed and its id forgotten, and the sender hears a refusal
+        // (`drain-enqueue.mjs:64`, a failed durable mirror), so a retry is a new submission.
+        let mut refused = None;
+        if let Change::Record { record, .. } = &entry.change
+            && let Record::Queue(queue) = &**record
+            && queue.action == QueueAction::Enqueue
+        {
+            if let Some(Slot::Inline(queued)) = &queue.entry
+                && let Some(submission) = queued.pointer("/options/clientSubmissionId").and_then(Value::as_str)
+            {
+                self.submissions.forget(mixdog_js::js_trim(submission));
+            }
+            refused = Some(coded("session", SUBMIT_REFUSED, "The message could not be saved, so it was not sent."));
+        }
+        let error = refused.as_ref().unwrap_or(error);
         for effect in entry.effects {
             match effect {
                 Effect::Reply { op, tx, .. } => {
@@ -2059,6 +2168,10 @@ impl SessionActor {
                 Effect::TurnClosed { turn, settle } => {
                     tracing::error!("the failed turn {} was not recorded, so its end is not shown and its quota is not settled: {error:?}", turn.as_str());
                     self.settle_goal(settle);
+                }
+                // Its change was never shown: the waiter learns the failure that dropped it.
+                Effect::AfterPublish(tx) => {
+                    let _ = tx.send(Err(error.clone()));
                 }
             }
         }
@@ -2207,6 +2320,8 @@ impl SessionActor {
                     });
                     return;
                 }
+                // A tool asks only after the turn produced output (`approveToolRequest` commits the prompt).
+                self.prompt_committed();
                 self.request_approval(turn, ask, reply);
             }
             Ctl::Abort { turn } => {
@@ -2219,7 +2334,8 @@ impl SessionActor {
                     }
                 }
             }
-            Ctl::Steer => {
+            Ctl::Prioritize { queued } => {
+                self.prioritize(&queued);
                 if let Some(active) = self.cell.run.load_full() {
                     let mut steers = active
                         .steers
@@ -2334,6 +2450,12 @@ impl SessionActor {
             return;
         };
         self.cell.publish_run(None);
+        // A stop that handed the prompt back (`reclaimInFlightPrompt`): it leaves the prompt history, another device's
+        // composer is told, and the cancelled turn shows no end.
+        let reclaimed = slot.prompt.take_reclaim().filter(|_| matches!(outcome, RunOutcome::Interrupted));
+        if let Some(reclaim) = &reclaimed {
+            self.apply_reclaim(reclaim);
+        }
         // The display fields the turn waited to publish (`on_context_section`): a cancelled turn drops them.
         if let Some(held) = self.held_display.take()
             && !matches!(outcome, RunOutcome::Interrupted)
@@ -2418,7 +2540,7 @@ impl SessionActor {
                     RunOutcome::Failed(_) => None,
                 };
                 if let Some((status, result)) = ended {
-                    let done = DoneClose { status, verb: slot.verb, result, route_meta: &slot.route_meta, last: slot.last_model.as_ref(), started_at: slot.started_at, transcript: &slot.transcript, live: &mut slot.live };
+                    let done = DoneClose { reclaimed: reclaimed.is_some(), status, verb: slot.verb, result, route_meta: &slot.route_meta, last: slot.last_model.as_ref(), started_at: slot.started_at, transcript: &slot.transcript, live: &mut slot.live };
                     self.close_done(&turn, done);
                 }
                 self.settle_goal(settle);
@@ -2581,19 +2703,44 @@ impl SessionActor {
         };
         // `failTurn` (`turn.mjs:570`): the failure's text is a toast of the transcript's owner, besides the end.
         let detail = live_record.get("detail").and_then(Value::as_str).map(super::live_rows::polish_notice_text).unwrap_or_default();
-        self.push_toast(&detail, "error", Some("transcript"));
+        self.push_toast(&detail, "error", Some("transcript"), Vec::new());
         let row = super::live_end::live_end_row(failed.live, &facts, failed.route_meta, "failed", None, &live_record, &new_id());
         let end = super::transcript::live_end(row, turn.as_str());
         let amend = failed.last.and_then(|last| self.amend_last_with(last, super::failure_record::failed_completion(&record, &facts)));
         self.show_live_then(turn.clone(), end, None, amend, vec![Effect::TurnClosed { turn: turn.clone(), settle }]);
     }
+    /// What a stop that handed the prompt back changes besides the turn's rows (`reclaimInFlightPrompt`): the text leaves
+    /// the prompt history, and when another device cancelled, the device that sent the prompt gets it through
+    /// `thread/promptRestore` (the canceller's reply never carries it).
+    fn apply_reclaim(&mut self, reclaim: &super::stop::Reclaim) {
+        self.accept_view(Change::PromptWithout(reclaim.text.clone()), Vec::new());
+        // The prompt's row, and every row after it, leave the transcript (`reclaimInFlightPrompt` removes the turn's prompt),
+        // by the thread's own rewind as `PromptRewound` does.
+        let window = &self.acked.window;
+        if let Some((index, ordinal)) = window.iter().rposition(|row| row.prompt.as_deref().map(str::trim) == Some(reclaim.text.as_str())).and_then(|index| Some((index, window[index].ordinal?))) {
+            let previous = index.checked_sub(1).map(|i| window[i].item.id().clone());
+            let record = Record::Rewind(RewindRecord { to_ordinal: ordinal, reason: RewindReason::Rewind, op: None });
+            self.transcript_rewritten = true;
+            self.deps.side.forget(&self.id, false);
+            let note = self.history_reset(HistoryResetReason::Rewind, previous);
+            self.accept_record(record, Class::Normal, Display::None, vec![note], Vec::new());
+            if let Some(reset) = self.provider_state_change(None) {
+                self.accept_record(reset, Class::Normal, Display::None, Vec::new(), Vec::new());
+            }
+        }
+        if let Some(device) = &reclaim.handoff {
+            let at = self.deps.clock.now_ms();
+            let restore = PromptRestore { id: format!("restore-{at}-{}", reclaim.ids.join(",")), ids: reclaim.ids.clone(), text: reclaim.text.clone(), device: device.clone(), at };
+            self.accept_view(Change::Section(Section::PromptRestore(Some(restore))), Vec::new());
+        }
+    }
+
     /// A finished or stopped turn's close (`publishTurnClose`): the turn's end is shown live, built from what the run
     /// showed (`turnDoneItem`, `turn.mjs:573`), unless a turn that finished normally did nothing (`isNoOpTurn`). The
     /// final reply's commit shows no end of its own ([`Self::submit_encode`]): history restores one from the reply's
     /// completion, which the live end replaces here. A `done` end takes the verb its reply's completion records
     /// (`pickDoneVerb`, stamped when the reply committed), else the turn's own; a `cancelled` end has no reply.
-    /// `reclaimed` (the stopped turn's prompt handed back to the composer, `abort.mjs:65`) suppresses the end in Node;
-    /// the core's `turn/interrupt` never hands a prompt back (`restorePrompt` is not acted on), so it is never set.
+    /// `reclaimed` (the stopped turn's prompt handed back to the composer, `abort.mjs:65`) suppresses the end, as in Node.
     fn close_done(&mut self, turn: &TurnId, done: DoneClose<'_>) {
         self.clear_active_tools();
         let now = self.deps.clock.now_ms();
@@ -2604,6 +2751,9 @@ impl SessionActor {
         }
         self.turns_closed += 1;
         self.publish_stats();
+        if done.reclaimed {
+            return;
+        }
         let reply = done.last.filter(|_| finished).and_then(|last| {
             let Slot::Inline(body) = &last.body else { return None };
             if body.get("role").and_then(Value::as_str) != Some("assistant") {
@@ -2700,6 +2850,31 @@ impl SessionActor {
         tx
     }
 
+    /// `prioritizeQueued` (`session-flow/queue.mjs`): the queued prompt goes to the front of the queue at
+    /// priority `now`, then a drain is kicked (`kickDrain`: an idle thread starts it, a busy one takes it when
+    /// its turn settles). An entry no longer queued is left alone.
+    fn prioritize(&mut self, qid: &QueuedId) {
+        let Some(queued) = self
+            .projected
+            .queue
+            .iter()
+            .find(|q| q.qid == qid.as_str() && super::control::is_prioritizable_entry(&q.entry))
+        else {
+            return;
+        };
+        let mut entry = queued.entry.clone();
+        entry["priority"] = json!("now");
+        let record = Record::Queue(QueueRecord {
+            qid: id(qid.as_str()),
+            action: QueueAction::Prioritize,
+            reason: None,
+            op: None,
+            entry: Some(Slot::Inline(entry)),
+        });
+        self.accept_record(record, Class::Control, Display::None, Vec::new(), Vec::new());
+        self.start_next_queued();
+    }
+
     /// The next queued entry becomes a run (P X9: busy → queued, follow-ups run in order).
     ///
     /// A completion no turn took is a wake of its own, oldest first, with the completion as the
@@ -2759,6 +2934,11 @@ impl SessionActor {
                 .unwrap_or(PromptContent::Text(String::new())),
             options: serde_json::from_value(next.entry["options"].clone()).ok(),
         };
+        // A prompt a user queued is still the composer's to take back (`restorable`), from the device that sent it.
+        self.submitter = next.entry.get("restorable").and_then(Value::as_bool).map(|restorable| Submitter {
+            device: next.entry.pointer("/transcriptMeta/device").and_then(Value::as_str).unwrap_or_default().to_owned(),
+            restorable,
+        });
         self.start_run(input, None, None, None);
     }
 
@@ -2851,6 +3031,13 @@ impl SessionActor {
     /// A turn runs, is starting or is settling: what Node's ask lock is held for.
     fn turn_held(&self) -> bool {
         self.run.is_some() || self.starting || self.settling
+    }
+
+    /// What Node's ask lock is held for: [`Self::turn_held`] but for a completion wake, which Node
+    /// runs only for its current session (`notification-bus.mjs:50`); the idle delete still
+    /// refuses such a run as `busy` from the run itself.
+    fn ask_lock_held(&self) -> bool {
+        self.run.as_ref().is_some_and(|run| !run.wake) || self.starting || self.settling
     }
 
     /// A turn is about to start (a dequeued Goal entry is checked, a quota resume is pending):
@@ -3049,6 +3236,13 @@ impl SessionActor {
         self.accept_header(change);
     }
 
+    /// The run produced output: its prompt is no longer the user's to take back (`commitPromptRestore`).
+    fn prompt_committed(&self) {
+        if let Some(run) = &self.run {
+            run.prompt.commit();
+        }
+    }
+
     fn on_producer(&mut self, msg: ProducerMsg) {
         match msg {
             ProducerMsg::Section(Section::Context(context)) => self.on_context_section(context),
@@ -3059,6 +3253,7 @@ impl SessionActor {
                 }
                 if matches!(item, ThreadItem::ToolCall { .. }) {
                     self.visible_progress();
+                    self.prompt_committed();
                 }
                 let note = Note::new(
                     "item/started",
@@ -3075,6 +3270,10 @@ impl SessionActor {
                 self.visible_progress();
                 self.stream_heartbeat();
                 let now = self.deps.clock.now_ms();
+                // Whitespace is not output (`onTextDelta` marks the prompt committed only for text that trims to something).
+                if method == "item/agentMessage/delta" && !mixdog_js::js_trim(&text).is_empty() {
+                    self.prompt_committed();
+                }
                 if let Some(run) = self.run.as_mut() {
                     match method {
                         "item/agentMessage/delta" => run.live.text(&text, now),
@@ -3094,6 +3293,10 @@ impl SessionActor {
                 if !self.active(&turn) {
                     let _ = ack.send(Err(RunError::NotApplied));
                     return;
+                }
+                // The model's reply is output (`completeTurn`, `settleSegmentBeforeToolCall`).
+                if item.role.as_deref() == Some("assistant") {
+                    self.prompt_committed();
                 }
                 // The row's facts read the prompt-attachment store first (an io-lane job).
                 let body = std::mem::take(&mut item.body);
@@ -3154,15 +3357,7 @@ impl SessionActor {
                 // the compaction, `compactCount` included (`compaction-runner.mjs:505`). The pre-send pass states
                 // none: its count is the telemetry's (`rememberCompactTelemetry`, `compact-policy.mjs:877`), written
                 // once by the pass's own `pass_change`.
-                if let Some(change) = header {
-                    self.accept_record(
-                        Record::Meta(MetaRecord { op: None, change: Slot::Inline(change) }),
-                        Class::Normal,
-                        Display::None,
-                        Vec::new(),
-                        Vec::new(),
-                    );
-                }                let cid = new_id();
+                let cid = new_id();
                 // The divider shows live where the compaction happened (`compactionDivider`).
                 let divider = super::transcript::divider_item(&cid, Some(compaction.at));
                 let note = Note::new(
@@ -3191,13 +3386,15 @@ impl SessionActor {
                             .collect(),
                     ),
                 });
-                self.accept_record(
-                    record,
-                    Class::Normal,
-                    Display::Items(vec![Shown::Item(divider)]),
-                    vec![note],
-                    vec![Effect::ItemAck(ack)],
-                );
+                // The header is computed after the replacement is in, as Node stamps `committedAt` after the transcript and
+                // provider-state mutations (`compaction-runner.mjs:695-749`); its record follows the compaction's, and the
+                // caller's ack rides the last record, so the header is durable when the commit answers.
+                let (compaction_ack, header_ack) = if header.is_some() { (Vec::new(), vec![Effect::ItemAck(ack)]) } else { (vec![Effect::ItemAck(ack)], Vec::new()) };
+                self.accept_record(record, Class::Normal, Display::Items(vec![Shown::Item(divider)]), vec![note], compaction_ack);
+                if let Some(header) = header {
+                    let change = header(&self.projected.header);
+                    self.accept_record(Record::Meta(MetaRecord { op: None, change: Slot::Inline(change) }), Class::Normal, Display::None, Vec::new(), header_ack);
+                }
             }
             ProducerMsg::ContextRewound { turn, replacement, ack } => {
                 if !self.active(&turn) {
@@ -3412,9 +3609,13 @@ impl SessionActor {
     }
 
     /// `pushToast` (`notice-surface.mjs`): a transient notice of the session, shown in the runtime section's `toasts` for `TOAST_TTL` and then removed. Empty text is no toast.
-    fn push_toast(&mut self, text: &str, tone: &str, owner: Option<&str>) {
+    /// `effects` run when the toast's change is released; for an empty text, at once.
+    fn push_toast(&mut self, text: &str, tone: &str, owner: Option<&str>, effects: Vec<Effect>) {
         let text = mixdog_js::js_trim(text);
         if text.is_empty() {
+            for effect in effects {
+                self.effect_done(effect);
+            }
             return;
         }
         let id = new_id();
@@ -3424,7 +3625,7 @@ impl SessionActor {
         }
         let mut toasts = self.projected.sections.runtime.as_ref().map(|runtime| runtime.toasts.clone()).unwrap_or_default();
         toasts.push(toast);
-        self.accept_view(Change::Section(Section::Toasts(toasts)), Vec::new());
+        self.accept_view_with(Change::Section(Section::Toasts(toasts)), Vec::new(), effects);
         let jobs = self.jobs_tx.clone();
         let expiring = id.clone();
         let timer = tokio::spawn(async move {
@@ -3487,8 +3688,22 @@ impl SessionActor {
             }
             RunShown::Settled(settled) => {
                 let books = self.deps.compaction.books(&self.id, &self.projected.header);
-                let change = super::usage_books::settled_change(&self.projected.header, &settled, self.usage_incremental, books.as_ref(), self.deps.clock.now_ms() as f64);
+                let now = self.deps.clock.now_ms();
+                let change = super::usage_books::settled_change(&self.projected.header, &settled, self.usage_incremental, books.as_ref(), now as f64);
                 self.accept_header(change);
+                // `recordStandaloneStatusTelemetry`: the gateway usage event of the completed ask.
+                let (estimated_tokens, turn_effort) = super::usage_books::gateway_facts(&self.projected.header, &settled, books.as_ref());
+                self.deps.gateway_usage.record_ask(&super::gateway_usage::Ask {
+                    header: &self.projected.header,
+                    usage: &settled.usage,
+                    response_model: &settled.response_model,
+                    tool_calls_total: settled.tool_calls_total,
+                    message_count: settled.transcript.len(),
+                    estimated_tokens,
+                    turn_effort,
+                    duration_ms: (now - settled.asked_at_ms) as f64,
+                    transport_timing: None,
+                });
             }
             RunShown::SearchUsage(usage) => {
                 let note = Note::new("thread/tokenUsage/updated", &mixdog_app_protocol::v2::thread::TokenUsageUpdatedParams { thread_id: self.id.clone(), usage });
@@ -3687,6 +3902,10 @@ impl SessionActor {
                 let _ = tx.send(plan);
             }
             Inbox::CommitCompaction { snapshot, compaction, header, tx } => self.commit_compaction(snapshot, compaction, header, tx),
+            Inbox::PushToast { text, tone, tx } => {
+                // The caller is told when the toast is published, not when it is queued: an earlier unacknowledged record holds it back.
+                self.push_toast(&super::live_rows::polish_notice_text(&text), &tone, None, vec![Effect::AfterPublish(tx)]);
+            }
             Inbox::QuotaFacts { tx } => {
                 let _ = tx.send(self.resume_check());
             }
@@ -3703,6 +3922,8 @@ impl SessionActor {
             Inbox::QuotaResumeFire { generation, tx } => self.quota_fire(generation, tx),
             Inbox::Op { call, tx } => self.op_call(call, tx),
             Inbox::UpdateHeader { update, tx } => self.update_header(update, tx),
+            // Awaited by the run loop, which handles it before this match.
+            Inbox::UpdateHeaderAwaiting { .. } => unreachable!("the run loop awaits it"),
             #[cfg(test)]
             Inbox::Unwind(UnwindAt::Now) => panic!("the test's injected unwind"),
             #[cfg(test)]
@@ -3740,6 +3961,25 @@ impl SessionActor {
             let _ = tx.send(Err(CoreError::Internal { incident_id: "header-update-panicked".into() }));
             return;
         };
+        self.write_header_change(change, tx);
+    }
+
+    /// `Inbox::UpdateHeaderAwaiting`: as [`Self::update_header`], over a step that awaits its outside reads here.
+    async fn update_header_awaiting(&mut self, update: AwaitingHeaderUpdate, tx: Waiter) {
+        use futures::FutureExt;
+        if !self.outbox.has_room(Class::Normal) {
+            let _ = tx.send(Err(CoreError::WindowFull { thread_id: self.id.clone() }));
+            return;
+        }
+        let header = self.projected.header.clone();
+        let Ok(change) = std::panic::AssertUnwindSafe(update(header)).catch_unwind().await else {
+            let _ = tx.send(Err(CoreError::Internal { incident_id: "header-update-panicked".into() }));
+            return;
+        };
+        self.write_header_change(change, tx);
+    }
+
+    fn write_header_change(&mut self, change: mixdog_store::schema::record::HeaderChange, tx: Waiter) {
         if change.set.is_empty() && change.unset.is_empty() {
             let _ = tx.send(Ok(Reply::Value(json!({}))));
             return;
@@ -3851,6 +4091,15 @@ impl SessionActor {
                 return Ok(());
             }
         }
+        // A retried submission joins the original (`drain-enqueue.mjs:37`): an idempotent success, not a second prompt.
+        if req.method.as_str() == "turn/start"
+            && let Ok(params) = parse::<TurnStartParams>(&req.params, "TurnStartParams")
+            && display_text(&params.input) != ""
+            && let Some(answer) = submission_id(&params.input).and_then(|id| self.submissions.answers.get(id))
+        {
+            let _ = tx.send(Ok(Reply::Value(answer.clone())));
+            return Ok(());
+        }
         let result = match req.method.as_str() {
             "turn/start" => self.turn_start(&req),
             "thread/queue/delete" => self.queue_delete(&req),
@@ -3908,10 +4157,28 @@ impl SessionActor {
     fn turn_start(&mut self, req: &CoreRequest) -> Result<Plan, CoreError> {
         let params: TurnStartParams = parse(&req.params, "TurnStartParams")?;
         let user_prompt = matches!(req.ctx.caller, Caller::Connection(_))
-            .then(|| prompt_text(&params.input));
+            .then(|| display_text(&params.input));
         if user_prompt.is_some() && params.input.options.as_ref().is_some_and(|o| o.context.is_some() || o.attachment_sizes.is_some()) {
             return Err(invalid("input.options", "context and attachmentSizes are host-only options"));
         }
+        // `submission` (`submission.mjs:10`): a prompt that shows nothing is not a submission. Node answers `false`
+        // before the session is touched; the wire answers a refusal with this code.
+        if user_prompt.is_some() && display_text(&params.input).is_empty() {
+            return Err(coded("session", SUBMIT_REFUSED, "The message is empty."));
+        }
+        // A deleted bot's chat is kept to read, never to talk to (`submitToSession` asks `sessionMetadata.isRetired`: the
+        // retirement stamp, `retiredAt` here).
+        if self.projected.header.get("retiredAt").and_then(Value::as_f64).is_some_and(|at| at > 0.0) {
+            return Err(coded("session", SUBMIT_REFUSED, "This bot was deleted."));
+        }
+        // The device that sent a user prompt rides it (`transcriptMeta.device`, stamped by the host in Node).
+        let submitter = match req.ctx.caller {
+            Caller::Connection(connection) => Some(Submitter {
+                device: self.deps.devices.describe(connection).device,
+                restorable: params.input.options.as_ref().and_then(|options| options.kickoff) != Some(true),
+            }),
+            _ => None,
+        };
         if user_prompt.is_some() {
             // `cancelQuotaResumeOnUserInput`: new user input supersedes the stopped turn.
             self.quota_cancel_now();
@@ -3927,6 +4194,7 @@ impl SessionActor {
         if !self.turn_busy() {
             let value = json!({ "kind": "started" });
             let op_ref = self.op_ref(req, None)?;
+            self.submitter = submitter;
             return Ok(Plan {
                 kind: PlanKind::StartRun(params.input, op_ref),
                 value,
@@ -3936,6 +4204,9 @@ impl SessionActor {
         }
         let qid = new_id();
         let value = json!({ "kind": "queued", "queuedId": qid });
+        if let Some(submission) = submission_id(&params.input) {
+            self.submissions.remember(submission, value.clone());
+        }
         let mut entry = json!({
             "message": params.input.prompt,
             "enqueuedAt": self.deps.clock.now_ms(),
@@ -3954,6 +4225,10 @@ impl SessionActor {
             }
             entry["options"] = serde_json::to_value(&options).expect("protocol types serialize");
         }
+        // `defaultQueuePriority` (`queue-helpers.mjs:28`): a user prompt that names none queues at `next`.
+        if entry.get("priority").is_none() {
+            entry["priority"] = json!("next");
+        }
         // The entry's `transcriptMeta` (`pending-messages`; read by `mergeSteeringMetadata`,
         // `steering.mjs:62`): the hop and bot chain a host submitter gave this submission. Only a
         // host submission has them (`SubmitOptions` refuses `hop`), registered under its id.
@@ -3971,6 +4246,13 @@ impl SessionActor {
         });
         if let Some(meta) = host_meta {
             entry["transcriptMeta"] = meta;
+        }
+        // The device and the composer's claim travel with the entry until it becomes a turn (`start_next_queued`).
+        if let Some(submitter) = &submitter {
+            if !submitter.device.is_empty() {
+                entry["transcriptMeta"]["device"] = json!(submitter.device);
+            }
+            entry["restorable"] = json!(submitter.restorable);
         }
         let record = Record::Queue(QueueRecord {
             qid: id(&qid),
@@ -4124,16 +4406,16 @@ impl SessionActor {
             item_id: params.item_id.clone(),
         };
         let window = &self.acked.window;
-        let index = window
-            .iter()
-            .position(|row| row.item.id() == &params.item_id)
-            .ok_or_else(not_found)?;
+        // The client holds the displayed id (a user row shows its submission id); Node resolves it first (`rewind.mjs:19`).
+        let index = super::transcript::position_of_id(window.iter().map(|row| row.item.as_ref()), params.item_id.as_str()).ok_or_else(not_found)?;
         let target = &window[index];
         let (Some(ordinal), Some(text)) = (target.ordinal, target.prompt.clone()) else {
             return Err(not_found());
         };
         let previous = index.checked_sub(1).map(|i| window[i].item.id().clone());
-        let value = json!({ "text": text, "removed": window.len() - index });
+        // `messages`: the model-history messages dropped (`rewindSessionMessagesTo`'s `removed`), beside the rows (`rewind.mjs`).
+        let messages: u32 = window.iter().skip(index).map(|row| row.messages).sum();
+        let value = json!({ "text": text, "removed": window.len() - index, "messages": messages });
         let record = Record::Rewind(RewindRecord {
             to_ordinal: ordinal,
             reason: RewindReason::Rewind,
@@ -4666,6 +4948,7 @@ impl SessionActor {
         if !read {
             // The lane refused the read: the turn does not start (its waiter hears the drop).
             self.starting = false;
+            self.submitter = None;
             self.retry_provenance = None;
             self.retry_prior = None;
         }
@@ -4674,6 +4957,7 @@ impl SessionActor {
     /// [`Self::start_run_with`] once the input row's facts are read.
     fn start_run_read(&mut self, start: InputStart, shown: Option<Goal>) {
         self.starting = false;
+        let submitter = self.submitter.take();
         // A delete closed the thread meanwhile: the turn never starts.
         if self.deleting {
             return;
@@ -4695,6 +4979,9 @@ impl SessionActor {
         let turn = TurnId::from(new_id());
         let mut op_ref = op_ref;
         let value = json!({ "kind": "started", "turnId": turn });
+        if let Some(submission) = submission_id(&input) {
+            self.submissions.remember(submission, value.clone());
+        }
         if let Some(op) = &mut op_ref {
             op.result = Json::try_from(value.clone()).ok();
         }
@@ -4722,7 +5009,18 @@ impl SessionActor {
             .unwrap_or_default();
         if let Some(meta) = body.pointer_mut("/meta/transcript").and_then(Value::as_object_mut) {
             meta.entry("at").or_insert_with(|| json!(self.deps.clock.now_ms()));
+            // The submission this row answers: a client matches its pending bubble to the stored row by it (the desktop's
+            // `pendingPromptTranscriptItems`, conversation-prompt-items.ts), as Node's row id is the submission id.
+            if let Some(submission) = submission_id(&input) {
+                meta.entry("clientSubmissionId").or_insert_with(|| json!(submission));
+            }
+            // The device that sent the prompt rides its row (`transcriptMeta.device`).
+            if let Some(submitter) = submitter.as_ref().filter(|submitter| !submitter.device.is_empty()) {
+                meta.entry("device").or_insert_with(|| json!(submitter.device));
+            }
             meta.entry("attemptId").or_insert_with(|| json!(new_id()));
+            // `beginTurn` stamps the verb the turn will complete with on the same metadata the runtime persists.
+            meta.entry("completionVerb").or_insert_with(|| json!(super::live_end::done_verb(self.turns_closed)));
             for (key, value) in route {
                 meta.entry(key).or_insert(value);
             }
@@ -4760,16 +5058,20 @@ impl SessionActor {
         let input_body = body.clone();
         let hidden = std::mem::take(&mut self.retry_hidden);
         let input_display = if hidden { Display::None } else { self.row_display(Some("user"), &input_body) };
+        // A user's prompt of blank text and a display text shows as that display text (`promptDisplayText` is the row's text,
+        // drain.mjs `renderBatchItems`), though the model's content reads blank.
+        let shown = display_text(&input);
+        let shown_blank = submitter.is_some() && !facts.visible && facts.prompt.is_none() && !shown.is_empty();
         let input_row = ItemRecord {
             iid: id(input_iid.as_str()),
             turn: Some(id(turn.as_str())),
             role: Some(Text::try_from("user").expect("short")),
             form: Form::Message,
             model: true,
-            visible: facts.visible && !hidden,
+            visible: (facts.visible || shown_blank) && !hidden,
             archive: None,
             op: op_ref,
-            prompt: facts.prompt.map(Slot::Inline),
+            prompt: facts.prompt.or_else(|| shown_blank.then_some(shown)).map(Slot::Inline),
             refs: Vec::new().try_into().expect("empty list fits"),
             body: Slot::Inline(body),
         };
@@ -4815,12 +5117,24 @@ impl SessionActor {
             None => agent,
         };
         let unattended = (agent.is_some() && !caller_watchdog) || super::goal_lane::automatic(&input_body);
+        // What a stop may hand back of this prompt (`promptRestoreFor`): only a user's, from the device that sent it.
+        let prompt_state = Arc::new(PromptState::new(PromptFacts {
+            text: display_text(&input),
+            ids: input.options.as_ref().and_then(|options| options.client_submission_id.clone()).filter(|id| !id.is_empty()).into_iter().collect(),
+            device: submitter.as_ref().map(|submitter| submitter.device.clone()).unwrap_or_default(),
+            restorable: submitter.as_ref().is_some_and(|submitter| submitter.restorable) && !wake,
+            committed: false,
+            entry: json!({ "message": input.prompt, "options": input.options }),
+            reclaim: None,
+        }));
         self.run = Some(RunSlot {
+            prompt: prompt_state.clone(),
             turn: turn.clone(),
             provider: self.acked.header.get("provider").and_then(Value::as_str).unwrap_or_default().to_owned(),
             route_meta: super::live_end::route_meta(self.acked.header.get("provider").and_then(Value::as_str).unwrap_or_default(), self.acked.header.get("model").and_then(Value::as_str).unwrap_or_default()),
             input_item: input_iid.clone(),
             automatic: super::goal_lane::automatic(&input_body),
+            wake,
             tool_calls: 0,
             cancel: cancel.clone(),
             input: input_tx,
@@ -4846,6 +5160,7 @@ impl SessionActor {
             turn: turn.clone(),
             cancel: cancel.clone(),
             steers: Default::default(),
+            prompt: prompt_state,
         })));
         self.accept_record(started, Class::Control, Display::None, Vec::new(), effects);
         // `onTurnStart`: the turn's id, start and the submissions it carries.
@@ -4947,7 +5262,7 @@ impl SessionActor {
                 }
             };
             // The turn's review is sealed before the turn reports settled.
-            review.finish(cancel.is_aborted()).await;
+            review.finish(&cancel).await;
             drop(warm);
             let _ = ctl.send(Ctl::RunEnded { turn, outcome }).await;
             // `releaseWorkspace()` of `settleTurn`.
@@ -5030,9 +5345,13 @@ impl SessionActor {
             prompt_history::Next::Idle => {}
             prompt_history::Next::Flush(batch) => self.flush_prompts(batch),
             prompt_history::Next::Wait { epoch, delay } => {
+                #[cfg(any(test, feature = "test-support"))]
+                self.cell.prompt_timers.fetch_add(1, SeqCst);
                 let jobs = self.jobs_tx.clone();
+                // The wait starts as it is armed, as Node's `setTimeout` does, not when the task first runs.
+                let due = tokio::time::sleep(delay);
                 drop(tokio::spawn(async move {
-                    tokio::time::sleep(delay).await;
+                    due.await;
                     let _ = jobs.send(JobDone::PromptRetryDue(epoch));
                 }));
             }
@@ -5184,4 +5503,3 @@ async fn mark_go(mark: &mut Option<oneshot::Receiver<serde_json::Map<String, Val
         None => std::future::pending().await,
     }
 }
-

@@ -1,0 +1,3715 @@
+{
+  "manifest": {
+    "exact": true,
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "tree": "332679f9c46ead536c500ab57a7580c0fb28d550",
+    "source": "git archive of the whole tree; apps/desktop/src/main/session-host.ts run unchanged"
+  },
+  "cases": [
+    {
+      "name": "markSessionRead-changed",
+      "call": "markSessionRead",
+      "args": [
+        "sess_a",
+        3,
+        false
+      ],
+      "daemon": {
+        "list": {
+          "sessions": [
+            {
+              "id": "sess_a",
+              "owner": "user",
+              "agent": "lead",
+              "sourceType": "lead",
+              "messageCount": 4,
+              "preview": "sess_a"
+            }
+          ]
+        }
+      },
+      "node": {
+        "result": true,
+        "daemonCalls": [
+          {
+            "method": "list",
+            "args": {
+              "refreshFromStorage": false
+            }
+          }
+        ],
+        "events": [
+          {
+            "event": "sessions",
+            "ids": [
+              "sess_a"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "markSessionRead-unchanged",
+      "call": "markSessionRead",
+      "args": [
+        "sess_a",
+        3,
+        false
+      ],
+      "daemon": {
+        "list": {
+          "sessions": [
+            {
+              "id": "sess_a",
+              "owner": "user",
+              "agent": "lead",
+              "sourceType": "lead",
+              "messageCount": 4,
+              "preview": "sess_a"
+            }
+          ]
+        }
+      },
+      "node": {
+        "result": false,
+        "daemonCalls": [
+          {
+            "method": "list",
+            "args": {
+              "refreshFromStorage": false
+            }
+          }
+        ],
+        "events": [
+          {
+            "event": "sessions",
+            "ids": [
+              "sess_a"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "getTaskWorkspace",
+      "call": "getTaskWorkspace",
+      "args": [],
+      "daemon": {},
+      "node": {
+        "result": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-92b5rp\\workspace\\unclassified",
+        "daemonCalls": [],
+        "events": []
+      }
+    },
+    {
+      "name": "abortSession-restored",
+      "call": "abortSession",
+      "args": [
+        "sess_a",
+        {}
+      ],
+      "daemon": {
+        "abort": {
+          "sessionId": "sess_a",
+          "revision": 1,
+          "full": {
+            "sessionId": "sess_a",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false
+          },
+          "aborted": true,
+          "restoreText": "draft",
+          "restoredSubmissionIds": [
+            "sub1"
+          ]
+        }
+      },
+      "node": {
+        "result": {
+          "aborted": true,
+          "restoreText": "draft",
+          "pastedImages": null,
+          "pastedTexts": null,
+          "discardPastedImages": null,
+          "discardPastedTexts": null,
+          "restoredSubmissionIds": [
+            "sub1"
+          ]
+        },
+        "daemonCalls": [
+          {
+            "method": "abort",
+            "args": {
+              "sessionId": "sess_a",
+              "options": {
+                "device": "DESKTOP-IBLP835"
+              }
+            }
+          }
+        ],
+        "events": [
+          {
+            "event": "sessionState",
+            "sessionId": "sess_a"
+          }
+        ]
+      }
+    },
+    {
+      "name": "abortSession-idle",
+      "call": "abortSession",
+      "args": [
+        "sess_a",
+        {}
+      ],
+      "daemon": {
+        "abort": {
+          "sessionId": "sess_a",
+          "revision": 1,
+          "full": {
+            "sessionId": "sess_a",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false
+          },
+          "aborted": false
+        }
+      },
+      "node": {
+        "result": {
+          "aborted": false,
+          "restoreText": "",
+          "pastedImages": null,
+          "pastedTexts": null,
+          "discardPastedImages": null,
+          "discardPastedTexts": null,
+          "restoredSubmissionIds": []
+        },
+        "daemonCalls": [
+          {
+            "method": "abort",
+            "args": {
+              "sessionId": "sess_a",
+              "options": {
+                "device": "DESKTOP-IBLP835"
+              }
+            }
+          }
+        ],
+        "events": [
+          {
+            "event": "sessionState",
+            "sessionId": "sess_a"
+          }
+        ]
+      }
+    },
+    {
+      "name": "submitToSession-accepted",
+      "call": "submitToSession",
+      "args": [
+        "sess_a",
+        "hi",
+        {
+          "id": "sub1"
+        }
+      ],
+      "daemon": {
+        "submit": {
+          "sessionId": "sess_a",
+          "revision": 1,
+          "full": {
+            "sessionId": "sess_a",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false
+          },
+          "accepted": true
+        }
+      },
+      "node": {
+        "result": true,
+        "daemonCalls": [
+          {
+            "method": "submit",
+            "args": {
+              "sessionId": "sess_a",
+              "prompt": "hi",
+              "options": {
+                "id": "sub1",
+                "transcriptMeta": {
+                  "device": "DESKTOP-IBLP835"
+                }
+              }
+            }
+          }
+        ],
+        "events": [
+          {
+            "event": "sessionState",
+            "sessionId": "sess_a"
+          }
+        ]
+      }
+    },
+    {
+      "name": "submitToSession-refused",
+      "call": "submitToSession",
+      "args": [
+        "sess_a",
+        "hi",
+        {
+          "id": "sub2"
+        }
+      ],
+      "daemon": {
+        "submit": {
+          "sessionId": "sess_a",
+          "revision": 1,
+          "full": {
+            "sessionId": "sess_a",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false
+          },
+          "accepted": false
+        }
+      },
+      "node": {
+        "result": false,
+        "daemonCalls": [
+          {
+            "method": "submit",
+            "args": {
+              "sessionId": "sess_a",
+              "prompt": "hi",
+              "options": {
+                "id": "sub2",
+                "transcriptMeta": {
+                  "device": "DESKTOP-IBLP835"
+                }
+              }
+            }
+          }
+        ],
+        "events": [
+          {
+            "event": "sessionState",
+            "sessionId": "sess_a"
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolveToolApproval-approved",
+      "call": "resolveToolApprovalForSession",
+      "args": [
+        "sess_a",
+        "ap1",
+        {
+          "approved": true
+        }
+      ],
+      "daemon": {
+        "approve": {
+          "sessionId": "sess_a",
+          "revision": 1,
+          "full": {
+            "sessionId": "sess_a",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false
+          },
+          "approved": true
+        }
+      },
+      "node": {
+        "result": true,
+        "daemonCalls": [
+          {
+            "method": "approve",
+            "args": {
+              "sessionId": "sess_a",
+              "approvalId": "ap1",
+              "decision": {
+                "approved": true,
+                "device": "DESKTOP-IBLP835"
+              }
+            }
+          }
+        ],
+        "events": [
+          {
+            "event": "sessionState",
+            "sessionId": "sess_a"
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolveToolApproval-settled",
+      "call": "resolveToolApprovalForSession",
+      "args": [
+        "sess_a",
+        "ap1",
+        {
+          "approved": true
+        }
+      ],
+      "daemon": {
+        "approve": {
+          "sessionId": "sess_a",
+          "revision": 1,
+          "full": {
+            "sessionId": "sess_a",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false
+          },
+          "approved": false
+        }
+      },
+      "node": {
+        "result": false,
+        "daemonCalls": [
+          {
+            "method": "approve",
+            "args": {
+              "sessionId": "sess_a",
+              "approvalId": "ap1",
+              "decision": {
+                "approved": true,
+                "device": "DESKTOP-IBLP835"
+              }
+            }
+          }
+        ],
+        "events": [
+          {
+            "event": "sessionState",
+            "sessionId": "sess_a"
+          }
+        ]
+      }
+    },
+    {
+      "name": "setFast",
+      "call": "setFast",
+      "args": [
+        true,
+        "sess_a"
+      ],
+      "daemon": {
+        "configure": {
+          "sessionId": "sess_a",
+          "revision": 1,
+          "full": {
+            "sessionId": "sess_a",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": true
+          },
+          "value": true
+        }
+      },
+      "node": {
+        "result": {
+          "sessionId": "sess_a",
+          "items": [],
+          "queued": [],
+          "busy": false,
+          "commandBusy": false,
+          "provider": "p",
+          "model": "m",
+          "fast": true,
+          "remoteEnabled": false,
+          "remoteSessionId": null
+        },
+        "daemonCalls": [
+          {
+            "method": "configure",
+            "args": {
+              "sessionId": "sess_a",
+              "action": "setFast",
+              "args": [
+                true
+              ]
+            }
+          }
+        ],
+        "events": [
+          {
+            "event": "sessionState",
+            "sessionId": "sess_a"
+          }
+        ]
+      }
+    },
+    {
+      "name": "setModelRoute",
+      "call": "setModelRoute",
+      "args": [
+        {
+          "provider": "p2",
+          "model": "m2"
+        },
+        "sess_a"
+      ],
+      "daemon": {
+        "configure": {
+          "sessionId": "sess_a",
+          "revision": 1,
+          "full": {
+            "sessionId": "sess_a",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p2",
+            "model": "m2",
+            "fast": false
+          },
+          "value": {
+            "provider": "p2",
+            "model": "m2"
+          }
+        }
+      },
+      "node": {
+        "result": {
+          "sessionId": "sess_a",
+          "items": [],
+          "queued": [],
+          "busy": false,
+          "commandBusy": false,
+          "provider": "p2",
+          "model": "m2",
+          "fast": false,
+          "remoteEnabled": false,
+          "remoteSessionId": null
+        },
+        "daemonCalls": [
+          {
+            "method": "configure",
+            "args": {
+              "sessionId": "sess_a",
+              "action": "setRoute",
+              "args": [
+                {
+                  "provider": "p2",
+                  "model": "m2",
+                  "applyToCurrentSession": true,
+                  "keepMainModel": true
+                }
+              ]
+            }
+          }
+        ],
+        "events": [
+          {
+            "event": "sessionState",
+            "sessionId": "sess_a"
+          }
+        ]
+      }
+    },
+    {
+      "name": "stopShellJob-stopped",
+      "call": "stopShellJob",
+      "args": [
+        "sess_a",
+        "t1"
+      ],
+      "daemon": {
+        "configure": {
+          "sessionId": "sess_a",
+          "revision": 1,
+          "full": {
+            "sessionId": "sess_a",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false
+          },
+          "value": {
+            "stopped": true
+          }
+        }
+      },
+      "node": {
+        "result": {
+          "stopped": true
+        },
+        "daemonCalls": [
+          {
+            "method": "configure",
+            "args": {
+              "sessionId": "sess_a",
+              "action": "stopShellJob",
+              "args": [
+                "t1"
+              ]
+            }
+          }
+        ],
+        "events": [
+          {
+            "event": "sessionState",
+            "sessionId": "sess_a"
+          }
+        ]
+      }
+    },
+    {
+      "name": "stopShellJob-failed",
+      "call": "stopShellJob",
+      "args": [
+        "sess_a",
+        "t1"
+      ],
+      "daemon": {
+        "configure": {
+          "sessionId": "sess_a",
+          "revision": 1,
+          "full": {
+            "sessionId": "sess_a",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false
+          },
+          "value": {
+            "stopped": false,
+            "unconfirmed": true
+          }
+        }
+      },
+      "node": {
+        "result": {
+          "stopped": false,
+          "unconfirmed": true,
+          "error": "The job was not stopped."
+        },
+        "daemonCalls": [
+          {
+            "method": "configure",
+            "args": {
+              "sessionId": "sess_a",
+              "action": "stopShellJob",
+              "args": [
+                "t1"
+              ]
+            }
+          }
+        ],
+        "events": [
+          {
+            "event": "sessionState",
+            "sessionId": "sess_a"
+          }
+        ]
+      }
+    },
+    {
+      "name": "releaseShellJob-released",
+      "call": "releaseShellJob",
+      "args": [
+        "sess_a",
+        "t1"
+      ],
+      "daemon": {
+        "configure": {
+          "sessionId": "sess_a",
+          "revision": 1,
+          "full": {
+            "sessionId": "sess_a",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false
+          },
+          "value": {
+            "released": true
+          }
+        }
+      },
+      "node": {
+        "result": {
+          "released": true
+        },
+        "daemonCalls": [
+          {
+            "method": "configure",
+            "args": {
+              "sessionId": "sess_a",
+              "action": "releaseShellJob",
+              "args": [
+                "t1"
+              ]
+            }
+          }
+        ],
+        "events": [
+          {
+            "event": "sessionState",
+            "sessionId": "sess_a"
+          }
+        ]
+      }
+    },
+    {
+      "name": "releaseShellJob-throws",
+      "call": "releaseShellJob",
+      "args": [
+        "sess_a",
+        "t1"
+      ],
+      "daemon": {},
+      "node": {
+        "result": {
+          "released": false,
+          "error": "no hold"
+        },
+        "daemonCalls": [
+          {
+            "method": "configure",
+            "args": {
+              "sessionId": "sess_a",
+              "action": "releaseShellJob",
+              "args": [
+                "t1"
+              ]
+            }
+          }
+        ],
+        "events": []
+      }
+    },
+    {
+      "name": "scheduleQuotaResume-true",
+      "call": "scheduleQuotaResume",
+      "args": [
+        "sess_a"
+      ],
+      "daemon": {
+        "configure": {
+          "sessionId": "sess_a",
+          "revision": 1,
+          "full": {
+            "sessionId": "sess_a",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false
+          },
+          "value": true
+        }
+      },
+      "node": {
+        "result": true,
+        "daemonCalls": [
+          {
+            "method": "configure",
+            "args": {
+              "sessionId": "sess_a",
+              "action": "scheduleQuotaResume",
+              "args": [
+                "sess_a"
+              ]
+            }
+          }
+        ],
+        "events": [
+          {
+            "event": "sessionState",
+            "sessionId": "sess_a"
+          }
+        ]
+      }
+    },
+    {
+      "name": "cancelQuotaResume-false",
+      "call": "cancelQuotaResume",
+      "args": [
+        "sess_a"
+      ],
+      "daemon": {
+        "configure": {
+          "sessionId": "sess_a",
+          "revision": 1,
+          "full": {
+            "sessionId": "sess_a",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false
+          },
+          "value": false
+        }
+      },
+      "node": {
+        "result": false,
+        "daemonCalls": [
+          {
+            "method": "configure",
+            "args": {
+              "sessionId": "sess_a",
+              "action": "cancelQuotaResume",
+              "args": [
+                "sess_a"
+              ]
+            }
+          }
+        ],
+        "events": [
+          {
+            "event": "sessionState",
+            "sessionId": "sess_a"
+          }
+        ]
+      }
+    },
+    {
+      "name": "continueSessionInModel-true",
+      "call": "continueSessionInModel",
+      "args": [
+        "sess_a",
+        {
+          "provider": "p2",
+          "model": "m2"
+        }
+      ],
+      "daemon": {
+        "configure": {
+          "sessionId": "sess_a",
+          "revision": 1,
+          "full": {
+            "sessionId": "sess_a",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false
+          },
+          "value": true
+        }
+      },
+      "node": {
+        "result": true,
+        "daemonCalls": [
+          {
+            "method": "configure",
+            "args": {
+              "sessionId": "sess_a",
+              "action": "continueSessionInModel",
+              "args": [
+                "sess_a",
+                {
+                  "provider": "p2",
+                  "model": "m2"
+                }
+              ]
+            }
+          }
+        ],
+        "events": [
+          {
+            "event": "sessionState",
+            "sessionId": "sess_a"
+          }
+        ]
+      }
+    },
+    {
+      "name": "searchSessionContent",
+      "call": "searchSessionContent",
+      "args": [
+        "needle"
+      ],
+      "daemon": {
+        "search": [
+          {
+            "sessionId": "sess_a",
+            "snippet": "a needle",
+            "rank": 1.5,
+            "extra": "dropped"
+          }
+        ]
+      },
+      "node": {
+        "result": [
+          {
+            "sessionId": "sess_a",
+            "snippet": "a needle",
+            "rank": 1.5
+          }
+        ],
+        "daemonCalls": [],
+        "events": []
+      }
+    },
+    {
+      "name": "readTranscriptHistory-unsupported",
+      "call": "readTranscriptHistory",
+      "args": [
+        "sess_a",
+        {
+          "before": "it1",
+          "limit": 5
+        }
+      ],
+      "daemon": {
+        "read": {
+          "sessionId": "sess_a",
+          "revision": 1,
+          "full": {
+            "sessionId": "sess_a",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false
+          },
+          "history": null
+        }
+      },
+      "node": {
+        "result": {
+          "items": [],
+          "hasOlder": false,
+          "hasNewer": false,
+          "unsupported": true
+        },
+        "daemonCalls": [
+          {
+            "method": "read",
+            "args": {
+              "sessionId": "sess_a",
+              "transcriptItemLimit": 32,
+              "transcriptByteBudget": 1000000,
+              "transcriptPrepend": true,
+              "transcriptHistory": {
+                "before": "it1",
+                "limit": 5
+              }
+            }
+          }
+        ],
+        "events": []
+      }
+    },
+    {
+      "name": "deleteSession-present",
+      "call": "deleteSession",
+      "args": [
+        "sess_a"
+      ],
+      "daemon": {
+        "list": {
+          "sessions": [
+            {
+              "id": "sess_a",
+              "owner": "user",
+              "agent": "lead",
+              "sourceType": "lead",
+              "messageCount": 4,
+              "preview": "sess_a"
+            }
+          ]
+        },
+        "configure": {
+          "sessionId": "ctl",
+          "revision": 1,
+          "full": {
+            "sessionId": "ctl",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false
+          },
+          "value": true
+        },
+        "create": {
+          "sessionId": "ctl",
+          "revision": 1,
+          "full": {
+            "sessionId": "ctl",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false
+          }
+        },
+        "unsubscribe": {}
+      },
+      "node": {
+        "result": null,
+        "daemonCalls": [
+          {
+            "method": "list",
+            "args": {
+              "refreshFromStorage": false
+            }
+          },
+          {
+            "method": "create",
+            "args": {
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-OyS6mT\\workspace\\unclassified",
+              "desktopSession": null
+            }
+          },
+          {
+            "method": "configure",
+            "args": {
+              "sessionId": "ctl",
+              "action": "deleteSession",
+              "args": [
+                "sess_a"
+              ]
+            }
+          },
+          {
+            "method": "unsubscribe",
+            "args": {
+              "sessionId": "sess_a"
+            }
+          },
+          {
+            "method": "list",
+            "args": {
+              "refreshFromStorage": false
+            }
+          }
+        ],
+        "events": [
+          {
+            "event": "sessions",
+            "ids": [
+              "sess_a"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "deleteSession-missing",
+      "call": "deleteSession",
+      "args": [
+        "sess_gone"
+      ],
+      "daemon": {
+        "list": {
+          "sessions": []
+        },
+        "unsubscribe": {}
+      },
+      "node": {
+        "result": null,
+        "daemonCalls": [
+          {
+            "method": "list",
+            "args": {
+              "refreshFromStorage": false
+            }
+          },
+          {
+            "method": "unsubscribe",
+            "args": {
+              "sessionId": "sess_gone"
+            }
+          },
+          {
+            "method": "list",
+            "args": {
+              "refreshFromStorage": false
+            }
+          }
+        ],
+        "events": [
+          {
+            "event": "sessions",
+            "ids": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "getQuotaAutoResume-on",
+      "call": "getQuotaAutoResume",
+      "args": [],
+      "daemon": {
+        "create": {
+          "sessionId": "ctl",
+          "revision": 1,
+          "full": {
+            "sessionId": "ctl",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false
+          }
+        },
+        "list": {
+          "sessions": [
+            {
+              "id": "sess_a",
+              "owner": "user",
+              "agent": "lead",
+              "sourceType": "lead",
+              "messageCount": 4,
+              "preview": "sess_a"
+            }
+          ]
+        },
+        "read": {
+          "sessionId": "ctl",
+          "revision": 1,
+          "full": {
+            "sessionId": "ctl",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false
+          },
+          "value": true
+        }
+      },
+      "node": {
+        "result": true,
+        "daemonCalls": [
+          {
+            "method": "create",
+            "args": {
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-jfpnLZ\\workspace\\unclassified",
+              "desktopSession": null
+            }
+          },
+          {
+            "method": "read",
+            "args": {
+              "sessionId": "ctl",
+              "action": "getQuotaAutoResume",
+              "args": []
+            }
+          }
+        ],
+        "events": []
+      }
+    },
+    {
+      "name": "getQuotaAutoResume-off",
+      "call": "getQuotaAutoResume",
+      "args": [],
+      "daemon": {
+        "create": {
+          "sessionId": "ctl",
+          "revision": 1,
+          "full": {
+            "sessionId": "ctl",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false
+          }
+        },
+        "list": {
+          "sessions": [
+            {
+              "id": "sess_a",
+              "owner": "user",
+              "agent": "lead",
+              "sourceType": "lead",
+              "messageCount": 4,
+              "preview": "sess_a"
+            }
+          ]
+        },
+        "read": {
+          "sessionId": "ctl",
+          "revision": 1,
+          "full": {
+            "sessionId": "ctl",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false
+          },
+          "value": false
+        }
+      },
+      "node": {
+        "result": false,
+        "daemonCalls": [
+          {
+            "method": "create",
+            "args": {
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-HVoDcF\\workspace\\unclassified",
+              "desktopSession": null
+            }
+          },
+          {
+            "method": "read",
+            "args": {
+              "sessionId": "ctl",
+              "action": "getQuotaAutoResume",
+              "args": []
+            }
+          }
+        ],
+        "events": []
+      }
+    },
+    {
+      "name": "setQuotaAutoResume-off",
+      "call": "setQuotaAutoResume",
+      "args": [
+        false
+      ],
+      "daemon": {
+        "create": {
+          "sessionId": "ctl",
+          "revision": 1,
+          "full": {
+            "sessionId": "ctl",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false
+          }
+        },
+        "list": {
+          "sessions": [
+            {
+              "id": "sess_a",
+              "owner": "user",
+              "agent": "lead",
+              "sourceType": "lead",
+              "messageCount": 4,
+              "preview": "sess_a"
+            }
+          ]
+        },
+        "configure": {
+          "sessionId": "ctl",
+          "revision": 1,
+          "full": {
+            "sessionId": "ctl",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false
+          },
+          "value": false
+        }
+      },
+      "node": {
+        "result": false,
+        "daemonCalls": [
+          {
+            "method": "create",
+            "args": {
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-G0hU7O\\workspace\\unclassified",
+              "desktopSession": null
+            }
+          },
+          {
+            "method": "configure",
+            "args": {
+              "sessionId": "ctl",
+              "action": "setQuotaAutoResume",
+              "args": [
+                false
+              ]
+            }
+          }
+        ],
+        "events": []
+      }
+    },
+    {
+      "name": "renameSession-ok",
+      "call": "renameSession",
+      "args": [
+        "sess_a",
+        "New name"
+      ],
+      "daemon": {
+        "create": {
+          "sessionId": "ctl",
+          "revision": 1,
+          "full": {
+            "sessionId": "ctl",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false
+          }
+        },
+        "list": {
+          "sessions": [
+            {
+              "id": "sess_a",
+              "owner": "user",
+              "agent": "lead",
+              "sourceType": "lead",
+              "messageCount": 4,
+              "preview": "sess_a"
+            }
+          ]
+        },
+        "configure": {
+          "sessionId": "ctl",
+          "revision": 1,
+          "full": {
+            "sessionId": "ctl",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false
+          },
+          "value": true
+        }
+      },
+      "node": {
+        "daemonCalls": [
+          {
+            "method": "create",
+            "args": {
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-l9Akyp\\workspace\\unclassified",
+              "desktopSession": null
+            }
+          },
+          {
+            "method": "configure",
+            "args": {
+              "sessionId": "ctl",
+              "action": "renameSessionTitle",
+              "args": [
+                "sess_a",
+                "New name"
+              ]
+            }
+          },
+          {
+            "method": "list",
+            "args": {
+              "refreshFromStorage": false
+            }
+          }
+        ],
+        "events": [
+          {
+            "event": "sessions",
+            "ids": [
+              "sess_a"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "renameSession-refused",
+      "call": "renameSession",
+      "args": [
+        "sess_a",
+        "New name"
+      ],
+      "daemon": {
+        "create": {
+          "sessionId": "ctl",
+          "revision": 1,
+          "full": {
+            "sessionId": "ctl",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false
+          }
+        },
+        "list": {
+          "sessions": [
+            {
+              "id": "sess_a",
+              "owner": "user",
+              "agent": "lead",
+              "sourceType": "lead",
+              "messageCount": 4,
+              "preview": "sess_a"
+            }
+          ]
+        },
+        "configure": {
+          "sessionId": "ctl",
+          "revision": 1,
+          "full": {
+            "sessionId": "ctl",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false
+          },
+          "value": false
+        }
+      },
+      "node": {
+        "error": "Session is not available.",
+        "daemonCalls": [
+          {
+            "method": "create",
+            "args": {
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-V1jwcg\\workspace\\unclassified",
+              "desktopSession": null
+            }
+          },
+          {
+            "method": "configure",
+            "args": {
+              "sessionId": "ctl",
+              "action": "renameSessionTitle",
+              "args": [
+                "sess_a",
+                "New name"
+              ]
+            }
+          }
+        ],
+        "events": []
+      }
+    },
+    {
+      "name": "renameSession-empty",
+      "call": "renameSession",
+      "args": [
+        "sess_a",
+        "   "
+      ],
+      "daemon": {
+        "create": {
+          "sessionId": "ctl",
+          "revision": 1,
+          "full": {
+            "sessionId": "ctl",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false
+          }
+        },
+        "list": {
+          "sessions": [
+            {
+              "id": "sess_a",
+              "owner": "user",
+              "agent": "lead",
+              "sourceType": "lead",
+              "messageCount": 4,
+              "preview": "sess_a"
+            }
+          ]
+        }
+      },
+      "node": {
+        "error": "Session title is invalid.",
+        "daemonCalls": [],
+        "events": []
+      }
+    },
+    {
+      "name": "setSessionFavorite",
+      "call": "setSessionFavorite",
+      "args": [
+        "sess_a",
+        true
+      ],
+      "daemon": {
+        "create": {
+          "sessionId": "ctl",
+          "revision": 1,
+          "full": {
+            "sessionId": "ctl",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false
+          }
+        },
+        "list": {
+          "sessions": [
+            {
+              "id": "sess_a",
+              "owner": "user",
+              "agent": "lead",
+              "sourceType": "lead",
+              "messageCount": 4,
+              "preview": "sess_a"
+            }
+          ]
+        }
+      },
+      "node": {
+        "daemonCalls": [
+          {
+            "method": "list",
+            "args": {
+              "refreshFromStorage": false
+            }
+          }
+        ],
+        "events": [
+          {
+            "event": "sessions",
+            "ids": [
+              "sess_a"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "startTask",
+      "call": "startTask",
+      "args": [],
+      "daemon": {},
+      "node": {
+        "result": {
+          "sessionId": "",
+          "items": [],
+          "queued": [],
+          "busy": false,
+          "commandBusy": false,
+          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-q44OEg\\workspace\\unclassified",
+          "currentProject": null,
+          "desktopSession": {
+            "classification": "task",
+            "projectPath": null
+          },
+          "remoteEnabled": false,
+          "remoteSessionId": null
+        },
+        "daemonCalls": [],
+        "events": []
+      }
+    },
+    {
+      "name": "listProviderModels",
+      "call": "listProviderModels",
+      "args": [
+        {
+          "quick": false
+        }
+      ],
+      "daemon": {
+        "create": {
+          "sessionId": "ctl",
+          "revision": 1,
+          "full": {
+            "sessionId": "ctl",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false
+          }
+        },
+        "list": {
+          "sessions": [
+            {
+              "id": "sess_a",
+              "owner": "user",
+              "agent": "lead",
+              "sourceType": "lead",
+              "messageCount": 4,
+              "preview": "sess_a"
+            }
+          ]
+        },
+        "read": {
+          "sessionId": "ctl",
+          "revision": 1,
+          "full": {
+            "sessionId": "ctl",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false
+          },
+          "value": [
+            {
+              "provider": "p",
+              "id": "m",
+              "name": "M",
+              "effortOptions": [
+                {
+                  "value": "low",
+                  "label": "Low"
+                },
+                {
+                  "value": "",
+                  "label": "x"
+                }
+              ],
+              "fastCapable": true,
+              "contextWindow": 1000
+            },
+            {
+              "provider": "",
+              "id": "x"
+            }
+          ]
+        }
+      },
+      "node": {
+        "result": [
+          {
+            "provider": "p",
+            "model": "m",
+            "display": "M",
+            "contextWindow": 1000,
+            "effortOptions": [
+              {
+                "value": "low",
+                "label": "Low"
+              }
+            ],
+            "fastCapable": true,
+            "fastPreferred": false,
+            "modelParameterOptions": [],
+            "parameterVariants": [],
+            "defaultModelParameters": {},
+            "savedModelParameters": {}
+          }
+        ],
+        "daemonCalls": [
+          {
+            "method": "create",
+            "args": {
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-1Qpjba\\workspace\\unclassified",
+              "desktopSession": null
+            }
+          },
+          {
+            "method": "read",
+            "args": {
+              "sessionId": "ctl",
+              "action": "listProviderModels",
+              "args": [
+                {
+                  "quick": false
+                }
+              ]
+            }
+          }
+        ],
+        "events": []
+      }
+    },
+    {
+      "name": "viewerDevice-named",
+      "call": "viewerDevice",
+      "args": [],
+      "daemon": {},
+      "node": {
+        "result": "Pixel 9",
+        "daemonCalls": [],
+        "events": []
+      }
+    },
+    {
+      "name": "viewerDevice-default",
+      "call": "viewerDevice",
+      "args": [],
+      "daemon": {},
+      "node": {
+        "result": "Web app",
+        "daemonCalls": [],
+        "events": []
+      }
+    },
+    {
+      "name": "readTranscriptItem-found",
+      "call": "readTranscriptItem",
+      "args": [
+        "sess_a",
+        "tool1"
+      ],
+      "daemon": {
+        "read": {
+          "sessionId": "sess_a",
+          "revision": 1,
+          "full": {
+            "sessionId": "sess_a",
+            "items": [
+              {
+                "kind": "tool",
+                "id": "tool1",
+                "result": "full output",
+                "rawResult": {
+                  "raw": 1
+                },
+                "uiDiff": {
+                  "d": 1
+                }
+              },
+              {
+                "kind": "user",
+                "id": "u1",
+                "text": "hi"
+              }
+            ],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false
+          }
+        }
+      },
+      "node": {
+        "result": {
+          "id": "tool1",
+          "result": "full output",
+          "rawResult": {
+            "raw": 1
+          },
+          "uiDiff": {
+            "d": 1
+          }
+        },
+        "daemonCalls": [
+          {
+            "method": "read",
+            "args": {
+              "sessionId": "sess_a",
+              "transcriptItemLimit": 32,
+              "transcriptByteBudget": 1000000,
+              "transcriptPrepend": true
+            }
+          }
+        ],
+        "events": []
+      }
+    },
+    {
+      "name": "readTranscriptItem-not-viewed",
+      "call": "readTranscriptItem",
+      "args": [
+        "sess_a",
+        "tool1"
+      ],
+      "daemon": {
+        "read": {
+          "sessionId": "sess_a",
+          "revision": 1,
+          "full": {
+            "sessionId": "sess_a",
+            "items": [
+              {
+                "kind": "tool",
+                "id": "tool1",
+                "result": "full output",
+                "rawResult": {
+                  "raw": 1
+                },
+                "uiDiff": {
+                  "d": 1
+                }
+              },
+              {
+                "kind": "user",
+                "id": "u1",
+                "text": "hi"
+              }
+            ],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false
+          }
+        }
+      },
+      "node": {
+        "error": "This session is not open on this device.",
+        "daemonCalls": [],
+        "events": []
+      }
+    },
+    {
+      "name": "readTranscriptItem-not-held",
+      "call": "readTranscriptItem",
+      "args": [
+        "sess_a",
+        "nope"
+      ],
+      "daemon": {
+        "read": {
+          "sessionId": "sess_a",
+          "revision": 1,
+          "full": {
+            "sessionId": "sess_a",
+            "items": [
+              {
+                "kind": "tool",
+                "id": "tool1",
+                "result": "full output",
+                "rawResult": {
+                  "raw": 1
+                },
+                "uiDiff": {
+                  "d": 1
+                }
+              },
+              {
+                "kind": "user",
+                "id": "u1",
+                "text": "hi"
+              }
+            ],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false
+          }
+        }
+      },
+      "node": {
+        "error": "This row is not in the transcript this device holds.",
+        "daemonCalls": [],
+        "events": []
+      }
+    },
+    {
+      "name": "answerApprovalNotification-answered",
+      "call": "answerApprovalNotification",
+      "args": [
+        "sess_a",
+        "ap1",
+        "allow"
+      ],
+      "daemon": {
+        "approve": {
+          "sessionId": "sess_a",
+          "revision": 1,
+          "full": {
+            "sessionId": "sess_a",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false
+          },
+          "approved": true
+        }
+      },
+      "scripted": "approvalNotifications is a scripted stand-in for push-notifier.ts (its rules are not under test)",
+      "node": {
+        "result": "answered",
+        "daemonCalls": [
+          {
+            "method": "approve",
+            "args": {
+              "sessionId": "sess_a",
+              "approvalId": "ap1",
+              "decision": {
+                "approved": true,
+                "scope": "once",
+                "device": "Pixel 9"
+              }
+            }
+          }
+        ],
+        "events": [
+          {
+            "event": "sessionState",
+            "sessionId": "sess_a"
+          }
+        ]
+      }
+    },
+    {
+      "name": "answerApprovalNotification-settled",
+      "call": "answerApprovalNotification",
+      "args": [
+        "sess_a",
+        "ap1",
+        "deny"
+      ],
+      "daemon": {
+        "approve": {
+          "sessionId": "sess_a",
+          "revision": 1,
+          "full": {
+            "sessionId": "sess_a",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false
+          },
+          "approved": false
+        }
+      },
+      "scripted": "approvalNotifications is a scripted stand-in for push-notifier.ts (its rules are not under test)",
+      "node": {
+        "result": "settled",
+        "daemonCalls": [
+          {
+            "method": "approve",
+            "args": {
+              "sessionId": "sess_a",
+              "approvalId": "ap1",
+              "decision": {
+                "approved": false,
+                "device": "Pixel 9"
+              }
+            }
+          }
+        ],
+        "events": [
+          {
+            "event": "sessionState",
+            "sessionId": "sess_a"
+          }
+        ]
+      }
+    },
+    {
+      "name": "answerApprovalNotification-open",
+      "call": "answerApprovalNotification",
+      "args": [
+        "sess_a",
+        "ap2",
+        "allow"
+      ],
+      "daemon": {},
+      "scripted": "approvalNotifications is a scripted stand-in for push-notifier.ts (its rules are not under test)",
+      "node": {
+        "result": "open",
+        "daemonCalls": [],
+        "events": []
+      }
+    },
+    {
+      "name": "resolveToolApproval-pointer-only",
+      "call": "resolveToolApprovalForSession",
+      "args": [
+        "sess_a",
+        "ptr",
+        {
+          "approved": true
+        }
+      ],
+      "daemon": {},
+      "scripted": "approvalNotifications is a scripted stand-in for push-notifier.ts (its rules are not under test)",
+      "node": {
+        "result": false,
+        "daemonCalls": [],
+        "events": []
+      }
+    },
+    {
+      "name": "provideSecretInput-true",
+      "call": "provideSecretInput",
+      "args": [
+        "req1",
+        "s3cret"
+      ],
+      "daemon": {},
+      "scripted": "hostRequest (the window process) is scripted: the secret slot is not part of the daemon",
+      "node": {
+        "result": true,
+        "daemonCalls": [],
+        "events": [],
+        "hostRequests": [
+          {
+            "method": "provideSecretInput",
+            "args": [
+              "req1",
+              "s3cret"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "provideSecretInput-false",
+      "call": "provideSecretInput",
+      "args": [
+        "req1",
+        "s3cret"
+      ],
+      "daemon": {},
+      "scripted": "hostRequest (the window process) is scripted: the secret slot is not part of the daemon",
+      "node": {
+        "result": false,
+        "daemonCalls": [],
+        "events": [],
+        "hostRequests": [
+          {
+            "method": "provideSecretInput",
+            "args": [
+              "req1",
+              "s3cret"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "readCapabilities",
+      "call": "readCapabilities",
+      "args": [
+        [
+          {
+            "capability": "getProfile",
+            "args": []
+          }
+        ]
+      ],
+      "daemon": {
+        "create": {
+          "sessionId": "ctl",
+          "revision": 1,
+          "full": {
+            "sessionId": "ctl",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false
+          }
+        },
+        "list": {
+          "sessions": [
+            {
+              "id": "sess_a",
+              "owner": "user",
+              "agent": "lead",
+              "sourceType": "lead",
+              "messageCount": 4,
+              "preview": "sess_a"
+            }
+          ]
+        },
+        "read": {
+          "sessionId": "ctl",
+          "revision": 1,
+          "full": {
+            "sessionId": "ctl",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false
+          },
+          "value": {
+            "name": "Mixy"
+          }
+        }
+      },
+      "node": {
+        "result": [
+          {
+            "ok": true,
+            "value": {
+              "name": "Mixy"
+            }
+          }
+        ],
+        "daemonCalls": [
+          {
+            "method": "create",
+            "args": {
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-DDqc4l\\workspace\\unclassified",
+              "desktopSession": null
+            }
+          },
+          {
+            "method": "read",
+            "args": {
+              "sessionId": "ctl",
+              "action": "getProfile",
+              "args": []
+            }
+          }
+        ],
+        "events": []
+      }
+    },
+    {
+      "name": "readCapabilities-failed",
+      "call": "readCapabilities",
+      "args": [
+        [
+          {
+            "capability": "getProfile",
+            "args": []
+          }
+        ]
+      ],
+      "daemon": {
+        "create": {
+          "sessionId": "ctl",
+          "revision": 1,
+          "full": {
+            "sessionId": "ctl",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false
+          }
+        },
+        "list": {
+          "sessions": [
+            {
+              "id": "sess_a",
+              "owner": "user",
+              "agent": "lead",
+              "sourceType": "lead",
+              "messageCount": 4,
+              "preview": "sess_a"
+            }
+          ]
+        }
+      },
+      "node": {
+        "result": [
+          {
+            "ok": false,
+            "error": "profile unavailable"
+          }
+        ],
+        "daemonCalls": [
+          {
+            "method": "create",
+            "args": {
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-yyw9Uq\\workspace\\unclassified",
+              "desktopSession": null
+            }
+          },
+          {
+            "method": "read",
+            "args": {
+              "sessionId": "ctl",
+              "action": "getProfile",
+              "args": []
+            }
+          },
+          {
+            "method": "create",
+            "args": {
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-yyw9Uq\\workspace\\unclassified",
+              "desktopSession": null
+            }
+          },
+          {
+            "method": "read",
+            "args": {
+              "sessionId": "ctl",
+              "action": "getProfile",
+              "args": []
+            }
+          }
+        ],
+        "events": []
+      }
+    },
+    {
+      "name": "prefetchSession-limit",
+      "call": "prefetchSession",
+      "args": [
+        "sess_a",
+        40,
+        "trace1"
+      ],
+      "daemon": {
+        "read": {
+          "sessionId": "sess_a",
+          "revision": 1,
+          "full": {
+            "sessionId": "sess_a",
+            "items": [
+              {
+                "kind": "tool",
+                "id": "tool1",
+                "result": "full output",
+                "rawResult": {
+                  "raw": 1
+                },
+                "uiDiff": {
+                  "d": 1
+                }
+              },
+              {
+                "kind": "user",
+                "id": "u1",
+                "text": "hi"
+              }
+            ],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false
+          }
+        }
+      },
+      "node": {
+        "result": true,
+        "daemonCalls": [
+          {
+            "method": "read",
+            "args": {
+              "sessionId": "sess_a",
+              "transcriptItemLimit": 40,
+              "transcriptByteBudget": 1000000,
+              "transcriptPageBase": 0,
+              "transcriptPrepend": true
+            }
+          }
+        ],
+        "events": [
+          {
+            "event": "sessionState",
+            "sessionId": "sess_a"
+          }
+        ],
+        "clientCalls": [
+          [
+            "requestRead",
+            "sess_a"
+          ],
+          [
+            "requestTranscriptPage",
+            "sess_a",
+            40
+          ]
+        ]
+      }
+    },
+    {
+      "name": "prefetchSession-fails",
+      "call": "prefetchSession",
+      "args": [
+        "sess_a",
+        40
+      ],
+      "daemon": {},
+      "node": {
+        "error": "read failed",
+        "daemonCalls": [
+          {
+            "method": "read",
+            "args": {
+              "sessionId": "sess_a",
+              "transcriptItemLimit": 40,
+              "transcriptByteBudget": 1000000,
+              "transcriptPageBase": 0,
+              "transcriptPrepend": true
+            }
+          }
+        ],
+        "events": [],
+        "clientCalls": [
+          [
+            "requestRead",
+            "sess_a"
+          ],
+          [
+            "requestTranscriptPage",
+            "sess_a",
+            40
+          ],
+          [
+            "releaseRead",
+            "sess_a"
+          ]
+        ]
+      }
+    },
+    {
+      "name": "setSessionArchived-true",
+      "call": "setSessionArchived",
+      "args": [
+        "sess_a",
+        true
+      ],
+      "daemon": {
+        "create": {
+          "sessionId": "ctl",
+          "revision": 1,
+          "full": {
+            "sessionId": "ctl",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false
+          }
+        },
+        "list": {
+          "sessions": [
+            {
+              "id": "sess_a",
+              "owner": "user",
+              "agent": "lead",
+              "sourceType": "lead",
+              "messageCount": 4,
+              "preview": "sess_a"
+            }
+          ]
+        },
+        "configure": {
+          "sessionId": "ctl",
+          "revision": 1,
+          "full": {
+            "sessionId": "ctl",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false
+          },
+          "value": {}
+        }
+      },
+      "node": {
+        "daemonCalls": [
+          {
+            "method": "list",
+            "args": {
+              "refreshFromStorage": false
+            }
+          }
+        ],
+        "events": [
+          {
+            "event": "sessions",
+            "ids": [
+              "sess_a"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "setSessionArchived-false",
+      "call": "setSessionArchived",
+      "args": [
+        "sess_a",
+        false
+      ],
+      "daemon": {
+        "create": {
+          "sessionId": "ctl",
+          "revision": 1,
+          "full": {
+            "sessionId": "ctl",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false
+          }
+        },
+        "list": {
+          "sessions": [
+            {
+              "id": "sess_a",
+              "owner": "user",
+              "agent": "lead",
+              "sourceType": "lead",
+              "messageCount": 4,
+              "preview": "sess_a"
+            }
+          ]
+        },
+        "configure": {
+          "sessionId": "ctl",
+          "revision": 1,
+          "full": {
+            "sessionId": "ctl",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false
+          },
+          "value": {}
+        }
+      },
+      "node": {
+        "daemonCalls": [
+          {
+            "method": "list",
+            "args": {
+              "refreshFromStorage": false
+            }
+          }
+        ],
+        "events": []
+      }
+    },
+    {
+      "name": "submitNewTask-accepted",
+      "call": "submitNewTask",
+      "args": [
+        "build it",
+        {
+          "id": "sub9"
+        },
+        {}
+      ],
+      "daemon": {
+        "unsubscribe": {},
+        "list": {
+          "sessions": []
+        }
+      },
+      "node": {
+        "result": {
+          "accepted": true,
+          "sessionId": "sess_desktop_7740bb610dd3a4dc42985f4a504c32e080219f0931e108aac4122145ce81352e",
+          "snapshot": {
+            "sessionId": "sess_desktop_7740bb610dd3a4dc42985f4a504c32e080219f0931e108aac4122145ce81352e",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false,
+            "remoteEnabled": false,
+            "remoteSessionId": null
+          }
+        },
+        "daemonCalls": [
+          {
+            "method": "create",
+            "args": {
+              "sessionId": "sess_desktop_7740bb610dd3a4dc42985f4a504c32e080219f0931e108aac4122145ce81352e",
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-EqQwWc\\workspace\\unclassified",
+              "desktopSession": {
+                "classification": "task",
+                "projectPath": null
+              }
+            }
+          },
+          {
+            "method": "submit",
+            "args": {
+              "sessionId": "sess_desktop_7740bb610dd3a4dc42985f4a504c32e080219f0931e108aac4122145ce81352e",
+              "prompt": "build it",
+              "options": {
+                "id": "sub9",
+                "transcriptMeta": {
+                  "device": "Pixel 9"
+                }
+              }
+            }
+          }
+        ],
+        "events": [
+          {
+            "event": "sessionState",
+            "sessionId": "sess_desktop_7740bb610dd3a4dc42985f4a504c32e080219f0931e108aac4122145ce81352e"
+          }
+        ]
+      }
+    },
+    {
+      "name": "submitNewTask-refused",
+      "call": "submitNewTask",
+      "args": [
+        "build it",
+        {
+          "id": "sub10"
+        },
+        {}
+      ],
+      "daemon": {
+        "unsubscribe": {},
+        "list": {
+          "sessions": []
+        }
+      },
+      "node": {
+        "result": {
+          "accepted": false,
+          "sessionId": "",
+          "snapshot": null
+        },
+        "daemonCalls": [
+          {
+            "method": "create",
+            "args": {
+              "sessionId": "sess_desktop_a8bf310235f8ba703949b8b5b239905dfa795d2c203351913b65f7b6c82e566c",
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-fnhS0L\\workspace\\unclassified",
+              "desktopSession": {
+                "classification": "task",
+                "projectPath": null
+              }
+            }
+          },
+          {
+            "method": "submit",
+            "args": {
+              "sessionId": "sess_desktop_a8bf310235f8ba703949b8b5b239905dfa795d2c203351913b65f7b6c82e566c",
+              "prompt": "build it",
+              "options": {
+                "id": "sub10",
+                "transcriptMeta": {
+                  "device": "Pixel 9"
+                }
+              }
+            }
+          },
+          {
+            "method": "unsubscribe",
+            "args": {
+              "sessionId": "sess_desktop_a8bf310235f8ba703949b8b5b239905dfa795d2c203351913b65f7b6c82e566c"
+            }
+          }
+        ],
+        "events": [
+          {
+            "event": "sessionState",
+            "sessionId": "sess_desktop_a8bf310235f8ba703949b8b5b239905dfa795d2c203351913b65f7b6c82e566c"
+          }
+        ]
+      }
+    },
+    {
+      "name": "submitNewTask-route",
+      "call": "submitNewTask",
+      "args": [
+        "build it",
+        {
+          "id": "sub11"
+        },
+        {
+          "route": {
+            "provider": "p2",
+            "model": "m2"
+          }
+        }
+      ],
+      "daemon": {
+        "unsubscribe": {},
+        "list": {
+          "sessions": []
+        }
+      },
+      "node": {
+        "result": {
+          "accepted": true,
+          "sessionId": "sess_desktop_8608b9e91f79669f4d1d2879deabf400f5ea2e3ca743e5a9aa0103ad19a9dba1",
+          "snapshot": {
+            "sessionId": "sess_desktop_8608b9e91f79669f4d1d2879deabf400f5ea2e3ca743e5a9aa0103ad19a9dba1",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false,
+            "remoteEnabled": false,
+            "remoteSessionId": null
+          }
+        },
+        "daemonCalls": [
+          {
+            "method": "create",
+            "args": {
+              "sessionId": "sess_desktop_8608b9e91f79669f4d1d2879deabf400f5ea2e3ca743e5a9aa0103ad19a9dba1",
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-2VENaT\\workspace\\unclassified",
+              "desktopSession": {
+                "classification": "task",
+                "projectPath": null
+              }
+            }
+          },
+          {
+            "method": "configure",
+            "args": {
+              "sessionId": "sess_desktop_8608b9e91f79669f4d1d2879deabf400f5ea2e3ca743e5a9aa0103ad19a9dba1",
+              "action": "setRoute",
+              "args": [
+                {
+                  "provider": "p2",
+                  "model": "m2",
+                  "applyToCurrentSession": true,
+                  "keepMainModel": false
+                }
+              ]
+            }
+          },
+          {
+            "method": "submit",
+            "args": {
+              "sessionId": "sess_desktop_8608b9e91f79669f4d1d2879deabf400f5ea2e3ca743e5a9aa0103ad19a9dba1",
+              "prompt": "build it",
+              "options": {
+                "id": "sub11",
+                "transcriptMeta": {
+                  "device": "Pixel 9"
+                }
+              }
+            }
+          }
+        ],
+        "events": [
+          {
+            "event": "sessionState",
+            "sessionId": "sess_desktop_8608b9e91f79669f4d1d2879deabf400f5ea2e3ca743e5a9aa0103ad19a9dba1"
+          }
+        ]
+      }
+    },
+    {
+      "name": "inheritSession",
+      "call": "inheritSession",
+      "args": [
+        "sess_a",
+        {
+          "provider": "p2",
+          "model": "m2"
+        },
+        null
+      ],
+      "daemon": {
+        "projects": [],
+        "list": {
+          "sessions": [
+            {
+              "id": "sess_a",
+              "owner": "user",
+              "agent": "lead",
+              "sourceType": "lead",
+              "messageCount": 4,
+              "preview": "sess_a"
+            }
+          ]
+        },
+        "unsubscribe": {}
+      },
+      "node": {
+        "result": {
+          "sessionId": "sess_heir",
+          "snapshot": {
+            "sessionId": "sess_heir",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "provider": "p",
+            "model": "m",
+            "fast": false,
+            "inherited": true,
+            "remoteEnabled": false,
+            "remoteSessionId": null
+          }
+        },
+        "daemonCalls": [
+          {
+            "method": "list",
+            "args": {
+              "refreshFromStorage": false
+            }
+          },
+          {
+            "method": "create",
+            "args": {
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-megv3T\\workspace\\unclassified",
+              "desktopSession": {
+                "classification": "task",
+                "projectPath": null
+              },
+              "provider": "p2",
+              "model": "m2"
+            }
+          },
+          {
+            "method": "configure",
+            "args": {
+              "sessionId": "sess_heir",
+              "action": "setRoute",
+              "args": [
+                {
+                  "provider": "p2",
+                  "model": "m2",
+                  "applyToCurrentSession": true,
+                  "keepMainModel": true
+                }
+              ]
+            }
+          },
+          {
+            "method": "configure",
+            "args": {
+              "sessionId": "sess_heir",
+              "action": "inheritFrom",
+              "args": [
+                "sess_a",
+                {
+                  "compact": false
+                }
+              ]
+            }
+          }
+        ],
+        "events": [
+          {
+            "event": "sessionState",
+            "sessionId": "sess_heir"
+          },
+          {
+            "event": "sessionState",
+            "sessionId": "sess_heir"
+          },
+          {
+            "event": "sessionState",
+            "sessionId": "sess_heir"
+          }
+        ]
+      }
+    },
+    {
+      "name": "startProject",
+      "call": "startProject",
+      "args": [
+        "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-proj-aeUZK8"
+      ],
+      "daemon": {},
+      "node": {
+        "result": {
+          "sessionId": "",
+          "items": [],
+          "queued": [],
+          "busy": false,
+          "commandBusy": false,
+          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-proj-aeUZK8",
+          "currentProject": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-proj-aeUZK8",
+          "desktopSession": {
+            "classification": "project",
+            "projectPath": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-proj-aeUZK8"
+          },
+          "remoteEnabled": false,
+          "remoteSessionId": null
+        },
+        "daemonCalls": [],
+        "events": []
+      }
+    },
+    {
+      "name": "startProjectTask-registered",
+      "call": "startProjectTask",
+      "args": [
+        "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-proj-aeUZK8"
+      ],
+      "daemon": {
+        "projects": [
+          {
+            "name": "proj",
+            "path": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-proj-aeUZK8",
+            "addedAt": 1
+          }
+        ]
+      },
+      "node": {
+        "result": {
+          "sessionId": "",
+          "items": [],
+          "queued": [],
+          "busy": false,
+          "commandBusy": false,
+          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-proj-aeUZK8",
+          "currentProject": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-proj-aeUZK8",
+          "desktopSession": {
+            "classification": "project",
+            "projectPath": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-proj-aeUZK8"
+          },
+          "remoteEnabled": false,
+          "remoteSessionId": null
+        },
+        "daemonCalls": [],
+        "events": []
+      }
+    },
+    {
+      "name": "startProjectTask-unknown",
+      "call": "startProjectTask",
+      "args": [
+        "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-proj-aeUZK8"
+      ],
+      "daemon": {},
+      "node": {
+        "error": "Project is not available.",
+        "daemonCalls": [],
+        "events": []
+      }
+    },
+    {
+      "name": "openAgentHome-new",
+      "call": "openAgentHome",
+      "args": [
+        "agent1"
+      ],
+      "daemon": {
+        "list": {
+          "sessions": [
+            {
+              "id": "sess_a",
+              "owner": "user",
+              "agent": "lead",
+              "sourceType": "lead",
+              "messageCount": 4,
+              "preview": "sess_a"
+            }
+          ]
+        },
+        "unsubscribe": {}
+      },
+      "node": {
+        "result": {
+          "sessionId": "sess_home_agent1"
+        },
+        "daemonCalls": [
+          {
+            "method": "create",
+            "args": {
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-8HmLsq\\workspace\\unclassified",
+              "desktopSession": null
+            }
+          },
+          {
+            "method": "read",
+            "args": {
+              "sessionId": "ctl",
+              "action": "listAgents",
+              "args": []
+            }
+          },
+          {
+            "method": "list",
+            "args": {
+              "refreshFromStorage": false
+            }
+          },
+          {
+            "method": "read",
+            "args": {
+              "sessionId": "sess_home_agent1",
+              "transcriptItemLimit": 32,
+              "transcriptByteBudget": 1000000,
+              "transcriptPrepend": true
+            }
+          },
+          {
+            "method": "create",
+            "args": {
+              "provider": "p",
+              "model": "m",
+              "sessionProfile": {
+                "homeAgent": "agent1"
+              },
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-8HmLsq\\workspace\\unclassified",
+              "desktopSession": {
+                "classification": "task",
+                "projectPath": null
+              },
+              "sessionId": "sess_home_agent1"
+            }
+          }
+        ],
+        "events": [
+          {
+            "event": "sessionState",
+            "sessionId": "sess_home_agent1"
+          }
+        ]
+      }
+    },
+    {
+      "name": "openAgentHome-existing",
+      "call": "openAgentHome",
+      "args": [
+        "agent1"
+      ],
+      "daemon": {
+        "list": {
+          "sessions": [
+            {
+              "id": "sess_a",
+              "owner": "user",
+              "agent": "lead",
+              "sourceType": "lead",
+              "messageCount": 4,
+              "preview": "sess_a"
+            }
+          ]
+        },
+        "unsubscribe": {}
+      },
+      "node": {
+        "result": {
+          "sessionId": "sess_home_agent1"
+        },
+        "daemonCalls": [
+          {
+            "method": "create",
+            "args": {
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-vI29pW\\workspace\\unclassified",
+              "desktopSession": null
+            }
+          },
+          {
+            "method": "read",
+            "args": {
+              "sessionId": "ctl",
+              "action": "listAgents",
+              "args": []
+            }
+          },
+          {
+            "method": "list",
+            "args": {
+              "refreshFromStorage": false
+            }
+          },
+          {
+            "method": "read",
+            "args": {
+              "sessionId": "sess_home_agent1",
+              "transcriptItemLimit": 32,
+              "transcriptByteBudget": 1000000,
+              "transcriptPrepend": true
+            }
+          }
+        ],
+        "events": []
+      }
+    },
+    {
+      "name": "openAgentHome-unknown-agent",
+      "call": "openAgentHome",
+      "args": [
+        "nobody"
+      ],
+      "daemon": {
+        "list": {
+          "sessions": [
+            {
+              "id": "sess_a",
+              "owner": "user",
+              "agent": "lead",
+              "sourceType": "lead",
+              "messageCount": 4,
+              "preview": "sess_a"
+            }
+          ]
+        },
+        "unsubscribe": {}
+      },
+      "node": {
+        "error": "Agent \"nobody\" is not available.",
+        "daemonCalls": [
+          {
+            "method": "create",
+            "args": {
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-KSoTBC\\workspace\\unclassified",
+              "desktopSession": null
+            }
+          },
+          {
+            "method": "read",
+            "args": {
+              "sessionId": "ctl",
+              "action": "listAgents",
+              "args": []
+            }
+          }
+        ],
+        "events": []
+      }
+    },
+    {
+      "name": "resetAgentHome",
+      "call": "resetAgentHome",
+      "args": [
+        "agent1"
+      ],
+      "daemon": {
+        "list": {
+          "sessions": [
+            {
+              "id": "sess_a",
+              "owner": "user",
+              "agent": "lead",
+              "sourceType": "lead",
+              "messageCount": 4,
+              "preview": "sess_a"
+            }
+          ]
+        },
+        "unsubscribe": {}
+      },
+      "node": {
+        "result": {
+          "sessionId": "sess_home_agent1",
+          "archivedSessionId": "sess_30576_1794214904644_16ef15e6b1894a47a5e6ceca109d34ba"
+        },
+        "daemonCalls": [
+          {
+            "method": "create",
+            "args": {
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-F3JOq1\\workspace\\unclassified",
+              "desktopSession": null
+            }
+          },
+          {
+            "method": "read",
+            "args": {
+              "sessionId": "ctl",
+              "action": "listAgents",
+              "args": []
+            }
+          },
+          {
+            "method": "list",
+            "args": {
+              "refreshFromStorage": false
+            }
+          },
+          {
+            "method": "read",
+            "args": {
+              "sessionId": "sess_home_agent1",
+              "transcriptItemLimit": 32,
+              "transcriptByteBudget": 1000000,
+              "transcriptPrepend": true
+            }
+          },
+          {
+            "method": "configure",
+            "args": {
+              "sessionId": "sess_home_agent1",
+              "action": "clear",
+              "args": [
+                {
+                  "archiveAs": "sess_30576_1794214904644_16ef15e6b1894a47a5e6ceca109d34ba",
+                  "rebuildPrompt": true
+                }
+              ]
+            }
+          },
+          {
+            "method": "read",
+            "args": {
+              "sessionId": "sess_home_agent1",
+              "transcriptItemLimit": 32,
+              "transcriptByteBudget": 1000000,
+              "transcriptPrepend": true
+            }
+          },
+          {
+            "method": "read",
+            "args": {
+              "sessionId": "sess_30576_1794214904644_16ef15e6b1894a47a5e6ceca109d34ba",
+              "transcriptItemLimit": 32,
+              "transcriptByteBudget": 1000000,
+              "transcriptPrepend": true
+            }
+          }
+        ],
+        "events": [
+          {
+            "event": "sessions",
+            "ids": [
+              "sess_a"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "agentRoomAction-create",
+      "call": "agentRoomAction",
+      "args": [
+        "create",
+        [
+          {
+            "name": "Room",
+            "members": [
+              "agent1",
+              "agent2"
+            ]
+          }
+        ]
+      ],
+      "daemon": {
+        "list": {
+          "sessions": [
+            {
+              "id": "sess_a",
+              "owner": "user",
+              "agent": "lead",
+              "sourceType": "lead",
+              "messageCount": 4,
+              "preview": "sess_a"
+            }
+          ]
+        },
+        "unsubscribe": {}
+      },
+      "node": {
+        "result": {
+          "sessionId": "sess_room_mw9188u4fdb44353",
+          "roomId": "mw9188u4fdb44353"
+        },
+        "daemonCalls": [
+          {
+            "method": "create",
+            "args": {
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-oVjEgz\\workspace\\unclassified",
+              "desktopSession": null
+            }
+          },
+          {
+            "method": "read",
+            "args": {
+              "sessionId": "ctl",
+              "action": "listAgents",
+              "args": []
+            }
+          },
+          {
+            "method": "read",
+            "args": {
+              "sessionId": "ctl",
+              "action": "getLeadStatus",
+              "args": []
+            }
+          },
+          {
+            "method": "read",
+            "args": {
+              "sessionId": "ctl",
+              "action": "listAgents",
+              "args": []
+            }
+          },
+          {
+            "method": "read",
+            "args": {
+              "sessionId": "ctl",
+              "action": "listAgents",
+              "args": []
+            }
+          },
+          {
+            "method": "read",
+            "args": {
+              "sessionId": "ctl",
+              "action": "getLeadStatus",
+              "args": []
+            }
+          },
+          {
+            "method": "create",
+            "args": {
+              "provider": "p",
+              "model": "m",
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-oVjEgz\\workspace\\unclassified",
+              "desktopSession": {
+                "classification": "task",
+                "projectPath": null
+              },
+              "sessionId": "sess_room_mw9188u4fdb44353"
+            }
+          },
+          {
+            "method": "configure",
+            "args": {
+              "sessionId": "ctl",
+              "action": "renameSessionTitle",
+              "args": [
+                "sess_room_mw9188u4fdb44353",
+                "Room"
+              ]
+            }
+          }
+        ],
+        "events": []
+      }
+    },
+    {
+      "name": "agentRoomAction-update",
+      "call": "agentRoomAction",
+      "args": [
+        "update",
+        [
+          "<roomId>",
+          {
+            "name": "Renamed"
+          }
+        ]
+      ],
+      "daemon": {
+        "list": {
+          "sessions": [
+            {
+              "id": "sess_a",
+              "owner": "user",
+              "agent": "lead",
+              "sourceType": "lead",
+              "messageCount": 4,
+              "preview": "sess_a"
+            }
+          ]
+        },
+        "unsubscribe": {}
+      },
+      "scripted": "the room id is the one the same host minted in create",
+      "node": {
+        "result": {
+          "id": "mw9188vl29bc66d2",
+          "name": "Renamed",
+          "members": [
+            "agent1",
+            "agent2"
+          ],
+          "maxRounds": 3,
+          "maxMessages": 8,
+          "shareTools": false,
+          "memberNames": {
+            "agent1": "agent1",
+            "agent2": "agent2"
+          }
+        },
+        "daemonCalls": [
+          {
+            "method": "create",
+            "args": {
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-YeA7oq\\workspace\\unclassified",
+              "desktopSession": null
+            }
+          },
+          {
+            "method": "read",
+            "args": {
+              "sessionId": "ctl",
+              "action": "listAgents",
+              "args": []
+            }
+          },
+          {
+            "method": "read",
+            "args": {
+              "sessionId": "ctl",
+              "action": "getLeadStatus",
+              "args": []
+            }
+          },
+          {
+            "method": "read",
+            "args": {
+              "sessionId": "ctl",
+              "action": "listAgents",
+              "args": []
+            }
+          },
+          {
+            "method": "read",
+            "args": {
+              "sessionId": "ctl",
+              "action": "listAgents",
+              "args": []
+            }
+          },
+          {
+            "method": "read",
+            "args": {
+              "sessionId": "ctl",
+              "action": "getLeadStatus",
+              "args": []
+            }
+          },
+          {
+            "method": "create",
+            "args": {
+              "provider": "p",
+              "model": "m",
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-YeA7oq\\workspace\\unclassified",
+              "desktopSession": {
+                "classification": "task",
+                "projectPath": null
+              },
+              "sessionId": "sess_room_mw9188vl29bc66d2"
+            }
+          },
+          {
+            "method": "configure",
+            "args": {
+              "sessionId": "ctl",
+              "action": "renameSessionTitle",
+              "args": [
+                "sess_room_mw9188vl29bc66d2",
+                "Room"
+              ]
+            }
+          },
+          {
+            "method": "read",
+            "args": {
+              "sessionId": "ctl",
+              "action": "listAgents",
+              "args": []
+            }
+          },
+          {
+            "method": "list",
+            "args": {
+              "refreshFromStorage": false
+            }
+          },
+          {
+            "method": "read",
+            "args": {
+              "sessionId": "ctl",
+              "action": "getLeadStatus",
+              "args": []
+            }
+          },
+          {
+            "method": "configure",
+            "args": {
+              "sessionId": "ctl",
+              "action": "renameSessionTitle",
+              "args": [
+                "sess_room_mw9188vl29bc66d2",
+                "Renamed"
+              ]
+            }
+          }
+        ],
+        "events": [
+          {
+            "event": "sessions",
+            "ids": [
+              "sess_room_mw9188vl29bc66d2",
+              "sess_a"
+            ]
+          },
+          {
+            "event": "sessions",
+            "ids": [
+              "sess_room_mw9188vl29bc66d2",
+              "sess_a"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "agentRoomAction-remove",
+      "call": "agentRoomAction",
+      "args": [
+        "remove",
+        [
+          "<roomId>"
+        ]
+      ],
+      "daemon": {
+        "list": {
+          "sessions": [
+            {
+              "id": "sess_a",
+              "owner": "user",
+              "agent": "lead",
+              "sourceType": "lead",
+              "messageCount": 4,
+              "preview": "sess_a"
+            }
+          ]
+        },
+        "unsubscribe": {}
+      },
+      "scripted": "the room id is the one the same host minted in create",
+      "node": {
+        "daemonCalls": [
+          {
+            "method": "create",
+            "args": {
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-E2hDIV\\workspace\\unclassified",
+              "desktopSession": null
+            }
+          },
+          {
+            "method": "read",
+            "args": {
+              "sessionId": "ctl",
+              "action": "listAgents",
+              "args": []
+            }
+          },
+          {
+            "method": "read",
+            "args": {
+              "sessionId": "ctl",
+              "action": "getLeadStatus",
+              "args": []
+            }
+          },
+          {
+            "method": "read",
+            "args": {
+              "sessionId": "ctl",
+              "action": "listAgents",
+              "args": []
+            }
+          },
+          {
+            "method": "read",
+            "args": {
+              "sessionId": "ctl",
+              "action": "listAgents",
+              "args": []
+            }
+          },
+          {
+            "method": "read",
+            "args": {
+              "sessionId": "ctl",
+              "action": "getLeadStatus",
+              "args": []
+            }
+          },
+          {
+            "method": "create",
+            "args": {
+              "provider": "p",
+              "model": "m",
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-E2hDIV\\workspace\\unclassified",
+              "desktopSession": {
+                "classification": "task",
+                "projectPath": null
+              },
+              "sessionId": "sess_room_mw918903aea3f1f6"
+            }
+          },
+          {
+            "method": "configure",
+            "args": {
+              "sessionId": "ctl",
+              "action": "renameSessionTitle",
+              "args": [
+                "sess_room_mw918903aea3f1f6",
+                "Room"
+              ]
+            }
+          },
+          {
+            "method": "list",
+            "args": {
+              "refreshFromStorage": false
+            }
+          },
+          {
+            "method": "list",
+            "args": {
+              "refreshFromStorage": false
+            }
+          },
+          {
+            "method": "unsubscribe",
+            "args": {
+              "sessionId": "sess_rmem_mw918903aea3f1f6_agent1"
+            }
+          },
+          {
+            "method": "list",
+            "args": {
+              "refreshFromStorage": false
+            }
+          },
+          {
+            "method": "list",
+            "args": {
+              "refreshFromStorage": false
+            }
+          },
+          {
+            "method": "unsubscribe",
+            "args": {
+              "sessionId": "sess_rmem_mw918903aea3f1f6_agent2"
+            }
+          },
+          {
+            "method": "list",
+            "args": {
+              "refreshFromStorage": false
+            }
+          },
+          {
+            "method": "list",
+            "args": {
+              "refreshFromStorage": false
+            }
+          },
+          {
+            "method": "unsubscribe",
+            "args": {
+              "sessionId": "sess_room_mw918903aea3f1f6"
+            }
+          },
+          {
+            "method": "list",
+            "args": {
+              "refreshFromStorage": false
+            }
+          }
+        ],
+        "events": [
+          {
+            "event": "sessions",
+            "ids": [
+              "sess_a"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "agentRoomAction-unknown",
+      "call": "agentRoomAction",
+      "args": [
+        "explode",
+        []
+      ],
+      "daemon": {},
+      "node": {
+        "error": "Unknown room action \"explode\".",
+        "daemonCalls": [],
+        "events": []
+      }
+    },
+    {
+      "name": "submitFeedback-accepted",
+      "call": "submitFeedback",
+      "args": [
+        {
+          "id": "3f2c1d4e-5a6b-4c7d-8e9f-0a1b2c3d4e5f",
+          "kind": "bug",
+          "message": "it broke",
+          "replyTo": "me@example.com"
+        }
+      ],
+      "daemon": {},
+      "scripted": "the relay HTTP answer is scripted; feedback-client.ts runs unchanged",
+      "node": {
+        "result": {
+          "id": "3f2c1d4e-5a6b-4c7d-8e9f-0a1b2c3d4e5f",
+          "status": "accepted"
+        },
+        "daemonCalls": [],
+        "events": []
+      }
+    },
+    {
+      "name": "submitFeedback-rate-limited",
+      "call": "submitFeedback",
+      "args": [
+        {
+          "id": "3f2c1d4e-5a6b-4c7d-8e9f-0a1b2c3d4e5f",
+          "kind": "bug",
+          "message": "it broke",
+          "replyTo": "me@example.com"
+        }
+      ],
+      "daemon": {},
+      "scripted": "the relay HTTP answer is scripted; feedback-client.ts runs unchanged",
+      "node": {
+        "error": "Too many feedback requests. Please try again later.",
+        "daemonCalls": [],
+        "events": []
+      }
+    },
+    {
+      "name": "submitFeedback-unavailable",
+      "call": "submitFeedback",
+      "args": [
+        {
+          "id": "3f2c1d4e-5a6b-4c7d-8e9f-0a1b2c3d4e5f",
+          "kind": "bug",
+          "message": "it broke",
+          "replyTo": "me@example.com"
+        }
+      ],
+      "daemon": {},
+      "scripted": "the relay HTTP answer is scripted; feedback-client.ts runs unchanged",
+      "node": {
+        "error": "Feedback service is unavailable. Please try again later.",
+        "daemonCalls": [],
+        "events": []
+      }
+    },
+    {
+      "name": "submitFeedback-bad-receipt",
+      "call": "submitFeedback",
+      "args": [
+        {
+          "id": "3f2c1d4e-5a6b-4c7d-8e9f-0a1b2c3d4e5f",
+          "kind": "bug",
+          "message": "it broke",
+          "replyTo": "me@example.com"
+        }
+      ],
+      "daemon": {},
+      "scripted": "the relay HTTP answer is scripted; feedback-client.ts runs unchanged",
+      "node": {
+        "error": "Feedback receipt is invalid. Please try again.",
+        "daemonCalls": [],
+        "events": []
+      }
+    },
+    {
+      "name": "submitFeedback-network",
+      "call": "submitFeedback",
+      "args": [
+        {
+          "id": "3f2c1d4e-5a6b-4c7d-8e9f-0a1b2c3d4e5f",
+          "kind": "bug",
+          "message": "it broke",
+          "replyTo": "me@example.com"
+        }
+      ],
+      "daemon": {},
+      "scripted": "the relay HTTP answer is scripted; feedback-client.ts runs unchanged",
+      "node": {
+        "error": "Unable to submit feedback. Please try again.",
+        "daemonCalls": [],
+        "events": []
+      }
+    }
+  ]
+}

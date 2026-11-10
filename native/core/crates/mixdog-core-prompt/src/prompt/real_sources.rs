@@ -325,7 +325,14 @@ fn skipped(path: &Path, error: &std::io::Error) {
     use std::io::ErrorKind::NotADirectory;
     use std::io::ErrorKind::NotFound;
     if !matches!(error.kind(), NotFound | NotADirectory | IsADirectory) {
-        tracing::warn!(path = %path.display(), reason = %error, "[instruction-files] skipped");
+        // Node's reason is `error.code`; libuv names a refused open `EACCES` on Unix and `EPERM` on Windows. Any other fault has no
+        // code name here and shows its message.
+        let reason = match error.kind() {
+            std::io::ErrorKind::PermissionDenied if cfg!(windows) => "EPERM".to_owned(),
+            std::io::ErrorKind::PermissionDenied => "EACCES".to_owned(),
+            _ => error.to_string(),
+        };
+        mixdog_rt::node_stderr!("[instruction-files] skipped {}: {reason}", path.display());
     }
 }
 
@@ -358,7 +365,7 @@ fn read_instruction_file(path: &Path, root: Option<&Path>) -> String {
             }
         };
         if !real.starts_with(&real_root) {
-            tracing::warn!(path = %path.display(), reason = "resolves outside its root", "[instruction-files] skipped");
+            mixdog_rt::node_stderr!("[instruction-files] skipped {}: resolves outside its root", path.display());
             return String::new();
         }
     }

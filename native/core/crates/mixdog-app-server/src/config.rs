@@ -29,6 +29,8 @@ pub struct ServerConfig {
     pub server_build: String,
     /// Changes on every core start (P §4.4).
     pub server_instance_id: String,
+    /// How this start's desktop defaults separation ended; every `initialize` reply carries it.
+    pub defaults_separation: mixdog_app_protocol::v1::DefaultsSeparation,
     pub capabilities: ServerCapabilities,
     /// Checked at construction ([`Limits::check`]); the per-class caps are the admission caps.
     pub limits: Limits,

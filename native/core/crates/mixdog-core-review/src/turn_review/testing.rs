@@ -16,6 +16,14 @@ pub fn review_at(data: &Path) -> TurnReview {
     review_with_bases(data).0
 }
 
+/// Returns once every deleted session's marker and baseline removal started so far has landed.
+pub async fn forgotten(review: &TurnReview) {
+    let tasks = std::mem::take(&mut *review.inner.forgets.lock().unwrap_or_else(|e| e.into_inner()));
+    for task in tasks {
+        task.await.expect("a session's review removal");
+    }
+}
+
 /// A turn review over the real lane disk and Git, with the `CapturedBases` it records into.
 pub fn review_with_bases(data: &Path) -> (TurnReview, Arc<CapturedBases>) {
     let tokens = mixdog_rt::testing::tokens();

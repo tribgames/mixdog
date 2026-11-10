@@ -41,8 +41,9 @@ pub(crate) enum Ctl {
     },
     /// The run's token is already cancelled; the actor resolves the run's own requests.
     Abort { turn: TurnId },
-    /// Steer entries were pushed into the active run's steer queue.
-    Steer,
+    /// `turn/steer`: the queued prompt is prioritized (front of the queue, priority `now`, a drain kicked), and the
+    /// entries pushed into the active run's steer queue are taken.
+    Prioritize { queued: QueuedId },
     Decide(Decision),
     RunEnded { turn: TurnId, outcome: RunOutcome },
     /// The user's "Retry storage" (SM §8 `PendingRollback`).
@@ -136,6 +137,8 @@ pub(crate) struct ActiveRun {
     pub cancel: Cancel,
     /// Queue entries marked steer, waiting for the run's next model-call boundary.
     pub steers: Mutex<VecDeque<QueuedId>>,
+    /// The prompt that started the run: what a stop may hand back (`flags.activePromptRestore`).
+    pub prompt: Arc<super::stop::PromptState>,
 }
 
 /// Whether a thread, or the control start that becomes it, has not ended. Every end (a close of the thread's cell, an abandoned
@@ -222,13 +225,17 @@ pub(crate) struct ControlCell {
     pub ui_busy: std::sync::atomic::AtomicBool,
     pub compacting: std::sync::atomic::AtomicBool,
     /// Woken after every step of the thread's actor, so a test waits on the thread's state by its
-    /// change (`tests::eventually_on`, and `SessionHandle::stepped` for the tests of other crates).
+    /// change (`eventually_on!`, and `SessionHandle::stepped` for the tests of other crates).
     #[cfg(any(test, feature = "test-support"))]
     pub stepped: tokio::sync::Notify,
     /// The actor's `turn_busy()` after its last step: a turn runs, starts or is still settling.
     /// The next turn is refused or queued until it is false, which `run` being empty does not say.
     #[cfg(any(test, feature = "test-support"))]
     pub busy: std::sync::atomic::AtomicBool,
+    /// How many times the actor has armed the prompt-history write timer (the window, or a backoff), counted in the step that arms
+    /// it: a test that moves a paused clock waits on this first, so the timer is armed before the clock moves.
+    #[cfg(any(test, feature = "test-support"))]
+    pub prompt_timers: std::sync::atomic::AtomicU64,
 }
 
 impl ControlCell {
@@ -332,12 +339,17 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 /// `isQueuedEntryEditable` (`queue-helpers.mjs`): a prompt the user typed, as opposed to a task notification, a
 /// pending resume, a Goal entry or a meta entry.
-fn is_editable_entry(entry: &Value) -> bool {
+pub(super) fn is_editable_entry(entry: &Value) -> bool {
     let mode = entry.get("mode").and_then(Value::as_str).unwrap_or("prompt");
     mode != super::completions::MODE
         && mode != "pending-resume"
         && !super::goal_lane::is_goal_entry(entry)
         && entry.get("isMeta") != Some(&Value::Bool(true))
+}
+
+/// The entries `prioritizeQueued` selects: `isQueuedEntryEditable(entry) && !isSlashQueuedEntry(entry)`.
+pub(super) fn is_prioritizable_entry(entry: &Value) -> bool {
+    is_editable_entry(entry) && !super::pending::is_slash_entry(entry)
 }
 
 impl ControlCell {
@@ -360,8 +372,9 @@ impl ControlCell {
     }
 
     /// `turn/interrupt` → `{cancelRequested: true, turnId}` (R12): the user's stop
-    /// (`abortRuntime`, `cli-abort`). The run stops at its next poll; its `run{interrupted}`
-    /// record follows through the control reserve.
+    /// (`abortRuntime`, `cli-abort`). The cancel is fired before this returns and a full control lane cannot
+    /// refuse it; the run stops at its next poll and its `run{interrupted}` record follows through the control
+    /// reserve.
     pub fn interrupt(&self, turn: &TurnId, restore_prompt: Option<bool>) -> Result<Value, CoreError> {
         // `abort.mjs`: a Stop that hands the prompt back is `user-cancel` (the runtime rewinds a turn that produced
         // nothing); one that does not names `user-cancel-keep-prompt`, so the prompt stays in the stored transcript.
@@ -379,30 +392,34 @@ impl ControlCell {
     }
 
     /// Aborts the running `turn` with `reason`, Node's abort text (`closeSession`,
-    /// `abortSessionTurn`, `abortRuntime`).
+    /// `abortSessionTurn`, `abortRuntime`). The only error is a `turn` that is not the running one.
     pub fn abort(&self, turn: &TurnId, abort: &mixdog_agent::cancel::Abort) -> Result<Value, CoreError> {
         let run = self.run.load_full();
         let Some(run) = run.filter(|run| &run.turn == turn) else {
             return Err(self.not_active(Some(turn)));
         };
-        self.send(Ctl::Abort { turn: turn.clone() })?;
+        // `abortRuntime` aborts synchronously, so the cancel fires first and cannot be refused. The actor's
+        // `Ctl::Abort` only settles the turn's pending approvals early; a full lane drops it, and `run_ended`
+        // settles whatever is left when the turn ends.
         run.cancel.abort_with(abort);
+        let _ = self.ctl_tx.try_send(Ctl::Abort { turn: turn.clone() });
         Ok(json!({ "cancelRequested": true, "turnId": turn }))
     }
 
-    /// `turn/steer{expectedTurnId, queuedId}` → `{accepted: true, queuedId}` (R10, R12).
-    pub fn steer(&self, expected: &TurnId, queued: QueuedId) -> Result<Value, CoreError> {
-        let run = self.run.load_full();
-        let Some(run) = run.filter(|run| &run.turn == expected) else {
-            return Err(self.not_active(Some(expected)));
-        };
-        if !self.queued.load().contains(queued.as_str()) {
+    /// `turn/steer{expectedTurnId, queuedId}` → `{accepted: true, queuedId}` (R10, R12). Node's
+    /// `prioritizeQueued` (`queue.mjs`) goes by queue membership alone and has no turn precondition: a queued
+    /// prompt moves to the front of the queue at priority `now` and a drain is kicked, whether or not a run
+    /// matches `expected`; the actor does it (`Ctl::Prioritize`). A run that matches (`expected` when named,
+    /// else any) also takes the entry at its next model-call boundary.
+    pub fn steer(&self, expected: Option<&TurnId>, queued: QueuedId) -> Result<Value, CoreError> {
+        if !self.queue.load().iter().any(|entry| entry.qid == queued.as_str() && is_prioritizable_entry(&entry.entry)) {
             return Err(CoreError::QueuedEntryNotFound {
                 thread_id: self.thread.clone(),
                 queued_id: queued,
             });
         }
-        {
+        let run = self.run.load_full();
+        if let Some(run) = run.filter(|run| expected.is_none_or(|expected| &run.turn == expected)) {
             let mut steers = lock(&run.steers);
             if !steers.contains(&queued) {
                 if steers.len() >= self.steer_cap {
@@ -413,7 +430,7 @@ impl ControlCell {
                 steers.push_back(queued.clone());
             }
         }
-        self.send(Ctl::Steer)?;
+        self.send(Ctl::Prioritize { queued: queued.clone() })?;
         Ok(json!({ "accepted": true, "queuedId": queued }))
     }
 

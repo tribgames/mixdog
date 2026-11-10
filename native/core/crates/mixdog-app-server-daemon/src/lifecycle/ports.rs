@@ -51,9 +51,9 @@ pub trait Publication: Send + Sync {
     fn withdraw(&self);
 }
 
-/// Process exit. The real implementation never returns.
+/// Process exit with `code` (0, or 2 for Node's fatal boot error). The real implementation never returns.
 pub trait Exiter: Send + Sync {
-    fn exit(&self);
+    fn exit(&self, code: i32);
 }
 
 #[derive(Clone)]

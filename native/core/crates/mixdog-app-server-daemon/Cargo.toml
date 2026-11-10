@@ -7,6 +7,10 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Forwarded to mixdog-workspace: the controls a replay of the download recording drives a spawned core with. Never in an ordinary build.
+replay-controls = ["mixdog-workspace/replay-controls", "mixdog-core-run/replay-controls"]
+
 [dependencies]
 mixdog-app-protocol = { workspace = true }
 mixdog-app-server = { workspace = true }
@@ -59,6 +63,7 @@ sha2 = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["sync", "signal", "rt", "time"] }
 tracing = { workspace = true }
+mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }
@@ -78,10 +83,41 @@ windows-sys = { workspace = true, features = [
 ] }
 
 [dev-dependencies]
+# The credential-read counter (`mixdog_ai::work`) seen from a crate that only depends on the crates that read: the
+# `credential_reads_tests` integration test. Only this crate's test builds turn the features on.
+mixdog-core = { workspace = true, features = ["count-work"] }
+mixdog-core-domains = { workspace = true, features = ["count-work"] }
+mixdog-ai = { workspace = true, features = ["count-work", "test-support"] }
 # The mock seams and the inline lane backend are test fixtures only; the daemon runs on `mixdog_rt::exec`.
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-rt = { workspace = true, features = ["test-support"] }
+# The unpair replay drives the downloads' clock by file, which only a build with this feature reads.
+mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", "replay-controls"] }
+# The real session directory (`held_runs_tests`: the approval predicate over real threads and connections).
+mixdog-core-session = { workspace = true, features = ["test-support"] }
+# The replay of Node's review-signal recording (`compose::review_restart_tests`).
+mixdog-core-review = { workspace = true, features = ["test-support"] }
+# The op scopes of the remote access service in the composed test (support::testing::scopes).
+mixdog-core-base = { workspace = true, features = ["test-support"] }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "test-util", "net"] }
 # The scripted relay of `domain_seams/remote/e2e.rs` (shared with mixdog-remote's integration tests).
 tokio-tungstenite = { workspace = true, features = ["handshake"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-app-protocol = { workspace = true, features = ["codegen"] }
+mixdog-js = { workspace = true, features = ["fixture-tools"] }
+mixdog-mcp = { workspace = true, features = ["test-support"] }
+mixdog-migrate = { workspace = true, features = ["crash-hook"] }
+mixdog-secrets = { workspace = true, features = ["count-work", "test-support"] }
+mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core", "core-test"] }
+mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-core-config = { workspace = true, features = ["count-work"] }
+mixdog-protocol = { workspace = true, features = ["codegen"] }
+mixdog-core-run = { workspace = true, features = ["test-support"] }
+
+[target.'cfg(windows)'.dev-dependencies]
+# The composed tests' child process and what it starts, in a job object of the test (`compose_test_support::Tree`).
+windows-sys = { workspace = true, features = ["Win32_System_JobObjects"] }

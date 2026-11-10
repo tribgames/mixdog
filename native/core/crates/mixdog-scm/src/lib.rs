@@ -9,6 +9,7 @@ pub mod exec;
 pub mod feeds;
 pub mod gh;
 pub mod git;
+pub mod git_launch;
 pub mod inspect;
 pub mod locks;
 pub mod mutate;

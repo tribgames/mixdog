@@ -1,0 +1,28 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-oauth-mcp-lifecycle.mjs --tree <git checkout of b6f10295a2f698afc85332467192de28500bd146> --commit b6f10295a2f698afc85332467192de28500bd146",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 395387,
+      "path": "golden.json",
+      "sha256": "11fb7d69688944f6abe334c60c40e33fd4976226098e9ca87392a3fcfb359a31"
+    }
+  ],
+  "product": {
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-oauth-mcp-lifecycle.mjs",
+  "set": "oauth-mcp-lifecycle",
+  "totalBytes": 395387
+}

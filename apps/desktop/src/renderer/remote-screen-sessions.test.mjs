@@ -1,52 +1,48 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { VISUALIZE_PANELS_EVENT } from '../shared/visualize.ts';
-import { createRemoteApi } from './remote-shim-api.ts';
-import { publishedCeilings, withShim } from './remote-shim-test-harness.mjs';
+import { REMOTE_CONNECTION_READY_EVENT } from './remote-connection-state.ts';
+import { setVisualizePanelOnScreen } from './visualize-store.ts';
+import { withPhoneApi } from './test-support/phone-api-rig.mjs';
 
-const nextCall = async (leg, method) => {
-  let frame = await leg.nextPayload();
-  while (frame.method !== method) frame = await leg.nextPayload();
-  return frame;
-};
+// Node's version (b6f10295a) read the `setScreenSessions` / `setVisualizePanels` frames off a fake socket. The phone reports its screen to the
+// core as `ui/screenSessions/changed` through `ctx.phone.refreshScreen()` (remote-shim-api.ts); what that notification carries is replayed by
+// apps/mobile/src/screen-reporter.test.ts. This file keeps what the page itself does: record the set it paints and ask the phone to report it.
+const withScreen = (run) =>
+  withPhoneApi({}, async (rig) => {
+    const reports = [];
+    rig.ctx.phone.refreshScreen = () => reports.push({ sessions: [...rig.ctx.lastScreenSessionIds], panels: [...rig.ctx.visualizePanelIds] });
+    await run({ ...rig, reports });
+  });
 
 test('a remote page reports the sessions it paints apart from its delivery subscription', async () => {
-  await withShim({}, async ({ ctx, dial }) => {
-    ctx.updaterListeners = new Set();
-    ctx.settingsChangedListeners = new Set();
-    const api = createRemoteApi(ctx);
-    const leg = await dial({ remoteParity: true, ready: publishedCeilings(4096, 4096) });
+  await withScreen(async ({ ctx, api, reports, calls }) => {
     api.reportScreenSessions(['a']);
-    assert.deepEqual((await nextCall(leg, 'setScreenSessions')).params, [['a']]);
     assert.deepEqual(ctx.lastScreenSessionIds, ['a'], 'kept for the next leg');
+    assert.deepEqual(reports, [{ sessions: ['a'], panels: [] }], 'the phone is asked to report it');
+    assert.deepEqual(calls, [], 'no Node-named call carries it any more');
   });
 });
 
-test('a remote page tells the desktop which visualize panels it has on screen, and each new leg again', async () => {
-  const { setVisualizePanelOnScreen } = await import('./visualize-store.ts');
-  const { REMOTE_CONNECTION_READY_EVENT } = await import('./remote-connection-state.ts');
-  await withShim({}, async ({ ctx, dial }) => {
-    ctx.updaterListeners = new Set();
-    ctx.settingsChangedListeners = new Set();
-    // The page's window events reach the shim's listeners.
-    const page = new EventTarget();
-    window.addEventListener = page.addEventListener.bind(page);
-    window.dispatchEvent = page.dispatchEvent.bind(page);
-    createRemoteApi(ctx);
-    const leg = await dial({ remoteParity: true, ready: publishedCeilings(4096, 4096) });
+test('a remote page tells the core which visualize panels it has on screen, and each new leg again', async () => {
+  await withScreen(async ({ ctx, reports }) => {
     setVisualizePanelOnScreen('a', true);
-    assert.deepEqual((await nextCall(leg, 'setVisualizePanels')).params, [['a']]);
+    assert.deepEqual(ctx.visualizePanelIds, ['a']);
     setVisualizePanelOnScreen('a', false);
-    assert.deepEqual((await nextCall(leg, 'setVisualizePanels')).params, [[]], 'closed: no longer viewing');
+    assert.deepEqual(ctx.visualizePanelIds, [], 'closed: no longer viewing');
     setVisualizePanelOnScreen('b', true);
-    assert.deepEqual((await nextCall(leg, 'setVisualizePanels')).params, [['b']]);
+    assert.deepEqual(ctx.visualizePanelIds, ['b']);
+    const before = reports.length;
     // A new leg knows nothing until told.
     window.dispatchEvent(new Event(REMOTE_CONNECTION_READY_EVENT));
-    assert.deepEqual((await nextCall(leg, 'setVisualizePanels')).params, [['b']]);
+    assert.equal(reports.length, before + 1);
+    assert.deepEqual(reports.at(-1).panels, ['b']);
     setVisualizePanelOnScreen('b', false);
-    await nextCall(leg, 'setVisualizePanels');
     // Store and shim meet on the one shared event name.
     window.dispatchEvent(new CustomEvent(VISUALIZE_PANELS_EVENT, { detail: ['c'] }));
-    assert.deepEqual((await nextCall(leg, 'setVisualizePanels')).params, [['c']]);
+    assert.deepEqual(ctx.visualizePanelIds, ['c']);
+    assert.deepEqual(reports.at(-1).panels, ['c']);
+    window.dispatchEvent(new CustomEvent(VISUALIZE_PANELS_EVENT, { detail: 'x' }));
+    assert.deepEqual(ctx.visualizePanelIds, [], 'a malformed list is none');
   });
 });

@@ -116,19 +116,19 @@ impl QuickFacts for Facts {
 
     fn hydrated(&self, provider: &str, model: &Value) -> Value {
         let id = model.get("id").and_then(Value::as_str).unwrap_or_default();
-        hydrated_model(provider, model, &self.catalog.model_meta(provider, id))
+        hydrated_model(provider, model, &self.catalog.listed_meta(provider, id))
     }
 
     fn cache_row(&self, provider: &str, model: &Value) -> Value {
         let id = model.get("id").and_then(Value::as_str).unwrap_or_default();
-        let catalog_row = self.catalog.model_meta(provider, id);
+        let catalog_row = self.catalog.listed_meta(provider, id);
         let web_search = web_search_capable_for(provider, id, Some(model), Some(&catalog_row));
         Value::Object(provider_model_cache_row(provider, model, web_search))
     }
 
     fn capable_for(&self, provider: &str, model: &Value) -> bool {
         let id = model.get("id").and_then(Value::as_str).unwrap_or_default();
-        web_search_capable_for(provider, id, Some(model), Some(&self.catalog.model_meta(provider, id)))
+        web_search_capable_for(provider, id, Some(model), Some(&self.catalog.listed_meta(provider, id)))
     }
 
     fn main_model_meta(&self) -> Option<Value> {
@@ -202,7 +202,9 @@ impl CatalogFacts for Facts {
         Ok(Value::Array(self.listings(name).unwrap_or_default()))
     }
 
-    fn remember(&self, _: &str, _: &str, _: &Value) {}
+    fn remember(&self, provider: &str, id: &str, row: &Value) {
+        self.catalog.remember_meta(provider, id, row.clone());
+    }
 }
 
 pub struct WebSearchModelsService {

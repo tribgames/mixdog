@@ -21,6 +21,9 @@ use crate::error::WsResult;
 use crate::ident::mtime_ms;
 use crate::ident::path_id;
 use crate::inplace::Opened;
+use crate::nodeerr::AtPath;
+use crate::nodeerr::io_error2;
+use crate::inplace::open_authorized_ro;
 use crate::inplace::open_authorized_rw;
 use crate::inplace::read_all;
 use crate::inplace::rewrite;
@@ -88,13 +91,14 @@ pub fn parse_encoding(name: &str) -> WsResult<Encoding> {
     }
 }
 
+/// Node's `a.localeCompare(b)` (ICU, the process's default locale)
 fn locale_cmp(a: &str, b: &str) -> std::cmp::Ordering {
-    a.to_lowercase().cmp(&b.to_lowercase()).then_with(|| b.cmp(a))
+    mixdog_js::locale_compare(a, b)
 }
 
 pub fn list_dir(root: &Path, rel: &str) -> WsResult<Vec<DirItem>> {
     let target = project_entry_path(root, rel)?;
-    let mut items: Vec<DirItem> = fs::read_dir(target)?
+    let mut items: Vec<DirItem> = fs::read_dir(&target).at("scandir", &target)?
         .filter_map(Result::ok)
         .filter_map(|e| {
             let kind = e.file_type().ok()?;
@@ -121,7 +125,7 @@ pub fn text_reply(bytes: &[u8], mtime: f64) -> TextFile {
 
 pub fn read_text(root: &Path, rel: &str) -> WsResult<TextFile> {
     let file = project_entry_path(root, rel)?;
-    let meta = fs::metadata(&file)?;
+    let meta = fs::metadata(&file).at("stat", &file)?;
     if !meta.is_file() {
         return Err(WsError::new(Reason::NotAFile, "Not a file."));
     }
@@ -137,11 +141,33 @@ pub fn read_text(root: &Path, rel: &str) -> WsResult<TextFile> {
             encoding: "utf8",
         });
     }
-    Ok(text_reply(&fs::read(file)?, mtime))
+    Ok(text_reply(&fs::read(&file).at("open", &file)?, mtime))
+}
+
+/// The paired device's read (Node's `readProjectTextFileAuthorized`): the file is opened first and the open file is checked to be a regular
+/// file inside `root`; the bytes come through that handle.
+pub fn read_text_authorized(root: &Path, rel: &str) -> WsResult<TextFile> {
+    let file = project_entry_path(root, rel)?;
+    let mut opened = open_authorized_ro(&file, root)?;
+    let meta = opened.file.metadata().at("fstat", &file)?;
+    let mtime = mtime_ms(&meta);
+    if meta.len() > VIEW_MAX {
+        return Ok(TextFile {
+            content: String::new(),
+            mtime_ms: mtime,
+            binary: false,
+            too_large: true,
+            read_only: None,
+            read_only_reason: None,
+            encoding: "utf8",
+        });
+    }
+    Ok(text_reply(&read_all(&mut opened.file).at("read", &file)?, mtime))
 }
 
 pub fn stat(root: &Path, rel: &str) -> WsResult<StatInfo> {
-    let meta = fs::metadata(project_entry_path(root, rel)?)?;
+    let path = project_entry_path(root, rel)?;
+    let meta = fs::metadata(&path).at("stat", &path)?;
     Ok(StatInfo { mtime_ms: mtime_ms(&meta), size: meta.len(), directory: meta.is_dir() })
 }
 
@@ -380,13 +406,13 @@ pub fn create_entry(root: &Path, rel_dir: &str, name: &str, dir: bool) -> WsResu
     rel.extend(&segments);
     let target = project_entry_path(root, &rel.to_string_lossy())?;
     if dir {
-        fs::create_dir_all(&target)?;
+        fs::create_dir_all(&target).at("mkdir", &target)?;
         return Ok(());
     }
     if let Some(parent) = target.parent() {
-        fs::create_dir_all(parent)?;
+        fs::create_dir_all(parent).at("mkdir", parent)?;
     }
-    fs::OpenOptions::new().write(true).create_new(true).open(&target)?;
+    fs::OpenOptions::new().write(true).create_new(true).open(&target).at("open", &target)?;
     Ok(())
 }
 
@@ -394,7 +420,7 @@ fn entry_exists(path: &Path) -> WsResult<bool> {
     match fs::symlink_metadata(path) {
         Ok(_) => Ok(true),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(e) => Err(e.into()),
+        Err(e) => Err(crate::nodeerr::io_error(&e, "lstat", path)),
     }
 }
 
@@ -419,14 +445,14 @@ pub fn rename_entry(root: &Path, rel: &str, new_name: &str) -> WsResult<()> {
         return Err(WsError::invalid("Cannot rename the project root."));
     }
     let destination = project_entry_path(root, &destination_rel)?;
-    fs::symlink_metadata(&from)?;
+    fs::symlink_metadata(&from).at("lstat", &from)?;
     if from == destination {
         return Ok(());
     }
     if entry_exists(&destination)? {
         let parent = from.parent().unwrap_or(&from);
         let names: Vec<String> =
-            fs::read_dir(parent)?.filter_map(Result::ok).map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+            fs::read_dir(parent).at("scandir", parent)?.filter_map(Result::ok).map(|e| e.file_name().to_string_lossy().into_owned()).collect();
         let base = from.file_name().unwrap_or_default().to_string_lossy().into_owned();
         let case_only = base.to_lowercase() == trimmed.to_lowercase()
             && names.contains(&base)
@@ -435,7 +461,7 @@ pub fn rename_entry(root: &Path, rel: &str, new_name: &str) -> WsResult<()> {
             return Err(WsError::new(Reason::AlreadyExists, EXISTS));
         }
     }
-    fs::rename(from, destination)?;
+    fs::rename(&from, &destination).map_err(|e| io_error2(&e, "rename", &from, &destination))?;
     Ok(())
 }
 
@@ -444,7 +470,7 @@ fn target_dir(root: &Path, source: &Path, target_rel: &str, verb: &str, noun: &s
         return Err(WsError::invalid(format!("Cannot {verb} the project root.")));
     }
     let dir = project_entry_path(root, target_rel)?;
-    if !fs::metadata(&dir)?.is_dir() {
+    if !fs::metadata(&dir).at("stat", &dir)?.is_dir() {
         return Err(WsError::invalid(format!("{noun} target is not a folder.")));
     }
     if crate::pathguard::is_within(source, &dir) {
@@ -463,7 +489,7 @@ pub fn move_entry(root: &Path, rel: &str, target_dir_rel: &str) -> WsResult<()> 
     if entry_exists(&destination)? {
         return Err(WsError::new(Reason::AlreadyExists, EXISTS));
     }
-    fs::rename(source, destination)?;
+    fs::rename(&source, &destination).map_err(|e| io_error2(&e, "rename", &source, &destination))?;
     Ok(())
 }
 
@@ -496,7 +522,7 @@ fn copy_tree(from: &Path, to: &Path) -> WsResult<()> {
 pub fn copy_entry(root: &Path, rel: &str, target_dir_rel: &str) -> WsResult<String> {
     let source = project_entry_path(root, rel)?;
     let dir = target_dir(root, &source, target_dir_rel, "copy", "Copy")?;
-    let source_is_dir = fs::metadata(&source)?.is_dir();
+    let source_is_dir = fs::metadata(&source).at("stat", &source)?.is_dir();
     let mut name = source.file_name().unwrap_or_default().to_string_lossy().into_owned();
     if entry_exists(&dir.join(&name))? {
         let dot = if source_is_dir { None } else { name.rfind('.') };
@@ -626,6 +652,27 @@ mod tests {
         (dir, root, ProjectFs::new(store))
     }
 
+    /// Node's `a.localeCompare(b)` puts "a" before "B" before "c" and "é" next to "e"; a lowercase-byte sort does not.
+    #[test]
+    fn listing_orders_names_as_node_locale_compare_does() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = canonical(dir.path()).unwrap();
+        for name in ["c.txt", "B.txt", "a.txt", "é.txt", "e2.txt", "e10.txt"] {
+            fs::write(root.join(name), "").unwrap();
+        }
+        let names: Vec<String> = list_dir(&root, ".").unwrap().into_iter().map(|i| i.name).collect();
+        // ICU: case and accents are secondary to the letters, and "." sorts before digits, so "é.txt" precedes "e10.txt".
+        assert_eq!(names, ["a.txt", "B.txt", "c.txt", "é.txt", "e10.txt", "e2.txt"]);
+    }
+
+    /// The phone shows the words of Node's failed `stat`: code, description, call, path.
+    #[test]
+    fn a_missing_file_fails_with_nodes_system_error_text() {
+        let (_d, root, _fs) = fixture();
+        let error = stat(&root, "missing.txt").unwrap_err();
+        assert!(error.message.starts_with("ENOENT: no such file or directory, stat '"), "{}", error.message);
+    }
+
     #[test]
     fn list_read_stat_match_the_recorded_cases() {
         let (_d, root, _fs) = fixture();
@@ -635,7 +682,7 @@ mod tests {
         let bom = read_text(&root, "bom8.txt").unwrap();
         assert_eq!((bom.encoding, bom.content.as_str()), ("utf8bom", "bom\n"));
         assert!(read_text(&root, "bin.dat").unwrap().binary);
-        assert_eq!(read_text(&root, "missing.txt").unwrap_err().reason, Reason::NotFound);
+        assert_eq!(read_text(&root, "missing.txt").unwrap_err().reason, Reason::Coded("ENOENT".into()));
         assert_eq!(read_text(&root, "../escape.txt").unwrap_err().message, "Path is outside the project.");
         assert_eq!(stat(&root, "utf8.txt").unwrap().size, 13);
     }

@@ -9,6 +9,7 @@ use std::sync::Arc;
 use mixdog_ai::service::admin_route::Obj;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_api::mock::MockStatePublisher;
+use mixdog_core_base::support::OpScopes;
 use mixdog_core_base::support::testing::{request, scopes, value, with_op};
 use mixdog_core_config::config::hidden_agents::hidden_agents;
 use mixdog_core_config::config::{AgentRoutes, Config, ConfigLanes};
@@ -76,12 +77,28 @@ fn the_wire_half_hands_the_runtime_what_node_hands_it() {
 struct Rig {
     service: RouteSetService,
     _dirs: (tempfile::TempDir, tempfile::TempDir),
+}
+
+/// One op store for every case of a test. Each case sends its own op id, so no case answers from
+/// another's record; opening a `core.sqlite` per case was half of each case's time.
+struct Ops {
+    scopes: OpScopes,
     _state: tempfile::TempDir,
+}
+
+async fn ops() -> Ops {
+    let state = tempfile::tempdir().unwrap();
+    Ops { scopes: scopes(state.path(), "route").await, _state: state }
+}
+
+/// The op id of case `i` of a test.
+fn op_of(i: usize) -> u64 {
+    i as u64 + 1
 }
 
 /// The service over the route-service rig of `case`, and an agent route setter over its config
 /// with the agent recording `agent_case`.
-async fn build(case: &Value, agent_case: &Value) -> Rig {
+async fn build(case: &Value, agent_case: &Value, ops: &Ops) -> Rig {
     let (routes, _writer, _log, dir) = rig(case).await;
     let agents_dir = tempfile::tempdir().unwrap();
     let tokens = mixdog_rt::testing::tokens();
@@ -96,9 +113,7 @@ async fn build(case: &Value, agent_case: &Value) -> Rig {
         publisher: Arc::new(Published::default()),
         hidden: hidden_agents(),
     };
-    let state = tempfile::tempdir().unwrap();
-    let ops = scopes(state.path(), "route").await;
-    Rig { service: RouteSetService { routes: Arc::new(routes), agents: Arc::new(agents), ops }, _dirs: (dir, agents_dir), _state: state }
+    Rig { service: RouteSetService { routes: Arc::new(routes), agents: Arc::new(agents), ops: ops.scopes.clone() }, _dirs: (dir, agents_dir) }
 }
 
 fn message(error: mixdog_core_api::error::CoreError) -> String {
@@ -122,8 +137,9 @@ fn route_cases() -> Vec<Value> {
 #[tokio::test]
 async fn route_set_for_a_thread_answers_what_set_route_answers() {
     let agent_case = admin_twin()["agentCases"][0].clone();
+    let ops = ops().await;
     for (i, case) in route_cases().iter().enumerate() {
-        let rig = build(case, &agent_case).await;
+        let rig = build(case, &agent_case, &ops).await;
         let mut route = obj(&case["request"]);
         for key in ["keepMainModel", "onlyIfEmpty"] {
             if let Some(flag) = case["options"].get(key) {
@@ -131,7 +147,7 @@ async fn route_set_for_a_thread_answers_what_set_route_answers() {
             }
         }
         let params = json!({ "threadId": "t", "route": route });
-        let got = value(&rig.service, request(ROUTE_SET, with_op(params, 1), Some(1))).await;
+        let got = value(&rig.service, request(ROUTE_SET, with_op(params, op_of(i)), Some(op_of(i)))).await;
         let label = format!("case {i}: {} {}", case["request"], case["options"]);
         match case.get("error") {
             Some(error) => assert_eq!(message(got.unwrap_err()), error.as_str().unwrap(), "{label}"),
@@ -143,7 +159,7 @@ async fn route_set_for_a_thread_answers_what_set_route_answers() {
 #[tokio::test]
 async fn a_request_naming_no_thread_writes_the_route_before_any_session() {
     let case = route_cases().into_iter().find(|c| c.get("error").is_none()).unwrap();
-    let rig = build(&case, &admin_twin()["agentCases"][0]).await;
+    let rig = build(&case, &admin_twin()["agentCases"][0], &ops().await).await;
     let params = with_op(json!({ "route": case["request"] }), 1);
     let got = value(&rig.service, request(ROUTE_SET, params, Some(1))).await.unwrap();
     assert_eq!(got, case["value"]);
@@ -160,12 +176,13 @@ async fn route_set_for_an_agent_from_a_thread_answers_the_agents_route() {
     let route_case = route_cases().remove(0);
     let cases = golden["agentRoutes"].as_array().unwrap();
     assert!(!cases.is_empty());
+    let ops = ops().await;
     for (i, case) in cases.iter().enumerate() {
-        let rig = build(&route_case, case).await;
+        let rig = build(&route_case, case, &ops).await;
         let thread = ThreadId::from("control");
         let route_before = rig.service.routes.writer.route(&thread);
         let params = json!({ "threadId": "control", "agentId": case["agentId"], "route": case["request"] });
-        let got = value(&rig.service, request(ROUTE_SET, with_op(params, 1), Some(1))).await;
+        let got = value(&rig.service, request(ROUTE_SET, with_op(params, op_of(i)), Some(op_of(i)))).await;
         let label = format!("agent case {i}: {} {}", case["agentId"], case["request"]);
         match case.get("error") {
             Some(error) => assert_eq!(message(got.unwrap_err()), error.as_str().unwrap(), "{label}"),
@@ -178,10 +195,11 @@ async fn route_set_for_an_agent_from_a_thread_answers_the_agents_route() {
 #[tokio::test]
 async fn route_set_for_an_agent_answers_what_set_agent_route_answers() {
     let route_case = route_cases().remove(0);
+    let ops = ops().await;
     for (i, case) in admin_twin()["agentCases"].as_array().unwrap().iter().enumerate() {
-        let rig = build(&route_case, case).await;
+        let rig = build(&route_case, case, &ops).await;
         let params = json!({ "agentId": case["agentId"], "route": case["request"] });
-        let got = value(&rig.service, request(ROUTE_SET, with_op(params, 1), Some(1))).await;
+        let got = value(&rig.service, request(ROUTE_SET, with_op(params, op_of(i)), Some(op_of(i)))).await;
         let label = format!("agent case {i}: {} {}", case["agentId"], case["request"]);
         match case.get("error") {
             Some(error) => assert_eq!(message(got.unwrap_err()), error.as_str().unwrap(), "{label}"),
@@ -195,10 +213,11 @@ async fn fast_set_answers_whether_fast_is_on() {
     let agent_case = admin_twin()["agentCases"][0].clone();
     let cases: Vec<Value> = route_twin()["cases"].as_array().unwrap().iter().filter(|c| c["kind"] == "setFast" && !c["setFastValue"].is_string()).cloned().collect();
     assert!(!cases.is_empty());
+    let ops = ops().await;
     for (i, case) in cases.iter().enumerate() {
-        let rig = build(case, &agent_case).await;
+        let rig = build(case, &agent_case, &ops).await;
         let params = json!({ "threadId": "t", "on": case["setFastValue"] == json!(true) });
-        let got = value(&rig.service, request(FAST_SET, with_op(params, 1), Some(1))).await;
+        let got = value(&rig.service, request(FAST_SET, with_op(params, op_of(i)), Some(op_of(i)))).await;
         let label = format!("fast case {i}: {}", case["setFastValue"]);
         match case.get("error") {
             Some(error) => assert_eq!(message(got.unwrap_err()), error.as_str().unwrap(), "{label}"),
@@ -210,7 +229,7 @@ async fn fast_set_answers_whether_fast_is_on() {
 #[tokio::test]
 async fn a_duplicate_op_answers_the_recorded_outcome() {
     let case = route_cases().into_iter().find(|c| c.get("error").is_none()).unwrap();
-    let rig = build(&case, &admin_twin()["agentCases"][0]).await;
+    let rig = build(&case, &admin_twin()["agentCases"][0], &ops().await).await;
     let params = with_op(json!({ "threadId": "t", "route": case["request"] }), 1);
     let first = value(&rig.service, request(ROUTE_SET, params.clone(), Some(1))).await.unwrap();
     let second = value(&rig.service, request(ROUTE_SET, params, Some(1))).await.unwrap();

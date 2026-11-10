@@ -19,7 +19,7 @@ fn twin() -> Value {
     serde_json::from_str(include_str!("../../../../../fixtures/defaults-separation/twin.json")).expect("twin.json")
 }
 
-async fn open(dir: &Path) -> Config {
+pub(in crate::config) async fn open(dir: &Path) -> Config {
     let tokens = mixdog_rt::testing::tokens();
     let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
     let (config, _) = Config::open(dir.join("mixdog-config.json"), Arc::new(MockStatePublisher::default()), lanes).await.expect("opens");
@@ -27,12 +27,12 @@ async fn open(dir: &Path) -> Config {
 }
 
 /// File work of a test runs as a job on the write lane, as the pass's own does.
-async fn lane<R: Send + 'static>(job: impl FnOnce(&InLane<DurabilityIo>) -> R + Send + 'static) -> R {
+pub(in crate::config) async fn lane<R: Send + 'static>(job: impl FnOnce(&InLane<DurabilityIo>) -> R + Send + 'static) -> R {
     super::super::on_lane(mixdog_rt::testing::tokens().durability_io, job).await.expect("lane job")
 }
 
 /// `path` written with `text`, its folder made first.
-async fn put(path: std::path::PathBuf, text: String) {
+pub(in crate::config) async fn put(path: std::path::PathBuf, text: String) {
     lane(move |lane| {
         mixdog_statefile::create_dir_all(lane, path.parent().expect("parent")).expect("folder");
         mixdog_statefile::write_file_stepped(lane, &path, text.as_bytes(), &mixdog_statefile::Opts::default()).expect("file");

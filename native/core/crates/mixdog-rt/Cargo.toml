@@ -18,6 +18,7 @@ crossbeam-channel = { workspace = true }
 # (`enable_all`), regardless of what other crates in the build enable.
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "sync", "time", "net", "macros"] }
 tokio-util = { workspace = true }
+mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }
@@ -27,3 +28,6 @@ windows-sys = { workspace = true, features = ["Win32_System_Threading"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt", "time", "test-util"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-rt = { path = ".", features = ["test-support"] }

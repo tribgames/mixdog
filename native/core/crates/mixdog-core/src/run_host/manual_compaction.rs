@@ -8,10 +8,9 @@
 //! the header this module computes), the hook bus for PreCompact / PostCompact, and the thread's
 //! header port for the writes that have no commit (a failed pass, the re-armed reminders).
 //!
-//! Not carried over from Node (see `decisions.md`, "manual compaction"): the fallback title
-//! (`backfillFallbackSessionTitle`) and the staged working-folder re-root
-//! (`applyPendingWorkspaceReroot`) a changed pass applies, the write-ahead archive segment, the
-//! trace line, and the summary route's own facts (provider, model and timings of a maintenance or
+//! Not carried over from Node (see `decisions.md`, "manual compaction"): the staged working-folder
+//! re-root (`applyPendingWorkspaceReroot`) a changed pass applies, the write-ahead archive segment,
+//! the trace line, and the summary route's own facts (provider and model of a maintenance or
 //! lighter route): the session's route is reported.
 
 use std::collections::HashMap;
@@ -137,11 +136,24 @@ fn with_status<R>(snapshot: &ContextSnapshot, session: &Header, messages: &[Agen
     f(&input)
 }
 
+/// Node's `session.messages`, which the pass prices: the request's system blocks, then the transcript.
+/// The compactor works on the transcript alone.
+fn priced(header: &Header, transcript: &[AgentMessage]) -> Vec<AgentMessage> {
+    let mut messages = super::factory::system_messages(header);
+    messages.extend(transcript.iter().cloned());
+    messages
+}
+
+/// The forced plan over `priced` messages of `snapshot`'s thread (`compactionPlanNumbers`).
+fn forced_plan(snapshot: &ContextSnapshot, session_messages: &[AgentMessage]) -> Result<Option<CompactionPlan>, &'static str> {
+    with_status(snapshot, &snapshot.header, session_messages, |status| compaction_plan(status, false, true))
+}
+
 /// Everything a commit's header is computed from besides the thread's header and the rows appended
 /// since the snapshot.
 pub(crate) struct CommitFacts {
     pub snapshot: Arc<ContextSnapshot>,
-    /// The transcript the plan priced, and its rows.
+    /// The transcript the plan priced (with the request's system blocks), and its rows.
     pub messages: Vec<AgentMessage>,
     pub before_rows: Vec<Value>,
     pub plan: CompactionPlan,
@@ -150,8 +162,13 @@ pub(crate) struct CommitFacts {
     pub fresh: SummaryFacts,
     pub archived: Option<Archived>,
     pub now: f64,
+    /// `compactStartedAt`: the pass began (before the stage hook and the summary).
     pub started_at: f64,
+    /// The start of `commitSessionCompaction`, once the summary pass returned.
     pub commit_started_at: f64,
+    /// `recordCompactionTiming`'s `Date.now()`: sampled once the header is built, as Node samples after the record, the fallback title,
+    /// the usage snapshot, the cache-break intent and the reminder re-arming.
+    pub committed_at: Arc<dyn Fn() -> f64 + Send + Sync>,
 }
 
 /// The header of `runSessionCompaction`'s commit (`commitSessionCompaction`): the summary's usage
@@ -173,6 +190,7 @@ pub(crate) fn committed_header(facts: &CommitFacts, header: &Header, appended: &
     let docs: Vec<Value> = working.get("tools").and_then(Value::as_array).cloned().unwrap_or_default();
     let after_defined = request_definitions(&working, &docs, &final_rows, &snapshot.provider);
     let after_native = native_request_tools(&Value::Object(working.clone()));
+    let compacted = priced(&snapshot.header, &facts.compacted);
     let committed = with_status(snapshot, &working, &facts.messages, |status| {
         commit_compaction(&CommitInput {
             status,
@@ -181,11 +199,11 @@ pub(crate) fn committed_header(facts: &CommitFacts, header: &Header, appended: &
             now: facts.now,
             started_at: facts.started_at,
             commit_started_at: facts.commit_started_at,
-            committed_at: facts.now,
+            committed_at: facts.commit_started_at,
             fresh: &facts.fresh,
             before_rows: &facts.before_rows,
             compacted_rows: &facts.compacted_rows,
-            compacted: &facts.compacted,
+            compacted: &compacted,
             appended: &appended_messages,
             after_tools: RequestTools { native: &after_native, defined: &after_defined },
             archived: facts.archived.clone(),
@@ -193,7 +211,12 @@ pub(crate) fn committed_header(facts: &CommitFacts, header: &Header, appended: &
     });
     working.insert("compaction".into(), Value::Object(committed.compaction));
     if committed.changed {
-        let transcript: Vec<AgentMessage> = facts.compacted.iter().chain(&appended_messages).cloned().collect();
+        // `backfillFallbackSessionTitle(session, messages)`: a titleless session keeps a name before the transcript that carries
+        // its first prompt is replaced.
+        if let Some(change) = mixdog_core_session::session::session_title::fallback_title_change(&working, &facts.before_rows, None, facts.now as i64) {
+            working.extend(change.set);
+        }
+        let transcript: Vec<AgentMessage> = compacted.iter().chain(&appended_messages).cloned().collect();
         invalidate_provider_context_baseline().apply(&mut working);
         if let Some(policy) = &committed.policy {
             let args = UsageSnapshotArgs { used_tokens: committed.after.tokens, message_tokens_est: Some(committed.after.message_tokens), source: "post_compact", updated_at: Some(facts.now), now: facts.now };
@@ -207,6 +230,13 @@ pub(crate) fn committed_header(facts: &CommitFacts, header: &Header, appended: &
         // The compacted history no longer holds the late-tool announcements nor the settings notices.
         let _ = rearm_late_deferred_tools(&mut working, facts.now as i64);
         rearm_prompt_settings_notice(&mut working);
+    }
+    // `recordCompactionTiming` runs last, changed or not; the record above took a provisional end that this replaces.
+    let committed_at = (facts.committed_at)();
+    if let Some(Value::Object(record)) = working.get_mut("compaction") {
+        record.insert("lastCommittedAt".into(), number(committed_at));
+        record.insert("lastDurationMs".into(), number(committed_at - facts.started_at));
+        record.insert("lastCommitMs".into(), number(committed_at - facts.commit_started_at));
     }
     (working, committed.result)
 }
@@ -256,7 +286,8 @@ impl ManualCompaction for HostManualCompaction {
         let rows: Vec<Value> = context.iter().map(|(_, row)| row.clone()).collect();
         let messages = rows.iter().map(|row| message_of(row).map_err(|e| failed(DOMAIN, e))).collect::<Result<Vec<_>, _>>()?;
         let snapshot = Arc::new(snapshot);
-        let plan = with_status(&snapshot, &snapshot.header, &messages, |status| compaction_plan(status, false, true)).map_err(|message| failed(DOMAIN, message))?;
+        let session_messages = priced(&snapshot.header, &messages);
+        let plan = forced_plan(&snapshot, &session_messages).map_err(|message| failed(DOMAIN, message))?;
         let Some(plan) = plan else { return Ok(None) };
 
         // The compactor of the thread's route: `runSessionHandoff`.
@@ -276,22 +307,23 @@ impl ManualCompaction for HostManualCompaction {
         if require && !compactor.reduces(&request(true)).await {
             return Ok(Some(plan.no_token_reduction()));
         }
-        // The manager's savings gate passed: PreCompact (`onStageChange('compacting')`).
-        parts.hooks.pre(thread, trigger).await;
+        // The manager's savings gate passed: `compactStartedAt`, then PreCompact (`onStageChange('compacting')`).
         let started_at = self.now();
+        parts.hooks.pre(thread, trigger).await;
         let output = match compactor.compact(request(require)).await {
             Ok(output) => output,
             Err(CompactError::Overflow(message) | CompactError::Failed(message)) => {
-                return self.record_failure(thread, &snapshot, &messages, &plan, None, &message, Some(&message)).await.map(Some);
+                return self.record_failure(thread, &snapshot, &session_messages, &plan, None, &message, Some(&message)).await.map(Some);
             }
             Err(CompactError::Aborted) => {
                 let message = "compact aborted";
-                return self.record_failure(thread, &snapshot, &messages, &plan, None, message, Some(message)).await.map(Some);
+                return self.record_failure(thread, &snapshot, &session_messages, &plan, None, message, Some(message)).await.map(Some);
             }
         };
         if output.skipped {
             return Ok(Some(plan.no_token_reduction()));
         }
+        let commit_started_at = self.now();
 
         let usage = output.usage.as_ref().map(usage_value);
         let summarized = usage.is_some();
@@ -304,8 +336,8 @@ impl ManualCompaction for HostManualCompaction {
             pipeline_mode: Some(if summarized { "conversation-summary" } else { "rules" }.to_owned()),
             summary_route: summarized.then(|| "session".to_owned()),
             forked: false,
-            generated_ms: None,
-            total_ms: Some(self.now() - started_at),
+            generated_ms: output.summary_ms,
+            total_ms: Some(output.pipeline_ms),
         };
         let item_of: HashMap<String, ItemId> = context.iter().filter_map(|(iid, row)| Some((message_of(row).ok()?.message_id?, iid.clone()))).collect();
         let compacted_rows: Vec<Value> = output.messages.iter().map(row_of).collect();
@@ -319,9 +351,10 @@ impl ManualCompaction for HostManualCompaction {
         let archived = Archived { dropped: output.dropped_count, identities: output.dropped.as_ref().map(|d| json!({ "messageIds": d.message_ids, "callIds": d.call_ids })) };
         let now = self.now();
         let compaction = Compaction { replacement, at: now as i64, dropped_count: output.dropped_count, dropped };
+        let clock = parts.clock.clone();
         let facts = CommitFacts {
             snapshot: snapshot.clone(),
-            messages: messages.clone(),
+            messages: session_messages.clone(),
             before_rows: rows.clone(),
             plan: plan.clone(),
             compacted: output.messages,
@@ -330,7 +363,8 @@ impl ManualCompaction for HostManualCompaction {
             archived: Some(archived),
             now,
             started_at,
-            commit_started_at: now,
+            commit_started_at,
+            committed_at: Arc::new(move || clock.now_ms() as f64),
         };
         let answer = Arc::new(Mutex::new(None));
         let slot = answer.clone();
@@ -347,8 +381,43 @@ impl ManualCompaction for HostManualCompaction {
                 result.map(Some).ok_or_else(|| failed(DOMAIN, "the commit answered without a result"))
             }
             // The conversation moved: nothing was applied, the summary's usage still counts.
-            CompactionCommit::Moved => self.record_failure(thread, &snapshot, &messages, &plan, usage.as_ref(), TRANSCRIPT_MOVED_ERROR, None).await.map(Some),
+            CompactionCommit::Moved => self.record_failure(thread, &snapshot, &session_messages, &plan, usage.as_ref(), TRANSCRIPT_MOVED_ERROR, None).await.map(Some),
         }
+    }
+
+    /// `compactConversationForHeir`: the source's whole transcript through the source's own compactor, sized by the heir's
+    /// budget. The compactor sees the system blocks the source's requests lead with (`source.messages` holds them), so
+    /// its protected head and its budget count them; only the conversation half of the result travels. Nothing is
+    /// committed: the source keeps every message. A pass that is asked to `summarize` runs on a copy of the source's
+    /// header whose conversation threshold is the floor (1).
+    async fn compact_for_heir(&self, source: &ThreadId, budget_tokens: u64, summarize: bool) -> Result<Option<Vec<Value>>, CoreError> {
+        let parts = &self.parts;
+        let Ok(stored) = parts.threads.header(source).await else { return Ok(None) };
+        let Some(directory) = parts.next.bound().and_then(|(directory, _)| directory.upgrade()) else { return Ok(None) };
+        let context = directory.model_context(source).read().await?;
+        let rows: Vec<Value> = context.iter().map(|(_, row)| row.clone()).collect();
+        let messages = super::factory::session_messages(&stored, &rows).map_err(|e| failed(DOMAIN, e))?;
+        let mut header = stored;
+        if summarize {
+            let mut compaction = header.get("compaction").and_then(Value::as_object).cloned().unwrap_or_default();
+            compaction.insert("conversationThresholdTokens".into(), json!(1));
+            header.insert("compaction".into(), Value::Object(compaction));
+        }
+        let Some(settings) = parts.config.run_settings(source, &header).compact else { return Ok(None) };
+        let input = CompactorInput {
+            settings,
+            rows: Arc::new(StoredRows::new()),
+            archive: Arc::new(ToolResultArtifacts::new(parts.io.clone(), &parts.data_dir, source.as_str())),
+            blobs: parts.blobs.clone(),
+        };
+        let Some(compactor) = parts.compactors.compactor(source, &header, &rows, input).await else { return Ok(None) };
+        compactor.prepare(&messages).await;
+        let request = CompactRequest { messages: &messages, budget_tokens, trigger: CompactTrigger::Auto, require_reduction: false, reference_latest_attachments: false };
+        let output = compactor.compact(request).await.map_err(|error| match error {
+            CompactError::Overflow(message) | CompactError::Failed(message) => failed(DOMAIN, message),
+            CompactError::Aborted => failed(DOMAIN, "compact aborted"),
+        })?;
+        Ok(Some(output.messages.iter().map(row_of).collect()))
     }
 
     async fn post_compact(&self, thread: &ThreadId, trigger: &str) {

@@ -245,6 +245,17 @@ fn usage_record(usage: &Usage) -> Value {
     record
 }
 
+/// `estimateTranscriptContextUsage(messages, tools, { provider })`: the transcript estimate plus the
+/// request reserve, calibrated for the provider; 0 for an empty transcript.
+pub fn estimate_transcript_context_usage(messages: &[AgentMessage], tools: &RequestTools<'_>, provider: Option<&Value>, books: &Books<'_>) -> f64 {
+    if messages.is_empty() {
+        return 0.0;
+    }
+    let estimated = super::number_or_zero(super::summarize_messages(messages, books.signer.meter).get("estimatedTokens"));
+    let reserve = crate::compact::tool_schema::estimate_request_reserve_tokens(tools) as f64;
+    mixdog_js::math::round((estimated + reserve) * provider_token_calibration(provider))
+}
+
 /// What the ask's settlement reads of a finished run (`result` of `settleAskTurn`).
 pub struct Settled<'a> {
     /// `session.messages` after the terminal assistant message was appended.

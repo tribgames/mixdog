@@ -1,0 +1,178 @@
+{
+  "note": "Node phone page: the file-download calls and the one-file-grant refresh over the page's own relay connection; inputs and what the page observed.",
+  "downloads": {
+    "input": {
+      "request": {
+        "source": {
+          "kind": "project",
+          "sessionId": "s1",
+          "relPath": "out/report.pdf"
+        },
+        "purpose": "save"
+      },
+      "authorizeRefusal": {
+        "error": "No reply in this conversation links that file.",
+        "errorCode": "file-download:not-linked"
+      },
+      "range": {
+        "args": [
+          "t",
+          8,
+          16,
+          "v"
+        ],
+        "value": {
+          "length": 0
+        }
+      }
+    },
+    "observed": {
+      "availableBeforeAdvertisement": false,
+      "reasonBeforeAdvertisement": "host-too-old",
+      "outcomeBeforeAdvertisement": {
+        "error": {
+          "name": "FileDownloadError",
+          "message": "Update Mixdog on the PC to download its files.",
+          "fields": {
+            "code": "file-download:host-too-old",
+            "reason": "host-too-old",
+            "name": "FileDownloadError"
+          }
+        }
+      },
+      "sentBeforeAdvertisement": 0,
+      "availableAfterAdvertisement": true,
+      "authorizeParams": [
+        {
+          "source": {
+            "kind": "project",
+            "sessionId": "s1",
+            "relPath": "out/report.pdf"
+          },
+          "purpose": "save"
+        }
+      ],
+      "reasonAfterRefusal": "not-linked",
+      "outcomeAfterRefusal": {
+        "error": {
+          "name": "Error",
+          "message": "No reply in this conversation links that file.",
+          "fields": {
+            "code": "file-download:not-linked"
+          }
+        }
+      },
+      "rangeParams": [
+        "t",
+        8,
+        16,
+        "v"
+      ],
+      "rangeResult": {
+        "value": {
+          "length": 0
+        }
+      },
+      "availableAfterOlderHost": false
+    }
+  },
+  "resolveLocalPaths": {
+    "input": {
+      "paths": [
+        "/x/a.pdf"
+      ],
+      "sessionId": "s1"
+    },
+    "observed": {
+      "namedParams": [
+        [
+          "/x/a.pdf"
+        ],
+        "s1"
+      ],
+      "plainParams": [
+        [
+          "/x/a.pdf"
+        ]
+      ]
+    }
+  },
+  "grant": {
+    "input": {
+      "read": [
+        "C:/outside",
+        "report.txt",
+        "held"
+      ],
+      "regrant": [
+        {
+          "absolutePath": "C:/outside/report.txt",
+          "projectPath": "C:/outside",
+          "relPath": "report.txt",
+          "accessToken": "fresh"
+        }
+      ],
+      "retryValue": {
+        "content": "linked report"
+      },
+      "refusals": [
+        {
+          "error": "That link has lapsed.",
+          "errorCode": "SELECTED_FILE_GRANT_UNAVAILABLE"
+        },
+        {
+          "error": "The selected-file permission is unavailable.",
+          "errorCode": "EACCES"
+        }
+      ]
+    },
+    "observed": [
+      {
+        "refusal": {
+          "error": "That link has lapsed.",
+          "errorCode": "SELECTED_FILE_GRANT_UNAVAILABLE"
+        },
+        "observed": {
+          "resolveParams": [
+            [
+              "C:/outside/report.txt"
+            ],
+            null,
+            {
+              "anyConversation": true
+            }
+          ],
+          "retryParams": [
+            "C:/outside",
+            "report.txt",
+            "fresh"
+          ],
+          "result": {
+            "value": {
+              "content": "linked report"
+            }
+          }
+        }
+      },
+      {
+        "refusal": {
+          "error": "The selected-file permission is unavailable.",
+          "errorCode": "EACCES"
+        },
+        "observed": {
+          "resolveParams": null,
+          "retryParams": null,
+          "result": {
+            "error": {
+              "name": "Error",
+              "message": "The selected-file permission is unavailable.",
+              "fields": {
+                "code": "EACCES"
+              }
+            }
+          }
+        }
+      }
+    ]
+  }
+}

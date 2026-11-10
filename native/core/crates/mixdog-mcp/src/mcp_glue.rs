@@ -1325,9 +1325,9 @@ impl ExtensionHost for GlueHost {
         self.glue.surface.current_cwd(thread_id).await
     }
 
-    async fn skills_status(&self) -> Value {
+    async fn skills_status(&self, thread_id: Option<&str>) -> Value {
         let Some(skills) = self.skills.get() else { return json!({"skills": [], "error": "the skills service is not bound"}) };
-        let cwd = match self.glue.surface.current_cwd(None).await {
+        let cwd = match self.glue.surface.current_cwd(thread_id).await {
             Ok(cwd) => cwd,
             Err(error) => return json!({"skills": [], "error": error}),
         };

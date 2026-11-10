@@ -150,6 +150,13 @@ pub struct Generated {
     /// `shared-prefix` or `isolated`.
     pub mode: &'static str,
     pub shared_prefix_fallback: Option<&'static str>,
+    /// `diagnostics.durationMs`: whole milliseconds from the start of the request that wrote the summary.
+    pub duration_ms: f64,
+}
+
+/// Whole milliseconds since `started` (a `Date.now()` difference).
+pub(crate) fn elapsed_ms(started: tokio::time::Instant) -> f64 {
+    started.elapsed().as_millis() as f64
 }
 
 fn add_usage(total: Option<Usage>, add: Option<&Usage>) -> Option<Usage> {
@@ -229,6 +236,7 @@ pub async fn generate_fresh_handoff_summary(
     messages: &[AgentMessage],
     input: &HandoffInput<'_>,
 ) -> Result<Generated, SummaryFailure> {
+    let started = tokio::time::Instant::now();
     let meter: &MessageMeter<'_> = ctx.tail.meter;
     let rows: &dyn MessageRows = ctx.tail.rows;
     let budget = effective_budget(input.budget_tokens, input.reserve_tokens)
@@ -288,6 +296,7 @@ pub async fn generate_fresh_handoff_summary(
     )
     .ok_or_else(|| SummaryFailure::Failed(format!("generateFreshHandoffSummary: summary cannot fit budget={budget}")))?;
     drop(message);
+    run.duration_ms = elapsed_ms(started);
     Ok(run)
 }
 
@@ -331,6 +340,7 @@ pub async fn summarize_on_shared_prefix(
     if request.provider_name != route.provider_name || request.model != route.model {
         return Forked::Fallback { reason: "different_route", usage: None };
     }
+    let started = tokio::time::Instant::now();
     let window = (route.context_window as f64 / route.calibration).floor() as u64;
     if request.prompt_tokens + SUMMARY_OUTPUT_TOKENS > window {
         return Forked::Fallback { reason: "window", usage: None };
@@ -354,6 +364,7 @@ pub async fn summarize_on_shared_prefix(
         calls: 1,
         mode: "shared-prefix",
         shared_prefix_fallback: None,
+        duration_ms: elapsed_ms(started),
     })
 }
 

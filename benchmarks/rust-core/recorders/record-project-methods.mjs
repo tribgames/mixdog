@@ -9,7 +9,7 @@
 // and must answer the same values once temp paths, commit ids, times and generated ids are masked
 // the same way.
 //
-//   node benchmarks/rust-core/recorders/record-project-methods.mjs --tree <tree w/ node_modules>
+//   node benchmarks/rust-core/recorders/record-project-methods.mjs --tree <tree w/ node_modules> --ref <commit>
 // Output: native/core/fixtures/project-methods/golden.json
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
@@ -119,6 +119,8 @@ masks.push([repo, '<repo>'], [join(base, 'data'), '<data>'], [base, '<base>']);
 // leaves its worktrees without an owner.
 let current = { id: 'lead', cwd: repo, desktopSession: { classification: 'project', projectPath: repo }, messages: [] };
 const cwdRef = { cwd: repo };
+// The turns the hosted session runs now (`assertLeadIdle` refuses any).
+let turns = 0;
 // The sessions the store keeps and the ones running, as the maintenance scope reads them.
 const storedIds = new Set();
 const liveIds = new Set();
@@ -128,7 +130,7 @@ const api = createWorkspaceTransitions({
   applyResolvedCwd: (next) => { cwdRef.cwd = next; if (current) current.cwd = next; },
   persistSession: () => {},
   refreshWorkspaceContext: async () => {},
-  getActiveTurnCount: () => 0,
+  getActiveTurnCount: () => turns,
   agentStatusState: () => ({ agentWorkers: [], agentJobs: [] }),
   countOwnShellJobs: async () => 0,
   listLiveSessions: () => [...liveIds].map((id) => ({ id })),
@@ -274,6 +276,9 @@ const solo = await api.requestWorktree({ name: 'solo-wt', provision: true, txId:
 wts['solo-wt'] = { path: solo.workspace.cwd, id: solo.workspace.worktreeId, sessionId: 'solo' };
 masks.unshift([solo.workspace.cwd, '<solo-wt>']);
 writeFileSync(join(solo.workspace.cwd, 'wip.txt'), 'wip\n');
+turns = 1;
+await step('remove: session runs a turn', () => api.removeWorktree({ force: true }));
+turns = 0;
 await step('remove: stale revision', () => api.removeWorktree({ expectedRevision: 99 }));
 await step('remove: dirty without force', () => api.removeWorktree({}));
 await step('remove: session works there', () => api.removeWorktree({ force: true }));
@@ -335,8 +340,10 @@ writeJson(join(out, 'golden.json'), {
 writeSetManifest(out, {
   set: 'project-methods',
   recorder: 'benchmarks/rust-core/recorders/record-project-methods.mjs',
-  command: 'node benchmarks/rust-core/recorders/record-project-methods.mjs --tree <tree>',
+  command: 'node benchmarks/rust-core/recorders/record-project-methods.mjs --tree <tree> --ref <commit>',
   extra: { steps: steps.length },
+  identityTree: tree,
+  identityRef: args.get('ref') ?? 'HEAD',
 });
 commitStage(out, finalOut);
 console.log(`steps=${steps.length}`);

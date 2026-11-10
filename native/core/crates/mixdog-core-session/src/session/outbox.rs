@@ -68,6 +68,9 @@ pub(crate) enum Effect {
     /// A failed turn's end is released: its quota settlement begins (`beginQuotaSettlement`), then the Goal
     /// settles with `settle` (`onGoalTurnSettled`'s detail).
     TurnClosed { turn: TurnId, settle: Value },
+    /// Told once the frames of the pump that released this entry are published: the caller sees its change as a client does.
+    /// An entry whose record failed to be stored is told that failure instead; its change is never shown.
+    AfterPublish(oneshot::Sender<Result<(), CoreError>>),
 }
 
 pub(crate) struct Entry {

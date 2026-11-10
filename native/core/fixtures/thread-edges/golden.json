@@ -1,0 +1,2492 @@
+{
+  "note": "the roster Node pushed after each catalog write of each trigger (header-only records); gate: the roster gate on list rows",
+  "triggers": [
+    {
+      "name": "create",
+      "steps": [
+        {
+          "id": "s_new",
+          "record": {
+            "id": "s_new",
+            "updatedAt": 1000,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": []
+          },
+          "lookup": {
+            "ok": true,
+            "path": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+          },
+          "roster": [],
+          "published": false
+        },
+        {
+          "id": "s_new",
+          "record": {
+            "id": "s_new",
+            "updatedAt": 1100,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "First prompt"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+          },
+          "roster": [
+            {
+              "id": "s_new",
+              "preview": "",
+              "title": "First prompt",
+              "updatedAt": 1100,
+              "activityAt": 1100,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
+        }
+      ]
+    },
+    {
+      "name": "fork",
+      "steps": [
+        {
+          "id": "s_base",
+          "record": {
+            "id": "s_base",
+            "updatedAt": 1000,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "Base"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+          },
+          "roster": [
+            {
+              "id": "s_base",
+              "preview": "",
+              "title": "Base",
+              "updatedAt": 1000,
+              "activityAt": 1000,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
+        },
+        {
+          "id": "s_fork",
+          "record": {
+            "id": "s_fork",
+            "updatedAt": 1200,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "Base (fork)",
+            "inheritedFromSessionId": "s_base"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+          },
+          "roster": [
+            {
+              "id": "s_fork",
+              "preview": "",
+              "title": "Base (fork)",
+              "updatedAt": 1200,
+              "activityAt": 1200,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "inheritedFromSessionId": "s_base",
+              "compactCount": 0
+            },
+            {
+              "id": "s_base",
+              "preview": "",
+              "title": "Base",
+              "updatedAt": 1000,
+              "activityAt": 1000,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
+        }
+      ]
+    },
+    {
+      "name": "inherit",
+      "steps": [
+        {
+          "id": "s_old",
+          "record": {
+            "id": "s_old",
+            "updatedAt": 1000,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "Old"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+          },
+          "roster": [
+            {
+              "id": "s_old",
+              "preview": "",
+              "title": "Old",
+              "updatedAt": 1000,
+              "activityAt": 1000,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
+        },
+        {
+          "id": "s_heir",
+          "record": {
+            "id": "s_heir",
+            "updatedAt": 1300,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "Heir",
+            "inheritedFromSessionId": "s_old"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+          },
+          "roster": [
+            {
+              "id": "s_heir",
+              "preview": "",
+              "title": "Heir",
+              "updatedAt": 1300,
+              "activityAt": 1300,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "inheritedFromSessionId": "s_old",
+              "compactCount": 0
+            },
+            {
+              "id": "s_old",
+              "preview": "",
+              "title": "Old",
+              "updatedAt": 1000,
+              "activityAt": 1000,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
+        },
+        {
+          "id": "s_heir",
+          "record": {
+            "id": "s_heir",
+            "updatedAt": 1300,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "Heir",
+            "inheritedFromSessionId": "s_old"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+          },
+          "roster": [
+            {
+              "id": "s_heir",
+              "preview": "",
+              "title": "Heir",
+              "updatedAt": 1300,
+              "activityAt": 1300,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "inheritedFromSessionId": "s_old",
+              "compactCount": 0
+            },
+            {
+              "id": "s_old",
+              "preview": "",
+              "title": "Old",
+              "updatedAt": 1000,
+              "activityAt": 1000,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": false
+        }
+      ]
+    },
+    {
+      "name": "import",
+      "steps": [
+        {
+          "id": "s_imp",
+          "record": {
+            "id": "s_imp",
+            "updatedAt": 1400,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "Imported",
+            "sourceType": "import"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+          },
+          "roster": [],
+          "published": false
+        }
+      ]
+    },
+    {
+      "name": "schedule",
+      "steps": [
+        {
+          "id": "s_sch",
+          "record": {
+            "id": "s_sch",
+            "updatedAt": 1500,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "Nightly",
+            "sourceType": "schedule",
+            "sourceName": "nightly"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+          },
+          "roster": [
+            {
+              "id": "s_sch",
+              "preview": "",
+              "title": "Nightly",
+              "updatedAt": 1500,
+              "activityAt": 1500,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "sourceType": "schedule",
+              "sourceName": "nightly",
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
+        }
+      ]
+    },
+    {
+      "name": "webhook",
+      "steps": [
+        {
+          "id": "s_web",
+          "record": {
+            "id": "s_web",
+            "updatedAt": 1600,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "Hook",
+            "sourceType": "webhook",
+            "sourceName": "hook"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+          },
+          "roster": [
+            {
+              "id": "s_web",
+              "preview": "",
+              "title": "Hook",
+              "updatedAt": 1600,
+              "activityAt": 1600,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "sourceType": "webhook",
+              "sourceName": "hook",
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
+        }
+      ]
+    },
+    {
+      "name": "agent-session",
+      "steps": [
+        {
+          "id": "s_ag",
+          "record": {
+            "id": "s_ag",
+            "updatedAt": 1700,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "Worker",
+            "owner": "agent",
+            "agent": "worker",
+            "ownerSessionId": "s_a"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+          },
+          "roster": [
+            {
+              "id": "s_ag",
+              "agentSession": true,
+              "preview": "",
+              "title": "Worker",
+              "updatedAt": 1700,
+              "activityAt": 1700,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
+        }
+      ]
+    },
+    {
+      "name": "never-listed",
+      "steps": [
+        {
+          "id": "s_exec",
+          "record": {
+            "id": "s_exec",
+            "updatedAt": 1000,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "exec run",
+            "sourceType": "exec"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+          },
+          "roster": [],
+          "published": false
+        },
+        {
+          "id": "s_bot",
+          "record": {
+            "id": "s_bot",
+            "updatedAt": 1000,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "by a bot",
+            "sourceType": "bot",
+            "sourceName": "newsbot"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+          },
+          "roster": [],
+          "published": false
+        },
+        {
+          "id": "s_foreign",
+          "record": {
+            "id": "s_foreign",
+            "updatedAt": 1000,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "foreign",
+            "owner": "importer"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+          },
+          "roster": [],
+          "published": false
+        }
+      ]
+    },
+    {
+      "name": "update-and-quiet",
+      "steps": [
+        {
+          "id": "s_u",
+          "record": {
+            "id": "s_u",
+            "updatedAt": 1800,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "Before"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+          },
+          "roster": [
+            {
+              "id": "s_u",
+              "preview": "",
+              "title": "Before",
+              "updatedAt": 1800,
+              "activityAt": 1800,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
+        },
+        {
+          "id": "s_u",
+          "record": {
+            "id": "s_u",
+            "updatedAt": 1900,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "After"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+          },
+          "roster": [
+            {
+              "id": "s_u",
+              "preview": "",
+              "title": "After",
+              "updatedAt": 1900,
+              "activityAt": 1900,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
+        },
+        {
+          "id": "s_u",
+          "record": {
+            "id": "s_u",
+            "updatedAt": 1900,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "After"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+          },
+          "roster": [
+            {
+              "id": "s_u",
+              "preview": "",
+              "title": "After",
+              "updatedAt": 1900,
+              "activityAt": 1900,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": false
+        }
+      ]
+    },
+    {
+      "name": "stops-being-listed",
+      "steps": [
+        {
+          "id": "s_gone",
+          "record": {
+            "id": "s_gone",
+            "updatedAt": 2000,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "Here"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+          },
+          "roster": [
+            {
+              "id": "s_gone",
+              "preview": "",
+              "title": "Here",
+              "updatedAt": 2000,
+              "activityAt": 2000,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
+        },
+        {
+          "id": "s_gone",
+          "record": {
+            "id": "s_gone",
+            "updatedAt": 2100,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": []
+          },
+          "lookup": {
+            "ok": true,
+            "path": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+          },
+          "roster": [],
+          "published": true
+        }
+      ]
+    },
+    {
+      "name": "two-sessions",
+      "steps": [
+        {
+          "id": "s_x",
+          "record": {
+            "id": "s_x",
+            "updatedAt": 2200,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "X"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+          },
+          "roster": [
+            {
+              "id": "s_x",
+              "preview": "",
+              "title": "X",
+              "updatedAt": 2200,
+              "activityAt": 2200,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
+        },
+        {
+          "id": "s_y",
+          "record": {
+            "id": "s_y",
+            "updatedAt": 2300,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "Y"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+          },
+          "roster": [
+            {
+              "id": "s_y",
+              "preview": "",
+              "title": "Y",
+              "updatedAt": 2300,
+              "activityAt": 2300,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_x",
+              "preview": "",
+              "title": "X",
+              "updatedAt": 2200,
+              "activityAt": 2200,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
+        },
+        {
+          "id": "s_x",
+          "record": {
+            "id": "s_x",
+            "updatedAt": 2400,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "X2"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+          },
+          "roster": [
+            {
+              "id": "s_x",
+              "preview": "",
+              "title": "X2",
+              "updatedAt": 2400,
+              "activityAt": 2400,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_y",
+              "preview": "",
+              "title": "Y",
+              "updatedAt": 2300,
+              "activityAt": 2300,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
+        }
+      ]
+    },
+    {
+      "name": "rename-makes-a-meaningless-title-count",
+      "steps": [
+        {
+          "id": "s_r",
+          "record": {
+            "id": "s_r",
+            "updatedAt": 2500,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "---"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+          },
+          "roster": [],
+          "published": false
+        },
+        {
+          "id": "s_r",
+          "record": {
+            "id": "s_r",
+            "updatedAt": 2600,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "---",
+            "titleSource": "user",
+            "titleLocked": true
+          },
+          "lookup": {
+            "ok": true,
+            "path": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+          },
+          "roster": [
+            {
+              "id": "s_r",
+              "preview": "",
+              "title": "---",
+              "updatedAt": 2600,
+              "activityAt": 2600,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
+        },
+        {
+          "id": "s_r",
+          "record": {
+            "id": "s_r",
+            "updatedAt": 2700,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "---",
+            "titleSource": "user",
+            "titleLocked": true
+          },
+          "lookup": {
+            "ok": true,
+            "path": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+          },
+          "roster": [
+            {
+              "id": "s_r",
+              "preview": "",
+              "title": "---",
+              "updatedAt": 2700,
+              "activityAt": 2700,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
+        }
+      ]
+    },
+    {
+      "name": "already-renamed-session",
+      "steps": [
+        {
+          "id": "s_n",
+          "record": {
+            "id": "s_n",
+            "updatedAt": 2800,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "---",
+            "titleSource": "user",
+            "titleLocked": true
+          },
+          "lookup": {
+            "ok": true,
+            "path": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+          },
+          "roster": [
+            {
+              "id": "s_n",
+              "preview": "",
+              "title": "---",
+              "updatedAt": 2800,
+              "activityAt": 2800,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
+        },
+        {
+          "id": "s_n",
+          "record": {
+            "id": "s_n",
+            "updatedAt": 2900,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "---",
+            "titleSource": "user",
+            "titleLocked": true
+          },
+          "lookup": {
+            "ok": true,
+            "path": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+          },
+          "roster": [
+            {
+              "id": "s_n",
+              "preview": "",
+              "title": "---",
+              "updatedAt": 2900,
+              "activityAt": 2900,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
+        }
+      ]
+    },
+    {
+      "name": "blank-name-keeps-nothing",
+      "steps": [
+        {
+          "id": "s_b",
+          "record": {
+            "id": "s_b",
+            "updatedAt": 3000,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "   ",
+            "titleSource": "user",
+            "titleLocked": true
+          },
+          "lookup": {
+            "ok": true,
+            "path": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+          },
+          "roster": [],
+          "published": false
+        }
+      ]
+    },
+    {
+      "name": "legacy-task-workspace",
+      "steps": [
+        {
+          "id": "s_in",
+          "record": {
+            "id": "s_in",
+            "updatedAt": 3100,
+            "createdAt": 500,
+            "cwd": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
+            "messages": [],
+            "title": "In the task workspace"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+          },
+          "roster": [
+            {
+              "id": "s_in",
+              "preview": "",
+              "title": "In the task workspace",
+              "updatedAt": 3100,
+              "activityAt": 3100,
+              "messageCount": 0,
+              "cwd": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
+        },
+        {
+          "id": "s_in_spelled",
+          "record": {
+            "id": "s_in_spelled",
+            "updatedAt": 3200,
+            "createdAt": 500,
+            "cwd": "d:/mixdog-build/tmp/rec/thread-edges/workspace/unclassified/",
+            "messages": [],
+            "title": "Spelled otherwise"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+          },
+          "roster": [
+            {
+              "id": "s_in_spelled",
+              "preview": "",
+              "title": "Spelled otherwise",
+              "updatedAt": 3200,
+              "activityAt": 3200,
+              "messageCount": 0,
+              "cwd": "d:/mixdog-build/tmp/rec/thread-edges/workspace/unclassified/",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_in",
+              "preview": "",
+              "title": "In the task workspace",
+              "updatedAt": 3100,
+              "activityAt": 3100,
+              "messageCount": 0,
+              "cwd": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
+        },
+        {
+          "id": "s_out",
+          "record": {
+            "id": "s_out",
+            "updatedAt": 3300,
+            "createdAt": 500,
+            "cwd": "C:/elsewhere",
+            "messages": [],
+            "title": "Outside"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+          },
+          "roster": [
+            {
+              "id": "s_out",
+              "preview": "",
+              "title": "Outside",
+              "updatedAt": 3300,
+              "activityAt": 3300,
+              "messageCount": 0,
+              "cwd": "C:/elsewhere",
+              "classification": "project",
+              "projectPath": "C:/elsewhere",
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_in_spelled",
+              "preview": "",
+              "title": "Spelled otherwise",
+              "updatedAt": 3200,
+              "activityAt": 3200,
+              "messageCount": 0,
+              "cwd": "d:/mixdog-build/tmp/rec/thread-edges/workspace/unclassified/",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_in",
+              "preview": "",
+              "title": "In the task workspace",
+              "updatedAt": 3100,
+              "activityAt": 3100,
+              "messageCount": 0,
+              "cwd": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
+        },
+        {
+          "id": "s_in_untitled",
+          "record": {
+            "id": "s_in_untitled",
+            "updatedAt": 3400,
+            "createdAt": 500,
+            "cwd": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
+            "messages": [],
+            "title": ""
+          },
+          "lookup": {
+            "ok": true,
+            "path": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+          },
+          "roster": [
+            {
+              "id": "s_out",
+              "preview": "",
+              "title": "Outside",
+              "updatedAt": 3300,
+              "activityAt": 3300,
+              "messageCount": 0,
+              "cwd": "C:/elsewhere",
+              "classification": "project",
+              "projectPath": "C:/elsewhere",
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_in_spelled",
+              "preview": "",
+              "title": "Spelled otherwise",
+              "updatedAt": 3200,
+              "activityAt": 3200,
+              "messageCount": 0,
+              "cwd": "d:/mixdog-build/tmp/rec/thread-edges/workspace/unclassified/",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_in",
+              "preview": "",
+              "title": "In the task workspace",
+              "updatedAt": 3100,
+              "activityAt": 3100,
+              "messageCount": 0,
+              "cwd": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": false
+        },
+        {
+          "id": "s_out_untitled",
+          "record": {
+            "id": "s_out_untitled",
+            "updatedAt": 3500,
+            "createdAt": 500,
+            "cwd": "C:/elsewhere",
+            "messages": [],
+            "title": ""
+          },
+          "lookup": {
+            "ok": true,
+            "path": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+          },
+          "roster": [
+            {
+              "id": "s_out",
+              "preview": "",
+              "title": "Outside",
+              "updatedAt": 3300,
+              "activityAt": 3300,
+              "messageCount": 0,
+              "cwd": "C:/elsewhere",
+              "classification": "project",
+              "projectPath": "C:/elsewhere",
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_in_spelled",
+              "preview": "",
+              "title": "Spelled otherwise",
+              "updatedAt": 3200,
+              "activityAt": 3200,
+              "messageCount": 0,
+              "cwd": "d:/mixdog-build/tmp/rec/thread-edges/workspace/unclassified/",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_in",
+              "preview": "",
+              "title": "In the task workspace",
+              "updatedAt": 3100,
+              "activityAt": 3100,
+              "messageCount": 0,
+              "cwd": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": false
+        },
+        {
+          "id": "s_in_untitled",
+          "record": {
+            "id": "s_in_untitled",
+            "updatedAt": 3600,
+            "createdAt": 500,
+            "cwd": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
+            "messages": [],
+            "title": "---",
+            "titleSource": "user",
+            "titleLocked": true
+          },
+          "lookup": {
+            "ok": true,
+            "path": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+          },
+          "roster": [
+            {
+              "id": "s_in_untitled",
+              "preview": "",
+              "title": "---",
+              "updatedAt": 3600,
+              "activityAt": 3600,
+              "messageCount": 0,
+              "cwd": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_out",
+              "preview": "",
+              "title": "Outside",
+              "updatedAt": 3300,
+              "activityAt": 3300,
+              "messageCount": 0,
+              "cwd": "C:/elsewhere",
+              "classification": "project",
+              "projectPath": "C:/elsewhere",
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_in_spelled",
+              "preview": "",
+              "title": "Spelled otherwise",
+              "updatedAt": 3200,
+              "activityAt": 3200,
+              "messageCount": 0,
+              "cwd": "d:/mixdog-build/tmp/rec/thread-edges/workspace/unclassified/",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_in",
+              "preview": "",
+              "title": "In the task workspace",
+              "updatedAt": 3100,
+              "activityAt": 3100,
+              "messageCount": 0,
+              "cwd": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
+        },
+        {
+          "id": "s_out_untitled",
+          "record": {
+            "id": "s_out_untitled",
+            "updatedAt": 3700,
+            "createdAt": 500,
+            "cwd": "C:/elsewhere",
+            "messages": [],
+            "title": "---",
+            "titleSource": "user",
+            "titleLocked": true
+          },
+          "lookup": {
+            "ok": true,
+            "path": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+          },
+          "roster": [
+            {
+              "id": "s_out_untitled",
+              "preview": "",
+              "title": "---",
+              "updatedAt": 3700,
+              "activityAt": 3700,
+              "messageCount": 0,
+              "cwd": "C:/elsewhere",
+              "classification": "project",
+              "projectPath": "C:/elsewhere",
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_in_untitled",
+              "preview": "",
+              "title": "---",
+              "updatedAt": 3600,
+              "activityAt": 3600,
+              "messageCount": 0,
+              "cwd": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_out",
+              "preview": "",
+              "title": "Outside",
+              "updatedAt": 3300,
+              "activityAt": 3300,
+              "messageCount": 0,
+              "cwd": "C:/elsewhere",
+              "classification": "project",
+              "projectPath": "C:/elsewhere",
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_in_spelled",
+              "preview": "",
+              "title": "Spelled otherwise",
+              "updatedAt": 3200,
+              "activityAt": 3200,
+              "messageCount": 0,
+              "cwd": "d:/mixdog-build/tmp/rec/thread-edges/workspace/unclassified/",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_in",
+              "preview": "",
+              "title": "In the task workspace",
+              "updatedAt": 3100,
+              "activityAt": 3100,
+              "messageCount": 0,
+              "cwd": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
+        },
+        {
+          "id": "s_in_project",
+          "record": {
+            "id": "s_in_project",
+            "updatedAt": 3800,
+            "createdAt": 500,
+            "cwd": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
+            "messages": [],
+            "title": "Stored project",
+            "desktopSession": {
+              "classification": "project",
+              "projectPath": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+            }
+          },
+          "lookup": {
+            "ok": true,
+            "path": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+          },
+          "roster": [
+            {
+              "id": "s_in_project",
+              "preview": "",
+              "title": "Stored project",
+              "updatedAt": 3800,
+              "activityAt": 3800,
+              "messageCount": 0,
+              "cwd": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
+              "classification": "project",
+              "projectPath": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_out_untitled",
+              "preview": "",
+              "title": "---",
+              "updatedAt": 3700,
+              "activityAt": 3700,
+              "messageCount": 0,
+              "cwd": "C:/elsewhere",
+              "classification": "project",
+              "projectPath": "C:/elsewhere",
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_in_untitled",
+              "preview": "",
+              "title": "---",
+              "updatedAt": 3600,
+              "activityAt": 3600,
+              "messageCount": 0,
+              "cwd": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_out",
+              "preview": "",
+              "title": "Outside",
+              "updatedAt": 3300,
+              "activityAt": 3300,
+              "messageCount": 0,
+              "cwd": "C:/elsewhere",
+              "classification": "project",
+              "projectPath": "C:/elsewhere",
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_in_spelled",
+              "preview": "",
+              "title": "Spelled otherwise",
+              "updatedAt": 3200,
+              "activityAt": 3200,
+              "messageCount": 0,
+              "cwd": "d:/mixdog-build/tmp/rec/thread-edges/workspace/unclassified/",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_in",
+              "preview": "",
+              "title": "In the task workspace",
+              "updatedAt": 3100,
+              "activityAt": 3100,
+              "messageCount": 0,
+              "cwd": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
+        }
+      ]
+    },
+    {
+      "name": "legacy-workspace-lookup-fails-later",
+      "steps": [
+        {
+          "id": "s_l",
+          "record": {
+            "id": "s_l",
+            "updatedAt": 4000,
+            "createdAt": 500,
+            "cwd": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
+            "messages": [],
+            "title": "Before"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+          },
+          "roster": [
+            {
+              "id": "s_l",
+              "preview": "",
+              "title": "Before",
+              "updatedAt": 4000,
+              "activityAt": 4000,
+              "messageCount": 0,
+              "cwd": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
+        },
+        {
+          "id": "s_l",
+          "record": {
+            "id": "s_l",
+            "updatedAt": 4100,
+            "createdAt": 500,
+            "cwd": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
+            "messages": [],
+            "title": "After the lookup failed"
+          },
+          "lookup": {
+            "ok": false,
+            "path": null,
+            "error": "ENOTDIR"
+          },
+          "roster": [
+            {
+              "id": "s_l",
+              "preview": "",
+              "title": "Before",
+              "updatedAt": 4000,
+              "activityAt": 4000,
+              "messageCount": 0,
+              "cwd": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": false
+        },
+        {
+          "id": "s_l2",
+          "record": {
+            "id": "s_l2",
+            "updatedAt": 4200,
+            "createdAt": 500,
+            "cwd": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
+            "messages": [],
+            "title": "Written while it fails"
+          },
+          "lookup": {
+            "ok": false,
+            "path": null,
+            "error": "ENOTDIR"
+          },
+          "roster": [
+            {
+              "id": "s_l",
+              "preview": "",
+              "title": "Before",
+              "updatedAt": 4000,
+              "activityAt": 4000,
+              "messageCount": 0,
+              "cwd": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": false
+        },
+        {
+          "id": "s_l2",
+          "record": {
+            "id": "s_l2",
+            "updatedAt": 4300,
+            "createdAt": 500,
+            "cwd": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
+            "messages": [],
+            "title": "Written after it recovered"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+          },
+          "roster": [
+            {
+              "id": "s_l2",
+              "preview": "",
+              "title": "Written after it recovered",
+              "updatedAt": 4300,
+              "activityAt": 4300,
+              "messageCount": 0,
+              "cwd": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_l",
+              "preview": "",
+              "title": "After the lookup failed",
+              "updatedAt": 4100,
+              "activityAt": 4100,
+              "messageCount": 0,
+              "cwd": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
+        }
+      ]
+    },
+    {
+      "name": "legacy-workspace-never-resolves",
+      "steps": [
+        {
+          "id": "s_n1",
+          "record": {
+            "id": "s_n1",
+            "updatedAt": 4400,
+            "createdAt": 500,
+            "cwd": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
+            "messages": [],
+            "title": "Folder of the task workspace"
+          },
+          "lookup": {
+            "ok": false,
+            "path": null,
+            "error": "ENOTDIR"
+          },
+          "roster": [],
+          "published": false
+        },
+        {
+          "id": "s_n1",
+          "record": {
+            "id": "s_n1",
+            "updatedAt": 4500,
+            "createdAt": 500,
+            "cwd": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
+            "messages": [],
+            "title": "Renamed by the work"
+          },
+          "lookup": {
+            "ok": false,
+            "path": null,
+            "error": "ENOTDIR"
+          },
+          "roster": [],
+          "published": false
+        },
+        {
+          "id": "s_n2",
+          "record": {
+            "id": "s_n2",
+            "updatedAt": 4600,
+            "createdAt": 500,
+            "cwd": "C:/elsewhere",
+            "messages": [],
+            "title": "Elsewhere"
+          },
+          "lookup": {
+            "ok": false,
+            "path": null,
+            "error": "ENOTDIR"
+          },
+          "roster": [],
+          "published": false
+        }
+      ]
+    },
+    {
+      "name": "held-rows-come-out-in-the-catalogs-order",
+      "steps": [
+        {
+          "id": "s_oa",
+          "record": {
+            "id": "s_oa",
+            "updatedAt": 5000,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "Held first"
+          },
+          "lookup": {
+            "ok": false,
+            "path": null,
+            "error": "ENOTDIR"
+          },
+          "roster": [],
+          "published": false
+        },
+        {
+          "id": "s_ob",
+          "record": {
+            "id": "s_ob",
+            "updatedAt": 6000,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "Held second, newer"
+          },
+          "lookup": {
+            "ok": false,
+            "path": null,
+            "error": "ENOTDIR"
+          },
+          "roster": [],
+          "published": false
+        },
+        {
+          "id": "s_oc",
+          "record": {
+            "id": "s_oc",
+            "updatedAt": 5000,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "Held third, ties the first"
+          },
+          "lookup": {
+            "ok": false,
+            "path": null,
+            "error": "ENOTDIR"
+          },
+          "roster": [],
+          "published": false
+        },
+        {
+          "id": "s_od",
+          "record": {
+            "id": "s_od",
+            "updatedAt": 5500,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "Written after it recovered"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+          },
+          "roster": [
+            {
+              "id": "s_ob",
+              "preview": "",
+              "title": "Held second, newer",
+              "updatedAt": 6000,
+              "activityAt": 6000,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_od",
+              "preview": "",
+              "title": "Written after it recovered",
+              "updatedAt": 5500,
+              "activityAt": 5500,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_oa",
+              "preview": "",
+              "title": "Held first",
+              "updatedAt": 5000,
+              "activityAt": 5000,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_oc",
+              "preview": "",
+              "title": "Held third, ties the first",
+              "updatedAt": 5000,
+              "activityAt": 5000,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
+        }
+      ]
+    },
+    {
+      "name": "held-rows-keep-the-last-write-in-the-catalogs-order",
+      "steps": [
+        {
+          "id": "s_pa",
+          "record": {
+            "id": "s_pa",
+            "updatedAt": 7000,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "Listed before"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+          },
+          "roster": [
+            {
+              "id": "s_pa",
+              "preview": "",
+              "title": "Listed before",
+              "updatedAt": 7000,
+              "activityAt": 7000,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
+        },
+        {
+          "id": "s_pa",
+          "record": {
+            "id": "s_pa",
+            "updatedAt": 7100,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "Changed while it fails"
+          },
+          "lookup": {
+            "ok": false,
+            "path": null,
+            "error": "ENOTDIR"
+          },
+          "roster": [
+            {
+              "id": "s_pa",
+              "preview": "",
+              "title": "Listed before",
+              "updatedAt": 7000,
+              "activityAt": 7000,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": false
+        },
+        {
+          "id": "s_pb",
+          "record": {
+            "id": "s_pb",
+            "updatedAt": 7500,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "New and newer"
+          },
+          "lookup": {
+            "ok": false,
+            "path": null,
+            "error": "ENOTDIR"
+          },
+          "roster": [
+            {
+              "id": "s_pa",
+              "preview": "",
+              "title": "Listed before",
+              "updatedAt": 7000,
+              "activityAt": 7000,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": false
+        },
+        {
+          "id": "s_pa",
+          "record": {
+            "id": "s_pa",
+            "updatedAt": 7200,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "Changed again"
+          },
+          "lookup": {
+            "ok": false,
+            "path": null,
+            "error": "ENOTDIR"
+          },
+          "roster": [
+            {
+              "id": "s_pa",
+              "preview": "",
+              "title": "Listed before",
+              "updatedAt": 7000,
+              "activityAt": 7000,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": false
+        },
+        {
+          "id": "s_pc",
+          "record": {
+            "id": "s_pc",
+            "updatedAt": 7300,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "Written after it recovered"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+          },
+          "roster": [
+            {
+              "id": "s_pb",
+              "preview": "",
+              "title": "New and newer",
+              "updatedAt": 7500,
+              "activityAt": 7500,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_pc",
+              "preview": "",
+              "title": "Written after it recovered",
+              "updatedAt": 7300,
+              "activityAt": 7300,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_pa",
+              "preview": "",
+              "title": "Changed again",
+              "updatedAt": 7200,
+              "activityAt": 7200,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
+        }
+      ]
+    }
+  ],
+  "gate": [
+    {
+      "row": {
+        "id": "g_plain",
+        "title": "A title",
+        "preview": "",
+        "cwd": "C:/w",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0
+      },
+      "kept": true
+    },
+    {
+      "row": {
+        "id": "g_nul_cwd",
+        "title": "A title",
+        "preview": "",
+        "cwd": "C:/w\u0000x",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0
+      },
+      "kept": false
+    },
+    {
+      "row": {
+        "id": "g_project_no_path",
+        "title": "A title",
+        "preview": "",
+        "cwd": "",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0,
+        "desktopSession": {
+          "classification": "project"
+        }
+      },
+      "kept": false
+    },
+    {
+      "row": {
+        "id": "g_project_stored_path",
+        "title": "A title",
+        "preview": "",
+        "cwd": "",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0,
+        "desktopSession": {
+          "classification": "project",
+          "projectPath": "C:/p"
+        }
+      },
+      "kept": true
+    },
+    {
+      "row": {
+        "id": "g_project_nul_path",
+        "title": "A title",
+        "preview": "",
+        "cwd": "",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0,
+        "desktopSession": {
+          "classification": "project",
+          "projectPath": "C:/p\u0000"
+        }
+      },
+      "kept": false
+    },
+    {
+      "row": {
+        "id": "g_project_workspace",
+        "title": "A title",
+        "preview": "",
+        "cwd": "",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0,
+        "desktopSession": {
+          "classification": "project"
+        },
+        "workspace": {
+          "projectPath": "C:/p",
+          "cwd": "C:/p-wt"
+        }
+      },
+      "kept": true
+    },
+    {
+      "row": {
+        "id": "g_project_workspace_nul",
+        "title": "A title",
+        "preview": "",
+        "cwd": "",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0,
+        "desktopSession": {
+          "classification": "project"
+        },
+        "workspace": {
+          "projectPath": "C:/p\u0000",
+          "cwd": "C:/p-wt"
+        }
+      },
+      "kept": false
+    },
+    {
+      "row": {
+        "id": "g_task_no_cwd",
+        "title": "A title",
+        "preview": "",
+        "cwd": "",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0,
+        "desktopSession": {
+          "classification": "task"
+        }
+      },
+      "kept": true
+    },
+    {
+      "row": {
+        "id": "g_legacy_no_cwd",
+        "title": "A title",
+        "preview": "",
+        "cwd": "",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0
+      },
+      "kept": true
+    },
+    {
+      "row": {
+        "id": "g_bad_classification",
+        "title": "A title",
+        "preview": "",
+        "cwd": "C:/w",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0,
+        "desktopSession": {
+          "classification": "other"
+        }
+      },
+      "kept": false
+    },
+    {
+      "row": {
+        "id": "g_meta_array",
+        "title": "A title",
+        "preview": "",
+        "cwd": "C:/w",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0,
+        "desktopSession": []
+      },
+      "kept": false
+    },
+    {
+      "row": {
+        "id": "g_meta_string",
+        "title": "A title",
+        "preview": "",
+        "cwd": "C:/w",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0,
+        "desktopSession": "x"
+      },
+      "kept": false
+    },
+    {
+      "row": {
+        "id": "g_untitled_empty",
+        "title": "",
+        "preview": "",
+        "cwd": "C:/w",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0
+      },
+      "kept": false
+    },
+    {
+      "row": {
+        "id": "g_untitled_two_messages",
+        "title": "",
+        "preview": "",
+        "cwd": "C:/w",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 2,
+        "realTurnCount": 1
+      },
+      "kept": true
+    },
+    {
+      "row": {
+        "id": "g_untitled_two_messages_no_turn_count",
+        "title": "",
+        "preview": "",
+        "cwd": "C:/w",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 2
+      },
+      "kept": true
+    },
+    {
+      "row": {
+        "id": "g_untitled_one_message",
+        "title": "",
+        "preview": "",
+        "cwd": "C:/w",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 1,
+        "realTurnCount": 1
+      },
+      "kept": false
+    },
+    {
+      "row": {
+        "id": "g_untitled_no_real_turn",
+        "title": "",
+        "preview": "",
+        "cwd": "C:/w",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 2,
+        "realTurnCount": 0
+      },
+      "kept": false
+    },
+    {
+      "row": {
+        "id": "g_cli_resume_only",
+        "title": "",
+        "preview": "",
+        "cwd": "C:/w",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 2,
+        "realTurnCount": 1,
+        "detachedReason": "cli-resume"
+      },
+      "kept": false
+    },
+    {
+      "row": {
+        "id": "g_cli_resume_titled",
+        "title": "Resumed",
+        "preview": "",
+        "cwd": "C:/w",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 2,
+        "detachedReason": "cli-resume"
+      },
+      "kept": true
+    },
+    {
+      "row": {
+        "id": "g_preview_only",
+        "title": "",
+        "preview": "hello there",
+        "cwd": "C:/w",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0
+      },
+      "kept": true
+    },
+    {
+      "row": {
+        "id": "sess_home_ada",
+        "title": "",
+        "preview": "",
+        "cwd": "C:/w",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 1
+      },
+      "kept": true
+    },
+    {
+      "row": {
+        "id": "sess_home_bob",
+        "title": "",
+        "preview": "",
+        "cwd": "C:/w",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0
+      },
+      "kept": false
+    },
+    {
+      "row": {
+        "id": "g_other_one_message",
+        "title": "",
+        "preview": "",
+        "cwd": "C:/w",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 1
+      },
+      "kept": false
+    },
+    {
+      "row": {
+        "id": "g_meaningless_title",
+        "title": "---",
+        "preview": "",
+        "cwd": "C:/w",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0
+      },
+      "kept": false
+    },
+    {
+      "row": {
+        "id": "g_meaningless_title_renamed",
+        "title": "---",
+        "preview": "",
+        "cwd": "C:/w",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0
+      },
+      "names": {
+        "g_meaningless_title_renamed": "---"
+      },
+      "kept": true
+    },
+    {
+      "row": {
+        "id": "g_renamed_untitled",
+        "title": "",
+        "preview": "",
+        "cwd": "C:/w",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0
+      },
+      "names": {
+        "g_renamed_untitled": "Mine"
+      },
+      "kept": true
+    },
+    {
+      "row": {
+        "id": "g_renamed_blank",
+        "title": "",
+        "preview": "",
+        "cwd": "C:/w",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0
+      },
+      "names": {
+        "g_renamed_blank": "   "
+      },
+      "kept": false
+    },
+    {
+      "row": {
+        "id": "g_compacted_preview",
+        "title": "",
+        "preview": "A previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:00] u: Recover this task #3\n[2026-03-01 10:01] a: done",
+        "cwd": "C:/w",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0
+      },
+      "kept": true
+    },
+    {
+      "row": {
+        "id": "g_compacted_preview_media_only",
+        "title": "",
+        "preview": "A previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:00] u: shot.png 640x480 displayed at 320x240",
+        "cwd": "C:/w",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0
+      },
+      "kept": true
+    },
+    {
+      "row": {
+        "id": "g_compacted_preview_no_user",
+        "title": "",
+        "preview": "A previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:01] a: nothing asked",
+        "cwd": "C:/w",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0
+      },
+      "kept": false
+    },
+    {
+      "row": {
+        "id": "g_legacy_in_task_workspace",
+        "title": "A title",
+        "preview": "",
+        "cwd": "d:/mixdog-build/tmp/rec/thread-edges/workspace/unclassified/",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0
+      },
+      "taskWorkspace": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
+      "kept": true
+    },
+    {
+      "row": {
+        "id": "g_legacy_in_task_workspace_untitled",
+        "title": "",
+        "preview": "",
+        "cwd": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0
+      },
+      "taskWorkspace": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
+      "kept": false
+    },
+    {
+      "row": {
+        "id": "g_legacy_outside_task_workspace",
+        "title": "A title",
+        "preview": "",
+        "cwd": "C:/elsewhere",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0
+      },
+      "taskWorkspace": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
+      "kept": true
+    },
+    {
+      "row": {
+        "id": "g_legacy_outside_task_workspace_untitled",
+        "title": "",
+        "preview": "",
+        "cwd": "C:/elsewhere",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0
+      },
+      "taskWorkspace": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
+      "kept": false
+    }
+  ],
+  "compacted": [
+    {
+      "input": "A previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:00] u: Recover this task #3\n[2026-03-01 10:01] a: done",
+      "title": "Recover this task"
+    },
+    {
+      "input": "A previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:00] u: shot.png 640x480 displayed at 320x240",
+      "title": "[Image]"
+    },
+    {
+      "input": "A previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:01] a: nothing asked",
+      "title": ""
+    },
+    {
+      "input": "A previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:05] u: Later ask #9\n[2026-03-01 10:00] u: Earliest ask #2\n[2026-03-01 10:00] u: Same time, later id #5",
+      "title": "Earliest ask"
+    },
+    {
+      "input": "A previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:00] u: First line\nsecond line of the ask\n[2026-03-01 10:01] a: reply",
+      "title": "First line second line of the…"
+    },
+    {
+      "input": "A previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:00] u: Ask above a marker\n</prior-compacted-context>\nnot part of the ask",
+      "title": "Ask above a marker"
+    },
+    {
+      "input": "A previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:00] u: Ask above a context line\n[context compacted at 10:02]\ntail\n[2026-03-01 10:03] u: Second ask",
+      "title": "Ask above a context line"
+    },
+    {
+      "input": "A previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:00] u: Ask above a session id\nsession_id=abc\n[2026-03-01 10:03] u: Second ask",
+      "title": "Ask above a session id"
+    },
+    {
+      "input": "A previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:00] u: shot.png 640x480 displayed at 320x240\n[2026-03-01 10:02] u: A worded ask later",
+      "title": "A worded ask later"
+    },
+    {
+      "input": "A previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:00] u: shot.png 640x480\nthe text after the image\nmore",
+      "title": "the text after the image"
+    },
+    {
+      "input": "A previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:00] U: Upper case kind #1",
+      "title": "Upper case kind"
+    },
+    {
+      "input": "A previous model worked on this task and produced the compacted handoff summary below.\r\n[2026-03-01 10:00] u: CRLF ask #1\r\nwrapped\r\n[2026-03-01 10:01] a: x",
+      "title": "CRLF ask wrapped"
+    },
+    {
+      "input": "  a previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:00] u: Leading blanks and lower case",
+      "title": "Leading blanks and lower case"
+    },
+    {
+      "input": "before\n<prior-compacted-context>\n[2026-03-01 10:00] u: Inside the marked context",
+      "title": "Inside the marked context"
+    },
+    {
+      "input": "A previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:00] u: ---",
+      "title": ""
+    },
+    {
+      "input": "[2026-03-01 10:00] u: not a handoff at all",
+      "title": ""
+    },
+    {
+      "input": "plain preview text",
+      "title": ""
+    },
+    {
+      "input": "",
+      "title": ""
+    }
+  ]
+}

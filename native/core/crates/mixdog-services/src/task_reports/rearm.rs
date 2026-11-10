@@ -91,7 +91,7 @@ pub async fn deliver_with_retries(host: &dyn RearmHost, delays: &[Duration], age
             Ok(()) => return Ok(()),
             Err(error) if attempt >= delays.len() => return Err(error),
             Err(error) => {
-                tracing::info!("report of {session_id} failed (try {}), retrying: {error}", attempt + 1);
+                mixdog_rt::node_stderr!("mixdog task sessions: report of {session_id} failed (try {}), retrying: {error}", attempt + 1);
                 wait(host.timer().as_ref(), delays[attempt]).await;
             }
         }
@@ -280,7 +280,7 @@ impl Rearm {
                 self.lock().done = true;
                 self.unsubscribe();
                 if let Err(error) = self.finish(&status, &text, "").await {
-                    tracing::info!("re-attaching {session} failed: {error}");
+                    mixdog_rt::node_stderr!("mixdog task sessions: re-attaching {session} failed: {error}");
                 }
             }
             None => {}
@@ -335,7 +335,7 @@ pub async fn rearm_task_watch(host: Arc<dyn RearmHost>, watch: &Value, quiet: bo
         Ok(runtime) => runtime,
         Err(error) => {
             // It can never take its agents' results: say so once instead of waiting.
-            tracing::info!("{session} could not be loaded after the restart: {error}");
+            mixdog_rt::node_stderr!("mixdog task sessions: {session} could not be loaded after the restart: {error}");
             return make(None).finish("failed", RESUME_FAILED_TEXT, "").await;
         }
     };
@@ -363,7 +363,7 @@ pub async fn recover_task_watches(host: Arc<dyn RearmHost>, process_token: &str)
     let quiet = match host.owned_work().await {
         Ok(list) => earlier(list),
         Err(error) => {
-            tracing::info!("reading the records of bot work failed: {error}");
+            mixdog_rt::node_stderr!("mixdog task sessions: reading the records of bot work failed: {error}");
             Vec::new()
         }
     };
@@ -372,13 +372,13 @@ pub async fn recover_task_watches(host: Arc<dyn RearmHost>, process_token: &str)
     if !pending.is_empty()
         && let Err(error) = host.settle_agent_results().await
     {
-        tracing::info!("settling the agents of the previous process failed: {error}");
+        mixdog_rt::node_stderr!("mixdog task sessions: settling the agents of the previous process failed: {error}");
     }
     let reattach = |work: Value, quiet: bool| {
         let host = Arc::clone(&host);
         async move {
             if let Err(error) = rearm_task_watch(host, &work, quiet).await {
-                tracing::info!("re-attaching {} failed: {error}", text(&work, "taskSessionId"));
+                mixdog_rt::node_stderr!("mixdog task sessions: re-attaching {} failed: {error}", text(&work, "taskSessionId"));
             }
         }
     };

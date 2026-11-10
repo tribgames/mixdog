@@ -6,3 +6,6 @@ publish.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }

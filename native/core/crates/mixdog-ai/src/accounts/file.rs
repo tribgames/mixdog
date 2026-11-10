@@ -78,6 +78,8 @@ fn write_opts() -> Opts {
 /// holds the lock for the whole wait it is left in place and the answer is the empty
 /// roster.
 pub(crate) async fn read_roster(io: &CredentialIo, path: PathBuf) -> io::Result<Value> {
+    #[cfg(feature = "count-work")]
+    crate::work::credential_read();
     let first = path.clone();
     let peeked = io.read_job(move |lane| mixdog_statefile::peek(lane, &first, Some(&validate))).await?;
     match peeked {
@@ -102,6 +104,8 @@ pub(crate) fn update_roster(
     path: &Path,
     mutate: impl FnOnce(&mut Value) -> Result<(), AccountError>,
 ) -> io::Result<Result<Value, AccountError>> {
+    #[cfg(feature = "count-work")]
+    crate::work::credential_read();
     mixdog_statefile::read_json(lane, path, Some(&validate), &Opts { secret: true, ..Opts::default() })?;
     let updated = mixdog_statefile::update_json(
         lane,

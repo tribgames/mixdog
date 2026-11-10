@@ -1,0 +1,908 @@
+{
+  "cases": [
+    {
+      "name": "a notice posting that returns false",
+      "method": "beginMcpOAuthLogin",
+      "post": "returns false",
+      "envelope": {
+        "status": 200,
+        "body": {
+          "result": {
+            "value": {
+              "flowId": "mcp_oauth_1",
+              "state": "pending",
+              "url": "https://auth.example/authorize?state=abc"
+            },
+            "sessionId": "sess_mcp_1"
+          }
+        }
+      },
+      "events": [
+        {
+          "created": "A"
+        },
+        {
+          "runtime": "beginMcpOAuthLogin",
+          "incarnation": "A"
+        },
+        {
+          "notice": {
+            "text": "mcp sign-in started: linear",
+            "tone": "info"
+          },
+          "incarnation": "A"
+        },
+        {
+          "reply": {
+            "result": {
+              "value": {
+                "flowId": "mcp_oauth_1",
+                "state": "pending",
+                "url": "https://auth.example/authorize?state=abc"
+              },
+              "sessionId": "sess_mcp_1"
+            }
+          }
+        }
+      ],
+      "state": {
+        "service": {
+          "sessions": 1,
+          "pendingDisposals": 0
+        },
+        "incarnations": [
+          {
+            "label": "A",
+            "commandBusy": false,
+            "toasts": [],
+            "entryDisposed": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "a notice posting that returns false",
+      "method": "signOutMcpServer",
+      "post": "returns false",
+      "envelope": {
+        "status": 200,
+        "body": {
+          "result": {
+            "value": {
+              "servers": [
+                {
+                  "name": "linear",
+                  "status": "connected"
+                }
+              ],
+              "revoked": true
+            },
+            "sessionId": "sess_mcp_1"
+          }
+        }
+      },
+      "events": [
+        {
+          "created": "A"
+        },
+        {
+          "runtime": "signOutMcpServer",
+          "incarnation": "A"
+        },
+        {
+          "notice": {
+            "text": "mcp signed out: linear",
+            "tone": "info"
+          },
+          "incarnation": "A"
+        },
+        {
+          "reply": {
+            "result": {
+              "value": {
+                "servers": [
+                  {
+                    "name": "linear",
+                    "status": "connected"
+                  }
+                ],
+                "revoked": true
+              },
+              "sessionId": "sess_mcp_1"
+            }
+          }
+        }
+      ],
+      "state": {
+        "service": {
+          "sessions": 1,
+          "pendingDisposals": 0
+        },
+        "incarnations": [
+          {
+            "label": "A",
+            "commandBusy": false,
+            "toasts": [],
+            "entryDisposed": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "a notice posting that returns null",
+      "method": "beginMcpOAuthLogin",
+      "post": "returns null",
+      "envelope": {
+        "status": 200,
+        "body": {
+          "result": {
+            "value": {
+              "flowId": "mcp_oauth_1",
+              "state": "pending",
+              "url": "https://auth.example/authorize?state=abc"
+            },
+            "sessionId": "sess_mcp_1"
+          }
+        }
+      },
+      "events": [
+        {
+          "created": "A"
+        },
+        {
+          "runtime": "beginMcpOAuthLogin",
+          "incarnation": "A"
+        },
+        {
+          "notice": {
+            "text": "mcp sign-in started: linear",
+            "tone": "info"
+          },
+          "incarnation": "A"
+        },
+        {
+          "reply": {
+            "result": {
+              "value": {
+                "flowId": "mcp_oauth_1",
+                "state": "pending",
+                "url": "https://auth.example/authorize?state=abc"
+              },
+              "sessionId": "sess_mcp_1"
+            }
+          }
+        }
+      ],
+      "state": {
+        "service": {
+          "sessions": 1,
+          "pendingDisposals": 0
+        },
+        "incarnations": [
+          {
+            "label": "A",
+            "commandBusy": false,
+            "toasts": [],
+            "entryDisposed": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "a notice posting that returns null",
+      "method": "signOutMcpServer",
+      "post": "returns null",
+      "envelope": {
+        "status": 200,
+        "body": {
+          "result": {
+            "value": {
+              "servers": [
+                {
+                  "name": "linear",
+                  "status": "connected"
+                }
+              ],
+              "revoked": true
+            },
+            "sessionId": "sess_mcp_1"
+          }
+        }
+      },
+      "events": [
+        {
+          "created": "A"
+        },
+        {
+          "runtime": "signOutMcpServer",
+          "incarnation": "A"
+        },
+        {
+          "notice": {
+            "text": "mcp signed out: linear",
+            "tone": "info"
+          },
+          "incarnation": "A"
+        },
+        {
+          "reply": {
+            "result": {
+              "value": {
+                "servers": [
+                  {
+                    "name": "linear",
+                    "status": "connected"
+                  }
+                ],
+                "revoked": true
+              },
+              "sessionId": "sess_mcp_1"
+            }
+          }
+        }
+      ],
+      "state": {
+        "service": {
+          "sessions": 1,
+          "pendingDisposals": 0
+        },
+        "incarnations": [
+          {
+            "label": "A",
+            "commandBusy": false,
+            "toasts": [],
+            "entryDisposed": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "a notice posting that throws",
+      "method": "beginMcpOAuthLogin",
+      "post": "throws",
+      "envelope": {
+        "status": 200,
+        "body": {
+          "error": "toast sink failed"
+        }
+      },
+      "events": [
+        {
+          "created": "A"
+        },
+        {
+          "runtime": "beginMcpOAuthLogin",
+          "incarnation": "A"
+        },
+        {
+          "notice": {
+            "text": "mcp sign-in started: linear",
+            "tone": "info"
+          },
+          "incarnation": "A"
+        },
+        {
+          "reply": {
+            "error": "toast sink failed"
+          }
+        }
+      ],
+      "state": {
+        "service": {
+          "sessions": 1,
+          "pendingDisposals": 0
+        },
+        "incarnations": [
+          {
+            "label": "A",
+            "commandBusy": false,
+            "toasts": [],
+            "entryDisposed": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "a notice posting that throws",
+      "method": "signOutMcpServer",
+      "post": "throws",
+      "envelope": {
+        "status": 200,
+        "body": {
+          "error": "toast sink failed"
+        }
+      },
+      "events": [
+        {
+          "created": "A"
+        },
+        {
+          "runtime": "signOutMcpServer",
+          "incarnation": "A"
+        },
+        {
+          "notice": {
+            "text": "mcp signed out: linear",
+            "tone": "info"
+          },
+          "incarnation": "A"
+        },
+        {
+          "reply": {
+            "error": "toast sink failed"
+          }
+        }
+      ],
+      "state": {
+        "service": {
+          "sessions": 1,
+          "pendingDisposals": 0
+        },
+        "incarnations": [
+          {
+            "label": "A",
+            "commandBusy": false,
+            "toasts": [],
+            "entryDisposed": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "the session disposed during the action",
+      "method": "beginMcpOAuthLogin",
+      "post": "posts",
+      "envelope": {
+        "status": 200,
+        "body": {
+          "error": "session runtime is disposed"
+        }
+      },
+      "events": [
+        {
+          "created": "A"
+        },
+        {
+          "runtime": "beginMcpOAuthLogin",
+          "incarnation": "A"
+        },
+        {
+          "released": "sess_mcp_1",
+          "reason": "closing"
+        },
+        {
+          "frame": "session-gone",
+          "sessionId": "sess_mcp_1",
+          "reason": "closing"
+        },
+        {
+          "dispose": "closing",
+          "incarnation": "A"
+        },
+        {
+          "disposed": "closing",
+          "incarnation": "A"
+        },
+        {
+          "notice": {
+            "text": "mcp sign-in started: linear",
+            "tone": "info"
+          },
+          "incarnation": "A"
+        },
+        {
+          "reply": {
+            "error": "session runtime is disposed"
+          }
+        }
+      ],
+      "state": {
+        "service": {
+          "sessions": 0,
+          "pendingDisposals": 0
+        },
+        "incarnations": [
+          {
+            "label": "A",
+            "commandBusy": false,
+            "toasts": [
+              {
+                "text": "mcp sign-in started: linear",
+                "tone": "info"
+              }
+            ],
+            "entryDisposed": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "the session disposed during the action",
+      "method": "signOutMcpServer",
+      "post": "posts",
+      "envelope": {
+        "status": 200,
+        "body": {
+          "error": "session runtime is disposed"
+        }
+      },
+      "events": [
+        {
+          "created": "A"
+        },
+        {
+          "runtime": "signOutMcpServer",
+          "incarnation": "A"
+        },
+        {
+          "released": "sess_mcp_1",
+          "reason": "closing"
+        },
+        {
+          "frame": "session-gone",
+          "sessionId": "sess_mcp_1",
+          "reason": "closing"
+        },
+        {
+          "dispose": "closing",
+          "incarnation": "A"
+        },
+        {
+          "disposed": "closing",
+          "incarnation": "A"
+        },
+        {
+          "notice": {
+            "text": "mcp signed out: linear",
+            "tone": "info"
+          },
+          "incarnation": "A"
+        },
+        {
+          "reply": {
+            "error": "session runtime is disposed"
+          }
+        }
+      ],
+      "state": {
+        "service": {
+          "sessions": 0,
+          "pendingDisposals": 0
+        },
+        "incarnations": [
+          {
+            "label": "A",
+            "commandBusy": false,
+            "toasts": [
+              {
+                "text": "mcp signed out: linear",
+                "tone": "info"
+              }
+            ],
+            "entryDisposed": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "the service closed during the action",
+      "method": "beginMcpOAuthLogin",
+      "post": "posts",
+      "envelope": {
+        "status": 200,
+        "body": {
+          "error": "session service is closed"
+        }
+      },
+      "events": [
+        {
+          "created": "A"
+        },
+        {
+          "runtime": "beginMcpOAuthLogin",
+          "incarnation": "A"
+        },
+        {
+          "notice": {
+            "text": "mcp sign-in started: linear",
+            "tone": "info"
+          },
+          "incarnation": "A"
+        },
+        {
+          "reply": {
+            "error": "session service is closed"
+          }
+        }
+      ],
+      "state": {
+        "service": {
+          "sessions": 1,
+          "pendingDisposals": 0
+        },
+        "incarnations": [
+          {
+            "label": "A",
+            "commandBusy": false,
+            "toasts": [
+              {
+                "text": "mcp sign-in started: linear",
+                "tone": "info"
+              }
+            ],
+            "entryDisposed": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "the service closed during the action",
+      "method": "signOutMcpServer",
+      "post": "posts",
+      "envelope": {
+        "status": 200,
+        "body": {
+          "error": "session service is closed"
+        }
+      },
+      "events": [
+        {
+          "created": "A"
+        },
+        {
+          "runtime": "signOutMcpServer",
+          "incarnation": "A"
+        },
+        {
+          "notice": {
+            "text": "mcp signed out: linear",
+            "tone": "info"
+          },
+          "incarnation": "A"
+        },
+        {
+          "reply": {
+            "error": "session service is closed"
+          }
+        }
+      ],
+      "state": {
+        "service": {
+          "sessions": 1,
+          "pendingDisposals": 0
+        },
+        "incarnations": [
+          {
+            "label": "A",
+            "commandBusy": false,
+            "toasts": [
+              {
+                "text": "mcp signed out: linear",
+                "tone": "info"
+              }
+            ],
+            "entryDisposed": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "the service closed before the call starts",
+      "method": "beginMcpOAuthLogin",
+      "post": "posts",
+      "envelope": {
+        "status": 200,
+        "body": {
+          "error": "session service is closed"
+        }
+      },
+      "events": [
+        {
+          "created": "A"
+        },
+        {
+          "reply": {
+            "error": "session service is closed"
+          }
+        }
+      ],
+      "state": {
+        "service": {
+          "sessions": 1,
+          "pendingDisposals": 0
+        },
+        "incarnations": [
+          {
+            "label": "A",
+            "commandBusy": false,
+            "toasts": [],
+            "entryDisposed": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "the service closed before the call starts",
+      "method": "signOutMcpServer",
+      "post": "posts",
+      "envelope": {
+        "status": 200,
+        "body": {
+          "error": "session service is closed"
+        }
+      },
+      "events": [
+        {
+          "created": "A"
+        },
+        {
+          "reply": {
+            "error": "session service is closed"
+          }
+        }
+      ],
+      "state": {
+        "service": {
+          "sessions": 1,
+          "pendingDisposals": 0
+        },
+        "incarnations": [
+          {
+            "label": "A",
+            "commandBusy": false,
+            "toasts": [],
+            "entryDisposed": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "the session reopened while the previous teardown is pending",
+      "method": "beginMcpOAuthLogin",
+      "post": "posts",
+      "envelope": {
+        "oldIncarnation": {
+          "status": 200,
+          "body": {
+            "error": "session runtime is disposed"
+          }
+        },
+        "newIncarnation": {
+          "status": 200,
+          "body": {
+            "result": {
+              "value": {
+                "flowId": "mcp_oauth_1",
+                "state": "pending",
+                "url": "https://auth.example/authorize?state=abc"
+              },
+              "sessionId": "sess_mcp_1"
+            }
+          }
+        }
+      },
+      "events": [
+        {
+          "created": "A"
+        },
+        {
+          "runtime": "beginMcpOAuthLogin",
+          "incarnation": "A"
+        },
+        {
+          "released": "sess_mcp_1",
+          "reason": "idle-evict"
+        },
+        {
+          "frame": "session-gone",
+          "sessionId": "sess_mcp_1",
+          "reason": "idle-evict"
+        },
+        {
+          "dispose": "idle-evict",
+          "incarnation": "A"
+        },
+        {
+          "notice": {
+            "text": "mcp sign-in started: linear",
+            "tone": "info"
+          },
+          "incarnation": "A"
+        },
+        {
+          "reply": {
+            "error": "session runtime is disposed"
+          }
+        },
+        {
+          "disposed": "idle-evict",
+          "incarnation": "A"
+        },
+        {
+          "created": "B"
+        },
+        {
+          "runtime": "beginMcpOAuthLogin",
+          "incarnation": "B"
+        },
+        {
+          "notice": {
+            "text": "mcp sign-in started: linear",
+            "tone": "info"
+          },
+          "incarnation": "B"
+        },
+        {
+          "reply": {
+            "result": {
+              "value": {
+                "flowId": "mcp_oauth_1",
+                "state": "pending",
+                "url": "https://auth.example/authorize?state=abc"
+              },
+              "sessionId": "sess_mcp_1"
+            }
+          }
+        }
+      ],
+      "state": {
+        "service": {
+          "sessions": 1,
+          "pendingDisposals": 0
+        },
+        "incarnations": [
+          {
+            "label": "A",
+            "commandBusy": false,
+            "toasts": [
+              {
+                "text": "mcp sign-in started: linear",
+                "tone": "info"
+              }
+            ],
+            "entryDisposed": true
+          },
+          {
+            "label": "B",
+            "commandBusy": false,
+            "toasts": [
+              {
+                "text": "mcp sign-in started: linear",
+                "tone": "info"
+              }
+            ],
+            "entryDisposed": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "the session reopened while the previous teardown is pending",
+      "method": "signOutMcpServer",
+      "post": "posts",
+      "envelope": {
+        "oldIncarnation": {
+          "status": 200,
+          "body": {
+            "error": "session runtime is disposed"
+          }
+        },
+        "newIncarnation": {
+          "status": 200,
+          "body": {
+            "result": {
+              "value": {
+                "servers": [
+                  {
+                    "name": "linear",
+                    "status": "connected"
+                  }
+                ],
+                "revoked": true
+              },
+              "sessionId": "sess_mcp_1"
+            }
+          }
+        }
+      },
+      "events": [
+        {
+          "created": "A"
+        },
+        {
+          "runtime": "signOutMcpServer",
+          "incarnation": "A"
+        },
+        {
+          "released": "sess_mcp_1",
+          "reason": "idle-evict"
+        },
+        {
+          "frame": "session-gone",
+          "sessionId": "sess_mcp_1",
+          "reason": "idle-evict"
+        },
+        {
+          "dispose": "idle-evict",
+          "incarnation": "A"
+        },
+        {
+          "notice": {
+            "text": "mcp signed out: linear",
+            "tone": "info"
+          },
+          "incarnation": "A"
+        },
+        {
+          "reply": {
+            "error": "session runtime is disposed"
+          }
+        },
+        {
+          "disposed": "idle-evict",
+          "incarnation": "A"
+        },
+        {
+          "created": "B"
+        },
+        {
+          "runtime": "signOutMcpServer",
+          "incarnation": "B"
+        },
+        {
+          "notice": {
+            "text": "mcp signed out: linear",
+            "tone": "info"
+          },
+          "incarnation": "B"
+        },
+        {
+          "reply": {
+            "result": {
+              "value": {
+                "servers": [
+                  {
+                    "name": "linear",
+                    "status": "connected"
+                  }
+                ],
+                "revoked": true
+              },
+              "sessionId": "sess_mcp_1"
+            }
+          }
+        }
+      ],
+      "state": {
+        "service": {
+          "sessions": 1,
+          "pendingDisposals": 0
+        },
+        "incarnations": [
+          {
+            "label": "A",
+            "commandBusy": false,
+            "toasts": [
+              {
+                "text": "mcp signed out: linear",
+                "tone": "info"
+              }
+            ],
+            "entryDisposed": true
+          },
+          {
+            "label": "B",
+            "commandBusy": false,
+            "toasts": [
+              {
+                "text": "mcp signed out: linear",
+                "tone": "info"
+              }
+            ],
+            "entryDisposed": false
+          }
+        ]
+      }
+    }
+  ]
+}

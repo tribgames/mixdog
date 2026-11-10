@@ -8,7 +8,7 @@ use serde_json::json;
 use super::SessionDirectory;
 use super::testing::Rig;
 use super::testing::lock;
-use super::tests::eventually;
+use crate::eventually_on;
 use super::tests::start_thread;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -25,6 +25,6 @@ async fn a_stored_thread_opened_for_use_takes_its_refreshed_tools() {
     let second = SessionDirectory::new(rig.deps());
     let opened = second.open_handle(&id, &CallContext::internal("test")).await.expect("open");
     assert_eq!(*lock(&rig.resumed.asked), [id.as_str().to_owned()]);
-    eventually(|| (opened.cell.header.load().get("toolSpec") == Some(&json!("mcp"))).then_some(())).await;
+    eventually_on!(&[&opened.cell.stepped], || (opened.cell.header.load().get("toolSpec") == Some(&json!("mcp"))).then_some(())).await;
     assert_eq!(opened.cell.header.load().get("tools"), Some(&json!([{ "name": "read" }])));
 }

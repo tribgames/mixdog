@@ -105,12 +105,59 @@ impl Dialer for LateDialer {
 /// and an owed revocation are already in the section the runtime publishes right after the event
 /// (`controllerKeys`, `owedKeys`), which the desktop reads; only the relay failure has no
 /// section field, so it is logged.
-pub struct SectionEvents;
+pub struct SectionEvents {
+    cleanup: OnceLock<Arc<dyn DeviceCleanup>>,
+}
+
+/// What the services holding a device's state drop when it is unpaired. Bound once they exist (they are built after the runtime).
+pub trait DeviceCleanup: Send + Sync {
+    /// Before the relay is asked: the device's file grants and transfers end.
+    fn unpaired(&self, credential_id: &str);
+    /// The relay handle closed: every phone download ends (`remote-relay.ts` `close`, `fileDownloads.revokeAll`).
+    fn relay_closed(&self);
+    /// After the relay confirmed: the device's notification preferences go.
+    fn forgotten<'a>(&'a self, credential_id: &'a str) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>>;
+}
+
+impl SectionEvents {
+    pub fn new() -> Self {
+        Self { cleanup: OnceLock::new() }
+    }
+
+    pub fn bind(&self, cleanup: Arc<dyn DeviceCleanup>) -> Result<(), &'static str> {
+        self.cleanup.set(cleanup).map_err(|_| "the device cleanup is already bound")
+    }
+}
+
+impl Default for SectionEvents {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl RemoteEvents for SectionEvents {
     fn controller_key_delivered(&self, _public_key: &str) {}
 
     fn owed_access_changed(&self) {}
+
+    fn device_unpaired(&self, credential_id: &str) {
+        if let Some(cleanup) = self.cleanup.get() {
+            cleanup.unpaired(credential_id);
+        }
+    }
+
+    fn relay_closed(&self) {
+        if let Some(cleanup) = self.cleanup.get() {
+            cleanup.relay_closed();
+        }
+    }
+
+    fn device_forgotten<'a>(&'a self, credential_id: &'a str) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
+        match self.cleanup.get() {
+            Some(cleanup) => cleanup.forgotten(credential_id),
+            None => Box::pin(async {}),
+        }
+    }
 
     fn status(&self, value: Value) {
         tracing::warn!(%value, "remote access relay status");
@@ -168,12 +215,15 @@ pub struct BuiltRemote {
     /// The one device registry: `RemoteAccessService`, `RegistryDevices`, `ScreenSessions` and the
     /// server's connection table take this same `Arc`.
     pub registry: Arc<DeviceRegistry>,
+    /// Where the services that hold a device's state bind their cleanup for an unpair.
+    pub events: Arc<SectionEvents>,
 }
 
 /// §F steps 1 and 2. `Err` is the relay URL's sentence (`MIXDOG_RELAY_URL is invalid`, …).
 pub fn build_remote(inputs: RemoteInputs) -> Result<BuiltRemote, String> {
     let relay_url = resolve_relay_url(inputs.relay_env.as_deref())?;
     let registry = Arc::new(DeviceRegistry::default());
+    let events = Arc::new(SectionEvents::new());
     let section = Arc::new(RemoteSection::new(inputs.publisher, RemoteSectionValue::default()));
     let settings = Arc::new(AccessSettings::new(inputs.dir.clone(), Arc::new(host_name)));
     let runtime = RemoteRuntime::new(
@@ -187,13 +237,13 @@ pub fn build_remote(inputs: RemoteInputs) -> Result<BuiltRemote, String> {
             section,
             settings,
             link: LegLink::default(),
-            events: Arc::new(SectionEvents),
+            events: events.clone(),
         },
         Box::new(|wiring: PairWiring| {
             Box::new(ComposedPairCodeEffects::new(wiring.publish, mixdog_rt::ticker().clone(), wiring.on_tick, wiring.leg))
         }),
     );
-    Ok(BuiltRemote { runtime: Arc::new(runtime), registry })
+    Ok(BuiltRemote { runtime: Arc::new(runtime), registry, events })
 }
 
 /// `CoreHandle::connection_opened` for the paired-device registry: a client that connected from
@@ -220,6 +270,49 @@ pub fn register_local(registry: &DeviceRegistry, connection: ConnectionId, origi
 /// its handshake. A local client, whatever device name or kind it states, and a peer whose pairing ended have none.
 pub fn phone_credential(registry: Arc<DeviceRegistry>) -> Arc<dyn Fn(ConnectionId) -> Option<String> + Send + Sync> {
     Arc::new(move |connection| registry.describe(connection.0).map(|described| described.credential).filter(|credential| !credential.is_empty()))
+}
+
+/// The services that hold a paired device's state, as `remote-relay.ts` `revokeClient` reaches them: the one-file grants, the
+/// transfers of the device's connections and its notification preferences.
+pub struct PairedDeviceCleanup {
+    pub grants: Arc<mixdog_workspace::grants::GrantStore>,
+    pub registry: Arc<DeviceRegistry>,
+    /// Ends the transfers a connection (named by its id) owns.
+    pub end_transfers: Arc<dyn Fn(&str) + Send + Sync>,
+    /// Ends every phone download (the relay closed).
+    pub end_downloads: Arc<dyn Fn() + Send + Sync>,
+    pub config: mixdog_core_config::config::Config,
+}
+
+impl DeviceCleanup for PairedDeviceCleanup {
+    fn unpaired(&self, credential_id: &str) {
+        self.grants.revoke_device(credential_id);
+        for connection in self.registry.connections_of(credential_id) {
+            (self.end_transfers)(&connection.to_string());
+        }
+    }
+
+    fn relay_closed(&self) {
+        (self.end_downloads)();
+        self.grants.relay_closed();
+    }
+
+    fn forgotten<'a>(&'a self, credential_id: &'a str) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
+        Box::pin(async move {
+            // `removeDevice`: this PC's own entry stays, and a device with none stored has nothing to drop.
+            let Some(Value::Object(mut devices)) = self.config.get("notifications.devices") else { return };
+            if credential_id == "pc" || devices.remove(credential_id).is_none() {
+                return;
+            }
+            let _ = self.config.write("notifications.devices", Value::Object(devices), mixdog_protocol::ConfigWriteMode::Replace).await;
+        })
+    }
+}
+
+/// Whether a connection is revoked for the screen for its lifetime: a relay peer that was live at an unpair of its device, or admitted
+/// while one was in force. It keeps its credential and everything but the screen (`screen-access-publisher.ts` `revoked`).
+pub fn screen_revoked(registry: Arc<DeviceRegistry>) -> Arc<dyn Fn(ConnectionId) -> bool + Send + Sync> {
+    Arc::new(move |connection| registry.screen_revoked(connection.0))
 }
 
 /// Opens the core's relay once it serves (DS §7.2 "relay starts at core boot"; compose-seams §F

@@ -131,10 +131,35 @@ pub struct ConnectionInfo {
     pub device: String,
 }
 
+/// How this core start's one-time `desktop` defaults separation ended (Node's app-ready `separateDefaults`). A
+/// failure never stops the core; the desktop records it in its own diagnostics log as `defaults-separation-failed`
+/// with `{ message }`, and the next start tries again.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct DefaultsSeparation {
+    pub ok: bool,
+    /// The failure's `error.message`, as Node's catch received it; absent when `ok`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+impl Default for DefaultsSeparation {
+    fn default() -> Self {
+        Self { ok: true, message: None }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct InitializeResponse {
+    /// Set once per core start, before any connection is served.
+    /// Absent from a core that predates it; read that as `ok`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional))]
+    pub defaults_separation: Option<DefaultsSeparation>,
     pub user_agent: String,
     pub platform_family: String,
     pub platform_os: String,

@@ -41,6 +41,19 @@ use serde_json::Value;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
+/// The recorded steps carry no session (`threadId`), so no notice is posted.
+struct NoToasts;
+
+impl mixdog_mcp::mcp_service::SessionToasts for NoToasts {
+    fn closed(&self) -> bool {
+        false
+    }
+
+    fn incarnation(&self, _: &str) -> Option<Arc<dyn mixdog_mcp::mcp_service::Incarnation>> {
+        None
+    }
+}
+
 struct NoGit;
 
 impl GitRunner for NoGit {
@@ -142,7 +155,7 @@ impl ExtensionHost for Host {
         Ok(Value::Object(Map::new()))
     }
 
-    async fn skills_status(&self) -> Value {
+    async fn skills_status(&self, _: Option<&str>) -> Value {
         Value::Null
     }
 }
@@ -357,7 +370,7 @@ async fn every_mcp_method_answers_saves_and_triggers_what_node_does() {
     let env = std::env::vars().collect();
     let secrets = Arc::new(McpServerSecrets::new(Arc::new(Ops(Arc::clone(&world))), env));
     let host = Arc::new(Host { log: Arc::clone(&log), cwd });
-    let service = McpService::new(config.clone(), host, Arc::new(Runtime(Arc::clone(&world))), secrets, Path::new(&base).join("home"));
+    let service = McpService::new(config.clone(), host, Arc::new(Runtime(Arc::clone(&world))), secrets, Path::new(&base).join("home"), Arc::new(NoToasts));
     for step in golden["steps"].as_array().unwrap() {
         let name = step["name"].as_str().unwrap();
         log.lock().unwrap().clear();

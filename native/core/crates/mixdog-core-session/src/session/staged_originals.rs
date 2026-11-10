@@ -90,11 +90,30 @@ pub struct StagedOriginals {
     blobs: BlobStore,
     deadline: Mutex<Deadline>,
     rearmed: tokio::sync::Notify,
+    /// Counts the prune task's first arming and each pass it finishes, for the tests to wait on.
+    #[cfg(test)]
+    passes: tokio::sync::watch::Sender<u64>,
 }
 
 impl StagedOriginals {
     pub fn new(data_dir: &Path) -> Self {
-        Self { data_dir: data_dir.to_owned(), blobs: BlobStore::new(data_dir), deadline: Mutex::default(), rearmed: tokio::sync::Notify::new() }
+        Self {
+            data_dir: data_dir.to_owned(),
+            blobs: BlobStore::new(data_dir), deadline: Mutex::default(),
+            rearmed: tokio::sync::Notify::new(),
+            #[cfg(test)]
+            passes: tokio::sync::watch::channel(0).0,
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn passes(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.passes.subscribe()
+    }
+
+    #[cfg(test)]
+    pub(super) fn earliest_at(&self) -> Option<f64> {
+        self.deadline().earliest_at
     }
 
     fn deadline(&self) -> std::sync::MutexGuard<'_, Deadline> {
@@ -285,6 +304,8 @@ impl StagedOriginals {
                 Self::arm_locked(&mut deadline, &entries);
             }
         }
+        #[cfg(test)]
+        self.passes.send_modify(|n| *n += 1);
         loop {
             // An entry expires once strictly past the TTL (see `pruned`).
             let wait = self.deadline().earliest_at.map(|at| (at + STAGED_ORIGINALS_TTL_MS as f64 + 1.0 - clock.now_ms() as f64).max(0.0));
@@ -302,6 +323,8 @@ impl StagedOriginals {
                     self.deadline().earliest_at = None;
                     let (pruner, now) = (self.clone(), clock.now_ms());
                     drop(on_lane(lane, &cancel, move |lane| pruner.prune(lane, now, STAGED_ORIGINALS_TTL_MS)).await);
+                    #[cfg(test)]
+                    self.passes.send_modify(|n| *n += 1);
                 }
             }
         }

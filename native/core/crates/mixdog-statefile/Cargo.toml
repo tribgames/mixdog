@@ -14,6 +14,7 @@ mixdog-js = { workspace = true }
 rand = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
+mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }
@@ -27,3 +28,6 @@ mixdog-rt = { workspace = true, features = ["test-support"] }
 mixdog-testkit = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["rt"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-js = { workspace = true, features = ["fixture-tools"] }
