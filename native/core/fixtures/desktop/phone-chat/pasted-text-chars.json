@@ -1,0 +1,171 @@
+{
+  "recorder": "benchmarks/rust-core/recorders/record-pasted-text-chars.mjs",
+  "commit": "b6f10295a2f698afc85332467192de28500bd146",
+  "cases": [
+    {
+      "name": "ascii, no chars",
+      "entry": {
+        "id": 1,
+        "text": "a pasted block"
+      },
+      "materialized": {
+        "id": 1,
+        "attachmentRef": "fd434aeafe30cd343fc401e47a64f1fa60741e1fc8ae9e2e83063caf2cba2ea3",
+        "sizeBytes": 14,
+        "chars": 14
+      }
+    },
+    {
+      "name": "astral text counts UTF-16 units",
+      "entry": {
+        "id": 1,
+        "text": "😀"
+      },
+      "materialized": {
+        "id": 1,
+        "attachmentRef": "f0443a342c5ef54783a111b51ba56c938e474c32324d90c3a60c9c8e3a37e2d9",
+        "sizeBytes": 4,
+        "chars": 2
+      }
+    },
+    {
+      "name": "accented text",
+      "entry": {
+        "id": 1,
+        "text": "héllo"
+      },
+      "materialized": {
+        "id": 1,
+        "attachmentRef": "3c48591d8d098a4538f5e013dfcf406e948eac4d3277b10bf614e295d6068179",
+        "sizeBytes": 6,
+        "chars": 5
+      }
+    },
+    {
+      "name": "supplied number",
+      "entry": {
+        "id": 1,
+        "text": "abc",
+        "chars": 7
+      },
+      "materialized": {
+        "id": 1,
+        "chars": 7,
+        "attachmentRef": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+        "sizeBytes": 3
+      }
+    },
+    {
+      "name": "supplied numeric string",
+      "entry": {
+        "id": 1,
+        "text": "abc",
+        "chars": "5"
+      },
+      "materialized": {
+        "id": 1,
+        "chars": 5,
+        "attachmentRef": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+        "sizeBytes": 3
+      }
+    },
+    {
+      "name": "supplied padded numeric string",
+      "entry": {
+        "id": 1,
+        "text": "abc",
+        "chars": " 12 "
+      },
+      "materialized": {
+        "id": 1,
+        "chars": 12,
+        "attachmentRef": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+        "sizeBytes": 3
+      }
+    },
+    {
+      "name": "supplied zero falls back",
+      "entry": {
+        "id": 1,
+        "text": "abcd",
+        "chars": 0
+      },
+      "materialized": {
+        "id": 1,
+        "chars": 4,
+        "attachmentRef": "88d4266fd4e6338d13b845fcf289579d209c897823b9217da3e161936f031589",
+        "sizeBytes": 4
+      }
+    },
+    {
+      "name": "supplied non-numeric string falls back",
+      "entry": {
+        "id": 1,
+        "text": "abcd",
+        "chars": "many"
+      },
+      "materialized": {
+        "id": 1,
+        "chars": 4,
+        "attachmentRef": "88d4266fd4e6338d13b845fcf289579d209c897823b9217da3e161936f031589",
+        "sizeBytes": 4
+      }
+    },
+    {
+      "name": "supplied empty string falls back",
+      "entry": {
+        "id": 1,
+        "text": "abcd",
+        "chars": ""
+      },
+      "materialized": {
+        "id": 1,
+        "chars": 4,
+        "attachmentRef": "88d4266fd4e6338d13b845fcf289579d209c897823b9217da3e161936f031589",
+        "sizeBytes": 4
+      }
+    },
+    {
+      "name": "supplied fraction",
+      "entry": {
+        "id": 1,
+        "text": "abcd",
+        "chars": 2.5
+      },
+      "materialized": {
+        "id": 1,
+        "chars": 2.5,
+        "attachmentRef": "88d4266fd4e6338d13b845fcf289579d209c897823b9217da3e161936f031589",
+        "sizeBytes": 4
+      }
+    },
+    {
+      "name": "supplied negative",
+      "entry": {
+        "id": 1,
+        "text": "abcd",
+        "chars": -3
+      },
+      "materialized": {
+        "id": 1,
+        "chars": -3,
+        "attachmentRef": "88d4266fd4e6338d13b845fcf289579d209c897823b9217da3e161936f031589",
+        "sizeBytes": 4
+      }
+    },
+    {
+      "name": "supplied true",
+      "entry": {
+        "id": 1,
+        "text": "abcd",
+        "chars": true
+      },
+      "materialized": {
+        "id": 1,
+        "chars": 1,
+        "attachmentRef": "88d4266fd4e6338d13b845fcf289579d209c897823b9217da3e161936f031589",
+        "sizeBytes": 4
+      }
+    }
+  ]
+}
