@@ -66,6 +66,7 @@
     "maxMediaFrameBytes": 67108864,
     "maxProcesses": 64,
     "maxSnapshotBytes": 3145728,
+    "orderedQueueBytes": 75497472,
     "queueBytes": 8388608,
     "ringBytes": 4194304,
     "terminalInputBufferBytes": 1048576,

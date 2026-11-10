@@ -1,9 +1,10 @@
 //! Connection writer API (P §6.5): implemented by `mixdog-app-server-transport`, used by the
 //! server (control lane) and by every feed (subscription lanes).
 //!
-//! The connection's `queueBytes` is split into the ordered class's reserve (responses, errors,
-//! server requests, `serverRequest/resolved` and the frames of ordered lanes; never dropped)
-//! and one event budget shared by all lanes, with no per-lane minimum. One writer task per
+//! The connection's `queueBytes` is split into the control reserve (responses, errors, server
+//! requests, `serverRequest/resolved`; never dropped) and one event budget shared by all
+//! droppable lanes, with no per-lane minimum. Ordered lanes' frames (never dropped either) hold
+//! their own room, `orderedQueueBytes`, which admits one frame of any size while empty. One writer task per
 //! connection writes pings first and every text frame in the order it was queued on the
 //! connection (Lead decision 2026-11-11): nothing overtakes a frame queued earlier, except that
 //! a lane's frames wait for the response that opens it and a lagged lane's recovery snapshot may
@@ -56,8 +57,8 @@ pub trait ConnectionSink: Send + Sync {
     ) -> Result<(Arc<dyn Lane>, LaneRelease), SinkClosed>;
 
     /// [`Self::open_lane`] for a feed whose events are never dropped (the ordered class): its
-    /// frames hold the control reserve, and once anything of it was written a failed
-    /// reservation closes the connection with 4000 `slowConsumer` instead of lagging. A sink
+    /// frames hold the ordered event room (`orderedQueueBytes`), and once anything of it was
+    /// written a failed reservation closes the connection with 4000 `slowConsumer` instead of lagging. A sink
     /// without the class opens a plain lane.
     fn open_ordered_lane(
         &self,
@@ -73,7 +74,7 @@ pub trait Lane: Send + Sync {
     fn sub(&self) -> SubscriptionId;
 
     /// Reserves bytes for frames: from the connection's shared event budget, or for an ordered
-    /// lane from the control reserve.
+    /// lane from the ordered event room.
     fn try_reserve(&self, bytes: usize) -> Result<Reservation, BudgetFull>;
 
     /// Reserves bytes for a snapshot slot, always from the event budget.

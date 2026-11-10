@@ -1,12 +1,17 @@
 {
+  "causality": {
+    "room-rename": "the catalog row is republished inside the call: agent-rooms.ts:311-312 → session-host-lifecycle.ts:311 → remote-relay-catalog.ts:89 (never droppable); the answer after the handler, remote-relay-client-calls.ts:487,501",
+    "terminal-dispose": "the activity frame is published inside the call: terminal-manager.ts:536-541 (dispose → TerminalActivity.exit, :541) → terminal-activity.ts:137-155 → desktop-operations.ts:530-531 → the bus → remote-relay-delivery.ts:171-186; the answer is queued only after the handler settled, remote-relay-client-calls.ts:487,501",
+    "thread-favorite": "the catalog row is republished inside the call: session-host-lifecycle.ts:311 → remote-relay-catalog.ts:89; the answer after the handler, remote-relay-client-calls.ts:487,501"
+  },
   "command": "node --experimental-transform-types --import ./benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-frame-order.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146 with node_modules> --work <scratch dir> --runs 10",
   "desktopLinkNotRecorded": "Node's desktop link has no order between an answer and an event: each call is its own HTTP /call answered on its own socket (src/standalone/session-transport/call-route.mjs:118-136), events are SSE frames written at once or, on a stalled stream, merged latest-wins per key (src/standalone/session-frame-stream.mjs:199-291, desktop-service-registry.mjs:31-49).",
   "fileCount": 1,
   "files": [
     {
-      "bytes": 151155,
+      "bytes": 230744,
       "path": "golden.json",
-      "sha256": "76e619fc121428b215fdc6b1ddc40d4360f5dfb9a4823a0273a63f948119e59d"
+      "sha256": "3a92dfb7ecbbadcf41328b3e38a503da9a8df9ce46ea69db1dbde64554aff3d9"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -28,8 +33,36 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-frame-order.mjs",
-  "recorderSha256": "969eee3b127f32d342be6e6695eac5214827f8f6400f75398eb53a9a033981af",
+  "replayLeftOut": {
+    "core/health/updated": "the core's stall monitor, sent on any connection when its runtime stalls; Node's phone path has no counterpart frame and no cause of this recording makes one"
+  },
+  "rules": {
+    "answerWhileStateRecovers": "core-only: Node never drops a state lane to recover it from a snapshot, it coalesces (desktop-service-protocol.ts:57-99), so a recovery snapshot has no Node counterpart; the core's rule (an answer does not wait for a lagged lane's recovery snapshot) is tested in mixdog-app-server-transport order::an_answer_does_not_wait_for_a_lagged_lanes_recovery_snapshot. Node's nearest counterpart, an answer passing the newest state held behind the one in flight, is recorded in state-latest-wins",
+    "droppableStateLatestWins": "one state frame in flight; later publications collapse to the newest and are sent once it is delivered (desktop-service-protocol.ts:57-99, remote-state-lane.ts:18-26), droppable when not critical (remote-relay-client-lifecycle.ts:273-278); scenario state-latest-wins",
+    "eventAfterAnswer": "an event queued after an answer is written after it: the same FIFO; scenario activity-after-answer",
+    "eventBeforeAnswer": "an event queued while a call is handled is written before its answer: one FIFO per phone, remote-relay-delivery.ts:81-101, coordinator.ts:483,1083-1172 (transport), remote-e2ee.ts:589-639 (legacy); scenarios terminal-dispose, room-rename, thread-favorite",
+    "neverDroppedUnderCongestion": "never-dropped events queued behind a withheld write are all written, in order, none merged: termActivity is not droppable (remote-relay-push-lanes.ts:150-152); a non-droppable frame waits in the coordinator queue (coordinator.ts:1097) or the E2EE send queue; scenario activity-after-answer, stalled"
+  },
   "runsPerMode": 10,
+  "scripts": [
+    {
+      "path": "benchmarks/rust-core/recorders/record-frame-order.mjs",
+      "sha256": "654d58b0183ee7a3f8df902eb8fa4db4500450d96f05dba1616d29c2e1b5c486"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "9589fead747478ec019ecaf501b504bb240bfc83723f69039ea16c1ebc2d088a"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/ts-register.mjs",
+      "sha256": "065ba6e7ea82d1d6dffe0903454d63df7569c656ceeb025875d945f96b58c276"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/ts-resolve-hooks.mjs",
+      "sha256": "d8e596c1bcd597ee71ad7007dcd2362605a2ca5d87a77801cba8b3cdc2c22ac6"
+    }
+  ],
   "set": "frame-order",
-  "totalBytes": 151155
+  "stall": "stalled: every write of the desktop leg's socket is held with its completion callback from before the cause until the marker's handler is entered, then released in order (heldAtBarrier per run). A backlog of calls ahead of the cause is not used: Node closes a phone with more than 256 inbound calls not yet answered (remote-relay-clients.ts:23,214-218,349-352; a call's frame is released only after its answer was delivered, remote-relay-client-lifecycle.ts:329-339, remote-relay-client-calls.ts:501)",
+  "totalBytes": 230744
 }

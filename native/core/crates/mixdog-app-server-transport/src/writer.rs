@@ -16,12 +16,19 @@
 //! being taken.
 //!
 //! **Ordered class.** Answers, server requests and the frames of ordered lanes (feeds whose
-//! events Node's phone path never drops, `remote-relay-push-lanes.ts:103-176`) share the
-//! control reserve. They are never dropped or merged; when the reserve is exhausted the
-//! connection closes with 4000 `slowConsumer`, as Node ends the phone's session rather than
-//! drop one (`coordinator.ts:1181`, `remote-relay-delivery.ts:208`). An ordered lane may lag only
-//! before anything of it was written (its first snapshot is then taken again); after that a
-//! lag closes the connection.
+//! events Node's phone path never drops, `remote-relay-push-lanes.ts:103-176`) are never dropped
+//! or merged. Answers and server requests hold the control reserve (`controlReserveBytes`), so
+//! they and pings (which hold nothing) still queue while events fill their own room. Ordered
+//! lanes' frames hold the ordered event room (`orderedQueueBytes`, 72 MiB): an empty room admits
+//! one frame of any size (no single event closes a connection; `lsp:` and `fs:` frames have no
+//! size bound in the core, nor in Node), and behind it frames queue while the held bytes stay
+//! within the room. This is Node's `REMOTE_TRANSPORT_ASSEMBLY_POOL_BYTES`
+//! (`remote-transport.ts:251-258`: its largest message, 64 MiB, plus the 8 MiB it lets queue for
+//! a phone that is not draining). A frame that finds the room full means the peer has not taken
+//! 72 MiB of events: the connection closes with 4000 `slowConsumer`, as Node ends the phone's
+//! session rather than drop one (`coordinator.ts:1181`, `remote-relay-delivery.ts:208`). An
+//! ordered lane may lag only before anything of it was written (its first snapshot is then taken
+//! again); after that a lag closes the connection.
 
 use std::collections::BTreeMap;
 use std::collections::HashMap;
@@ -63,6 +70,7 @@ use crate::socket::SocketWrite;
 pub(crate) struct WriterLimits {
     control_reserve: usize,
     event_budget: usize,
+    ordered_queue: usize,
     max_snapshot: usize,
     pub(crate) max_inbound: usize,
     pub(crate) max_media: u64,
@@ -73,6 +81,7 @@ impl WriterLimits {
         Self {
             control_reserve: limits.control_reserve_bytes as usize,
             event_budget: limits.event_budget_bytes as usize,
+            ordered_queue: limits.ordered_queue_bytes as usize,
             max_snapshot: limits.max_snapshot_bytes as usize,
             max_inbound: limits.max_inbound_frame_bytes as usize,
             max_media: limits.max_media_frame_bytes,
@@ -287,20 +296,32 @@ pub(crate) enum Closing {
     Peer,
 }
 
-/// The ordered class's byte reserve (`controlReserveBytes`): answers, server requests and
-/// ordered lanes' frames hold it from queueing until the socket has taken them. An atomic, so a
-/// reservation dropped under the state lock never waits on it.
+/// A byte room of the ordered class, held by a frame from queueing until the socket has taken
+/// it: the control reserve (`controlReserveBytes`: answers, errors, server requests) or the
+/// ordered event room (`orderedQueueBytes`: ordered lanes' frames, which also admits one frame of
+/// any size while it holds nothing). An atomic, so a reservation dropped under the state lock
+/// never waits on it.
 struct OrderedReserve {
     total: usize,
+    /// While nothing is held, one frame of any size is admitted (module docs).
+    admits_any_head: bool,
     used: AtomicUsize,
 }
 
 impl OrderedReserve {
+    fn new(total: usize, admits_any_head: bool) -> Arc<Self> {
+        Arc::new(Self {
+            total,
+            admits_any_head,
+            used: AtomicUsize::new(0),
+        })
+    }
+
     fn try_take(self: &Arc<Self>, bytes: usize) -> Option<Reservation> {
-        let total = self.total;
+        let (total, any_head) = (self.total, self.admits_any_head);
         self.used
             .try_update(Ordering::AcqRel, Ordering::Acquire, |used| {
-                (used + bytes <= total).then_some(used + bytes)
+                (used + bytes <= total || (any_head && used == 0)).then_some(used + bytes)
             })
             .ok()?;
         let budget: Arc<dyn ByteBudget> = self.clone();
@@ -493,7 +514,10 @@ pub(crate) struct Shared {
     narrowed: OnceLock<ConnectionOrigin>,
     pub(crate) limits: WriterLimits,
     budget: Arc<EventBudget>,
+    /// The control reserve: answers, errors and server requests.
     reserve: Arc<OrderedReserve>,
+    /// The ordered event room: frames of ordered lanes.
+    ordered_room: Arc<OrderedReserve>,
     state: Mutex<State>,
     clock: Arc<AtomicU64>,
     last_rx: AtomicU64,
@@ -529,10 +553,8 @@ impl Shared {
                 wake: Notify::new(),
                 lag_waiting: AtomicBool::new(false),
             }),
-            reserve: Arc::new(OrderedReserve {
-                total: limits.control_reserve,
-                used: AtomicUsize::new(0),
-            }),
+            reserve: OrderedReserve::new(limits.control_reserve, false),
+            ordered_room: OrderedReserve::new(limits.ordered_queue, true),
             state: Mutex::new(State::default()),
             clock,
             last_rx: AtomicU64::new(now),
@@ -1095,10 +1117,10 @@ impl Lane for WriterLane {
     }
 
     /// Takes from the connection's event budget (see [`Shared::take_for`] for what is owed), or
-    /// for an ordered lane from the ordered reserve.
+    /// for an ordered lane from the ordered event room.
     fn try_reserve(&self, bytes: usize) -> Result<Reservation, BudgetFull> {
         if self.ordered {
-            return self.shared.reserve.try_take(bytes).ok_or(BudgetFull);
+            return self.shared.ordered_room.try_take(bytes).ok_or(BudgetFull);
         }
         self.try_reserve_snapshot(bytes)
     }

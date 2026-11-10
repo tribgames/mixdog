@@ -1,17 +1,23 @@
 #!/usr/bin/env node
 // A built mixdogd driven through the causes Node's phone path was recorded with (`record-frame-order.mjs` →
-// `native/core/fixtures/frame-order/golden.json`): a room renamed, a thread marked favorite. Per run the cause is sent on one
-// connection, then a marker read; every frame the connection gets from the cause's send until both answers, none left out, is
-// named the way the recording names Node's (`answer:cause`, `answer:marker`, `event:<name>`), and that order must be one of the
-// orders Node's phone got for the scenario. A frame without a name in NODE_NAME fails the run naming its method.
+// `native/core/fixtures/frame-order/golden.json`): a room renamed, a thread marked favorite. Per run the cause and then the marker
+// are sent back to back, as the recorder sends them; every frame the connection gets from the cause's send until both answers is
+// named the way the recording names Node's (`answer:cause`, `answer:marker`, `event:<name>`), each frame on its own (one core
+// frame is one publication), and that whole order must be one of the orders Node's phone got. A frame without a name fails the run;
+// the only kind left out is `core/health/updated` (UNRELATED; listed with its reason in the set's manifest), each one printed.
 //
 // One connection carries one order on the core (the transport's writer, the same for a WebSocket and a relay connection: hub.rs
-// `attach`), so the replay runs over the app-server socket. Readers: `prompt`, and `stalled`, where the socket is not read from
-// before the cause is sent until a second connection has seen the cause's own publication, then drained.
+// `attach`), so the replay runs over the app-server socket. Readers: `prompt`, and `stalled`: the socket is not read from before the
+// cause is sent until the cause's publication and the marker's place are proven (a second connection's view), then drained. The
+// recorder's stall is a barrier on Node's own socket writes; a client of a built core cannot hold the core's socket write (the
+// kernel's buffers take these frames), and a backlog of calls to fill them is no stimulus Node takes (it closes a phone with more
+// than 256 calls unanswered, remote-relay-clients.ts:214-218). The core's withheld write is therefore tested where it can be held,
+// at the transport's socket (mixdog-app-server-transport order tests, every recorded run).
 //
-// `terminal-dispose` is recorded but not replayed here: o1's core has no `terminal/dispose` handler (the method is only in the
-// protocol's tables); the terminal branch owns that replay, and the transport test
-// `order::an_event_of_the_ordered_class_queued_before_an_answer_is_written_before_it` covers its order until then.
+// Not replayed here: `terminal-dispose` and `activity-after-answer` wait on the terminal branch (o1's core has no `terminal/dispose`
+// handler nor terminal activity feed); `state-latest-wins` has no core counterpart (the core has no state mailbox: its droppable
+// lanes lag and recover, tested in the transport crate); `thread-favorite` waits on the chat/publication owner and `room-rename`
+// on the rooms/catalog publication owner (FEATURE_TIMING below; `--feature-timing` compares them whole and fails until they land).
 //
 // Every wait is on an event (the discovery file, a frame on a socket, the core's exit) under a deadline naming it. The world is a
 // folder of its own; the core is ended through its own stop (`mixdogd ctl stop --when-idle`) and awaited on its exit.
@@ -33,12 +39,23 @@ const only = args.get('only');
 const golden = JSON.parse(readFileSync(join(FIXTURES_ROOT, 'frame-order', 'golden.json'), 'utf8'));
 const RUNS = Number(args.get('runs') ?? golden.inputs.runs);
 const REPLAYED = ['room-rename', 'thread-favorite'];
-/** Replayed only with `--feature-timing`: the core queues the row of a thread action from a spawned pass after the reply
- *  (mixdog-core-session thread_list.rs `publish`, `tokio::spawn(... publish_listing ...)`), so even a promptly read connection
- *  gets the answer first; when a feature queues its event is the chat branch's (Lead, 2026-11-11), not the writer's. */
-const FEATURE_TIMING = { 'thread-favorite': 'the chat branch (the core queues the thread row after the reply)' };
-const BACKLOG = Number(args.get('backlog') ?? 4000);
-const WAITING = { 'terminal-dispose': 'the terminal branch (o1 has no terminal/dispose handler)' };
+/** Replayed only with `--feature-timing`: the core publishes a favourite's row from the thread-edges background task
+ *  (mixdog-core-session/src/session/thread_edges.rs:299, `ThreadEdges::start`), which the reply does not wait for, so even a
+ *  promptly read connection can get the answer first; when a feature queues its event belongs to the chat/publication owner
+ *  (Lead, 2026-11-11), not the writer. */
+const FEATURE_TIMING = {
+  'thread-favorite': 'the chat/publication owner (the row is published by the background task at mixdog-core-session/src/session/thread_edges.rs:299, after the reply)',
+  // Node sends one roster frame per catalog publication and none for a publication that changes nothing (remote-relay-catalog.ts:79-91,
+  // `isNoListDelta`); a rename on the core publishes the room's row three times and every listed row once more, each frame before
+  // the answer (the writer's order holds), so the whole order has four `sessions` events where Node's has one.
+  'room-rename':
+    "the rooms/catalog publication owner (one rename publishes the room's row at mixdog-core-session/src/session/thread_edges.rs:268 (row write), thread_list.rs:418 (whole listing, via mixdog-core/src/run_host/room_publication.rs:84) and thread_list.rs:480 (room rows, via rooms/service.rs:251), and every other listed row at thread_list.rs:418)",
+};
+const WAITING = {
+  'terminal-dispose': 'the terminal branch (o1 has no terminal/dispose handler)',
+  'activity-after-answer': 'the terminal branch (o1 has no terminal activity feed)',
+  'state-latest-wins': "no core counterpart (the core has no state mailbox; its droppable lanes' rule is tested in mixdog-app-server-transport)",
+};
 if (!exe || !existsSync(exe) || !harness) {
   console.error('usage: replay-frame-order-live.mjs --exe <mixdogd.exe> --harness <real-turn-harness dir> [--only <scenario>] [--runs N]');
   process.exit(2);
@@ -47,10 +64,9 @@ for (const name of Object.keys(golden.scenarios)) {
   if (!REPLAYED.includes(name) && !WAITING[name]) throw new Error(`the recording has a scenario this replay does not know: ${name}`);
 }
 if (only && !golden.scenarios[only]) throw new Error(`--only ${only}: not a recorded scenario`);
-/** Node's name of each core frame that carries what Node's phone got as one event. Node sends a catalog publication as ONE
- *  `sessions` roster frame holding every changed row (remote-relay-catalog.ts:77-91); the core sends it as one
- *  `thread/summary/updated` per row, back to back (thread_list.rs `publish_listing`). So a run of consecutive row frames is one
- *  `event:sessions`; a row frame anywhere else is its own. */
+/** Node's name of each core frame. Node sends a catalog publication as one `sessions` roster frame (remote-relay-catalog.ts:77-91);
+ *  the core sends one `thread/summary/updated` frame per publication of a row, so each such frame is one `event:sessions`: two
+ *  frames are two publications, never folded into one. */
 const NODE_NAME = { 'thread/summary/updated': 'event:sessions' };
 /** Frames the core may send on any connection at any time that no cause of this replay makes and Node never sends a phone; each one
  *  seen is printed with its run, never compared. Reported for decisions.md (owner: Lead). */
@@ -109,16 +125,34 @@ async function endWorld() {
       ended.push(`closing a socket: ${error.message}`);
     }
   }
-  if (child && child.exitCode === null && child.signalCode === null) {
+  const exited = () => child.exitCode !== null || child.signalCode !== null;
+  const onExit = (attempt) => (child.once('exit', attempt), () => child.off('exit', attempt));
+  if (child && !exited()) {
     const stop = spawnSync(exe, ['ctl', 'stop', '--when-idle', '--reason', 'quit'], { env: coreEnv, encoding: 'utf8', timeout: 30_000, windowsHide: true });
     if (stop.error || stop.status !== 0) ended.push(`mixdogd ctl stop answered ${stop.error?.message ?? stop.status}: ${stop.stderr}`);
     try {
-      await waitOn('mixdogd exiting after its stop', 60_000, (attempt) => (child.once('exit', attempt), () => child.off('exit', attempt)), async () => child.exitCode !== null || child.signalCode !== null);
+      await waitOn('mixdogd exiting after its stop', 60_000, onExit, async () => exited());
+    } catch (error) {
+      // The core this replay started (its pid, recorded at spawn) and every process under it end now.
+      ended.push(error.message);
+      const kill = spawnSync('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { encoding: 'utf8', timeout: 30_000, windowsHide: true });
+      if (kill.error || kill.status !== 0) ended.push(`taskkill /T of mixdogd ${child.pid} answered ${kill.error?.message ?? kill.status}: ${kill.stderr}`);
+      try {
+        await waitOn(`mixdogd ${child.pid} exiting after taskkill`, 30_000, onExit, async () => exited());
+      } catch (killError) {
+        ended.push(killError.message);
+      }
+    }
+  }
+  if (provider) {
+    let closed = false;
+    try {
+      await waitOn('the fake provider closing', 30_000, (attempt) => (provider.close().then(() => (closed = true)).then(attempt, attempt), () => {}), async () => closed);
     } catch (error) {
       ended.push(error.message);
     }
   }
-  if (provider) await provider.close();
+  // What still names the world after its core ended is a failure, named (endSandbox ends nothing it finds by a listing).
   ended.push(...endSandbox(world, 0, paths.dataDir));
   return ended;
 }
@@ -231,12 +265,15 @@ try {
         const name = `Order room ${++renames}`;
         return { id: client.send('room/update', { opId: uuidv7(Date.now()), input: { roomId: room.roomId, name } }), settled: (row) => row?.title === name };
       },
-      // An update of a room that does not exist: an exclusive request of the cause's key (`global("room")`, methods.rs
-      // `RoomUpdate`) that publishes nothing. The key's queue runs it only after the cause's run ended, and that run queues the
-      // cause's answer (server.rs `handle_request`: `work.await` then `finish`), so its answer proves the cause's is queued.
+      // The marker: an update of a room that does not exist, an exclusive request of the cause's key (`global("room")`, methods.rs
+      // `RoomUpdate`) that publishes nothing. Sent right after the cause, as Node's marker is; the key's queue runs it only after
+      // the cause's run ended (Node's call queue ran its marker after the cause in every recorded run).
+      marker: () => client.send('room/update', { opId: uuidv7(Date.now()), input: { roomId: 'frame-order-marker-no-room', name: 'none' } }),
+      // The same request from the observer, queued on the key after the client's marker: its answer proves the cause's and the
+      // marker's runs ended, and each run queues its answer before it ends (server.rs `handle_request`: `work.await` then `finish`).
       fence: async () => {
         const id = observer.send('room/update', { opId: uuidv7(Date.now()), input: { roomId: 'frame-order-fence-no-room', name: 'none' } });
-        const frame = await observer.until('the fence after the cause', () => observer.frames.find((f) => f.id === id));
+        const frame = await observer.until('the fence after the marker', () => observer.frames.find((f) => f.id === id));
         if (!frame.error) throw new Error(`the fence updated a room: ${JSON.stringify(frame)}`);
       },
     },
@@ -247,6 +284,10 @@ try {
         // An unset favorite leaves the row without the field.
         return { id: client.send('thread/metadata/update', { opId: uuidv7(Date.now()), threadId: thread, favorite }), settled: (row) => (row?.favorite === true) === favorite };
       },
+      marker: () => client.send('project/taskWorkspace', {}),
+      // No request of this key proves the marker's answer queued: the stall ends at the cause's publication (this scenario runs
+      // only with --feature-timing, waiting on the chat/publication owner).
+      fence: async () => {},
     },
   };
 
@@ -259,41 +300,28 @@ try {
       console.log(`WAITING ${name}: replayed by ${FEATURE_TIMING[name]}; run with --feature-timing to see the core's order`);
       continue;
     }
-    const recorded = Object.values(golden.scenarios[name].modes).flatMap((mode) => mode.orders.map((o) => o.order));
-    const nodeOrders = recorded.filter((order, i) => recorded.findIndex((other) => isDeepStrictEqual(other, order)) === i);
     const scenario = SCENARIOS[name];
     for (const reader of ['prompt', 'stalled']) {
+      // Node's orders for this reader, both modes, each distinct one once.
+      const recorded = Object.entries(golden.scenarios[name].modes)
+        .filter(([mode]) => mode.endsWith(`/${reader}`))
+        .flatMap(([, mode]) => mode.orders.map((o) => o.order));
+      const nodeOrders = recorded.filter((order, i) => recorded.findIndex((other) => isDeepStrictEqual(other, order)) === i);
       const seen = new Map();
       for (let run = 1; run <= RUNS; run += 1) {
-        let from = client.frames.length;
+        const from = client.frames.length;
         const observedFrom = observer.frames.length;
-        const backlog = [];
-        if (reader === 'stalled') {
-          client.socket._socket.pause();
-          // A backlog the writer is still writing when the cause's frames are queued (the socket buffers fill): reads queued
-          // before the cause, their answers kept out of the window (they are frames of earlier calls).
-          for (let i = 0; i < BACKLOG; i += 1) backlog.push(client.send('thread/list', { limit: 1000 }));
-        }
+        if (reader === 'stalled') client.socket._socket.pause();
         const { id: cause, settled } = scenario.cause();
+        const marker = scenario.marker();
         if (reader === 'stalled') {
           await observer.until(`${name}: the cause's publication (run ${run})`, () => observer.frames.slice(observedFrom).some((f) => f.method === 'thread/summary/updated' && f.params?.thread?.id === scenario.subject && settled(f.params.thread)));
           await scenario.fence();
           client.socket._socket.resume();
         }
-        // The marker is sent once the cause is answered, so it ends the window after the cause on any scheduler (Node's marker
-        // answered after the cause in every recorded run); the core runs a read beside a mutation, so sent earlier it could overtake.
-        await client.until(`${name}: the cause's answer (run ${run})`, () => client.frames.slice(from).some((f) => f.id === cause));
-        const marker = client.send('project/taskWorkspace', {});
-        await client.until(`${name}: the marker's answer (run ${run})`, () => client.frames.slice(from).some((f) => f.id === marker));
-        if (backlog.length) {
-          const last = client.frames.findLastIndex((f) => backlog.includes(f.id));
-          if (last < from) throw new Error(`${name}: the backlog's answers are missing`);
-          from = last + 1;
-          console.log(`${name} (${reader}, run ${run}): backlog of ${backlog.length} reads, ${client.frames.slice(from - backlog.length, from).reduce((sum, f) => sum + JSON.stringify(f).length, 0)} bytes`);
-        }
+        await client.until(`${name}: the cause's and the marker's answers (run ${run})`, () => [cause, marker].every((id) => client.frames.slice(from).some((f) => f.id === id)));
         const window = client.frames.slice(from);
         const order = [];
-        let previous = null;
         for (const frame of window) {
           if (UNRELATED[frame.method]) {
             console.log(`${name} (${reader}, run ${run}): unrelated ${frame.method} (${UNRELATED[frame.method]}): ${JSON.stringify(frame)}`);
@@ -309,9 +337,7 @@ try {
             named = NODE_NAME[frame.method];
             if (!named) throw new Error(`${name} (${reader}, run ${run}): a frame Node's recording has no name for: ${JSON.stringify(frame)}`);
           }
-          // One publication's rows, back to back, are Node's one roster frame.
-          if (!(named === 'event:sessions' && previous === frame.method)) order.push(named);
-          previous = frame.method;
+          order.push(named);
         }
         const key = JSON.stringify(order);
         seen.set(key, (seen.get(key) ?? 0) + 1);
