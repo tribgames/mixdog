@@ -321,6 +321,12 @@ impl Rig {
     }
 }
 
+/// A recorded profile read quick, full and web-search with nothing between the reads (no stored change, no warm-up).
+pub(super) fn three_reads(scenario: &Value) -> bool {
+    let actions = scenario["calls"].as_array().unwrap().iter().map(|c| c["action"].as_str().unwrap());
+    actions.eq(["listProviderModels", "listProviderModels", "listWebSearchModels"])
+}
+
 pub(super) fn node_calls(scenario: &Value) -> [&Value; 3] {
     let calls = scenario["calls"].as_array().unwrap();
     assert_eq!(calls.len(), 3, "{}: quick, full and web-search reads", scenario["name"]);
@@ -348,7 +354,7 @@ pub(super) fn web_search(rig: &Rig) -> WebSearchModelsService {
 #[tokio::test]
 async fn the_quick_rows_are_nodes_for_every_profile() {
     let recording = recording();
-    for scenario in recording["scenarios"].as_array().unwrap().iter().filter(|s| s["name"] != "custom-discovery-update") {
+    for scenario in recording["scenarios"].as_array().unwrap().iter().filter(|s| three_reads(s)) {
         let name = scenario["name"].as_str().unwrap();
         let rig = rig(scenario, &recording["seeds"], false).await;
         // A row marked `catalogComplete` means Node's daemon had finished its boot load before this first read
@@ -366,7 +372,7 @@ async fn the_quick_rows_are_nodes_for_every_profile() {
 async fn the_full_and_web_search_reads_are_nodes_after_the_registry_hands_over_its_sources() {
     let recording = recording();
     let mut searched = 0;
-    for scenario in recording["scenarios"].as_array().unwrap().iter().filter(|s| s["name"] != "custom-discovery-update") {
+    for scenario in recording["scenarios"].as_array().unwrap().iter().filter(|s| three_reads(s)) {
         let name = scenario["name"].as_str().unwrap();
         let [_, full, search] = node_calls(scenario);
         let rig = rig(scenario, &recording["seeds"], false).await;

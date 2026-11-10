@@ -1,9 +1,9 @@
 {
-  "dispatchedToolCalls": [],
   "ok": {
     "content": "The result is 42.",
-    "stopReason": "stop",
     "toolCalls": [],
+    "stopReason": "stop",
     "usage": null
-  }
+  },
+  "dispatchedToolCalls": []
 }

@@ -1,30 +1,39 @@
 {
-  "command": "node benchmarks/rust-core/recorders/record-claude-oauth-cold-listing.mjs --tree <tree>",
+  "command": "node benchmarks/rust-core/recorders/record-claude-oauth-cold-listing.mjs --tree <tree> --commit 7f633e7305166c5fc8ee66464859ab7de7b60b4d",
   "fileCount": 1,
   "files": [
     {
       "bytes": 3614,
       "path": "golden.json",
-      "sha256": "789dc54cc9d203bdd1479f4d8331431ae33dc63c4bf34e33d8ecbd810143e0ef"
+      "sha256": "96033fe9131fd4c8af389fcede3f262ba823c19d759e2a0a07053840542ac021"
     }
   ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "9d85c23ce17a8eb56ca50b848fd8f7e39dadc23c258277510b0bfd67885739f5"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
-    "commit": "b6f10295a2f698afc85332467192de28500bd146",
-    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
-    "files": 9139,
+    "commit": "7f633e7305166c5fc8ee66464859ab7de7b60b4d",
+    "comparedAgainst": "7f633e7305166c5fc8ee66464859ab7de7b60b4d",
+    "exact": true,
+    "files": 9142,
     "refComparison": {
-      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "closestCommit": "7f633e7305166c5fc8ee66464859ab7de7b60b4d",
       "commitFilesMissingFromTree": 0,
       "exact": true,
       "filesDifferingFromCommit": 0
     },
-    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "srcSha256": "938d5325e28e2ad94621b1dec936ddda2ad4212305e7463fe2be9dcf404d8387",
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-claude-oauth-cold-listing.mjs",
+  "recorderSha256": "09f105a7e28c69d7d9b39a5118b173ae84b3d072cd2c4730fc46551b26c4bfd6",
   "set": "claude-oauth-cold-listing",
   "totalBytes": 3614
 }
