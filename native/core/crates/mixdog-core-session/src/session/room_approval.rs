@@ -457,6 +457,7 @@ impl SessionDirectory {
         connection: ConnectionId,
         device: String,
         connection_kind: ConnectionKind,
+        origin: mixdog_protocol::Origin,
         decision: Value,
     ) -> Result<bool, CoreError> {
         let Some(handle) = self.handle(thread) else { return Ok(false) };
@@ -464,7 +465,7 @@ impl SessionDirectory {
         if shown.is_none_or(|request| request.id.0.to_string() != approval_id) {
             return Ok(false);
         }
-        handle.decide_arbitrated(Decision { request: ServerRequestId(approval_id.to_owned()), connection, device, connection_kind, result: decision }).await
+        handle.decide_arbitrated(Decision { request: ServerRequestId(approval_id.to_owned()), connection, device, connection_kind, origin, result: decision }).await
     }
 }
 
