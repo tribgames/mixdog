@@ -205,18 +205,11 @@ fn ids_of(step: &Value) -> Vec<String> {
     step["ids"].as_array().unwrap().iter().map(|id| id.as_str().unwrap().to_owned()).collect()
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn every_recorded_download_scenario_that_counts_handles_answers_and_holds_as_nodes_service_did() {
-    let recording: Value = serde_json::from_str(RECORDING).unwrap();
-    let start = recording["clockStart"].as_i64().unwrap();
-    let scenarios: Vec<&Value> = recording["scenarios"].as_array().unwrap().iter().filter(|s| s["steps"].as_array().unwrap().iter().any(|step| step["op"] == "handles")).collect();
-    assert!(scenarios.len() >= 12, "{}", scenarios.len());
-    let (mut calls, mut compared, mut counted) = (0, 0, 0);
-    for scenario in scenarios {
-        let name = scenario["name"].as_str().unwrap();
+/// A service over a table on a virtual clock that starts at `start` (epoch milliseconds), its sweeper running, with the two paired devices of
+/// the recording and the conversations `s1` and `s2` listed.
+fn build(base: PathBuf, start: i64) -> (World, tokio::task::JoinHandle<()>) {
+    {
         let tokens = mixdog_rt::testing::tokens();
-        let dir = tempfile::tempdir().unwrap();
-        let base = canonical(dir.path()).unwrap();
         for folder in ["project", "task", "outside", "state"] {
             std::fs::create_dir_all(base.join(folder)).unwrap();
         }
@@ -258,10 +251,24 @@ async fn every_recorded_download_scenario_that_counts_handles_answers_and_holds_
             let (transfers, manual) = (transfers.clone(), manual.clone());
             tokio::spawn(async move { transfers.run_download_sweeper(&*manual).await })
         };
-        let mut world = World { dir: base, service, transfers, manual, present, store, tokens: Tokens::default() };
+        let world = World { dir: base, service, transfers, manual, present, store, tokens: Tokens::default() };
         // Every conversation of the host is listed from the start; Node's service has seen none until a publication.
         *world.present.0.lock().unwrap() = ["s1", "s2"].into_iter().map(str::to_owned).collect();
+        (world, sweeping)
+    }
+}
 
+#[tokio::test(flavor = "multi_thread")]
+async fn every_recorded_download_scenario_that_counts_handles_answers_and_holds_as_nodes_service_did() {
+    let recording: Value = serde_json::from_str(RECORDING).unwrap();
+    let start = recording["clockStart"].as_i64().unwrap();
+    let scenarios: Vec<&Value> = recording["scenarios"].as_array().unwrap().iter().filter(|s| s["steps"].as_array().unwrap().iter().any(|step| step["op"] == "handles")).collect();
+    assert!(scenarios.len() >= 12, "{}", scenarios.len());
+    let (mut calls, mut compared, mut counted) = (0, 0, 0);
+    for scenario in scenarios {
+        let name = scenario["name"].as_str().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let (mut world, sweeping) = build(canonical(dir.path()).unwrap(), start);
         let steps = scenario["steps"].as_array().unwrap();
         let mut at = 0;
         let compare = |world: &mut World, recorded: &Value, got: Value, label: &str| {
@@ -343,4 +350,49 @@ async fn every_recorded_download_scenario_that_counts_handles_answers_and_holds_
     let steps: Vec<&Value> = all.flat_map(|s| s["steps"].as_array().unwrap()).collect();
     let of = |op: &str| steps.iter().filter(|step| step["op"] == op).count();
     assert_eq!((calls, compared, counted), (of("call") + of("answer"), of("call") + of("answer"), of("handles")));
+}
+
+/// What the unpair's `revoke_device` reaches, by the name it is given: the unpair walks the live connections of the device and names each by
+/// its id (`PairedDeviceCleanup::unpaired`), which owns the device's grants through its credential; a connection with no credential owns its
+/// own by its id; and the credential itself names the grants of a device with no live connection.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unpair_ends_the_downloads_of_the_device_by_whichever_name_the_owner_has() {
+    let dir = tempfile::tempdir().unwrap();
+    let (world, sweeping) = build(canonical(dir.path()).unwrap(), 1_000);
+    let file = world.dir.join("a.bin");
+    std::fs::write(&file, b"0123456789abcdef").unwrap();
+    let authorize = |connection: u64| {
+        let body = json!({ "sessionId": "s1", "source": { "kind": "sessionFile", "path": file.to_string_lossy() }, "purpose": "save" });
+        let request = CoreRequest { method: Method("transfer/authorizeRead"), params: body, op: None, ctx: CallContext::connection(ConnectionId(connection), Origin::Relay, CancellationToken::new()) };
+        let service = world.service.clone();
+        async move {
+            match service.call(request).await.unwrap() {
+                Reply::Value(value) => value["grantId"].as_str().unwrap().to_owned(),
+                Reply::Subscribe(_) => unreachable!(),
+            }
+        }
+    };
+    let redeem = |connection: u64, grant: String| {
+        let request = CoreRequest { method: Method("transfer/redeemGrant"), params: json!({ "grantId": grant }), op: None, ctx: CallContext::connection(ConnectionId(connection), Origin::Relay, CancellationToken::new()) };
+        let service = world.service.clone();
+        async move { service.call(request).await }
+    };
+    let expired = |result: Result<Reply, CoreError>| matches!(result, Err(CoreError::DomainError { code: Some(code), .. }) if &*code == "file-download:expired");
+    // A paired device's connection names the device: the grant is the credential's.
+    let paired = authorize(1).await;
+    world.service.revoke_device("1");
+    assert!(expired(redeem(1, paired).await), "a connection id of a paired device ends the credential's grants");
+    // The credential names the grants of a device with no live connection.
+    let by_credential = authorize(2).await;
+    world.service.revoke_device("bbbbbbb2");
+    assert!(expired(redeem(2, by_credential).await), "the credential ends its grants");
+    // A connection with no credential owns its grants by its id.
+    let anonymous = authorize(9).await;
+    world.service.revoke_device("9");
+    assert!(expired(redeem(9, anonymous).await), "a connection with no credential ends its own");
+    // And nothing of another device.
+    let kept = authorize(1).await;
+    world.service.revoke_device("2");
+    assert!(redeem(1, kept).await.is_ok(), "another device's grant lives");
+    sweeping.abort();
 }
