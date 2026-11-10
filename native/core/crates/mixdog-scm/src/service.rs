@@ -42,6 +42,7 @@ use mixdog_core_api::state::SectionChange;
 use mixdog_core_api::turn_review::ChangesRead;
 use mixdog_core_api::turn_review::ReviewError;
 use mixdog_core_api::turn_review::ReviewRead;
+use mixdog_core_api::turn_review::ReviewUnsubscribe;
 use mixdog_core_api::turn_review::TurnReviewApi;
 use mixdog_core_api::DomainService;
 use mixdog_protocol::FeedId;
@@ -86,6 +87,10 @@ pub trait ThreadWorktrees: Send + Sync {
     async fn cwd(&self, thread: &ThreadId) -> Result<Option<String>, CoreError>;
 }
 
+/// The body of the `reviewDiff` publication, the app-wide tell to read the review again: Node's `turn-review-changed` carries no
+/// data, and the windows read nothing from it.
+pub const REVIEW_REREAD: &[u8] = b"{}";
+
 /** Untracked rows a review lists (`git-history.ts` `REVIEW_UNTRACKED_LIMIT`); the rest are only counted. */
 const REVIEW_UNTRACKED_LIMIT: usize = 256;
 const GATE_OFF: &str = "Enable Git & GitHub in Extensions → Plugin before using GitHub actions.";
@@ -106,7 +111,6 @@ struct Flow {
 pub struct ScmService {
     scm: Arc<Scm>,
     feeds: Arc<dyn ScopedFeeds>,
-    publisher: Arc<dyn StatePublisher>,
     gate: Arc<dyn FeatureGate>,
     reviews: Arc<dyn TurnReviewApi>,
     worktrees: Arc<dyn ThreadWorktrees>,
@@ -114,6 +118,14 @@ pub struct ScmService {
     flows: Mutex<HashMap<LoginFlowId, Arc<Flow>>>,
     flow_seq: AtomicU64,
     watches: Mutex<HashMap<String, Arc<GitWatch>>>,
+    /// The review listener's unsubscribe: the service's `stopTurnReviewPush`.
+    stop_review_push: ReviewUnsubscribe,
+}
+
+impl Drop for ScmService {
+    fn drop(&mut self) {
+        let _ = (self.stop_review_push)();
+    }
 }
 
 fn invalid(error: serde_json::Error) -> CoreError {
@@ -210,17 +222,23 @@ impl ScmService {
         reviews: Arc<dyn TurnReviewApi>,
         worktrees: Arc<dyn ThreadWorktrees>,
     ) -> Arc<Self> {
+        // Node's one `onTurnReviewChanged` consumer forwards the signal as the data-less global `turn-review-changed` event
+        // (`desktop-service.ts:1058`), which every window answers by rereading the review of each session it shows
+        // (`use-turn-review-reads.ts`). The same tell is one app-wide `reviewDiff` revision, whatever the windows show.
+        let stop_review_push = reviews.on_review_changed(Arc::new(move || {
+            publisher.publish(SectionName::ReviewDiff, None, SectionChange::Set(Bytes::from_static(REVIEW_REREAD)));
+        }));
         Arc::new(Self {
             login: scm.github_login(),
             scm,
             feeds,
-            publisher,
             gate,
             reviews,
             worktrees,
             flows: Mutex::new(HashMap::new()),
             flow_seq: AtomicU64::new(0),
             watches: Mutex::new(HashMap::new()),
+            stop_review_push,
         })
     }
 
@@ -532,43 +550,6 @@ impl ScmService {
             out["base"] = json!(name);
         }
         Ok(out)
-    }
-
-    /// Computes the review of `thread` and publishes its summary (the `reviewDiff` section);
-    /// called after a run ends and after repository evidence, so clients never poll.
-    pub async fn publish_review(
-        self: &Arc<Self>,
-        thread: &ThreadId,
-        cwd: PathBuf,
-        base: ObjectId,
-        cancel: &CancellationToken,
-    ) -> Result<(), ScmFailure> {
-        let repo = self.scm.open(&cwd, cancel).await?;
-        let summary = self
-            .scm
-            .inspector
-            .review_summary(
-                self.scm.lane,
-                ReviewRequest {
-                    repo: repo.repo_ref()?,
-                    scope: ReviewScope::Session { thread_id: thread.clone() },
-                    base,
-                },
-            )
-            .await
-            .map_err(crate::mutate::scm_error)?;
-        let files: Vec<Value> = summary
-            .files
-            .iter()
-            .map(|f| json!({ "path": f.path, "status": kind_letter(f.status), "adds": f.adds, "dels": f.dels }))
-            .collect();
-        let value = json!({ "key": key_text(&summary.key), "summary": { "files": files } });
-        self.publisher.publish(
-            SectionName::ReviewDiff,
-            Some(thread.as_str().to_owned()),
-            SectionChange::Set(Bytes::from(serde_json::to_vec(&value).unwrap_or_default())),
-        );
-        Ok(())
     }
 
     async fn github_request(self: &Arc<Self>, project: &str, input: &Value, cancel: &CancellationToken) -> Result<Value, ScmFailure> {

@@ -324,6 +324,8 @@ impl ShadowSnapshot {
             let mut snap = self.snap();
             snap.current_tree = review.current_tree.clone();
             snap.review = review;
+            // The turn-end capture (or any other) found what no read has shown.
+            self.root.note_review_changed();
         }
         self.snap().captured = Some(mark);
         Ok(())

@@ -4365,6 +4365,7 @@ version = "1.4.5"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
+ "bytes",
  "flate2",
  "futures",
  "indexmap",
@@ -4372,6 +4373,7 @@ dependencies = [
  "mixdog-ai",
  "mixdog-app-protocol",
  "mixdog-core-api",
+ "mixdog-core-base",
  "mixdog-core-review",
  "mixdog-js",
  "mixdog-protocol",
