@@ -79,7 +79,7 @@ fn message(node: &Value) -> Message {
 
 /// The request one scenario sends, as the core assembles it (`HostRunParts::request_parts`): the session's four system
 /// messages (the third `Tier3`, the fourth `Env`), the session's tools, the thread's identity, the provider's cache key.
-fn request(session: &Value, scenario: &Value, model: &str) -> ModelRequest {
+fn request(session: &Value, scenario: &Value, model: &str, stored: &StoredSession) -> ModelRequest {
     let system = session["system"].as_array().unwrap();
     assert_eq!(system.len(), 4, "base rules, stable context, session marker, environment");
     let mut messages: Vec<Message> = system
@@ -104,7 +104,7 @@ fn request(session: &Value, scenario: &Value, model: &str) -> ModelRequest {
             freeform: None,
         })
         .collect();
-    let thread = text(&session["threadId"]);
+    let thread = stored.thread.clone();
     let mut options = RequestOptions { session_id: Some(thread.clone()), ..RequestOptions::default() };
     if scenario["provider"] == "openai-oauth" {
         options.prompt_cache_key = Some("mixdog-codex".into());
@@ -113,10 +113,34 @@ fn request(session: &Value, scenario: &Value, model: &str) -> ModelRequest {
         options.effort = scenario["sendOpts"]["effort"].as_str().map(str::to_owned);
         options.fast = scenario["sendOpts"]["fast"] == true;
         // The identity comes through the production assembly from the stored header, not from the fixture's thread id.
-        let header = session["storedHeader"].as_object().unwrap().clone();
-        super::assemble::apply_identity(&mut options, &thread.as_str().into(), &header, Some(text(&scenario["turnId"]).as_str().into()));
+        super::assemble::apply_identity(&mut options, &thread.as_str().into(), &stored.header, Some(text(&scenario["turnId"]).as_str().into()));
     }
     ModelRequest { model: model.into(), messages, tools, options }
+}
+
+/// The session a scenario's turn runs in, as the store gives it back (its header read from the store's own text): the
+/// session document's, a resumed session's stored identity (`identity.stored`), or a sub-agent's own session
+/// (`identity.subAgent`), whose header is the one Node's `buildSessionRecord` made for it, read from Node's recording
+/// (the identity it minted is the recording's input, as the stored header of a resumed session is).
+struct StoredSession {
+    thread: String,
+    header: mixdog_store::schema::record::Header,
+}
+
+fn stored_session(session: &Value, scenario: &Value, node: &[Value]) -> StoredSession {
+    let mut header = session["storedHeader"].as_object().unwrap().clone();
+    let mut thread = text(&session["threadId"]);
+    let identity = &scenario["identity"];
+    if let Some(stored) = identity.get("stored") {
+        header.insert("codexWireSessionId".into(), stored.clone());
+    }
+    if let Some(sub) = identity.get("subAgent") {
+        let recorded = node.iter().find(|entry| entry["id"] == scenario["id"]).unwrap_or_else(|| panic!("{}: not in Node's recording", scenario["id"]));
+        header.extend(recorded["storedHeader"].as_object().expect("the sub-agent's stored header in Node's recording").clone());
+        thread = text(&sub["sessionId"]);
+    }
+    let header = serde_json::from_str(&serde_json::to_string(&header).unwrap()).unwrap();
+    StoredSession { thread, header }
 }
 
 fn script_of(scenario: &Value) -> Script {
@@ -171,7 +195,7 @@ fn selected<'a>(scenarios: &'a [Value], only: Option<&str>) -> &'a [Value] {
 }
 
 /// Every scenario through the production adapters and transports; the recording per scenario, in Node's shape.
-async fn record_all(only: Option<&str>) -> Vec<Value> {
+async fn record_all(only: Option<&str>, node: &[Value]) -> Vec<Value> {
     let session: Value = serde_json::from_str(SESSION).unwrap();
     let doc: Value = serde_json::from_str(SCENARIOS).unwrap();
     let now = doc["nowMs"].as_u64().unwrap();
@@ -247,6 +271,7 @@ async fn record_all(only: Option<&str>) -> Vec<Value> {
         *settings.lock().unwrap() = scenario["env"].as_object().into_iter().flatten().map(|(k, v)| (k.clone(), text(v))).collect();
         server.begin(script_of(scenario));
         let adapter = if provider == "openai-oauth" { openai.clone().unwrap() } else { builder.build(provider, &config(provider)).await.unwrap() };
+        let stored = stored_session(&session, scenario, node);
         let outcome = if scenario["compaction"] == true {
             // The compaction summary as the core's compaction sends it (`RequestFork`, the fork of the session's
             // latest request with its reply): here the previous scenario's send.
@@ -267,14 +292,14 @@ async fn record_all(only: Option<&str>) -> Vec<Value> {
             // for is recorded as Node's recorder records its sleeps.
             let broker = ModelBroker::new(Arc::new(Admission::new()), Arc::new(RecordedBackoff(server.clone(), clock.clone())));
             let lane = broker.admission().lane(&LaneKey { provider: ProviderId::from(provider), account: "default".into() }, LaneSettings::default());
-            let send = SendRequest { request: Arc::new(request(&session, scenario, model)), lane, admission: AdmissionRequest::default() };
+            let send = SendRequest { request: Arc::new(request(&session, scenario, model, &stored)), lane, admission: AdmissionRequest::default() };
             let mut sink = Folded(ResponseBuilder::new(model, ToolCallIds::new(&[])), model.to_owned());
             match within(format_args!("the reply of {id}"), broker.send(adapter.as_ref(), send, &mut sink, &CancellationToken::new())).await {
                 Ok(_) => "ok",
                 Err(_) => "error",
             }
         } else {
-            let sent = request(&session, scenario, model);
+            let sent = request(&session, scenario, model, &stored);
             // `abortWhenHeld`: the turn is cancelled (its stream let go of) once the server has written a held reply.
             let cancel_when_held = scenario["abortWhenHeld"] == true;
             within(format_args!("the reply of {id}"), async {
@@ -319,6 +344,11 @@ async fn record_all(only: Option<&str>) -> Vec<Value> {
         if scenario["awaitClose"] == true {
             let conn = *server.upgraded().last().expect("a scenario that awaits a close upgraded a socket");
             within(format_args!("{id}: the close of connection {conn}"), server.closed(conn, true)).await;
+        }
+        if scenario["identity"].get("subAgent").is_some() {
+            // The sub-agent's stored header is this run's input (see `stored_session`), listed as Node lists it.
+            let keys = ["codexWireSessionId", "promptCacheKey", "owner", "parentSessionId"];
+            entry["storedHeader"] = Value::Object(keys.iter().filter_map(|k| stored.header.get(*k).map(|v| ((*k).to_owned(), v.clone()))).collect());
         }
         entry["traffic"] = json!(server.events());
         out.push(entry);
@@ -406,7 +436,7 @@ async fn differences(provider: &str) -> Vec<String> {
         None => serde_json::from_str(NODE).unwrap(),
     };
     verify_manifest(&node, only.as_deref());
-    let rust = record_all(only.as_deref()).await;
+    let rust = record_all(only.as_deref(), node["scenarios"].as_array().unwrap()).await;
     compare(node["scenarios"].as_array().unwrap(), &rust, provider)
 }
 
