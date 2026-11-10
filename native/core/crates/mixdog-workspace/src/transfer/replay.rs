@@ -62,6 +62,53 @@ impl crate::grants::SessionCatalog for Present {
     }
 }
 
+/// The attachment domain as the recorder's host stub answers it (`readSessionTranscript` / `readSessionHistory` rows and the store's bytes),
+/// staged as the core's `AttachmentSource` stages it (that source is proved against the real store by the adapter replay and its own
+/// tests): an id the conversation does not name is `notLinked`, bytes no longer stored `notFound`, bytes that do not hash to the id
+/// `changed`, and the name and type are `sessionAttachments`' defaults made to preview (`attachmentViewName`).
+#[derive(Default)]
+struct Attachments {
+    /// (conversation, id) -> (name, type) of the rows that name it.
+    named: Mutex<std::collections::HashMap<(String, String), (String, String)>>,
+    stored: Mutex<std::collections::HashMap<String, Vec<u8>>>,
+    staging: PathBuf,
+}
+
+#[async_trait::async_trait]
+impl TransferSource for Attachments {
+    fn kind(&self) -> &'static str {
+        "attachment"
+    }
+
+    async fn open(&self, source: &Value, _: &CancellationToken) -> WsResult<SourceFile> {
+        use sha2::Digest as _;
+        let (session, id) = (source["sessionId"].as_str().unwrap().to_owned(), source["attachmentId"].as_str().unwrap().to_owned());
+        let (name, mime) = self.named.lock().unwrap().get(&(session, id.clone())).cloned().ok_or_else(|| WsError::new(Reason::NotLinked, "This conversation has no such attachment."))?;
+        let bytes = self.stored.lock().unwrap().get(&id).cloned().ok_or_else(|| WsError::new(Reason::NotFound, "This attachment is no longer stored on the PC."))?;
+        let hash: String = sha2::Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect();
+        if hash != id {
+            return Err(WsError::new(Reason::Changed, "The stored attachment failed its integrity check."));
+        }
+        let name = if name.is_empty() { "attachment".to_owned() } else { name };
+        let mime = if mime.is_empty() { "application/octet-stream".to_owned() } else { mime };
+        let name = sanitized_file_name(&name);
+        let extension = match mime.to_lowercase().as_str() {
+            "image/png" => ".png",
+            "image/jpeg" => ".jpg",
+            "image/gif" => ".gif",
+            "image/webp" => ".webp",
+            "application/pdf" => ".pdf",
+            "text/plain" => ".txt",
+            "text/markdown" => ".md",
+            _ => "",
+        };
+        let name = if name.rfind('.').is_some_and(|at| at > 0) { name } else { format!("{name}{extension}") };
+        let path = self.staging.join(format!("mixdog-download-{}", new_id()));
+        std::fs::write(&path, &bytes)?;
+        Ok(SourceFile { file: File::open(&path)?, name, mime_type: mime, cleanup: Some(path) })
+    }
+}
+
 struct NoGit;
 
 #[async_trait::async_trait]
@@ -125,6 +172,8 @@ fn core_request(reached: &Value) -> (&'static str, Value) {
                 "project" => json!({ "kind": "file", "rel": source["relPath"] }),
                 "session" => json!({ "kind": "sessionFile", "path": source["path"] }),
                 "media" => json!({ "kind": "mediaAsset", "assetId": source["assetId"] }),
+                "link" => json!({ "kind": "link", "itemId": source["itemId"], "href": source["href"] }),
+                "attachment" => json!({ "kind": "attachment", "attachmentId": source["attachmentId"] }),
                 other => panic!("a source of kind {other} has no request"),
             };
             ("transfer/authorizeRead", json!({ "sessionId": args[0]["source"]["sessionId"], "source": source, "purpose": request["purpose"] }))
@@ -144,6 +193,7 @@ struct World {
     manual: Arc<Manual>,
     present: Arc<Present>,
     store: Arc<crate::grants::GrantStore>,
+    attachments: Arc<Attachments>,
     tokens: Tokens,
 }
 
@@ -285,13 +335,16 @@ fn ids_of(step: &Value) -> Vec<String> {
 /// the recording, its project registered and the conversations `s1` and `s2` listed.
 async fn build(base: PathBuf, start: i64) -> (World, tokio::task::JoinHandle<()>) {
     let tokens = mixdog_rt::testing::tokens();
-    for folder in ["project", "task", "outside", "state"] {
+    // The recorder's world: `project/sub` exists from the start too.
+    for folder in ["project", "project/sub", "task", "outside", "state"] {
         std::fs::create_dir_all(base.join(folder)).unwrap();
     }
     let limits = mixdog_core_api::mock::MockLimits::default();
     let (state, _) = mixdog_store::state::CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &base.join("state/core.sqlite")).unwrap();
     let manual = Manual::starting_at(start);
     let transfers = Arc::new(Transfers::with_clock(manual.clone(), UPLOAD_IDLE));
+    std::fs::create_dir_all(base.join("staging")).unwrap();
+    let attachments = Arc::new(Attachments { staging: base.join("staging"), ..Attachments::default() });
     let service = WorkspaceService::new_with_transfers(
         Deps {
             lanes: crate::lanes::Lanes {
@@ -306,7 +359,7 @@ async fn build(base: PathBuf, start: i64) -> (World, tokio::task::JoinHandle<()>
             state,
             recovery_dir: base.join("recovery"),
             user_data_dir: base.join("userData"),
-            sources: vec![],
+            sources: vec![attachments.clone() as Arc<dyn TransferSource>],
             code_graph: None,
             turn_review: None,
             releases: crate::release::FolderReleases::new(),
@@ -325,7 +378,7 @@ async fn build(base: PathBuf, start: i64) -> (World, tokio::task::JoinHandle<()>
         let (transfers, manual) = (transfers.clone(), manual.clone());
         tokio::spawn(async move { transfers.run_download_sweeper(&*manual).await })
     };
-    let world = World { dir: base, service, transfers, manual, present, store, tokens: Tokens::default() };
+    let world = World { dir: base, service, transfers, manual, present, store, attachments, tokens: Tokens::default() };
     // Every conversation of the host is listed from the start; Node's service has seen none until a publication.
     *world.present.0.lock().unwrap() = ["s1", "s2"].into_iter().map(str::to_owned).collect();
     (world, sweeping)
@@ -389,6 +442,13 @@ async fn every_recorded_download_scenario_is_answered_and_held_as_nodes_service_
                 "revokeAll" => world.service.revoke_all_downloads(),
                 "sessions" => world.publish(&ids_of(step)),
                 "media" => world.media(step),
+                "attachment" => {
+                    let field = |key: &str| step[key].as_str().unwrap().to_owned();
+                    world.attachments.named.lock().unwrap().insert((field("sessionId"), field("id")), (field("name"), field("mimeType")));
+                    if step["stored"] == true {
+                        world.attachments.stored.lock().unwrap().insert(field("id"), field("storedText").into_bytes());
+                    }
+                }
                 // An index entry with an empty file: the store resolves it to its assets folder (the core's store does so too, see
                 // `mixdog-services` `stored_asset_path`; the adapter replay drives that store itself).
                 "mediaRoot" => {

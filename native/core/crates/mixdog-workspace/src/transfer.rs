@@ -73,6 +73,8 @@ struct Grant {
     name: String,
     mime: String,
     expires_at: i64,
+    /// A file staged for this download, removed with the grant or the transfer it becomes (after `file`, so the handle closes first).
+    staged: Option<Cleanup>,
 }
 
 /// The times a phone's transfer ends at (Node's `Lease`): after the idle time without a read, and after the absolute lifetime.
@@ -362,6 +364,9 @@ pub struct DownloadFile {
     pub location: PathBuf,
     pub name: String,
     pub mime_type: String,
+    /// A file the service staged for this download (an attachment's bytes): removed when the grant or its transfer ends, or here when
+    /// it never becomes one. Declared after `file`, so the handle is closed first.
+    staged: Option<Cleanup>,
 }
 
 /// A readable file a source domain hands to the transfer service.
@@ -669,7 +674,7 @@ impl Transfers {
     pub fn authorize(&self, owner: &str, session: &str, mark: u64, opened: DownloadFile) -> WsResult<Authorized> {
         let _reporting = Reporting(self);
         self.sweep_downloads();
-        let DownloadFile { file, location, name, mime_type } = opened;
+        let DownloadFile { file, location, name, mime_type, staged } = opened;
         let size = file.metadata()?.len();
         self.point("authorize.opened");
         let version = version_string(&file_version(&file)?);
@@ -697,6 +702,7 @@ impl Transfers {
                     name: name.clone(),
                     mime: mime_type.clone(),
                     expires_at,
+                    staged,
                 },
             ));
         }
@@ -737,10 +743,10 @@ impl Transfers {
         let at = self.now_ms();
         let times = LeaseTimes { expires_at: at + LEASE_MAX_MS, idle_until: at + LEASE_IDLE_MS };
         let transfer_id = new_id();
-        let Grant { file, location, session, size, version, name, mime, .. } = grant;
+        let Grant { file, location, session, size, version, name, mime, staged, .. } = grant;
         reads.insert(
             transfer_id.clone(),
-            Read { owner: owner.to_owned(), session, file, location: Some(location), size, version: version.clone(), lease: Some(times), _cleanup: None, opened: Instant::now() },
+            Read { owner: owner.to_owned(), session, file, location: Some(location), size, version: version.clone(), lease: Some(times), _cleanup: staged, opened: Instant::now() },
         );
         drop(reads);
         drop(gate);
@@ -1211,6 +1217,10 @@ pub(crate) enum DownloadRequest {
     Project(String),
     Session(String),
     Media(String),
+    /// Node's `link`: the `href` of a link the conversation shows (its `itemId` is checked and not used, as Node's).
+    Link(String),
+    /// Node's `attachment`: an attachment id the conversation's transcript names.
+    Attachment(String),
 }
 
 impl DownloadRequest {
@@ -1232,9 +1242,87 @@ impl DownloadRequest {
                 }
                 Ok(Self::Media(asset))
             }
+            Some("link") => {
+                required_text(source.get("itemId"), "item id", 256)?;
+                Ok(Self::Link(required_text(source.get("href"), "href", 4_096)?))
+            }
+            Some("attachment") => {
+                // `requiredAttachmentId`: any non-string, or a string off `/^[a-f0-9]{64}$/`, is one TypeError (no trim).
+                let id = source.get("attachmentId").and_then(serde_json::Value::as_str).unwrap_or_default();
+                if id.len() != 64 || !id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) {
+                    return Err(WsError::invalid("attachment id is invalid."));
+                }
+                Ok(Self::Attachment(id.to_owned()))
+            }
             _ => Err(WsError::invalid("download source is invalid.")),
         }
     }
+}
+
+/// JavaScript's `decodeURIComponent`, or `None` where it throws (a `%` not followed by two hex digits, or bytes that are not UTF-8).
+fn decode_uri_component(text: &str) -> Option<String> {
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut at = 0;
+    while at < bytes.len() {
+        if bytes[at] == b'%' {
+            let hex = bytes.get(at + 1..at + 3).and_then(|pair| std::str::from_utf8(pair).ok()).and_then(|pair| u8::from_str_radix(pair, 16).ok())?;
+            out.push(hex);
+            at += 3;
+        } else {
+            out.push(bytes[at]);
+            at += 1;
+        }
+    }
+    String::from_utf8(out).ok()
+}
+
+/// The path part of a link, without the `path:12`, `path:12:4`, `path:12-20` or `path#L12…` location it carries (`parseLocalFileLocation`,
+/// `shared/local-files.ts`): the location is dropped whether or not its numbers are valid, and a drive letter is never a line.
+fn link_location_path(raw: &str) -> &str {
+    static HASH: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r"(?i)#L(\d+)(?:C(\d+))?(?:-L?(\d+)(?:C(\d+))?)?$").expect("pattern"));
+    static COLON: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r":(\d+)(?::(\d+))?(?:-(\d+))?$").expect("pattern"));
+    if let Some(found) = HASH.find(raw) {
+        return &raw[..found.start()];
+    }
+    if let Some(found) = COLON.find(raw) {
+        let before = &raw[..found.start()];
+        if found.start() > 0 && !(before.len() == 1 && before.as_bytes()[0].is_ascii_alphabetic()) {
+            return before;
+        }
+    }
+    raw
+}
+
+/// The host path a link's `href` names as the desktop decodes it (`linkPath`, `transcript-file-links.ts:17-25`, over `isLocalMarkdownLink`
+/// and `localMarkdownPath`, `renderer/markdown-url.ts`): trailing punctuation goes, a web link or an anchor names nothing, a `file:` URL
+/// loses its scheme, the query and fragment go, the rest is percent-decoded once and its backslashes become slashes. `None` names nothing.
+pub(crate) fn link_path(href: &str) -> Option<String> {
+    let text = href.trim_matches(js_space).trim_end_matches(['.', ',', ';', ':', '!', '?', '\'', '"', ')', ']', '}', '>']);
+    // `isLocalMarkdownLink`.
+    static SCHEME: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r"(?i)^[a-z][a-z\d+.-]*:").expect("pattern"));
+    static WINDOWS: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r"(?i)^[a-z]:(?:[/\\]|%2f|%5c)").expect("pattern"));
+    static FILE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r"(?i)^file:").expect("pattern"));
+    let target = text.trim_matches(js_space);
+    if target.is_empty() || target.starts_with(['#', '?']) || target.starts_with("//") {
+        return None;
+    }
+    if !(FILE.is_match(target) || WINDOWS.is_match(target)) && SCHEME.is_match(target) {
+        return None;
+    }
+    // `localMarkdownPath(parseLocalFileLocation(text).path)`.
+    let mut path = link_location_path(text.trim_matches(js_space)).trim_matches(js_space).to_owned();
+    if FILE.is_match(&path) {
+        static PREFIX: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r"(?i)^file://(?:localhost)?").expect("pattern"));
+        static DRIVE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r"(?i)^/[a-z]:").expect("pattern"));
+        path = PREFIX.replace(&path, "").into_owned();
+        if DRIVE.is_match(&path) {
+            path.remove(0);
+        }
+    }
+    let before = path.split(['?', '#']).next().unwrap_or_default();
+    let decoded = decode_uri_component(before).unwrap_or_else(|| before.to_owned()).replace('\\', "/");
+    (!decoded.is_empty() && !decoded.contains('\0')).then_some(decoded)
 }
 
 /// Node's `path.isAbsolute` on the host: a Windows host takes a drive path and a rooted one, any other only a rooted one.
@@ -1317,7 +1405,7 @@ fn open_regular(path: &Path, between: &dyn Fn(&str)) -> WsResult<(PathBuf, File)
 fn offered(path: &Path, real: PathBuf, file: File) -> DownloadFile {
     // The offered name and type are the requested path's (`basename(lexical)`), not the real one's.
     let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
-    DownloadFile { file, location: real, mime_type: mime_type(path).to_owned(), name }
+    DownloadFile { file, location: real, mime_type: mime_type(path).to_owned(), name, staged: None }
 }
 
 /// A project file of a conversation (`authorizeProjectFile`): the relative path may not leave `root`, and neither may its real place.
@@ -1383,7 +1471,25 @@ pub fn open_media_download(entry: Option<&crate::grants::MediaEntry>, between: &
     let (real, file) = open_regular(path, between)?;
     let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
     let mime_type = entry.mime.as_deref().filter(|mime| !mime.is_empty()).map_or_else(|| mime_type(&real).to_owned(), str::to_owned);
-    Ok(DownloadFile { file, location: real, name, mime_type })
+    Ok(DownloadFile { file, location: real, name, mime_type, staged: None })
+}
+
+/// Bytes another domain staged for a download (`stageTemporaryDownload`: an attachment), opened and proved like any file
+/// (`openRegularFile`); the staged file goes when the download does. The source's own refusals are Node's download errors here, with
+/// their codes, as `readSessionAttachment` throws them.
+pub fn open_staged_download(staged: WsResult<SourceFile>) -> WsResult<DownloadFile> {
+    let as_download = |error: WsError| match error.reason {
+        Reason::NotLinked => download("file-download:not-linked", &error.message),
+        Reason::NotFound => download("file-download:not-found", &error.message),
+        Reason::Changed => download("file-download:changed", &error.message),
+        Reason::TooLarge => download("file-download:too-large", &error.message),
+        _ => error,
+    };
+    let SourceFile { file: _, name, mime_type, cleanup } = staged.map_err(as_download)?;
+    let path = cleanup.ok_or_else(|| WsError::new(Reason::Io, "The staged download has no file."))?;
+    let staged = Cleanup(path.clone());
+    let (real, file) = open_regular(&path, &|_| {})?;
+    Ok(DownloadFile { file, location: real, name, mime_type, staged: Some(staged) })
 }
 
 fn upload_gone() -> WsError {

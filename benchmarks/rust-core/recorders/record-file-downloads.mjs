@@ -11,6 +11,7 @@
 // The random ids and the file versions (they hold the file's inode) are replaced by `<kind#n>`, numbered by first appearance over the whole
 // recording; every other value is Node's.
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { FIXTURES_ROOT, commitStage, exactProductIdentity, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
@@ -114,10 +115,16 @@ const host = {
     const { file, mime } = assets.get(assetId);
     return { value: existsSync(file) ? { path: file, mime } : { available: false } };
   },
-  readSessionTranscript: async () => ({}),
-  readSessionHistory: async () => ({}),
-  readAttachmentImage: async () => null,
+  // The conversations' rows that name attachments (`sessionAttachments` reads a user row's `attachments`): the transcript window, and the
+  // whole stored history the window may not hold; and the content-addressed store's bytes by id (base64, as the host answers).
+  readSessionTranscript: async (sessionId) => ({ items: (transcripts.get(sessionId) ?? []).filter((row) => row.window) }),
+  readSessionHistory: async (sessionId) => ({ items: transcripts.get(sessionId) ?? [] }),
+  readAttachmentImage: async (id) => blobs.get(id) ?? null,
 };
+/** Per conversation, the user rows naming attachments (`window`: also in the transcript window, else only in the history). */
+const transcripts = new Map();
+/** The attachment store: id -> base64 bytes. */
+const blobs = new Map();
 
 // ── the gates a call in flight is held at ──
 const gates = new Map();
@@ -187,6 +194,8 @@ const fresh = () => {
   openHandles.clear();
   closing.clear();
   assets.clear();
+  transcripts.clear();
+  blobs.clear();
   reached = [];
   sessions.splice(0, sessions.length, ...allSessions);
   service = watched(createFileDownloadService({ host, mediaLane: true, now: () => clock.now }));
@@ -826,7 +835,79 @@ await handles();
 // The host's media store resolves an asset id to a file and, when it states one, a type: the offer is named for the file, and typed by the
 // store's type if it gave one, else by the file's own extension. The conversation must be in the catalog; the asset is the store's, whichever
 // conversation asks.
-begin('media assets', 'a media asset is offered by the store\'s file name and type (the extension\'s when the store states none); an unknown asset, one whose bytes are gone and a conversation not in the catalog are refused');
+begin('links', 'a link the conversation shows is decoded as the desktop decodes it (location, query, trailing punctuation and percent escapes dropped, a file: URL unwrapped) and opened as a path the conversation names; a web link, an anchor and a network path name nothing');
+file('write', { file: 'project/rel.bin', text: 'relative bytes' });
+file('write', { file: 'project/rel space.bin', text: 'spaced bytes' });
+file('write', { file: 'outside/note.md', text: 'outside bytes' });
+file('write', { file: 'task/t.txt', text: 'task bytes' });
+const link = (href, sessionId = 's1', itemId = 'item-1') => ({ source: { kind: 'link', sessionId, itemId, href }, purpose: 'open' });
+const forwardDir = dir.replaceAll('\\', '/');
+grant = await call('phone', 'fileDownloadAuthorize', [link('rel.bin')]);
+lease = await call('phone', 'fileDownloadBegin', [grantOf(grant)]);
+await call('phone', 'fileDownloadRange', [transferOf(lease), 0, 8, versionOf(lease)]);
+await call('phone', 'fileDownloadFinish', [transferOf(lease)]);
+for (const href of [
+  'rel.bin:12',
+  'rel.bin:12:4-9',
+  'rel.bin#L3-L5',
+  'rel.bin#l0',
+  './rel.bin).',
+  'rel.bin?x=1#top',
+  'rel%20space.bin',
+  'rel%E0%A4%A.bin',
+  `file:///${forwardDir}/project/rel.bin`,
+  `file://localhost/${forwardDir}/project/rel.bin`,
+  path('outside/note.md'),
+  '../outside/note.md',
+  'https://example.com/x.bin',
+  'mailto:a@b.c',
+  '#section',
+  '?q=1',
+  '//server/share/x.txt',
+  '\\\\server\\share\\x.txt',
+  'missing.bin',
+  'sub/',
+]) {
+  await call('phone', 'fileDownloadAuthorize', [link(href)]);
+}
+await call('phone', 'fileDownloadAuthorize', [link('t.txt', 's2')]);
+await call('phone', 'fileDownloadAuthorize', [link('rel.bin', 's9')]);
+await call('phone', 'fileDownloadAuthorize', [link('rel.bin', 's1', '')]);
+await call('phone', 'fileDownloadAuthorize', [{ source: { kind: 'link', sessionId: 's1', href: 'rel.bin' }, purpose: 'open' }]);
+await call('phone', 'fileDownloadAuthorize', [link('', 's1')]);
+await call('phone', 'fileDownloadAuthorize', [link('x'.repeat(4_097), 's1')]);
+await call('phone', 'fileDownloadAuthorize', [link('rel.bin', 's1', 'i'.repeat(257))]);
+await handles();
+
+begin('attachments', 'an attachment the conversation names (in its transcript window or only in its stored history) is staged from the content-addressed store as the download, named to preview by its type; one it does not name, one no longer stored and bytes that do not hash to the id are refused');
+const attach = ({ sessionId = 's1', name, mimeType, text, window = true, stored = true, storedText = text }) => {
+  const id = createHash('sha256').update(text).digest('hex');
+  if (!transcripts.has(sessionId)) transcripts.set(sessionId, []);
+  transcripts.get(sessionId).push({ kind: 'user', window, attachments: [{ id, name, mimeType, size: text.length }] });
+  if (stored) blobs.set(id, Buffer.from(storedText).toString('base64'));
+  step({ op: 'attachment', sessionId, name, mimeType, text, window, stored, storedText, id });
+  return id;
+};
+const attachmentOf = (attachmentId, sessionId = 's1') => ({ source: { kind: 'attachment', sessionId, attachmentId }, purpose: 'save' });
+const report = attach({ name: 'report', mimeType: 'application/pdf', text: 'report bytes' });
+grant = await call('phone', 'fileDownloadAuthorize', [attachmentOf(report)]);
+lease = await call('phone', 'fileDownloadBegin', [grantOf(grant)]);
+await call('phone', 'fileDownloadRange', [transferOf(lease), 0, 6, versionOf(lease)]);
+await call('phone', 'fileDownloadFinish', [transferOf(lease)]);
+await call('phone', 'fileDownloadAuthorize', [attachmentOf(attach({ name: 'notes.txt', mimeType: 'text/markdown', text: 'named bytes' }))]);
+await call('phone', 'fileDownloadAuthorize', [attachmentOf(attach({ name: 'a<b>:c', mimeType: 'image/png', text: 'png bytes' }))]);
+await call('phone', 'fileDownloadAuthorize', [attachmentOf(attach({ name: '', mimeType: '', text: 'unnamed bytes' }))]);
+await call('phone', 'fileDownloadAuthorize', [attachmentOf(attach({ name: 'old.bin', mimeType: 'application/octet-stream', text: 'history bytes', window: false }))]);
+await call('phone', 'fileDownloadAuthorize', [attachmentOf(attach({ sessionId: 's2', name: 'other.bin', mimeType: 'application/octet-stream', text: 'other bytes' }))]);
+await call('phone', 'fileDownloadAuthorize', [attachmentOf(attach({ name: 'gone.bin', mimeType: 'application/octet-stream', text: 'gone bytes', stored: false }))]);
+await call('phone', 'fileDownloadAuthorize', [attachmentOf(attach({ name: 'bad.bin', mimeType: 'application/octet-stream', text: 'claimed bytes', storedText: 'other bytes!' }))]);
+await call('phone', 'fileDownloadAuthorize', [attachmentOf(report, 's9')]);
+await call('phone', 'fileDownloadAuthorize', [attachmentOf(report.toUpperCase())]);
+await call('phone', 'fileDownloadAuthorize', [attachmentOf(report.slice(1))]);
+await call('phone', 'fileDownloadAuthorize', [attachmentOf(12)]);
+await handles();
+
+begin('media assets','a media asset is offered by the store\'s file name and type (the extension\'s when the store states none); an unknown asset, one whose bytes are gone and a conversation not in the catalog are refused');
 const png = (id, name, mime, text = `${name} bytes`) => media({ id, name, mime, text });
 png('m-typed', 'a1.png', 'image/png');
 png('m-custom', 'a2.png', 'application/x-custom');
@@ -909,6 +990,9 @@ const swap = (node) => {
     if (tokens.has(node)) return tokens.get(node);
     // A path of this run's folder: `<dir>` and forward slashes, so a replay on any system joins its own folder to it.
     if (node.includes(dir)) return node.split(dir).join('<dir>').replaceAll('\\', '/');
+    // The same folder written with forward slashes (a `file:` URL of it).
+    const forward = dir.replaceAll('\\', '/');
+    if (forward !== dir && node.includes(forward)) return node.split(forward).join('<dir>');
     return node;
   }
   if (Array.isArray(node)) return node.map(swap);
