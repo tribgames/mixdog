@@ -3,14 +3,15 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 9253,
+      "bytes": 11348,
       "path": "golden.json",
-      "sha256": "d9459df8def8c29b1ec22088e6d0094601cfe5ec399682e2ab970030121304ac"
+      "sha256": "33676a74fcb9dfdcd8cab53d2fd24154a6d4ba791e1f53734cb2cd0d5ca0913f"
     }
   ],
   "inputs": 20,
   "operations": [
     "known",
+    "inspect",
     "ensure",
     "add"
   ],
@@ -34,5 +35,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-project-path-classes.mjs",
   "set": "project-path-classes",
-  "totalBytes": 9253
+  "totalBytes": 11348
 }

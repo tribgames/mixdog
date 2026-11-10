@@ -581,7 +581,9 @@ impl WorkspaceService {
                 value(json!({ "projects": projects }))
             }
             "project/read" => {
-                let path = self.catalog.resolve(s(params, "path")?).await?;
+                // Node's `inspectProjectPath` (project-catalog.mjs:32): any path, registered or not (the TUI asks it about a folder before
+                // adding it as a project), resolved by `resolveProjectPath` and probed.
+                let path = crate::pathguard::project_path(s(params, "path")?).ok_or_else(|| WsError::invalid("project path is required"))?;
                 let probe = path.clone();
                 let (exists, directory) = run_fallible(self.lanes.interactive, &cancel, move || {
                     #[allow(clippy::disallowed_methods, reason = "lane job")]

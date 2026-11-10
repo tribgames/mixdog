@@ -1,5 +1,5 @@
 {
-  "note": "What Node answers per class of project path, on a Windows host with the working directory on the project's parent: `known` (the registry's lookup), `ensure` (the folder the catalog makes) and `add` (the real path `addProject` registers); `{proj}` is the registered folder, `{tmp}` its parent. Answers are in the order of `inputs`.",
+  "note": "What Node answers per class of project path, on a Windows host with the working directory on the project's parent: `known` (the registry's lookup), `inspect` (the catalog's answer for any path, JSON), `ensure` (the folder the catalog makes) and `add` (the real path `addProject` registers); `{proj}` is the registered folder, `{tmp}` its parent. Answers are in the order of `inputs`.",
   "inputs": [
     {
       "name": "absolute",
@@ -175,6 +175,74 @@
           "message": "Project is not available.",
           "code": "PROJECT_UNAVAILABLE"
         }
+      }
+    ],
+    "inspect": [
+      {
+        "result": "{\"path\":\"{proj}\",\"exists\":true,\"directory\":true}"
+      },
+      {
+        "result": "{\"path\":\"{proj}\",\"exists\":true,\"directory\":true}"
+      },
+      {
+        "result": "{\"path\":\"{proj}\",\"exists\":true,\"directory\":true}"
+      },
+      {
+        "result": "{\"path\":\"{PROJ}\",\"exists\":true,\"directory\":true}"
+      },
+      {
+        "result": "{\"path\":\"{proj}\",\"exists\":true,\"directory\":true}"
+      },
+      {
+        "result": "{\"path\":\"{proj}\",\"exists\":true,\"directory\":true}"
+      },
+      {
+        "result": "{\"path\":\"{proj}\",\"exists\":true,\"directory\":true}"
+      },
+      {
+        "result": "{\"path\":\"{proj}\",\"exists\":true,\"directory\":true}"
+      },
+      {
+        "result": "{\"path\":\"{proj}\",\"exists\":true,\"directory\":true}"
+      },
+      {
+        "result": "{\"path\":\"{tmp}\\\\other\",\"exists\":false,\"directory\":false}"
+      },
+      {
+        "result": "{\"path\":\"{tmp}\\\\made\\\\deep\",\"exists\":false,\"directory\":false}"
+      },
+      {
+        "result": "{\"path\":\"{proj}\",\"exists\":true,\"directory\":true}"
+      },
+      {
+        "result": "{\"path\":\"{proj}\",\"exists\":true,\"directory\":true}"
+      },
+      {
+        "result": "{\"path\":\"{proj}\",\"exists\":true,\"directory\":true}"
+      },
+      {
+        "result": "{\"path\":\"{tmp}\\\\other\",\"exists\":false,\"directory\":false}"
+      },
+      {
+        "result": "{\"path\":\"{tmp}\\\\made2\\\\deep\",\"exists\":false,\"directory\":false}"
+      },
+      {
+        "result": "{\"path\":\"\\\\\\\\?\\\\{proj}\",\"exists\":true,\"directory\":true}"
+      },
+      {
+        "error": {
+          "name": "TypeError",
+          "message": "project path is required"
+        }
+      },
+      {
+        "error": {
+          "name": "TypeError",
+          "message": "project path is required"
+        }
+      },
+      {
+        "result": "{\"path\":\"{proj}\\u0000\",\"exists\":false,\"directory\":false}"
       }
     ],
     "ensure": [
