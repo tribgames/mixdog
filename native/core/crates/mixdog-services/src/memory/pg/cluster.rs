@@ -436,6 +436,18 @@ mod tests {
         socket.shutdown().await
     }
 
+    /// A port another process holds is never chosen: the scan goes on above it, as Node's `findFreePort` does (each port probed by a
+    /// listener on 127.0.0.1, `pg/process.mjs:59,101`; `allocatePort`, `pg/supervisor.mjs:75,84`).
+    #[tokio::test]
+    async fn a_held_port_is_skipped_for_the_next_one() {
+        let held = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = held.local_addr().unwrap().port();
+        let chosen = free_port(port).await.expect("a free port above the held one");
+        assert_ne!(chosen, port, "the held port is not chosen");
+        assert!(chosen > port && chosen <= port.saturating_add(PORT_SPAN), "{chosen} lies in the scanned span above {port}");
+        drop(held);
+    }
+
     #[tokio::test]
     async fn a_postmaster_still_starting_up_is_not_ready() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
