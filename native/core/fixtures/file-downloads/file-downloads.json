@@ -4722,12 +4722,17 @@
           "deviceId": "aaaaaaa1"
         },
         {
+          "op": "release",
+          "gate": "read"
+        },
+        {
           "op": "answer",
           "key": "read",
           "frame": {
             "id": 201,
             "ok": false,
-            "error": "the recorder waited 20000 ms for the release of the read gate, which did not happen"
+            "error": "This download is no longer available.",
+            "errorCode": "file-download:expired"
           }
         },
         {
