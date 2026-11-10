@@ -1052,6 +1052,46 @@ async fn the_first_turn_of_an_empty_thread_rebuilds_it_and_other_threads_are_lef
     assert!(legacy.threads.patches.lock().unwrap().iter().all(|(set, _)| !set.contains_key("promptSettings") && !set.contains_key("disallowedTools")));
 }
 
+/// What a turn start and its first request boundary would store is what `projected` returns, and taking it writes
+/// nothing: not the header, not the reconcile memory (`appliedKeys`, `RECONCILE_STATE`). An empty thread with a prompt
+/// identity (rebuilt whole), a conversation whose settings moved (a staged notice), and one without an identity.
+#[tokio::test]
+async fn a_projected_turn_start_is_what_the_turn_start_stores_and_stores_nothing() {
+    let g = golden();
+    let identity = json!({ "systemPrompt": "", "skipAgentRules": false, "profileSkip": {}, "agent": null });
+    let thread = ThreadId::from("t1");
+    let base = stale_header(&g).await;
+    let conversation = vec![json!({ "role": "user", "content": "hello" })];
+    let mut moved = base.clone();
+    moved.insert("promptIdentity".into(), identity.clone());
+    moved.insert("promptSettings".into(), OwnedSections { core_memory: "# Core Memory\nOld".into(), ..OwnedSections::default() }.record());
+    let mut empty = base.clone();
+    empty.insert("promptIdentity".into(), identity);
+    for (name, header, messages) in [("empty with identity", empty, Vec::new()), ("moved settings", moved, conversation.clone()), ("no identity", base.clone(), conversation)] {
+        let talked = !messages.is_empty();
+        let make = || rig(&g, Setup { header: header.clone(), messages: messages.clone(), denied: vec!["shell".into()], ..setup("full") });
+        let (shown, turned) = (make(), make());
+        let projected = TurnSettings::projected(&shown.host, &thread, talked, &messages).await.expect(name);
+        assert!(shown.threads.patches.lock().unwrap().is_empty(), "{name}: the projection wrote the header");
+        assert_eq!(*shown.threads.header.lock().unwrap(), header, "{name}: the stored header moved");
+        assert!(shown.host.applied.lock().unwrap().is_empty() && shown.host.mcp_state.lock().unwrap().is_empty(), "{name}: the reconcile memory moved");
+
+        TurnSettings::reconcile(&turned.host, &thread, talked).await.expect(name);
+        TurnSettings::migrate_exposure(&turned.host, &thread, &messages).await.expect(name);
+        TurnSettings::refresh_mcp(&turned.host, &thread).await.expect(name);
+        let stored = turned.threads.header.lock().unwrap().clone();
+        if name != "no identity" {
+            assert_ne!(stored, header, "{name}: the turn start changes this thread");
+        }
+        assert_eq!(projected, stored, "{name}: the projection is not what the turn start stores");
+    }
+    // A thread holding a switch for its next turn is refused: the switch decides the request.
+    let mut held = base;
+    held.insert("pendingWorkflowId".into(), json!("w2"));
+    let refused = rig(&g, Setup { header: held, ..setup("full") });
+    assert!(TurnSettings::projected(&refused.host, &thread, false, &[]).await.expect_err("held").contains("pendingWorkflowId"));
+}
+
 /// A conversation's prompt settings are compared with the sections as they stand at each turn start
 /// (`reconcileSession`): what differs from its prompt is told once by a staged notice and folds in at the next
 /// cold point; a turn start that finds the same gates and sections stages nothing again.

@@ -846,14 +846,18 @@ impl mixdog_agent::env::McpCatalog for ThreadMcp {
     }
 
     async fn snapshot(&self, tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>, messages: &[AgentMessage]) -> Result<Vec<mixdog_core_api::domain::provider::ToolDefinition>, String> {
-        let native: Vec<Value> = messages.iter().filter_map(|m| m.message.native_tool_search.clone()).collect();
-        self.parts.request_snapshot(&self.thread, tools, native).await.map_err(|error| error.message)
+        self.parts.request_snapshot(&self.thread, tools, native_searches(messages)).await.map_err(|error| error.message)
     }
 
     async fn migrate(&self, messages: &[AgentMessage]) -> Result<Option<Vec<AgentMessage>>, String> {
         let rows = messages.iter().map(super::message_row::row_of).collect();
         self.parts.migrate_exposure(&self.thread, rows).await.map_err(|error| error.message)
     }
+}
+
+/// The native tool-search records of a transcript, which the request boundary's tool snapshot reads its references from.
+pub(crate) fn native_searches(messages: &[AgentMessage]) -> Vec<Value> {
+    messages.iter().filter_map(|m| m.message.native_tool_search.clone()).collect()
 }
 
 /// `session.messages`: the system blocks the session's requests lead with, then its stored conversation rows.
@@ -2222,6 +2226,8 @@ mod tests {
         next: Arc<super::super::next_request_source::NextRequestSource>,
         path: super::super::turn_path::TurnPath,
         directory: Arc<SessionDirectory>,
+        /// The live settings a turn start brings the thread to ([`LiveSettings`]).
+        settings: Arc<Mutex<serde_json::Map<String, Value>>>,
     }
 
     async fn turn_world(provider: Arc<dyn ProviderAdapter>) -> World {
@@ -2330,16 +2336,39 @@ mod tests {
         let path = super::super::turn_path::TurnPath::new(parts).expect("turn path");
         path.registry.init_providers(&mixdog_ai::service::admin_route::ensure_provider_enabled(&serde_json::Map::new(), "scripted")).await.unwrap();
         let directory = path.directory.clone();
-        // The settings host the composition binds: here one that leaves the thread's header as it is.
-        struct AsIs(Arc<SessionDirectory>);
-        #[async_trait]
-        impl super::super::turn_settings::TurnSettings for AsIs {
-            async fn reconcile(&self, thread: &ThreadId, _: bool) -> Result<mixdog_store::schema::record::Header, String> {
-                mixdog_core_ports::ports::threads::ThreadState::header(&mixdog_core_session::session::thread_state::SessionThreads::new(self.0.clone()), thread).await.map_err(|error| format!("{error:?}"))
-            }
+        // The settings host the composition binds: here one whose live settings are one key, `responseLanguage`, that a
+        // turn start writes into the header when it moved (`settings`, empty: nothing moved).
+        let settings = Arc::new(Mutex::new(serde_json::Map::new()));
+        assert!(path.turn_settings.bind(Arc::new(LiveSettings(directory.clone(), settings.clone()))).is_ok());
+        World { workspace, rig, ledger, asked, store, next, path, directory, settings }
+    }
+
+    /// The test settings host: a turn start brings the header to `.1`, the settings as they stand now.
+    struct LiveSettings(Arc<SessionDirectory>, Arc<Mutex<serde_json::Map<String, Value>>>);
+
+    impl LiveSettings {
+        fn threads(&self) -> mixdog_core_session::session::thread_state::SessionThreads {
+            mixdog_core_session::session::thread_state::SessionThreads::new(self.0.clone())
         }
-        assert!(path.turn_settings.bind(Arc::new(AsIs(directory.clone()))).is_ok());
-        World { workspace, rig, ledger, asked, store, next, path, directory }
+    }
+
+    #[async_trait]
+    impl super::super::turn_settings::TurnSettings for LiveSettings {
+        async fn reconcile(&self, thread: &ThreadId, _: bool) -> Result<mixdog_store::schema::record::Header, String> {
+            use mixdog_core_ports::ports::threads::ThreadState;
+            let set = lock(&self.1).clone();
+            if !set.is_empty() {
+                self.threads().patch_header(thread, set, Vec::new()).await.map_err(|error| format!("{error:?}"))?;
+            }
+            self.threads().header(thread).await.map_err(|error| format!("{error:?}"))
+        }
+
+        async fn projected(&self, thread: &ThreadId, _: bool, _: &[Value]) -> Result<mixdog_store::schema::record::Header, String> {
+            use mixdog_core_ports::ports::threads::ThreadState;
+            let mut header = self.threads().header(thread).await.map_err(|error| format!("{error:?}"))?;
+            header.extend(lock(&self.1).clone());
+            Ok(header)
+        }
     }
     /// The done-when turn: `TurnPath::new` over test implementations of the missing owner traits, a
     /// scripted provider behind the accounted registry, a tool call, the stored rows and the ledger row.
@@ -2546,6 +2575,64 @@ mod tests {
             assert_eq!(last.source == Some(mixdog_core_api::domain::provider::MessageSource::TailReminder), reminder, "{model}: the tail reminder of the sent request");
             assert_eq!(sent.messages.iter().filter(|m| m.role == Role::User).count(), 1 + usize::from(reminder), "{model}: the turn and the reminder are the user messages");
         }
+    }
+
+    /// The snapshot taken now, and the request the thread's next turn (`op`, prompt `go`) then hands the provider,
+    /// encoded the same way.
+    async fn snapshot_then_turn(
+        world: &World,
+        provider: &Arc<Handing>,
+        heard: &mut tokio::sync::mpsc::UnboundedReceiver<Arc<ModelRequest>>,
+        id: &ThreadId,
+        handle: &Arc<mixdog_core_session::session::SessionHandle>,
+        op: &str,
+    ) -> (Value, Value) {
+        let status = snapshot_call(&tools_status(world), id, "go").await;
+        let started = handle.request(request("turn/start", json!({ "threadId": id, "opId": op, "input": { "prompt": "go" } }), op)).await.expect("turn/start");
+        let Reply::Value(started) = started else { panic!("turn/start answers a value") };
+        assert_eq!(started["kind"], "started", "{op}");
+        let sent = tokio::time::timeout(Duration::from_secs(30), heard.recv())
+            .await
+            .unwrap_or_else(|_| panic!("timed out after 30000 ms awaiting the request turn {op} hands the provider"))
+            .expect("the provider is alive");
+        let handed = super::super::request_snapshot::snapshot(&handle.live_header().header(), &**provider, &sent).expect("the sent request encodes");
+        (status["requestSnapshot"].clone(), handed)
+    }
+
+    /// Waits until `count` runs of the thread have completed in the store.
+    async fn completed_runs(world: &World, id: &ThreadId, count: usize) {
+        let done = || world.rig.store.records(id).into_iter().filter(|(_, record)| matches!(record, Record::Run(run) if run.phase == mixdog_store::schema::record::RunPhase::Completed)).count();
+        eventually_on_awaiting(|| format!("{count} completed runs of {}", id.as_str()), &[&world.rig.store.committed], || (done() >= count).then_some(())).await;
+    }
+
+    /// A setting that moved after the thread was created reaches the snapshot as the turn start would bring it: the
+    /// snapshot is the request the turn then sends, and the stored thread is not written by taking it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_snapshot_carries_the_settings_the_turn_start_would_apply() {
+        let (provider, mut heard) = handing();
+        let world = turn_world(provider.clone()).await;
+        let (id, handle) = started_thread(&world, json!({ "provider": "scripted", "model": "claude-opus-5-5" })).await;
+        lock(&world.settings).insert("responseLanguage".into(), json!({ "id": "ko", "name": "Korean" }));
+        let before = stored_state(&world, &id, &handle);
+        let status = snapshot_call(&tools_status(&world), &id, "go").await;
+        assert_eq!(stored_state(&world, &id, &handle), before, "the snapshot stored the settings it computed");
+        let (snapshot, handed) = snapshot_then_turn(&world, &provider, &mut heard, &id, &handle, "op-1").await;
+        assert_eq!(status["requestSnapshot"], snapshot, "two snapshots of the same thread differ");
+        assert_eq!(snapshot, handed, "the snapshot is not the request the turn handed the provider");
+    }
+
+    /// A thread with history: the snapshot taken between two turns is the request the second turn sends.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_snapshot_of_a_thread_with_history_is_its_next_request() {
+        let (provider, mut heard) = handing();
+        let world = turn_world(provider.clone()).await;
+        let (id, handle) = started_thread(&world, json!({ "provider": "scripted", "model": "claude-opus-5-5" })).await;
+        let (first, handed) = snapshot_then_turn(&world, &provider, &mut heard, &id, &handle, "op-1").await;
+        assert_eq!(first, handed, "first turn");
+        completed_runs(&world, &id, 1).await;
+        let (second, handed) = snapshot_then_turn(&world, &provider, &mut heard, &id, &handle, "op-2").await;
+        assert_eq!(second, handed, "second turn: the snapshot is not the request the turn handed the provider");
+        assert_ne!(first, second, "the history is in the second request");
     }
 
     /// The whole of what is stored for a thread and its session directory, as Debug text: every record of the store (header,

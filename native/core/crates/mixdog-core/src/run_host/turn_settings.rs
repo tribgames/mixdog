@@ -46,6 +46,13 @@ pub trait TurnSettings: Send + Sync + 'static {
     async fn orchestration_instructions(&self, _mode: &str) -> Result<String, String> {
         Err("this host has no orchestration instructions".to_owned())
     }
+
+    /// The header the thread's next turn would build its first request from: what [`Self::reconcile`], then the request
+    /// boundary's [`Self::migrate_exposure`] over `rows` and [`Self::refresh_mcp`] would store, computed and returned
+    /// without storing anything (`tools/toolsStatus` with `snapshot`).
+    async fn projected(&self, _thread: &ThreadId, _conversation: bool, _rows: &[serde_json::Value]) -> Result<Header, String> {
+        Err("this host cannot compute a turn start without storing it".to_owned())
+    }
 }
 
 /// The MCP catalog of one thread, refreshed through the turn settings.
@@ -108,6 +115,13 @@ impl TurnSettings for LateTurnSettings {
     async fn orchestration_instructions(&self, mode: &str) -> Result<String, String> {
         match self.0.get() {
             Some(host) => host.orchestration_instructions(mode).await,
+            None => Err("the turn settings are not bound yet".to_owned()),
+        }
+    }
+
+    async fn projected(&self, thread: &ThreadId, conversation: bool, rows: &[serde_json::Value]) -> Result<Header, String> {
+        match self.0.get() {
+            Some(host) => host.projected(thread, conversation, rows).await,
             None => Err("the turn settings are not bound yet".to_owned()),
         }
     }

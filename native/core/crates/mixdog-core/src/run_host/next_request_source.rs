@@ -78,9 +78,13 @@ impl NextRequestSource {
         let (directory, parts) = self.bound.get().ok_or("the session directory is not bound")?;
         let directory = directory.upgrade().ok_or("the session directory is gone")?;
         let handle = directory.handle(thread).ok_or_else(|| format!("thread {} is not loaded", thread.as_str()))?;
-        let header = handle.live_header().header();
-        let surface = handle.surface().borrow().clone();
         let prior = directory.model_context(thread).read().await.map_err(|_| "the thread's rows could not be read".to_owned())?;
+        let rows: Vec<Value> = prior.iter().map(|(_, body)| body.clone()).collect();
+        // The header the turn start and the request boundary would leave, computed and not stored, and the surface the
+        // directory derives from a header (`SessionSurface::from_header` with the route's exclusions).
+        let conversation = mixdog_core_session::session::thread_settings::has_conversation_messages(&rows);
+        let header = Arc::new(parts.projected_header(thread, conversation, &rows).await?);
+        let surface = mixdog_tools::policy::SessionSurface::from_header(&header, handle.surface().borrow().route_excluded.clone());
         let (provider, request) = parts
             .first_request(thread, &header, &surface, prior, user_message)
             .await

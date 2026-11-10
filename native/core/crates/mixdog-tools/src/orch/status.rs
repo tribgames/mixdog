@@ -119,6 +119,11 @@ impl DomainService for ToolsService {
         match req.method.as_str() {
             "tools/toolsStatus" => {
                 let (thread, query, snapshot, user_message) = parse_params(&req.params)?;
+                // A snapshot hands out the whole system prompt and request; Node has no counterpart reachable from another
+                // device, so only a client on this machine may ask for one.
+                if (snapshot || user_message.is_some()) && req.ctx.origin != mixdog_protocol::Origin::Local {
+                    return Err(CoreError::PermissionDenied { method: "tools/toolsStatus".into(), origin: req.ctx.origin });
+                }
                 // A snapshot is a read: it must not bring an empty thread to the current settings.
                 let surface = if snapshot { self.surfaces.peek(thread.as_ref()).await? } else { self.surfaces.surface(thread.as_ref()).await? };
                 let mut status = tools_status(&surface, &query);
@@ -388,5 +393,31 @@ mod tests {
         assert!(service.call(request(json!({"threadId": "t1", "snapshot": "yes"}))).await.is_err());
         let plain_surface = ToolsService::new(Arc::new(Fixed(surface)));
         assert!(plain_surface.call(request(json!({"threadId": "t1", "snapshot": true}))).await.is_err(), "a surface without requests refuses");
+    }
+
+    /// Only a client on this machine is given a snapshot; an SSH-forwarded or relayed one is refused, and keeps the plain readout.
+    #[tokio::test]
+    async fn a_snapshot_is_given_to_a_local_client_only() {
+        use mixdog_core_api::call::CallContext;
+        use mixdog_core_api::ids::ConnectionId;
+        use mixdog_protocol::Origin;
+        let surface = StatusSurface { mode: "lead".into(), ..StatusSurface::default() };
+        let service = ToolsService::new(Arc::new(Requests(surface)));
+        let from = |origin: Origin, params: Value| CoreRequest {
+            method: Method("tools/toolsStatus"),
+            params,
+            op: None,
+            ctx: CallContext::connection(ConnectionId(1), origin, Default::default()),
+        };
+        for (origin, given) in [(Origin::Local, true), (Origin::Ssh, false), (Origin::Relay, false)] {
+            for params in [json!({"threadId": "t1", "snapshot": true}), json!({"threadId": "t1", "snapshotUserMessage": "hi"})] {
+                match service.call(from(origin, params.clone())).await {
+                    Ok(_) => assert!(given, "{origin:?} was given {params}"),
+                    Err(CoreError::PermissionDenied { origin: refused, .. }) => assert!(!given && refused == origin, "{origin:?} refused {params}"),
+                    Err(other) => panic!("{origin:?} {params}: {other:?}"),
+                }
+            }
+            assert!(service.call(from(origin, json!({"threadId": "t1"}))).await.is_ok(), "{origin:?}: the plain readout");
+        }
     }
 }
