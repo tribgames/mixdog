@@ -2,6 +2,17 @@
 slow-timeout = { period = "30s", terminate-after = 4 }
 fail-fast = false
 
+# `--profile agent`: a crate's suite without the heavy matrices, for a branch that does not touch them.
+# In two hours of twelve checkouts (2026-11-10) these few tests were 60 of 339 test minutes, each real-git
+# replay taking every test thread for one to two minutes of a run whose other 600 tests need seconds. The
+# default profile still runs them all; the merge check uses it.
+[profile.agent]
+default-filter = '''not (
+    (package(mixdog-core-session) & (test(=project::tests::every_recorded_step_equals_nodes_over_real_state) | test(/^session::worktree::worktree_service_tests::/)))
+  | (package(mixdog-migrate) & (test(/^desktop_profile::tests::/) | test(/every_crash_point/)))
+  | (package(mixdog-app-server-daemon) & test(/^verdict::tag_gates::/))
+)'''
+
 # Each of the two migration crash matrices spreads its fault points over eight work dirs of its own;
 # they run one after the other, so at most eight sync-bound migrations of the pair are in flight.
 [test-groups]
