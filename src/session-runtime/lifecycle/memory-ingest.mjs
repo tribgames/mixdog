@@ -2,6 +2,8 @@
  * src/session-runtime/lifecycle/memory-ingest.mjs - best-effort persist of a
  * closing session's conversation into the memory DB.
  */
+import { redactSensitiveMessages } from '../../runtime/agent/orchestrator/session/sensitive-projection.mjs';
+
 const INGEST_DEADLINE_MS = 2500;
 
 // Sessions that never compacted have no session-sourced rows unless ingested
@@ -15,8 +17,11 @@ export function createMemoryIngest({ getMemoryModPromise, getCurrentCwd, withTea
   return async function ingestSessionIntoMemory(session) {
     if (process.env.MIXDOG_DISABLE_MEMORY_INGEST === '1') return;
     try {
-      const messages = Array.isArray(session?.messages) ? session.messages : [];
-      if (!session?.id || messages.length === 0) return;
+      const loaded = Array.isArray(session?.messages) ? session.messages : [];
+      if (!session?.id || loaded.length === 0) return;
+      // The memory database is written to disk: a value the session marked
+      // sensitive goes there as the marker, as in the session's stored copy.
+      const messages = redactSensitiveMessages(session.id, loaded);
       const modPromise = getMemoryModPromise();
       if (!modPromise) return;
       await withTeardownDeadline(
