@@ -12,7 +12,8 @@ pub struct WorkspaceRelayFiles(pub Arc<WorkspaceService>);
 
 #[async_trait]
 impl mixdog_exthost::RelayFiles for WorkspaceRelayFiles {
-    async fn admit(&self, req: &CoreRequest, root: &str, rel: &str) -> Result<(), CoreError> {
-        self.0.relay_file(req, root, rel).await.map(drop)
+    async fn admit(&self, req: &CoreRequest, root: &str, rel: &str) -> Result<(String, String), CoreError> {
+        let target = self.0.relay_file(req, root, rel).await?;
+        Ok((target.root.to_string_lossy().into_owned(), target.rel))
     }
 }
