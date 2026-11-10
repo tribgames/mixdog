@@ -1,6 +1,6 @@
 {
   "calls": 62,
-  "cases": 303,
+  "cases": 512,
   "command": "node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-phone-scm.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": {
     "clock": "Date.now, new Date() and the run-limit timeouts are virtual; every other timer of the code under test is real and is printed, by delay, at the end of a recording",
@@ -22,11 +22,18 @@
       "sha256": "6063137a2f60cf6c118df3d1132b4e4910218ba814c964f2433a0d8f65e09b01"
     },
     {
-      "bytes": 1788768,
+      "bytes": 2228040,
       "path": "golden.json",
-      "sha256": "3ad9d30c4913e3feedf1f698bc791420a9cbcfb806bf06781d43c8beb65f88b3"
+      "sha256": "08501f45044795a89b8d3e458a75c12b17b3197714774380501e18ff55ad279e"
     }
   ],
+  "notes": {
+    "githubStatusRefresh": "githubCliStatus took no arguments over the relay (remote-methods.ts:562); the core ignores `refresh` on a relay connection and honours it for the desktop's own calls.",
+    "loginOptions": "githubCliLoginOpenBrowser's second argument (optionalGithubLoginOptions) has no core param: the page checks it and leaves it out (scm-operation-route.ts), so no core request carries it.",
+    "loneSurrogate": "A JSON string holding an escaped lone surrogate (\"\\ud800\") is a string to Node: its string checks take it and the call acts on it (golden.json limits[lone-surrogate-gitLog-query]). The core decodes a request into Rust strings, which cannot hold one, so it refuses such a request before any check runs. This is a limit of the whole core, not of the source-control calls; the case is not replayed.",
+    "posixCwd": "The directory rule is the platform's path.isAbsolute (git-contract.mjs:3), and so is the core's (mixdog-scm input.rs is_absolute): on POSIX only a leading \"/\" is absolute, so a backslash-rooted, a drive (C:\\x) or a UNC spelling is refused there where Windows (this recording) takes it. The trim is JavaScript's on both platforms.",
+    "reviewWithoutFiles": "The core request of the phone's gitReviewDiff and gitReviewDiffs is one method (review/diff/get, scope repo, patch true): one with neither `path` nor `files` cannot say which call it stands for, and is checked as gitReviewDiff. A request that names either is checked as its own call; the page always names one."
+  },
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -676,5 +683,5 @@
       }
     ]
   },
-  "totalBytes": 1812569
+  "totalBytes": 2251841
 }

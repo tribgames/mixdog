@@ -143,22 +143,9 @@ fn decode<T: DeserializeOwned>(req: &CoreRequest) -> Result<T, CoreError> {
     serde_json::from_value(req.params.clone()).map_err(invalid)
 }
 
+/// `requiredRepositoryCwd` of the desktop's own `git/watch`.
 fn cwd(value: &str) -> Result<PathBuf, ScmFailure> {
-    let trimmed = value.trim();
-    let path = PathBuf::from(trimmed);
-    if trimmed.is_empty() || !path.is_absolute() {
-        // `requiredRepositoryCwd` (git-contract.mjs): Node threw this plain TypeError.
-        return Err(ScmFailure::git("A project directory is required."));
-    }
-    Ok(path)
-}
-
-fn string_field(input: &Value, key: &str) -> Result<String, ScmFailure> {
-    input
-        .get(key)
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .ok_or_else(|| ScmFailure::invalid(format!("input.{key}"), "a string"))
+    input::repository_cwd(Some(&Value::String(value.to_owned()))).map(PathBuf::from)
 }
 
 fn unit() -> Value {
@@ -392,7 +379,13 @@ impl ScmService {
     async fn thread_review(&self, params: ReviewDiffGetParams) -> Result<Value, CoreError> {
         let thread = params.thread_id.clone().ok_or_else(|| CoreError::InvalidParams { path: "threadId".into(), expected: "a thread id".into() })?;
         let session = thread.as_str();
-        let reply = match (params.scope, params.checkpoint_id.as_deref(), params.path.as_deref()) {
+        // The file of a thread's review is a string (the repository review's raw arguments share this field).
+        let file = match &params.path {
+            None | Some(Value::Null) => None,
+            Some(Value::String(file)) => Some(file.as_str()),
+            Some(_) => return Err(CoreError::InvalidParams { path: "path".into(), expected: "a string".into() }),
+        };
+        let reply = match (params.scope, params.checkpoint_id.as_deref(), file) {
             (WireReviewScope::Turn, Some(checkpoint), file) => {
                 let read = ChangesRead { checkpoint_id: checkpoint.to_owned(), patch: params.patch == Some(true), file: file.map(str::to_owned) };
                 self.reviews.turn_changes(session, read).await.map_err(review_error)?
@@ -421,23 +414,19 @@ impl ScmService {
 
     /// The repository review of the phone (`scope: repo`): `gitReview`, `gitReviewDiff` or `gitReviewDiffs`, by request form. Their
     /// reads are git-history.ts's own (`phone_review`), not the pushed review's.
-    async fn review_get(self: &Arc<Self>, params: ReviewDiffGetParams, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
-        // Node's host checked the arguments in the order of each call's list: the directory, the file or files, then the source.
-        let dir = cwd(params.cwd.as_deref().unwrap_or(""))?;
-        let git = &self.scm.git;
-        if let Some(files) = &params.files {
-            let files = input::review_files(files)?;
-            let source = input::review_source(params.source.as_deref())?;
-            return crate::phone_review::git_review_diffs(git, cancel, &dir, &files, source).await;
+    async fn review_get(self: &Arc<Self>, checked: input::NodeArgs, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
+        let (git, dir) = (&self.scm.git, checked.dir());
+        match checked.operation {
+            "gitReviewDiffs" => {
+                let files = checked.args[1].as_array().cloned().unwrap_or_default();
+                crate::phone_review::git_review_diffs(git, cancel, &dir, &files, checked.text(2)).await
+            }
+            "gitReviewDiff" => {
+                let patch = crate::phone_review::git_review_diff(git, cancel, &dir, checked.text(1), checked.flag(2), checked.text(3)).await?;
+                Ok(Value::String(patch))
+            }
+            _ => crate::phone_review::git_review(git, self.scm.lane, cancel, &dir, checked.text(1)).await,
         }
-        if let Some(path) = &params.path {
-            let path = input::git_path(path)?;
-            let source = input::review_source(params.source.as_deref())?;
-            let patch = crate::phone_review::git_review_diff(git, cancel, &dir, path, params.untracked == Some(true), source).await?;
-            return Ok(Value::String(patch));
-        }
-        let source = input::review_source(params.source.as_deref())?;
-        crate::phone_review::git_review(git, self.scm.lane, cancel, &dir, source).await
     }
     /// Computes the review of `thread` and publishes its summary (the `reviewDiff` section);
     /// called after a run ends and after repository evidence, so clients never poll.
@@ -476,160 +465,100 @@ impl ScmService {
         Ok(())
     }
 
-    async fn github_request(self: &Arc<Self>, project: &str, input: &Value, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
+    /// `githubRequest`, its directory and request already checked (`input::node_args`), as Node's host checked them before its
+    /// operation's gate (remote-methods.ts:567-568, then github-service.ts:21-25).
+    async fn github_request(self: &Arc<Self>, project: &std::path::Path, input: &Value, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
         if !self.gate.github_enabled().await {
             return Err(ScmFailure::Refused { domain: GITHUB_DOMAIN, code: "FEATURE_DISABLED", message: GATE_OFF.into() });
         }
         // The repository the request runs in; the allowlist never sees it.
-        self.scm.github.execute(input, &cwd(project)?, cancel).await
+        self.scm.github.execute(input, project, cancel).await
     }
 
     async fn handle(self: &Arc<Self>, req: &CoreRequest) -> Result<Reply, CoreError> {
         let cancel = &req.ctx.cancel;
         let scm = &self.scm;
         let method = req.method.as_str();
-        macro_rules! open {
-            ($p:expr) => {
-                scm.open(&cwd(&$p.cwd)?, cancel).await?
+        // Every argument of a phone's call is checked as Node's host checked it (`input`), in the order of the call's list and
+        // before any git runs; what the call acts on is what those checks gave back.
+        let checked = input::node_args(method, &req.params).transpose()?;
+        macro_rules! a {
+            () => {
+                checked.as_ref().expect("every method below is one of the phone's calls")
             };
         }
-        // The repository at a directory already checked, for the calls whose other arguments are checked before any git runs.
+        // The repository at the checked directory.
         macro_rules! at {
-            ($dir:expr) => {
-                scm.open(&$dir, cancel).await?
+            () => {
+                scm.open(&a!().dir(), cancel).await?
             };
         }
-        macro_rules! open_in_place {
-            ($p:expr) => {
-                scm.open_or_in_place(&cwd(&$p.cwd)?, cancel).await?
+        macro_rules! in_place {
+            () => {
+                scm.open_or_in_place(&a!().dir(), cancel).await?
             };
         }
         let value: Value = match method {
-            "git/status" => { let p: p::GitStatusParams = decode(req)?; scm.git_status_counting(&cwd(&p.cwd)?, cancel, p.skip_line_stats != Some(true), p.reuse_line_stats == Some(true)).await? }
-            "git/branches" => { let p: p::GitBranchesParams = decode(req)?; scm.git_branches(&cwd(&p.cwd)?, cancel).await? }
-            // Every argument is checked as Node's host checked it (`input`), in the order of the call's list and before any git runs.
-            "git/log" => {
-                let p: p::GitLogParams = decode(req)?;
-                let (dir, query, skip, limit) = (cwd(&p.cwd)?, input::log_query(p.query.as_deref())?, input::log_offset(p.skip)?, input::log_limit(p.limit)?);
-                scm.git_log(&dir, cancel, query, skip, limit).await?
+            "git/status" => {
+                let options = &a!().args[1];
+                scm.git_status_counting(&a!().dir(), cancel, options["skipLineStats"] != Value::Bool(true), options["reuseLineStats"] == Value::Bool(true)).await?
             }
-            "git/show" => { let p: p::GitShowParams = decode(req)?; let dir = cwd(&p.cwd)?; scm.git_show(&dir, cancel, input::commit_hash(&p.hash)?).await? }
-            "git/showDiff" => {
-                let p: p::GitShowDiffParams = decode(req)?;
-                let (dir, hash, path) = (cwd(&p.cwd)?, input::commit_hash(&p.hash)?, input::git_path(&p.path)?);
-                scm.git_show_diff(&dir, cancel, hash, path).await?
-            }
-            "git/showFile" => {
-                let p: p::GitShowFileParams = decode(req)?;
-                let (dir, rev, path) = (cwd(&p.cwd)?, input::revision(&p.rev)?, input::git_path(&p.path)?);
-                scm.git_show_file(&dir, cancel, &rev, path).await?
-            }
-            "git/diff" => {
-                let p: p::GitDiffParams = decode(req)?;
-                let (dir, path) = (cwd(&p.cwd)?, input::git_path(&p.path)?);
-                scm.git_diff(&dir, cancel, path, p.staged, p.worktree_only.unwrap_or(false), p.untracked.unwrap_or(false)).await?
-            }
-            "git/stashList" => { let p: p::GitStashListParams = decode(req)?; scm.git_stash_list(&cwd(&p.cwd)?, cancel).await? }
+            "git/branches" => scm.git_branches(&a!().dir(), cancel).await?,
+            "git/log" => scm.git_log(&a!().dir(), cancel, a!().text(1), a!().number(2), a!().number(3)).await?,
+            "git/show" => scm.git_show(&a!().dir(), cancel, a!().text(1)).await?,
+            "git/showDiff" => scm.git_show_diff(&a!().dir(), cancel, a!().text(1), a!().text(2)).await?,
+            "git/showFile" => scm.git_show_file(&a!().dir(), cancel, a!().text(1), a!().text(2)).await?,
+            "git/diff" => scm.git_diff(&a!().dir(), cancel, a!().text(1), a!().flag(2), a!().flag(3), a!().flag(4)).await?,
+            "git/stashList" => scm.git_stash_list(&a!().dir(), cancel).await?,
             "git/requestContext" => {
-                let p: p::GitRequestContextParams = decode(req)?;
-                let dir = cwd(&p.cwd)?;
-                let (paths, base) = input::request_context(&p.input.paths, p.input.base.as_deref())?;
-                scm.git_request_context(&dir, cancel, &paths, &base).await?
+                let input = &a!().args[1];
+                let paths: Vec<String> = input["paths"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect();
+                scm.git_request_context(&a!().dir(), cancel, &paths, input["base"].as_str().unwrap_or_default()).await?
             }
             "git/cliStatus" => scm.git_cli_status(cancel, false).await?,
             "git/globalConfig/read" => scm.git_global_config(cancel).await?,
             "git/watch" => { let p: p::GitWatchParams = decode(req)?; return Ok(self.git_watch(cwd(&p.cwd)?, cancel).await?); }
             "git/unwatch" => json!({}),
-            "git/stage" => { let p: p::GitStageParams = decode(req)?; let (dir, paths) = (cwd(&p.cwd)?, input::git_paths(&p.paths)?); at!(dir).stage(&paths).await?; unit() }
-            "git/unstage" => { let p: p::GitUnstageParams = decode(req)?; let (dir, paths) = (cwd(&p.cwd)?, input::git_paths(&p.paths)?); at!(dir).unstage(&paths).await?; unit() }
-            "git/commit" => { let p: p::GitCommitParams = decode(req)?; let (dir, message) = (cwd(&p.cwd)?, input::commit_message(&p.message)?); json!(at!(dir).commit(message).await?) }
-            "git/commitPaths" => {
-                let p: p::GitCommitPathsParams = decode(req)?;
-                let (dir, message, paths) = (cwd(&p.cwd)?, input::commit_message(&p.input.message)?, input::git_paths(&p.input.paths)?);
-                json!(at!(dir).commit_paths(message, &paths).await?)
-            }
-            "git/amend" => { let p: p::GitAmendParams = decode(req)?; let (dir, message) = (cwd(&p.cwd)?, input::optional_message(p.message.as_deref())?); json!(at!(dir).amend(message).await?) }
-            "git/undoLastCommit" => { let p: p::GitUndoLastCommitParams = decode(req)?; json!(open_in_place!(p).undo_last_commit().await?) }
-            "git/push" => { let p: p::GitPushParams = decode(req)?; json!(open!(p).push().await?) }
-            "git/pull" => { let p: p::GitPullParams = decode(req)?; json!(open!(p).pull().await?) }
-            "git/fetch" => { let p: p::GitFetchParams = decode(req)?; json!(open_in_place!(p).fetch().await?) }
-            "git/sync" => { let p: p::GitSyncParams = decode(req)?; json!(open!(p).sync().await?) }
-            "git/stash" => {
-                let p: p::GitStashParams = decode(req)?;
-                let (dir, message) = (cwd(&p.cwd)?, input::optional_message(p.message.as_deref())?);
-                json!(scm.open_or_in_place(&dir, cancel).await?.stash(message).await?)
-            }
-            "git/stashPop" => { let p: p::GitStashPopParams = decode(req)?; json!(open!(p).stash_pop().await?) }
-            "git/stashApply" => {
-                let p: p::GitStashApplyParams = decode(req)?;
-                let dir = cwd(&p.cwd)?;
-                let stash = string_field(&req.params, "ref")?;
-                let stash = input::stash_ref(&stash)?;
-                json!(at!(dir).stash_apply(stash).await?)
-            }
-            "git/stashDrop" => {
-                let p: p::GitStashDropParams = decode(req)?;
-                let dir = cwd(&p.cwd)?;
-                let stash = string_field(&req.params, "ref")?;
-                let stash = input::stash_ref(&stash)?;
-                json!(at!(dir).stash_drop(stash).await?)
-            }
-            "git/createTag" => {
-                let p: p::GitCreateTagParams = decode(req)?;
-                let (dir, tag, hash) = (cwd(&p.cwd)?, input::tag_name(&p.value)?, input::commit_hash(&p.at)?);
-                json!(at!(dir).create_tag(tag, hash).await?)
-            }
-            "git/deleteTag" => { let p: p::GitDeleteTagParams = decode(req)?; let (dir, tag) = (cwd(&p.cwd)?, input::tag_name(&p.value)?); json!(at!(dir).delete_tag(tag).await?) }
-            "git/deleteBranch" => {
-                let p: p::GitDeleteBranchParams = decode(req)?;
-                let (dir, branch) = (cwd(&p.cwd)?, input::branch_name(&p.input.branch)?);
-                json!(at!(dir).delete_branch(branch).await?)
-            }
-            "git/renameBranch" => {
-                let p: p::GitRenameBranchParams = decode(req)?;
-                let (dir, branch, next) = (cwd(&p.cwd)?, input::branch_name(&p.input.branch)?, input::branch_name(&p.input.next_branch)?);
-                json!(at!(dir).rename_branch(branch, next).await?)
-            }
+            "git/stage" => { at!().stage(&a!().texts(1)).await?; unit() }
+            "git/unstage" => { at!().unstage(&a!().texts(1)).await?; unit() }
+            "git/commit" => json!(at!().commit(a!().text(1)).await?),
+            "git/commitPaths" => json!(at!().commit_paths(a!().text(1), &a!().texts(2)).await?),
+            "git/amend" => json!(at!().amend(a!().text(1)).await?),
+            "git/undoLastCommit" => json!(in_place!().undo_last_commit().await?),
+            "git/push" => json!(at!().push().await?),
+            "git/pull" => json!(at!().pull().await?),
+            "git/fetch" => json!(in_place!().fetch().await?),
+            "git/sync" => json!(at!().sync().await?),
+            "git/stash" => json!(in_place!().stash(a!().text(1)).await?),
+            "git/stashPop" => json!(at!().stash_pop().await?),
+            "git/stashApply" => json!(at!().stash_apply(a!().text(1)).await?),
+            "git/stashDrop" => json!(at!().stash_drop(a!().text(1)).await?),
+            "git/createTag" => json!(at!().create_tag(a!().text(1), a!().text(2)).await?),
+            "git/deleteTag" => json!(at!().delete_tag(a!().text(1)).await?),
+            "git/deleteBranch" => json!(at!().delete_branch(a!().text(1)).await?),
+            "git/renameBranch" => json!(at!().rename_branch(a!().text(1), a!().text(2)).await?),
             "git/resetToCommit" => {
-                let p: p::GitResetToCommitParams = decode(req)?;
-                let (place, hash, mode) = (cwd(&p.cwd)?, input::commit_hash(&p.value)?, input::reset_mode(&p.mode)?);
+                let (place, hash, mode) = (a!().dir(), a!().text(1), a!().text(2));
                 match scm.open(&place, cancel).await {
                     Err(ScmFailure::NotARepository) => return Err(scm.commit_lookup_outside_repository(&place, cancel, Some(mode), hash).await.into()),
-                    repo => json!(repo?.reset_to_commit(hash, mode, p.confirmed_dirty.unwrap_or(false)).await?),
+                    repo => json!(repo?.reset_to_commit(hash, mode, a!().flag(3)).await?),
                 }
             }
-            "git/revertCommit" => { let p: p::GitRevertCommitParams = decode(req)?; let (dir, hash) = (cwd(&p.cwd)?, input::commit_hash(&p.value)?); json!(at!(dir).revert_commit(hash).await?) }
-            "git/revertFile" => {
-                let p: p::GitRevertFileParams = decode(req)?;
-                let (dir, path, mode) = (cwd(&p.cwd)?, input::git_path(&p.path)?, input::discard_mode(p.mode.as_deref())?);
-                at!(dir).revert_file(path, p.untracked, mode).await?;
-                unit()
-            }
+            "git/revertCommit" => json!(at!().revert_commit(a!().text(1)).await?),
+            "git/revertFile" => { at!().revert_file(a!().text(1), a!().flag(2), a!().text(3)).await?; unit() }
             "git/cherryPickCommit" => {
-                let p: p::GitCherryPickCommitParams = decode(req)?;
-                let (place, hash) = (cwd(&p.cwd)?, input::commit_hash(&p.value)?);
+                let (place, hash) = (a!().dir(), a!().text(1));
                 match scm.open(&place, cancel).await {
                     Err(ScmFailure::NotARepository) => return Err(scm.commit_lookup_outside_repository(&place, cancel, None, hash).await.into()),
                     repo => json!(repo?.cherry_pick_commit(hash).await?),
                 }
             }
-            "git/applyPatch" => {
-                let p: p::GitApplyPatchParams = decode(req)?;
-                let (dir, path, patch) = (cwd(&p.cwd)?, input::git_path(&p.path)?, input::git_patch(&p.patch)?);
-                at!(dir).apply_patch(path, patch, p.reverse.unwrap_or(false)).await?;
-                unit()
-            }
-            "git/ignore" => {
-                let p: p::GitIgnoreParams = decode(req)?;
-                let (dir, path, scope) = (cwd(&p.cwd)?, input::git_path(&p.path)?, input::ignore_scope(p.scope.as_deref())?);
-                at!(dir).ignore(path, scope).await?;
-                unit()
-            }
-            "git/continue" => { let p: p::GitContinueParams = decode(req)?; json!(open!(p).continue_operation().await?) }
-            "git/abortOperation" => { let p: p::GitAbortOperationParams = decode(req)?; json!(open!(p).abort_operation().await?) }
+            "git/applyPatch" => { at!().apply_patch(a!().text(1), a!().text(2), a!().flag(3)).await?; unit() }
+            "git/ignore" => { at!().ignore(a!().text(1), a!().text(2)).await?; unit() }
+            "git/continue" => json!(at!().continue_operation().await?),
+            "git/abortOperation" => json!(at!().abort_operation().await?),
             "git/globalConfig/write" => {
-                let p: p::GitGlobalConfigWriteParams = decode(req)?;
-                let saved = scm.git_global_config_write(cancel, &p.key, input::global_config_value(&p.value)?).await?;
+                let saved = scm.git_global_config_write(cancel, a!().text(0), a!().text(1)).await?;
                 // Node announced `notifySettingsChanged('git')` here; the owning actor publishes its own change (DS §3).
                 self.publisher.publish(
                     SectionName::HostState,
@@ -639,18 +568,19 @@ impl ScmService {
                 saved
             }
             "git/cli/install" => scm.git_cli_install(cancel).await?,
-            "github/status" => { let p: p::GithubStatusParams = decode(req)?; scm.gh_status(cancel, p.refresh.unwrap_or(false)).await? }
+            // Node's phone call took no arguments (remote-methods.ts:562): a refresh is the desktop's.
+            "github/status" => scm.gh_status(cancel, req.ctx.origin != mixdog_protocol::Origin::Relay && req.params.get("refresh") == Some(&Value::Bool(true))).await?,
             "github/account" => scm.gh_account(cancel).await?,
             "github/login/start" => self.login_start(cancel).await?,
             "github/login/status" => {
-                let p: p::GithubLoginStatusParams = decode(req)?;
-                { let flow = self.flow(&p.flow_id)?; flow.json(&p.flow_id, &flow.session.state()) }
+                let id = LoginFlowId(a!().text(0).to_owned());
+                let flow = self.flow(&id)?;
+                flow.json(&id, &flow.session.state())
             }
             // gh never opens a browser itself (no-op launcher): the client opens the device page.
-            "github/login/openBrowser" => { let p: p::GithubLoginOpenBrowserParams = decode(req)?; self.flow(&p.flow_id)?; json!(false) }
+            "github/login/openBrowser" => { self.flow(&LoginFlowId(a!().text(0).to_owned()))?; json!(false) }
             "github/login/cancel" => {
-                let p: p::GithubLoginCancelParams = decode(req)?;
-                if let Some(flow) = self.flows.lock().expect("flows").remove(&p.flow_id) {
+                if let Some(flow) = self.flows.lock().expect("flows").remove(&LoginFlowId(a!().text(0).to_owned())) {
                     flow.session.cancel();
                     flow.feed.close();
                 }
@@ -658,23 +588,20 @@ impl ScmService {
             }
             "github/logout" => scm.gh_logout(cancel).await?,
             "github/install" => scm.gh_install(cancel).await?,
-            "github/request" => { let p: p::GithubRequestParams = decode(req)?; self.github_request(&p.cwd, &p.input, cancel).await? }
+            "github/request" => self.github_request(&a!().dir(), &a!().args[1], cancel).await?,
             "github/starStatus" => scm.gh_star_status(cancel).await?,
             "github/star" => scm.gh_star(cancel).await?,
-            "github/pr/list" => { let p: p::GithubPrListParams = decode(req)?; scm.gh_pr_list(&cwd(&p.cwd)?, cancel).await? }
-            "github/pr/view" => { let p: p::GithubPrViewParams = decode(req)?; scm.gh_pr_view(&cwd(&p.cwd)?, cancel, &p.value).await? }
-            "github/pr/diff" => { let p: p::GithubPrDiffParams = decode(req)?; scm.gh_pr_diff(&cwd(&p.cwd)?, cancel, &p.value).await? }
-            "github/pr/defaultBranch" => { let p: p::GithubPrDefaultBranchParams = decode(req)?; scm.gh_pr_default_branch(&cwd(&p.cwd)?, cancel).await? }
-            "github/pr/create" => { let p: p::GithubPrCreateParams = decode(req)?; scm.gh_pr_create(&cwd(&p.cwd)?, cancel, &p.value).await? }
-            "github/pr/checkout" => { let p: p::GithubPrCheckoutParams = decode(req)?; scm.gh_pr_checkout(&cwd(&p.cwd)?, cancel, &p.value).await? }
-            "github/pr/merge" => { let p: p::GithubPrMergeParams = decode(req)?; scm.gh_pr_merge(&cwd(&p.cwd)?, cancel, &p.value, &p.method).await? }
-            "review/diff/get" => {
-                let p: ReviewDiffGetParams = decode(req)?;
-                match p.scope {
-                    WireReviewScope::Repo => self.review_get(p, cancel).await?,
-                    WireReviewScope::Turn | WireReviewScope::Session => self.thread_review(p).await?,
-                }
-            }
+            "github/pr/list" => scm.gh_pr_list(&a!().dir(), cancel).await?,
+            "github/pr/view" => scm.gh_pr_view(&a!().dir(), cancel, &a!().args[1]).await?,
+            "github/pr/diff" => scm.gh_pr_diff(&a!().dir(), cancel, &a!().args[1]).await?,
+            "github/pr/defaultBranch" => scm.gh_pr_default_branch(&a!().dir(), cancel).await?,
+            "github/pr/create" => scm.gh_pr_create(&a!().dir(), cancel, &a!().args[1]).await?,
+            "github/pr/checkout" => scm.gh_pr_checkout(&a!().dir(), cancel, &a!().args[1]).await?,
+            "github/pr/merge" => scm.gh_pr_merge(&a!().dir(), cancel, &a!().args[1], &a!().args[2]).await?,
+            "review/diff/get" => match checked {
+                Some(checked) => self.review_get(checked, cancel).await?,
+                None => self.thread_review(decode(req)?).await?,
+            },
             other => return Err(CoreError::InvalidParams { path: "method".into(), expected: format!("a method of git, github or review, not {other}").into() }),
         };
         Ok(Reply::Value(value))

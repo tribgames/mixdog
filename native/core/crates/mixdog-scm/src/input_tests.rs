@@ -1,7 +1,8 @@
-//! A caller that skips the phone's page reaches the core with arguments Node's host would have refused before acting. The core
-//! refuses them itself (`input.rs`), with Node's text and before any git runs. The expected texts are Node's own answers: the
-//! `refused-*` cases of `apps/desktop/src/renderer/fixtures/phone-scm/golden.json`, each sent here as the core request the
-//! page would have made of it.
+//! A caller that skips the phone's page reaches the core with the arguments Node's host checked before it acted. The core checks
+//! them itself (`input.rs`), in the order Node's call evaluated them: it refuses what Node refused, with Node's text and before any
+//! program starts, and it acts on what Node passed on. The expected answers are Node's own: every case of
+//! `apps/desktop/src/renderer/fixtures/phone-scm/golden.json` whose call Node's host checked, each sent here as the core request the
+//! page would have made of the phone's raw arguments (the page's own translation, scm-operation-route.ts, without its checks).
 //!
 //! The recording ran on Windows: its directories and its rule for an absolute path are Windows'.
 #![cfg(windows)]
@@ -65,69 +66,256 @@ impl ProcessManager for NoPrograms {
 
 const GOLDEN: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../apps/desktop/src/renderer/fixtures/phone-scm/golden.json");
 
-/// The core request of a phone call: the page's own translation (remote-protocol-scm.ts), without its checks.
-fn request(call: &str, args: &[Value]) -> (&'static str, Value) {
-    let arg = |index: usize| args.get(index).cloned().unwrap_or(Value::Null);
-    let op = "01890a5d-ac96-774b-bcce-b302099a8057";
+fn golden() -> Value {
+    serde_json::from_str(&std::fs::read_to_string(GOLDEN).expect("the phone-scm recording")).expect("json")
+}
+
+/// The core request of a phone call: the page's translation (shared/scm-operation-route.ts) of the raw arguments. A missing argument
+/// leaves its param out and `null` is sent as `null`, as the page's `positional` does. `None`: the call is not one Node's host
+/// checked, or it names an argument the core has no param for (githubCliLoginOpenBrowser's options, the route's `null` slot).
+fn request(call: &str, args: &[Value]) -> Option<(&'static str, Value)> {
+    let positional = |method: &'static str, names: &[Option<&str>]| -> Option<(&'static str, Value)> {
+        assert!(args.len() <= names.len(), "{call} takes at most {} arguments", names.len());
+        let mut params = serde_json::Map::new();
+        for (name, value) in names.iter().zip(args) {
+            match name {
+                Some(name) => {
+                    params.insert((*name).to_owned(), value.clone());
+                }
+                None => return None,
+            }
+        }
+        Some((method, Value::Object(params)))
+    };
+    let named = |names: &[&str]| -> serde_json::Map<String, Value> { names.iter().zip(args).map(|(name, value)| ((*name).to_owned(), value.clone())).collect() };
+    let with = |method: &'static str, params: serde_json::Map<String, Value>| Some((method, Value::Object(params)));
+    // `cwd` and an `input` object of the arguments after it (gitCommitPaths, gitDeleteBranch, gitRenameBranch).
+    let wrapped = |method: &'static str, names: &[&str]| {
+        let mut params = serde_json::Map::new();
+        if let Some(cwd) = args.first() {
+            params.insert("cwd".into(), cwd.clone());
+        }
+        let input: serde_json::Map<String, Value> = names.iter().zip(args.iter().skip(1)).map(|(name, value)| ((*name).to_owned(), value.clone())).collect();
+        params.insert("input".into(), Value::Object(input));
+        Some((method, Value::Object(params)))
+    };
+    // The pull request's value and merge method: a missing one is sent as null (scm-operation-route.ts `pullRequest`).
+    let pull_request = |method: &'static str, names: &[&str]| {
+        let mut params = named(names);
+        for name in &names[1..] {
+            params.entry((*name).to_owned()).or_insert(Value::Null);
+        }
+        with(method, params)
+    };
+    let review = |names: &[&str], patch: bool| {
+        let mut params = named(names);
+        params.insert("scope".into(), json!("repo"));
+        if patch {
+            params.insert("patch".into(), json!(true));
+        }
+        with("review/diff/get", params)
+    };
+    let cwd = |method: &'static str| positional(method, &[Some("cwd")]);
     match call {
-        "gitReview" => ("review/diff/get", json!({ "scope": "repo", "cwd": arg(0), "source": arg(1) })),
-        "gitReviewDiff" => ("review/diff/get", json!({ "scope": "repo", "cwd": arg(0), "path": arg(1), "untracked": arg(2) })),
-        "gitReviewDiffs" => ("review/diff/get", json!({ "scope": "repo", "cwd": arg(0), "files": arg(1) })),
-        "gitDiff" => ("git/diff", json!({ "cwd": arg(0), "path": arg(1), "staged": arg(2), "worktreeOnly": arg(3), "untracked": arg(4) })),
-        "gitLog" => ("git/log", json!({ "cwd": arg(0), "query": arg(1), "skip": arg(2), "limit": arg(3) })),
-        "gitShow" => ("git/show", json!({ "cwd": arg(0), "hash": arg(1) })),
-        "gitShowDiff" => ("git/showDiff", json!({ "cwd": arg(0), "hash": arg(1), "path": arg(2) })),
-        "gitShowFile" => ("git/showFile", json!({ "cwd": arg(0), "rev": arg(1), "path": arg(2) })),
-        "gitRequestContext" => ("git/requestContext", json!({ "cwd": arg(0), "input": arg(1) })),
-        "gitStage" => ("git/stage", json!({ "opId": op, "cwd": arg(0), "paths": arg(1) })),
-        "gitUnstage" => ("git/unstage", json!({ "opId": op, "cwd": arg(0), "paths": arg(1) })),
-        "gitCommit" => ("git/commit", json!({ "opId": op, "cwd": arg(0), "message": arg(1) })),
-        "gitCommitPaths" => ("git/commitPaths", json!({ "opId": op, "cwd": arg(0), "input": { "message": arg(1), "paths": arg(2) } })),
-        "gitAmend" => ("git/amend", json!({ "opId": op, "cwd": arg(0), "message": arg(1) })),
-        "gitStash" => ("git/stash", json!({ "opId": op, "cwd": arg(0), "message": arg(1) })),
-        "gitStashApply" => ("git/stashApply", json!({ "opId": op, "cwd": arg(0), "ref": arg(1) })),
-        "gitStashDrop" => ("git/stashDrop", json!({ "opId": op, "cwd": arg(0), "ref": arg(1) })),
-        "gitRevert" => ("git/revertFile", json!({ "opId": op, "cwd": arg(0), "path": arg(1), "untracked": arg(2), "mode": arg(3) })),
-        "gitApplyPatch" => ("git/applyPatch", json!({ "opId": op, "cwd": arg(0), "path": arg(1), "patch": arg(2) })),
-        "gitIgnore" => ("git/ignore", json!({ "opId": op, "cwd": arg(0), "path": arg(1), "scope": arg(2) })),
-        "gitRenameBranch" => ("git/renameBranch", json!({ "opId": op, "cwd": arg(0), "input": { "branch": arg(1), "nextBranch": arg(2) } })),
-        "gitDeleteBranch" => ("git/deleteBranch", json!({ "opId": op, "cwd": arg(0), "input": { "branch": arg(1) } })),
-        "gitCreateTag" => ("git/createTag", json!({ "opId": op, "cwd": arg(0), "value": arg(1), "at": arg(2) })),
-        "gitResetToCommit" => ("git/resetToCommit", json!({ "opId": op, "cwd": arg(0), "value": arg(1), "mode": arg(2) })),
-        "gitRevertCommit" => ("git/revertCommit", json!({ "opId": op, "cwd": arg(0), "value": arg(1) })),
-        "gitCherryPickCommit" => ("git/cherryPickCommit", json!({ "opId": op, "cwd": arg(0), "value": arg(1) })),
-        "setGitGlobalConfig" => ("git/globalConfig/write", json!({ "opId": op, "key": arg(0), "value": arg(1) })),
-        other => panic!("no core request is written here for the recorded call {other}"),
+        "gitStatus" => {
+            let mut params = named(&["cwd"]);
+            if let Some(Value::Object(options)) = args.get(1) {
+                for key in ["reuseLineStats", "skipLineStats"] {
+                    if let Some(value) = options.get(key) {
+                        params.insert(key.into(), value.clone());
+                    }
+                }
+            }
+            with("git/status", params)
+        }
+        "gitDiff" => positional("git/diff", &[Some("cwd"), Some("path"), Some("staged"), Some("worktreeOnly"), Some("untracked")]),
+        "gitApplyPatch" => positional("git/applyPatch", &[Some("cwd"), Some("path"), Some("patch"), Some("reverse")]),
+        "gitStage" => positional("git/stage", &[Some("cwd"), Some("paths")]),
+        "gitUnstage" => positional("git/unstage", &[Some("cwd"), Some("paths")]),
+        "gitIgnore" => positional("git/ignore", &[Some("cwd"), Some("path"), Some("scope")]),
+        "gitCommit" => positional("git/commit", &[Some("cwd"), Some("message")]),
+        "gitCommitPaths" => wrapped("git/commitPaths", &["message", "paths"]),
+        "gitAmend" => positional("git/amend", &[Some("cwd"), Some("message")]),
+        "gitStash" => positional("git/stash", &[Some("cwd"), Some("message")]),
+        "gitRevert" => positional("git/revertFile", &[Some("cwd"), Some("path"), Some("untracked"), Some("mode")]),
+        "gitReview" => review(&["cwd", "source"], false),
+        "gitReviewDiff" => review(&["cwd", "path", "untracked", "source"], true),
+        "gitReviewDiffs" => review(&["cwd", "files", "source"], true),
+        "gitStashApply" => positional("git/stashApply", &[Some("cwd"), Some("ref")]),
+        "gitStashDrop" => positional("git/stashDrop", &[Some("cwd"), Some("ref")]),
+        "gitRenameBranch" => wrapped("git/renameBranch", &["branch", "nextBranch"]),
+        "gitDeleteBranch" => wrapped("git/deleteBranch", &["branch"]),
+        "gitCreateTag" => positional("git/createTag", &[Some("cwd"), Some("value"), Some("at")]),
+        "gitDeleteTag" => positional("git/deleteTag", &[Some("cwd"), Some("value")]),
+        "gitLog" => positional("git/log", &[Some("cwd"), Some("query"), Some("skip"), Some("limit")]),
+        "gitShow" => positional("git/show", &[Some("cwd"), Some("hash")]),
+        "gitShowDiff" => positional("git/showDiff", &[Some("cwd"), Some("hash"), Some("path")]),
+        "gitShowFile" => positional("git/showFile", &[Some("cwd"), Some("rev"), Some("path")]),
+        "gitRequestContext" => positional("git/requestContext", &[Some("cwd"), Some("input")]),
+        "gitResetToCommit" => positional("git/resetToCommit", &[Some("cwd"), Some("value"), Some("mode"), Some("confirmedDirty")]),
+        "gitRevertCommit" => positional("git/revertCommit", &[Some("cwd"), Some("value")]),
+        "gitCherryPickCommit" => positional("git/cherryPickCommit", &[Some("cwd"), Some("value")]),
+        "setGitGlobalConfig" => positional("git/globalConfig/write", &[Some("key"), Some("value")]),
+        "gitBranches" => cwd("git/branches"),
+        "gitStashList" => cwd("git/stashList"),
+        "gitStashPop" => cwd("git/stashPop"),
+        "gitUndoLastCommit" => cwd("git/undoLastCommit"),
+        "gitPush" => cwd("git/push"),
+        "gitPull" => cwd("git/pull"),
+        "gitFetch" => cwd("git/fetch"),
+        "gitSync" => cwd("git/sync"),
+        "gitContinue" => cwd("git/continue"),
+        "gitAbortOperation" => cwd("git/abortOperation"),
+        "githubRequest" => positional("github/request", &[Some("cwd"), Some("input")]),
+        "ghPrList" => cwd("github/pr/list"),
+        "ghPrDefaultBranch" => cwd("github/pr/defaultBranch"),
+        "ghPrView" => pull_request("github/pr/view", &["cwd", "value"]),
+        "ghPrDiff" => pull_request("github/pr/diff", &["cwd", "value"]),
+        "ghPrCheckout" => pull_request("github/pr/checkout", &["cwd", "value"]),
+        "ghPrCreate" => pull_request("github/pr/create", &["cwd", "value"]),
+        "ghPrMerge" => pull_request("github/pr/merge", &["cwd", "value", "method"]),
+        "githubCliLoginStatus" => positional("github/login/status", &[Some("flowId")]),
+        "githubCliLoginCancel" => positional("github/login/cancel", &[Some("flowId")]),
+        "githubCliLoginOpenBrowser" => positional("github/login/openBrowser", &[Some("flowId"), None]),
+        _ => None,
+    }
+    .map(|(method, mut params)| {
+        // The protocol's own field of a mutation, which the page's client adds (no argument of Node's).
+        let spec = mixdog_app_protocol::client_method_spec(method).expect("a method of the table");
+        if matches!(spec.mutation, mixdog_app_protocol::Mutation::Op(_)) {
+            params["opId"] = json!("01890a5d-ac96-774b-bcce-b302099a8057");
+        }
+        (method, params)
+    })
+}
+
+/// What Node's host passed on that the core's request carries: every argument of the operation, except the ones the page's
+/// route has no param for (githubCliLoginOpenBrowser's options).
+fn carried(operation: &str, args: &[Value]) -> Vec<Value> {
+    match operation {
+        "githubCliLoginOpenBrowser" => args[..1].to_vec(),
+        _ => args.to_vec(),
     }
 }
 
-#[tokio::test]
-async fn every_argument_nodes_host_refused_is_refused_by_the_core_with_nodes_text_and_no_git() {
-    let golden: Value = serde_json::from_str(&std::fs::read_to_string(GOLDEN).expect("the phone-scm recording")).expect("json");
-    let refused: Vec<&Value> = golden["cases"].as_array().expect("cases").iter().filter(|case| case["name"].as_str().is_some_and(|name| name.starts_with("refused-"))).collect();
-    assert!(refused.len() >= 40, "the recording holds the refused cases ({} found)", refused.len());
+/// The recorded cases `pick` selects, sent to the core: every one Node's host refused is refused by the core with Node's text
+/// (alone, a plain error with no code) and no program started; every one it acted on is acted on by the core with the arguments
+/// Node passed on. The server's decode of the request lets each through to the owner. Answers how many of each it compared, and
+/// how many cases `pick` selected.
+async fn compare(pick: impl Fn(&str) -> bool) -> (usize, usize, usize) {
+    let golden = golden();
     let programs = Arc::new(NoPrograms::default());
     let handle = service_over(programs.clone(), Log::default());
-    for case in refused {
+    let (mut refused, mut acted, mut picked) = (0, 0, 0);
+    for case in golden["cases"].as_array().expect("cases") {
         let name = case["name"].as_str().expect("name");
-        // Node's host ran nothing for it: no desktop operation and no program.
-        assert_eq!((case["ops"].as_array().map(Vec::len), case.get("processes")), (Some(0), None), "{name}: Node acted on it");
-        let node = case["frame"]["error"].as_str().unwrap_or_else(|| panic!("{name}: Node answered {}", case["frame"]));
-        assert_eq!(case["frame"].get("errorCode"), None, "{name}: Node's refusal carries no code");
-        let (method, params) = request(case["call"].as_str().expect("call"), case["params"].as_array().expect("params"));
-        let ctx = CallContext::connection(ConnectionId(1), mixdog_protocol::Origin::Relay, Default::default());
-        let answer = handle.call(CoreRequest { method: Method(method), params, op: None, ctx }).await;
-        // Node's frame is its text alone (`{ ok: false, error }`). The core's form of a plain git `Error` is the `git` domain's
-        // `COMMAND_FAILED` with that text and no detail, which the phone's page turns back into the text alone (the adapter
-        // replay compares that frame whole).
-        match answer {
-            Err(CoreError::DomainError { domain, code, message: Some(message), detail: None }) => {
-                assert_eq!((&*domain, code.as_deref(), &*message), ("git", Some("COMMAND_FAILED"), node), "{name}")
-            }
-            other => panic!("{name}: the core answered {other:?}, Node refused with {node:?}"),
+        if !pick(name) {
+            continue;
         }
-        assert_eq!(programs.0.load(Ordering::SeqCst), 0, "{name}: the core started a program for a call Node refused before acting");
+        picked += 1;
+        // A params text is the frame's own spelling (`1.0`), which the parsed params no longer hold.
+        let args: Value = match case.get("paramsText").and_then(Value::as_str) {
+            Some(text) => serde_json::from_str(text).expect("params text"),
+            None => case["params"].clone(),
+        };
+        let Some((method, params)) = request(case["call"].as_str().expect("call"), args.as_array().expect("params")) else {
+            continue;
+        };
+        let wire = json!({ "id": 1, "method": method, "params": params });
+        if let Err(error) = mixdog_app_protocol::ClientRequest::from_jsonrpc(serde_json::from_value(wire).expect("a request")) {
+            panic!("{name}: the server refuses the request before its owner sees it: {error:?}");
+        }
+        let checked = crate::input::node_args(method, &params).unwrap_or_else(|| panic!("{name}: the core does not check {method}"));
+        let ops = case["ops"].as_array().expect("ops");
+        if ops.is_empty() {
+            // Node's host refused before it acted.
+            assert_eq!((case["frame"]["ok"].clone(), case["frame"].get("errorCode")), (json!(false), None), "{name}: {}", case["frame"]);
+            let node = case["frame"]["error"].as_str().expect("Node's text");
+            let expected = CoreError::DomainError { domain: "git".into(), code: Some("COMMAND_FAILED".into()), message: Some(node.into()), detail: None };
+            match checked {
+                Err(failure) => assert_eq!(CoreError::from(failure), expected, "{name}"),
+                Ok(args) => panic!("{name}: the core acts on {args:?} where Node refused with {node:?}"),
+            }
+            let ctx = CallContext::connection(ConnectionId(1), mixdog_protocol::Origin::Relay, Default::default());
+            let answer = handle.call(CoreRequest { method: Method(method), params, op: None, ctx }).await;
+            assert_eq!(answer.err(), Some(expected), "{name}: the service's answer");
+            assert_eq!(programs.0.load(Ordering::SeqCst), 0, "{name}: the core started a program for a call Node refused before acting");
+            refused += 1;
+        } else {
+            let operation = ops[0]["name"].as_str().expect("operation");
+            let node = carried(operation, ops[0]["args"].as_array().expect("args"));
+            match checked {
+                Ok(core) => assert_eq!((core.operation, core.args), (operation, node), "{name}: what the call acts on"),
+                Err(failure) => panic!("{name}: the core refuses ({failure:?}) where Node acted on {node:?}"),
+            }
+            acted += 1;
+        }
     }
+    (refused, acted, picked)
+}
+
+/// A group of cases: each one compared, some refused and some acted on as the recording has them.
+async fn compare_group(prefixes: &[&str]) -> (usize, usize) {
+    let (refused, acted, picked) = compare(|name| prefixes.iter().any(|prefix| name.starts_with(prefix))).await;
+    assert!(picked > 0, "the recording has cases named {prefixes:?}");
+    assert_eq!(refused + acted, picked, "every case of {prefixes:?} is compared");
+    (refused, acted)
+}
+
+/// Every case of the recording whose call Node's host checked.
+#[tokio::test]
+async fn every_checked_call_is_refused_or_acted_on_as_nodes_host_did() {
+    let (refused, acted, _) = compare(|_| true).await;
+    assert!(refused > 0 && acted > 0, "{refused} refused and {acted} acted on");
+}
+
+/// An explicit `null` is refused where Node takes only a missing argument as the default (discard mode, ignore scope, review
+/// source, request base); a missing one is the default.
+#[tokio::test]
+async fn a_null_is_not_a_missing_argument() {
+    compare_group(&["input-null-", "input-missing-"]).await;
+}
+
+/// A number is `Number(value)` and then the integer and range checks: `"1"`, `true`, `[1]`, `1.0` are 1, `"0x10"` is 16.
+#[tokio::test]
+async fn a_history_page_is_counted_with_javascripts_number() {
+    compare_group(&["input-number-"]).await;
+}
+
+/// Each argument of another JSON type alone, and two invalid arguments at once: the first argument Node's call evaluated answers.
+#[tokio::test]
+async fn the_first_argument_node_checked_answers() {
+    compare_group(&["input-wrong-type-", "input-two-invalid-"]).await;
+}
+
+/// The global config key is one of three exact strings, checked after the value, with Node's text.
+#[tokio::test]
+async fn a_global_config_key_is_refused_with_nodes_text() {
+    compare_group(&["input-config-key-"]).await;
+}
+
+/// The directory is trimmed of JavaScript's white space and absolute by Windows' `path.isAbsolute`.
+#[tokio::test]
+async fn a_directory_is_absolute_by_nodes_rule() {
+    compare_group(&["input-cwd-"]).await;
+}
+
+/// A sign-in's flow id is trimmed before it is looked up; a GitHub request is checked before the Git & GitHub gate.
+#[tokio::test]
+async fn githubs_arguments_are_checked_as_nodes_host_did() {
+    compare_group(&["input-flow-id-", "input-githubRequest-", "githubCliLoginStatus-padded-flow-id"]).await;
+}
+
+/// Node took a lone surrogate in a string (`"\ud800"`) as any other string and acted on it; the core cannot decode it into a
+/// string at all, a limit of the whole core that the manifest states. The case is on record as Node's JSON text.
+#[test]
+fn a_lone_surrogate_node_acted_on_is_on_record() {
+    let golden = golden();
+    let limit = golden["limits"].as_array().expect("limits").iter().find(|limit| limit["name"] == "lone-surrogate-gitLog-query").expect("the case");
+    let text = limit["paramsText"].as_str().expect("params text");
+    assert!(text.contains("\\ud800"), "{text}");
+    assert!(serde_json::from_str::<Value>(text).is_err(), "the core's JSON reads it");
+    assert!(limit["recordedText"].as_str().expect("Node's answer").starts_with(r#"{"frame":{"ok":true,"#), "Node acted on it");
 }
 
 /// `requiredGitRevision` answers the revision rebuilt from its checked hash (git-contract.mjs: the hash before `^` is trimmed again).

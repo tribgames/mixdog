@@ -248,11 +248,9 @@ impl Scm {
         key: &str,
         value: &str,
     ) -> Result<Value, ScmFailure> {
-        if !matches!(key, "user.name" | "user.email" | "init.defaultBranch") {
-            return Err(ScmFailure::invalid("key", "`user.name`, `user.email` or `init.defaultBranch`"));
-        }
+        // The key is one of the three (`input.rs`, Node's `requiredGitGlobalConfigKey`) before this runs.
         let home = process_dir();
-        let trimmed = value.trim();
+        let trimmed = mixdog_js::js_trim(value);
         let outcome = if trimmed.is_empty() {
             self.git.outcome(cancel, &home, &["config", "--global", "--unset", key], &RunOptions { bare_env: true, ..RunOptions::default() }).await?
         } else {

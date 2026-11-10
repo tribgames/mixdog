@@ -293,7 +293,7 @@ impl GhClient {
 
     pub async fn execute(&self, input: &Value, cwd: &Path, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
         let mut request = contract::validate(input)?;
-        if !cwd.is_absolute() || cwd.to_string_lossy().contains('\0') {
+        if !crate::input::is_absolute(&cwd.to_string_lossy()) || cwd.to_string_lossy().contains('\0') {
             return Err(ScmFailure::invalid("cwd", "an absolute project directory"));
         }
         let action = request.action();
