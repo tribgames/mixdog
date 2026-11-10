@@ -9432,6 +9432,24 @@
       ],
       "type": "object"
     },
+    "ThreadApprovalAnswerParams": {
+      "description": "`thread/approval/answer`: a card's decision on the approval request `approval_id` (the server request's id) of the thread it waits in, the `result` a server-request response would carry.",
+      "properties": {
+        "approvalId": {
+          "type": "string"
+        },
+        "result": true,
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "approvalId",
+        "result",
+        "threadId"
+      ],
+      "type": "object"
+    },
     "ThreadAskSideParams": {
       "description": "Params of `thread/askSide`.",
       "properties": {
@@ -13010,6 +13028,29 @@
         },
         "params": {
           "$ref": "#/definitions/ThreadApprovalAnswerNotificationParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Today's `resolveToolApprovalForSession`: a card's decision on the approval request it shows, answered once the thread took it or another decision had (`accepted`), as Node's serialized answer was; like a server-request response, it is not an op.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "thread/approval/answer"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadApprovalAnswerParams"
         }
       },
       "required": [

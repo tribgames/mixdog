@@ -870,6 +870,57 @@
         10000
       ]
     },
+    "notice-reconnect": {
+      "shown": [
+        {
+          "step": 1,
+          "phone": "b",
+          "notice": {
+            "key": "secret-storage",
+            "code": "secret-storage-failed",
+            "params": {}
+          }
+        }
+      ],
+      "frames": [
+        {
+          "phone": "a",
+          "frame": {
+            "event": "browserApprovalSessions",
+            "payload": []
+          }
+        },
+        {
+          "phone": "b",
+          "frame": {
+            "event": "browserApprovalSessions",
+            "payload": []
+          }
+        },
+        {
+          "phone": "b",
+          "frame": {
+            "event": "desktop-notice",
+            "payload": {
+              "key": "secret-storage",
+              "code": "secret-storage-failed",
+              "params": {}
+            }
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "event": "browserApprovalSessions",
+            "payload": []
+          }
+        }
+      ],
+      "timers": [
+        10000,
+        10000
+      ]
+    },
     "approval-answers": {
       "cases": [
         {
@@ -1819,6 +1870,297 @@
             "id": 23,
             "ok": true,
             "value": "answered"
+          }
+        }
+      ],
+      "timers": []
+    },
+    "approval-races": {
+      "cases": [
+        {
+          "name": "phone a, then phone b",
+          "raced": 2,
+          "shown": [
+            {
+              "by": "a",
+              "action": "allow",
+              "outcome": {
+                "value": "answered"
+              }
+            },
+            {
+              "by": "b",
+              "action": "allow",
+              "outcome": {
+                "value": "settled"
+              }
+            }
+          ],
+          "took": [
+            {
+              "approved": true,
+              "device": "desktop-7"
+            }
+          ]
+        },
+        {
+          "name": "phone b, then phone a",
+          "raced": 2,
+          "shown": [
+            {
+              "by": "b",
+              "action": "deny",
+              "outcome": {
+                "value": "answered"
+              }
+            },
+            {
+              "by": "a",
+              "action": "allow",
+              "outcome": {
+                "value": "settled"
+              }
+            }
+          ],
+          "took": [
+            {
+              "approved": false,
+              "device": "desktop-8"
+            }
+          ]
+        },
+        {
+          "name": "phone, then the desktop",
+          "raced": 2,
+          "shown": [
+            {
+              "by": "a",
+              "action": "allow",
+              "outcome": {
+                "value": "answered"
+              }
+            },
+            {
+              "by": "desktop"
+            }
+          ],
+          "took": [
+            {
+              "approved": true,
+              "device": "desktop-7"
+            }
+          ]
+        },
+        {
+          "name": "the desktop, then a phone",
+          "raced": 2,
+          "shown": [
+            {
+              "by": "desktop"
+            },
+            {
+              "by": "a",
+              "action": "deny",
+              "outcome": {
+                "value": "settled"
+              }
+            }
+          ],
+          "took": [
+            {
+              "approved": true,
+              "device": "desktop-1"
+            }
+          ]
+        },
+        {
+          "name": "phone a's card, then phone b",
+          "raced": 2,
+          "shown": [
+            {
+              "by": "a",
+              "card": {
+                "approved": false,
+                "reason": "no"
+              },
+              "outcome": {
+                "value": true
+              }
+            },
+            {
+              "by": "b",
+              "action": "allow",
+              "outcome": {
+                "value": "settled"
+              }
+            }
+          ],
+          "took": [
+            {
+              "approved": false,
+              "reason": "no",
+              "device": "desktop-7"
+            }
+          ]
+        },
+        {
+          "name": "the desktop, then phone a's card",
+          "raced": 2,
+          "shown": [
+            {
+              "by": "desktop"
+            },
+            {
+              "by": "a",
+              "card": {
+                "approved": true
+              },
+              "outcome": {
+                "value": false
+              }
+            }
+          ],
+          "took": [
+            {
+              "approved": true,
+              "device": "desktop-1"
+            }
+          ]
+        },
+        {
+          "name": "after the desktop answered",
+          "raced": 1,
+          "shown": [
+            {
+              "by": "desktop"
+            },
+            {
+              "by": "a",
+              "action": "deny",
+              "outcome": {
+                "value": "settled"
+              }
+            },
+            {
+              "by": "b",
+              "action": "allow",
+              "outcome": {
+                "value": "open"
+              }
+            },
+            {
+              "by": "b",
+              "card": {
+                "approved": true
+              },
+              "outcome": {
+                "value": false
+              }
+            }
+          ],
+          "took": [
+            {
+              "approved": true,
+              "device": "desktop-1"
+            }
+          ]
+        }
+      ],
+      "frames": [
+        {
+          "phone": "a",
+          "frame": {
+            "id": 1,
+            "ok": true,
+            "value": "answered"
+          }
+        },
+        {
+          "phone": "b",
+          "frame": {
+            "id": 1,
+            "ok": true,
+            "value": "settled"
+          }
+        },
+        {
+          "phone": "b",
+          "frame": {
+            "id": 2,
+            "ok": true,
+            "value": "answered"
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 2,
+            "ok": true,
+            "value": "settled"
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 3,
+            "ok": true,
+            "value": "answered"
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 4,
+            "ok": true,
+            "value": "settled"
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 5,
+            "ok": true,
+            "value": true
+          }
+        },
+        {
+          "phone": "b",
+          "frame": {
+            "id": 3,
+            "ok": true,
+            "value": "settled"
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 6,
+            "ok": true,
+            "value": false
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 7,
+            "ok": true,
+            "value": "settled"
+          }
+        },
+        {
+          "phone": "b",
+          "frame": {
+            "id": 4,
+            "ok": true,
+            "value": "open"
+          }
+        },
+        {
+          "phone": "b",
+          "frame": {
+            "id": 5,
+            "ok": true,
+            "value": false
           }
         }
       ],

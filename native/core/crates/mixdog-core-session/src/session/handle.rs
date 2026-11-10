@@ -680,6 +680,16 @@ impl RunControl for SessionHandle {
 }
 
 impl SessionHandle {
+    /// [`RunControl::decide`] whose caller is told whether its decision resolved the request (`ControlCell::decide_arbitrated`): the
+    /// answer of a phone notification's button and of a room, which Node gave only after the session's serialized resolution.
+    pub(crate) async fn decide_arbitrated(&self, decision: Decision) -> Result<bool, CoreError> {
+        let directory = self.directory.upgrade().ok_or_else(|| self.closing())?;
+        let _admitted = directory.gate().enter(&self.id).ok_or_else(|| self.closing())?;
+        self.cell.decide_arbitrated(decision).await
+    }
+}
+
+impl SessionHandle {
     /// `abort` while nothing runs (`reclaimIdleSubmission`, `abort.mjs:84`): the queued submission the client names is handed
     /// back to its composer (`restoreQueued('', submissionId)`); naming none, or one that is not queued, stops nothing.
     async fn stop_idle(&self, submission: Option<String>, ctx: CallContext) -> Result<Value, CoreError> {

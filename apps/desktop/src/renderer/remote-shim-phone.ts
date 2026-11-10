@@ -12,8 +12,7 @@ import type { RemoteShimContext } from './remote-shim-state';
 const REMOTE_STATE_GAP_EVENT = 'mixdog:remote-state-gap';
 
 export function createPhoneApi(ctx: RemoteShimContext, adapters: readonly PhoneProtocolAdapter[], env: PhoneEnv): DesktopApi {
-  // The router is made below, before any connection; the flags are first read once a connection is up.
-  const boot = bootPhone(ctx, { ...env, claims: (method) => router.claims(method) });
+  const boot = bootPhone(ctx, env);
   const host: PhoneProtocolHost = {
     ctx,
     client: () => {

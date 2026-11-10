@@ -8,8 +8,9 @@
 // Notices: Node sent a phone a raised notice once, as it was raised, and only to the phones connected then; a phone that connected later
 // was sent none of the notices standing (remote-relay-push-lanes.ts:50-62, :178; desktop-service.ts:744-750). The core keeps a raised
 // notice as an entry of the `notice` section until it is cleared, so a window that attaches later still shows it; on the phone only an
-// entry the connected client hears added is a notice raised now. What a connection's snapshot holds is not shown, and the page's section
-// store does not carry the section (phone-sections.ts).
+// entry the connected client hears added live is a notice raised now. What a connection's snapshot holds is not shown, nor what a resumed
+// subscription replays from the time the connection was away (below its `liveSeq`), and the page's section store does not carry the
+// section (phone-sections.ts).
 import type { ProtocolClient, SessionFold } from '../../../../packages/protocol-client/src/index.ts';
 import { readDesktopNotice } from '../shared/desktop-notice';
 import { failure } from './remote-protocol-files';
@@ -28,8 +29,9 @@ const rpc = async (host: PhoneProtocolHost, method: string, params: Record<strin
 /** Shows the page each notice the connected client hears raised. */
 function followNotices(host: PhoneProtocolHost, client: Client): () => void {
   return client.store.subscribe((change) => {
-    // A snapshot announces what stands (`store.owed` is set while it does): those were raised before this connection.
-    if (change.type !== 'section' || change.section !== 'notice' || client.store.owed) return;
+    // A snapshot announces what stands, a resumed subscription replays what changed while the connection was away: neither was raised
+    // while this phone was connected.
+    if (change.type !== 'section' || change.section !== 'notice' || !client.store.appLive()) return;
     const notice = readDesktopNotice(client.store.section('notice', change.key)?.value);
     if (notice) host.ctx.fanOut(host.ctx.desktopNoticeListeners, notice);
   });

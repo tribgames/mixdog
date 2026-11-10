@@ -113,8 +113,10 @@ const STORED_READS: [&str; 6] = [
 /// for a session that is not there as Node does (`deleted: false` / `not-archived`), not
 /// `threadNotFound`. `thread/fork` is served there for `inheritFrom`, which creates the heir's session before it looks the source up.
 /// `thread/inheritancePreflight` reads its own thread and the source the directory looks up; no session actor serves it.
-/// `thread/approval/answerNotification` answers only an approval a loaded thread shows: it never loads one.
-const DIRECTORY_SERVED: [&str; 4] = ["thread/delete", "thread/fork", "thread/inheritancePreflight", "thread/approval/answerNotification"];
+/// `thread/approval/answerNotification` and `thread/approval/answer` answer only an approval a loaded thread shows: they never
+/// load one.
+const DIRECTORY_SERVED: [&str; 5] =
+    ["thread/delete", "thread/fork", "thread/inheritancePreflight", "thread/approval/answerNotification", "thread/approval/answer"];
 
 /// What a transport does after handing a message over.
 pub enum Inbound {
@@ -534,7 +536,7 @@ impl Shared {
             limits: config.limits.clone(),
             capabilities: {
                 let mut capabilities = config.capabilities.clone();
-                capabilities.remote.native_push = (config.native_push)();
+                capabilities.remote = mixdog_app_protocol::remote_flags::remote_capabilities((config.native_push)());
                 capabilities
             },
             connection: v1::ConnectionInfo {
@@ -836,6 +838,7 @@ impl Shared {
             },
             epoch: attached.decision.epoch.clone(),
             start_seq: attached.decision.start_seq,
+            live_seq: attached.decision.live_seq,
         };
         result.insert(
             "subscription".to_owned(),

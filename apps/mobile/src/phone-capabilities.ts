@@ -1,8 +1,8 @@
 // The Node core told the phone what it serves in flags on the relay challenge (`remoteParity`, `nativePush`, `browserParity`, ...), and the
 // page gates features on them. A protocol core says what it serves in `initialize.capabilities` (`remote` holds Node's flags under their
-// own names), so the flags are read from there. A flag is on only when the core serves its feature AND the page's adapters answer every
-// call the flag opens (`FLAG_CALLS`): a call no adapter claims would fail, so until its adapter lands the page reads the flag as off,
-// the way it read a PC that did not offer it.
+// own names), so the flags are read from there as they are. The core offers a flag only when every call it opens on this page is served
+// end to end, the page's adapter included (native/core/crates/mixdog-app-protocol/src/remote_flags.json, checked against the bundled
+// adapters by apps/desktop/src/renderer/remote-flags.test.mjs); a core that predates `remote` offers none.
 import type { InitializeResponse } from '../../../packages/protocol-client/src/index.ts';
 
 export interface PeerFlags {
@@ -28,47 +28,9 @@ export type ServerCapabilities = InitializeResponse['capabilities'];
 
 type RemoteFlag = keyof ServerCapabilities['remote'];
 
-/** The Node calls each flag opens on the page (remote-shim-api.ts and its readers); a flag with none opens no call. */
-export const FLAG_CALLS: Readonly<Record<RemoteFlag, readonly string[]>> = {
-  remoteParity: [
-    'getUpdaterState',
-    'checkForDesktopUpdate',
-    'showDesktopUpdate',
-    'trashProjectEntry',
-    'browserReleasePage',
-    'submitToSession',
-    'localPageUrl',
-    'previewProjectFile',
-    'previewProjectFileRange',
-    'githubCliLoginOpenBrowser',
-    'ghPrList',
-    'ghPrDefaultBranch',
-    'ghPrCreate',
-    'ghPrView',
-    'ghPrCheckout',
-    'ghPrMerge',
-    'ghPrDiff',
-  ],
-  nativePush: ['registerNativePush', 'removeNativePush'],
-  browserDrive: ['browserRemoteControl'],
-  browserSessionTabs: ['browserRemoteTabOpen', 'browserRemoteTabClose'],
-  termSizeOwner: ['termResize'],
-  hostDirectories: ['listHostDirectories'],
-  usageRequests: ['readCapabilities'],
-  projectRecovery: ['projectRecovery'],
-  routeAutoEffort: ['submitNewTask', 'setModelRoute', 'inheritSession'],
-  visualize: ['visualizeState', 'visualizeCommand', 'visualizePaneInline', 'visualizePanePages', 'visualizePaneRange'],
-  fileDownloads: ['fileDownloadAuthorize', 'fileDownloadBegin', 'fileDownloadRange', 'fileDownloadFinish', 'fileDownloadAbort'],
-  secretInput: ['provideSecretInput'],
-  browserWebrtc: ['browserRemoteControl'],
-  browserFit: ['browserRemoteControl'],
-  mediaE2ee: [],
-};
-
-/** `claims(method)`: an adapter of this page answers the Node call `method` (remote-shim-protocol.ts). */
-export function peerFlagsOf(capabilities: ServerCapabilities, claims: (method: string) => boolean = () => false): PeerFlags {
+export function peerFlagsOf(capabilities: ServerCapabilities): PeerFlags {
   const remote: Partial<ServerCapabilities['remote']> = capabilities.remote ?? {};
-  const on = (flag: RemoteFlag): boolean => remote[flag] === true && FLAG_CALLS[flag].every(claims);
+  const on = (flag: RemoteFlag): boolean => remote[flag] === true;
   return {
     peerRemoteParity: on('remoteParity'),
     peerNativePush: on('nativePush'),
@@ -83,7 +45,7 @@ export function peerFlagsOf(capabilities: ServerCapabilities, claims: (method: s
     peerVisualize: on('visualize'),
     peerFileDownloads: on('fileDownloads'),
     peerSecretInput: on('secretInput'),
-    peerBrowserWebrtc: typeof remote.browserWebrtc === 'number' && remote.browserWebrtc > 0 && FLAG_CALLS.browserWebrtc.every(claims) ? remote.browserWebrtc : 0,
+    peerBrowserWebrtc: typeof remote.browserWebrtc === 'number' ? remote.browserWebrtc : 0,
     peerBrowserFit: on('browserFit'),
     peerMediaE2ee: on('mediaE2ee'),
   };

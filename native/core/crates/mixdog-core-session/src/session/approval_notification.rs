@@ -12,13 +12,14 @@ use mixdog_app_protocol::v2::approval::ApprovalNotificationAction;
 use mixdog_app_protocol::v2::approval::ApprovalNotificationOutcome;
 use mixdog_app_protocol::v2::approval::ThreadApprovalAnswerNotificationParams;
 use mixdog_app_protocol::v2::approval::ThreadApprovalAnswerNotificationResponse;
+use mixdog_app_protocol::v2::approval::ThreadApprovalAnswerParams;
+use mixdog_app_protocol::v2::approval::ThreadApprovalAnswerResponse;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::Reply;
 use mixdog_core_api::call::Caller;
 use mixdog_core_api::call::CoreRequest;
 use mixdog_core_api::ids::ServerRequestId;
 use mixdog_core_api::thread::Decision;
-use mixdog_core_api::thread::RunControl;
 use mixdog_js::js_trim;
 use serde_json::Map;
 use serde_json::Value;
@@ -119,7 +120,7 @@ fn reply(outcome: ApprovalNotificationOutcome) -> Result<Reply, CoreError> {
 
 impl SessionDirectory {
     /// `thread/approval/answerNotification`. A thread that is not loaded shows no approval: Allow is `open`, Deny `settled`.
-    pub(super) fn answer_approval_notification(&self, req: &CoreRequest) -> Result<Reply, CoreError> {
+    pub(super) async fn answer_approval_notification(&self, req: &CoreRequest) -> Result<Reply, CoreError> {
         let params: ThreadApprovalAnswerNotificationParams = serde_json::from_value(req.params.clone())
             .map_err(|error| CoreError::InvalidParams { path: "params".into(), expected: error.to_string().into() })?;
         let id = js_trim(&params.approval_id);
@@ -138,11 +139,43 @@ impl SessionDirectory {
         let Some(decision) = decision else { return reply(ApprovalNotificationOutcome::Open) };
         let (Some(handle), Some(_)) = (handle, shown) else { return reply(ApprovalNotificationOutcome::Settled) };
         let device = handle.deps.devices.describe(connection);
-        RunControl::decide(
-            &*handle,
-            Decision { request: ServerRequestId(id.to_owned()), connection, device: device.device, connection_kind: device.kind, result: decision },
-        )?;
-        reply(ApprovalNotificationOutcome::Answered)
+        // Answered once the session took it: a decision another connection got in first is `settled`, as Node's `accepted` false
+        // (remote-session-methods.ts:207-214).
+        let accepted = handle
+            .decide_arbitrated(Decision { request: ServerRequestId(id.to_owned()), connection, device: device.device, connection_kind: device.kind, result: decision })
+            .await?;
+        reply(if accepted { ApprovalNotificationOutcome::Answered } else { ApprovalNotificationOutcome::Settled })
+    }
+
+    /// `thread/approval/answer` (Node's `resolveToolApprovalForSession`, session-host-lifecycle.ts:1086): a card's decision, answered
+    /// once the thread took it. `accepted` false for a thread that is not loaded, an approval it does not wait on, or one another
+    /// decision resolved first.
+    pub(super) async fn answer_approval(&self, req: &CoreRequest) -> Result<Reply, CoreError> {
+        let params: ThreadApprovalAnswerParams = serde_json::from_value(req.params.clone())
+            .map_err(|error| CoreError::InvalidParams { path: "params".into(), expected: error.to_string().into() })?;
+        let id = js_trim(&params.approval_id);
+        if id.is_empty() || mixdog_js::utf16_len(id) > APPROVAL_ID_UNITS {
+            return Err(mixdog_core_base::support::failed("approval", "approval id is invalid."));
+        }
+        let Caller::Connection(connection) = req.ctx.caller else {
+            return Err(CoreError::InvalidParams { path: "caller".into(), expected: "a client connection".into() });
+        };
+        let accepted = match self.handle(&params.thread_id) {
+            None => false,
+            Some(handle) => {
+                let device = handle.deps.devices.describe(connection);
+                handle
+                    .decide_arbitrated(Decision {
+                        request: ServerRequestId(id.to_owned()),
+                        connection,
+                        device: device.device,
+                        connection_kind: device.kind,
+                        result: params.result,
+                    })
+                    .await?
+            }
+        };
+        Ok(Reply::Value(serde_json::to_value(ThreadApprovalAnswerResponse { accepted }).expect("protocol types serialize")))
     }
 }
 

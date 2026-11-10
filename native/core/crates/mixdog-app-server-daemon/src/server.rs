@@ -14,7 +14,6 @@ use mixdog_app_protocol::limits::CloseCode;
 use mixdog_app_protocol::limits::Limits;
 use mixdog_app_protocol::limits::LimitsViolation;
 use mixdog_app_protocol::v1::CapabilityState;
-use mixdog_app_protocol::v1::RemoteCapabilities;
 use mixdog_app_protocol::v1::ServerCapabilities;
 use mixdog_app_server::AppServer;
 use mixdog_app_server::Inbound;
@@ -79,30 +78,6 @@ impl Running {
     }
 }
 
-/// The relay challenge flags of Node (`remote-relay-client-lifecycle.ts:117-151`), each on where this core serves the feature behind
-/// it. Node offered all but `nativePush` on every phone connection; `nativePush` is read per `initialize` (`ServerConfig::native_push`).
-/// Off until their features are served: the remote browser's drive, session tabs, fit and WebRTC live view (RS-2) and the encrypted
-/// media lane (RS-1).
-fn remote_capabilities() -> RemoteCapabilities {
-    RemoteCapabilities {
-        remote_parity: true,
-        native_push: false,
-        browser_drive: false,
-        browser_session_tabs: false,
-        term_size_owner: true,
-        host_directories: true,
-        usage_requests: true,
-        project_recovery: true,
-        route_auto_effort: true,
-        visualize: true,
-        file_downloads: true,
-        secret_input: true,
-        browser_webrtc: 0,
-        browser_fit: false,
-        media_e2ee: false,
-    }
-}
-
 pub(crate) fn server_config(limits: Limits, defaults_separation: mixdog_app_protocol::v1::DefaultsSeparation) -> ServerConfig {
     let version = env!("CARGO_PKG_VERSION");
     let server = compat::parse(version).expect("the workspace version is semver");
@@ -120,7 +95,8 @@ pub(crate) fn server_config(limits: Limits, defaults_separation: mixdog_app_prot
             browser: CapabilityState::Available,
             computer: CapabilityState::Available,
             voice: CapabilityState::Available,
-            remote: remote_capabilities(),
+            // Each `initialize` answers it again with the relay's native push offer of that moment (`ServerConfig::native_push`).
+            remote: mixdog_app_protocol::remote_flags::remote_capabilities(false),
         },
         native_push: Arc::new(|| false),
         limits,
