@@ -1,10 +1,10 @@
 // PH-2 "Chat" calls that need more than a request mapping, over `mixdogd`: the three start calls (Node's blank snapshot, no
 // thread), the remote-session fields every snapshot carries, transcript paging, the stale-view refusal, and the refusal
 // texts. Each answers what Node's host (b6f10295a) answered the phone; the expectations are its recordings
-// (native/core/fixtures/phone-chat/host.json, remote-protocol-chat-host.test.mjs).
+// (native/core/fixtures/phone-chat/host.json, remote-chat-host.test.mjs).
 //
 // It wraps the base adapter of remote-protocol-chat.ts (`createChatApi`) and replaces only the calls it owns:
-//   import { createChatHostApi } from './remote-protocol-chat-host.ts';
+//   import { createChatHostApi } from './remote-chat-host.ts';
 //   const api = createChatHostApi(client, shared, createChatApi(client, shared, options), hostOptions);
 import type {
   DesktopNewTaskSubmitResult,
@@ -17,8 +17,12 @@ import type {
 import { blankSnapshot, remoteSessionIdOf, startFolder, withRemoteSession } from '../shared/blank-snapshot.ts';
 import type { StartCall } from '../shared/blank-snapshot.ts';
 import { viewIsStale } from '../main/remote-view-staleness.ts';
+// Types only: the adapter module (remote-protocol-chat.ts) imports this one, so nothing here may need it loaded first.
 import type { ChatApi, ChatClient, ChatShared } from './remote-protocol-chat.ts';
-import { READ_NOT_VIEWED } from './remote-protocol-chat.ts';
+
+// remote-session-methods.ts READ_NOT_VIEWED / READ_NOT_HELD
+export const READ_NOT_VIEWED = 'This session is not open on this device.';
+export const READ_NOT_HELD = 'This row is not in the transcript this device holds.';
 
 /** remote-methods.ts STALE_SESSION_VIEW_MESSAGE. */
 export const STALE_SESSION_VIEW_MESSAGE = 'This conversation changed on another device. Review the latest messages, then send again.';

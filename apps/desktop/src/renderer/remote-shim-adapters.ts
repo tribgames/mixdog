@@ -1,11 +1,20 @@
 // Every `remote-protocol-<group>.ts` next to this file is a phone adapter (unit PH-2): it exports `adapter`, a
-// PhoneProtocolAdapter. Adding a group is adding the file; nothing here or in remote-shim.ts changes.
+// PhoneProtocolAdapter. Adding a group is adding the file; nothing here or in remote-shim.ts changes. A module that is not
+// an adapter is named otherwise (`remote-chat-host.ts`), so the glob never finds it.
 import type { PhoneProtocolAdapter } from './remote-shim-protocol';
+
+/** The adapters of the modules the glob found, in file-name order; a module that exports none fails the boot by its path. */
+export function adaptersOf(modules: Record<string, { adapter?: PhoneProtocolAdapter }>): PhoneProtocolAdapter[] {
+  return Object.keys(modules)
+    .sort()
+    .map((path) => {
+      const adapter = modules[path].adapter;
+      if (!adapter || typeof adapter.calls !== 'object' || adapter.calls === null) throw new Error(`${path} exports no phone adapter`);
+      return adapter;
+    });
+}
 
 /** The adapters the bundle holds, in file-name order. */
 export function bundledPhoneAdapters(): PhoneProtocolAdapter[] {
-  const modules = import.meta.glob<{ adapter: PhoneProtocolAdapter }>(['./remote-protocol-*.ts', '!./remote-protocol-queue.ts'], { eager: true });
-  return Object.keys(modules)
-    .sort()
-    .map((path) => modules[path].adapter);
+  return adaptersOf(import.meta.glob<{ adapter?: PhoneProtocolAdapter }>(['./remote-protocol-*.ts', '!./remote-protocol-queue.ts'], { eager: true }));
 }

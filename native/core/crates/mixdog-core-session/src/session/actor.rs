@@ -600,6 +600,10 @@ pub(crate) struct SessionActor {
     /// state.stats (usage totals), folded from each model call's usage event.
     stats: super::stats::SessionStats,
     steer_marked: Vec<QueuedId>,
+    /// The calls of the running turn whose wait for the person its abort ended, by call id, with what their card reads: the
+    /// abort's `Error: <reason>`, which Node's question and approval waits settle with (`runAbortable`, ask-user-tool.mjs:249,
+    /// before-hook.mjs:162) and its eager entry notices to the card (`notifyEarlyResult`, eager-dispatch/entry.mjs:39-44).
+    abort_ended: std::collections::HashMap<String, String>,
     /// The context display fields a running turn published, held for the turn's end ([`Self::on_context_section`]).
     held_display: Option<ThreadContext>,
     /// Which completions showed a live card (Node's per-session execution dedup).
@@ -935,6 +939,7 @@ impl SessionActor {
             turns_closed: 0,
             stats: Default::default(),
             steer_marked: Vec::new(),
+            abort_ended: Default::default(),
             held_display: None,
             cards: Default::default(),
             listened: Default::default(),
@@ -1380,6 +1385,7 @@ impl SessionActor {
         // The open turn's `completionVerb`, which its live rows carry.
         let verb = self.run.as_ref().map(|slot| slot.verb);
         let turn = self.run.as_ref().map(|slot| slot.transcript.clone());
+        let abort_ended = self.abort_ended.clone();
         let at = self.deps.clock.now_ms();
         let submitted = self.deps.lanes.cpu.submit(&CancellationToken::new(), move |lane| {
             let result = deps.codec.encode(lane, &record).map(|encoded| {
@@ -1403,7 +1409,7 @@ impl SessionActor {
                         };
                         match shown {
                             Shown::Item(item) => Shown::Item(super::live_end::live_form(item, attempt, verb, turn.as_ref(), raw, at)),
-                            Shown::Update(item) => Shown::Update(super::live_end::live_form(item, attempt, verb, turn.as_ref(), raw, at)),
+                            Shown::Update(item) => Shown::Update(super::live_end::live_result(super::live_end::live_form(item, attempt, verb, turn.as_ref(), raw, at), at, &abort_ended)),
                         }
                     })
                     .collect();
@@ -2325,7 +2331,10 @@ impl SessionActor {
                 self.request_approval(turn, ask, reply);
             }
             Ctl::Abort { turn } => {
-                if self.run.as_ref().is_some_and(|run| run.turn == turn) {
+                if let Some(text) = self.run.as_ref().filter(|run| run.turn == turn).map(|run| format!("Error: {}", run.cancel.reason())) {
+                    for call in self.book.open_asks().filter_map(|ask| ask.call_id.as_ref()) {
+                        self.abort_ended.insert(call.as_str().to_owned(), text.clone());
+                    }
                     let now = self.deps.clock.now_ms();
                     for aid in self.book.take_run(&turn) {
                         let interrupted = ApprovalResolution::Interrupted { at: now };
@@ -2469,6 +2478,7 @@ impl SessionActor {
         // An ended turn has no working messages left (`liveTurnMessages` ends with the turn).
         self.cell.turn_messages.send_replace(Default::default());
         self.steer_marked.clear();
+        self.abort_ended.clear();
         // `settleTurn`'s `releaseWorkspace()`: every settled turn, whatever its outcome, starts
         // the removal of the snapshots it made, without waiting for it.
         self.deps.snapshots.turn_settled(&self.id);
@@ -2720,6 +2730,14 @@ impl SessionActor {
     /// the prompt history, and when another device cancelled, the device that sent the prompt gets it through
     /// `thread/promptRestore` (the canceller's reply never carries it).
     fn apply_reclaim(&mut self, reclaim: &super::stop::Reclaim) {
+        // A runtime's prompt put back in the queue hands no text back: the prompt history keeps it (`if (restoreText)`,
+        // `abort.mjs:77`), and the runtime's own rewind of the uncommitted turn already took its row.
+        if let Some(entry) = &reclaim.requeue {
+            self.requeue_front(entry.clone());
+        }
+        if reclaim.text.is_empty() {
+            return;
+        }
         self.accept_view(Change::PromptWithout(reclaim.text.clone()), Vec::new());
         // The prompt's row, and every row after it, leave the transcript (`reclaimInFlightPrompt` removes the turn's prompt),
         // by the thread's own rewind as `PromptRewound` does.
@@ -4214,28 +4232,7 @@ impl SessionActor {
         if let Some(submission) = submission_id(&params.input) {
             self.submissions.remember(submission, value.clone());
         }
-        let mut entry = json!({
-            "message": params.input.prompt,
-            "enqueuedAt": self.deps.clock.now_ms(),
-        });
-        if let Some(options) = &params.input.options {
-            // The entry's priority is its own top-level field, as Node's queue entries carry it
-            // (`within_priority`); the options keep the rest.
-            let mut options = options.clone();
-            if let Some(priority) = options.priority.take() {
-                entry["priority"] = serde_json::to_value(priority).expect("protocol types serialize");
-            }
-            // Likewise the follow-up's `context` (`entry-shape.mjs:32`); the queued turn runs
-            // without it (`queuedTurnInput` re-applies no caller context).
-            if let Some(context) = options.context.take() {
-                entry["context"] = Value::String(context);
-            }
-            entry["options"] = serde_json::to_value(&options).expect("protocol types serialize");
-        }
-        // `defaultQueuePriority` (`queue-helpers.mjs:28`): a user prompt that names none queues at `next`.
-        if entry.get("priority").is_none() {
-            entry["priority"] = json!("next");
-        }
+        let mut entry = self.queue_entry(&params.input);
         // The entry's `transcriptMeta` (`pending-messages`; read by `mergeSteeringMetadata`,
         // `steering.mjs:62`): the hop and bot chain a host submitter gave this submission. Only a
         // host submission has them (`SubmitOptions` refuses `hop`), registered under its id.
@@ -4254,12 +4251,8 @@ impl SessionActor {
         if let Some(meta) = host_meta {
             entry["transcriptMeta"] = meta;
         }
-        // The device and the composer's claim travel with the entry until it becomes a turn (`start_next_queued`).
         if let Some(submitter) = &submitter {
-            if !submitter.device.is_empty() {
-                entry["transcriptMeta"]["device"] = json!(submitter.device);
-            }
-            entry["restorable"] = json!(submitter.restorable);
+            with_submitter(&mut entry, submitter);
         }
         let record = Record::Queue(QueueRecord {
             qid: id(&qid),
@@ -4277,6 +4270,43 @@ impl SessionActor {
             after: None,
             prompt: user_prompt,
         })
+    }
+
+    /// A submission as the queue entry it waits as (`entry-shape.mjs`), before what its submitter adds.
+    fn queue_entry(&self, input: &TurnInput) -> Value {
+        let mut entry = json!({
+            "message": input.prompt,
+            "enqueuedAt": self.deps.clock.now_ms(),
+        });
+        if let Some(options) = &input.options {
+            // The entry's priority is its own top-level field, as Node's queue entries carry it
+            // (`within_priority`); the options keep the rest.
+            let mut options = options.clone();
+            if let Some(priority) = options.priority.take() {
+                entry["priority"] = serde_json::to_value(priority).expect("protocol types serialize");
+            }
+            // Likewise the follow-up's `context` (`entry-shape.mjs:32`); the queued turn runs
+            // without it (`queuedTurnInput` re-applies no caller context).
+            if let Some(context) = options.context.take() {
+                entry["context"] = Value::String(context);
+            }
+            entry["options"] = serde_json::to_value(&options).expect("protocol types serialize");
+        }
+        // `defaultQueuePriority` (`queue-helpers.mjs:28`): a user prompt that names none queues at `next`.
+        if entry.get("priority").is_none() {
+            entry["priority"] = json!("next");
+        }
+        entry
+    }
+
+    /// A stopped runtime prompt goes back to the front of the queue (`requeueEntriesFront`, `session-flow/queue.mjs:50-76`) and
+    /// runs again once the stopped turn settled (`kickDrainAfterAbort`, `abort.mjs:100-111`).
+    fn requeue_front(&mut self, entry: Value) {
+        let qid = new_id();
+        for action in [QueueAction::Enqueue, QueueAction::Prioritize] {
+            let record = Record::Queue(QueueRecord { qid: id(&qid), action, reason: None, op: None, entry: Some(Slot::Inline(entry.clone())) });
+            self.accept_record(record, Class::Control, Display::None, Vec::new(), Vec::new());
+        }
     }
 
     /// The `restoreQueued` reply of a hand-back whose entry is not in the queue; `None` for any
@@ -5132,6 +5162,11 @@ impl SessionActor {
             restorable: submitter.as_ref().is_some_and(|submitter| submitter.restorable) && !wake,
             committed: false,
             entry: json!({ "message": input.prompt, "options": input.options }),
+            requeue: submitter.as_ref().filter(|submitter| !submitter.restorable && !wake).map(|submitter| {
+                let mut entry = self.queue_entry(&input);
+                with_submitter(&mut entry, submitter);
+                entry
+            }),
             reclaim: None,
         }));
         self.run = Some(RunSlot {
@@ -5422,6 +5457,14 @@ enum PlanKind {
     StartRun(TurnInput, Option<OpRef>),
     /// Records with their class, display and accept-time notes, then view-only changes.
     Records(Vec<(Record, Class, Display, Vec<Note>)>, Vec<Change>),
+}
+
+/// The device and the composer's claim travel with a queue entry until it becomes a turn (`start_next_queued`).
+fn with_submitter(entry: &mut Value, submitter: &Submitter) {
+    if !submitter.device.is_empty() {
+        entry["transcriptMeta"]["device"] = json!(submitter.device);
+    }
+    entry["restorable"] = json!(submitter.restorable);
 }
 
 /// `queue{dequeue, delivered}`.

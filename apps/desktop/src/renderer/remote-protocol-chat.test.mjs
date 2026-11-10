@@ -129,16 +129,16 @@ const SCRIPT = {
 };
 
 /** The cases this file does not replay through the base adapter, each with where it is replayed whole against Node's own answer:
- *  the test that owns it (remote-protocol-chat-host.test.mjs: the host adapter, which the phone mounts, answers these
+ *  the test that owns it (remote-chat-host.test.mjs: the host adapter, which the phone mounts, answers these
  *  from the start/secret/room/home recordings and the core replies in remote-protocol-chat-refusals.recorded.json). */
 const REPLAYED_BY = {
-  startTask: 'remote-protocol-chat-host.test.mjs: "start" group, the whole blank snapshot against Node',
-  startProject: 'remote-protocol-chat-host.test.mjs: "start" group, the whole blank snapshot against Node',
-  'startProjectTask-registered': 'remote-protocol-chat-host.test.mjs: "start" group, the whole blank snapshot against Node',
-  'provideSecretInput-false': 'remote-protocol-chat-host.test.mjs: provideSecretInput of an id that is no secret request',
-  'startProjectTask-unknown': 'remote-protocol-chat-host.test.mjs: startProjectTask of an unregistered Project, over the core reply recorded from mixdogd',
-  'openAgentHome-unknown-agent': 'remote-protocol-chat-host.test.mjs: openAgentHome of an unknown agent, over the core reply recorded from mixdogd',
-  'agentRoomAction-unknown': 'remote-protocol-chat-host.test.mjs: agentRoomAction of an unknown action',
+  startTask: 'remote-chat-host.test.mjs: "start" group, the whole blank snapshot against Node',
+  startProject: 'remote-chat-host.test.mjs: "start" group, the whole blank snapshot against Node',
+  'startProjectTask-registered': 'remote-chat-host.test.mjs: "start" group, the whole blank snapshot against Node',
+  'provideSecretInput-false': 'remote-chat-host.test.mjs: provideSecretInput of an id that is no secret request',
+  'startProjectTask-unknown': 'remote-chat-host.test.mjs: startProjectTask of an unregistered Project, over the core reply recorded from mixdogd',
+  'openAgentHome-unknown-agent': 'remote-chat-host.test.mjs: openAgentHome of an unknown agent, over the core reply recorded from mixdogd',
+  'agentRoomAction-unknown': 'remote-chat-host.test.mjs: agentRoomAction of an unknown action',
 };
 
 /** The fields the phone's readers use (use-composer-submission.ts:461, model-controls.tsx:654/754, shell-job-controls.tsx:63/65). */

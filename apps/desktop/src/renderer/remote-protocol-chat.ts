@@ -27,7 +27,8 @@ import type {
 } from '../shared/contract';
 import { SECTION_NAMES, type DesktopSectionsSnapshot } from '../shared/contract-sections';
 import type { ProtocolClient, SessionFold } from '../../../../packages/protocol-client/src/index.ts';
-import { sessionStateOf } from '../../../../packages/protocol-client/src/index.ts';
+import { mergeToolRows, rowOf, sessionStateOf } from '../../../../packages/protocol-client/src/index.ts';
+import { createChatHostApi, READ_NOT_HELD, READ_NOT_VIEWED, type ChatHostShared } from './remote-chat-host';
 import { createCapabilityLane } from '../main/protocol/capability-route';
 import { coreErrorForWindow } from '../main/protocol/core-error';
 import { routeService } from '../main/protocol/service-route';
@@ -88,9 +89,6 @@ export interface ChatApprovalNotifications {
 
 export type ApprovalNotificationAnswer = 'answered' | 'settled' | 'open';
 
-// remote-session-methods.ts READ_NOT_VIEWED / READ_NOT_HELD
-export const READ_NOT_VIEWED = 'This session is not open on this device.';
-export const READ_NOT_HELD = 'This row is not in the transcript this device holds.';
 
 const record = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
@@ -427,8 +425,12 @@ const CHAT_CALLS = [
 
 /** `sharedFor` and the api are made PER CALL from `host.client()`: that client carries this call's transmission claim
  *  (phone-send-scope.ts), so a request written through anything built from it is claimed; one captured at start would not be. */
+/** The calls are the host's (remote-chat-host.ts `createChatHostApi`) over the base api: the start calls, the snapshot's remote
+ *  fields, paging, the stale-view refusal and the refusal texts Node's host answered the phone with. */
 export function createChatAdapter(options: {
-  sharedFor(client: ChatClient): ChatShared;
+  sharedFor(client: ChatClient): ChatHostShared;
+  /** The `hostState` value of key `remoteSession` this client holds (remote-chat-host.ts `ChatHostOptions`). */
+  remoteSession(client: ChatClient): unknown;
   approvalNotifications?: ChatApprovalNotifications;
   roster: { summaries(rows: ThreadRow[]): unknown[] };
 }): PhoneProtocolAdapter {
@@ -437,7 +439,9 @@ export function createChatAdapter(options: {
     (feed ??= createRosterFeed({ summaries: options.roster.summaries, publish: (rows) => host.ctx.sessionsCatalog.publish(rows as never) }));
   const api = (host: PhoneProtocolHost) => {
     const client = host.client() as unknown as ChatClient;
-    return createChatApi(client, options.sharedFor(client), { approvalNotifications: options.approvalNotifications });
+    const shared = options.sharedFor(client);
+    const base = createChatApi(client, shared, { approvalNotifications: options.approvalNotifications });
+    return createChatHostApi(client, shared, base, { remoteSession: () => options.remoteSession(client) });
   };
   const calls: Record<string, (params: unknown[], host: PhoneProtocolHost) => unknown> = {};
   for (const name of CHAT_CALLS) {
@@ -469,7 +473,7 @@ const connectionStatus = (client: ProtocolClient<SessionFold>): DesktopSectionsS
 
 /** The desktop's capability lane (main/protocol/capability-route.ts) over this phone's client: the same conversions, the same
  *  core replies, with `client` being the one call's scoped client. */
-const sharedFor = (scoped: ChatClient): ChatShared => {
+const sharedFor = (scoped: ChatClient): ChatHostShared => {
   const client = scoped as unknown as ProtocolClient<SessionFold>;
   const lane = createCapabilityLane({
     protocol: {
@@ -488,9 +492,15 @@ const sharedFor = (scoped: ChatClient): ChatShared => {
     normalizedProviderModels,
     sessionStateOf: (threadId) => sessionStateOf(client, threadId) as unknown as SessionSnapshot | undefined,
     remoteToolOutput,
+    // The client's own fold of thread items into transcript rows (`rowOf`, then `mergeToolRows`).
+    foldRows: (items) => mergeToolRows(items.map((item) => rowOf(item as never)).filter((row) => row !== null)),
   };
 };
 
+/** The core's `hostState` key `remoteSession` as this client's section store holds it. */
+const remoteSession = (scoped: ChatClient): unknown =>
+  (scoped as unknown as ProtocolClient<SessionFold>).store.section('hostState', 'remoteSession')?.value;
+
 // `approvalNotifications` stays unset: Node's rules read the approvals the DESKTOP's notifier had shown (push-notifier.ts shownApprovals),
 // and nothing of the core says what a push showed, so `answerApprovalNotification` answers 'open' (Node's answer without them).
-export const adapter: PhoneProtocolAdapter = createChatAdapter({ sharedFor, roster: { summaries: summariesOfThreadRows } });
+export const adapter: PhoneProtocolAdapter = createChatAdapter({ sharedFor, remoteSession, roster: { summaries: summariesOfThreadRows } });

@@ -480,8 +480,8 @@ async fn interrupt_is_answered_on_the_control_path_and_ends_the_run() {
     })
     .await;
     assert_eq!(completed.2["turn"]["status"], "interrupted");
-    // The user's stop carries `abortRuntime`'s text.
-    let expected = format!("Session \"{}\" closed: runtime abort (reason=cli-abort)", handle.id.as_str());
+    // The user's stop carries `abortRuntime`'s text with the Stop's reason (`abort.mjs:118`).
+    let expected = format!("Session \"{}\" closed: runtime abort (reason=user-cancel)", handle.id.as_str());
     assert_eq!(reason.lock().unwrap().as_deref(), Some(expected.as_str()));
 }
 
@@ -516,7 +516,7 @@ async fn interrupt_cancels_the_run_while_the_control_lane_is_full() {
     assert_eq!(filled, 32, "the control lane holds 32");
     handle.interrupt(&turn_id, None).expect("interrupt");
 
-    let expected = format!("Session \"{}\" closed: runtime abort (reason=cli-abort)", handle.id.as_str());
+    let expected = format!("Session \"{}\" closed: runtime abort (reason=user-cancel)", handle.id.as_str());
     assert_eq!(seen_rx.await.expect("the script observed the cancel"), expected);
 }
 
@@ -4476,6 +4476,65 @@ async fn a_tool_result_completes_its_call_in_place() {
         .collect();
     assert_eq!(completed.len(), 2);
     assert_eq!(completed[1], "a.txt");
+}
+
+/// A live card starts when its call is recorded and completes when its result lands (Node stamps `completedAt: Date.now()` as the
+/// result is applied, `tool-card-results/aggregate-result.mjs:30-46`): the result's time, not the call's again.
+#[tokio::test(start_paused = true)]
+async fn a_live_tool_card_completes_at_its_result() {
+    use std::sync::atomic::Ordering;
+    let rig = Rig::new();
+    let clock = rig.clock.clone();
+    rig.set_script(Arc::new(move |run| {
+        let clock = clock.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            clock.0.store(2_000, Ordering::SeqCst);
+            let call = json!({ "id": "c1", "name": "shell", "arguments": { "command": "ls" } });
+            run.port
+                .commit_item(ItemCommit {
+                    iid: ItemId::from(format!("a-{}", run.turn)),
+                    role: Some("assistant".into()),
+                    model: true,
+                    visible: true,
+                    body: json!({ "text": "listing", "toolCalls": [call] }),
+                    prompt: None,
+                })
+                .await
+                .expect("call");
+            clock.0.store(2_015, Ordering::SeqCst);
+            run.port
+                .commit_item(ItemCommit {
+                    iid: ItemId::from(format!("t-{}", run.turn)),
+                    role: Some("tool".into()),
+                    model: true,
+                    visible: true,
+                    body: json!({ "toolCallId": "c1", "text": "a.txt" }),
+                    prompt: None,
+                })
+                .await
+                .expect("result");
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "ls", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 4).then_some(())).await;
+    let view = handle.cell.view.load_full();
+    let call = view.items.iter().find(|item| item.id().as_str() == "call:c1").expect("call item");
+    let ThreadItem::ToolCall { run, .. } = call.as_ref() else {
+        panic!("tool call");
+    };
+    assert_eq!((run.started_at, run.completed_at), (Some(2_000), Some(2_015)), "started at the call, completed at the result");
+    let completed: Vec<Value> = rig
+        .feeds
+        .frames(handle.id.as_str())
+        .into_iter()
+        .filter(|(_, method, params)| method == "item/completed" && params["item"]["id"] == "call:c1")
+        .map(|(_, _, params)| params["item"]["run"]["completedAt"].clone())
+        .collect();
+    assert_eq!(completed, vec![json!(2_000), json!(2_015)], "the result's frame carries the card's completion");
 }
 
 #[tokio::test(start_paused = true)]

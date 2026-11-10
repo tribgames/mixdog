@@ -115,7 +115,7 @@ try {
   await phoneRequest('submitToSession-blank', 'submitToSession', [threadId, '   ', { id: 'refusals-blank' }]);
   await phoneRequest('submitNewTask-empty', 'submitNewTask', ['', { id: 'refusals-new-empty' }, {}]);
   await phoneRequest('openAgentHome-unknown-agent', 'openAgentHome', ['nobody']);
-  // provideSecretInput is not a routed service call: the adapter sends `approval/provideSecret` itself (remote-protocol-chat-host.ts).
+  // provideSecretInput is not a routed service call: the adapter sends `approval/provideSecret` itself (remote-chat-host.ts).
   const secret = { method: 'approval/provideSecret', params: { requestId: 'secret_abcdefgh12345', secret: 'value' } };
   const secretFrame = await op(secret.method, secret.params);
   cases.push({ name: 'provideSecretInput-unknown-id', call: 'provideSecretInput', args: ['secret_abcdefgh12345', 'value'], request: secret, reply: secretFrame.error ? { error: secretFrame.error } : { result: secretFrame.result } });

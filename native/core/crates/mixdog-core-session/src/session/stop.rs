@@ -22,6 +22,9 @@ pub(crate) struct Reclaim {
     pub ids: Vec<String>,
     /// Another device cancelled: the device that sent the prompt, which gets it through `thread/promptRestore`.
     pub handoff: Option<String>,
+    /// The runtime's own prompt the stop found uncommitted, as the queue entry that goes back to the front of the queue and
+    /// runs again (`requeueEntriesFront`, `abort.mjs:90`).
+    pub requeue: Option<Value>,
 }
 
 /// The prompt that started a run.
@@ -52,6 +55,10 @@ pub(crate) struct Facts {
     pub committed: bool,
     /// The prompt in the shape of a queue entry (`{message, options}`): what the attachments are read from.
     pub entry: Value,
+    /// A runtime's own prompt (a kickoff), as its queue entry: Node's drain gives the turn the batch's entries that are not the
+    /// user's to edit as `requeueOnAbort` (`drain.mjs:140`), and a stop before the turn committed puts them back
+    /// (`abort.mjs:160-165`).
+    pub requeue: Option<Value>,
     pub reclaim: Option<Reclaim>,
 }
 
@@ -178,10 +185,13 @@ pub(crate) fn decide(facts: &Facts, restore_prompt: Option<bool>, canceller: &st
         Reason::UserCancel
     };
     let handed_over = cross && !restore_text.is_empty();
-    let reclaim = (!restore_text.is_empty()).then(|| Reclaim {
+    let requeue = facts.requeue.clone().filter(|_| !facts.committed);
+    // `reclaimInFlightPrompt` runs for a prompt handed back and for entries put back in the queue (`abort.mjs:192-199`).
+    let reclaim = (!restore_text.is_empty() || requeue.is_some()).then(|| Reclaim {
         text: restore_text.clone(),
         ids: facts.ids.clone(),
         handoff: handed_over.then(|| facts.device.clone()),
+        requeue,
     });
     Decision {
         reason,
@@ -225,6 +235,7 @@ mod tests {
                 restorable: submit["kickoff"] != true && !committed,
                 committed,
                 entry: json!({ "options": { "pastedImages": submit["pastedImages"], "pastedTexts": submit["pastedTexts"] } }),
+                requeue: None,
                 reclaim: None,
             };
             let restore_prompt = options.get("restorePrompt").and_then(Value::as_bool);
@@ -268,6 +279,7 @@ mod tests {
                 restorable: submit["kickoff"] != true,
                 committed: false,
                 entry: json!({ "options": { "pastedImages": submit["pastedImages"], "pastedTexts": submit["pastedTexts"] } }),
+                requeue: None,
                 reclaim: None,
             });
             let options = &case["options"];

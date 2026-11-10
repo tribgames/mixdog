@@ -200,8 +200,9 @@ async function writtenThrough(wire = (adapter) => adapter) {
         respond() {},
         pendingServerRequests: () => [],
       };
-      return { routeService, lane: createCapabilityLane({ protocol }), coreErrorForWindow, normalizedProviderModels, sessionStateOf: () => undefined, remoteToolOutput };
+      return { routeService, lane: createCapabilityLane({ protocol }), coreErrorForWindow, normalizedProviderModels, sessionStateOf: () => undefined, remoteToolOutput, foldRows: () => [] };
     },
+    remoteSession: () => undefined,
     roster: { summaries: (rows) => summariesOfThreadRows(rows) },
   });
   const host = { ctx: { sessionsCatalog: { publish() {} } }, client: () => client, declareLane() {} };

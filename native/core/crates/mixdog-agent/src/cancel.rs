@@ -19,7 +19,7 @@ pub const JOB_CANCELLED: &str = "agent task cancelled before resource admission"
 /// request's signal is that controller's, so a wait ended by it reads this text (`abortError`
 /// returns an `Error` reason as is). Sources: `closeSession` (a job's cancel closes its worker
 /// session with [`AGENT_TASK_CANCEL`]; `agent close`, session delete and teardown close with their
-/// own reasons), `abortSessionTurn`, and the runtime's `abortRuntime` (a user stop, [`CLI_ABORT`]).
+/// own reasons), `abortSessionTurn`, and the runtime's `abortRuntime` (a user stop, [`USER_CANCEL`]).
 /// A steer aborts nothing: it queues behind the running turn.
 pub fn session_closed(session_id: &str, detail: &str) -> String {
     format!("Session \"{session_id}\" closed: {detail}")
@@ -44,8 +44,11 @@ pub fn runtime_abort_reason(session_id: &str, reason: &str) -> String {
 /// The close reason of a cancelled agent job (`job-start.mjs`).
 pub const AGENT_TASK_CANCEL: &str = "agent-task-cancel";
 
-/// The reason of a user stop (`abortRuntime`'s default).
+/// `abortRuntime`'s default reason, for a caller that names none.
 pub const CLI_ABORT: &str = "cli-abort";
+
+/// The reason of a user's Stop (`abort.mjs:118`, passed on by `abortGoalTurn` to `abortRuntime`).
+pub const USER_CANCEL: &str = "user-cancel";
 
 /// A signal's reason when a parent signal aborted with none (`linkParentSignalToSession`).
 pub const PARENT_ABORTED: &str = "parent signal aborted";

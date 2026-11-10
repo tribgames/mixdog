@@ -773,10 +773,12 @@ impl ThreadHandle for SessionHandle {
         // Decided against the prompt's facts as they are now and recorded in the same hold, so an output commit cannot land between
         // the two; the actor reads the hand-back when the turn ends, which this abort may bring at once.
         let decision = run.prompt.decide_and_record(restore_prompt, &canceller, steering, unreadable.is_some());
+        // `abortGoalTurn(runtime, flags, steering, reason)` (`goal-turn-state.mjs:3-12`): a Stop's own reason is `user-cancel`
+        // (`abort.mjs:118`), the text a call the abort ends reads (`runtime abort (reason=user-cancel)`, `session-close.mjs:102`).
         let name = match decision.reason {
             stop::Reason::Interrupt => "interrupt",
             stop::Reason::KeepPrompt => "user-cancel-keep-prompt",
-            stop::Reason::UserCancel => mixdog_agent::cancel::CLI_ABORT,
+            stop::Reason::UserCancel => mixdog_agent::cancel::USER_CANCEL,
         };
         if let Err(error) = self.cell.abort(&run.turn, &mixdog_agent::cancel::Abort::runtime_abort(self.id.as_str(), name)) {
             run.prompt.record(None);

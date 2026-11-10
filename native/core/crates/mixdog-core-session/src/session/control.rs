@@ -372,7 +372,7 @@ impl ControlCell {
     }
 
     /// `turn/interrupt` → `{cancelRequested: true, turnId}` (R12): the user's stop
-    /// (`abortRuntime`, `cli-abort`). The cancel is fired before this returns and a full control lane cannot
+    /// (`abortRuntime`, `user-cancel`). The cancel is fired before this returns and a full control lane cannot
     /// refuse it; the run stops at its next poll and its `run{interrupted}` record follows through the control
     /// reserve.
     pub fn interrupt(&self, turn: &TurnId, restore_prompt: Option<bool>) -> Result<Value, CoreError> {
@@ -386,7 +386,7 @@ impl ControlCell {
         } else if restore_prompt == Some(false) {
             "user-cancel-keep-prompt"
         } else {
-            mixdog_agent::cancel::CLI_ABORT
+            mixdog_agent::cancel::USER_CANCEL
         };
         self.abort(turn, &mixdog_agent::cancel::Abort::runtime_abort(self.thread.as_str(), name))
     }
