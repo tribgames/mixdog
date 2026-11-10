@@ -27,9 +27,13 @@
 //     runs from one entry to the next (an activity change paired with its own output does not end it). For each tab in each stretch, the
 //     sequence of distinct states its output went through (and its paired activity changes among them) must be Node's, and so must the
 //     order in which the stretch's tabs changed; where Node's runs differ in those, the trace must have one run's sequence (or order).
-//     Every place where the runs differ is then held together with the others (`consistentPlaces`): one run must have the trace's values
-//     at all of them, unless the recordings show two places varying apart. An answer's `replay` is compared as the state it produces at
-//     the tab's size.
+//     An answer's `replay` is compared as the state it produces at the tab's size.
+//   - The places where Node's runs differ are held to each other by one stated rule, pairwise co-occurrence (`consistentPlaces`):
+//     (1) at every place the trace's alternative is one some Node run shows, whole; (2) for every two places, the trace's two alternatives
+//     are shown together by at least one Node run. Combinations of three or more places are not checked: no finite number of runs could
+//     show three or more places varying jointly, so this is the comparison's level of evidence, stated as such (MANIFEST.json
+//     `comparisonEvidence`). Every kind of place enters it: a state, an entry, a sequence of states, an order of tabs, an exit code, a
+//     disposal pair's presence and place, and the order of a change against its own frame.
 //   - A tab's output frame and its own activity change that every Node run sends directly next to each other (that frame on one side, not
 //     both, and nothing between them), some runs frame first and some change first, are one place: the runs show both orders there,
 //     and the framing recording shows why: this pair flips with when the write lands
@@ -48,9 +52,35 @@
 // (terminal-manager.ts:378-383: activity.exit(), null, then the exit line). Every tab below is PowerShell with that integration, disposed
 // at its prompt, so the mechanism covers each of them alike; nothing else is accepted. A pair is taken out at a disposal only where Node's
 // runs vary on it there (some run has it, some does not; where every run has it the trace must too, where none has it the trace may not),
-// and each is named in `exemptions` with the runs that have it.
+// and each is named in `exemptions` with the runs that have it. Its place is compared too, among all entries, output included: the
+// entries besides output before each of its changes and the state its tab's output had put the terminal in by then (`placedPairs`).
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
+
+const FIXTURE = new URL('../../../mobile/fixtures/phone-terminal/', import.meta.url);
+
+/** Node's runs as the fixture holds them (runs.json), refused unless they are exactly the runs MANIFEST.json's `runList` lists: the same
+ *  number, in the same order, each with the content hash listed for it (sha256 of the run's JSON, as the recorder computes it). */
+export function loadRuns() {
+  const runs = JSON.parse(readFileSync(new URL('runs.json', FIXTURE), 'utf8'));
+  const { runList } = JSON.parse(readFileSync(new URL('MANIFEST.json', FIXTURE), 'utf8'));
+  return checkedRuns(runs, runList);
+}
+
+/** `runs` when they are exactly the runs `runList` lists; throws naming the first that is not. */
+export function checkedRuns(runs, runList) {
+  assert.ok(Array.isArray(runList), "MANIFEST.json lists no runs (runList)");
+  assert.ok(Array.isArray(runs), 'runs.json is not a list of runs');
+  assert.equal(runs.length, runList.length, `runs.json has ${runs.length} runs; MANIFEST.json's runList lists ${runList.length}`);
+  runs.forEach((run, index) => {
+    const sha256 = createHash('sha256').update(JSON.stringify(run)).digest('hex');
+    assert.equal(runList[index].run, index, `MANIFEST.json's runList entry ${index} names run ${runList[index].run}`);
+    assert.equal(sha256, runList[index].sha256, `runs.json run ${index} is not the run MANIFEST.json's runList lists (sha256 ${sha256})`);
+  });
+  return runs;
+}
 
 const PARTS = ['order', 'claims.order', 'immediate.order'];
 const POWERSHELL_AT_PROMPT = new Set(['term_ph2a', 'term_ph2_l1', 'term_ph2_l2', 'term_ph2_l4', 'term_ph2_l5', 'term_ph2_l6', 'term_ph2_i1', 'term_ph2_i2']);
@@ -68,7 +98,8 @@ function withoutDisposalPairs(list, part) {
   const text = new Map();
   const disposals = new Map();
   const kept = [];
-  // Each pair's place: how many entries besides output were kept before its `running` and before its `null`.
+  // Each pair's place among all entries, output included: how many entries besides output were kept before its `running` and before
+  // its `null`, and the output its tab had sent by then (made a screen state by `placedPairs`).
   const pairs = new Map();
   let entries = 0;
   for (const entry of list) {
@@ -92,13 +123,12 @@ function withoutDisposalPairs(list, part) {
       const { id, state: activity } = entry.event;
       if (activity === 'running' && state.get(id) === 'disposed') {
         state.set(id, 'running');
-        pairs.set(`${id} dispose ${disposals.get(id)}`, `at entry ${entries}`);
+        pairs.set(`${id} dispose ${disposals.get(id)}`, { tab: id, at: [[entries, text.get(id) ?? '']] });
         continue;
       }
       if (activity === null && state.get(id) === 'running') {
         state.set(id, 'done');
-        const key = `${id} dispose ${disposals.get(id)}`;
-        pairs.set(key, `${pairs.get(key)} and ${entries}`);
+        pairs.get(`${id} dispose ${disposals.get(id)}`).at.push([entries, text.get(id) ?? '']);
         continue;
       }
     }
@@ -107,6 +137,25 @@ function withoutDisposalPairs(list, part) {
   }
   for (const [id, at] of state) assert.notEqual(at, 'running', `${part}: ${id}'s running after its dispose answer never ended`);
   return { kept, pairs };
+}
+
+/** Each disposal pair's place as one comparable value: per change, the entries besides output before it and the state its tab's output
+ *  so far puts an 80x24 terminal in (the same function of the output on both sides, so a pair before or after a frame that changes
+ *  the tab's state is a different place; a frame that changes nothing is no boundary). */
+async function placedPairs(pairs) {
+  const Terminal = await emulator();
+  const placed = new Map();
+  for (const [key, { at }] of pairs) {
+    const steps = [];
+    for (const [entries, text] of at) {
+      const tab = new Tab(Terminal, 80, 24);
+      await tab.write(text);
+      steps.push(`entry ${entries}, its tab's state ${intern(stateOf(tab))}`);
+      tab.term.dispose();
+    }
+    placed.set(key, steps.join(' and '));
+  }
+  return placed;
 }
 
 /** Per non-output position k of `list` that is an activity change with an output frame of its own tab (one that carries output) directly
@@ -436,32 +485,20 @@ function compareUnits(got, recorded, what, exemptions, places) {
   places.push({ what, values: recorded.map((units) => JSON.stringify(units)), mine: JSON.stringify(got) });
 }
 
-/** The places where Node's runs differ must be one run's together, except where the recordings show two places varying apart (every
- *  pair of their values that the runs have at the two places alone appears together in some run): places that are not shown to vary
- *  apart, directly or through others, form a group, and some one run must have the trace's value at every place of the group. */
+/** The co-occurrence rule (pairwise, the stated level of evidence): for every two places where Node's runs differ, at least one Node run
+ *  has the trace's alternative at both. (That at each place some run has it whole is checked where the place is found.) Combinations of
+ *  three or more places are not checked. */
 function consistentPlaces(places, exemptions) {
-  const parent = places.map((_, i) => i);
-  const root = (i) => (parent[i] === i ? i : (parent[i] = root(parent[i])));
-  const runs = places[0]?.values.length ?? 0;
+  const having = places.map((place) => new Set(place.values.flatMap((value, run) => (value === place.mine ? [run] : []))));
   for (let i = 0; i < places.length; i += 1) {
     for (let j = i + 1; j < places.length; j += 1) {
-      if (root(i) === root(j)) continue;
-      const [a, b] = [new Set(places[i].values), new Set(places[j].values)];
-      const together = new Set(places[i].values.map((value, run) => `${value}\u0000${places[j].values[run]}`));
-      if (together.size < a.size * b.size) parent[root(i)] = root(j);
+      if ([...having[i]].some((run) => having[j].has(run))) continue;
+      assert.fail(
+        `no Node run has the trace's alternatives at these two places together:\n  ${places[i].what}: runs ${[...having[i]].join(', ')}\n  ${places[j].what}: runs ${[...having[j]].join(', ')}`,
+      );
     }
   }
-  const groups = new Map();
-  places.forEach((place, i) => groups.set(root(i), [...(groups.get(root(i)) ?? []), place]));
-  for (const group of groups.values()) {
-    if (group.length < 2) continue;
-    const whole = Array.from({ length: runs }, (_, run) => run).filter((run) => group.every((place) => place.values[run] === place.mine));
-    if (whole.length === 0) {
-      const each = group.map((place) => `${place.what}: runs ${place.values.flatMap((value, run) => (value === place.mine ? [run] : [])).join(', ')}`);
-      assert.fail(`no one Node run has the trace's values at these places together (the runs do not show them varying apart):\n  ${each.slice(0, 24).join('\n  ')}`);
-    }
-    exemptions.push(`${group.length} places, one run's together (run ${whole.join('/')}): ${group.map((place) => place.what).slice(0, 8).join('; ')}${group.length > 8 ? '; …' : ''}`);
-  }
+  if (places.length > 1) exemptions.push(`${places.length} places where Node's runs differ: every two of the trace's alternatives shown together by some Node run (pairwise; three or more places together are not checked)`);
 }
 
 /** Where a stretch's events of one tab differ, for a message: the first state that differs, shown by the units in which it differs from
@@ -492,7 +529,7 @@ export async function nodeView(runs, part) {
   if (!views.has(key)) {
     const read = runs.map((run) => withoutDisposalPairs(pick(run, part) ?? [], `Node's ${part}`));
     const lists = read.map(({ kept }) => kept);
-    const pairs = read.map((run) => run.pairs);
+    const pairs = await Promise.all(read.map((run) => placedPairs(run.pairs)));
     const entries = (list) => list.filter((entry) => !isData(entry)).length;
     const lengths = lists.map(entries);
     assert.equal(new Set(lengths).size, 1, `Node's runs differ in ${part} beyond the recorded variation (${lengths.join(', ')} entries besides output)`);
@@ -541,7 +578,8 @@ export async function compareTraces(got, runs) {
   assert.deepEqual(extra, [], 'the trace has fields the comparison does not know');
   for (const part of PARTS) {
     const node = await nodeView(runs, part);
-    const { kept: mine, pairs: minePairs } = withoutDisposalPairs(pick(got, part) ?? [], part);
+    const { kept: mine, pairs: rawPairs } = withoutDisposalPairs(pick(got, part) ?? [], part);
+    const minePairs = await placedPairs(rawPairs);
     // A disposal pair is taken out only where Node's runs vary on it: some run has it at that disposal and some does not; where every
     // run has it, the trace must too, and where none has it, the trace may not.
     // Its place too: where every run that has it puts it the same way (and every run has it or none does), the trace must match.
@@ -572,6 +610,8 @@ export async function compareTraces(got, runs) {
       const side = mineSides.get(k);
       assert.ok(side === 'before' || side === 'after', `${part} entry ${k}: ${id}'s activity change is not next to its own output on one side, as in every Node run (here: ${side ?? 'neither'}; ${show(entries[k])})`);
       const recorded = [...new Set(node.sides.map((sides) => sides.get(k)))].join('/');
+      // The order is an alternative of its place like any other: held to the other places by the co-occurrence rule.
+      places.push({ what: `${part} entry ${k}: ${id}'s activity change against its own frame`, values: node.sides.map((sides) => sides.get(k)), mine: side });
       sets.push(`${part} entry ${k}: ${id}'s activity change with its own frame (Node: frame ${recorded} it; here: ${mineSides.get(k)}), proved by ${RELAY_FRAMING_PROOF}`);
     }
     const analysis = await analyse(mine, node.paired);
