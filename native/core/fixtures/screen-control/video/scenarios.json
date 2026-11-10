@@ -2220,6 +2220,377 @@
       }
     },
     {
+      "name": "a frame-seen of a run, then the stall watchdog’s new run, then that run’s first delivery: control is granted for the seen run only",
+      "world": {},
+      "steps": [
+        {
+          "op": "start"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "path",
+          "path": "helper"
+        },
+        {
+          "op": "delivered",
+          "epoch": "current"
+        },
+        {
+          "op": "frameSeen",
+          "epoch": "current",
+          "race": "held"
+        },
+        {
+          "op": "advance",
+          "ms": 216,
+          "quiet": true,
+          "race": "meanwhile"
+        },
+        {
+          "op": "delivered",
+          "epoch": "current",
+          "quiet": true,
+          "race": "meanwhile"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "screen",
+          "call": "nextVideoRun",
+          "epoch": 1
+        },
+        {
+          "ev": "screen",
+          "call": "start"
+        },
+        {
+          "ev": "screen",
+          "call": "setVideoRun",
+          "epoch": 1
+        },
+        {
+          "ev": "sink",
+          "call": "geometryChanged",
+          "key": "screen:7",
+          "geometry": {
+            "generation": 3,
+            "width": 1280,
+            "height": 720
+          }
+        },
+        {
+          "ev": "path",
+          "path": "helper"
+        },
+        {
+          "ev": "screen",
+          "call": "nextVideoRun",
+          "epoch": 2
+        },
+        {
+          "ev": "screen",
+          "call": "setVideoRun",
+          "epoch": 2
+        },
+        {
+          "ev": "screen",
+          "call": "setHelperVideo",
+          "delivering": false
+        },
+        {
+          "ev": "sink",
+          "call": "drawnTrack",
+          "key": "screen:7",
+          "drawn": true
+        },
+        {
+          "ev": "delivered",
+          "epoch": 2
+        },
+        {
+          "ev": "sink",
+          "call": "channelPush",
+          "key": "screen:7",
+          "message": {
+            "v": 1,
+            "kind": "screen-video",
+            "epoch": 2,
+            "path": "helper"
+          }
+        },
+        {
+          "ev": "frameSeen",
+          "epoch": 2
+        },
+        {
+          "ev": "screen",
+          "call": "setHelperVideo",
+          "delivering": true
+        },
+        {
+          "ev": "screen",
+          "call": "nextVideoRun",
+          "epoch": 3
+        },
+        {
+          "ev": "screen",
+          "call": "setVideoRun",
+          "epoch": 3
+        },
+        {
+          "ev": "screen",
+          "call": "setHelperVideo",
+          "delivering": false
+        },
+        {
+          "ev": "sink",
+          "call": "channelPush",
+          "key": "screen:7",
+          "message": {
+            "v": 1,
+            "kind": "screen-video",
+            "epoch": 3,
+            "path": "helper"
+          }
+        }
+      ],
+      "final": {
+        "elapsedMs": 216,
+        "pendingTimers": 1
+      }
+    },
+    {
+      "name": "a delivery of the current run made before its stall watchdog fires clears it: the cleared watchdog starts no run",
+      "world": {},
+      "steps": [
+        {
+          "op": "start"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "path",
+          "path": "helper"
+        },
+        {
+          "op": "delivered",
+          "epoch": "current"
+        },
+        {
+          "op": "advance",
+          "ms": 215
+        },
+        {
+          "op": "delivered",
+          "epoch": "current",
+          "race": "held"
+        },
+        {
+          "op": "advance",
+          "ms": 1,
+          "quiet": true,
+          "race": "meanwhile"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "screen",
+          "call": "nextVideoRun",
+          "epoch": 1
+        },
+        {
+          "ev": "screen",
+          "call": "start"
+        },
+        {
+          "ev": "screen",
+          "call": "setVideoRun",
+          "epoch": 1
+        },
+        {
+          "ev": "sink",
+          "call": "geometryChanged",
+          "key": "screen:7",
+          "geometry": {
+            "generation": 3,
+            "width": 1280,
+            "height": 720
+          }
+        },
+        {
+          "ev": "path",
+          "path": "helper"
+        },
+        {
+          "ev": "screen",
+          "call": "nextVideoRun",
+          "epoch": 2
+        },
+        {
+          "ev": "screen",
+          "call": "setVideoRun",
+          "epoch": 2
+        },
+        {
+          "ev": "screen",
+          "call": "setHelperVideo",
+          "delivering": false
+        },
+        {
+          "ev": "sink",
+          "call": "drawnTrack",
+          "key": "screen:7",
+          "drawn": true
+        },
+        {
+          "ev": "delivered",
+          "epoch": 2
+        },
+        {
+          "ev": "sink",
+          "call": "channelPush",
+          "key": "screen:7",
+          "message": {
+            "v": 1,
+            "kind": "screen-video",
+            "epoch": 2,
+            "path": "helper"
+          }
+        },
+        {
+          "ev": "advance",
+          "ms": 215,
+          "ran": 0
+        },
+        {
+          "ev": "delivered",
+          "epoch": 2
+        }
+      ],
+      "final": {
+        "elapsedMs": 216,
+        "pendingTimers": 1
+      }
+    },
+    {
+      "name": "a frame-seen, then the session’s stop: control is granted before the stop, never after it",
+      "world": {},
+      "steps": [
+        {
+          "op": "start"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "path",
+          "path": "helper"
+        },
+        {
+          "op": "delivered",
+          "epoch": "current"
+        },
+        {
+          "op": "frameSeen",
+          "epoch": "current",
+          "race": "held"
+        },
+        {
+          "op": "stopped",
+          "quiet": true,
+          "race": "meanwhile"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "screen",
+          "call": "nextVideoRun",
+          "epoch": 1
+        },
+        {
+          "ev": "screen",
+          "call": "start"
+        },
+        {
+          "ev": "screen",
+          "call": "setVideoRun",
+          "epoch": 1
+        },
+        {
+          "ev": "sink",
+          "call": "geometryChanged",
+          "key": "screen:7",
+          "geometry": {
+            "generation": 3,
+            "width": 1280,
+            "height": 720
+          }
+        },
+        {
+          "ev": "path",
+          "path": "helper"
+        },
+        {
+          "ev": "screen",
+          "call": "nextVideoRun",
+          "epoch": 2
+        },
+        {
+          "ev": "screen",
+          "call": "setVideoRun",
+          "epoch": 2
+        },
+        {
+          "ev": "screen",
+          "call": "setHelperVideo",
+          "delivering": false
+        },
+        {
+          "ev": "sink",
+          "call": "drawnTrack",
+          "key": "screen:7",
+          "drawn": true
+        },
+        {
+          "ev": "delivered",
+          "epoch": 2
+        },
+        {
+          "ev": "sink",
+          "call": "channelPush",
+          "key": "screen:7",
+          "message": {
+            "v": 1,
+            "kind": "screen-video",
+            "epoch": 2,
+            "path": "helper"
+          }
+        },
+        {
+          "ev": "frameSeen",
+          "epoch": 2
+        },
+        {
+          "ev": "screen",
+          "call": "setHelperVideo",
+          "delivering": true
+        },
+        {
+          "ev": "sink",
+          "call": "geometryChanged",
+          "key": "screen:7",
+          "geometry": null
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0
+      }
+    },
+    {
       "name": "install and password requests reach the session",
       "world": {},
       "steps": [

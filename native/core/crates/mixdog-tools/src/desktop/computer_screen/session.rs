@@ -1067,6 +1067,12 @@ impl Inner {
         self.state().subscriptions.push(unsub);
     }
 
+    /// Runs one entry from outside the screen control (the input host, the displays, the authorization, a
+    /// caller of the session) in its turn: Node runs each handler whole on its one thread.
+    fn entry<R>(&self, body: impl FnOnce() -> R) -> R {
+        self.deps.timers.turn().clone().enter(body)
+    }
+
     fn ensure_host(&self) -> (Arc<dyn ScreenHost>, BoxFuture<Result<(), String>>) {
         let existing = self.state().host.clone();
         let host = match existing {
@@ -1077,16 +1083,20 @@ impl Inner {
                 let me = self.me.clone();
                 self.subscribe(created.on_desktop(Arc::new(move |desktop: &LocalDesktop| {
                     if let Some(inner) = me.upgrade() {
-                        inner.state().local = Some(desktop.clone());
-                        inner.refresh_decision();
+                        inner.entry(|| {
+                            inner.state().local = Some(desktop.clone());
+                            inner.refresh_decision();
+                        });
                     }
                 })));
                 let me = self.me.clone();
                 self.subscribe(created.on_exit(Arc::new(move |_: &()| {
-                    if let Some(inner) = me.upgrade()
-                        && inner.state().running
-                    {
-                        drop(inner.stop("error".to_string(), None));
+                    if let Some(inner) = me.upgrade() {
+                        inner.entry(|| {
+                            if inner.state().running {
+                                drop(inner.stop("error".to_string(), None));
+                            }
+                        });
                     }
                 })));
                 created
@@ -1206,13 +1216,13 @@ impl Inner {
         let me = self.me.clone();
         self.subscribe(self.deps.authorization.on_change(Arc::new(move |_: &()| {
             if let Some(inner) = me.upgrade() {
-                inner.reauthorize();
+                inner.entry(|| inner.reauthorize());
             }
         })));
         let me = self.me.clone();
         self.subscribe(self.deps.displays.on_change(Arc::new(move |_: &()| {
             if let Some(inner) = me.upgrade() {
-                inner.renew_geometry();
+                inner.entry(|| inner.renew_geometry());
             }
         })));
         let helper = &self.deps.secure_desktop;
@@ -1751,46 +1761,50 @@ impl ScreenSession {
 
     /// The displays a phone may choose, before `start`.
     pub(super) fn list_displays(&self) -> Vec<Value> {
-        self.inner.deps.displays.list().iter().map(summarize_display).collect()
+        self.inner.entry(|| self.inner.deps.displays.list().iter().map(summarize_display).collect())
     }
 
     /// Admits the viewer and locks the geometry: `{plan, geometry, status}`. Refused when the viewer is not
     /// paired, the display is gone, the host cannot start, or the session stopped meanwhile. Single use.
     pub(super) fn start(&self) -> BoxFuture<Result<Value, String>> {
-        self.inner.start()
+        self.inner.entry(|| self.inner.start())
     }
 
     pub(super) fn running(&self) -> bool {
-        self.inner.state().running
+        self.inner.entry(|| self.inner.state().running)
     }
 
     pub(super) fn geometry(&self) -> Option<Value> {
-        self.inner.state().geometry.clone()
+        self.inner.entry(|| self.inner.state().geometry.clone())
     }
 
     /// The capture plan the sender opens its track from; `None` unless running.
     pub(super) fn capture_plan(&self) -> Option<Value> {
-        let state = self.inner.state();
-        if state.running { state.plan.clone() } else { None }
+        self.inner.entry(|| {
+            let state = self.inner.state();
+            if state.running { state.plan.clone() } else { None }
+        })
     }
 
     pub(super) fn status(&self) -> Value {
-        self.inner.state().status.clone()
+        self.inner.entry(|| self.inner.state().status.clone())
     }
 
     pub(super) fn video_path(&self) -> VideoPath {
-        self.inner.state().video_path
+        self.inner.entry(|| self.inner.state().video_path)
     }
 
     /// The last sampled cursor for the current geometry; `None` before one, while the helper serves, or when
     /// not running.
     pub(super) fn cursor(&self) -> Option<Value> {
-        let state = self.inner.state();
-        let serving = state.decision.is_none_or(|decision| decision_uses_helper(&decision));
-        state
-            .cursor
-            .filter(|cursor| state.running && !serving && state.mapping.is_some_and(|mapping| mapping.generation == cursor.generation))
-            .map(Cursor::value)
+        self.inner.entry(|| {
+            let state = self.inner.state();
+            let serving = state.decision.is_none_or(|decision| decision_uses_helper(&decision));
+            state
+                .cursor
+                .filter(|cursor| state.running && !serving && state.mapping.is_some_and(|mapping| mapping.generation == cursor.generation))
+                .map(Cursor::value)
+        })
     }
 
     pub(super) fn on_frame(&self, listener: Listener<HelperPicture>) -> Unsub {
@@ -1828,52 +1842,54 @@ impl ScreenSession {
 
     /// One validated viewer input (the channel's `screen-*` message); the outcome feeds the input-ack.
     pub(super) fn handle_input(&self, input: &Value, generation: u64) -> BoxFuture<RouteOutcome> {
-        self.inner.handle_input(input, generation)
+        self.inner.entry(|| self.inner.handle_input(input, generation))
     }
 
     /// Lifts every key and button this viewer holds. Valid before, during and after stop.
     pub(super) fn release_input(&self) -> BoxFuture<()> {
-        self.inner.router.release_all()
+        self.inner.entry(|| self.inner.router.release_all())
     }
 
     /// Whether the helper's frames reach this viewer's video now: control on the helper path waits for it.
     pub(super) fn set_helper_video(&self, delivering: bool) {
-        self.inner.set_helper_video(delivering);
+        self.inner.entry(|| self.inner.set_helper_video(delivering));
     }
 
     /// Declares the video run the viewer is shown to the helper.
     pub(super) fn set_video_run(&self, epoch: u64) {
-        if self.inner.state().running {
-            self.inner.deps.secure_desktop.set_video_run(epoch);
-        }
+        self.inner.entry(|| {
+            if self.inner.state().running {
+                self.inner.deps.secure_desktop.set_video_run(epoch);
+            }
+        });
     }
 
     pub(super) fn next_video_run(&self) -> u64 {
-        self.inner.deps.secure_desktop.mint_video_run()
+        self.inner.entry(|| self.inner.deps.secure_desktop.mint_video_run())
     }
 
     pub(super) fn helper_grant(&self, grant: Grant) {
-        self.inner.helper_grant(grant);
+        self.inner.entry(|| self.inner.helper_grant(grant));
     }
 
     pub(super) fn request_helper_install(&self, controller_key: &str) {
-        self.inner.request_helper_install(controller_key);
+        self.inner.entry(|| self.inner.request_helper_install(controller_key));
     }
 
     /// The phone's install-or-enroll with its Windows password, through PC access; `credential` is emptied
     /// once the request ended (or at once when it is not taken).
     pub(super) fn request_helper_credential(&self, controller_key: &str, credential: SharedCredential) {
-        self.inner.request_helper_credential(controller_key, credential);
+        self.inner.entry(|| self.inner.request_helper_credential(controller_key, credential));
     }
 
     /// Ends the session. Idempotent: a later call returns the first one's future, and a shorter `deadline_ms`
     /// moves the running stop's deadline earlier (never later).
     pub(super) fn stop(&self, reason: &str, deadline_ms: Option<u64>) -> BoxFuture<()> {
-        self.inner.stop(reason.to_string(), deadline_ms)
+        self.inner.entry(|| self.inner.stop(reason.to_string(), deadline_ms))
     }
 
     /// Completes once shutdown is done: releases delivered or dropped, and the backends closed.
     pub(super) fn released(&self) -> BoxFuture<()> {
-        self.inner.stop_waiter().unwrap_or_else(|| Box::pin(async {}))
+        self.inner.entry(|| self.inner.stop_waiter().unwrap_or_else(|| Box::pin(async {})))
     }
 }

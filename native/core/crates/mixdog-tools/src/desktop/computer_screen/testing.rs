@@ -25,6 +25,7 @@ use serde_json::Value;
 use super::installer::TimerHandle;
 use super::installer::Timers;
 use super::router::BoxFuture;
+use super::turn::Turn;
 
 pub(super) type Log = Arc<Mutex<Vec<Value>>>;
 
@@ -286,11 +287,12 @@ struct Clock {
 pub(super) struct VirtualTimers {
     replay: Replay,
     clock: Arc<Mutex<Clock>>,
+    turn: Arc<Turn>,
 }
 
 impl VirtualTimers {
     pub(super) fn new(replay: Replay) -> Self {
-        Self { replay, clock: Arc::new(Mutex::new(Clock::default())) }
+        Self { replay, clock: Arc::new(Mutex::new(Clock::default())), turn: Turn::new() }
     }
 
     fn clock(&self) -> std::sync::MutexGuard<'_, Clock> {
@@ -369,11 +371,15 @@ impl Timers for VirtualTimers {
         Box::pin(Sleep(state))
     }
 
-    fn spawn(&self, task: BoxFuture<()>) {
+    fn run(&self, task: BoxFuture<()>) {
         self.replay.spawn(task);
     }
 
-    fn set_timeout(&self, after: std::time::Duration, callback: Box<dyn FnOnce() + Send>) -> TimerHandle {
+    fn turn(&self) -> &Arc<Turn> {
+        &self.turn
+    }
+
+    fn arm(&self, after: std::time::Duration, callback: Box<dyn FnOnce() + Send>) -> TimerHandle {
         let state = Arc::new(Mutex::new(TimerState { fired: false, cancelled: false, waker: None }));
         {
             let mut clock = self.clock();

@@ -5,9 +5,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 47023,
+      "bytes": 54750,
       "path": "scenarios.json",
-      "sha256": "299dc4fb27f59ed0f279de2cb11405056cba9bb72c97184e6955ebc33a4173e5"
+      "sha256": "5c7788e6be60ba40a577bf83e7aa37a4470e6a3cc01ca84a3957ce5b66c7f4fa"
     }
   ],
   "inputs": {
@@ -24,6 +24,9 @@
       "a grant signed for the current run is relayed, one for another run dropped",
       "screen input reaches the session with the geometry’s generation; page input and a rejection are errors",
       "the session’s status, cursor, geometry and stop reach the sink and the channel",
+      "a frame-seen of a run, then the stall watchdog’s new run, then that run’s first delivery: control is granted for the seen run only",
+      "a delivery of the current run made before its stall watchdog fires clears it: the cleared watchdog starts no run",
+      "a frame-seen, then the session’s stop: control is granted before the stop, never after it",
       "install and password requests reach the session"
     ],
     "tree": "exact export of b6f10295a2f698afc85332467192de28500bd146"
@@ -49,7 +52,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-screen-control-video.mjs",
-  "recorderSha256": "92a78ed3382bebcebb8685a878c31ac33673c5ca4f3f01d42debc5c51ea832e6",
+  "recorderSha256": "1fb29be8031e72e0925f8c09a67c616d5f120a15b376cc728e988b53812227d6",
   "set": "screen-control/video",
-  "totalBytes": 47023
+  "totalBytes": 54750
 }

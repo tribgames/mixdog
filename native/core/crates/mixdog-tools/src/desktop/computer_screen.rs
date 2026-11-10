@@ -28,6 +28,8 @@ mod service;
 #[cfg(any(windows, test))]
 mod switch;
 #[cfg(any(windows, test))]
+mod turn;
+#[cfg(any(windows, test))]
 mod video;
 #[cfg(all(windows, test))]
 mod adapter_tests;

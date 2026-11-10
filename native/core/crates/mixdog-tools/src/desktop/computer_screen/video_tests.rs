@@ -12,6 +12,8 @@ use serde_json::Value;
 use serde_json::json;
 
 use super::installer::Credential;
+use super::installer::TimerHandle;
+use super::installer::Timers;
 use super::lease::Challenge;
 use super::lease::Grant;
 use super::lease::Unsub;
@@ -24,7 +26,9 @@ use super::testing::log_new;
 use super::testing::log_push;
 use super::testing::log_take;
 use super::testing::manifest_names;
+use super::testing::ms_value;
 use super::testing::next_turn;
+use super::turn::Turn;
 use super::video::ScreenVideoSource;
 use super::video::SinkFrame;
 use super::video::VideoPath;
@@ -220,7 +224,8 @@ impl VideoScreen<RecordedFrame> for FakeScreen {
 
 struct FakeSink {
     log: Log,
-    timers: VirtualTimers,
+    /// The clock's elapsed time, as the recorder writes it.
+    elapsed: Arc<dyn Fn() -> Value + Send + Sync>,
 }
 
 impl FakeSink {
@@ -250,14 +255,12 @@ impl VideoSink<RecordedFrame> for FakeSink {
     fn frame(&self, key: &str, frame: SinkFrame<RecordedFrame>) {
         let mut shown = fields(json!({"documentId": frame.document_id, "geometry": frame.geometry, "epoch": frame.epoch, "mimeType": frame.mime_type}));
         shown.append(&mut fields(frame.picture.0));
-        self.note("frame", key, fields(json!({"frame": shown, "at": self.timers.elapsed()})));
+        self.note("frame", key, fields(json!({"frame": shown, "at": (self.elapsed)()})));
     }
 }
 
-async fn play(replay: Replay, scenario: Value) -> (Vec<Value>, Value) {
-    let world = &scenario["world"];
-    let log = log_new();
-    let screen = Arc::new(FakeScreen {
+fn fake_screen(world: &Value, log: &Log) -> Arc<FakeScreen> {
+    Arc::new(FakeScreen {
         world: Mutex::new(World {
             running: false,
             geometry: Some(json!({"generation": 3, "width": 1280, "height": 720})),
@@ -280,48 +283,89 @@ async fn play(replay: Replay, scenario: Value) -> (Vec<Value>, Value) {
         hold: Arc::new(Mutex::new(Vec::new())),
         path: Arc::new(Mutex::new(Vec::new())),
         frame: Arc::new(Mutex::new(Vec::new())),
-    });
-    let timers = VirtualTimers::new(replay.clone());
-    let sink = Arc::new(FakeSink { log: log.clone(), timers: timers.clone() });
+    })
+}
+
+fn video_source(screen: &Arc<FakeScreen>, log: &Log, timers: Arc<dyn Timers>, elapsed: Arc<dyn Fn() -> Value + Send + Sync>) -> ScreenVideoSource<RecordedFrame> {
+    let sink = Arc::new(FakeSink { log: log.clone(), elapsed });
     let error_log = log.clone();
-    let source = ScreenVideoSource::new(screen.clone(), "7", sink, Arc::new(timers.clone()), move |message| {
+    ScreenVideoSource::new(screen.clone(), "7", sink, timers, move |message| {
         log_push(&error_log, json!({"ev": "startError", "message": message}));
-    });
-    // The script's `current` and `previous`: the last two epochs the screen minted. Before a second one there is
-    // no previous run: Node passes `undefined`, which no run's epoch equals, so nothing is called with it.
-    let epoch_of = |name: &Value| {
-        let world = lock(&screen.world);
-        let back = if name == "current" { 1 } else { 2 };
-        world.minted.len().checked_sub(back).map(|index| world.minted[index])
-    };
-    let delivered_event = |kind: &str, epoch: Option<u64>| match epoch {
+    })
+}
+
+/// The script's `current` and `previous`: the last two epochs the screen minted. Before a second one there is no
+/// previous run: Node passes `undefined`, which no run's epoch equals, so nothing is called with it.
+fn epoch_of(screen: &FakeScreen, name: &Value) -> Option<u64> {
+    let world = lock(&screen.world);
+    let back = if name == "current" { 1 } else { 2 };
+    world.minted.len().checked_sub(back).map(|index| world.minted[index])
+}
+
+fn epoch_event(kind: &str, epoch: Option<u64>) -> Value {
+    match epoch {
         Some(epoch) => json!({"ev": kind, "epoch": epoch}),
         None => json!({"ev": kind}),
-    };
+    }
+}
+
+/// The steps both the replay and the forced interleavings play, as the recorder plays them: `false` for another.
+fn play_step(step: &Value, screen: &FakeScreen, source: &ScreenVideoSource<RecordedFrame>, log: &Log, turn: &Arc<Turn>) -> bool {
+    let quiet = step["quiet"] == true;
+    match step["op"].as_str().expect("a step op") {
+        "path" => {
+            log_push(log, json!({"ev": "path", "path": step["path"]}));
+            let path = if step["path"] == "helper" { VideoPath::Helper } else { VideoPath::Capture };
+            emit(&screen.path, &path);
+        }
+        "delivered" => {
+            let epoch = epoch_of(screen, &step["epoch"]);
+            if !quiet {
+                log_push(log, epoch_event("delivered", epoch));
+            }
+            if let Some(epoch) = epoch {
+                source.delivered(epoch);
+            }
+        }
+        "frameSeen" => {
+            let epoch = epoch_of(screen, &step["epoch"]);
+            log_push(log, epoch_event("frameSeen", epoch));
+            if let Some(epoch) = epoch {
+                source.frame_seen(epoch);
+            }
+        }
+        // The session ends: an entry of the screen control like any other of the session's, in its turn.
+        "stopped" => turn.enter(|| {
+            lock(&screen.world).running = false;
+            emit(&screen.stop, &"user".to_string());
+        }),
+        _ => return false,
+    }
+    true
+}
+
+async fn play(replay: Replay, scenario: Value) -> (Vec<Value>, Value) {
+    let log = log_new();
+    let screen = fake_screen(&scenario["world"], &log);
+    let timers = VirtualTimers::new(replay.clone());
+    let clock = timers.clone();
+    let source = video_source(&screen, &log, Arc::new(timers.clone()), Arc::new(move || clock.elapsed()));
+    let turn = timers.turn().clone();
     for step in scenario["steps"].as_array().expect("steps") {
+        if play_step(step, &screen, &source, &log, &turn) {
+            continue;
+        }
         match step["op"].as_str().expect("a step op") {
             "start" => source.start(),
             "stop" => source.stop(),
-            "path" => {
-                log_push(&log, json!({"ev": "path", "path": step["path"]}));
-                let path = if step["path"] == "helper" { VideoPath::Helper } else { VideoPath::Capture };
-                emit(&screen.path, &path);
-            }
             "hold" => {
                 log_push(&log, json!({"ev": "hold"}));
                 emit(&screen.hold, &());
             }
             "frame" => emit(&screen.frame, &RecordedFrame(json!({"id": step["id"]}))),
-            "delivered" => {
-                let epoch = epoch_of(&step["epoch"]);
-                log_push(&log, delivered_event("delivered", epoch));
-                if let Some(epoch) = epoch {
-                    source.delivered(epoch);
-                }
-            }
             "repeatDelivered" => {
                 for _ in 0..step["times"].as_u64().expect("times") {
-                    let epoch = epoch_of(&json!("current")).expect("a current run");
+                    let epoch = epoch_of(&screen, &json!("current")).expect("a current run");
                     log_push(&log, json!({"ev": "delivered", "epoch": epoch}));
                     source.delivered(epoch);
                     let every = step["every"].as_u64().expect("every");
@@ -329,15 +373,8 @@ async fn play(replay: Replay, scenario: Value) -> (Vec<Value>, Value) {
                     log_push(&log, json!({"ev": "advance", "ms": every, "ran": ran}));
                 }
             }
-            "frameSeen" => {
-                let epoch = epoch_of(&step["epoch"]);
-                log_push(&log, delivered_event("frameSeen", epoch));
-                if let Some(epoch) = epoch {
-                    source.frame_seen(epoch);
-                }
-            }
             "grant" => {
-                if let Some(epoch) = epoch_of(&step["epoch"]) {
+                if let Some(epoch) = epoch_of(&screen, &step["epoch"]) {
                     source.helper_grant(Grant {
                         challenge: step["challenge"].as_str().expect("a challenge").to_string(),
                         epoch,
@@ -386,14 +423,12 @@ async fn play(replay: Replay, scenario: Value) -> (Vec<Value>, Value) {
                 lock(&screen.world).geometry = Some(step["geometry"].clone());
                 emit(&screen.geometry, &step["geometry"]);
             }
-            "stopped" => {
-                lock(&screen.world).running = false;
-                emit(&screen.stop, &"user".to_string());
-            }
             "advance" => {
                 let ms = step["ms"].as_u64().expect("ms");
                 let ran = timers.advance(ms).await;
-                log_push(&log, json!({"ev": "advance", "ms": ms, "ran": ran}));
+                if step["quiet"] != true {
+                    log_push(&log, json!({"ev": "advance", "ms": ms, "ran": ran}));
+                }
             }
             "settle" => replay.settle().await,
             other => panic!("unknown step {other}"),
@@ -415,4 +450,286 @@ fn every_recorded_video_scenario_replays_to_nodes_whole_trace() {
         assert_eq!(Value::Array(trace), scenario["trace"], "{name}: the trace");
         assert_eq!(final_state, scenario["final"], "{name}: the final state");
     }
+}
+
+// Forced interleavings. In the product the video source's entries arrive from several threads: the sender's
+// deliveries, the viewer's channel, the stall watchdog started by the runtime on a worker, the session's own
+// stop. Node runs each handler whole on one thread, so a check of the run and the update it decides are never split.
+// Here the source runs on a multi-threaded runtime; a recorded step marked `race: 'held'` is stopped by the source's
+// test gate just after its check, and each following `race: 'meanwhile'` step is started from another thread while
+// it is held. The gate is let go as soon as a racing step has to wait for its turn, or once all of them ended
+// (which only happens when nothing serialises them). The trace must be the one Node recorded for the same steps run
+// one after the other.
+
+/// How long one awaited event may take before the test fails, naming it.
+const DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
+
+type Armed = (u64, u64, Arc<std::sync::atomic::AtomicBool>, Box<dyn FnOnce() + Send>);
+
+#[derive(Default)]
+struct ThreadedClock {
+    /// Nanoseconds since the start.
+    now: u64,
+    seq: u64,
+    timers: Vec<Armed>,
+}
+
+/// Timers on a multi-threaded tokio runtime with a virtual clock: a task runs on the runtime's workers, and a due
+/// timer's callback is started on a worker when the script advances the clock (as `TokioTimers` starts it when
+/// its sleep ends), so it runs beside whatever else is running.
+#[derive(Clone)]
+struct ThreadedTimers {
+    runtime: tokio::runtime::Handle,
+    clock: Arc<Mutex<ThreadedClock>>,
+    tasks: Arc<Mutex<Vec<tokio::task::JoinHandle<()>>>>,
+    turn: Arc<Turn>,
+}
+
+impl Timers for ThreadedTimers {
+    fn now_ms(&self) -> f64 {
+        lock(&self.clock).now as f64 / 1e6
+    }
+
+    fn sleep(&self, _after: std::time::Duration) -> BoxFuture<()> {
+        panic!("the video source never sleeps")
+    }
+
+    fn run(&self, task: BoxFuture<()>) {
+        let handle = self.runtime.spawn(task);
+        lock(&self.tasks).push(handle);
+    }
+
+    fn arm(&self, after: std::time::Duration, callback: Box<dyn FnOnce() + Send>) -> TimerHandle {
+        let cleared = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        {
+            let mut clock = lock(&self.clock);
+            clock.seq += 1;
+            let (due, seq) = (clock.now + after.as_nanos() as u64, clock.seq);
+            clock.timers.push((due, seq, cleared.clone(), callback));
+        }
+        TimerHandle::new(move || cleared.store(true, std::sync::atomic::Ordering::SeqCst))
+    }
+
+    fn turn(&self) -> &Arc<Turn> {
+        &self.turn
+    }
+}
+
+impl ThreadedTimers {
+    fn new(runtime: tokio::runtime::Handle) -> Self {
+        Self { runtime, clock: Arc::default(), tasks: Arc::default(), turn: Turn::new() }
+    }
+
+    /// Moves the clock by `ms`, starting each timer that falls due and is not cleared on a worker, in due order.
+    fn advance(&self, ms: u64) -> Vec<tokio::task::JoinHandle<()>> {
+        let mut clock = lock(&self.clock);
+        let until = clock.now + ms * 1_000_000;
+        let mut started = Vec::new();
+        loop {
+            clock.timers.retain(|timer| !timer.2.load(std::sync::atomic::Ordering::SeqCst));
+            let next = clock.timers.iter().enumerate().min_by_key(|(_, timer)| (timer.0, timer.1)).map(|(index, _)| index);
+            match next {
+                Some(index) if clock.timers[index].0 <= until => {
+                    let (due, _, _, callback) = clock.timers.remove(index);
+                    clock.now = clock.now.max(due);
+                    started.push(self.runtime.spawn(async move { callback() }));
+                }
+                _ => break,
+            }
+        }
+        clock.now = until;
+        started
+    }
+
+    fn elapsed(&self) -> Value {
+        ms_value(lock(&self.clock).now)
+    }
+
+    fn pending(&self) -> usize {
+        lock(&self.clock).timers.iter().filter(|timer| !timer.2.load(std::sync::atomic::Ordering::SeqCst)).count()
+    }
+
+    fn finish(&self, task: tokio::task::JoinHandle<()>, what: &str) {
+        self.runtime
+            .block_on(async { tokio::time::timeout(DEADLINE, task).await })
+            .unwrap_or_else(|_| panic!("{what} did not end within {DEADLINE:?}"))
+            .unwrap_or_else(|error| panic!("{what} failed: {error}"));
+    }
+
+    /// Waits for every task started so far, and those they start, to end.
+    fn settle(&self) {
+        loop {
+            let tasks = std::mem::take(&mut *lock(&self.tasks));
+            if tasks.is_empty() {
+                return;
+            }
+            for task in tasks {
+                self.finish(task, "a task of the script");
+            }
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+enum Told {
+    /// The held step reached its gate.
+    Reached,
+    /// A thread started waiting for the turn.
+    Waiting,
+    /// A racing step (by index) or the held one (`None`) ended.
+    Ended(Option<usize>),
+}
+
+/// The race's events, with those that came before the one awaited kept for later.
+struct Events {
+    told: std::sync::mpsc::Receiver<Told>,
+    kept: Vec<Told>,
+}
+
+impl Events {
+    fn wait(&mut self, what: &str, wanted: impl Fn(&Told) -> bool) -> Told {
+        if let Some(index) = self.kept.iter().position(&wanted) {
+            return self.kept.remove(index);
+        }
+        loop {
+            let event = self.told.recv_timeout(DEADLINE).unwrap_or_else(|_| panic!("waiting for {what}: nothing came within {DEADLINE:?}"));
+            if wanted(&event) {
+                return event;
+            }
+            if event != Told::Waiting {
+                self.kept.push(event);
+            }
+        }
+    }
+}
+
+fn race(scenario: &Value) -> (Vec<Value>, Value) {
+    let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().expect("a multi-threaded runtime");
+    let log = log_new();
+    let screen = fake_screen(&scenario["world"], &log);
+    let timers = ThreadedTimers::new(runtime.handle().clone());
+    let clock = timers.clone();
+    let source = Arc::new(video_source(&screen, &log, Arc::new(timers.clone()), Arc::new(move || clock.elapsed())));
+    let (tell, told) = std::sync::mpsc::channel::<Told>();
+    let mut events = Events { told, kept: Vec::new() };
+    let waiting = tell.clone();
+    timers.turn.on_waiting(Arc::new(move || drop(waiting.send(Told::Waiting))));
+    let (open, opened) = std::sync::mpsc::channel::<()>();
+    let opened = Arc::new(Mutex::new(Some(opened)));
+    let armed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    {
+        let (tell, armed) = (tell.clone(), armed.clone());
+        source.set_gate(Arc::new(move |_point: &'static str| {
+            if !armed.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                return;
+            }
+            drop(tell.send(Told::Reached));
+            let opened = lock(&opened).take().expect("one held step");
+            opened.recv_timeout(DEADLINE).unwrap_or_else(|_| panic!("the held step was not let go within {DEADLINE:?}"));
+        }));
+    }
+    let turn = timers.turn.clone();
+    // A step on its own thread, telling when it ended.
+    let spawn_step = |step: Value, ended: Option<usize>| {
+        let (screen, source, log, turn, timers, tell) = (screen.clone(), source.clone(), log.clone(), turn.clone(), timers.clone(), tell.clone());
+        std::thread::spawn(move || {
+            if step["op"] == "advance" {
+                assert_eq!(step["quiet"], true, "a racing advance logs nothing of its own");
+                for started in timers.advance(step["ms"].as_u64().expect("ms")) {
+                    timers.finish(started, "a timer callback");
+                }
+            } else {
+                assert!(play_step(&step, &screen, &source, &log, &turn), "a racing step the race plays: {step}");
+            }
+            drop(tell.send(Told::Ended(ended)));
+        })
+    };
+    let steps = scenario["steps"].as_array().expect("steps");
+    let mut threads = Vec::new();
+    let mut index = 0;
+    while index < steps.len() {
+        let step = &steps[index];
+        index += 1;
+        if step["race"] == "held" {
+            armed.store(true, std::sync::atomic::Ordering::SeqCst);
+            threads.push(spawn_step(step.clone(), None));
+            events.wait("the held step at its gate", |event| *event == Told::Reached);
+            let mut released = false;
+            let mut running: Option<usize> = None;
+            let mut racing = 0;
+            while index < steps.len() && steps[index]["race"] == "meanwhile" {
+                if let Some(previous) = running.take() {
+                    events.wait("the previous racing step to end", |event| *event == Told::Ended(Some(previous)));
+                }
+                threads.push(spawn_step(steps[index].clone(), Some(racing)));
+                if released {
+                    running = Some(racing);
+                } else {
+                    let racer = racing;
+                    let event = events.wait("a racing step to wait for its turn or end", |event| {
+                        *event == Told::Waiting || *event == Told::Ended(Some(racer))
+                    });
+                    if event == Told::Waiting {
+                        open.send(()).expect("the held step waits at its gate");
+                        released = true;
+                        running = Some(racing);
+                    }
+                }
+                racing += 1;
+                index += 1;
+            }
+            if !released {
+                open.send(()).expect("the held step waits at its gate");
+            }
+            events.wait("the held step to end", |event| *event == Told::Ended(None));
+            if let Some(last) = running {
+                events.wait("the last racing step to end", |event| *event == Told::Ended(Some(last)));
+            }
+            continue;
+        }
+        if play_step(step, &screen, &source, &log, &turn) {
+            continue;
+        }
+        match step["op"].as_str().expect("a step op") {
+            "start" => source.start(),
+            "settle" => timers.settle(),
+            "advance" => {
+                let ms = step["ms"].as_u64().expect("ms");
+                let started = timers.advance(ms);
+                let ran = started.len();
+                for task in started {
+                    timers.finish(task, "a timer callback");
+                }
+                log_push(&log, json!({"ev": "advance", "ms": ms, "ran": ran}));
+            }
+            other => panic!("a step the race does not play: {other}"),
+        }
+    }
+    timers.settle();
+    for thread in threads {
+        thread.join().expect("a step's thread");
+    }
+    let final_state = json!({"elapsedMs": timers.elapsed(), "pendingTimers": timers.pending()});
+    (log_take(&log), final_state)
+}
+
+#[test]
+fn no_entry_comes_between_a_runs_check_and_its_update_on_a_multi_threaded_runtime() {
+    let recording: Value = serde_json::from_str(RECORDING).expect("the recording parses");
+    let scenarios: Vec<&Value> = recording["scenarios"]
+        .as_array()
+        .expect("scenarios")
+        .iter()
+        .filter(|scenario| scenario["steps"].as_array().expect("steps").iter().any(|step| step["race"] == "held"))
+        .collect();
+    assert_eq!(scenarios.len(), 3, "the recorded forced interleavings: a stale frame-seen, a late delivery, a frame-seen against stop");
+    let mut failures = Vec::new();
+    for scenario in scenarios {
+        let name = scenario["name"].as_str().expect("a scenario name");
+        let (trace, final_state) = race(scenario);
+        if Value::Array(trace.clone()) != scenario["trace"] || final_state != scenario["final"] {
+            failures.push(format!("{name}\n  rust: {}\n    {final_state}\n  node: {}\n    {}", Value::Array(trace), scenario["trace"], scenario["final"]));
+        }
+    }
+    assert!(failures.is_empty(), "interleavings Node cannot produce:\n{}", failures.join("\n"));
 }

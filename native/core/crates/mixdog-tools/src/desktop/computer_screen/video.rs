@@ -145,11 +145,30 @@ struct Inner<F> {
     on_start_error: Box<dyn Fn(String) + Send + Sync>,
     run: Mutex<Run>,
     subscriptions: Mutex<Vec<Unsub>>,
+    /// Test only: called where a decision on the run has been made and its update not yet, so a test can hold it
+    /// there and show that no other entry gets in between.
+    #[cfg(test)]
+    gate: Mutex<Option<Arc<dyn Fn(&'static str) + Send + Sync>>>,
 }
 
 impl<F: Clone + Send + Sync + 'static> Inner<F> {
     fn run(&self) -> MutexGuard<'_, Run> {
         self.run.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Runs one entry of the source: Node's handlers run whole on its one thread, so a check of the run and the
+    /// update or grant it decides are one step that no other entry (a delivery, a frame-seen, the watchdog's new
+    /// run, the session's stop) can come between.
+    fn entry<R>(&self, body: impl FnOnce() -> R) -> R {
+        self.timers.turn().clone().enter(body)
+    }
+
+    #[cfg(test)]
+    fn checked(&self, point: &'static str) {
+        let gate = self.gate.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
+        if let Some(gate) = gate {
+            gate(point);
+        }
     }
 
     fn status_message(&self) -> Value {
@@ -270,8 +289,15 @@ impl<F: Clone + Send + Sync + 'static> ScreenVideoSource<F> {
                 starting: false,
             }),
             subscriptions: Mutex::new(Vec::new()),
+            #[cfg(test)]
+            gate: Mutex::new(None),
         });
-        let weak = Arc::downgrade(&inner);
+        inner.clone().entry(|| Self::subscribe(&inner, &screen));
+        Self { inner }
+    }
+
+    fn subscribe(inner: &Arc<Inner<F>>, screen: &Arc<dyn VideoScreen<F>>) {
+        let weak = Arc::downgrade(inner);
         let with = move |weak: &Weak<Inner<F>>| weak.upgrade();
         let mut subscriptions = Vec::new();
         {
@@ -358,12 +384,21 @@ impl<F: Clone + Send + Sync + 'static> ScreenVideoSource<F> {
             }
         })));
         *inner.subscriptions.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = subscriptions;
-        Self { inner }
+    }
+
+    /// Test only: `gate` is called at each point where a decision on the run is made and its update is not.
+    #[cfg(test)]
+    pub(super) fn set_gate(&self, gate: Arc<dyn Fn(&'static str) + Send + Sync>) {
+        *self.inner.gate.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(gate);
     }
 
     /// Starts the session once; its geometry (or none, on a refusal) reaches the sink, and the first run is
     /// declared once the session runs.
     pub(super) fn start(&self) {
+        self.inner.entry(|| self.start_in_turn());
+    }
+
+    fn start_in_turn(&self) {
         {
             let mut run = self.inner.run();
             if run.starting {
@@ -389,16 +424,22 @@ impl<F: Clone + Send + Sync + 'static> ScreenVideoSource<F> {
     }
 
     pub(super) fn stop(&self) {
-        self.inner.timers.spawn(self.inner.screen.stop("viewer-left"));
+        self.inner.entry(|| self.inner.timers.spawn(self.inner.screen.stop("viewer-left")));
     }
 
     pub(super) fn page(&self) -> Value {
-        let geometry = if self.inner.screen.running() { self.inner.screen.geometry() } else { None };
-        json!({"documentId": null, "geometry": geometry})
+        self.inner.entry(|| {
+            let geometry = if self.inner.screen.running() { self.inner.screen.geometry() } else { None };
+            json!({"documentId": null, "geometry": geometry})
+        })
     }
 
     /// A viewer's channel input: screen input only, reaching the session with the current geometry's generation.
     pub(super) fn dispatch(&self, control: Value) -> BoxFuture<Result<(), String>> {
+        self.inner.entry(|| self.dispatch_in_turn(control))
+    }
+
+    fn dispatch_in_turn(&self, control: Value) -> BoxFuture<Result<(), String>> {
         let page_input = !control["type"].as_str().is_some_and(|kind| kind.starts_with("screen-"));
         if page_input {
             return Box::pin(async { Err("remote screen takes screen input only".to_string()) });
@@ -415,20 +456,26 @@ impl<F: Clone + Send + Sync + 'static> ScreenVideoSource<F> {
     }
 
     pub(super) fn capture_plan(&self) -> Option<Value> {
-        self.inner.screen.capture_plan()
+        self.inner.entry(|| self.inner.screen.capture_plan())
     }
 
     /// The channel whose phone saw the run is gone: a new run on the helper path, which the next channel must
     /// see for itself; whatever the viewer held is let go.
     pub(super) fn release(&self) -> BoxFuture<()> {
-        if self.inner.run().path == VideoPath::Helper {
-            self.inner.new_run(VideoPath::Helper);
-        }
-        self.inner.screen.release_input()
+        self.inner.entry(|| {
+            if self.inner.run().path == VideoPath::Helper {
+                self.inner.new_run(VideoPath::Helper);
+            }
+            self.inner.screen.release_input()
+        })
     }
 
     /// What a promoted channel is told at once: the status, the run when it is announced, the cursor.
     pub(super) fn channel_state(&self) -> Vec<Value> {
+        self.inner.entry(|| self.channel_state_in_turn())
+    }
+
+    fn channel_state_in_turn(&self) -> Vec<Value> {
         let mut messages = vec![self.inner.status_message()];
         if self.inner.run().announced {
             messages.push(self.inner.video_message());
@@ -441,6 +488,10 @@ impl<F: Clone + Send + Sync + 'static> ScreenVideoSource<F> {
 
     /// A helper frame of run `delivery` drew into the sender's track. Only this run's helper frames count.
     pub(super) fn delivered(&self, delivery: u64) {
+        self.inner.entry(|| self.delivered_in_turn(delivery));
+    }
+
+    fn delivered_in_turn(&self, delivery: u64) {
         let inner = &self.inner;
         let stall = {
             let run = inner.run();
@@ -452,6 +503,8 @@ impl<F: Clone + Send + Sync + 'static> ScreenVideoSource<F> {
                 return;
             }
             let now = inner.timers.now_ms();
+            #[cfg(test)]
+            inner.checked("delivered");
             let mut run = inner.run();
             if let Some(last) = run.last_delivery {
                 run.intervals.push(now - last);
@@ -489,6 +542,10 @@ impl<F: Clone + Send + Sync + 'static> ScreenVideoSource<F> {
 
     /// The phone's `screen-frame-seen` for run `run`: counts only for the current helper run, once announced.
     pub(super) fn frame_seen(&self, run: u64) {
+        self.inner.entry(|| self.frame_seen_in_turn(run));
+    }
+
+    fn frame_seen_in_turn(&self, run: u64) {
         {
             let current = self.inner.run();
             if current.path != VideoPath::Helper || run != current.epoch || !current.announced {
@@ -498,6 +555,8 @@ impl<F: Clone + Send + Sync + 'static> ScreenVideoSource<F> {
         if !self.inner.screen.running() {
             return;
         }
+        #[cfg(test)]
+        self.inner.checked("frame-seen");
         self.inner.run().seen = true;
         self.inner.grant();
     }
@@ -505,17 +564,19 @@ impl<F: Clone + Send + Sync + 'static> ScreenVideoSource<F> {
     /// The phone's signed grant: relayed only for the current run (the helper would refuse another, and the
     /// phone must not carry a grant across runs).
     pub(super) fn helper_grant(&self, signed: Grant) {
-        if signed.epoch != self.inner.run().epoch {
-            return;
-        }
-        self.inner.screen.helper_grant(signed);
+        self.inner.entry(|| {
+            if signed.epoch != self.inner.run().epoch {
+                return;
+            }
+            self.inner.screen.helper_grant(signed);
+        });
     }
 
     pub(super) fn helper_install(&self, controller_key: String) {
-        self.inner.screen.request_helper_install(controller_key);
+        self.inner.entry(|| self.inner.screen.request_helper_install(controller_key));
     }
 
     pub(super) fn helper_credential(&self, controller_key: String, credential: Credential) {
-        self.inner.screen.request_helper_credential(controller_key, credential);
+        self.inner.entry(|| self.inner.screen.request_helper_credential(controller_key, credential));
     }
 }
