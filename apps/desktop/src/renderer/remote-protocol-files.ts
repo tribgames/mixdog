@@ -6,6 +6,13 @@
 // recording. The connection's one call queue (remote-protocol-queue.ts) orders them, entered by the router (remote-shim-protocol.ts)
 // for every adapter alike, as Node's was: nothing here queues.
 import type { ProtocolClient, SessionFold } from '../../../../packages/protocol-client/src/index.ts';
+import {
+  FILE_DOWNLOAD_MAX_BYTES,
+  FILE_DOWNLOAD_PURPOSES,
+  FILE_DOWNLOAD_RANGE_MAX_BYTES,
+  FileDownloadError,
+  type FileDownloadPurpose,
+} from '../shared/file-downloads';
 import { requiredString } from '../shared/remote-arguments';
 import {
   fileSearchLimit,
@@ -48,7 +55,7 @@ function failure(error: unknown): unknown {
   const rebuilt: Error & { code?: string } = new Error(text);
   // The preview worker's refusals are plain Errors in Node; their code only routes the text through the core.
   const plainInNode = data.code === 'NO_PREVIEW_FOR_TYPE' || data.code === 'NOT_A_FILE' || data.code === 'PATH_OUTSIDE_PROJECT' || data.code === 'HOST_COMMAND_FAILED';
-  if (!plainInNode && typeof data.code === 'string' && /^[A-Z][A-Z0-9_]+$/.test(data.code)) rebuilt.code = data.code;
+  if (!plainInNode && typeof data.code === 'string' && /^([A-Z][A-Z0-9_]+|file-download:[a-z-]+)$/.test(data.code)) rebuilt.code = data.code;
   return rebuilt;
 }
 
@@ -81,6 +88,88 @@ async function grantedPlace(host: PhoneProtocolHost, target: Params): Promise<{ 
   const { path } = (await rpc(host, 'projectFs/entryPath', target)) as { path: string };
   const cut = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
   return { root: path.slice(0, cut), rel: path.slice(cut + 1) };
+}
+
+// ── a paired phone's downloads (Node's `fileDownloadRemoteMethods`, main/file-downloads.ts:960-1070 at b6f10295a) ──
+// The arguments are checked here, in Node's order and with its sentences. The conversation a request names is the adapter's to resolve
+// (Node's `sessionRow` / `projectRoot`): the core is told the project, never the conversation.
+const DOWNLOAD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const DOWNLOAD_VERSION = /^[A-Za-z0-9_-]{43}$/;
+const SESSION_ID = /^[A-Za-z0-9_-]+$/;
+
+function plainRecord(value: unknown, name: string): Params {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError(`${name} is invalid.`);
+  return value as Params;
+}
+
+function requiredText(value: unknown, name: string, maximum: number): string {
+  const text = requiredString(value, name, maximum);
+  if (text.includes('\0')) throw new TypeError(`${name} is invalid.`);
+  return text;
+}
+
+function requiredSessionId(value: unknown): string {
+  const id = requiredString(value, 'session id', 256);
+  if (!SESSION_ID.test(id)) throw new TypeError('session id is invalid.');
+  return id;
+}
+
+function downloadId(value: unknown, name: string): string {
+  if (typeof value !== 'string' || !DOWNLOAD_ID.test(value)) throw new TypeError(`${name} is invalid.`);
+  return value;
+}
+
+/** Node's `path.isAbsolute` on the PC (a Windows host also takes the POSIX form). */
+const isAbsolutePath = (path: string): boolean => /^([\\/]|[A-Za-z]:[\\/])/.test(path);
+
+type DownloadRequest = { sessionId: string; purpose: FileDownloadPurpose } & ({ kind: 'project'; relPath: string } | { kind: 'session'; path: string });
+
+function downloadRequest(value: unknown): DownloadRequest {
+  const request = plainRecord(value, 'download request');
+  const source = plainRecord(request.source, 'download source');
+  const purpose = request.purpose as FileDownloadPurpose;
+  if (!FILE_DOWNLOAD_PURPOSES.includes(purpose)) throw new TypeError('download purpose is invalid.');
+  const sessionId = requiredSessionId(source.sessionId);
+  if (source.kind === 'project') {
+    const relPath = requiredText(source.relPath, 'relPath', 4_096);
+    if (isAbsolutePath(relPath)) throw new TypeError('relPath must be project-relative.');
+    return { kind: 'project', sessionId, relPath, purpose };
+  }
+  if (source.kind === 'session') return { kind: 'session', sessionId, path: requiredText(source.path, 'path', 4_096), purpose };
+  throw new TypeError('download source is invalid.');
+}
+
+/** The registered project of a conversation (null for a task conversation); one the core does not hold is Node's `unavailable`. */
+async function conversationProject(host: PhoneProtocolHost, sessionId: string): Promise<string | null> {
+  let read: { thread?: { projectPath?: unknown } };
+  try {
+    read = (await (host.client().call as (m: string, p: unknown) => Promise<unknown>)('thread/read', { threadId: sessionId })) as typeof read;
+  } catch {
+    throw new FileDownloadError('unavailable', 'This conversation is not available.');
+  }
+  const project = read.thread?.projectPath;
+  return typeof project === 'string' && project ? project : null;
+}
+
+async function authorizeDownload(host: PhoneProtocolHost, value: unknown): Promise<unknown> {
+  const request = downloadRequest(value);
+  const project = await conversationProject(host, request.sessionId);
+  if (request.kind === 'project') {
+    if (project === null) throw new FileDownloadError('outside-project', "The file is outside the conversation's project.");
+    return rpc(host, 'transfer/authorizeRead', { source: { kind: 'file', root: project, rel: request.relPath }, purpose: request.purpose });
+  }
+  return rpc(host, 'transfer/authorizeRead', {
+    source: { kind: 'sessionFile', path: request.path, ...(project === null ? {} : { projectPath: project }) },
+    purpose: request.purpose,
+  });
+}
+
+function downloadRange(transferId: unknown, offset: unknown, length: unknown, version: unknown): Params {
+  const id = downloadId(transferId, 'transfer id');
+  if (typeof offset !== 'number' || !Number.isSafeInteger(offset) || offset < 0 || offset > FILE_DOWNLOAD_MAX_BYTES) throw new TypeError('offset is invalid.');
+  if (typeof length !== 'number' || !Number.isSafeInteger(length) || length < 1 || length > FILE_DOWNLOAD_RANGE_MAX_BYTES) throw new TypeError('length is invalid.');
+  if (typeof version !== 'string' || !DOWNLOAD_VERSION.test(version)) throw new TypeError('version is invalid.');
+  return { transferId: id, offset, length, version };
 }
 
 let nextSearch = 1;
@@ -208,6 +297,12 @@ export const adapter: PhoneProtocolAdapter = {
       const rel = requiredString(relPath, 'relPath');
       return void_(rpc(host, 'projectFs/trash', { root, rel, viaHost: true }));
     },
+    // ── a paired phone's downloads: a grant that expires, then the transfer it is consumed into ──
+    fileDownloadAuthorize: ([request], host) => authorizeDownload(host, request),
+    fileDownloadBegin: ([grantId], host) => rpc(host, 'transfer/redeemGrant', { grantId: downloadId(grantId, 'grant id') }),
+    fileDownloadRange: ([transferId, offset, length, version], host) => rpc(host, 'transfer/readRange', downloadRange(transferId, offset, length, version)),
+    fileDownloadFinish: ([transferId], host) => rpc(host, 'transfer/finishRead', { transferId: downloadId(transferId, 'transfer id') }),
+    fileDownloadAbort: ([id], host) => rpc(host, 'transfer/endRead', { transferId: downloadId(id, 'download id') }).then((answer: { ended: boolean }) => answer.ended),
     // ── the editor's own storage ──
     readEditorSettings: ([projectPath, relPath, workspaceFile], host) => {
       const root = requiredString(projectPath, 'projectPath');

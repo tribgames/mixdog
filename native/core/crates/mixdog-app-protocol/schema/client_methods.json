@@ -3264,6 +3264,59 @@
       ],
       "type": "object"
     },
+    "DownloadSource": {
+      "description": "What a paired phone asks to download (`transfer/authorizeRead`).",
+      "oneOf": [
+        {
+          "description": "A file of a conversation's project, by its path in the project.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "file"
+              ],
+              "type": "string"
+            },
+            "rel": {
+              "type": "string"
+            },
+            "root": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "rel",
+            "root"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A file a conversation names, by its absolute path; `projectPath` is the conversation's project, if it has one.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "sessionFile"
+              ],
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "projectPath": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "path"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "DrainReason": {
       "description": "Why the core is winding down (LR §5, SPEC R22). Shared by core-api and the wire.",
       "enum": [
@@ -16352,6 +16405,23 @@
       ],
       "type": "object"
     },
+    "TransferAuthorizeReadParams": {
+      "description": "Params of `transfer/authorizeRead`: the first stage of a phone's download, a grant that expires.",
+      "properties": {
+        "purpose": {
+          "description": "`save`, `share` or `open`.",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/definitions/DownloadSource"
+        }
+      },
+      "required": [
+        "purpose",
+        "source"
+      ],
+      "type": "object"
+    },
     "TransferBeginReadParams": {
       "properties": {
         "source": {
@@ -16464,7 +16534,19 @@
       "type": "object"
     },
     "TransferEndReadParams": {
-      "description": "Params of `transfer/endRead`.",
+      "description": "Params of `transfer/endRead`: the transfer, or the unredeemed grant, to release.",
+      "properties": {
+        "transferId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "transferId"
+      ],
+      "type": "object"
+    },
+    "TransferFinishReadParams": {
+      "description": "Params of `transfer/finishRead`.",
       "properties": {
         "transferId": {
           "type": "string"
@@ -16523,11 +16605,30 @@
             "string",
             "null"
           ]
+        },
+        "version": {
+          "description": "A phone's read names the version it leased; another is `changed`.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
         "length",
         "offset"
+      ],
+      "type": "object"
+    },
+    "TransferRedeemGrantParams": {
+      "description": "Params of `transfer/redeemGrant`: the second stage, which consumes the grant once into a transfer.",
+      "properties": {
+        "grantId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "grantId"
       ],
       "type": "object"
     },
@@ -20801,6 +20902,12 @@
       },
       "result": true
     },
+    "transfer/authorizeRead": {
+      "params": {
+        "$ref": "#/definitions/TransferAuthorizeReadParams"
+      },
+      "result": true
+    },
     "transfer/beginRead": {
       "params": {
         "$ref": "#/definitions/TransferBeginReadParams"
@@ -20837,6 +20944,12 @@
         "$ref": "#/definitions/EmptyResult"
       }
     },
+    "transfer/finishRead": {
+      "params": {
+        "$ref": "#/definitions/TransferFinishReadParams"
+      },
+      "result": true
+    },
     "transfer/grant/mint": {
       "params": {
         "$ref": "#/definitions/TransferGrantMintParams"
@@ -20850,6 +20963,12 @@
       "result": {
         "$ref": "#/definitions/BlobReadResponse"
       }
+    },
+    "transfer/redeemGrant": {
+      "params": {
+        "$ref": "#/definitions/TransferRedeemGrantParams"
+      },
+      "result": true
     },
     "transfer/trash/entry": {
       "params": {

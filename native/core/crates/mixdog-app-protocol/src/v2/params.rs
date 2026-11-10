@@ -4791,13 +4791,58 @@ pub struct TransferReadRangeParams {
     pub offset: u64,
     #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub length: u64,
+    /// A phone's read names the version it leased; another is `changed`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
 }
 
-/// Params of `transfer/endRead`.
+/// Params of `transfer/endRead`: the transfer, or the unredeemed grant, to release.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct TransferEndReadParams {
+    pub transfer_id: TransferId,
+}
+
+/// What a paired phone asks to download (`transfer/authorizeRead`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum DownloadSource {
+    /// A file of a conversation's project, by its path in the project.
+    File { root: String, rel: String },
+    /// A file a conversation names, by its absolute path; `projectPath` is the conversation's project, if it has one.
+    #[serde(rename_all = "camelCase")]
+    SessionFile {
+        path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        project_path: Option<String>,
+    },
+}
+
+/// Params of `transfer/authorizeRead`: the first stage of a phone's download, a grant that expires.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct TransferAuthorizeReadParams {
+    pub source: DownloadSource,
+    /// `save`, `share` or `open`.
+    pub purpose: String,
+}
+
+/// Params of `transfer/redeemGrant`: the second stage, which consumes the grant once into a transfer.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct TransferRedeemGrantParams {
+    pub grant_id: String,
+}
+
+/// Params of `transfer/finishRead`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct TransferFinishReadParams {
     pub transfer_id: TransferId,
 }
 

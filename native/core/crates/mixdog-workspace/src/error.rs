@@ -26,6 +26,8 @@ pub enum Reason {
     Expired,
     /// A download the host no longer holds (Node's FileDownloadError('expired'), whose code is ile-download:expired).
     DownloadExpired,
+    /// Any other refusal of a phone's download (Node's `FileDownloadError`); the value is the whole code, `file-download:<reason>`.
+    Download(&'static str),
     Busy,
     /// An upload chunk that does not start where the received bytes end.
     OutOfOrder,
@@ -64,6 +66,7 @@ impl Reason {
             Self::Changed => "changed",
             Self::Expired => "expired",
             Self::DownloadExpired => "file-download:expired",
+            Self::Download(code) => code,
             Self::Busy => "busy",
             Self::OutOfOrder => "outOfOrder",
             Self::GrantUnavailable => "SELECTED_FILE_GRANT_UNAVAILABLE",
