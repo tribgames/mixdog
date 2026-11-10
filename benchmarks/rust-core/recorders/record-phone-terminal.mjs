@@ -116,7 +116,7 @@ if (!args.has('child')) {
       traces.push(await recordOnce());
     } catch (failure) {
       // The whole failure (the child's output tails are in its message) and which run it was, kept beside the work folder.
-      const log = `${ROOT}-failure-${Date.now()}.log`;
+      const log = `${ROOT}-failure-run${run}-pid${process.pid}.log`;
       const output = failure?.output ? `\n--- the recording's stdout ---\n${failure.output.stdout}\n--- its stderr ---\n${failure.output.stderr}\n` : '';
       writeFileSync(log, `run ${run} of ${runs}\n${failure?.stack ?? String(failure)}\n${output}`);
       throw new Error(`run ${run} of ${runs} failed; the whole error is in ${log}`, { cause: failure });
