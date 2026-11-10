@@ -1,26 +1,26 @@
 #!/usr/bin/env node
 // Drives a built `mixdogd` through the scenarios of native/core/fixtures/tool-failures/golden.json (one core per scenario, an
-// isolated profile, a scripted OpenAI-chat provider) and compares the bytes of the history/tool-failures.jsonl the cores wrote with
-// Node's recording, as one sequence in scenario order, replacing only the values the golden names as varying (session_id by first-seen
-// order, ts, tool_ms) and the workspace path by a placeholder (each run has its own folder; the recorded path's length is the same).
-//   node replay-tool-failures.mjs --mixdogd <exe> [--only <n>,<n>]
-// A scenario the golden marks `coreDiffers` is run and reported, and left out of the sequence verdict (its Node rows are the rows of its
-// recorded sessions). The exit code is 1 on any difference.
+// isolated profile, a scripted OpenAI-chat provider) and compares each scenario's rows of the history/tool-failures.jsonl its core
+// wrote with Node's rows of that scenario, whole and in order, normalised by lib/tool-failure-rows.mjs as the recorder normalised
+// Node's (session_id by the scenario's own thread, ts, tool_ms, and the workspace path: each run has its own folder, of the recorded
+// path's length). Every scenario is compared; the full run (the default) is the verdict.
+//   MIXDOG_RECORDER_SCRATCH=<the recording's scratch parent> node replay-tool-failures.mjs --mixdogd <exe> [--only <n>,<n>]
+// The exit code is 1 on any difference.
 import { spawn, spawnSync } from 'node:child_process';
 import { closeSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { register } from 'node:module';
-import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { FILES, scenarios } from './lib/tool-failure-scenarios.mjs';
+import { rowsByScenario } from './lib/tool-failure-rows.mjs';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const repo = resolve(here, '..', '..', '..');
 const golden = JSON.parse(readFileSync(join(repo, 'native/core/fixtures/tool-failures/golden.json'), 'utf8'));
 const arg = (name, fallback) => (process.argv.includes(name) ? process.argv[process.argv.indexOf(name) + 1] : fallback);
 const only = arg('--only', null)?.split(',').map(Number);
-const scratch = process.env.MIXDOG_RECORDER_SCRATCH ?? tmpdir();
+const scratch = process.env.MIXDOG_RECORDER_SCRATCH;
 const DROP = /^(MIXDOG_|HTTPS?_PROXY$|ALL_PROXY$|NO_PROXY$|OPENAI_|ANTHROPIC_|GOOGLE_|GEMINI_|AZURE_|XDG_|ELECTRON_)/i;
 const CUSTOM = 'custom-11111111-1111-4111-8111-111111111111';
 const deadline = (p, ms, what) => {
@@ -36,8 +36,6 @@ const chunk = (delta, finish = null) => ({ id: 's', object: 'chat.completion.chu
 
 function provider(replies) {
   let n = 0;
-  let done;
-  const finished = new Promise((r) => (done = r));
   const server = createServer((req, res) => {
     const body = [];
     req.on('data', (d) => body.push(d));
@@ -48,15 +46,12 @@ function provider(replies) {
       }
       const step = replies[n++];
       if (!step) return sse(res, [chunk({ role: 'assistant', content: 'extra' }), chunk({}, 'stop'), '[DONE]']);
-      if (!step.calls.length) {
-        sse(res, [chunk({ role: 'assistant', content: step.text }), chunk({}, 'stop'), '[DONE]']);
-        return done();
-      }
+      if (!step.calls.length) return sse(res, [chunk({ role: 'assistant', content: step.text }), chunk({}, 'stop'), '[DONE]']);
       const tool_calls = step.calls.map((c, index) => ({ index, id: c.id, type: 'function', function: { name: c.name, arguments: c.raw ?? JSON.stringify(c.args) } }));
       sse(res, [chunk({ role: 'assistant', tool_calls }), chunk({}, 'tool_calls'), '[DONE]']);
     });
   });
-  return new Promise((r) => server.listen(0, '127.0.0.1', () => r({ baseURL: `http://127.0.0.1:${server.address().port}`, finished, close: () => new Promise((c) => { server.closeAllConnections(); server.close(c); }) })));
+  return new Promise((r) => server.listen(0, '127.0.0.1', () => r({ baseURL: `http://127.0.0.1:${server.address().port}`, close: () => new Promise((c) => { server.closeAllConnections(); server.close(c); }) })));
 }
 
 let libs;
@@ -116,6 +111,10 @@ async function runScenario(scenario, root, ws, bin) {
       check();
     }), 120_000, 'the core serving');
     const { ws: WebSocket, client: lib } = await loadLibs();
+    // The turn's end is the core's own `turn/completed` on the feed of the thread this client watches (every notification of a watched
+    // thread passes the reducer, in feed order).
+    let turnCompleted;
+    const completed = new Promise((r) => { turnCompleted = r; });
     client = await lib.connect({
       target: { id: 'local' },
       connector: { async open(_t, sink) {
@@ -129,7 +128,13 @@ async function runScenario(scenario, root, ws, bin) {
       } },
       clientInfo: { name: 'tf-replay', title: 'tf-replay', version: String(JSON.parse(readFileSync(join(repo, 'package.json'), 'utf8')).version), kind: 'tui' },
       capabilities: {},
-      threadReducer: lib.sessionReducer,
+      threadReducer: {
+        ...lib.sessionReducer,
+        apply(state, notification) {
+          if (notification.method === 'turn/completed') turnCompleted();
+          return lib.sessionReducer.apply(state, notification);
+        },
+      },
       // The client sleeps only to back off before a reconnect; this replay has none, so a use of the clock is a failure.
       clock: { sleep: (ms) => Promise.reject(new Error(`the client asked to sleep ${ms} ms (a reconnect backoff): the connection was lost`)) },
       random: Math.random,
@@ -140,10 +145,6 @@ async function runScenario(scenario, root, ws, bin) {
       const a = scenario.approval;
       client.respond(event.request.id, { result: { approved: a.approved, response: a.approved ? 'approve' : 'deny', reason: a.reason } });
     }));
-    // The turn's end is the core's own `turn/completed` notification.
-    let turnCompleted;
-    const completed = new Promise((r) => { turnCompleted = r; });
-    cleanups.push(client.on((event) => { if (event.type === 'notification' && event.notification.method === 'turn/completed') turnCompleted(); }));
     // The tool has started when it has made its file: a directory event, watched from before the turn starts so it cannot be missed.
     const toolStarted = scenario.abortWhenFile
       ? new Promise((resolve) => {
@@ -157,6 +158,9 @@ async function runScenario(scenario, root, ws, bin) {
       : { toolProfile: 'headless', toolMode: 'full', ...(scenario.approval ? {} : { approvalMode: 'implicit' }), disallowDelegation: true, autoWakeCompletions: false, webSearch: false, memory: false };
     const started = await deadline(client.call('thread/start', { kind: 'task', session, projectPath: ws, draft: { projectPath: ws, route: { provider: CUSTOM, model: golden.model }, ...(scenario.full ? {} : { workflowId: 'headless' }), orchestrationMode: 'none' } }), 60_000, 'thread/start');
     const threadId = started.thread.id;
+    // A client sees a thread's run once it watches the thread, as the desktop does for the threads it shows (`thread/resume`); watched
+    // before the turn starts.
+    await deadline(client.resumeThread(threadId, { lastItems: 10 }), 30_000, 'thread/resume');
     if (scenario.full) {
       // The core connects a thread's MCP servers in the background; the recording connected `fx` before its turn, so the turn starts once the
       // core reports the server connected: asked once now and again at every event the core sends.
@@ -173,7 +177,7 @@ async function runScenario(scenario, root, ws, bin) {
       await deadline(client.call('turn/interrupt', { threadId, turnId: turn.turnId }), 60_000, 'turn/interrupt');
       await deadline(completed, 60_000, 'the interrupted turn completing');
     } else {
-      await deadline(prov.finished, 120_000, 'the scripted turn reaching its final reply');
+      await deadline(completed, 120_000, 'the scripted turn completing');
     }
     await client.close();
     client = null;
@@ -181,7 +185,7 @@ async function runScenario(scenario, root, ws, bin) {
     if (!stopped.ok) throw new Error(`/mgmt/stop answered ${stopped.status}`);
     await deadline(exited, 30_000, 'the core exiting');
     const file = join(p.data, 'history', 'tool-failures.jsonl');
-    return existsSync(file) ? readFileSync(file, 'utf8') : '';
+    return { threadId, text: existsSync(file) ? readFileSync(file, 'utf8') : '' };
   } finally {
     for (const cleanup of cleanups.reverse()) { try { await cleanup(); } catch {} }
     try { await client?.close(); } catch {}
@@ -192,64 +196,44 @@ async function runScenario(scenario, root, ws, bin) {
   }
 }
 
-/** The workspace path (as written in JSON strings, either separator) becomes a placeholder; the placeholder is the same on both sides. */
-function maskWorkspace(text, workspace) {
-  const forms = new Set([workspace, workspace.replaceAll('\\', '/')].flatMap((w) => [w, w.replaceAll('\\', '\\\\')]));
-  let masked = text;
-  for (const form of forms) masked = masked.replaceAll(form, '<WS>');
-  return masked;
-}
-
-/** Rows with the varying values replaced: session ids by first-seen order, ts and tool_ms by their type. The text is a whole file: every line a row. */
-export function normalize(text, workspace) {
-  if (text !== '' && !text.endsWith('\n')) throw new Error('the file does not end with a newline');
-  const ids = new Map();
-  return (text === '' ? [] : text.slice(0, -1).split('\n')).map((line) => {
-    const row = JSON.parse(line);
-    if (!Number.isInteger(row.ts) || !Number.isInteger(row.tool_ms) || row.tool_ms < 0) throw new Error(`bad ts/tool_ms in ${line}`);
-    if (!ids.has(row.session_id)) ids.set(row.session_id, `<session:${ids.size + 1}>`);
-    return maskWorkspace(line.replace(`"ts":${row.ts}`, '"ts":"<ts>"').replace(`"session_id":${JSON.stringify(row.session_id)}`, `"session_id":"${ids.get(row.session_id)}"`).replace(`"tool_ms":${row.tool_ms}`, '"tool_ms":"<ms>"'), workspace);
-  });
-}
-
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const bin = resolve(arg('--mixdogd'));
-  const base = mkdtempSync(join(scratch, 'tf-replay-'));
+  if (!scratch) throw new Error('MIXDOG_RECORDER_SCRATCH must name the scratch parent the recording was made under (the workspace path length is part of the rows)');
+  // This run's own folder; the workspace is `<it>\ws`, the same shape (and length) as the recorder's `<scratch>\tf-rec-XXXXXX\ws`.
+  const base = mkdtempSync(join(scratch, 'tf-rpl-'));
+  const ws = join(base, 'ws');
+  mkdirSync(ws);
   let bad = 0;
-  let ws;
-  try {    // The recorded workspace's length is part of the rows (a cut lands inside an emoji at a fixed length), so this run's folder must have it.
-    ws = mkdtempSync(join(scratch, 'tf-ws-'));
-    if (ws.length !== golden.workspace.length) throw new Error(`the workspace ${ws} is ${ws.length} characters, the recorded ${golden.workspace} ${golden.workspace.length}: use the recorder's scratch folder (MIXDOG_RECORDER_SCRATCH)`);
+  let failure = null;
+  try {
+    // The recorded workspace's length is part of the rows (a cut lands inside an emoji at a fixed length), so this run's folder must have it.
+    if (ws.length !== golden.workspaceLength) throw new Error(`the workspace ${ws} is ${ws.length} characters, the recorded one ${golden.workspaceLength}: use the recorder's scratch parent (MIXDOG_RECORDER_SCRATCH)`);
     if (JSON.stringify(scenarios(ws)) !== JSON.stringify(golden.scenarios)) throw new Error('the scenarios built for this workspace are not the recorded ones');
-    const ran = [];
     for (const [i, scenario] of golden.scenarios.entries()) {
       if (only && !only.includes(i)) continue;
-      ran.push({ i, scenario, text: await runScenario(scenario, join(base, `s${i}`), ws, bin) });
+      const { threadId, text } = await runScenario(scenario, join(base, `s${i}`), ws, bin);
+      // The core's file of this scenario, normalised as Node's was: its rows are the rows of this scenario's thread only.
+      const sessions = golden.scenarios.map((_, k) => (k === i ? threadId : null));
+      const got = rowsByScenario(text, sessions, ws)[i];
+      const want = golden.rows[i];
+      const same = got.length === want.length && got.every((line, k) => line === want[k]);
+      console.log(`${same ? 'SAME' : 'DIFF'} ${i} ${scenario.name} (${got.length} rows, Node ${want.length})`);
+      if (!same) {
+        bad += 1;
+        for (let k = 0; k < Math.max(got.length, want.length); k += 1) if (got[k] !== want[k]) console.log(`  row ${k}\n   core: ${got[k]}\n   node: ${want[k]}`);
+      }
     }
-    // Node's file is one sequence over all scenarios; the cores' files are joined in scenario order and compared as that one sequence.
-    const nodeText = golden.recordings[0].file;
-    const nodeIds = golden.recordings[0].sessions;
-    const kept = (i) => !golden.scenarios[i].coreDiffers;
-    const dropped = new Set(golden.scenarios.flatMap((s, i) => (kept(i) ? [] : [nodeIds[i]])));
-    const nodeLines = nodeText.slice(0, -1).split('\n').filter((line) => !dropped.has(JSON.parse(line).session_id));
-    const wantedScenarios = ran.filter(({ i }) => kept(i));
-    const got = normalize(wantedScenarios.map((r) => r.text).join(''), ws);
-    const want = normalize(`${nodeLines.join('\n')}\n`, golden.workspace);
-    const same = got.length === want.length && got.every((line, k) => line === want[k]);
-    console.log(`${same ? 'SAME' : 'DIFF'} the sequence of ${wantedScenarios.length} scenarios (${got.length} rows, Node ${want.length})`);
-    if (!same) {
-      bad += 1;
-      for (let k = 0; k < Math.max(got.length, want.length); k += 1) if (got[k] !== want[k]) console.log(`  row ${k}\n   core: ${got[k]}\n   node: ${want[k]}`);
-    }
-    for (const { i, scenario, text } of ran) {
-      const rows = text === '' ? 0 : text.split('\n').length - 1;
-      console.log(`  ${i} ${scenario.name}: ${rows} rows${scenario.coreDiffers ? ` [left out of the verdict: ${scenario.coreDiffers}]` : ''}`);
-    }
-  } finally {
-    if (ws) rmSync(ws, { recursive: true, force: true });
-    rmSync(base, { recursive: true, force: true });
-    const left = processesNaming(base);
-    if (left.length) { console.log(`processes still naming ${base}: ${left.join(', ')}`); bad += 1; }
+  } catch (error) {
+    failure = error;
   }
+  // Nothing may outlive the run: a process still naming its folder fails it, and the folder is kept for a look.
+  const left = processesNaming(base);
+  if (left.length) {
+    console.log(`processes still naming ${base}: ${left.join(', ')}; the folder is kept`);
+    bad += 1;
+  } else {
+    rmSync(base, { recursive: true, force: true });
+  }
+  if (failure) throw failure;
   process.exit(bad ? 1 : 0);
 }

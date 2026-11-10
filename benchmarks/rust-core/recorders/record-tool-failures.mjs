@@ -5,23 +5,24 @@
 // are lib/tool-failure-scenarios.mjs, the same file the Rust replay (replay-tool-failures.mjs) is given.
 //
 // The turns run in a child process, twice, in two fresh profiles but the same workspace path (the workspace path is part of the
-// rows: it is `cwd` and it is inside the tool texts). Two recordings of the same input show which values vary on their own; the
-// golden names them, and the replay may replace only those.
+// rows: it is `cwd` and it is inside the tool texts). Each recording's rows are normalised by lib/tool-failure-rows.mjs (session ids
+// by scenario, ts, tool_ms, the workspace): the two must then be identical, and the golden holds them, so two runs of this recorder
+// write the same bytes.
 //
-//   node benchmarks/rust-core/recorders/record-tool-failures.mjs --tree <exact export of b6f10295a with node_modules>
+//   MIXDOG_RECORDER_SCRATCH=<scratch parent> node benchmarks/rust-core/recorders/record-tool-failures.mjs --tree <exact export of b6f10295a with node_modules> [--only <n>,<n>]
 //
-// Output: native/core/fixtures/tool-failures/golden.json (+ MANIFEST.json).
+// Output: native/core/fixtures/tool-failures/golden.json (+ MANIFEST.json); with --only the scenarios named are recorded and printed.
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
 const recorder = 'benchmarks/rust-core/recorders/record-tool-failures.mjs';
-const scratch = process.env.MIXDOG_RECORDER_SCRATCH ?? tmpdir();
+const scratch = process.env.MIXDOG_RECORDER_SCRATCH;
 const SCENARIOS_FILE = fileURLToPath(new URL('./lib/tool-failure-scenarios.mjs', import.meta.url));
+const ROWS_FILE = fileURLToPath(new URL('./lib/tool-failure-rows.mjs', import.meta.url));
 const SELF = fileURLToPath(import.meta.url);
 const DEADLINE_MS = 300_000;
 // Both recordings run in one workspace folder (its path is part of the rows), made fresh for this run and removed once at its end;
@@ -76,6 +77,10 @@ if (process.argv[2] === '--child') {
   };
   const results = [];
   for (const [index, scenario] of scenarios(WORKSPACE).entries()) {
+    if (process.env.RECORDER_ONLY && !process.env.RECORDER_ONLY.split(',').map(Number).includes(index)) {
+      results.push(null);
+      continue;
+    }
     for (const entry of readdirSync(WORKSPACE)) rmSync(join(WORKSPACE, entry), { recursive: true, force: true });
     for (const [name, text] of Object.entries(FILES)) writeFileSync(join(WORKSPACE, name), text);
     const providerName = `tool-failures-${index}`;
@@ -137,13 +142,19 @@ if (process.argv[2] === '--child') {
     results.push({ name: scenario.name, session: sessionId, outcome, sends: sends.length, toolMessages });
   }
   writeFileSync(join(process.env.MIXDOG_DATA_DIR, 'results.json'), JSON.stringify(results));
-  // The memory database the session machinery started is stopped by the product's own stop, not left for the parent to find.
-  await stopOwnedPgForShutdown();
+  // The memory database the session machinery started is stopped by the product's own stop, not left for the parent to find. The
+  // stop first awaits a start still under way (its initdb included) for at most `timeoutMs` (supervisor.mjs:793-810): a first start
+  // in a fresh profile runs initdb, which its 6 s default does not cover, and an initdb left running would outlive this process.
+  await stopOwnedPgForShutdown({ timeoutMs: 120_000 });
   process.exit(0);
 }
 
 const { FIXTURES_ROOT, commitStage, exactProductIdentity, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
-const tree = resolveTree(parseArgs());
+const { maskWorkspace, rowsByScenario } = await import('./lib/tool-failure-rows.mjs');
+const argv = process.argv.slice(2);
+const onlyAt = argv.indexOf('--only');
+const only = onlyAt >= 0 ? argv[onlyAt + 1] : null;
+const tree = resolveTree(parseArgs(onlyAt >= 0 ? argv.filter((_, i) => i !== onlyAt && i !== onlyAt + 1) : argv));
 const identity = exactProductIdentity(tree, NODE_COMMIT);
 const sha256 = (path) => createHash('sha256').update(readFileSync(path)).digest('hex');
 
@@ -155,13 +166,14 @@ function processesNaming(folder) {
   return listed.stdout.split('\n').map((l) => l.trim()).filter(Boolean);
 }
 
-async function record(label, workspace) {
-  const sandbox = mkdtempSync(join(scratch, `rec-tool-failures-${label}-`));
-  const env = { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, RECORDER_TREE: tree, RECORDER_WORKSPACE: workspace, MIXDOG_RECORDER_SCRATCH: scratch, MIXDOG_SKIP_USER_DATA_BACKUP: '1', MIXDOG_FEATURE_MEMORY: '0' };
-  for (const name of ['MIXDOG_DATA_DIR', 'MIXDOG_HOME', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA']) env[name] = join(sandbox, name.toLowerCase());
-  mkdirSync(env.MIXDOG_DATA_DIR, { recursive: true });
-  // The child is ended through the handle held here and nothing found by a listing: on a missed deadline the child itself is killed and
-  // awaited. Whatever still names the sandbox once it has exited fails the run, naming it, and leaves the folder.
+/** One recording in its own profile under the run's folder; the child is ended only through the handle held here. */
+async function record(label, run, workspace) {
+  const sandbox = join(run, `profile-${label}`);
+  const env = { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, RECORDER_TREE: tree, RECORDER_WORKSPACE: workspace, MIXDOG_SKIP_USER_DATA_BACKUP: '1', MIXDOG_FEATURE_MEMORY: '0', ...(only ? { RECORDER_ONLY: only } : {}) };
+  for (const name of ['MIXDOG_DATA_DIR', 'MIXDOG_HOME', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'TEMP', 'TMP']) {
+    env[name] = join(sandbox, name.toLowerCase());
+    mkdirSync(env[name], { recursive: true });
+  }
   const child = spawn(process.execPath, [SELF, '--child'], { env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
   let output = '';
   child.stdout.on('data', (d) => { output += d; });
@@ -173,68 +185,89 @@ async function record(label, workspace) {
   } catch (error) {
     child.kill();
     await deadline(exited, 30_000, `recording ${label} ending after its kill`);
-    throw new Error(`${error.message}; its sandbox ${sandbox} is kept\n${output}`);
+    throw new Error(`${error.message}\n${output}`);
   }
-  if (result.code !== 0) throw new Error(`recording ${label} failed (${result.code ?? result.signal}); its sandbox ${sandbox} is kept:\n${output}`);
-  const left = processesNaming(sandbox);
-  if (left.length) throw new Error(`recording ${label} left processes naming ${sandbox}: ${left.join(', ')}; the sandbox is kept`);
-  const file = readFileSync(join(env.MIXDOG_DATA_DIR, 'history', 'tool-failures.jsonl'), 'utf8');
+  if (result.code !== 0) throw new Error(`recording ${label} failed (${result.code ?? result.signal}):\n${output}`);
   const results = JSON.parse(readFileSync(join(env.MIXDOG_DATA_DIR, 'results.json'), 'utf8'));
-  rmSync(sandbox, { recursive: true, force: true });
-  return { file, results };
+  const sessions = results.map((r) => r?.session ?? null);
+  const file = join(env.MIXDOG_DATA_DIR, 'history', 'tool-failures.jsonl');
+  const text = existsSync(file) ? readFileSync(file, 'utf8') : '';
+  // Each recording's own session ids and workspace become placeholders; what is left must be what the other recording wrote.
+  const rows = rowsByScenario(text, sessions, workspace);
+  const masked = results.map((r, i) => (r === null ? null : JSON.parse(maskWorkspace(JSON.stringify({ ...r, session: undefined }), workspace).split(sessions[i]).join(`<session:${i}>`))));
+  return { rows, results: masked };
 }
 
-const workspace = mkdtempSync(join(scratch, 'tf-ws-'));
+// The run's own folder: both profiles and the workspace (`<run>\ws`, whose path and length are part of the rows) live in it, and it is
+// removed once at the end, unless something still names it.
+if (!scratch) throw new Error('MIXDOG_RECORDER_SCRATCH must name the scratch parent (under D:\\mixdog-build\\tmp\\<slot>); the replay is run with the same one');
+mkdirSync(scratch, { recursive: true });
+const run = mkdtempSync(join(scratch, 'tf-rec-'));
+const workspace = join(run, 'ws');
+mkdirSync(workspace);
+let failure = null;
 try {
-  const a = await record('a', workspace);
-  const b = await record('b', workspace);
-  const rowsA = a.file.split('\n').filter(Boolean).map((line) => JSON.parse(line));
-  const rowsB = b.file.split('\n').filter(Boolean).map((line) => JSON.parse(line));
-  if (rowsA.length !== rowsB.length) throw new Error(`two recordings wrote ${rowsA.length} and ${rowsB.length} rows`);
-  // What differs between the two recordings, key by key; anything else differing is a fact of the scenario, not noise.
-  const varying = new Set();
-  rowsA.forEach((row, i) => {
-    if (JSON.stringify(Object.keys(row)) !== JSON.stringify(Object.keys(rowsB[i]))) throw new Error(`row ${i}: key order differs between recordings`);
-    for (const key of Object.keys(row)) if (JSON.stringify(row[key]) !== JSON.stringify(rowsB[i][key])) varying.add(key);
-  });
-  const named = [...varying].sort();
-  const allowed = ['session_id', 'tool_ms', 'ts'];
-  if (named.some((key) => !allowed.includes(key))) throw new Error(`unexpected varying keys ${named.join(', ')}: look at them before replacing anything`);
-  // The session ids: one per scenario, never shared, and different between the recordings.
-  const sessionsOf = (rows) => [...new Set(rows.map((r) => r.session_id))];
-  if (sessionsOf(rowsA).some((id) => sessionsOf(rowsB).includes(id))) throw new Error('a session id repeated between recordings');
-
-  const finalDir = join(FIXTURES_ROOT, 'tool-failures');
-  const stage = stageSet(finalDir);
+  const a = await record('a', run, workspace);
+  const b = await record('b', run, workspace);
+  if (JSON.stringify(a) !== JSON.stringify(b)) {
+    throw new Error(`two recordings differ beyond the session ids, ts, tool_ms and the workspace:\n${JSON.stringify(a.rows)}\n${JSON.stringify(b.rows)}\n${JSON.stringify(a.results)}\n${JSON.stringify(b.results)}`);
+  }
   const all = scenarios(workspace);
-  writeJson(join(stage, 'golden.json'), {
-    note: 'history/tool-failures.jsonl as the Node tool loop writes it (real askSession turns over a scripted provider), recorded twice at b6f10295a',
-    workspace,
+  const golden = {
+    note: 'history/tool-failures.jsonl as the Node tool loop writes it (real askSession turns over a scripted provider), recorded twice at b6f10295a; rows normalised by lib/tool-failure-rows.mjs and grouped by scenario, in file order',
+    workspaceLength: workspace.length,
     scenarios: all,
     files: FILES,
     model: MODEL,
-    recordings: [a, b].map((r) => ({ file: r.file, results: r.results.map(({ session, ...rest }) => rest), sessions: r.results.map((x) => x.session) })),
-    varying: named,
-  });
-  // Everything the recording was given that Node did not produce itself.
-  const syntheticInputs = {
-    provider: `a scripted provider (only its send is scripted; model ${MODEL}): the replies of each scenario in lib/tool-failure-scenarios.mjs`,
-    scenarios: all.map((s) => ({ name: s.name, replies: s.replies.length, hook: s.hook ?? null, approval: s.approval ?? null, full: s.full === true })),
-    hookDecisions: all.filter((s) => s.hook).map((s) => ({ scenario: s.name, ...s.hook })),
-    approvalAnswers: all.filter((s) => s.approval).map((s) => ({ scenario: s.name, ...s.approval })),
-    mcpServer: { file: 'fx-mcp.mjs', sha256: createHash('sha256').update(FILES['fx-mcp.mjs']).digest('hex'), tools: ['fail', 'boom', 'ok'] },
-    workspaceFiles: Object.fromEntries(Object.entries(FILES).map(([name, text]) => [name, createHash('sha256').update(text).digest('hex')])),
+    rows: a.rows,
+    results: a.results,
   };
-  writeSetManifest(stage, {
-    set: 'tool-failures',
-    recorder,
-    command: `node ${recorder} --tree <exact export of ${NODE_COMMIT}>`,
-    identity,
-    extra: { rows: rowsA.length, varying: named, node: process.version, recorderSha256: sha256(SELF), scenariosSha256: sha256(SCENARIOS_FILE), syntheticInputs },
-  });
-  commitStage(stage, finalDir);
-  console.log(`rows=${rowsA.length} varying=${named.join(',')}`);
-} finally {
-  rmSync(workspace, { recursive: true, force: true });
+  if (only) {
+    console.log(JSON.stringify(golden, null, 1));
+  } else {
+    const finalDir = join(FIXTURES_ROOT, 'tool-failures');
+    const stage = stageSet(finalDir);
+    writeJson(join(stage, 'golden.json'), golden);
+    // Everything the recording was given that Node did not produce itself.
+    const syntheticInputs = {
+      provider: `a scripted provider (only its send is scripted; model ${MODEL}): the replies of each scenario in lib/tool-failure-scenarios.mjs`,
+      scenarios: all.map((s) => ({ name: s.name, replies: s.replies.length, hook: s.hook ?? null, approval: s.approval ?? null, full: s.full === true, abortWhenFile: s.abortWhenFile ?? null })),
+      hookDecisions: all.filter((s) => s.hook).map((s) => ({ scenario: s.name, ...s.hook })),
+      approvalAnswers: all.filter((s) => s.approval).map((s) => ({ scenario: s.name, ...s.approval })),
+      mcpServer: { file: 'fx-mcp.mjs', sha256: createHash('sha256').update(FILES['fx-mcp.mjs']).digest('hex'), tools: ['fail', 'boom', 'ok'] },
+      workspaceFiles: Object.fromEntries(Object.entries(FILES).map(([name, text]) => [name, createHash('sha256').update(text).digest('hex')])),
+    };
+    writeSetManifest(stage, {
+      set: 'tool-failures',
+      recorder,
+      command: `MIXDOG_RECORDER_SCRATCH=<scratch parent> node ${recorder} --tree <exact export of ${NODE_COMMIT}>`,
+      identity,
+      extra: {
+        rows: a.rows.flat().length,
+        normalised: ['session_id', 'ts', 'tool_ms', 'workspace'],
+        node: process.version,
+        recorderSha256: sha256(SELF),
+        scenariosSha256: sha256(SCENARIOS_FILE),
+        rowsLibSha256: sha256(ROWS_FILE),
+        syntheticInputs,
+      },
+    });
+    commitStage(stage, finalDir);
+    console.log(`rows=${a.rows.map((r) => r.length).join(',')}`);
+  }
+} catch (error) {
+  failure = error;
 }
-process.exit(0);
+// Nothing may outlive the recording: a process still naming the run's folder fails it, and the folder is kept for a look.
+const left = processesNaming(run);
+if (left.length) {
+  console.error(`processes still naming ${run}: ${left.join(', ')}; the folder is kept`);
+  process.exitCode = 1;
+} else if (failure) {
+  console.error(`the run's folder ${run} is kept`);
+} else {
+  rmSync(run, { recursive: true, force: true });
+}
+if (failure) throw failure;
+process.exit(process.exitCode ?? 0);
+

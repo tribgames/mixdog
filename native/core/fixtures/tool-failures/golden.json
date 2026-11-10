@@ -1,6 +1,6 @@
 {
-  "note": "history/tool-failures.jsonl as the Node tool loop writes it (real askSession turns over a scripted provider), recorded twice at b6f10295a",
-  "workspace": "D:\\mixdog-build\\tmp\\rs-tf\\tf-ws-kIZgvo",
+  "note": "history/tool-failures.jsonl as the Node tool loop writes it (real askSession turns over a scripted provider), recorded twice at b6f10295a; rows normalised by lib/tool-failure-rows.mjs and grouped by scenario, in file order",
+  "workspaceLength": 39,
   "scenarios": [
     {
       "name": "tool errors, refusals and redaction in one batch",
@@ -74,7 +74,7 @@
               "id": "d1",
               "name": "edit",
               "args": {
-                "file_path": "ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé😀xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-token=abc123",
+                "file_path": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé😀xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-token=abc123",
                 "old_string": "a",
                 "new_string": "b"
               }
@@ -243,7 +243,6 @@
     {
       "name": "MCP tool failures",
       "full": true,
-      "coreDiffers": "the core does not offer mcp__ tools by name in a full session (they are reached through load_tool / call_tool)",
       "replies": [
         {
           "text": "go",
@@ -292,266 +291,198 @@
           "calls": []
         }
       ]
+    },
+    {
+      "name": "a turn ended while a batch with failed calls runs",
+      "abortWhenFile": "batch.flag",
+      "replies": [
+        {
+          "text": "go",
+          "calls": [
+            {
+              "id": "b1",
+              "name": "read",
+              "args": {}
+            },
+            {
+              "id": "b2",
+              "name": "frobnicate",
+              "args": {}
+            },
+            {
+              "id": "b3",
+              "name": "shell",
+              "args": {
+                "command": "node -e \"require('fs').writeFileSync('batch.flag','1');setTimeout(()=>{},20000)\""
+              }
+            }
+          ]
+        },
+        {
+          "text": "done",
+          "calls": []
+        }
+      ]
     }
   ],
   "files": {
     "a.txt": "hello\nsecond line\n",
-    "fx-mcp.mjs": "\nlet buffered = '';\nconst send = (message) => process.stdout.write(JSON.stringify(message) + '\\n');\nconst TOOLS = ['fail', 'boom', 'ok'].map((name) => ({ name, description: name, inputSchema: { type: 'object', properties: {} } }));\nprocess.stdin.on('data', (chunk) => {\n  buffered += chunk;\n  let at;\n  while ((at = buffered.indexOf('\\n')) >= 0) {\n    const line = buffered.slice(0, at);\n    buffered = buffered.slice(at + 1);\n    if (!line.trim()) continue;\n    const message = JSON.parse(line);\n    if (message.id === undefined) continue;\n    const reply = (result) => send({ jsonrpc: '2.0', id: message.id, result });\n    if (message.method === 'initialize') reply({ protocolVersion: message.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: 'fx', version: '1' } });\n    else if (message.method === 'tools/list') reply({ tools: TOOLS });\n    else if (message.method === 'tools/call' && message.params.name === 'fail') reply({ content: [{ type: 'text', text: 'it broke' }], isError: true });\n    else if (message.method === 'tools/call' && message.params.name === 'boom') send({ jsonrpc: '2.0', id: message.id, error: { code: -32000, message: 'server exploded' } });\n    else if (message.method === 'tools/call') reply({ content: [{ type: 'text', text: 'fine' }] });\n    else send({ jsonrpc: '2.0', id: message.id, error: { code: -32601, message: 'no such method' } });\n  }\n});\n"
+    "fx-mcp.mjs": "\nlet buffered = '';\nconst send = (message) => process.stdout.write(JSON.stringify(message) + '\\n');\nconst TOOLS = ['fail', 'boom', 'ok'].map((name) => ({ name, description: name, inputSchema: { type: 'object', properties: {} } }));\nprocess.stdin.on('data', (chunk) => {\n  buffered += chunk;\n  let at;\n  while ((at = buffered.indexOf('\\n')) >= 0) {\n    const line = buffered.slice(0, at);\n    buffered = buffered.slice(at + 1);\n    if (!line.trim()) continue;\n    const message = JSON.parse(line);\n    if (message.id === undefined) continue;\n    const reply = (result) => send({ jsonrpc: '2.0', id: message.id, result });\n    if (message.method === 'initialize') reply({ protocolVersion: message.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: 'fx', version: '1' } });\n    else if (message.method === 'tools/list') reply({ tools: TOOLS });\n    else if (message.method === 'tools/call' && message.params.name === 'fail') reply({ content: [{ type: 'text', text: 'it broke' }], isError: true });\n    else if (message.method === 'tools/call' && message.params.name === 'boom') send({ jsonrpc: '2.0', id: message.id, error: { code: -32603, message: 'server exploded' } });\n    else if (message.method === 'tools/call') reply({ content: [{ type: 'text', text: 'fine' }] });\n    else send({ jsonrpc: '2.0', id: message.id, error: { code: -32601, message: 'no such method' } });\n  }\n});\n"
   },
   "model": "fake-model",
-  "recordings": [
+  "rows": [
+    [
+      "{\"ts\":\"<ts>\",\"session_id\":\"<session:0>\",\"iteration\":1,\"tool_name\":\"read\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"<WS>\",\"tool_ms\":\"<ms>\",\"tool_args\":null,\"error_first_line\":\"Error: read requires \\\"path\\\" (or alias file_path).\",\"error_preview\":\"Error: read requires \\\"path\\\" (or alias file_path).\",\"result_bytes_est\":49,\"result_lines_est\":1}",
+      "{\"ts\":\"<ts>\",\"session_id\":\"<session:0>\",\"iteration\":1,\"tool_name\":\"edit\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"<WS>\",\"tool_ms\":\"<ms>\",\"tool_args\":{\"file_path\":\"nofile-token=abc123.txt\"},\"error_first_line\":\"Error: cannot read <WS>\\\\nofile-token=[redacted] (target is missing or inaccessible)\",\"error_preview\":\"Error: cannot read <WS>\\\\nofile-token=[redacted] (target is missing or inaccessible)\",\"result_bytes_est\":118,\"result_lines_est\":1}",
+      "{\"ts\":\"<ts>\",\"session_id\":\"<session:0>\",\"iteration\":1,\"tool_name\":\"edit\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"<WS>\",\"tool_ms\":\"<ms>\",\"tool_args\":{\"file_path\":\"a.txt\"},\"error_first_line\":\"Error: edit failed (old_string not found)\",\"error_preview\":\"Error: edit failed (old_string not found)\\ncurrent file excerpt lines 1-3 (use exact current text for retry):\\nhello\\nsecond line\\n\",\"result_bytes_est\":127,\"result_lines_est\":5}",
+      "{\"ts\":\"<ts>\",\"session_id\":\"<session:0>\",\"iteration\":1,\"tool_name\":\"read\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"schema/args\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"<WS>\",\"tool_ms\":\"<ms>\",\"tool_args\":{\"path\":\"a.txt\",\"offset\":\"x\"},\"error_first_line\":\"Error: \\\"offset\\\" must be an integer (got string) — e.g. offset:40\",\"error_preview\":\"Error: \\\"offset\\\" must be an integer (got string) — e.g. offset:40\",\"result_bytes_est\":66,\"result_lines_est\":1}",
+      "{\"ts\":\"<ts>\",\"session_id\":\"<session:0>\",\"iteration\":1,\"tool_name\":\"task\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"schema/args\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"<WS>\",\"tool_ms\":\"<ms>\",\"tool_args\":{\"action\":\"bogus\"},\"error_first_line\":\"Error: task arg \\\"action\\\" must be one of list|read|wait|cancel (got \\\"bogus\\\")\",\"error_preview\":\"Error: task arg \\\"action\\\" must be one of list|read|wait|cancel (got \\\"bogus\\\")\",\"result_bytes_est\":75,\"result_lines_est\":1}",
+      "{\"ts\":\"<ts>\",\"session_id\":\"<session:0>\",\"iteration\":2,\"tool_name\":\"edit\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"<WS>\",\"tool_ms\":\"<ms>\",\"tool_args\":{\"file_path\":\"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé...\"},\"error_first_line\":\"Error: cannot read <WS>\\\\éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\\ud83d\",\"error_preview\":\"Error: cannot read <WS>\\\\éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé😀xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-token=[redacted] (target is missing or inaccessible)\",\"result_bytes_est\":626,\"result_lines_est\":1}",
+      "{\"ts\":\"<ts>\",\"session_id\":\"<session:0>\",\"iteration\":2,\"tool_name\":\"edit\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"<WS>\",\"tool_ms\":\"<ms>\",\"tool_args\":{\"file_path\":\"zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz...\"},\"error_first_line\":\"Error: cannot read <WS>\\\\zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz\",\"error_preview\":\"Error: cannot read <WS>\\\\zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz\",\"result_bytes_est\":1595,\"result_lines_est\":1}"
+    ],
+    [
+      "{\"ts\":\"<ts>\",\"session_id\":\"<session:1>\",\"iteration\":1,\"tool_name\":\"read\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"schema/args\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"<WS>\",\"tool_ms\":\"<ms>\",\"tool_args\":null,\"error_first_line\":\"The arguments provided to `read` are invalid JSON and could not be parsed: Unexpected end of JSON input. Re-issue this tool call with valid JSON arguments.\",\"error_preview\":\"The arguments provided to `read` are invalid JSON and could not be parsed: Unexpected end of JSON input. Re-issue this tool call with valid JSON arguments.\",\"result_bytes_est\":155,\"result_lines_est\":1}"
+    ],
+    [
+      "{\"ts\":\"<ts>\",\"session_id\":\"<session:2>\",\"iteration\":1,\"tool_name\":\"shell\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"timeout/abort\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"<WS>\",\"tool_ms\":\"<ms>\",\"tool_args\":{\"command\":\"node -e \\\"setTimeout(()=>{},20000)\\\"\",\"timeout_ms\":1000},\"error_first_line\":\"Error: [shell-run-failed] [timeout: 1000ms signal: SIGKILL cause: timeout] — command killed; partial effects may remain\",\"error_preview\":\"Error: [shell-run-failed] [timeout: 1000ms signal: SIGKILL cause: timeout] — command killed; partial effects may remain\\n\\n(no output)\",\"result_bytes_est\":134,\"result_lines_est\":3}"
+    ],
+    [
+      "{\"ts\":\"<ts>\",\"session_id\":\"<session:3>\",\"iteration\":1,\"tool_name\":\"read\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"path/permission\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"<WS>\",\"tool_ms\":\"<ms>\",\"tool_args\":{\"path\":\"a.txt\"},\"error_first_line\":\"Error: tool \\\"read\\\" denied by hook: blocked by test hook\",\"error_preview\":\"Error: tool \\\"read\\\" denied by hook: blocked by test hook\",\"result_bytes_est\":55,\"result_lines_est\":1}"
+    ],
+    [
+      "{\"ts\":\"<ts>\",\"session_id\":\"<session:4>\",\"iteration\":1,\"tool_name\":\"read\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"<WS>\",\"tool_ms\":\"<ms>\",\"tool_args\":{\"path\":\"a.txt\"},\"error_first_line\":\"Error: tool \\\"read\\\" was not approved: no thanks. Do not retry it or reach the same result another way; report it.\",\"error_preview\":\"Error: tool \\\"read\\\" was not approved: no thanks. Do not retry it or reach the same result another way; report it.\",\"result_bytes_est\":112,\"result_lines_est\":1}"
+    ],
+    [
+      "{\"ts\":\"<ts>\",\"session_id\":\"<session:5>\",\"iteration\":1,\"tool_name\":\"Skill\",\"tool_kind\":\"skill\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"<WS>\",\"tool_ms\":\"<ms>\",\"tool_args\":{\"name\":\"no-such-skill\"},\"error_first_line\":\"Error: skill \\\"no-such-skill\\\" not found\",\"error_preview\":\"Error: skill \\\"no-such-skill\\\" not found\",\"result_bytes_est\":38,\"result_lines_est\":1}",
+      "{\"ts\":\"<ts>\",\"session_id\":\"<session:5>\",\"iteration\":1,\"tool_name\":\"Skill\",\"tool_kind\":\"skill\",\"result_kind\":\"error\",\"category\":\"schema/args\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"<WS>\",\"tool_ms\":\"<ms>\",\"tool_args\":null,\"error_first_line\":\"Error: skill name is required\",\"error_preview\":\"Error: skill name is required\",\"result_bytes_est\":29,\"result_lines_est\":1}",
+      "{\"ts\":\"<ts>\",\"session_id\":\"<session:5>\",\"iteration\":1,\"tool_name\":\"agent\",\"tool_kind\":\"internal\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"<WS>\",\"tool_ms\":\"<ms>\",\"tool_args\":{\"type\":\"bogus\"},\"error_first_line\":\"Error: agent: unknown type \\\"bogus\\\"\",\"error_preview\":\"Error: agent: unknown type \\\"bogus\\\"\",\"result_bytes_est\":34,\"result_lines_est\":1}",
+      "{\"ts\":\"<ts>\",\"session_id\":\"<session:5>\",\"iteration\":1,\"tool_name\":\"agent\",\"tool_kind\":\"internal\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"<WS>\",\"tool_ms\":\"<ms>\",\"tool_args\":{\"type\":\"read\",\"task_id\":\"task_does_not_exist\"},\"error_first_line\":\"Error: agent read/status: task \\\"task_does_not_exist\\\" not found\",\"error_preview\":\"Error: agent read/status: task \\\"task_does_not_exist\\\" not found\",\"result_bytes_est\":62,\"result_lines_est\":1}",
+      "{\"ts\":\"<ts>\",\"session_id\":\"<session:5>\",\"iteration\":1,\"tool_name\":\"agent\",\"tool_kind\":\"internal\",\"result_kind\":\"error\",\"category\":\"schema/args\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"<WS>\",\"tool_ms\":\"<ms>\",\"tool_args\":{\"type\":\"send\"},\"error_first_line\":\"Error: agent send: tag or sessionId is required\",\"error_preview\":\"Error: agent send: tag or sessionId is required\",\"result_bytes_est\":47,\"result_lines_est\":1}"
+    ],
+    [
+      "{\"ts\":\"<ts>\",\"session_id\":\"<session:6>\",\"iteration\":1,\"tool_name\":\"mcp__fx__fail\",\"tool_kind\":\"mcp\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"<WS>\",\"tool_ms\":\"<ms>\",\"tool_args\":null,\"error_first_line\":\"Error: it broke\",\"error_preview\":\"Error: it broke\",\"result_bytes_est\":15,\"result_lines_est\":1}",
+      "{\"ts\":\"<ts>\",\"session_id\":\"<session:6>\",\"iteration\":1,\"tool_name\":\"mcp__fx__boom\",\"tool_kind\":\"mcp\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"<WS>\",\"tool_ms\":\"<ms>\",\"tool_args\":null,\"error_first_line\":\"Error: MCP error -32603: server exploded\",\"error_preview\":\"Error: MCP error -32603: server exploded\",\"result_bytes_est\":40,\"result_lines_est\":1}"
+    ],
+    [],
+    []
+  ],
+  "results": [
     {
-      "file": "{\"ts\":1794292078968,\"session_id\":\"sess_19492_1794292078168_1794292078637_6e347bbfc311ce6a7e95b0eea4a7a13a\",\"iteration\":1,\"tool_name\":\"read\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\",\"tool_ms\":10,\"tool_args\":null,\"error_first_line\":\"Error: read requires \\\"path\\\" (or alias file_path).\",\"error_preview\":\"Error: read requires \\\"path\\\" (or alias file_path).\",\"result_bytes_est\":49,\"result_lines_est\":1}\n{\"ts\":1794292078969,\"session_id\":\"sess_19492_1794292078168_1794292078637_6e347bbfc311ce6a7e95b0eea4a7a13a\",\"iteration\":1,\"tool_name\":\"edit\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\",\"tool_ms\":12,\"tool_args\":{\"file_path\":\"nofile-token=abc123.txt\"},\"error_first_line\":\"Error: cannot read D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\\\\nofile-token=[redacted] (target is missing or inaccessible)\",\"error_preview\":\"Error: cannot read D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\\\\nofile-token=[redacted] (target is missing or inaccessible)\",\"result_bytes_est\":117,\"result_lines_est\":1}\n{\"ts\":1794292078969,\"session_id\":\"sess_19492_1794292078168_1794292078637_6e347bbfc311ce6a7e95b0eea4a7a13a\",\"iteration\":1,\"tool_name\":\"edit\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\",\"tool_ms\":17,\"tool_args\":{\"file_path\":\"a.txt\"},\"error_first_line\":\"Error: edit failed (old_string not found)\",\"error_preview\":\"Error: edit failed (old_string not found)\\ncurrent file excerpt lines 1-3 (use exact current text for retry):\\nhello\\nsecond line\\n\",\"result_bytes_est\":127,\"result_lines_est\":5}\n{\"ts\":1794292078970,\"session_id\":\"sess_19492_1794292078168_1794292078637_6e347bbfc311ce6a7e95b0eea4a7a13a\",\"iteration\":1,\"tool_name\":\"read\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"schema/args\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\",\"tool_ms\":1,\"tool_args\":{\"path\":\"a.txt\",\"offset\":\"x\"},\"error_first_line\":\"Error: \\\"offset\\\" must be an integer (got string) — e.g. offset:40\",\"error_preview\":\"Error: \\\"offset\\\" must be an integer (got string) — e.g. offset:40\",\"result_bytes_est\":66,\"result_lines_est\":1}\n{\"ts\":1794292078971,\"session_id\":\"sess_19492_1794292078168_1794292078637_6e347bbfc311ce6a7e95b0eea4a7a13a\",\"iteration\":1,\"tool_name\":\"task\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"schema/args\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\",\"tool_ms\":8,\"tool_args\":{\"action\":\"bogus\"},\"error_first_line\":\"Error: task arg \\\"action\\\" must be one of list|read|wait|cancel (got \\\"bogus\\\")\",\"error_preview\":\"Error: task arg \\\"action\\\" must be one of list|read|wait|cancel (got \\\"bogus\\\")\",\"result_bytes_est\":75,\"result_lines_est\":1}\n{\"ts\":1794292078980,\"session_id\":\"sess_19492_1794292078168_1794292078637_6e347bbfc311ce6a7e95b0eea4a7a13a\",\"iteration\":2,\"tool_name\":\"edit\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\",\"tool_ms\":1,\"tool_args\":{\"file_path\":\"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé...\"},\"error_first_line\":\"Error: cannot read D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\\\\ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\\ud83d\",\"error_preview\":\"Error: cannot read D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\\\\ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé😀xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-token=[redacted] (target is missing or inaccessible)\",\"result_bytes_est\":627,\"result_lines_est\":1}\n{\"ts\":1794292078980,\"session_id\":\"sess_19492_1794292078168_1794292078637_6e347bbfc311ce6a7e95b0eea4a7a13a\",\"iteration\":2,\"tool_name\":\"edit\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\",\"tool_ms\":2,\"tool_args\":{\"file_path\":\"zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz...\"},\"error_first_line\":\"Error: cannot read D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\\\\zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz\",\"error_preview\":\"Error: cannot read D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\\\\zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz\",\"result_bytes_est\":1594,\"result_lines_est\":1}\n{\"ts\":1794292079037,\"session_id\":\"sess_19492_1794292078169_1794292078991_322e91dfc9df1956a467116bcae46715\",\"iteration\":1,\"tool_name\":\"read\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"schema/args\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\",\"tool_ms\":0,\"tool_args\":null,\"error_first_line\":\"The arguments provided to `read` are invalid JSON and could not be parsed: Unexpected end of JSON input. Re-issue this tool call with valid JSON arguments.\",\"error_preview\":\"The arguments provided to `read` are invalid JSON and could not be parsed: Unexpected end of JSON input. Re-issue this tool call with valid JSON arguments.\",\"result_bytes_est\":155,\"result_lines_est\":1}\n{\"ts\":1794292081528,\"session_id\":\"sess_19492_1794292078170_1794292079041_895421625d8ddcb9167c345e661d8eb7\",\"iteration\":1,\"tool_name\":\"shell\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"timeout/abort\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\",\"tool_ms\":2461,\"tool_args\":{\"command\":\"node -e \\\"setTimeout(()=>{},20000)\\\"\",\"timeout_ms\":1000},\"error_first_line\":\"Error: [shell-run-failed] [timeout: 1000ms signal: SIGKILL cause: timeout] — command killed; partial effects may remain\",\"error_preview\":\"Error: [shell-run-failed] [timeout: 1000ms signal: SIGKILL cause: timeout] — command killed; partial effects may remain\\n\\n(no output)\",\"result_bytes_est\":134,\"result_lines_est\":3}\n{\"ts\":1794292082395,\"session_id\":\"sess_19492_1794292078171_1794292081534_8a495ac93f23cc9cb75f0323d27374de\",\"iteration\":1,\"tool_name\":\"read\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"path/permission\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\",\"tool_ms\":0,\"tool_args\":{\"path\":\"a.txt\"},\"error_first_line\":\"Error: tool \\\"read\\\" denied by hook: blocked by test hook\",\"error_preview\":\"Error: tool \\\"read\\\" denied by hook: blocked by test hook\",\"result_bytes_est\":55,\"result_lines_est\":1}\n{\"ts\":1794292083246,\"session_id\":\"sess_19492_1794292078172_1794292082400_1baaffe59149a956e21e48921fc50416\",\"iteration\":1,\"tool_name\":\"read\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\",\"tool_ms\":76,\"tool_args\":{\"path\":\"a.txt\"},\"error_first_line\":\"Error: tool \\\"read\\\" was not approved: no thanks. Do not retry it or reach the same result another way; report it.\",\"error_preview\":\"Error: tool \\\"read\\\" was not approved: no thanks. Do not retry it or reach the same result another way; report it.\",\"result_bytes_est\":112,\"result_lines_est\":1}\n{\"ts\":1794292084873,\"session_id\":\"sess_19492_1794292078173_1794292083250_5d32ab88f85dbda84f5b87b70890f242\",\"iteration\":1,\"tool_name\":\"Skill\",\"tool_kind\":\"skill\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\",\"tool_ms\":13,\"tool_args\":{\"name\":\"no-such-skill\"},\"error_first_line\":\"Error: skill \\\"no-such-skill\\\" not found\",\"error_preview\":\"Error: skill \\\"no-such-skill\\\" not found\",\"result_bytes_est\":38,\"result_lines_est\":1}\n{\"ts\":1794292084874,\"session_id\":\"sess_19492_1794292078173_1794292083250_5d32ab88f85dbda84f5b87b70890f242\",\"iteration\":1,\"tool_name\":\"Skill\",\"tool_kind\":\"skill\",\"result_kind\":\"error\",\"category\":\"schema/args\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\",\"tool_ms\":13,\"tool_args\":null,\"error_first_line\":\"Error: skill name is required\",\"error_preview\":\"Error: skill name is required\",\"result_bytes_est\":29,\"result_lines_est\":1}\n{\"ts\":1794292084874,\"session_id\":\"sess_19492_1794292078173_1794292083250_5d32ab88f85dbda84f5b87b70890f242\",\"iteration\":1,\"tool_name\":\"agent\",\"tool_kind\":\"internal\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\",\"tool_ms\":13,\"tool_args\":{\"type\":\"bogus\"},\"error_first_line\":\"Error: agent: unknown type \\\"bogus\\\"\",\"error_preview\":\"Error: agent: unknown type \\\"bogus\\\"\",\"result_bytes_est\":34,\"result_lines_est\":1}\n{\"ts\":1794292084874,\"session_id\":\"sess_19492_1794292078173_1794292083250_5d32ab88f85dbda84f5b87b70890f242\",\"iteration\":1,\"tool_name\":\"agent\",\"tool_kind\":\"internal\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\",\"tool_ms\":13,\"tool_args\":{\"type\":\"read\",\"task_id\":\"task_does_not_exist\"},\"error_first_line\":\"Error: agent read/status: task \\\"task_does_not_exist\\\" not found\",\"error_preview\":\"Error: agent read/status: task \\\"task_does_not_exist\\\" not found\",\"result_bytes_est\":62,\"result_lines_est\":1}\n{\"ts\":1794292084874,\"session_id\":\"sess_19492_1794292078173_1794292083250_5d32ab88f85dbda84f5b87b70890f242\",\"iteration\":1,\"tool_name\":\"agent\",\"tool_kind\":\"internal\",\"result_kind\":\"error\",\"category\":\"schema/args\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\",\"tool_ms\":13,\"tool_args\":{\"type\":\"send\"},\"error_first_line\":\"Error: agent send: tag or sessionId is required\",\"error_preview\":\"Error: agent send: tag or sessionId is required\",\"result_bytes_est\":47,\"result_lines_est\":1}\n{\"ts\":1794292092443,\"session_id\":\"sess_19492_1794292078174_1794292086514_256117ea4d0ed176b8d980f9a038d6d2\",\"iteration\":1,\"tool_name\":\"mcp__fx__fail\",\"tool_kind\":\"mcp\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\",\"tool_ms\":5,\"tool_args\":null,\"error_first_line\":\"Error: it broke\",\"error_preview\":\"Error: it broke\",\"result_bytes_est\":15,\"result_lines_est\":1}\n{\"ts\":1794292092443,\"session_id\":\"sess_19492_1794292078174_1794292086514_256117ea4d0ed176b8d980f9a038d6d2\",\"iteration\":1,\"tool_name\":\"mcp__fx__boom\",\"tool_kind\":\"mcp\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\",\"tool_ms\":5732,\"tool_args\":null,\"error_first_line\":\"Error: Tool call failed: MCP error -32000: server exploded; MCP server \\\"fx\\\" was reconnected for the next call, but this call was not replayed because the request may already have reached the server\",\"error_preview\":\"Error: Tool call failed: MCP error -32000: server exploded; MCP server \\\"fx\\\" was reconnected for the next call, but this call was not replayed because the request may already have reached the server\",\"result_bytes_est\":197,\"result_lines_est\":1}\n",
-      "results": [
-        {
-          "name": "tool errors, refusals and redaction in one batch",
-          "outcome": {
-            "answer": "done"
-          },
-          "sends": 3,
-          "toolMessages": [
-            [
-              "Error: read requires \"path\" (or alias file_path).",
-              "[path absent] ENOENT: no such file or directory, stat 'missing.txt' Nothing same-named elsewhere in the project scan — treat the path as absent (create it if the task requires). (relative paths resolve from D:/mixdog-build/tmp/rs-tf/tf-ws-kIZgvo)",
-              "Error: cannot read D:\\mixdog-build\\tmp\\rs-tf\\tf-ws-kIZgvo\\nofile-token=abc123.txt (target is missing or inaccessible)",
-              "Error: edit failed (old_string not found)\ncurrent file excerpt lines 1-3 (use exact current text for retry):\nhello\nsecond line\n",
-              "Error: \"offset\" must be an integer (got string) — e.g. offset:40",
-              "Error: task arg \"action\" must be one of list|read|wait|cancel (got \"bogus\")",
-              "[mutation-dependency-guard] `shell` skipped because earlier mutation call(s) failed: c3, c4; no verification ran.",
-              "Error: tool \"frobnicate\" is not available on this session's schema allowlist."
-            ],
-            [
-              "Error: cannot read D:\\mixdog-build\\tmp\\rs-tf\\tf-ws-kIZgvo\\ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé😀xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-token=abc123 (target is missing or inaccessible)",
-              "Error: cannot read D:\\mixdog-build\\tmp\\rs-tf\\tf-ws-kIZgvo\\zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz (target is missing or inaccessible)"
-            ]
-          ]
-        },
-        {
-          "name": "a call whose arguments are not JSON",
-          "outcome": {
-            "answer": "done"
-          },
-          "sends": 2,
-          "toolMessages": [
-            [
-              "The arguments provided to `read` are invalid JSON and could not be parsed: Unexpected end of JSON input. Re-issue this tool call with valid JSON arguments."
-            ]
-          ]
-        },
-        {
-          "name": "a shell command that outlives its timeout",
-          "outcome": {
-            "answer": "done"
-          },
-          "sends": 2,
-          "toolMessages": [
-            [
-              "Error: [shell-run-failed] [timeout: 1000ms signal: SIGKILL cause: timeout] — command killed; partial effects may remain\n\n(no output)"
-            ]
-          ]
-        },
-        {
-          "name": "a call refused by a hook",
-          "outcome": {
-            "answer": "done"
-          },
-          "sends": 2,
-          "toolMessages": [
-            [
-              "Error: tool \"read\" denied by hook: blocked by test hook"
-            ]
-          ]
-        },
-        {
-          "name": "a call whose approval is denied",
-          "outcome": {
-            "answer": "done"
-          },
-          "sends": 2,
-          "toolMessages": [
-            [
-              "Error: tool \"read\" was not approved: no thanks. Do not retry it or reach the same result another way; report it."
-            ]
-          ]
-        },
-        {
-          "name": "skill, delegated-agent and MCP tool failures",
-          "outcome": {
-            "answer": "done"
-          },
-          "sends": 2,
-          "toolMessages": [
-            [
-              "Error: skill \"no-such-skill\" not found",
-              "Error: skill name is required",
-              "Error: agent: unknown type \"bogus\"",
-              "Error: agent read/status: task \"task_does_not_exist\" not found",
-              "Error: agent send: tag or sessionId is required"
-            ]
-          ]
-        },
-        {
-          "name": "MCP tool failures",
-          "outcome": {
-            "answer": "done"
-          },
-          "sends": 2,
-          "toolMessages": [
-            [
-              "Error: it broke",
-              "Error: Tool call failed: MCP error -32000: server exploded; MCP server \"fx\" was reconnected for the next call, but this call was not replayed because the request may already have reached the server",
-              "fine"
-            ]
-          ]
-        },
-        {
-          "name": "a turn ended while its shell command runs",
-          "outcome": {
-            "threw": "Session \"<session>\" closed: abortSessionTurn (reason=turn-abort)"
-          },
-          "sends": 1,
-          "toolMessages": []
-        }
-      ],
-      "sessions": [
-        "sess_19492_1794292078168_1794292078637_6e347bbfc311ce6a7e95b0eea4a7a13a",
-        "sess_19492_1794292078169_1794292078991_322e91dfc9df1956a467116bcae46715",
-        "sess_19492_1794292078170_1794292079041_895421625d8ddcb9167c345e661d8eb7",
-        "sess_19492_1794292078171_1794292081534_8a495ac93f23cc9cb75f0323d27374de",
-        "sess_19492_1794292078172_1794292082400_1baaffe59149a956e21e48921fc50416",
-        "sess_19492_1794292078173_1794292083250_5d32ab88f85dbda84f5b87b70890f242",
-        "sess_19492_1794292078174_1794292086514_256117ea4d0ed176b8d980f9a038d6d2",
-        "sess_19492_1794292078175_1794292094318_3037ef40c34eb88389d2375918fa0b90"
+      "name": "tool errors, refusals and redaction in one batch",
+      "outcome": {
+        "answer": "done"
+      },
+      "sends": 3,
+      "toolMessages": [
+        [
+          "Error: read requires \"path\" (or alias file_path).",
+          "[path absent] ENOENT: no such file or directory, stat 'missing.txt' Nothing same-named elsewhere in the project scan — treat the path as absent (create it if the task requires). (relative paths resolve from <WS>)",
+          "Error: cannot read <WS>\\nofile-token=abc123.txt (target is missing or inaccessible)",
+          "Error: edit failed (old_string not found)\ncurrent file excerpt lines 1-3 (use exact current text for retry):\nhello\nsecond line\n",
+          "Error: \"offset\" must be an integer (got string) — e.g. offset:40",
+          "Error: task arg \"action\" must be one of list|read|wait|cancel (got \"bogus\")",
+          "[mutation-dependency-guard] `shell` skipped because earlier mutation call(s) failed: c3, c4; no verification ran.",
+          "Error: tool \"frobnicate\" is not available on this session's schema allowlist."
+        ],
+        [
+          "Error: cannot read <WS>\\éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé😀xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-token=abc123 (target is missing or inaccessible)",
+          "Error: cannot read <WS>\\zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz (target is missing or inaccessible)"
+        ]
       ]
     },
     {
-      "file": "{\"ts\":1794292097055,\"session_id\":\"sess_19440_1794292096158_1794292096475_1a7796a8c5eea60789c1b91aeb44ea02\",\"iteration\":1,\"tool_name\":\"read\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\",\"tool_ms\":13,\"tool_args\":null,\"error_first_line\":\"Error: read requires \\\"path\\\" (or alias file_path).\",\"error_preview\":\"Error: read requires \\\"path\\\" (or alias file_path).\",\"result_bytes_est\":49,\"result_lines_est\":1}\n{\"ts\":1794292097056,\"session_id\":\"sess_19440_1794292096158_1794292096475_1a7796a8c5eea60789c1b91aeb44ea02\",\"iteration\":1,\"tool_name\":\"edit\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\",\"tool_ms\":18,\"tool_args\":{\"file_path\":\"nofile-token=abc123.txt\"},\"error_first_line\":\"Error: cannot read D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\\\\nofile-token=[redacted] (target is missing or inaccessible)\",\"error_preview\":\"Error: cannot read D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\\\\nofile-token=[redacted] (target is missing or inaccessible)\",\"result_bytes_est\":117,\"result_lines_est\":1}\n{\"ts\":1794292097057,\"session_id\":\"sess_19440_1794292096158_1794292096475_1a7796a8c5eea60789c1b91aeb44ea02\",\"iteration\":1,\"tool_name\":\"edit\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\",\"tool_ms\":23,\"tool_args\":{\"file_path\":\"a.txt\"},\"error_first_line\":\"Error: edit failed (old_string not found)\",\"error_preview\":\"Error: edit failed (old_string not found)\\ncurrent file excerpt lines 1-3 (use exact current text for retry):\\nhello\\nsecond line\\n\",\"result_bytes_est\":127,\"result_lines_est\":5}\n{\"ts\":1794292097059,\"session_id\":\"sess_19440_1794292096158_1794292096475_1a7796a8c5eea60789c1b91aeb44ea02\",\"iteration\":1,\"tool_name\":\"read\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"schema/args\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\",\"tool_ms\":1,\"tool_args\":{\"path\":\"a.txt\",\"offset\":\"x\"},\"error_first_line\":\"Error: \\\"offset\\\" must be an integer (got string) — e.g. offset:40\",\"error_preview\":\"Error: \\\"offset\\\" must be an integer (got string) — e.g. offset:40\",\"result_bytes_est\":66,\"result_lines_est\":1}\n{\"ts\":1794292097059,\"session_id\":\"sess_19440_1794292096158_1794292096475_1a7796a8c5eea60789c1b91aeb44ea02\",\"iteration\":1,\"tool_name\":\"task\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"schema/args\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\",\"tool_ms\":11,\"tool_args\":{\"action\":\"bogus\"},\"error_first_line\":\"Error: task arg \\\"action\\\" must be one of list|read|wait|cancel (got \\\"bogus\\\")\",\"error_preview\":\"Error: task arg \\\"action\\\" must be one of list|read|wait|cancel (got \\\"bogus\\\")\",\"result_bytes_est\":75,\"result_lines_est\":1}\n{\"ts\":1794292097080,\"session_id\":\"sess_19440_1794292096158_1794292096475_1a7796a8c5eea60789c1b91aeb44ea02\",\"iteration\":2,\"tool_name\":\"edit\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\",\"tool_ms\":8,\"tool_args\":{\"file_path\":\"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé...\"},\"error_first_line\":\"Error: cannot read D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\\\\ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\\ud83d\",\"error_preview\":\"Error: cannot read D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\\\\ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé😀xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-token=[redacted] (target is missing or inaccessible)\",\"result_bytes_est\":627,\"result_lines_est\":1}\n{\"ts\":1794292097080,\"session_id\":\"sess_19440_1794292096158_1794292096475_1a7796a8c5eea60789c1b91aeb44ea02\",\"iteration\":2,\"tool_name\":\"edit\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\",\"tool_ms\":10,\"tool_args\":{\"file_path\":\"zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz...\"},\"error_first_line\":\"Error: cannot read D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\\\\zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz\",\"error_preview\":\"Error: cannot read D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\\\\zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz\",\"result_bytes_est\":1594,\"result_lines_est\":1}\n{\"ts\":1794292097191,\"session_id\":\"sess_19440_1794292096159_1794292097101_fcbc36d9d1e31ae4c2a32c1dccce5cb2\",\"iteration\":1,\"tool_name\":\"read\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"schema/args\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\",\"tool_ms\":0,\"tool_args\":null,\"error_first_line\":\"The arguments provided to `read` are invalid JSON and could not be parsed: Unexpected end of JSON input. Re-issue this tool call with valid JSON arguments.\",\"error_preview\":\"The arguments provided to `read` are invalid JSON and could not be parsed: Unexpected end of JSON input. Re-issue this tool call with valid JSON arguments.\",\"result_bytes_est\":155,\"result_lines_est\":1}\n{\"ts\":1794292098695,\"session_id\":\"sess_19440_1794292096160_1794292097200_f56ce11104bdc2da292c7446db7c0501\",\"iteration\":1,\"tool_name\":\"shell\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"timeout/abort\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\",\"tool_ms\":1458,\"tool_args\":{\"command\":\"node -e \\\"setTimeout(()=>{},20000)\\\"\",\"timeout_ms\":1000},\"error_first_line\":\"Error: [shell-run-failed] [timeout: 1000ms signal: SIGKILL cause: timeout] — command killed; partial effects may remain\",\"error_preview\":\"Error: [shell-run-failed] [timeout: 1000ms signal: SIGKILL cause: timeout] — command killed; partial effects may remain\\n\\n(no output)\",\"result_bytes_est\":134,\"result_lines_est\":3}\n{\"ts\":1794292099662,\"session_id\":\"sess_19440_1794292096161_1794292098700_811d16dfce7943b5ffb7a1eb3e863fe1\",\"iteration\":1,\"tool_name\":\"read\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"path/permission\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\",\"tool_ms\":0,\"tool_args\":{\"path\":\"a.txt\"},\"error_first_line\":\"Error: tool \\\"read\\\" denied by hook: blocked by test hook\",\"error_preview\":\"Error: tool \\\"read\\\" denied by hook: blocked by test hook\",\"result_bytes_est\":55,\"result_lines_est\":1}\n{\"ts\":1794292100940,\"session_id\":\"sess_19440_1794292096162_1794292099666_74dd040daeebca5b1122d616ad5fea7d\",\"iteration\":1,\"tool_name\":\"read\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\",\"tool_ms\":92,\"tool_args\":{\"path\":\"a.txt\"},\"error_first_line\":\"Error: tool \\\"read\\\" was not approved: no thanks. Do not retry it or reach the same result another way; report it.\",\"error_preview\":\"Error: tool \\\"read\\\" was not approved: no thanks. Do not retry it or reach the same result another way; report it.\",\"result_bytes_est\":112,\"result_lines_est\":1}\n{\"ts\":1794292102023,\"session_id\":\"sess_19440_1794292096163_1794292100946_72270bbcd1ff5855631035265180d7a8\",\"iteration\":1,\"tool_name\":\"Skill\",\"tool_kind\":\"skill\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\",\"tool_ms\":20,\"tool_args\":{\"name\":\"no-such-skill\"},\"error_first_line\":\"Error: skill \\\"no-such-skill\\\" not found\",\"error_preview\":\"Error: skill \\\"no-such-skill\\\" not found\",\"result_bytes_est\":38,\"result_lines_est\":1}\n{\"ts\":1794292102023,\"session_id\":\"sess_19440_1794292096163_1794292100946_72270bbcd1ff5855631035265180d7a8\",\"iteration\":1,\"tool_name\":\"Skill\",\"tool_kind\":\"skill\",\"result_kind\":\"error\",\"category\":\"schema/args\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\",\"tool_ms\":20,\"tool_args\":null,\"error_first_line\":\"Error: skill name is required\",\"error_preview\":\"Error: skill name is required\",\"result_bytes_est\":29,\"result_lines_est\":1}\n{\"ts\":1794292102023,\"session_id\":\"sess_19440_1794292096163_1794292100946_72270bbcd1ff5855631035265180d7a8\",\"iteration\":1,\"tool_name\":\"agent\",\"tool_kind\":\"internal\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\",\"tool_ms\":20,\"tool_args\":{\"type\":\"bogus\"},\"error_first_line\":\"Error: agent: unknown type \\\"bogus\\\"\",\"error_preview\":\"Error: agent: unknown type \\\"bogus\\\"\",\"result_bytes_est\":34,\"result_lines_est\":1}\n{\"ts\":1794292102023,\"session_id\":\"sess_19440_1794292096163_1794292100946_72270bbcd1ff5855631035265180d7a8\",\"iteration\":1,\"tool_name\":\"agent\",\"tool_kind\":\"internal\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\",\"tool_ms\":20,\"tool_args\":{\"type\":\"read\",\"task_id\":\"task_does_not_exist\"},\"error_first_line\":\"Error: agent read/status: task \\\"task_does_not_exist\\\" not found\",\"error_preview\":\"Error: agent read/status: task \\\"task_does_not_exist\\\" not found\",\"result_bytes_est\":62,\"result_lines_est\":1}\n{\"ts\":1794292102024,\"session_id\":\"sess_19440_1794292096163_1794292100946_72270bbcd1ff5855631035265180d7a8\",\"iteration\":1,\"tool_name\":\"agent\",\"tool_kind\":\"internal\",\"result_kind\":\"error\",\"category\":\"schema/args\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\",\"tool_ms\":20,\"tool_args\":{\"type\":\"send\"},\"error_first_line\":\"Error: agent send: tag or sessionId is required\",\"error_preview\":\"Error: agent send: tag or sessionId is required\",\"result_bytes_est\":47,\"result_lines_est\":1}\n{\"ts\":1794292111448,\"session_id\":\"sess_19440_1794292096164_1794292106951_ec73a9aff050d813fdac2a5281fffb01\",\"iteration\":1,\"tool_name\":\"mcp__fx__fail\",\"tool_kind\":\"mcp\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\",\"tool_ms\":3,\"tool_args\":null,\"error_first_line\":\"Error: it broke\",\"error_preview\":\"Error: it broke\",\"result_bytes_est\":15,\"result_lines_est\":1}\n{\"ts\":1794292111448,\"session_id\":\"sess_19440_1794292096164_1794292106951_ec73a9aff050d813fdac2a5281fffb01\",\"iteration\":1,\"tool_name\":\"mcp__fx__boom\",\"tool_kind\":\"mcp\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\tf-ws-kIZgvo\",\"tool_ms\":4327,\"tool_args\":null,\"error_first_line\":\"Error: Tool call failed: MCP error -32000: server exploded; MCP server \\\"fx\\\" was reconnected for the next call, but this call was not replayed because the request may already have reached the server\",\"error_preview\":\"Error: Tool call failed: MCP error -32000: server exploded; MCP server \\\"fx\\\" was reconnected for the next call, but this call was not replayed because the request may already have reached the server\",\"result_bytes_est\":197,\"result_lines_est\":1}\n",
-      "results": [
-        {
-          "name": "tool errors, refusals and redaction in one batch",
-          "outcome": {
-            "answer": "done"
-          },
-          "sends": 3,
-          "toolMessages": [
-            [
-              "Error: read requires \"path\" (or alias file_path).",
-              "[path absent] ENOENT: no such file or directory, stat 'missing.txt' Nothing same-named elsewhere in the project scan — treat the path as absent (create it if the task requires). (relative paths resolve from D:/mixdog-build/tmp/rs-tf/tf-ws-kIZgvo)",
-              "Error: cannot read D:\\mixdog-build\\tmp\\rs-tf\\tf-ws-kIZgvo\\nofile-token=abc123.txt (target is missing or inaccessible)",
-              "Error: edit failed (old_string not found)\ncurrent file excerpt lines 1-3 (use exact current text for retry):\nhello\nsecond line\n",
-              "Error: \"offset\" must be an integer (got string) — e.g. offset:40",
-              "Error: task arg \"action\" must be one of list|read|wait|cancel (got \"bogus\")",
-              "[mutation-dependency-guard] `shell` skipped because earlier mutation call(s) failed: c3, c4; no verification ran.",
-              "Error: tool \"frobnicate\" is not available on this session's schema allowlist."
-            ],
-            [
-              "Error: cannot read D:\\mixdog-build\\tmp\\rs-tf\\tf-ws-kIZgvo\\ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé😀xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-token=abc123 (target is missing or inaccessible)",
-              "Error: cannot read D:\\mixdog-build\\tmp\\rs-tf\\tf-ws-kIZgvo\\zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz (target is missing or inaccessible)"
-            ]
-          ]
-        },
-        {
-          "name": "a call whose arguments are not JSON",
-          "outcome": {
-            "answer": "done"
-          },
-          "sends": 2,
-          "toolMessages": [
-            [
-              "The arguments provided to `read` are invalid JSON and could not be parsed: Unexpected end of JSON input. Re-issue this tool call with valid JSON arguments."
-            ]
-          ]
-        },
-        {
-          "name": "a shell command that outlives its timeout",
-          "outcome": {
-            "answer": "done"
-          },
-          "sends": 2,
-          "toolMessages": [
-            [
-              "Error: [shell-run-failed] [timeout: 1000ms signal: SIGKILL cause: timeout] — command killed; partial effects may remain\n\n(no output)"
-            ]
-          ]
-        },
-        {
-          "name": "a call refused by a hook",
-          "outcome": {
-            "answer": "done"
-          },
-          "sends": 2,
-          "toolMessages": [
-            [
-              "Error: tool \"read\" denied by hook: blocked by test hook"
-            ]
-          ]
-        },
-        {
-          "name": "a call whose approval is denied",
-          "outcome": {
-            "answer": "done"
-          },
-          "sends": 2,
-          "toolMessages": [
-            [
-              "Error: tool \"read\" was not approved: no thanks. Do not retry it or reach the same result another way; report it."
-            ]
-          ]
-        },
-        {
-          "name": "skill, delegated-agent and MCP tool failures",
-          "outcome": {
-            "answer": "done"
-          },
-          "sends": 2,
-          "toolMessages": [
-            [
-              "Error: skill \"no-such-skill\" not found",
-              "Error: skill name is required",
-              "Error: agent: unknown type \"bogus\"",
-              "Error: agent read/status: task \"task_does_not_exist\" not found",
-              "Error: agent send: tag or sessionId is required"
-            ]
-          ]
-        },
-        {
-          "name": "MCP tool failures",
-          "outcome": {
-            "answer": "done"
-          },
-          "sends": 2,
-          "toolMessages": [
-            [
-              "Error: it broke",
-              "Error: Tool call failed: MCP error -32000: server exploded; MCP server \"fx\" was reconnected for the next call, but this call was not replayed because the request may already have reached the server",
-              "fine"
-            ]
-          ]
-        },
-        {
-          "name": "a turn ended while its shell command runs",
-          "outcome": {
-            "threw": "Session \"<session>\" closed: abortSessionTurn (reason=turn-abort)"
-          },
-          "sends": 1,
-          "toolMessages": []
-        }
-      ],
-      "sessions": [
-        "sess_19440_1794292096158_1794292096475_1a7796a8c5eea60789c1b91aeb44ea02",
-        "sess_19440_1794292096159_1794292097101_fcbc36d9d1e31ae4c2a32c1dccce5cb2",
-        "sess_19440_1794292096160_1794292097200_f56ce11104bdc2da292c7446db7c0501",
-        "sess_19440_1794292096161_1794292098700_811d16dfce7943b5ffb7a1eb3e863fe1",
-        "sess_19440_1794292096162_1794292099666_74dd040daeebca5b1122d616ad5fea7d",
-        "sess_19440_1794292096163_1794292100946_72270bbcd1ff5855631035265180d7a8",
-        "sess_19440_1794292096164_1794292106951_ec73a9aff050d813fdac2a5281fffb01",
-        "sess_19440_1794292096165_1794292113964_f68de038cc9d7def5666e7f049b872ec"
+      "name": "a call whose arguments are not JSON",
+      "outcome": {
+        "answer": "done"
+      },
+      "sends": 2,
+      "toolMessages": [
+        [
+          "The arguments provided to `read` are invalid JSON and could not be parsed: Unexpected end of JSON input. Re-issue this tool call with valid JSON arguments."
+        ]
       ]
+    },
+    {
+      "name": "a shell command that outlives its timeout",
+      "outcome": {
+        "answer": "done"
+      },
+      "sends": 2,
+      "toolMessages": [
+        [
+          "Error: [shell-run-failed] [timeout: 1000ms signal: SIGKILL cause: timeout] — command killed; partial effects may remain\n\n(no output)"
+        ]
+      ]
+    },
+    {
+      "name": "a call refused by a hook",
+      "outcome": {
+        "answer": "done"
+      },
+      "sends": 2,
+      "toolMessages": [
+        [
+          "Error: tool \"read\" denied by hook: blocked by test hook"
+        ]
+      ]
+    },
+    {
+      "name": "a call whose approval is denied",
+      "outcome": {
+        "answer": "done"
+      },
+      "sends": 2,
+      "toolMessages": [
+        [
+          "Error: tool \"read\" was not approved: no thanks. Do not retry it or reach the same result another way; report it."
+        ]
+      ]
+    },
+    {
+      "name": "skill, delegated-agent and MCP tool failures",
+      "outcome": {
+        "answer": "done"
+      },
+      "sends": 2,
+      "toolMessages": [
+        [
+          "Error: skill \"no-such-skill\" not found",
+          "Error: skill name is required",
+          "Error: agent: unknown type \"bogus\"",
+          "Error: agent read/status: task \"task_does_not_exist\" not found",
+          "Error: agent send: tag or sessionId is required"
+        ]
+      ]
+    },
+    {
+      "name": "MCP tool failures",
+      "outcome": {
+        "answer": "done"
+      },
+      "sends": 2,
+      "toolMessages": [
+        [
+          "Error: it broke",
+          "Error: MCP error -32603: server exploded",
+          "fine"
+        ]
+      ]
+    },
+    {
+      "name": "a turn ended while its shell command runs",
+      "outcome": {
+        "threw": "Session \"<session>\" closed: abortSessionTurn (reason=turn-abort)"
+      },
+      "sends": 1,
+      "toolMessages": []
+    },
+    {
+      "name": "a turn ended while a batch with failed calls runs",
+      "outcome": {
+        "threw": "Session \"<session>\" closed: abortSessionTurn (reason=turn-abort)"
+      },
+      "sends": 1,
+      "toolMessages": []
     }
-  ],
-  "varying": [
-    "session_id",
-    "tool_ms",
-    "ts"
   ]
 }
