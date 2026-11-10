@@ -58,6 +58,8 @@ pub use json::write_json;
 pub use lock::LockError;
 pub use lock::LockOpts;
 pub use lock::default_timeout;
+pub use lock::LockHold;
+pub use lock::hold_lock;
 pub use lock::lock_path;
 pub use lock::process_exists;
 pub use publish::Opts;

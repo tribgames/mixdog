@@ -726,14 +726,17 @@ pub mod testing {
 
     /// The op scopes of domain `name` over a `state/core.sqlite` in `dir`.
     pub async fn scopes(dir: &std::path::Path, name: &str) -> OpScopes {
+        scopes_over(op_state(dir), name).await
+    }
+
+    /// The `state/core.sqlite` in `dir` that [`scopes`] keeps the op records in, for a test that closes it before `dir` goes.
+    pub fn op_state(dir: &std::path::Path) -> CoreState {
         let t = mixdog_rt::testing::tokens();
-        let state = CoreState::open(
-            t.sqlite_writer_thread,
-            t.interactive_io,
-            &dir.join("core.sqlite"),
-        )
-        .unwrap()
-        .0;
+        CoreState::open(t.sqlite_writer_thread, t.interactive_io, &dir.join("core.sqlite")).unwrap().0
+    }
+
+    /// The op scopes of domain `name` over `state`.
+    pub async fn scopes_over(state: CoreState, name: &str) -> OpScopes {
         let store = Arc::new(StateOpStore::new(state, name.into()));
         let gate = OpGate::domain(OpScope::Domain(name.into()), store)
             .await

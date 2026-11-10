@@ -174,13 +174,13 @@ impl AgentService {
             "agent/saveAgentDefinition" => {
                 let payload = params.get("payload").and_then(Value::as_object).ok_or_else(|| invalid("params.payload", "object"))?;
                 let options = SaveOptions { no_widen: no_widen(params), approved: None };
-                let saved = self.agents.save_with(payload, options).await.map_err(failed)?;
                 // The dialog that saved it greets it (or it already existed).
-                if let Some(id) = saved.get("id").and_then(Value::as_str)
-                    && let Err(error) = self.lifecycle.greetings.note_created(id).await
-                {
-                    tracing::warn!("[mixdog-session] Could not record the new agent: {error:?}");
-                }
+                let saved = self
+                    .lifecycle
+                    .greetings
+                    .saving(self.agents.save_with(payload, options), |saved| saved.get("id").and_then(Value::as_str).map(str::to_owned))
+                    .await
+                    .map_err(failed)?;
                 Ok(saved)
             }
             "agent/deleteAgentDefinition" => {
