@@ -90,7 +90,7 @@
           "alpha",
           "beta"
         ],
-        "head_limit": 1
+        "limit": 1
       },
       "text": "# grep pattern:\"alpha\"\n# ./src/a.ts:1 [lines 1-5]\nconst alpha = 1;\nconst gamma = 2;\nexport function beta() {\n  return alpha;\n}\n[1 of 4 shown; offset:1 for the rest]\n\n# grep pattern:\"beta\"\n# ./docs/x.md:3 [lines 1-3]\n# Notes\n\nbeta release\n[1 of 4 shown; offset:1 for the rest]",
       "isError": false
@@ -102,7 +102,7 @@
           "alpha",
           "beta"
         ],
-        "output_mode": "files_with_matches"
+        "mode": "files"
       },
       "text": "./docs/x.md\n./src/a.ts\n./src/b.ts",
       "isError": false
@@ -114,7 +114,7 @@
           "alpha",
           "beta"
         ],
-        "output_mode": "count"
+        "mode": "count"
       },
       "text": "./docs/x.md:1\n./src/a.ts:3\n./src/b.ts:3\n[total 7 matches across 3 files]",
       "isError": false

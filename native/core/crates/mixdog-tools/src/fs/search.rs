@@ -741,13 +741,13 @@ impl GrepTool {
         pattern: &str,
         globs: &[String],
         mode: Mode,
-    ) -> Result<(Vec<Hit>, bool, String, bool), ToolError> {
+    ) -> Result<(Vec<Hit>, bool, String, bool, bool), ToolError> {
         let abs = resolve_path(&ctx.cwd, raw)?;
         let stat = match guarded(ctx, "grep", ctx.files.stat(ctx.io.interactive, abs.clone())).await? {
             Ok(s) => s,
             Err(e) if super::not_found::missing_code(&e.kind).is_some() => {
                 let code = super::not_found::missing_code(&e.kind).unwrap_or("ENOENT");
-                return Ok((Vec::new(), true, super::not_found::grep_missing(ctx, &abs, raw, code).await, false));
+                return Ok((Vec::new(), true, super::not_found::grep_missing(ctx, &abs, raw, code).await, false, false));
             }
             Err(e) => return Err(fs_failure(&e, raw)),
         };
@@ -816,9 +816,9 @@ impl GrepTool {
         };
         // The parser's own text, as Node relays the search server's refusal.
         if let Some(message) = bad_pattern {
-            return Ok((Vec::new(), true, format!("Error: regex parse error: {message}"), single_file));
+            return Ok((Vec::new(), true, format!("Error: regex parse error: {message}"), single_file, true));
         }
-        Ok((hits, complete, String::new(), single_file))
+        Ok((hits, complete, String::new(), single_file, false))
     }
 }
 
@@ -897,12 +897,14 @@ impl GrepTool {
         let mut complete = true;
         let mut errors: Vec<String> = Vec::new();
         let mut single = false;
+        let mut all_bad = true;
         for raw in &roots {
-            let (hits, ok, error, is_file) =
+            let (hits, ok, error, is_file, bad) =
                 self.run_one_root(ctx, raw, &args, &pattern, &globs, mode).await?;
             complete &= ok;
             single = is_file && roots.len() == 1;
             if !error.is_empty() {
+                all_bad &= bad;
                 errors.push(error);
                 continue;
             }
@@ -918,6 +920,12 @@ impl GrepTool {
             }
         }
         if all.is_empty() && !errors.is_empty() {
+            // A pattern the parser refused is a failed call, as Node's caller takes it; a missing path is a miss.
+            // In a several-pattern answer it fails only its own section.
+            if all_bad && !fanout {
+                let text = errors.join("\n");
+                return Err(fail(ToolErrorCode::Failed { reason: text.clone() }, text));
+            }
             return Ok(errors.join("\n"));
         }
         all.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.line.cmp(&b.1.line)));

@@ -236,23 +236,26 @@ async fn replay_fs_search(scenario: &str) {
     }
     let raw = ws.to_string_lossy().into_owned();
     let fwd = raw.replace('\\', "/");
+    // One instance of each tool for the whole scenario, as one Node process answered it; the arguments go in as
+    // recorded and the failure flag is the tool's own outcome.
+    let graph_cache = Arc::new(crate::code_graph::GraphCache::new(dir.path().join("graph-cache")));
+    let tools: [(&str, Box<dyn Tool>); 6] = [
+        ("list", Box::new(ListTool::new())),
+        ("glob", Box::new(GlobTool::new())),
+        ("find", Box::new(FindTool::new())),
+        ("grep", Box::new(GrepTool::new())),
+        ("read", Box::new(ReadTool::new(None, None))),
+        ("code_graph", Box::new(crate::code_graph::CodeGraphTool::new(Arc::new(NoRoots), graph_cache))),
+    ];
+    let tool_of = |name: &str| &tools.iter().find(|(n, _)| *n == name).unwrap_or_else(|| panic!("no replay for {name}")).1;
+    let args_of = |input: &JsonValue| -> JsonValue { serde_json::from_str(&input.to_string().replace("<ROOT>", &fwd)).unwrap() };
+    for call in fixture["warmup"].as_array().cloned().unwrap_or_default() {
+        let _ = tool_of(call["tool"].as_str().unwrap()).call(&ctx, args_of(&call["input"])).await;
+    }
     let mut failures = Vec::new();
     for (index, call) in fixture["calls"].as_array().unwrap().iter().enumerate() {
         let tool = call["tool"].as_str().unwrap();
-        let input: JsonValue = serde_json::from_str(&call["input"].to_string().replace("<ROOT>", &fwd)).unwrap();
-        let args = schema_args(tool, input);
-        let outcome = match tool {
-            "list" => ListTool::new().call(&ctx, args).await,
-            "glob" => GlobTool::new().call(&ctx, args).await,
-            "find" => FindTool::new().call(&ctx, args).await,
-            "grep" => GrepTool::new().call(&ctx, args).await,
-            "read" => ReadTool::new(None, None).call(&ctx, args).await,
-            other => panic!("no replay for {other}"),
-        };
-        let (is_error, text) = text_of(outcome);
-        // The recorder's rule: a text that starts as an error is one.
-        let is_error = is_error
-            || text.strip_prefix("Error").and_then(|rest| rest.chars().next()).is_some_and(|c| c.is_whitespace() || c == ':' || c == '[');
+        let (is_error, text) = text_of(tool_of(tool).call(&ctx, args_of(&call["input"])).await);
         // An error message names the workspace behind the prefix it lies under (home, data dir); the recording's
         // workspace lay under none, so that spelling is the workspace too.
         let redacted = super::read_paths::redact(&fwd, None);
@@ -282,6 +285,14 @@ async fn glob_answers_absolute_patterns_as_node_does() {
 #[tokio::test]
 async fn read_answers_a_notebook_as_node_does() {
     replay_fs_search("read-ipynb").await;
+}
+
+/// gaps-tools item 10, through the tool's own entry over one cache, as Node's resident graph answers them: a symbol miss
+/// names the differently-cased spellings earlier queries looked up in the graph, and a reference scan stops at 200
+/// mentions as Node's does (its truncation notice is parsed away before the answer, so the cut shows as missing rows).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn code_graph_answers_casing_misses_and_capped_references_as_node_does() {
+    replay_fs_search("code-graph-refs-casing").await;
 }
 
 /// A missing `list` / `grep` path carries Node's recovery hints.

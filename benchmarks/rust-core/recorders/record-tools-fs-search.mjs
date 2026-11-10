@@ -84,6 +84,8 @@ const SCENARIOS = [
       'src/shapes.ts': `export interface Shape {\n  n: number;\n}\n\n${Array.from({ length: 230 }, (_, i) => `export type S${i} = Shape;`).join('\n')}\n`,
       'src/zz-late.ts': `import { Shape } from './shapes';\n\nexport let late: Shape | null = null;\n`,
     },
+    // Starts the graph server: its first build can outlast Node's 20 s bound on a loaded recording machine.
+    warmup: [{ tool: 'code_graph', input: { mode: 'find_symbol', symbols: ['warmupNone'] } }],
     calls: [
       { tool: 'code_graph', input: { mode: 'find_symbol', symbols: ['widget'] } },
       { tool: 'code_graph', input: { mode: 'find_symbol', symbols: ['Widget'] } },
@@ -139,9 +141,9 @@ const SCENARIOS = [
       { tool: 'grep', input: { pattern: ['alpha', '(bad'] } },
       { tool: 'grep', input: { pattern: ['alpha', 'beta'], context: 0 } },
       { tool: 'grep', input: { pattern: ['alpha', 'beta'], context: 1 } },
-      { tool: 'grep', input: { pattern: ['alpha', 'beta'], head_limit: 1 } },
-      { tool: 'grep', input: { pattern: ['alpha', 'beta'], output_mode: 'files_with_matches' } },
-      { tool: 'grep', input: { pattern: ['alpha', 'beta'], output_mode: 'count' } },
+      { tool: 'grep', input: { pattern: ['alpha', 'beta'], limit: 1 } },
+      { tool: 'grep', input: { pattern: ['alpha', 'beta'], mode: 'files' } },
+      { tool: 'grep', input: { pattern: ['alpha', 'beta'], mode: 'count' } },
       { tool: 'grep', input: { pattern: ['alpha', 'beta'], path: 'src/b.ts' } },
       { tool: 'grep', input: { pattern: '(bad' } },
       { tool: 'grep', input: { pattern: ['gamma', 'delta'], glob: '*.ts' } },
@@ -168,13 +170,13 @@ const SCENARIOS = [
       { tool: 'glob', input: { pattern: '<ROOT>/lib/**/*.ts' } },
       { tool: 'glob', input: { pattern: '<ROOT>/app/*.ts' } },
       { tool: 'glob', input: { pattern: ['*.ts', '<ROOT>/lib/**/*.ts'] } },
-      { tool: 'glob', input: { pattern: '<ROOT>/lib/**/*.ts', head_limit: 1 } },
+      { tool: 'glob', input: { pattern: '<ROOT>/lib/**/*.ts', limit: 1 } },
       { tool: 'glob', input: { pattern: '<ROOT>/lib/a.ts' } },
       { tool: 'glob', input: { pattern: '<ROOT>/*/x.ts' } },
       { tool: 'glob', input: { pattern: '<ROOT>/j*/x.ts' } },
       { tool: 'glob', input: { pattern: '<ROOT>/lib/*.zz' } },
       { tool: 'glob', input: { pattern: '<ROOT>/lib/*.ts', sort: 'natural' } },
-      { tool: 'glob', input: { pattern: '<ROOT>/lib/*.ts', head_limit: 1, offset: 5 } },
+      { tool: 'glob', input: { pattern: '<ROOT>/lib/*.ts', limit: 1, offset: 5 } },
     ],
   },
   // gaps-tools item 12: a glob-shaped `list` path is answered as a name search (list-tool.mjs -> executeFindFilesTool).
@@ -247,12 +249,16 @@ if (process.argv[2] === '--child') {
   const { executeBuiltinTool } = await imp('src/runtime/agent/orchestrator/tools/builtin.mjs');
   const { executeCodeGraphTool } = await imp('src/runtime/agent/orchestrator/tools/code-graph.mjs');
   const { normalizeToolEnvelope } = await imp('src/runtime/agent/orchestrator/session/tool-envelope.mjs');
+  const { classifyResultKind } = await imp('src/runtime/agent/orchestrator/session/result-classification.mjs');
   const fwd = ws.replace(/\\/g, '/');
   const scrub = (text) => String(text).replaceAll(ws, '<ROOT>').replaceAll(fwd, '<ROOT>');
   const cwd = scenario.cwd ? join(ws, scenario.cwd) : ws;
   // Unrecorded calls first: the search server's first start can miss Node's 1 s readiness bound, which is a cold-start
   // artefact of the recording machine, not an answer.
-  for (const call of scenario.warmup ?? []) await executeBuiltinTool(call.tool, call.input, cwd).catch(() => {});
+  for (const call of scenario.warmup ?? []) {
+    const run = call.tool === 'code_graph' ? executeCodeGraphTool('code_graph', call.input, cwd) : executeBuiltinTool(call.tool, call.input, cwd);
+    await run.catch(() => {});
+  }
   const calls = [];
   for (const call of scenario.calls) {
     const input = JSON.parse(JSON.stringify(call.input).replaceAll('<ROOT>', fwd));
@@ -261,7 +267,10 @@ if (process.argv[2] === '--child') {
       const raw = call.tool === 'code_graph' ? await executeCodeGraphTool('code_graph', input, cwd) : await executeBuiltinTool(call.tool, input, cwd);
       const env = normalizeToolEnvelope(raw);
       const text = typeof env.result === 'string' ? env.result : JSON.stringify(env.result ?? '');
-      outcome = { text: scrub(text), isError: env.isError === true || /^Error[\s:[]/.test(text) };
+      // Node's outcome of the call: an explicit failure, or a text its one classifier calls an error (a navigation miss
+      // is a zero-match there, not a failure).
+      const isError = env.explicitFailure || (!env.explicitSuccess && classifyResultKind(text, false, call.tool) === 'error');
+      outcome = { text: scrub(text), isError };
     } catch (error) {
       outcome = { thrown: scrub(String(error?.message ?? error)) };
     }
@@ -339,8 +348,14 @@ try {
         inputs: ['benchmarks/rust-core/recorders/lib/common.mjs', 'benchmarks/rust-core/recorders/lib/job-run.mjs'].map((path) => ({ path, sha256: sha256(readFileSync(join(REPO_ROOT, path))) })),
         graphBinary: { builtFrom: `${NODE_COMMIT}:native/mixdog-graph (cargo build --locked --bin mixdog-graph, dev profile)`, sha256: sha256(readFileSync(graphBin)) },
         scenarios: recorded.map((s) => s.name),
-        normalised: ['the workspace path (backslash and forward-slash forms) is <ROOT> in every text'],
-        exclusions: ['what each scenario process left running at its exit (Node\'s resident search server) is ended with its job and not recorded'],
+        normalised: [
+          'the workspace path (backslash and forward-slash forms) is <ROOT> in every text',
+          'a replay whose workspace lies under the home or Mixdog data folder reads that path\'s redacted spelling (~/…, <mixdog-data>/…) as <ROOT> too',
+        ],
+        exclusions: [
+          'what each scenario process left running at its exit (Node\'s resident search server) is ended with its job and not recorded',
+          'the answers of a scenario\'s warmup calls (they start the search server; the replay runs them too and ignores them)',
+        ],
       },
     });
     commitStage(stage, finalDir);

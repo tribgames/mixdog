@@ -118,6 +118,8 @@ struct Body {
     parts: Vec<ToolPart>,
     /// An image read's result (Node's structured `{ content }`), which a batch keeps as blocks.
     rich: bool,
+    /// An answer Node's caller takes for a failed call (the notebook extractor's `Error:` strings).
+    error: bool,
     observed: Option<Observed>,
 }
 
@@ -837,7 +839,7 @@ impl ReadTool {
         let body = self.read_one(ctx, e, pages, mode).await?;
         // An image read's empty, corrupt and over-cap answers are Node's `isError` results; in a
         // batch the same body marks only its own entry (`[error]`).
-        if body.rich && body.failed() {
+        if body.error || (body.rich && body.failed()) {
             let reason = body.first_text().to_owned();
             return Err(fail(ToolErrorCode::Failed { reason: reason.clone() }, reason));
         }
@@ -1230,7 +1232,7 @@ impl ReadTool {
         // A notebook goes to Node's extractor ahead of every cache (`readMediaFile`), and every public
         // read reaches it with a window, which the extractor refuses (`extractIpynbText`).
         if is_notebook(&stat, raw) {
-            return Ok(Body::text(IPYNB_RANGE_REFUSAL));
+            return Ok(Body { error: true, ..Body::text(IPYNB_RANGE_REFUSAL) });
         }
         let key_path = fwd(abs.as_path());
         let version = FileVersion::of(&stat);
