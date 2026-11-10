@@ -2449,6 +2449,53 @@ async fn a_delete_whose_mark_fails_logs_no_close() {
     assert_eq!(*lock(&rig.deletes.2), [other.id.as_str().to_owned()]);
 }
 
+/// D-downloads-1, held at the purge: while an explicit delete's purge is held at its first hook, the store's list row is already gone
+/// (`summary`, which the phone grants' catalog reads, `CatalogSessions::has/row`) and the delete has told `tombstoned`, whose production
+/// seam ends the conversation's phone downloads (`purge.rs` `tombstoned` -> `ThreadDeletions::tell` -> `WorkspaceService::session_removed`,
+/// `compose_flip.rs` `on_gone`); `thread/deleted` waits for the purge.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_explicit_delete_ends_downloads_at_its_tombstone_before_the_purge_finishes() {
+    use mixdog_core_api::domain::mock::MockOwnership;
+    use mixdog_store::sqlite::SqliteStore;
+    let data = tempfile::tempdir().expect("data dir");
+    let tokens = mixdog_rt::testing::tokens();
+    let root = data.path().to_path_buf();
+    let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
+        SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root)
+    })
+    .expect("lane")
+    .await
+    .expect("job ran")
+    .expect("index");
+    let list = index.clone();
+    let store: Arc<dyn super::ThreadStore> =
+        Arc::new(super::StoreThreads::over_data_dir(data.path(), index, Arc::new(MockOwnership::default()), tokens.maintenance_io).await.expect("the thread store"));
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps_on(store));
+    let handle = start_thread(&directory).await;
+    turn(&handle, "hello", "op-1").await;
+    let id = handle.id.clone();
+    eventually_on!(&[&handle.cell.stepped, &rig.store.committed], || {
+        futures::executor::block_on(list.summary(id.as_str())).expect("summary").map(|_| ())
+    })
+    .await;
+    let (reached, (release, held)) = (Arc::new(tokio::sync::Notify::new()), std::sync::mpsc::channel());
+    *lock(&rig.deletes.6) = Some((reached.clone(), held));
+    let delete = {
+        let (handle, id) = (handle.clone(), id.clone());
+        tokio::spawn(async move { handle.request(request("thread/delete", json!({ "threadId": id, "opId": "op-del" }), "op-del")).await.expect("thread/delete") })
+    };
+    crate::session::testing::awaiting(|| "the purge's first hook".to_owned(), reached.notified()).await;
+    let s = id.as_str();
+    let steps = lock(&rig.deletes.0).clone();
+    assert!(steps.contains(&format!("tombstoned:{s}")), "the downloads were told before the purge: {steps:?}");
+    assert!(!steps.contains(&format!("thread/deleted:{s}")), "{steps:?}");
+    assert_eq!(list.summary(s).await.expect("summary"), None, "the list row is gone while the purge is held");
+    release.send(()).unwrap();
+    assert!(matches!(delete.await.unwrap(), Reply::Value(Value::Bool(true))));
+    assert!(lock(&rig.deletes.0).contains(&format!("thread/deleted:{s}")));
+}
+
 /// A deleted base keeps its files while a fork reads them: the fork still opens with the
 /// base's history.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
