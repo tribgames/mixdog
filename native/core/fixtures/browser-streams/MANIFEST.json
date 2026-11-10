@@ -18,9 +18,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 239676,
+      "bytes": 242924,
       "path": "streams.json",
-      "sha256": "92744fa487ee3d51329da5412d92dcea4ef34f7bdfec77b2a7cd9763b20b881f"
+      "sha256": "2cb8992a5aee815f0d5a6e2e174aaa35ca015fa66a1c3a67755994cd738796f2"
     }
   ],
   "inputs": {
@@ -89,6 +89,10 @@
         "steps": 19
       },
       {
+        "name": "an unpair while a frame and a signal for the phone are encrypted: neither is written",
+        "steps": 7
+      },
+      {
         "name": "a missed drop: an unpaired phone still subscribed is sent no frame and no resend",
         "steps": 14
       },
@@ -149,24 +153,29 @@
   "inventory": {
     "exclusions": 3,
     "gates": 6,
-    "scenarios": 27,
-    "sequential": 21,
-    "statement": "27 scenarios: 21 sequential and 6 gates (each gate a pair the core forces into its losing interleaving, recorded as the one order Node's single thread runs); 3 documented exclusions, listed under `excluded`."
+    "scenarios": 28,
+    "sequential": 22,
+    "statement": "28 scenarios: 22 sequential and 6 gates (each gate a pair the core forces into its losing interleaving, recorded as the one order Node's single thread runs); 3 documented exclusions, listed under `excluded`."
   },
   "nodePatch": {
     "file": "node-fix-unpair-keeps-stream.patch",
     "files": [
       "apps/desktop/src/main/remote-browser-streams.test.mjs",
       "apps/desktop/src/main/remote-browser-streams.ts",
+      "apps/desktop/src/main/remote-relay-clients.ts",
+      "apps/desktop/src/main/remote-relay-delivery.ts",
       "apps/desktop/src/main/remote-relay.ts",
       "apps/desktop/src/main/remote-screen/screen-access-publisher.test.mjs",
-      "apps/desktop/src/main/remote-screen/screen-access-publisher.ts"
+      "apps/desktop/src/main/remote-screen/screen-access-publisher.ts",
+      "apps/desktop/src/main/remote-transport/coordinator.test.mjs",
+      "apps/desktop/src/main/remote-transport/coordinator.ts",
+      "apps/desktop/src/shared/remote-e2ee.ts"
     ],
-    "sha256": "0f8dd34fdf0cc6f69b6b66fc01b7d1c3232209f94d9bd76e7915780e71f03a61"
+    "sha256": "08a46b7369c8c28ba0cfd7ac4c98422584a93564af2e139166034cdf842cc0fc"
   },
   "nodeVersion": "v22.20.0",
   "product": {
-    "appsSha256": "75d8671ff56c018b6ec01737c20d49ca9103a7f8fd37c5b60a8a83a3b4bfe1af",
+    "appsSha256": "d75c93a2b108e3db838b1ab2b925a12ddef6be640f4ba0a42dbf782e3713af78",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
     "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
     "exact": true,
@@ -176,17 +185,22 @@
       "files": [
         "apps/desktop/src/main/remote-browser-streams.test.mjs",
         "apps/desktop/src/main/remote-browser-streams.ts",
+        "apps/desktop/src/main/remote-relay-clients.ts",
+        "apps/desktop/src/main/remote-relay-delivery.ts",
         "apps/desktop/src/main/remote-relay.ts",
         "apps/desktop/src/main/remote-screen/screen-access-publisher.test.mjs",
-        "apps/desktop/src/main/remote-screen/screen-access-publisher.ts"
+        "apps/desktop/src/main/remote-screen/screen-access-publisher.ts",
+        "apps/desktop/src/main/remote-transport/coordinator.test.mjs",
+        "apps/desktop/src/main/remote-transport/coordinator.ts",
+        "apps/desktop/src/shared/remote-e2ee.ts"
       ],
-      "sha256": "0f8dd34fdf0cc6f69b6b66fc01b7d1c3232209f94d9bd76e7915780e71f03a61"
+      "sha256": "08a46b7369c8c28ba0cfd7ac4c98422584a93564af2e139166034cdf842cc0fc"
     },
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 0,
       "exact": false,
-      "filesDifferingFromCommit": 5
+      "filesDifferingFromCommit": 10
     },
     "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
     "tree": "product tree loaded by the recorder",
@@ -198,7 +212,7 @@
   "recorderFiles": [
     {
       "path": "benchmarks/rust-core/recorders/record-browser-streams.mjs",
-      "sha256": "9b901a2a28662787fc8f4af1e4cc48350e0c866c6e142edf0f74d84baf0b36ac"
+      "sha256": "3d863879716e69b34764e11cdd4471fac4cb951b33b60f23f275fa51ec0cb699"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
@@ -213,8 +227,8 @@
       "sha256": "d8e596c1bcd597ee71ad7007dcd2362605a2ca5d87a77801cba8b3cdc2c22ac6"
     }
   ],
-  "recorderSha256": "9b901a2a28662787fc8f4af1e4cc48350e0c866c6e142edf0f74d84baf0b36ac",
+  "recorderSha256": "3d863879716e69b34764e11cdd4471fac4cb951b33b60f23f275fa51ec0cb699",
   "replayProjections": [],
   "set": "browser-streams",
-  "totalBytes": 239676
+  "totalBytes": 242924
 }
