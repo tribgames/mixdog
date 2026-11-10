@@ -164,6 +164,12 @@ pub(crate) async fn resolve_dims(data_dir: &Path, lane: DurabilityIo, identity: 
     Ok(dims)
 }
 
+/// Node's text for a use after the stop began (`ensurePgInstance`, `supervisor.mjs:648`).
+const REFUSED_AFTER_STOP: &str = "[supervisor-pg] process is shutting down; PG start refused";
+
+/// How long a stop waits for an opening in flight (`stopOwnedPgForShutdown`'s `timeoutMs`, 6 s).
+const OPENING_JOIN: Duration = Duration::from_secs(6);
+
 /// Where the PostgreSQL runtime comes from: an unpacked directory, or an install that runs when the database is first needed
 /// (Node's `ensureRuntime`, `supervisor.mjs:484`, runs inside the memory start, never at daemon boot).
 /// What runs to bring the PostgreSQL runtime when the database is first opened.
@@ -196,6 +202,9 @@ pub struct MemoryStack {
     /// Ends the opening in progress; cancelled by `stop`, and a child of the host's token.
     cancel: CancellationToken,
     opened: tokio::sync::OnceCell<Opened>,
+    /// The opening attempt in flight, shared by every use that arrived while it runs: they all see its one outcome, and the next use after a failure starts a new
+    /// attempt (Node's `createSharedAbortable` hands one promise to all callers and forgets it when it settles, `supervisor.mjs:659`).
+    flight: std::sync::Mutex<Option<futures::future::Shared<futures::future::BoxFuture<'static, std::result::Result<(), String>>>>>,
     stopped: std::sync::atomic::AtomicBool,
     launched: std::sync::atomic::AtomicBool,
     background: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
@@ -290,6 +299,7 @@ impl MemoryStack {
                 processes,
                 cancel: cancel.child_token(),
                 opened: tokio::sync::OnceCell::new(),
+                flight: std::sync::Mutex::new(None),
                 stopped: std::sync::atomic::AtomicBool::new(false),
                 launched: std::sync::atomic::AtomicBool::new(false),
                 background: std::sync::Mutex::new(None),
@@ -317,7 +327,15 @@ impl MemoryStack {
     /// The opened database, opening it first when nobody has: the first use pays for the runtime install, `initdb`
     /// and the postmaster. A failed opening is retried by the next use (Node's lazy singleton).
     async fn opened(&self) -> Result<&Opened> {
-        let opened = self.opened.get_or_try_init(|| self.open()).await?;
+        let opened = match self.opened.get() {
+            Some(opened) => opened,
+            None => {
+                let attempt = self.attempt()?;
+                // A failed attempt's text is every waiting use's error.
+                attempt.await.map_err(MemoryError::Rejected)?;
+                self.opened.get().ok_or_else(|| MemoryError::Rejected(REFUSED_AFTER_STOP.to_owned()))?
+            }
+        };
         if !self.launched.swap(true, std::sync::atomic::Ordering::SeqCst) && !self.stopped.load(std::sync::atomic::Ordering::SeqCst) {
             if let Some(me) = self.me.upgrade() {
                 *self.background.lock().expect("background") = Some(mixdog_rt::spawn("services.memory.runtime-start", TaskClass::Work, async move { me.run_background().await }));
@@ -326,20 +344,39 @@ impl MemoryStack {
         Ok(opened)
     }
 
+    /// The attempt in flight, or a new one.
+    fn attempt(&self) -> Result<futures::future::Shared<futures::future::BoxFuture<'static, std::result::Result<(), String>>>> {
+        use futures::FutureExt as _;
+        let mut slot = self.flight.lock().expect("flight");
+        if let Some(flight) = slot.as_ref() {
+            return Ok(flight.clone());
+        }
+        let me = self.me.upgrade().ok_or_else(|| MemoryError::Rejected(REFUSED_AFTER_STOP.to_owned()))?;
+        let flight = async move {
+            let done = me.opened.get_or_try_init(|| me.open()).await.map(drop).map_err(|error| error.message());
+            me.flight.lock().expect("flight").take();
+            done
+        }
+        .boxed()
+        .shared();
+        *slot = Some(flight.clone());
+        Ok(flight)
+    }
+
     async fn open(&self) -> Result<Opened> {
         if self.stopped.load(std::sync::atomic::Ordering::SeqCst) {
-            return Err(MemoryError::Runtime("the memory runtime is stopped".to_owned()));
+            return Err(MemoryError::Rejected(REFUSED_AFTER_STOP.to_owned()));
         }
         let runtime_dir = match &self.source {
             PgRuntimeSource::Dir(dir) => dir.clone(),
             PgRuntimeSource::Install(install) => install(self.cancel.clone()).await?,
         };
-        let dims = resolve_dims(&self.data_dir, self.lane, &self.identity, &self.model_id, self.runtime.as_deref()).await?;
+        let dims = self.until_stopped(resolve_dims(&self.data_dir, self.lane, &self.identity, &self.model_id, self.runtime.as_deref())).await?;
         let cluster = PgCluster::ensure(PgRuntime::new(runtime_dir), self.data_dir.join("pgdata"), DEFAULT_PORT, self.lane, self.processes.clone(), &self.cancel).await?;
         // The postmaster is up: a failure from here to the end of the opening stops it (Node's boot error goes through `shutdown`, whose memory stop ends
         // PostgreSQL, `daemon.mjs:1347,377,383`), as `stop` does: a secondary process leaves the shared one running.
         let (memory_db, search_db) = release_on_failure(
-            async {
+            self.until_stopped(async {
                 let memory_db = Db::open(&cluster, Schema::Memory).await?;
                 ensure_memory_schema(&memory_db, dims, &self.identity).await?;
                 // Root vectors made under the older root text are replaced by the paced sweep;
@@ -348,7 +385,7 @@ impl MemoryStack {
                 let search_db = Db::open(&cluster, Schema::SessionSearch).await?;
                 SessionSearchDb::open(search_db.clone()).await?;
                 Ok::<_, MemoryError>((memory_db, search_db))
-            },
+            }),
             async {
                 if !self.flags.secondary {
                     if let Err(error) = cluster.stop(Duration::from_secs(STOP_SECONDS)).await {
@@ -359,6 +396,14 @@ impl MemoryStack {
         )
         .await?;
         Ok(Opened { cluster, memory_db, search_db })
+    }
+
+    /// `work` unless a stop comes first: the schema steps and the dimension lookup have no time limit of their own, so a stop must be able to end them.
+    async fn until_stopped<T>(&self, work: impl std::future::Future<Output = Result<T>>) -> Result<T> {
+        tokio::select! {
+            () = self.cancel.cancelled() => Err(MemoryError::Rejected(REFUSED_AFTER_STOP.to_owned())),
+            done = work => done,
+        }
     }
 
     /// What follows an opening (`_initStore`, `_initRuntime`): the snapshot refresh, the persisted transcript
@@ -479,8 +524,11 @@ impl MemoryStack {
     pub async fn stop(&self) -> Result<()> {
         self.stopped.store(true, std::sync::atomic::Ordering::SeqCst);
         self.cancel.cancel();
-        // An opening in flight is joined (it was cancelled, so it ends at once or has just finished); when there is none this initialiser fails and leaves the cell empty.
-        let opened = self.opened.get_or_try_init(|| async { Err::<Opened, _>(MemoryError::Runtime("the memory runtime is stopped".to_owned())) }).await.ok();
+        // An opening in flight is joined for at most `OPENING_JOIN` (`stopOwnedPgForShutdown`'s race, `supervisor.mjs:790-800`): it was cancelled, so it
+        // normally ends at once, and one that does not is left behind as Node leaves it (no cluster is published, so none is stopped). When there is none this
+        // initialiser fails and leaves the cell empty.
+        let joined = tokio::time::timeout(OPENING_JOIN, self.opened.get_or_try_init(|| async { Err::<Opened, _>(MemoryError::Rejected(REFUSED_AFTER_STOP.to_owned())) })).await;
+        let opened = joined.ok().and_then(std::result::Result::ok);
         let background = self.background.lock().expect("background").take();
         if let Some(background) = background {
             background.abort();

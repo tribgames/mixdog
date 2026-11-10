@@ -175,7 +175,6 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens) -> Result<(), Ser
         log,
         stop: stop.clone(),
         catalog_http: catalog::production_http().map_err(compose::ComposeError::Catalog)?,
-        pg_install: None,
     };
     // A stop that arrives while the core composes (the stop watcher is the one installed at boot) cancels the composition's slow waits, and the composition then fails
     // through its own cleanup: what it had acquired (PostgreSQL) is given back before the error returns. The composition is never dropped half done.
