@@ -131,7 +131,7 @@ impl CredentialFile {
                     LockError::Timeout { path: lock.to_path_buf(), timeout: opts.timeout, holder }
                 });
             }
-            pace.wait(Duration::from_millis(lock_retry_delay(attempt, deadline - now, pace.draw()))).await;
+            pace.wait(mixdog_statefile::ms_duration(lock_retry_delay(attempt, (deadline - now) as f64, pace.draw()))).await;
             attempt += 1;
         }
         let held = Held { io: self.io, lock: lock.to_path_buf(), owner: process.owner.clone(), released: false };

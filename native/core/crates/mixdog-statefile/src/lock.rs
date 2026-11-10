@@ -21,7 +21,6 @@ use std::sync::Condvar;
 use std::sync::Mutex;
 use std::sync::OnceLock;
 use std::time::Duration;
-use std::time::Instant;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
@@ -36,7 +35,7 @@ pub fn default_timeout() -> Duration {
             .ok()
             .and_then(|text| mixdog_js::string_to_number(&text).into())
             .filter(|ms: &f64| ms.is_finite() && *ms >= 0.0);
-        Duration::from_millis(configured.map_or(2000, |ms| ms as u64))
+        ms_duration(configured.unwrap_or(2000.0))
     })
 }
 
@@ -92,7 +91,8 @@ impl std::fmt::Display for LockError {
                 write!(f, "atomic lock contended (try-once): {} [{holder}]", path.display())
             }
             LockError::Timeout { path, timeout, holder } => {
-                write!(f, "atomic lock timeout after {}ms: {} [{holder}]", timeout.as_millis(), path.display())
+                // `${timeoutMs}`: the milliseconds as the JavaScript number they are, a fraction kept.
+                write!(f, "atomic lock timeout after {}ms: {} [{holder}]", mixdog_js::number_to_string(timeout.as_nanos() as f64 / 1e6), path.display())
             }
             LockError::Io(error) => error.fmt(f),
         }
@@ -119,18 +119,41 @@ pub(crate) fn backoff_ms(attempt: usize) -> u64 {
     [25, 50, 100].get(attempt).copied().unwrap_or(200)
 }
 
-/// The wait before attempt `attempt + 1` when the deadline is `remaining_ms` away (`lockRetryDelayMs`): the backoff
-/// plus `floor(draw · min(75, backoff))`, never past the deadline and at least 1 ms. `draw` is `Math.random()`.
-pub fn lock_retry_delay(attempt: usize, remaining_ms: u64, draw: f64) -> u64 {
-    let base = backoff_ms(attempt);
-    let jitter = (draw * base.clamp(1, 75) as f64).floor() as u64;
-    remaining_ms.max(1).min(base + jitter)
+/// The wait in milliseconds before attempt `attempt + 1` when the deadline is `remaining_ms` away
+/// (`lockRetryDelayMs`): the backoff plus `floor(draw · min(75, backoff))`, never past the deadline (a fraction where
+/// the remaining time is one) and at least 1 ms. `draw` is `Math.random()`.
+pub fn lock_retry_delay(attempt: usize, remaining_ms: f64, draw: f64) -> f64 {
+    let base = backoff_ms(attempt) as f64;
+    let jitter = (draw * base.clamp(1.0, 75.0)).floor();
+    remaining_ms.max(1.0).min(base + jitter)
 }
 
-/// Jittered wait before the next attempt, never past the deadline (`lockRetryDelayMs`).
-fn retry_delay(attempt: usize, deadline: Instant) -> Duration {
-    let left = deadline.saturating_duration_since(Instant::now()).as_millis() as u64;
-    Duration::from_millis(lock_retry_delay(attempt, left, rand::random::<f64>()))
+/// A number of milliseconds, a fraction kept to the nanosecond.
+pub fn ms_duration(ms: f64) -> Duration {
+    Duration::from_nanos((ms * 1e6).round() as u64)
+}
+
+/// The clock [`locked`] reads and waits on: `Date.now()` (the wall clock), the waits between attempts, and
+/// `Math.random()` for their jitter.
+pub(crate) trait LockClock {
+    fn now_ns(&self) -> i128;
+    fn sleep(&self, duration: Duration);
+    fn draw(&self) -> f64;
+}
+
+/// The process's own clock.
+struct WallClock;
+
+impl LockClock for WallClock {
+    fn now_ns(&self) -> i128 {
+        now_ns()
+    }
+    fn sleep(&self, duration: Duration) {
+        std::thread::sleep(duration);
+    }
+    fn draw(&self) -> f64 {
+        rand::random::<f64>()
+    }
 }
 
 /// The wall clock in nanoseconds since the Unix epoch: the instant a lock's staleness and its owner record are read at.
@@ -273,7 +296,8 @@ fn describe_holder(path: &Path, now_ns: i128) -> String {
     let pid = owner.pid.map_or("?".to_owned(), |p| p.to_string());
     let token = owner.token.map_or("?".to_owned(), |t| t.chars().take(8).collect());
     // `Math.max(0, Math.round(Date.now() - stat.mtimeMs))`.
-    let age = (age_ns(&meta, now_ns) as f64 / 1e6).round().max(0.0);
+    let age = (age_ns(&meta, now_ns) as f64 / 1e6).round();
+    let age = mixdog_js::number_to_string(if age > 0.0 { age } else { 0.0 });
     format!("holder pid={pid} token={token} age={age}ms {live}")
 }
 
@@ -488,6 +512,12 @@ fn take_turn(line: &Arc<Line>, try_once: bool) -> Option<Turn> {
 
 /// Runs `body` holding the lock at `lock`.
 pub(crate) fn locked<R>(lock: &Path, opts: &LockOpts, body: impl FnOnce() -> R) -> Result<R, LockError> {
+    locked_on(&WallClock, lock, opts, body)
+}
+
+/// [`locked`] on `clock`: `acquireLock` (file-lock.mjs:420-457) with its deadline (`Date.now() + timeoutMs`, a fraction
+/// kept), its waits and the holder's age read on `clock`.
+pub(crate) fn locked_on<R>(clock: &dyn LockClock, lock: &Path, opts: &LockOpts, body: impl FnOnce() -> R) -> Result<R, LockError> {
     if HELD.with(|held| held.borrow().contains(lock)) {
         return Ok(body());
     }
@@ -496,21 +526,22 @@ pub(crate) fn locked<R>(lock: &Path, opts: &LockOpts, body: impl FnOnce() -> R) 
         fs::create_dir_all(dir)?;
     }
     let Some(_turn) = take_turn(&line_of(lock), timeout.is_zero()) else {
-        return Err(LockError::Contended { path: lock.to_owned(), holder: describe_holder(lock, now_ns()) });
+        return Err(LockError::Contended { path: lock.to_owned(), holder: describe_holder(lock, clock.now_ns()) });
     };
     // The budget is for the file: it starts at the front of the line (`acquireLock` runs after
     // `lockQueue` hands over), not when the request joins it.
-    let deadline = Instant::now() + timeout;
+    let deadline = clock.now_ns() + timeout.as_nanos() as i128;
     let owner = LockOwner::process();
     let mut attempt = 0;
-    while try_take(lock, opts, &owner, Access::Inherit, now_ns())? == Attempt::Held {
+    while try_take(lock, opts, &owner, Access::Inherit, clock.now_ns())? == Attempt::Held {
         if timeout.is_zero() {
-            return Err(LockError::Contended { path: lock.to_owned(), holder: describe_holder(lock, now_ns()) });
+            return Err(LockError::Contended { path: lock.to_owned(), holder: describe_holder(lock, clock.now_ns()) });
         }
-        if Instant::now() >= deadline {
-            return Err(LockError::Timeout { path: lock.to_owned(), timeout, holder: describe_holder(lock, now_ns()) });
+        let now = clock.now_ns();
+        if now >= deadline {
+            return Err(LockError::Timeout { path: lock.to_owned(), timeout, holder: describe_holder(lock, now) });
         }
-        std::thread::sleep(retry_delay(attempt, deadline));
+        clock.sleep(ms_duration(lock_retry_delay(attempt, (deadline - now) as f64 / 1e6, clock.draw())));
         attempt += 1;
     }
     HELD.with(|held| held.borrow_mut().insert(lock.to_owned()));
@@ -518,7 +549,7 @@ pub(crate) fn locked<R>(lock: &Path, opts: &LockOpts, body: impl FnOnce() -> R) 
         let _release = Release(lock);
         body()
     };
-    sweep_staged(lock, now_ns());
+    sweep_staged(lock, clock.now_ns());
     Ok(result)
 }
 
@@ -663,3 +694,7 @@ pub fn hold_lock(lock_file: &Path, opts: &LockOpts, acquired: impl FnOnce(Result
         .expect("spawn the lock-hold thread");
     LockHold { release: Some(release), thread: Some(thread), taken }
 }
+
+#[cfg(test)]
+#[path = "lock_replay_tests.rs"]
+mod replay_tests;

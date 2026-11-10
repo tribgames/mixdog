@@ -1,0 +1,96 @@
+{
+  "t": 1000000,
+  "cases": [
+    {
+      "name": "holder-age-just-under-half-a-millisecond",
+      "lockPath": "case-1/state.json.lock",
+      "timeoutMs": 1,
+      "mtimeNs": "1000000500800",
+      "sleeps": [
+        1
+      ],
+      "atMs": 1,
+      "outcome": {
+        "message": "atomic lock timeout after 1ms: case-1/state.json.lock [holder pid=? token=? age=0ms unknown]",
+        "code": "ELOCKTIMEOUT"
+      }
+    },
+    {
+      "name": "holder-age-just-at-half-a-millisecond",
+      "lockPath": "case-2/state.json.lock",
+      "timeoutMs": 1,
+      "mtimeNs": "1000000499200",
+      "sleeps": [
+        1
+      ],
+      "atMs": 1,
+      "outcome": {
+        "message": "atomic lock timeout after 1ms: case-2/state.json.lock [holder pid=? token=? age=1ms unknown]",
+        "code": "ELOCKTIMEOUT"
+      }
+    },
+    {
+      "name": "holder-age-just-over-half-a-millisecond",
+      "lockPath": "case-3/state.json.lock",
+      "timeoutMs": 1,
+      "mtimeNs": "1000000499200",
+      "sleeps": [
+        1
+      ],
+      "atMs": 1,
+      "outcome": {
+        "message": "atomic lock timeout after 1ms: case-3/state.json.lock [holder pid=? token=? age=1ms unknown]",
+        "code": "ELOCKTIMEOUT"
+      }
+    },
+    {
+      "name": "a-whole-timeout-cut-inside-a-wait",
+      "lockPath": "case-4/state.json.lock",
+      "timeoutMs": 300,
+      "mtimeNs": "1000000000000",
+      "sleeps": [
+        37,
+        75,
+        137,
+        51
+      ],
+      "atMs": 300,
+      "outcome": {
+        "message": "atomic lock timeout after 300ms: case-4/state.json.lock [holder pid=? token=? age=300ms unknown]",
+        "code": "ELOCKTIMEOUT"
+      }
+    },
+    {
+      "name": "a-fractional-timeout-cut-inside-a-wait",
+      "lockPath": "case-5/state.json.lock",
+      "timeoutMs": 300.25,
+      "mtimeNs": "1000000000000",
+      "sleeps": [
+        37,
+        75,
+        137,
+        51.25
+      ],
+      "atMs": 301,
+      "outcome": {
+        "message": "atomic lock timeout after 300.25ms: case-5/state.json.lock [holder pid=? token=? age=301ms unknown]",
+        "code": "ELOCKTIMEOUT"
+      }
+    },
+    {
+      "name": "a-fractional-timeout-cut-inside-the-second-wait",
+      "lockPath": "case-6/state.json.lock",
+      "timeoutMs": 60.5,
+      "mtimeNs": "1000000000000",
+      "sleeps": [
+        37,
+        23.5
+      ],
+      "atMs": 61,
+      "outcome": {
+        "message": "atomic lock timeout after 60.5ms: case-6/state.json.lock [holder pid=? token=? age=61ms unknown]",
+        "code": "ELOCKTIMEOUT"
+      }
+    }
+  ]
+}

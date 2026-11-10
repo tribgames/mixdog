@@ -7,6 +7,7 @@
 //! The Node side of the interoperation cases and the coordinator run on the reference Node runtime
 //! (`MIXDOG_REFERENCE_NODE`, the recording's Electron by default, run as Node) over the exact b6f10295a export
 //! (`MIXDOG_REFERENCE_TREE`).
+#![cfg(test)]
 
 use std::io::BufRead;
 use std::io::Read;

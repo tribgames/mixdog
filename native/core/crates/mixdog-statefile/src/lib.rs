@@ -60,6 +60,7 @@ pub use lock::LockError;
 pub use lock::LockOpts;
 pub use lock::LockOwner;
 pub use lock::lock_retry_delay;
+pub use lock::ms_duration;
 pub use lock::steps as lock_steps;
 pub use lock::default_timeout;
 pub use lock::LockHold;
