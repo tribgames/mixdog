@@ -10,26 +10,31 @@
 // its place against the entries that cause or order it, all stay compared. Unsettled (`immediate`) are the sequences an answer orders:
 // an ensure's answer before the new shell's first output, a dispose's answer before the killed shell's last output and exit line.
 //
-// One rule for each list, in its one global order:
+// One rule for each list, in its one global order. Where Node's five runs differ, only the unit that differs is exempt, at that one
+// place, named in `exemptions` with the runs that differ; the trace must still have one run's value for it, and every other unit there is
+// compared exactly.
 //   - Every entry but output (answers, pushes of every tab, fires, lane switches, clock steps, checkpoints) is compared at its position,
-//     exactly, where Node's runs agree on it; one they disagree on is left out and named in `leftOut`.
+//     field by field (every leaf of its value, and the shape of every object and array).
 //   - Output is a real PTY's, and its bytes are not what either product decides: the console host cuts its frames by its own render timing
 //     (where the cursor-show code falls against a prompt, whether PowerShell draws a typed command at once or in pieces, both varying among
-//     Node's own runs and with the machine's load). So output is compared by the screen it produces in the terminal the app renders with
-//     (@xterm/xterm, TerminalPane.tsx), parsing each tab's output in order and resized where the trace announces the tab's new size (a
-//     `sizeOwner` push with a size: Node resizes the PTY before it announces, terminal-manager.ts:485-487; a new PTY starts at 80x24,
-//     :322-325). At each point where a tab's output ends before the next entry, that tab's screen (every line of the active buffer with
-//     its scrollback, the cursor's place and whether it shows) must be Node's, where Node's runs agree on it; where they do not, the point
-//     is named in `leftOut` with the runs that differ. An answer's `replay` (the tab's output so far) is compared the same way, as the
-//     screen it produces at the tab's size.
-//   - A tab's output frame and its own activity change that every Node run sends next to each other are one place: which of the two goes
-//     first is the relay's 16 ms window against the moment the output arrives (Node's activity goes at once, remote-relay-push-lanes.ts:
-//     148-150; its output when its window allows, :82-89), and that is call latency in a replay (0 ms in the recorder, a socket for a
-//     phone). Their order is proved where time is controlled: the scripted framing recording (apps/mobile/fixtures/relay-framing, mixdog-
-//     spawn service::relay_buffer `the_frames_are_nodes_for_the_recorded_script`). Here the change must still be next to its tab's output
-//     (nothing between them), and it does not end the stretch whose screen is compared; each such place is named in `sets`.
+//     Node's own runs and with the machine's load). So output is compared by the state it puts the terminal the app renders with in
+//     (@xterm/xterm, TerminalPane.tsx, with the pane's cursor options), parsing each tab's output frame by frame and resized where the trace
+//     announces the tab's new size (a `sizeOwner` push with a size: Node resizes the PTY before it announces, terminal-manager.ts:485-487; a
+//     new PTY starts at 80x24, :322-325). The state is everything the terminal shows and holds (`stateOf`: both buffers cell by cell with
+//     every attribute, wrapped lines, cursors, viewport, scroll regions, tab stops, saved cursors, modes, cursor visibility and style,
+//     current attributes and character sets, title and icon name, bells, colour changes, and every byte the terminal answered). A stretch
+//     runs from one entry to the next (an activity change paired with its own output does not end it). For each tab in each stretch, the
+//     sequence of distinct states its output went through (and its paired activity changes among them) must be Node's, and so must the
+//     order in which the stretch's tabs changed; where Node's runs differ in those, the stretch's intermediate states (or its tab order)
+//     are exempt, named, and its last state is still compared unit by unit. An answer's `replay` is compared as the state it produces at
+//     the tab's size.
+//   - A tab's output frame and its own activity change that every Node run sends directly next to each other (that frame on one side, not
+//     both, and nothing between them) are one place: the framing recording proves that exactly this pair flips with when the write lands
+//     against the relay's 16 ms window (RELAY_FRAMING_PROOF), which in a replay is call latency (0 ms in the recorder, a socket for a
+//     phone). Here the change must still be directly next to a frame of its own tab carrying output, it does not end the stretch, and in
+//     the stretch's sequence it counts as after its frame; each such place is named in `sets`. No other change may move against output.
 //   - A tab that exits in every run ends its output with `[process exited with code N]\r\n`, N the recorded code (a code the runs
-//     disagree on is named; the line is required all the same).
+//     disagree on is exempt as above; the line is required all the same).
 //
 // The one variation in the entries themselves: a disposed PowerShell tab may report one `running` then one `null` activity after its
 // dispose answer and before its exit line. The mechanism (Node, b6f10295a): Mixdog's PowerShell integration wraps PSConsoleHostReadLine
@@ -37,7 +42,7 @@
 // its console closed (terminal-manager.ts:543), the read returns, and whether that `C` reaches the PTY before the console is gone is a race.
 // When it does, the marker starts a command (terminal-activity.ts `marker`: running) and the exit then ends it
 // (terminal-manager.ts:378-383: activity.exit(), null, then the exit line). Every tab below is PowerShell with that integration, disposed
-// at its prompt, so the mechanism covers each of them alike; nothing else is accepted, and each pair taken out is named in `leftOut`.
+// at its prompt, so the mechanism covers each of them alike; nothing else is accepted, and each pair taken out is named in `exemptions`.
 import assert from 'node:assert/strict';
 import { isDeepStrictEqual } from 'node:util';
 
@@ -50,8 +55,8 @@ const isData = (entry) => entry.push === 'termData';
 const pick = (trace, part) => part.split('.').reduce((value, key) => value?.[key], trace);
 const show = (value) => JSON.stringify(value === undefined ? '<absent>' : value)?.slice(0, 600);
 
-/** The list without the PowerShell disposal pairs (named in `leftOut`); anything else around a disposal stays and is compared. */
-function withoutDisposalPairs(list, part, leftOut) {
+/** The list without the PowerShell disposal pairs (named in `exemptions`); anything else around a disposal stays and is compared. */
+function withoutDisposalPairs(list, part, exemptions) {
   const state = new Map();
   const text = new Map();
   const kept = [];
@@ -73,7 +78,7 @@ function withoutDisposalPairs(list, part, leftOut) {
       const { id, state: activity } = entry.event;
       if (activity === 'running' && state.get(id) === 'disposed') {
         state.set(id, 'running');
-        leftOut.push(`${part}: ${id}'s running/null pair after its dispose answer`);
+        exemptions.push(`${part}: ${id}'s running/null pair after its dispose answer`);
         continue;
       }
       if (activity === null && state.get(id) === 'running') {
@@ -87,24 +92,20 @@ function withoutDisposalPairs(list, part, leftOut) {
   return kept;
 }
 
-/** The non-output positions k of `list` that are an activity change next to an output frame of its own tab, with nothing between them
- *  but other activity changes of that tab (a command's `running` and `finished` can both fall inside one relay window). */
-function ownPairs(list) {
-  const out = new Set();
+/** Per non-output position k of `list` that is an activity change with an output frame of its own tab (one that carries output) directly
+ *  next to it: on which side, `before` (the frame, then the change), `after` (the change, then the frame) or `both`. */
+function ownSides(list) {
+  const sides = new Map();
   let k = -1;
   list.forEach((entry, at) => {
     if (isData(entry)) return;
     k += 1;
     if (entry.push !== 'activity') return;
-    const ownChange = (other) => other?.push === 'activity' && other.event.id === entry.event.id;
-    const ownOutput = (other) => other !== undefined && isData(other) && other.event.id === entry.event.id;
-    let before = at - 1;
-    while (ownChange(list[before])) before -= 1;
-    let after = at + 1;
-    while (ownChange(list[after])) after += 1;
-    if (ownOutput(list[before]) || ownOutput(list[after])) out.add(k);
+    const own = (other) => other !== undefined && isData(other) && other.event.id === entry.event.id && other.event.data !== '';
+    const [before, after] = [own(list[at - 1]), own(list[at + 1])];
+    if (before || after) sides.set(k, before && after ? 'both' : before ? 'before' : 'after');
   });
-  return out;
+  return sides;
 }
 
 /** Per position of `list`: the stretch an output frame belongs to (the k of the non-output entry that opened it, -1 before the first),
@@ -136,184 +137,327 @@ async function emulator() {
   return emulatorClass;
 }
 
-/** What a terminal shows: every line of its active buffer (scrollback included), the cursor's place in it and whether it shows. */
-function screenOf(term) {
-  const buffer = term.buffer.active;
-  const lines = [];
-  // A line's trailing blanks are not shown: a cell the console host wrote a space into and one it erased look the same, and which of the
-  // two it does is its own render timing (Node's runs differ there).
-  for (let y = 0; y < buffer.length; y += 1) lines.push(buffer.getLine(y).translateToString(true).replace(/ +$/, ''));
-  // xterm keeps DECTCEM (`ESC [?25l/h`) in its core service; the public API has no reader for it.
-  const hidden = term._core.coreService.isCursorHidden;
-  assert.equal(typeof hidden, 'boolean', "the emulator's cursor visibility is readable");
-  return { size: [term.cols, term.rows], buffer: buffer.type, lines, cursor: [buffer.cursorX, buffer.baseY + buffer.cursorY], visible: !hidden };
+/** The terminal options of the app's pane that are terminal state (TerminalPane.tsx:239-247; its font and theme only draw). */
+const PANE_OPTIONS = { cursorBlink: true, cursorStyle: 'bar', cursorInactiveStyle: 'bar' };
+
+const HAS_EXTENDED = 0x10000000;
+const DEFAULT_CELL = '1.0.0';
+
+/** A cell's or attribute set's attributes as xterm holds them: foreground and background words (colour, its mode and every flag: bold,
+ *  dim, italic, underline, blink, inverse, invisible, strikethrough, overline) and, when set, the extended ones (underline style and
+ *  colour, the OSC 8 hyperlink's target). */
+function attrOf(attr, core) {
+  if (!(attr.bg & HAS_EXTENDED)) return `${attr.fg}.${attr.bg}`;
+  const { underlineStyle, underlineColor, urlId } = attr.extended;
+  const link = urlId ? core._oscLinkService.getLinkData(urlId) : undefined;
+  return `${attr.fg}.${attr.bg}.${underlineStyle}.${underlineColor}.${link ? JSON.stringify(link) : ''}`;
 }
 
-/** Each tab's terminal, fed its output in order; `parsed` settles when everything written so far is parsed (xterm's write callback). */
-class Screens {
-  constructor(Terminal) {
-    this.Terminal = Terminal;
-    this.tabs = new Map();
-  }
+const charsetName = (charset) => (charset ? Object.entries(charset).map(([from, to]) => `${from}${to}`).join('') : 'ascii');
 
-  write(id, data) {
-    let tab = this.tabs.get(id);
-    if (!tab) {
-      tab = { term: new this.Terminal({ cols: 80, rows: 24 }), parsed: Promise.resolve(), text: '' };
-      this.tabs.set(id, tab);
+/** One buffer line, every cell: whether it continues the line before (wrapped), and each cell's character (an erased cell is `␀`, a
+ *  wide character's second cell too) with its width and attributes, written as a change of attributes where they change (`«width.fg.bg…»`).
+ *  Nothing is trimmed: a blank is a cell like any other. */
+function lineOf(line, core, cell) {
+  let out = line.isWrapped ? '⏎' : '';
+  let attrs = DEFAULT_CELL;
+  for (let x = 0; x < line.length; x += 1) {
+    line.getCell(x, cell);
+    const cellAttrs = `${cell.getWidth()}.${attrOf(cell, core)}`;
+    if (cellAttrs !== attrs) {
+      out += `«${cellAttrs}»`;
+      attrs = cellAttrs;
     }
-    tab.text += data;
-    tab.parsed = new Promise((resolve) => tab.term.write(data, resolve));
+    out += cell.getChars() || '␀';
+  }
+  return out;
+}
+
+/** Everything the phone's terminal shows and holds, as named units: its size and active buffer; for the normal and the alternate buffer
+ *  every line (scrollback included), the cursor, the viewport, the scroll region, the tab stops and the saved cursor; every mode the
+ *  input depends on (application cursor keys and keypad, bracketed paste, mouse reporting, focus reports, insert, origin, wraparound),
+ *  the cursor's visibility, style and blink; the current attributes and character sets; the window title, icon name and their stacks;
+ *  how many bells rang; every byte the terminal answered back (`onData`: DSR and other reports); every colour change it was asked for.
+ *  The internals read are xterm 5.5's own (the public API has no reader for them). */
+function stateOf(tab) {
+  const { term } = tab;
+  const core = term._core;
+  const cell = term.buffer.active.getNullCell();
+  const state = { size: [term.cols, term.rows], 'active buffer': term.buffer.active.type };
+  for (const name of ['normal', 'alternate']) {
+    const api = term.buffer[name];
+    const inner = core._bufferService.buffers[name === 'normal' ? 'normal' : 'alt'];
+    assert.ok(inner?.lines, `the emulator's ${name} buffer is readable`);
+    state[`${name} lines`] = api.length;
+    for (let y = 0; y < api.length; y += 1) state[`${name} line ${y}`] = lineOf(api.getLine(y), core, cell);
+    state[`${name} cursor`] = [api.cursorX, api.baseY + api.cursorY];
+    state[`${name} viewport`] = [api.viewportY, api.baseY];
+    state[`${name} scroll region`] = [inner.scrollTop, inner.scrollBottom];
+    state[`${name} tab stops`] = Object.keys(inner.tabs).filter((x) => inner.tabs[x]).join(',');
+    state[`${name} saved cursor`] = [inner.savedX, inner.savedY, attrOf(inner.savedCurAttrData, core), charsetName(inner.savedCharset)];
+  }
+  const { coreService, optionsService, coreMouseService, _inputHandler: input, _charsetService: charsets } = core;
+  for (const [mode, on] of Object.entries(coreService.decPrivateModes)) state[`mode ${mode}`] = on;
+  for (const [mode, on] of Object.entries(coreService.modes)) state[`mode ${mode}`] = on;
+  assert.equal(typeof coreService.isCursorHidden, 'boolean', "the emulator's cursor visibility is readable");
+  state['cursor hidden'] = coreService.isCursorHidden;
+  state['cursor style'] = [optionsService.rawOptions.cursorStyle, optionsService.rawOptions.cursorBlink];
+  state['mouse reporting'] = [coreMouseService.activeProtocol, coreMouseService.activeEncoding];
+  state['current attributes'] = attrOf(input._curAttrData, core);
+  state['character sets'] = [charsets.glevel, ...charsets._charsets.map(charsetName)];
+  state.title = tab.title;
+  state['icon name'] = input._iconName;
+  state['title stacks'] = [input._windowTitleStack, input._iconNameStack];
+  state.bells = tab.bells;
+  state.answers = tab.answers;
+  state['colour changes'] = tab.colours;
+  return state;
+}
+
+/** States by id: equal states have one id (across runs, so a sequence of screens compares as ids). */
+const states = [];
+const stateIds = new Map();
+function intern(state) {
+  const key = JSON.stringify(state);
+  let id = stateIds.get(key);
+  if (id === undefined) {
+    id = states.length;
+    states.push(state);
+    stateIds.set(key, id);
+  }
+  return id;
+}
+
+/** One tab's terminal, with what it reports through events (title, bell, answers, colour changes). */
+class Tab {
+  constructor(Terminal, cols, rows) {
+    this.term = new Terminal({ cols, rows, ...PANE_OPTIONS });
+    this.title = '';
+    this.bells = 0;
+    this.answers = '';
+    this.colours = [];
+    this.text = '';
+    this.last = null;
+    this.term.onTitleChange((title) => {
+      this.title = title;
+    });
+    this.term.onBell(() => {
+      this.bells += 1;
+    });
+    this.term.onData((data) => {
+      this.answers += data;
+    });
+    this.term.onBinary((data) => {
+      this.answers += data;
+    });
+    this.term._core._inputHandler.onColor((event) => this.colours.push(JSON.stringify(event)));
   }
 
-  /** A new ensure of a tab whose shell exited starts a new PTY (and screen). */
-  ensured(id) {
-    const tab = this.tabs.get(id);
-    if (tab && EXIT_ANYWHERE.test(tab.text)) {
-      tab.term.dispose();
-      this.tabs.delete(id);
-    }
-  }
-
-  /** Resizes the tab's terminal; true when it has one (its screen changed). */
-  async resize(id, cols, rows) {
-    const tab = this.tabs.get(id);
-    if (!tab) return false;
-    await tab.parsed;
-    tab.term.resize(cols, rows);
-    return true;
-  }
-
-  async screen(id) {
-    const tab = this.tabs.get(id);
-    await tab.parsed;
-    return screenOf(tab.term);
-  }
-
-  /** The screen an answer's replay produces at the tab's size. */
-  async replay(id, replay) {
-    const tab = this.tabs.get(id);
-    const term = new this.Terminal(tab ? { cols: tab.term.cols, rows: tab.term.rows } : { cols: 80, rows: 24 });
-    await new Promise((resolve) => term.write(replay, resolve));
-    const screen = screenOf(term);
-    term.dispose();
-    return screen;
-  }
-
-  dispose() {
-    for (const tab of this.tabs.values()) tab.term.dispose();
+  write(data) {
+    this.text += data;
+    return new Promise((resolve) => this.term.write(data, resolve));
   }
 }
 
-/** A list's entries besides output (an answer's replay as its screen) and, per stretch, the screen of each tab whose output it holds. */
+/** An entry's fields as units (`a.b.0`), with an answer's replay as the state it produces at the tab's size (`value.replay: <unit>`). */
+function unitsOf(value, path = '', out = {}) {
+  if (value !== null && typeof value === 'object') {
+    out[`${path}<${Array.isArray(value) ? `array ${value.length}` : 'object'}>`] = true;
+    for (const [key, inner] of Object.entries(value)) unitsOf(inner, path ? `${path}.${key}` : key, out);
+  } else {
+    out[path] = value;
+  }
+  return out;
+}
+
+/** A list's entries besides output (as units; an answer's replay as the state it produces) and, per stretch: the bytes and last state of
+ *  each tab whose output it holds, and its events in order: each change of a tab's state (`screen`, an id) and each change of activity
+ *  paired with its own output (`activity`). A paired change directly before its frame is put after it: those two are one place, their
+ *  order proved by the framing recording. */
 async function analyse(list, paired) {
-  const screens = new Screens(await emulator());
+  const Terminal = await emulator();
+  const tabs = new Map();
   const entries = [];
   const stretches = new Map();
-  let touched = new Set();
   let stretch = -1;
-  const close = async () => {
-    if (touched.size === 0) return;
-    const at = new Map();
-    for (const id of touched) at.set(id, await screens.screen(id));
-    stretches.set(stretch, at);
-    touched = new Set();
+  const here = () => {
+    if (!stretches.has(stretch)) stretches.set(stretch, { events: [], finals: new Map(), bytes: new Map() });
+    return stretches.get(stretch);
   };
-  for (const entry of list) {
+  const changed = (id, tab) => {
+    const state = intern(stateOf(tab));
+    const at = here();
+    at.finals.set(id, state);
+    if (state !== tab.last) at.events.push({ tab: id, screen: state });
+    tab.last = state;
+  };
+  let deferred = null;
+  for (const [i, entry] of list.entries()) {
     if (isData(entry)) {
-      screens.write(entry.event.id, entry.event.data);
-      touched.add(entry.event.id);
+      const { id, data } = entry.event;
+      if (!tabs.has(id)) tabs.set(id, new Tab(Terminal, 80, 24));
+      const tab = tabs.get(id);
+      await tab.write(data);
+      here().bytes.set(id, (here().bytes.get(id) ?? '') + data);
+      changed(id, tab);
+      if (deferred) here().events.push(deferred);
+      deferred = null;
       continue;
     }
-    // Every other entry opens the next stretch, ending the one before; a change in `paired` does not.
-    if (!paired.has(entries.length)) {
-      await close();
-      stretch = entries.length;
+    const k = entries.length;
+    if (paired.has(k)) {
+      const event = { tab: entry.event.id, activity: entry.event.state };
+      const next = list[i + 1];
+      if (next !== undefined && isData(next) && next.event.id === entry.event.id && next.event.data !== '') deferred = event;
+      else here().events.push(event);
+    } else {
+      stretch = k;
     }
-    if (entry.call === 'termEnsure') screens.ensured(entry.params[0]);
-    // A resize changes the screen: it is compared at the end of the stretch this entry opens, like output.
-    if (entry.push === 'sizeOwner' && entry.event.cols > 0 && (await screens.resize(entry.event.id, entry.event.cols, entry.event.rows))) touched.add(entry.event.id);
-    entries.push(typeof entry.value?.replay === 'string' ? { ...entry, value: { ...entry.value, replay: await screens.replay(entry.value.id, entry.value.replay) } } : entry);
+    // A new ensure of a tab whose shell exited starts a new PTY (and terminal).
+    if (entry.call === 'termEnsure' && EXIT_ANYWHERE.test(tabs.get(entry.params[0])?.text ?? '')) {
+      tabs.get(entry.params[0]).term.dispose();
+      tabs.delete(entry.params[0]);
+    }
+    // A resize changes the tab's state in the stretch this entry opens, like output.
+    if (entry.push === 'sizeOwner' && entry.event.cols > 0 && tabs.has(entry.event.id)) {
+      tabs.get(entry.event.id).term.resize(entry.event.cols, entry.event.rows);
+      changed(entry.event.id, tabs.get(entry.event.id));
+    }
+    if (typeof entry.value?.replay === 'string') {
+      const shown = tabs.get(entry.value.id)?.term;
+      const replay = new Tab(Terminal, shown?.cols ?? 80, shown?.rows ?? 24);
+      await replay.write(entry.value.replay);
+      const units = unitsOf({ ...entry, value: { ...entry.value, replay: null } });
+      delete units['value.replay'];
+      for (const [unit, value] of Object.entries(stateOf(replay))) units[`value.replay: ${unit}`] = value;
+      replay.term.dispose();
+      entries.push(units);
+    } else {
+      entries.push(unitsOf(entry));
+    }
   }
-  await close();
-  screens.dispose();
+  for (const tab of tabs.values()) tab.term.dispose();
   return { entries, stretches };
 }
 
-/** The tab's screen as it stood at the end of stretch `k`: its last stretch with output up to there; null before its first output. */
-function screenAt(analysis, k, tab) {
+/** The id of the tab's state as it stood at the end of stretch `k` (from its last stretch with output up to there); null before its
+ *  first output. */
+function stateIdAt(analysis, k, tab) {
   let found = null;
-  for (const [at, screens] of analysis.stretches) {
+  for (const [at, stretch] of analysis.stretches) {
     if (at > k) break;
-    if (screens.has(tab)) found = screens.get(tab);
+    if (stretch.finals.has(tab)) found = stretch.finals.get(tab);
   }
   return found;
 }
 
-/** The lines, cursor and visibility where two screens differ. */
-function screenDifference(got, node) {
-  if (got === null || node === null) return `got ${got === null ? 'no output' : 'a screen'}, Node ${node === null ? 'no output' : 'a screen'}`;
-  const out = [];
-  for (const key of ['size', 'buffer', 'cursor', 'visible']) {
-    if (!isDeepStrictEqual(got[key], node[key])) out.push(`${key}: got ${JSON.stringify(got[key])}, Node ${JSON.stringify(node[key])}`);
-  }
-  const lines = Math.max(got.lines.length, node.lines.length);
-  for (let y = 0, shown = 0; y < lines && shown < 12; y += 1) {
-    if (got.lines[y] === node.lines[y]) continue;
-    out.push(`line ${y}: got ${JSON.stringify(got.lines[y] ?? '<no line>')}, Node ${JSON.stringify(node.lines[y] ?? '<no line>')}`);
-    shown += 1;
-  }
-  return out.join('\n  ');
+/** The tab's state as it stood at the end of stretch `k`; null before its first output. */
+export function stateAt(analysis, k, tab) {
+  const id = stateIdAt(analysis, k, tab);
+  return id === null ? null : states[id];
 }
 
-const nodeViews = new WeakMap();
-/** Node's runs of one part as the comparison reads them: the lists without the disposal pairs, the own-tab pairs every run has, and each
- *  run's analysis (computed once per recording). */
+const showUnit = (value) => (value === undefined ? '<absent>' : JSON.stringify(value).slice(0, 400));
+
+/** Compares units: where Node's runs agree on a unit, it must be theirs; where they differ, it is named in `exemptions` (the runs that
+ *  differ from run 0) and must still be one run's. Throws naming every unit that fails. */
+function compareUnits(got, recorded, what, exemptions) {
+  const present = recorded.map((units) => units !== null);
+  let runs = recorded.map((_, run) => run);
+  if (present.some((at) => at !== present[0])) {
+    exemptions.push(`${what}: whether the tab has drawn anything yet (Node's runs ${runs.filter((run) => present[run] !== present[0]).join(', ')} differ from run 0)`);
+    runs = runs.filter((run) => present[run] === (got !== null));
+    assert.ok(runs.length > 0, `${what}: got ${got === null ? 'no output' : 'output'}, no Node run has that`);
+  } else if ((got !== null) !== present[0]) {
+    assert.fail(`${what}: got ${got === null ? 'no output' : 'output'}, Node ${present[0] ? 'output' : 'no output'}`);
+  }
+  if (got === null) return;
+  const keys = [...new Set([got, ...runs.map((run) => recorded[run])].flatMap((units) => Object.keys(units)))];
+  const failures = [];
+  for (const key of keys) {
+    const values = runs.map((run) => recorded[run][key]);
+    const differing = runs.filter((_, i) => !isDeepStrictEqual(values[i], values[0]));
+    if (differing.length === 0) {
+      if (!isDeepStrictEqual(got[key], values[0])) failures.push(`${key}: got ${showUnit(got[key])}, Node ${showUnit(values[0])}`);
+      continue;
+    }
+    exemptions.push(`${what}: ${key} (Node's runs ${differing.join(', ')} differ from run ${runs[0]})`);
+    if (!values.some((value) => isDeepStrictEqual(value, got[key]))) failures.push(`${key}: got ${showUnit(got[key])}, which no Node run has: ${values.map(showUnit).join(' | ')}`);
+  }
+  if (failures.length > 0) assert.fail(`${what}\n  ${failures.slice(0, 16).join('\n  ')}`);
+}
+
+/** Where a stretch's events of one tab differ, for a message: the first state that differs, shown by the units in which it differs from
+ *  Node's (a side that has no such state shows its last one); or, with the same states, where the activity changes fall among them. */
+function eventsDifference(got, node, gotBefore, nodeBefore) {
+  const screensOf = (events) => events.filter((event) => 'screen' in event).map((event) => event.screen);
+  const [mine, theirs] = [screensOf(got), screensOf(node)];
+  const last = (screens, before) => screens.at(-1) ?? before ?? undefined;
+  const at = Array.from({ length: Math.max(mine.length, theirs.length) }, (_, i) => i).find((i) => mine[i] !== theirs[i]);
+  const describe = (events) => events.map((event) => ('activity' in event ? `activity ${JSON.stringify(event.activity)}` : `state ${screensOf(events).indexOf(event.screen) + 1}`)).join(', ');
+  if (at === undefined) return `the same ${theirs.length} states; the activity changes among them: got ${describe(got)}; Node ${describe(node)}`;
+  const lines = [`state ${at + 1}: got ${mine.length} states, Node ${theirs.length}${mine[at] === undefined ? ' (got: its last)' : ''}${theirs[at] === undefined ? ' (Node: its last)' : ''}`];
+  const [left, right] = [mine[at] ?? last(mine, gotBefore), theirs[at] ?? last(theirs, nodeBefore)];
+  if (left === undefined || right === undefined) return `${lines[0]}: ${left === undefined ? 'got none' : 'Node none'}`;
+  for (const key of new Set([...Object.keys(states[left]), ...Object.keys(states[right])])) {
+    if (!isDeepStrictEqual(states[left][key], states[right][key])) lines.push(`${key}: got ${showUnit(states[left][key])}, Node ${showUnit(states[right][key])}`);
+  }
+  return lines.slice(0, 16).join('\n  ');
+}
+
+const nodeViews = new Map();
+/** Node's runs of one part as the comparison reads them: the lists without the disposal pairs, the activity changes every run sends with
+ *  its own output on one side (`paired`), and each run's analysis (computed once per recording). */
 export async function nodeView(runs, part) {
   if (!nodeViews.has(runs)) nodeViews.set(runs, new Map());
   const views = nodeViews.get(runs);
-  if (!views.has(part)) {
+  const key = part;
+  if (!views.has(key)) {
     const lists = runs.map((run) => withoutDisposalPairs(pick(run, part) ?? [], `Node's ${part}`, []));
     const entries = (list) => list.filter((entry) => !isData(entry)).length;
     const lengths = lists.map(entries);
     assert.equal(new Set(lengths).size, 1, `Node's runs differ in ${part} beyond the recorded variation (${lengths.join(', ')} entries besides output)`);
-    const pairs = lists.map(ownPairs);
-    const paired = new Set([...pairs[0]].filter((k) => pairs.every((set) => set.has(k))));
-    views.set(part, { lists, paired, analyses: await Promise.all(lists.map((list) => analyse(list, paired))) });
+    const sides = lists.map(ownSides);
+    const single = (side) => side === 'before' || side === 'after';
+    const paired = new Set([...sides[0].keys()].filter((k) => sides.every((run) => single(run.get(k)))));
+    views.set(key, { lists, paired, sides, analyses: await Promise.all(lists.map((list) => analyse(list, paired))) });
   }
-  return views.get(part);
+  return views.get(key);
 }
 
 /** The list as the comparison reads it: without the PowerShell disposal pairs (the entries kept are the list's own objects). */
 export const comparedList = (list, part) => withoutDisposalPairs(list, part, []);
 
+/** What the framing recording (apps/mobile/fixtures/relay-framing/golden.json, Node's relay lane on a virtual clock) shows of a tab's
+ *  output against its own activity change, and so the one pair whose order a replay may flip:
+ *    - output, then a change, inside a window the lane opened (tab E: frame at 300 ms, `e1` and `running` at 305): the change goes at once
+ *      (305), the frame when the window ends (316);
+ *    - output and its change with no window open (tab F, 300 ms): the frame goes at once, the change right after it;
+ *    - a write with its change after a re-render frame sent at 400 ms (tabs G15, G16, G17): at 415 ms (inside the window) the change
+ *      goes first and the frame at 416; at 416 and 417 ms (the window over) the frame goes first.
+ *  So a chunk's frame and its own change flip with when the write lands against the lane's 16 ms window, and nothing else does: a later
+ *  change (E's `finished` at 310) keeps its place against everything the replay compares. */
 export const RELAY_FRAMING_PROOF =
-  'apps/mobile/fixtures/relay-framing (an activity change inside an open window, after a quiet window, and after a re-render at 15, 16, 17 ms)';
+  'apps/mobile/fixtures/relay-framing (G15 against G16/G17: a write and its change 15 ms after a frame go change first, 16 or 17 ms after it frame first)';
 
 const streamOf = (list, tab) => list.filter((entry) => isData(entry) && entry.event.id === tab).map((entry) => entry.event.data).join('');
+const eventKey = (event) => ('activity' in event ? `a${event.tab}:${event.activity}` : `s${event.tab}:${event.screen}`);
+/** The order in which a stretch's tabs change (one tab's consecutive changes as one). */
+const tabOrder = (events) => events.map((event) => event.tab).filter((tab, i, all) => tab !== all[i - 1]);
 
-/** Returns what was left out (each place Node's runs disagree, each disposal pair taken out) and each own-tab pair compared as one place;
- *  throws on the first difference. */
+/** Compares a replayed trace with Node's runs; throws on the first part that differs. Returns:
+ *  `exemptions`, each unit left to one of Node's values because Node's runs differ on it (named with the runs) and each disposal pair
+ *  taken out; `sets`, each activity change compared with its own output as one place; `bytes`, per tab and stretch whether the trace's
+ *  output bytes equal one Node run's exactly or the stretch passed on its states only. */
 export async function compareTraces(got, runs) {
-  const leftOut = [];
+  const exemptions = [];
   const sets = [];
-  /** `value` must be Node's where all runs agree; a disagreement is named and left out. */
-  const agreed = (value, recorded, what) => {
-    const differing = recorded.flatMap((other, run) => (isDeepStrictEqual(other, recorded[0]) ? [] : [run]));
-    if (differing.length > 0) {
-      leftOut.push(`${what} (Node's runs ${differing.join(', ')} differ from run 0)`);
-      return;
-    }
-    if (isDeepStrictEqual(value, recorded[0])) return;
-    const screens = value?.value?.replay?.lines && recorded[0]?.value?.replay?.lines;
-    const detail = screens ? `replay screen:\n  ${screenDifference(value.value.replay, recorded[0].value.replay)}` : `got:  ${show(value)}\n  Node: ${show(recorded[0])}`;
-    assert.fail(`${what}\n  ${detail}`);
-  };
+  const bytes = [];
   const extra = Object.keys(got).filter((key) => !['order', 'claims', 'immediate', 'replayWindow'].includes(key));
   assert.deepEqual(extra, [], 'the trace has fields the comparison does not know');
   for (const part of PARTS) {
     const node = await nodeView(runs, part);
-    const mine = withoutDisposalPairs(pick(got, part) ?? [], part, leftOut);
+    const mine = withoutDisposalPairs(pick(got, part) ?? [], part, exemptions);
     // An output entry is compared by its data alone, so it may carry nothing else.
     for (const entry of mine.filter(isData)) {
       assert.ok(isDeepStrictEqual(Object.keys(entry), ['push', 'event']) && isDeepStrictEqual(Object.keys(entry.event), ['id', 'data']), `${part}: an output entry with other fields: ${show(entry)}`);
@@ -321,29 +465,48 @@ export async function compareTraces(got, runs) {
     const entries = mine.filter((entry) => !isData(entry));
     const count = node.analyses[0].entries.length;
     assert.equal(entries.length, count, `${part}: ${entries.length} entries besides output; Node: ${count}`);
-    const mineOwn = ownPairs(mine);
+    const mineSides = ownSides(mine);
     for (const k of node.paired) {
       const { id } = entries[k].event ?? {};
-      assert.ok(mineOwn.has(k), `${part} entry ${k}: ${id}'s activity change is not next to its own output, as in every Node run (${show(entries[k])})`);
-      sets.push(`${part} entry ${k}: ${id}'s activity change and its output, their order proved by ${RELAY_FRAMING_PROOF}`);
+      assert.ok(mineSides.has(k), `${part} entry ${k}: ${id}'s activity change is not next to its own output, as in every Node run (${show(entries[k])})`);
+      const recorded = [...new Set(node.sides.map((sides) => sides.get(k)))].join('/');
+      sets.push(`${part} entry ${k}: ${id}'s activity change with its own frame (Node: frame ${recorded} it; here: ${mineSides.get(k)}), proved by ${RELAY_FRAMING_PROOF}`);
     }
     const analysis = await analyse(mine, node.paired);
-    analysis.entries.forEach((entry, i) => agreed(entry, node.analyses.map((run) => run.entries[i]), `${part} entry ${i}`));
+    analysis.entries.forEach((units, i) => compareUnits(units, node.analyses.map((run) => run.entries[i]), `${part} entry ${i}`, exemptions));
     const both = [analysis, ...node.analyses];
     const points = [...new Set(both.flatMap((run) => [...run.stretches.keys()]))].sort((a, b) => a - b);
     for (const k of points) {
       const where = k < 0 ? 'before the first entry' : `after entry ${k}`;
-      const tabs = [...new Set(both.flatMap((run) => [...(run.stretches.get(k)?.keys() ?? [])]))].sort();
+      const stretch = (run) => run.stretches.get(k) ?? { events: [], finals: new Map(), bytes: new Map() };
+      const tabs = [...new Set(both.flatMap((run) => [...stretch(run).finals.keys(), ...stretch(run).events.map((event) => event.tab)]))].sort();
       for (const tab of tabs) {
-        const recorded = node.analyses.map((run) => screenAt(run, k, tab));
-        const what = `${part}: ${tab}'s screen ${where}`;
-        const differing = recorded.flatMap((screen, run) => (isDeepStrictEqual(screen, recorded[0]) ? [] : [run]));
-        if (differing.length > 0) {
-          leftOut.push(`${what} (Node's runs ${differing.join(', ')} differ from run 0)`);
-          continue;
+        // Every state the tab went through in the stretch, in order, with its paired activity changes among them.
+        const sequences = node.analyses.map((run) => stretch(run).events.filter((event) => event.tab === tab));
+        const mineSequence = stretch(analysis).events.filter((event) => event.tab === tab);
+        const differing = sequences.flatMap((sequence, run) => (isDeepStrictEqual(sequence.map(eventKey), sequences[0].map(eventKey)) ? [] : [run]));
+        if (differing.length === 0) {
+          if (!isDeepStrictEqual(mineSequence.map(eventKey), sequences[0].map(eventKey))) {
+            const before = (run) => stateIdAt(run, k - 1, tab) ?? undefined;
+            assert.fail(`${part}: ${tab}'s states within the stretch ${where}\n  ${eventsDifference(mineSequence, sequences[0], before(analysis), before(node.analyses[0]))}`);
+          }
+        } else {
+          exemptions.push(`${part}: ${tab}'s states within the stretch ${where} before its last (Node's runs ${differing.join(', ')} differ from run 0)`);
         }
-        const screen = screenAt(analysis, k, tab);
-        if (!isDeepStrictEqual(screen, recorded[0])) assert.fail(`${what}\n  ${screenDifference(screen, recorded[0])}`);
+        // Its state at the end of the stretch.
+        compareUnits(stateAt(analysis, k, tab), node.analyses.map((run) => stateAt(run, k, tab)), `${part}: ${tab}'s screen ${where}`, exemptions);
+        const mineBytes = stretch(analysis).bytes.get(tab) ?? '';
+        const exact = node.analyses.some((run) => (stretch(run).bytes.get(tab) ?? '') === mineBytes);
+        bytes.push({ part, where, tab, exact });
+      }
+      // The order in which the tabs changed.
+      const orders = node.analyses.map((run) => tabOrder(stretch(run).events));
+      const differing = orders.flatMap((order, run) => (isDeepStrictEqual(order, orders[0]) ? [] : [run]));
+      if (differing.length === 0) {
+        const mineOrder = tabOrder(stretch(analysis).events);
+        assert.ok(isDeepStrictEqual(mineOrder, orders[0]), `${part}: the order of the tabs' output in the stretch ${where}: got ${mineOrder.join(', ')}, Node ${orders[0].join(', ')}`);
+      } else {
+        exemptions.push(`${part}: the order of the tabs' output in the stretch ${where} (Node's runs ${differing.join(', ')} differ from run 0)`);
       }
     }
     const tabs = [...new Set([mine, ...node.lists].flatMap((list) => list.filter(isData).map((entry) => entry.event.id)))].sort();
@@ -352,9 +515,9 @@ export async function compareTraces(got, runs) {
       if (codes.every((code) => code !== undefined)) {
         const code = EXIT_AT_END.exec(streamOf(mine, tab))?.[1];
         assert.notEqual(code, undefined, `${part}: ${tab}'s output does not end with its exit line: ${show(streamOf(mine, tab).slice(-200))}`);
-        agreed(code, codes, `${part}: ${tab}'s exit code`);
+        compareUnits({ code }, codes.map((recorded) => ({ code: recorded })), `${part}: ${tab}'s exit`, exemptions);
       }
     }
   }
-  return { leftOut, sets };
+  return { exemptions, sets, bytes };
 }

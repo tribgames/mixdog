@@ -20,6 +20,7 @@
       "sha256": "89d59b9cda4a5c3d3b0816377a8ca8022a388308a8d77dddce8b9c3ab7f1f97b"
     }
   ],
+  "framingProof": "apps/mobile/fixtures/relay-framing drives Node's relay lane (remote-relay-push-lanes.ts) with a scripted source on a virtual clock: given output and activity changes at set times, Node's frames, their times and their order against the changes (G15 against G16/G17: a write and its change 15 ms after a frame go change first, 16 or 17 ms after it frame first). mixdog-spawn service::relay_buffer the_frames_are_nodes_for_the_recorded_script feeds the same steps to the core's RelayBuffer, the buffer the feed pump uses. The core's ordering of a change after its chunk is in the relay buffer is shown by mixdog-spawn terminal::lock_order tests (a_marker_change_waits_for_the_pump_to_take_its_chunk, the_pump_counts_from_its_first_event_after_an_evicted_prefix, a_paused_producers_chunk_changes_nothing_until_it_enters_the_feed, the_tabs_end_follows_the_output_before_the_exit). Not proved by any recording: that the core's PTY reader hands the relay the same chunks at the same times node-pty did (the reader's cuts and timing against ConPTY); the real replay compares the states that output produces, not its cuts.",
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
