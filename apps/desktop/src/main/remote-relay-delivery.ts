@@ -84,7 +84,8 @@ export function createRelayEncryptedDelivery(deps: RelayEncryptedDeliveryDeps): 
     droppable: boolean,
     guardOversize: boolean,
     onSent?: (bytes: number) => void,
-    requireDelivery = false
+    requireDelivery = false,
+    mayWrite?: () => boolean
   ): Promise<void> => {
     const state = clients.get(clientId);
     if (!state?.channel) {
@@ -100,6 +101,7 @@ export function createRelayEncryptedDelivery(deps: RelayEncryptedDeliveryDeps): 
         // socket took, never what a direct carrier moved.
         const bytes = await transport.send(payload, {
           droppable,
+          mayWrite,
           onRelayWrite: (relayBytes) => {
             const meterReport = deps.byteMeter.record(payload, relayBytes);
             if (meterReport) reportRemoteByteWindow(meterReport);
@@ -115,7 +117,7 @@ export function createRelayEncryptedDelivery(deps: RelayEncryptedDeliveryDeps): 
             relayFrameCallId(payload)
           );
           if (refusal) {
-            await deliverEncryptedFrame(clientId, relayPayloadRejectedFrame(refusal), false, false, onSent);
+            await deliverEncryptedFrame(clientId, relayPayloadRejectedFrame(refusal), false, false, onSent, false, mayWrite);
             if (requireDelivery) throw new Error('View synchronization payload exceeds the relay frame limit.');
             return;
           }
@@ -147,10 +149,14 @@ export function createRelayEncryptedDelivery(deps: RelayEncryptedDeliveryDeps): 
       if (refusal) {
         // Never sent: the relay would refuse it, and nothing downstream could
         // say whose frame it was. Answer the waiting call instead.
-        await deliverEncryptedFrame(clientId, relayPayloadRejectedFrame(refusal), false, false, onSent);
+        await deliverEncryptedFrame(clientId, relayPayloadRejectedFrame(refusal), false, false, onSent, false, mayWrite);
         if (requireDelivery) throw new Error('View synchronization payload exceeds the relay frame limit.');
         return;
       }
+      // Asked after the encryption, with nothing awaited before the socket
+      // write below: a permission that ended while the payload was encrypted
+      // (an unpair) writes nothing.
+      if (mayWrite && !mayWrite()) return;
       // Count only a completed socket write, not a refused or failed send.
       await deps.sendRawAndWait(wire);
       const meterReport = deps.byteMeter.record(payload, bytes);
@@ -166,8 +172,9 @@ export function createRelayEncryptedDelivery(deps: RelayEncryptedDeliveryDeps): 
     payload: unknown,
     droppable = false,
     onSent?: (bytes: number) => void,
-    requireDelivery = false
-  ): Promise<void> => deliverEncryptedFrame(clientId, payload, droppable, true, onSent, requireDelivery);
+    requireDelivery = false,
+    mayWrite?: () => boolean
+  ): Promise<void> => deliverEncryptedFrame(clientId, payload, droppable, true, onSent, requireDelivery, mayWrite);
   const broadcastEncryptedAsync = (
     payload: unknown,
     droppable: boolean,

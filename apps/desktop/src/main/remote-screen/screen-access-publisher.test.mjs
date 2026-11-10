@@ -237,3 +237,19 @@ test('revisions only grow, across clients and kinds of push', async () => {
   );
   assert.equal(new Set(revisions).size, revisions.length);
 });
+
+test('regression: an unpair names every live connection of the credential, and none of them may view any more', () => {
+  const env = build();
+  env.connect('c1', 'cred-a');
+  env.connect('c2', 'cred-a');
+  env.connect('c3', 'cred-b');
+  env.connect('c4', 'cred-a', null);
+  assert.deepEqual(['c1', 'c2', 'c3', 'c4'].map((id) => env.publisher.viewAllowed(id)), [true, true, true, false]);
+  assert.deepEqual(env.publisher.revokeCredential('cred-a'), ['c1', 'c2', 'c4']);
+  assert.deepEqual(['c1', 'c2', 'c3'].map((id) => env.publisher.viewAllowed(id)), [false, false, true]);
+  // The connection stays open (the relay refused the revoke): still no view; nor for one admitted while the unpair is in force.
+  env.unpair('cred-a');
+  env.connect('c5', 'cred-a');
+  assert.equal(env.publisher.viewAllowed('c5'), false);
+  assert.equal(env.publisher.viewAllowed('gone'), false);
+});

@@ -145,16 +145,29 @@ export function createScreenAccessPublisher(deps: ScreenAccessPublisherDeps) {
       if (known.has(clientId)) void deny(clientId, 'left').catch(ignore);
     },
 
+    /** Whether the client under `clientId` may still be shown this PC's
+     *  browser view: E2EE-established, not revoked, and its credential has no
+     *  unpair in force. Asked at every subscribe and every send, so an unpair
+     *  leaves a connection that stays open nothing to see. */
+    viewAllowed(clientId: string): boolean {
+      const client = deps.client(clientId);
+      return Boolean(client?.channel) && !revoked.has(client as object) && !deps.unpaired(client!.credentialId);
+    },
+
     /** The credential is being unpaired (its record already in force): each
      *  of its live connections is revoked for its lifetime and, if it may
-     *  hold access, denied now, before this returns. */
-    revokeCredential(credentialId: string): void {
-      if (!credentialId) return;
+     *  hold access, denied now, before this returns. Returns their client
+     *  ids, so the caller can end what each of them streams. */
+    revokeCredential(credentialId: string): string[] {
+      const ids: string[] = [];
+      if (!credentialId) return ids;
       for (const [clientId, client] of [...deps.clients()]) {
         if (client.credentialId !== credentialId) continue;
         revoked.add(client);
+        ids.push(clientId);
         if (known.has(clientId)) void deny(clientId, 'revoked').catch(ignore);
       }
+      return ids;
     },
   };
 }

@@ -256,6 +256,7 @@ export type RemoteTransportChannel = Pick<
   | 'registerControlLane'
   | 'activateControlLane'
   | 'retireControlLane'
+  | 'withdrawSeal'
 > & { readonly mediaKey?: CryptoKey | null };
 
 /** The relay carrier of one session: writes one MXT message as one binary
@@ -353,6 +354,13 @@ export interface RemoteTransportCoordinator {
        *  records once the RELAY socket took it (re-sends included; none for
        *  messages a direct carrier moved). Can fire after `send` resolved. */
       onRelayWrite?(bytes: number): void;
+      /** Asked once, after the message's last record is sealed (all are
+       *  sealed once its first is admitted), in the same synchronous step as
+       *  their commit to the stream: false takes every seal back and drops the
+       *  message unsent (resolves null, no sequence consumed); true commits
+       *  them, and they enter as the window admits them, ahead of anything
+       *  else. */
+      mayWrite?(): boolean;
     }
   ): Promise<number | null>;
   /** Whether a (non-bulk) record would be admitted now. */
@@ -363,6 +371,11 @@ export interface RemoteTransportCoordinator {
   tick(): void;
   /** Ends the session from outside (client removed, revoked, replaced). */
   close(reason?: RemoteTransportEndReason): RemoteTransportEnded;
+  /** The phone's permission to view ended (an unpair): a `mayWrite` message
+   *  whose first record already entered cannot be finished, and the phone
+   *  cannot reassemble half of it, so it is abandoned and the session ends
+   *  ('revoked'). Nothing else changes. */
+  viewRevoked(): void;
   nextSequence(): number;
   diagnostics(): RemoteTransportCoordinatorDiagnostics;
 }
@@ -400,6 +413,11 @@ interface Outgoing {
   callId: number | null;
   wireBytes: number;
   onRelayWrite: ((bytes: number) => void) | undefined;
+  mayWrite: (() => boolean) | undefined;
+  /** The records of a `mayWrite` message sealed so far. */
+  sealed: Uint8Array[];
+  /** Its `mayWrite` allowed it: its sealed records enter as the window admits them. */
+  committed: boolean;
   resolve(bytes: number | null): void;
   reject(error: unknown): void;
 }
@@ -1087,23 +1105,46 @@ export function createRemoteTransportCoordinator(deps: RemoteTransportCoordinato
       while (!closed && queue.length > 0) {
         const item = queue[0];
         const admission = item.stream === undefined ? {} : { stream: item.stream, bufferedAmount: bufferedOf(current) };
-        if (!sender.canAdmit(admission)) {
+        // A `mayWrite` message being sealed takes no room until it commits.
+        const sealing = item.sealed.length > 0 && !item.committed;
+        if (!sealing && !sender.canAdmit(admission)) {
           // Dropping happens here, BEFORE sealing, never after.
-          if (item.index === 0 && (item.droppable || item.stream !== undefined)) {
+          if (item.index === 0 && item.sealed.length === 0 && (item.droppable || item.stream !== undefined)) {
             queue.shift();
             item.resolve(null);
             continue;
           }
           break;
         }
+        if (item.committed) {
+          // A committed message's records enter as the window admits them,
+          // ahead of anything else: nothing else is sealed meanwhile. Each is
+          // asked about again, in the step it enters: none enters once the
+          // permission ended.
+          if (!item.mayWrite?.()) {
+            abandonView(item);
+            if (closed) return;
+            continue;
+          }
+          const sealed = item.sealed[item.index];
+          let sequence: number;
+          try {
+            sequence = sender.push(sealed, item.stream === undefined ? {} : { stream: item.stream });
+          } catch {
+            fail('seal-failed');
+            return;
+          }
+          entered(item, sequence, sealed);
+          continue;
+        }
         let box: Uint8Array;
         try {
-          box = await deps.channel.encryptBinary(item.pieces[item.index]);
+          box = await deps.channel.encryptBinary(item.pieces[item.mayWrite ? item.sealed.length : item.index]);
         } catch (error) {
           if (closed) return;
           // A size refusal runs before the sequence is assigned: nothing was
           // consumed. Anything else broke the stream.
-          if (error instanceof RangeError && item.index === 0) {
+          if (error instanceof RangeError && item.index === 0 && item.sealed.length === 0) {
             queue.shift();
             item.reject(error);
             continue;
@@ -1112,6 +1153,29 @@ export function createRemoteTransportCoordinator(deps: RemoteTransportCoordinato
           return;
         }
         if (closed) return;
+        if (item.mayWrite) {
+          // All its records are sealed once its first is admitted, as any
+          // message's first is; then it is asked, in the step that commits
+          // them: a permission that ended while any was sealed (an unpair)
+          // takes every seal back, newest first, so the phone gets no part of
+          // it and the stream has no hole. Allowed, its sequences are taken
+          // and it enters whole as the window admits it, however large.
+          item.sealed.push(box);
+          if (item.sealed.length < item.pieces.length) continue;
+          if (!item.mayWrite()) {
+            queue.shift();
+            try {
+              for (const sealed of [...item.sealed].reverse()) deps.channel.withdrawSeal(sealed);
+            } catch {
+              fail('seal-failed');
+              return;
+            }
+            item.resolve(null);
+            continue;
+          }
+          item.committed = true;
+          continue;
+        }
         let sequence: number;
         try {
           sequence = sender.push(box, item.stream === undefined ? {} : { stream: item.stream });
@@ -1119,20 +1183,49 @@ export function createRemoteTransportCoordinator(deps: RemoteTransportCoordinato
           fail('seal-failed');
           return;
         }
-        if (item.onRelayWrite) relayWriters.set(sequence, item.onRelayWrite);
-        item.wireBytes += recordWireBytes(box.byteLength);
-        item.index += 1;
-        if (item.index === item.pieces.length) {
-          queue.shift();
-          if (item.callId !== null) callIds.set(sequence, item.callId);
-          item.resolve(item.wireBytes);
-        }
-        noteOutstanding(now());
-        flushCarrier();
+        entered(item, sequence, box);
       }
     } finally {
       pumping = false;
     }
+  };
+
+  /** A committed `mayWrite` message whose permission ended: its unsent seals
+   *  are taken back, newest first, and the session ends. */
+  const abandonView = (item: Outgoing): void => {
+    try {
+      for (const sealed of item.sealed.slice(item.index).reverse()) deps.channel.withdrawSeal(sealed);
+    } catch {
+      fail('seal-failed');
+      return;
+    }
+    // None of it entered: it is dropped, and the stream goes on.
+    if (item.index === 0) {
+      queue.shift();
+      item.resolve(null);
+      return;
+    }
+    fail('revoked');
+  };
+
+  const viewRevoked = (): void => {
+    const item = queue[0];
+    if (closed || !item?.committed || item.mayWrite?.()) return;
+    abandonView(item);
+  };
+
+  /** The head message's next record is in the stream as `sequence`. */
+  const entered = (item: Outgoing, sequence: number, box: Uint8Array): void => {
+    if (item.onRelayWrite) relayWriters.set(sequence, item.onRelayWrite);
+    item.wireBytes += recordWireBytes(box.byteLength);
+    item.index += 1;
+    if (item.index === item.pieces.length) {
+      queue.shift();
+      if (item.callId !== null) callIds.set(sequence, item.callId);
+      item.resolve(item.wireBytes);
+    }
+    noteOutstanding(now());
+    flushCarrier();
   };
 
   const send: RemoteTransportCoordinator['send'] = (payload, options = {}) => {
@@ -1165,6 +1258,9 @@ export function createRemoteTransportCoordinator(deps: RemoteTransportCoordinato
         callId: relayFrameCallId(payload),
         wireBytes: 0,
         onRelayWrite: options.onRelayWrite,
+        mayWrite: options.mayWrite,
+        sealed: [],
+        committed: false,
         resolve,
         reject,
       });
@@ -1284,6 +1380,7 @@ export function createRemoteTransportCoordinator(deps: RemoteTransportCoordinato
     receive,
     tick,
     close,
+    viewRevoked,
     nextSequence: () => sender.nextSequence(),
     diagnostics: () => {
       const stats = sender.stats();

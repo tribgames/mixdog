@@ -6,7 +6,7 @@ import {
   REMOTE_BROWSER_OPEN_EVENT,
   BROWSER_OPEN_REQUESTED_DESKTOP_EVENT,
 } from '../shared/remote-browser.ts';
-import { createBrowserRemoteStreams } from './remote-browser-streams.ts';
+import { createBrowserRemoteStreams, REMOTE_BROWSER_VIEW_NOT_ALLOWED } from './remote-browser-streams.ts';
 import { createRelayPushLanes } from './remote-relay-push-lanes.ts';
 
 const SIZE = { maxWidth: 800, maxHeight: 600 };
@@ -281,4 +281,95 @@ test('an explicit reveal or hide request is forwarded to every client as a non-d
     [{ event: REMOTE_BROWSER_OPEN_EVENT, payload: request }, false],
     [{ event: REMOTE_BROWSER_OPEN_EVENT, payload: { sessionId: 's', hide: true } }, false],
   ]);
+});
+
+test('regression: a client that may no longer view is refused a subscription and sent no frame, its connection still open', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const sent = [];
+  const allowed = new Set(['c1', 'c2']);
+  const streams = createBrowserRemoteStreams({
+    isLive: () => true,
+    allowed: (id) => allowed.has(id),
+    send: async (id, message) => {
+      sent.push([id, message.payload.seq]);
+    },
+    request: async () => undefined,
+  });
+  streams.subscribe('c1', 's', SIZE);
+  streams.subscribe('c2', 's', SIZE);
+  streams.publish(frame(1));
+  // c1 is unpaired and its drop is missed: no frame, no resend, no subscription seen, and no new one.
+  allowed.delete('c1');
+  streams.publish(frame(2));
+  t.mock.timers.tick(1_500);
+  assert.equal(streams.subscribed('c1', 's'), false);
+  assert.throws(() => streams.subscribe('c1', 's', SIZE), { message: REMOTE_BROWSER_VIEW_NOT_ALLOWED });
+  streams.acknowledge('c2', 's', 1);
+  assert.deepEqual(sent, [
+    ['c1', 1],
+    ['c2', 1],
+    ['c2', 2],
+  ]);
+});
+
+test('regression: a frame and a window signal encrypted across an unpair are not written to the phone left open', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const { createRelayEncryptedDelivery } = await import('./remote-relay-delivery.ts');
+  const { createScreenAccessPublisher } = await import('./remote-screen/screen-access-publisher.ts');
+  // Every encryption is held until the test releases it.
+  const encrypting = [];
+  const channel = {
+    encryptJson: (payload) => new Promise((resolve) => encrypting.push(() => resolve(JSON.stringify(payload)))),
+  };
+  // The relay's client registry: c1 is the device being unpaired, c2 another device.
+  const registry = new Map([
+    ['c1', { credentialId: 'cred-a', channel, binaryFrames: false }],
+    ['c2', { credentialId: 'cred-b', channel, binaryFrames: false }],
+  ]);
+  const unpaired = new Set();
+  const access = createScreenAccessPublisher({
+    client: (id) => registry.get(id),
+    clients: () => registry.entries(),
+    unpaired: (credentialId) => unpaired.has(credentialId),
+    label: () => 'Paired phone',
+    send: async () => undefined,
+  });
+  for (const client of registry.values()) access.admitted(client);
+  const writes = [];
+  const { sendEncryptedFrame } = createRelayEncryptedDelivery({
+    clients: { clients: registry, get: (id) => registry.get(id), close: () => assert.fail('no client is closed') },
+    relayBinaryFrames: () => false,
+    relayFrameLimit: () => 1 << 20,
+    sendRawAndWait: async (wire) => {
+      const { clientId, data } = JSON.parse(String(wire));
+      writes.push([clientId, JSON.parse(data).event]);
+    },
+    byteMeter: { record: () => null },
+  });
+  // As remote-relay.ts wires them: the frames and the window's signals ask `viewAllowed` at the write.
+  const mayView = (id) => () => access.viewAllowed(id);
+  const sending = [];
+  const streams = createBrowserRemoteStreams({
+    isLive: (id) => registry.has(id),
+    send: (id, message) => {
+      const sent = sendEncryptedFrame(id, message, true, undefined, false, mayView(id));
+      sending.push(sent);
+      return sent;
+    },
+    request: async () => undefined,
+    allowed: (id) => access.viewAllowed(id),
+  });
+  streams.subscribe('c1', 's', SIZE);
+  streams.subscribe('c2', 's', SIZE);
+  streams.publish(frame(1));
+  sending.push(
+    sendEncryptedFrame('c1', { event: 'browserRemoteWebrtc', payload: { type: 'offer' } }, false, undefined, false, mayView('c1'))
+  );
+  assert.equal(encrypting.length, 3, 'both frames and the signal are being encrypted');
+  // The unpair while they are: recorded, then every connection of the device revoked and its streams dropped (revokeClient).
+  unpaired.add('cred-a');
+  for (const id of access.revokeCredential('cred-a')) streams.dropClient(id);
+  for (const release of encrypting.splice(0)) release();
+  await Promise.all(sending);
+  assert.deepEqual(writes, [['c2', REMOTE_BROWSER_FRAME_EVENT]]);
 });

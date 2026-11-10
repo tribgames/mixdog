@@ -140,13 +140,17 @@ export function clientViewsSessionLane(
   return Boolean(state.lanes?.has(lane) && state.visibleSessionIds.has(sessionId));
 }
 
-/** Sends one payload inside a client's encrypted channel. */
+/** Sends one payload inside a client's encrypted channel. `mayWrite`, when
+ *  given, is asked once the payload is encrypted, in the same synchronous
+ *  step as its write (or its entry into the client's transport stream): a
+ *  false answer writes nothing. */
 export type SendEncryptedFrame = (
   clientId: string,
   payload: unknown,
   droppable?: boolean,
   onSent?: (bytes: number) => void,
-  requireDelivery?: boolean
+  requireDelivery?: boolean,
+  mayWrite?: () => boolean
 ) => Promise<void>;
 
 export interface RelayClientRegistryDeps {

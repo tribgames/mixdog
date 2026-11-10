@@ -15,6 +15,8 @@ export const REMOTE_BROWSER_FRAME_ACK_TIMEOUT_MS = 1_500;
 const ACK_TIMEOUT_MS = REMOTE_BROWSER_FRAME_ACK_TIMEOUT_MS;
 /** A subscription not renewed within this window is dropped. */
 const SUBSCRIPTION_EXPIRY_MS = 4_000;
+/** The refusal of a subscription from a client that may no longer view (unpaired). */
+export const REMOTE_BROWSER_VIEW_NOT_ALLOWED = 'Remote browser view is not allowed for this device.';
 
 interface Subscription {
   options: DesktopRemoteBrowserStreamOptions;
@@ -60,6 +62,9 @@ export interface BrowserRemoteStreamsDeps {
   request(sessionId: string, options: DesktopRemoteBrowserStreamOptions | null): Promise<unknown>;
   /** A client's subscription to a session ended (stop, lapse, or departure). */
   onDrop?(clientId: string, sessionId: string): void;
+  /** Whether the client may still be shown the view (not unpaired): a client
+   *  that may not is refused a subscription, holds none, and is sent no frame. */
+  allowed?(clientId: string): boolean;
   ackTimeoutMs?: number;
   expiryMs?: number;
 }
@@ -70,6 +75,7 @@ export function createBrowserRemoteStreams(deps: BrowserRemoteStreamsDeps) {
   const sessions = new Map<string, Map<string, Subscription>>();
   /** The latest frame per session, so a client joining a static page gets one. */
   const latest = new Map<string, DesktopRemoteBrowserStreamFrame>();
+  const allowed = (clientId: string): boolean => (deps.allowed ? deps.allowed(clientId) : true);
 
   const largest = (subscriptions: Map<string, Subscription>): DesktopRemoteBrowserStreamOptions => {
     let maxWidth = 0;
@@ -106,9 +112,10 @@ export function createBrowserRemoteStreams(deps: BrowserRemoteStreamsDeps) {
     subscription.slot = null;
     subscription.inflightSeq = frame.seq;
     subscription.sentAt = Date.now();
-    void deps
-      .send(clientId, { event: REMOTE_BROWSER_FRAME_EVENT, payload: shaped(subscription, frame) })
-      .catch(() => undefined);
+    const payload = shaped(subscription, frame);
+    // A client unpaired since it subscribed sees nothing, even if its drop was missed.
+    if (!allowed(clientId)) return;
+    void deps.send(clientId, { event: REMOTE_BROWSER_FRAME_EVENT, payload }).catch(() => undefined);
   }
 
   function drop(sessionId: string, clientId: string): void {
@@ -151,6 +158,7 @@ export function createBrowserRemoteStreams(deps: BrowserRemoteStreamsDeps) {
   return {
     /** Start or renew a client's subscription. */
     subscribe(clientId: string, sessionId: string, options: DesktopRemoteBrowserStreamOptions): void {
+      if (!allowed(clientId)) throw new TypeError(REMOTE_BROWSER_VIEW_NOT_ALLOWED);
       let subscriptions = sessions.get(sessionId);
       if (!subscriptions) {
         subscriptions = new Map();
@@ -202,7 +210,7 @@ export function createBrowserRemoteStreams(deps: BrowserRemoteStreamsDeps) {
     },
     /** Whether the client holds a live subscription to the session. */
     subscribed(clientId: string, sessionId: string): boolean {
-      return sessions.get(sessionId)?.has(clientId) === true;
+      return sessions.get(sessionId)?.has(clientId) === true && allowed(clientId);
     },
     /** A take-over subscriber not yet sent a picture of the settled (fitted)
      *  layout: its WebRTC view must not be promoted yet either. */
