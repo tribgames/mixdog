@@ -143,11 +143,17 @@ impl CompatChatCodec {
                 }
             }
         }
-        if dialect.conversation_header
-            && let Some(key) = request.options.prompt_cache_key.as_deref().filter(|k| !k.is_empty())
-        {
-            // Pins the conversation to the server holding its cached prefix.
-            headers.push(("x-grok-conv-id".into(), key.to_owned()));
+        if dialect.conversation_header {
+            // Pins the conversation to the server holding its cached prefix: the routed key of the session, the
+            // shared prefix, or this process (`xaiCacheRouting`), never the caller's namespace itself.
+            let system = encode::system_texts(dialect, &request.messages).unwrap_or_default();
+            let lanes = std::sync::Mutex::default();
+            let routing = super::xai_cache::Routing {
+                environment: self.config.environment.as_ref().map(|env| &*env.0),
+                lanes: &lanes,
+                system: &system,
+            };
+            headers.push(("x-grok-conv-id".into(), routing.chat_key(request)));
         }
         headers.extend(self.config.extra_headers.iter().cloned());
         headers

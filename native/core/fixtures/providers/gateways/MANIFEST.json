@@ -1,0 +1,168 @@
+{
+  "clockStartMs": 1794225600000,
+  "command": "node benchmarks/rust-core/recorders/record-provider-gateways.mjs --tree <b6f tree>",
+  "fileCount": 21,
+  "files": [
+    {
+      "bytes": 3794,
+      "path": "command-code-chat.json",
+      "sha256": "353b871f2f5527ba1e8cc3be6d5c63915b02b452386b00ae03d7d9f396b3528e"
+    },
+    {
+      "bytes": 5504,
+      "path": "command-code-messages.json",
+      "sha256": "7564d222f2a69d50fed44dcb0c928a895b53540d6df4bd27145640077f20368c"
+    },
+    {
+      "bytes": 4384,
+      "path": "command-code-responses.json",
+      "sha256": "534e74f1ec40e859e13329bf82f625791423ec7aa53c2d3b189f79fac16a358a"
+    },
+    {
+      "bytes": 3494,
+      "path": "custom-keys-after-output.json",
+      "sha256": "62da94981e4a280ed35f25926dea6b27f4492f5b87ff8bbf196aaaf771caef66"
+    },
+    {
+      "bytes": 7645,
+      "path": "custom-keys-exhausted.json",
+      "sha256": "5018c5518306eacf170acf6efa6ef02390dc79ed5d0209b1de62825f066b0f72"
+    },
+    {
+      "bytes": 2788,
+      "path": "custom-keys-not-quota.json",
+      "sha256": "68a3cbf33cdb5dd0369d98732dbc420f957748399870f7babb49c231cdcaabf1"
+    },
+    {
+      "bytes": 9198,
+      "path": "custom-keys-switch.json",
+      "sha256": "f0b036d4e4118c2b91f4d33f60dc0702dd2e4e90e88eb674fb26c9439f717d6f"
+    },
+    {
+      "bytes": 3014,
+      "path": "deepseek-chat-toolless.json",
+      "sha256": "bfac64217914add4f8065ebfeb61ac63657dfa6ce5639878bd15d2ec8d14d3b7"
+    },
+    {
+      "bytes": 3464,
+      "path": "deepseek-messages-tools.json",
+      "sha256": "c7601489a085610179d9d1b9823fd3095bc0a4518e89a5b4100bc2f2c55c4efa"
+    },
+    {
+      "bytes": 3458,
+      "path": "deepseek-pinned-toolless.json",
+      "sha256": "8d3e2daa137dc8b5e82e4c3b5b148683bf26267863776c56039a2e2dc46fcf76"
+    },
+    {
+      "bytes": 3586,
+      "path": "muse-responses.json",
+      "sha256": "4d7cf6f89d05d009cd6c3a59502cf6f76dae91647a4cc5b88f1a261ced3f2c43"
+    },
+    {
+      "bytes": 3760,
+      "path": "opencode-go-chat.json",
+      "sha256": "a2c14a1363331c18da9126a338960656e2e9b5222d01e9a18bf8c048de9f6a07"
+    },
+    {
+      "bytes": 3353,
+      "path": "opencode-go-gemini.json",
+      "sha256": "762081de02f7d237705af4eed353d63c4d41c2748a666d5c7486607632a0190a"
+    },
+    {
+      "bytes": 4015,
+      "path": "opencode-go-messages.json",
+      "sha256": "6053420d9a03f83432794193af9f95abb351470bac794da9cf344156e7003977"
+    },
+    {
+      "bytes": 4396,
+      "path": "opencode-go-responses.json",
+      "sha256": "285a4b3ac25d374275f776c5971b5114f753439df787e9f3eef53ef1551e8eda"
+    },
+    {
+      "bytes": 3145,
+      "path": "openrouter-chat.json",
+      "sha256": "a5c836104145ddf5bb46c8920e365bc3a2fddc8cd5340616a33d85e7e5a6b0bc"
+    },
+    {
+      "bytes": 3396,
+      "path": "openrouter-messages.json",
+      "sha256": "e8202e177b71e1bf700f98abe5c045cb94c6a847e9b191f24ed1977bc6d3d8c1"
+    },
+    {
+      "bytes": 7376,
+      "path": "openrouter-model-switch.json",
+      "sha256": "4d08a0cb71d5a27a97aa7a995332c202558abeda4c95d1f7b8b213837a6ed211"
+    },
+    {
+      "bytes": 3743,
+      "path": "openrouter-responses.json",
+      "sha256": "163c1254d887b1774cae7bbd5b9a55289b2179dfa823a0c0df09b34d8ffc0a85"
+    },
+    {
+      "bytes": 3078,
+      "path": "xai-chat-api-mode.json",
+      "sha256": "e5f23bfe6b809747d135ab77e3a6dfce69b36eaf593c0049965c56f31ff0b10f"
+    },
+    {
+      "bytes": 3598,
+      "path": "xai-responses.json",
+      "sha256": "d755e99a6783e2a9b00be9df2afca54e27c1160cff935058c49c609ab420a2da"
+    }
+  ],
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a",
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "provenance": {
+    "inputs": [
+      {
+        "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+        "sha256": "1f65dbb615d53376c103b20d0df7a53b7ba1bfed8100be99716da900dfc58c66"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/lib/deterministic-world.mjs",
+        "sha256": "dff582cb50d1b1ba6928de1feedeb8485bc67ee5c04665f94fa5c55e44452bf7"
+      }
+    ],
+    "nodeVersion": "v22.20.0",
+    "recorderSha256": "683048ff0c5f2c81fe9154af5432365125b2a6471c7e530f0c8bda84ee5e626a"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-provider-gateways.mjs",
+  "scenarios": [
+    "command-code-chat",
+    "command-code-messages",
+    "command-code-responses",
+    "custom-keys-after-output",
+    "custom-keys-exhausted",
+    "custom-keys-not-quota",
+    "custom-keys-switch",
+    "deepseek-chat-toolless",
+    "deepseek-messages-tools",
+    "deepseek-pinned-toolless",
+    "muse-responses",
+    "opencode-go-chat",
+    "opencode-go-gemini",
+    "opencode-go-messages",
+    "opencode-go-responses",
+    "openrouter-chat",
+    "openrouter-messages",
+    "openrouter-model-switch",
+    "openrouter-responses",
+    "xai-chat-api-mode",
+    "xai-responses"
+  ],
+  "set": "providers/gateways",
+  "totalBytes": 90189
+}
