@@ -4,9 +4,10 @@
 // receives. The only substitution is the connection: `tls.connect` hands the client a plain socket to the loopback server,
 // so the clients write what they would write inside TLS to the real host (url, `Host`, headers, upgrade request, frames).
 //
-// Inputs that are fixed, not observed: the clock (`Date.now`), `randomUUID`, the host the User-Agent describes. A backoff
-// sleep (the one in retry-backoff.mjs) does not wait: it is recorded as a `sleep` event with its delay, and the clock
-// advances by exactly that delay before the retry goes out. Every other timer is the real one.
+// Inputs that are fixed, not observed: the clock (`Date.now`), `randomUUID`, `Math.random` (0.5: a jittered backoff is its
+// step exactly), the host the User-Agent describes. A backoff sleep (the one in retry-backoff.mjs, and the WebSocket send's
+// own, `openai-ws-send-attempts/policy.mjs` `_defaultSleep`) does not wait: it is recorded as a `sleep` event with its
+// delay, and the clock advances by exactly that delay before the retry goes out. Every other timer is the real one.
 //
 // Usage: node node-wire-capture.mjs <node-tree> --node-commit <sha> --session <session.json> --scenarios <scenarios.json> --out <recording.json> [--keep-random] [--only <scenario id>]
 // `--only` records one scenario with the ones of its conversation before it (from the last `fresh` one), which it
@@ -53,6 +54,7 @@ Date.now = () => virtualNow;
 // (request ids) comes from the fixed source below.
 await import(pathToFileURL(join(root, 'node_modules/ws/wrapper.mjs')).href);
 crypto.randomUUID = () => '00000000-0000-4000-8000-000000000000';
+Math.random = () => 0.5;
 crypto.randomBytes = (size) => Buffer.alloc(size);
 os.type = () => session.host.type;
 os.release = () => session.host.release;
@@ -62,7 +64,8 @@ syncBuiltinESMExports();
 const traffic = { sink: [], script: { dials: [], replies: [], http: [] }, unanswered: null };
 globalThis.setTimeout = (fn, ms, ...args) => {
   // The caller of `setTimeout` is the second frame of the stack.
-  if (!new Error().stack.split('\n')[2]?.includes('retry-backoff.mjs')) return realSetTimeout(fn, ms, ...args);
+  const caller = new Error().stack.split('\n')[2] ?? '';
+  if (!caller.includes('retry-backoff.mjs') && !caller.includes('openai-ws-send-attempts')) return realSetTimeout(fn, ms, ...args);
   traffic.sink.push({ kind: 'sleep', ms });
   virtualNow += ms;
   return setImmediate(fn, ...args);

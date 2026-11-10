@@ -11,11 +11,18 @@
 
 use std::collections::VecDeque;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use mixdog_agent::repair::ToolCallIds;
 use mixdog_agent::response::{ModelResponse, ResponseBuilder};
+use mixdog_ai::admission::{Admission, AdmissionRequest, LaneKey, LaneSettings};
+use mixdog_ai::broker::{AttemptSink, ModelBroker, SendRequest};
 use mixdog_ai::catalog::ModelRecord;
+use mixdog_ai::retry::StandardRetryDecider;
+use mixdog_core_api::domain::provider::{ProviderError, StreamEvent};
+use mixdog_core_api::domain::retry::{Decision, JitterSamples, RetryDecider, RetryPolicy, RetryState, Verdict};
+use mixdog_rt::CancellationToken;
 use mixdog_ai::providers::openai::adapter::SessionContext;
 use mixdog_ai::registry::builder::DefaultProviderBuilder;
 use mixdog_ai::registry::providers::ProviderBuilder;
@@ -117,6 +124,37 @@ fn script_of(scenario: &Value) -> Script {
     Script { dials: list("dials"), replies: list("ws"), http: list("http") }
 }
 
+/// The standard retry decider, its backoffs recorded as `sleep` events where they fall among the connections. The jitter
+/// draw is the recorder's fixed `Math.random()` (0.5), so a jittered step is the step itself on both sides.
+/// The recording's clock moves on by the backoff it records.
+struct RecordedBackoff(Arc<Loopback>, Arc<AtomicU64>);
+
+impl RetryDecider for RecordedBackoff {
+    fn verdict(&self, error: &ProviderError, state: &RetryState, policy: &RetryPolicy, _: JitterSamples) -> Decision {
+        let decision = StandardRetryDecider.verdict(error, state, policy, JitterSamples { step: 0.5, advice: 0.5 });
+        if let Verdict::Retry { delay, .. } = &decision.verdict
+            && !delay.is_zero()
+        {
+            let ms = delay.as_millis() as u64;
+            self.0.push(json!({ "kind": "sleep", "ms": ms }));
+            self.1.fetch_add(ms, Ordering::SeqCst);
+        }
+        decision
+    }
+}
+
+/// The events of the attempt in progress, folded as the loop folds them; a retry starts over.
+struct Folded(ResponseBuilder, String);
+
+impl AttemptSink for Folded {
+    fn event(&mut self, event: StreamEvent) {
+        self.0.push(event);
+    }
+    fn discard(&mut self) {
+        self.0 = ResponseBuilder::new(&self.1, ToolCallIds::new(&[]));
+    }
+}
+
 /// The scenarios a run records: all, or the one `only` names with the ones of its conversation before it (from the last
 /// `fresh` one), as `node-wire-capture.mjs --only` selects them.
 fn selected<'a>(scenarios: &'a [Value], only: Option<&str>) -> &'a [Value] {
@@ -162,7 +200,7 @@ async fn record_all(only: Option<&str>) -> Vec<Value> {
     }
 
     let hosts = ["chatgpt.com", "api.anthropic.com", "generativelanguage.googleapis.com", "cli-chat-proxy.grok.com"];
-    let server = Loopback::start(&hosts).await;
+    let server = Arc::new(Loopback::start(&hosts).await);
     let schedule = KeepaliveSchedule::SPEC;
     let link = Arc::new(ReqwestLink::pinned(&schedule, server.addr, server.tls.clone()));
     let mut env = builder_env(&w.services);
@@ -172,7 +210,10 @@ async fn record_all(only: Option<&str>) -> Vec<Value> {
     // A scenario's environment is the settings its run reads (Node's process.env), set per scenario below.
     let settings: Arc<std::sync::Mutex<std::collections::HashMap<String, String>>> = Arc::default();
     let read = settings.clone();
-    env.openai_context = Arc::new(SessionContext::with_sources(move || now, || "0".repeat(32)).with_var(move |name| read.lock().unwrap().get(name).cloned()));
+    // The recording's clock: fixed, and moved on by exactly a recorded backoff, as Node's recorder moves its own.
+    let clock = Arc::new(AtomicU64::new(now));
+    let reading = clock.clone();
+    env.openai_context = Arc::new(SessionContext::with_sources(move || reading.load(Ordering::SeqCst), || "0".repeat(32)).with_var(move |name| read.lock().unwrap().get(name).cloned()));
     let builder = DefaultProviderBuilder::new(env);
     let config = |provider: &str| if provider == "gemini" { json!({ "enabled": true, "apiKey": FAKE }) } else { json!({ "enabled": true }) };
 
@@ -214,6 +255,18 @@ async fn record_all(only: Option<&str>) -> Vec<Value> {
                 reply: Arc::new(std::sync::Mutex::new(Some(reply))),
             };
             match within(format_args!("the reply of {id}"), fork.send_fork()).await {
+                Ok(_) => "ok",
+                Err(_) => "error",
+            }
+        } else if scenario["registryRetry"] == true {
+            // The send through the core's retrying driver (`ModelBroker::send`, the standard retry decider): Node's
+            // provider retries inside `send` (`openai-ws-send-attempts/stream-failure.mjs`). A backoff the decider asks
+            // for is recorded as Node's recorder records its sleeps.
+            let broker = ModelBroker::new(Arc::new(Admission::new()), Arc::new(RecordedBackoff(server.clone(), clock.clone())));
+            let lane = broker.admission().lane(&LaneKey { provider: ProviderId::from(provider), account: "default".into() }, LaneSettings::default());
+            let send = SendRequest { request: Arc::new(request(&session, scenario, model)), lane, admission: AdmissionRequest::default() };
+            let mut sink = Folded(ResponseBuilder::new(model, ToolCallIds::new(&[])), model.to_owned());
+            match within(format_args!("the reply of {id}"), broker.send(adapter.as_ref(), send, &mut sink, &CancellationToken::new())).await {
                 Ok(_) => "ok",
                 Err(_) => "error",
             }
