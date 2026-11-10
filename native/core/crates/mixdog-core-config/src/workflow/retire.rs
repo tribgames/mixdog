@@ -6,7 +6,7 @@
 //! history stamp) to any past one, is moved, never deleted, into `<data>/backups/defaults-separation-<time>/`, so the
 //! shipped version applies again. The pass logs nothing and swallows every failure of a move; the stamp marker is
 //! written only when nothing failed.
-#![allow(clippy::disallowed_methods, reason = "lane job bodies: the service runs these functions on io lanes")]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "lane job bodies: the service runs these functions on io lanes")]
 
 use std::path::Path;
 use std::path::PathBuf;

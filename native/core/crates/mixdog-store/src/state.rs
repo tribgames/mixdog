@@ -237,6 +237,7 @@ struct Shared {
 }
 
 /// Brings a `user_version` 1 file to 2 in one transaction. Any other file is left to `open_schema`'s checks.
+#[allow(clippy::disallowed_methods, reason = "part of `CoreState::open`, which opens the SQLite file itself on the same boot call")]
 pub(crate) fn upgrade_v1(path: &Path) -> Result<(), DbError> {
     if !path.exists() {
         return Ok(());
