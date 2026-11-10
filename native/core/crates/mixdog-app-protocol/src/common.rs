@@ -251,7 +251,7 @@ pub enum SerializationScope {
     McpOauth {
         server_name: String,
     },
-    /// Key `git:<root>`: the root as given; the server canonicalizes before keying.
+    /// Key `git:<root>`: the directory as the owner acts on it ([`repository_cwd`]).
     Repo {
         root: String,
     },
@@ -259,12 +259,42 @@ pub enum SerializationScope {
     ChannelClient,
 }
 
-/// The root a repository-scoped request is keyed by: its `cwd` as given. The `cwd` is the raw argument (the owner checks it
-/// as Node's host did), so a value that is no string is keyed by its JSON text; the owner refuses it.
-pub fn repo_root(cwd: &mixdog_protocol::JsonValue) -> String {
-    match cwd {
-        mixdog_protocol::JsonValue::String(root) => root.clone(),
-        other => other.to_string(),
+/// `requiredRepositoryCwd` of Node's host (apps/desktop main/git-contract.mjs:3-7): the directory a repository call names is
+/// a string, trimmed of JavaScript's white space, not empty, and absolute by `path.isAbsolute` of the platform the core runs
+/// on; it is acted on trimmed. `None` is Node's refusal (`A project directory is required.`), which the owner answers. A
+/// repository-scoped request is keyed by the same value, so two spellings the owner acts on as one directory share one queue,
+/// and a request the owner refuses joins none.
+pub fn repository_cwd(value: Option<&mixdog_protocol::JsonValue>) -> Option<&str> {
+    let Some(mixdog_protocol::JsonValue::String(text)) = value else {
+        return None;
+    };
+    let cwd = mixdog_js::js_trim(text);
+    (!cwd.is_empty() && path_is_absolute(cwd)).then_some(cwd)
+}
+
+/// `requiredString(value, name, maximum)` of Node's host (apps/desktop main/ipc-validation.ts:656-661): a string, trimmed of
+/// JavaScript's white space, not empty and at most `maximum` UTF-16 units; it is acted on trimmed. `None` is a refusal, which
+/// the owner answers with Node's text.
+pub fn required_text(value: Option<&mixdog_protocol::JsonValue>, maximum: usize) -> Option<&str> {
+    let Some(mixdog_protocol::JsonValue::String(text)) = value else {
+        return None;
+    };
+    let text = mixdog_js::js_trim(text);
+    (!text.is_empty() && mixdog_js::utf16_len(text) <= maximum).then_some(text)
+}
+
+/// `path.isAbsolute` of Node on the platform the core runs on: on Windows a leading `/` or `\`, or a drive letter, `:` and a
+/// separator; elsewhere a leading `/`.
+pub fn path_is_absolute(path: &str) -> bool {
+    if cfg!(windows) {
+        let separator = |byte: u8| byte == b'/' || byte == b'\\';
+        match path.as_bytes() {
+            [first, ..] if separator(*first) => true,
+            [letter, b':', third, ..] => letter.is_ascii_alphabetic() && separator(*third),
+            _ => false,
+        }
+    } else {
+        path.starts_with('/')
     }
 }
 
@@ -464,6 +494,12 @@ macro_rules! __scope_rule {
             field: $crate::__wire_path!($field),
         }
     };
+    (keyed_text($namespace:literal, $field:ident, $maximum:literal)) => {
+        $crate::common::ScopeRule::Keyed {
+            namespace: $namespace,
+            field: $crate::__wire_path!($field),
+        }
+    };
     (process($field:ident)) => {
         $crate::common::ScopeRule::Process {
             field: $crate::__wire_path!($field),
@@ -548,6 +584,13 @@ macro_rules! __scope_expr {
             key: $p.$field.to_string(),
         })
     };
+    // A raw argument the owner checks as Node's `requiredString`: keyed by the text it acts on; one it refuses joins no queue.
+    ($p:ident, keyed_text($namespace:literal, $field:ident, $maximum:literal)) => {
+        $crate::common::required_text($p.$field.as_ref(), $maximum).map(|key| $crate::common::SerializationScope::Keyed {
+            namespace: $namespace,
+            key: key.to_owned(),
+        })
+    };
     ($p:ident, process($field:ident)) => {
         Some($crate::common::SerializationScope::Process {
             process_handle: $p.$field.to_string(),
@@ -581,9 +624,8 @@ macro_rules! __scope_expr {
         })
     };
     ($p:ident, repo($field:ident)) => {
-        Some($crate::common::SerializationScope::Repo {
-            root: $crate::common::repo_root(&$p.$field),
-        })
+        $crate::common::repository_cwd($p.$field.as_ref())
+            .map(|root| $crate::common::SerializationScope::Repo { root: root.to_owned() })
     };
     ($p:ident, channel_call) => {
         Some(match $p.thread_id() {

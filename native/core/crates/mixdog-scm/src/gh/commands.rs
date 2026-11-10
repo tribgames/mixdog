@@ -233,9 +233,13 @@ pub fn build(request: &GithubRequest) -> Result<GhCommand, ScmFailure> {
             "--repo".into(),
             repo,
         ]),
+        // The head sha goes into the body as the request gave it (commands.mjs:100, :109): the contract's check read it as a
+        // string (`/^[a-f0-9]{40}$/i.test(sha)`), so a list holding one sha passed and stays a list.
         "pr.merge" => {
             let sha = request
-                .text("sha")
+                .fields
+                .get("sha")
+                .cloned()
                 .ok_or_else(|| ScmFailure::invalid("sha", "the pull request's head sha"))?;
             api(
                 format!("{root}/pulls/{}/merge", number()?),
@@ -252,7 +256,9 @@ pub fn build(request: &GithubRequest) -> Result<GhCommand, ScmFailure> {
                 .text("event")
                 .ok_or_else(|| ScmFailure::invalid("event", "a review event"))?;
             let sha = request
-                .text("sha")
+                .fields
+                .get("sha")
+                .cloned()
                 .ok_or_else(|| ScmFailure::invalid("sha", "the pull request's head sha"))?;
             if event != "APPROVE" {
                 required_text(request, "body")?;

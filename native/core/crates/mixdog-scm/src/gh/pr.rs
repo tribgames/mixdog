@@ -95,6 +95,19 @@ pub(crate) fn required_number(value: &Value) -> Result<u64, ScmFailure> {
     Err(ScmFailure::git("A pull request number is required."))
 }
 
+/// The arguments of `gh pr merge` (`ghPrMerge`, gh-cli.ts): the method is `String(method ?? 'merge')`, checked before the number
+/// and used as that string, so a list holding one method's name is that method.
+pub(crate) fn merge_args(value: &Value, method: &Value) -> Result<Vec<String>, ScmFailure> {
+    let chosen = match method {
+        Value::Null => "merge".to_owned(),
+        other => mixdog_js::value_to_string(other),
+    };
+    if !["merge", "squash", "rebase"].contains(&chosen.as_str()) {
+        return Err(ScmFailure::git("A valid merge method is required."));
+    }
+    Ok(vec!["pr".into(), "merge".into(), required_number(value)?.to_string(), format!("--{chosen}")])
+}
+
 /// `requiredCreateText`: the same words as Node's `TypeError`s.
 fn create_text(value: Option<&Value>, name: &str, maximum: usize) -> Result<String, ScmFailure> {
     let Some(Value::String(raw)) = value else {
@@ -337,14 +350,9 @@ impl Scm {
         value: &Value,
         method: &Value,
     ) -> Result<Value, ScmFailure> {
-        let chosen = match method {
-            Value::Null => "merge",
-            Value::String(name) if ["merge", "squash", "rebase"].contains(&name.as_str()) => name.as_str(),
-            _ => return Err(ScmFailure::git("A valid merge method is required.")),
-        };
-        let number = required_number(value)?.to_string();
-        let flag = format!("--{chosen}");
-        Ok(Value::String(self.gh_pane(cwd, cancel, &["pr", "merge", &number, &flag]).await?))
+        let args = merge_args(value, method)?;
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        Ok(Value::String(self.gh_pane(cwd, cancel, &args).await?))
     }
 
     pub async fn gh_pr_diff(&self, cwd: &Path, cancel: &CancellationToken, value: &Value) -> Result<Value, ScmFailure> {

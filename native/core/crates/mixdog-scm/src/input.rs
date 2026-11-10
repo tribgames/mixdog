@@ -24,15 +24,12 @@ fn refused(text: &str) -> ScmFailure {
 type Arg<'a> = Option<&'a Value>;
 
 /// `requiredString(value, name, maximum)` (ipc-validation.ts:656): a string, trimmed, not empty, at most `maximum` UTF-16 units.
+/// The rule is the protocol's, which keys a request by the same value (a sign-in's flow id).
 fn required_string<'a>(value: Arg<'a>, name: &str, maximum: usize) -> Result<&'a str, ScmFailure> {
-    let Some(Value::String(value)) = value else {
+    if !matches!(value, Some(Value::String(_))) {
         return Err(refused(&format!("{name} must be a string.")));
-    };
-    let text = js_trim(value);
-    if text.is_empty() || utf16_len(text) > maximum {
-        return Err(refused(&format!("{name} is invalid.")));
     }
-    Ok(text)
+    mixdog_app_protocol::common::required_text(value, maximum).ok_or_else(|| refused(&format!("{name} is invalid.")))
 }
 
 /// `value === true`: what Node passed on for a flag (any other value, `null` and a missing one included, is `false`).
@@ -40,32 +37,14 @@ fn flag(value: Arg<'_>) -> bool {
     value == Some(&Value::Bool(true))
 }
 
-/// `requiredRepositoryCwd` (git-contract.mjs:3): a string, trimmed, not empty and absolute by the platform's rule.
+/// `requiredRepositoryCwd` (git-contract.mjs:3): a string, trimmed, not empty and absolute by the platform's rule. The rule is
+/// the protocol's, which keys a repository-scoped request by the same value.
 pub fn repository_cwd(value: Arg<'_>) -> Result<&str, ScmFailure> {
-    let cwd = match value {
-        Some(Value::String(text)) => js_trim(text),
-        _ => "",
-    };
-    if cwd.is_empty() || !is_absolute(cwd) {
-        return Err(refused("A project directory is required."));
-    }
-    Ok(cwd)
+    mixdog_app_protocol::common::repository_cwd(value).ok_or_else(|| refused("A project directory is required."))
 }
 
-/// `path.isAbsolute` on the platform the core runs on (git-contract.mjs `isAbsolutePath`).
-pub(crate) fn is_absolute(path: &str) -> bool {
-    if cfg!(windows) {
-        let bytes = path.as_bytes();
-        let separator = |byte: u8| byte == b'/' || byte == b'\\';
-        match bytes {
-            [first, ..] if separator(*first) => true,
-            [letter, b':', third, ..] => letter.is_ascii_alphabetic() && separator(*third),
-            _ => false,
-        }
-    } else {
-        path.starts_with('/')
-    }
-}
+/// `path.isAbsolute` on the platform the core runs on.
+pub(crate) use mixdog_app_protocol::common::path_is_absolute as is_absolute;
 
 /// `requiredGitPath` (ipc-validation.ts:1942): a path inside the repository, never absolute and never climbing out of it.
 fn git_path(value: Arg<'_>) -> Result<&str, ScmFailure> {

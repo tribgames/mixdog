@@ -13,6 +13,7 @@ workspace = true
 codegen = ["dep:schemars", "dep:ts-rs", "mixdog-protocol/codegen"]
 
 [dependencies]
+mixdog-js = { workspace = true }
 mixdog-protocol = { workspace = true }
 schemars = { workspace = true, optional = true }
 serde = { workspace = true }

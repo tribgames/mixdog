@@ -60,7 +60,8 @@ export function createScriptEngine({ script, onSpawn }) {
     return rule.argv.length === argv.length;
   };
 
-  const answer = (tool, argv, cwd, env) => {
+  // `stdin`: the body a REST call fed the tool (`--input -`), recorded with the call; undefined for every other call.
+  const answer = (tool, argv, cwd, env, stdin) => {
     const missing = tool === 'gh' && !world.ghInstalled;
     const rule = missing ? null : script.rules.find((candidate) => matches(candidate, tool, argv));
     if (!missing && !rule) {
@@ -76,7 +77,7 @@ export function createScriptEngine({ script, onSpawn }) {
       const done = cp.spawnSync(process.env.PHONE_SCM_REAL_GIT, ['-c', 'core.autocrlf=false', ...args], { cwd, encoding: 'utf8', timeout: 120_000, killSignal: 'SIGKILL' });
       if (done.error || done.status !== 0) unscripted.push({ tool, argv: clone(argv), effect: args, failed: done.error?.message ?? done.stderr });
     }
-    onSpawn({ tool, argv: clone(argv), cwd: cwd ?? null, env: envDelta(env, process.env), reply: clone(reply) });
+    onSpawn({ tool, argv: clone(argv), cwd: cwd ?? null, env: envDelta(env, process.env), ...(stdin === undefined ? {} : { stdin }), reply: clone(reply) });
     for (const listener of listeners) listener(tool, argv);
     return reply;
   };
@@ -115,10 +116,15 @@ export function installScriptedProcesses({ script, binDir, onSpawn }) {
       });
     }    const child = new EventEmitter();
     child.stdin = new PassThrough();
-    const reply = engine.answer(tool, argv, options?.cwd, options?.env);
-    if (!reply) return realExecFile.call(this, file, argv, options, callback);
+    // A REST call (`--input -`) is answered once its caller has ended stdin, so the body it fed is recorded with it.
+    const readsBody = argv.some((arg, index) => arg === '--input' && argv[index + 1] === '-');
+    const body = [];
+    if (readsBody) child.stdin.on('data', (chunk) => body.push(chunk));
+    const fed = readsBody ? new Promise((resolve) => child.stdin.once('end', resolve)) : Promise.resolve();
+    const reply = readsBody ? null : engine.answer(tool, argv, options?.cwd, options?.env);
+    if (!readsBody && !reply) return realExecFile.call(this, file, argv, options, callback);
     // The callback arrives asynchronously, as a real child's exit does, with execFile's own error shape.
-    Promise.resolve().then(() => {
+    fed.then(() => readsBody ? engine.answer(tool, argv, options?.cwd, options?.env, Buffer.concat(body).toString('utf8')) : reply).then((reply) => {
       const stdout = reply.stdout ?? '';
       const stderr = reply.stderr ?? '';
       if (reply.code === 0) return callback?.(null, stdout, stderr);
@@ -230,10 +236,14 @@ export async function serveShims({ engine, onSpawn, shim, places }) {
       if (lines.length < 4) return;
       const argc = Number(lines[2]);
       if (lines.length < 3 + argc + 3 + 1) return;
+      const argv = lines.slice(3, 3 + argc).map(unhex);
+      // A REST call (`--input -`) sends the body it was fed on one more line (lib/scripted-tool.rs).
+      const readsBody = argv.some((arg, index) => arg === '--input' && argv[index + 1] === '-');
+      if (readsBody && lines.length < 3 + argc + 4 + 1) return;
       socket.removeAllListeners('data');
       const [tool, cwd] = [lines[0], unhex(lines[1])];
-      const argv = lines.slice(3, 3 + argc).map(unhex);
       const [prompt, browser, ghBrowser] = lines.slice(3 + argc, 6 + argc).map(unhex);
+      const stdin = readsBody ? unhex(lines[6 + argc]) : undefined;
       if (process.env.PHONE_SCM_VERBOSE) console.error('[shim]', tool, JSON.stringify(argv), cwd);
       if (tool === 'gh' && argv[0] === 'auth' && argv[1] === 'login') {
         onSpawn({ tool: 'pty', argv, cwd, env: { GH_PROMPT_DISABLED: prompt, BROWSER: browser, GH_BROWSER: ghBrowser } }); // the replay's own sighting; not compared
@@ -241,7 +251,7 @@ export async function serveShims({ engine, onSpawn, shim, places }) {
         for (const resolve of waiting.splice(0)) resolve();
         return;
       }
-      const reply = engine.answer(tool, argv, cwd);
+      const reply = engine.answer(tool, argv, cwd, undefined, stdin);
       // What the answer changed in the world (winget installing gh) is on disk before the tool exits, as Node's probe sees it at once.
       sync();
       if (reply.stdout) socket.write(`O ${hex(reply.stdout)}\n`);
