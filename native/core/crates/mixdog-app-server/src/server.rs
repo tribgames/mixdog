@@ -384,8 +384,8 @@ impl Shared {
                     let outcome = work.await;
                     drop(slot);
                     shared.finish(&owner, &id, outcome);
-                    // The response is in the connection's control queue, which the writer empties before any lane frame
-                    // (`ConnectionWriter::next_work`): what the call held for its reply goes out after it.
+                    // The response is queued on the connection before the mark: what the call held for its reply is queued
+                    // only after it.
                     replied.mark();
                 };
                 match scope {

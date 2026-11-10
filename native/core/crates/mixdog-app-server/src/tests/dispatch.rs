@@ -354,7 +354,7 @@ async fn requests_of_one_key_run_one_at_a_time_and_other_keys_run_beside_them() 
 
 /// What a call holds for its reply (`CallContext::reply_queued`, e.g. the rows of a room call's background catalog listing) is
 /// let go only once the server has queued the reply: as the response is queued, the call's hold stands; after, it has ended.
-/// A frame queued after it is written after the response (`ConnectionWriter::next_work` empties the control queue first).
+/// The call's hold ends only after its response is queued on the connection.
 #[tokio::test]
 async fn a_calls_hold_on_its_reply_ends_only_after_the_reply_is_queued() {
     const DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);

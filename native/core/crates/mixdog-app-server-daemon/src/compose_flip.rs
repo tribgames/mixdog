@@ -2562,25 +2562,49 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     late_room_summaries.bind(room_summaries.clone()).map_err(|_| ComposeError::AlreadyBound("room summaries"))?;
     room_approvals.bind_summaries(room_summaries.clone()).map_err(|_| ComposeError::AlreadyBound("room approvals summaries"))?;
     let republish: Arc<dyn Fn() + Send + Sync> = { let s = room_summaries.clone(); Arc::new(move || s.republish()) };
+    // The rooms' first load (`agent-rooms.ts:353-362` `ready`), which every room call, a member forgotten and a member's relay await first: the rooms
+    // are hosted and members whose definition is proven deleted leave (`pruneDeleted`). A failed one is forgotten; the next caller loads again.
+    let rooms_ready = mixdog_core_rooms::rooms::ready::RoomsReady::new();
     // The room ports a deleted agent leaves (the agent deletion's below, and the rooms' first load's).
-    let home_rooms = Arc::new(mixdog_core_rooms::rooms::sessions::SessionHomePorts::new(mcp.agents.clone(), room_sessions.clone(), rooms.clone(), room_host.clone(), room_runner.clone()));
-    // The rooms' first load (`agent-rooms.ts:353-361` `ready`, which `recover` awaits first): members whose definition is proven deleted leave.
-    let unpruned = home_rooms.prune_deleted().await.map_err(|e| ComposeError::Rooms(format!("{e:?}")))?;
-    if unpruned > 0 {
-        room_log(&format!("{unpruned} conversations of members who left their rooms could not be deleted"));
-    }
-    // Start-up recover (flip-rooms-4): rooms whose exchange a dead process left running are marked interrupted; their summaries are republished.
-    if !live_rooms.start(&rooms).await.map_err(|e| ComposeError::Rooms(format!("{e:?}")))?.is_empty() {
-        republish();
-    }
+    let home_rooms = Arc::new(mixdog_core_rooms::rooms::sessions::SessionHomePorts::new(mcp.agents.clone(), room_sessions.clone(), rooms.clone(), room_host.clone(), room_runner.clone(), rooms_ready.clone()));
+    rooms_ready
+        .bind({
+            let (live, rooms, homes, log) = (live_rooms.clone(), rooms.clone(), Arc::downgrade(&home_rooms), room_log.clone());
+            move || {
+                let (live, rooms, homes, log) = (live.clone(), rooms.clone(), homes.clone(), log.clone());
+                async move {
+                    live.host_loaded(&rooms).await?;
+                    let Some(homes) = homes.upgrade() else { return Ok(()) };
+                    homes.prune_deleted(&*log).await
+                }
+            }
+        })
+        .map_err(ComposeError::AlreadyBound)?;
+    // Start-up `recover` (`agent-rooms.ts:465-480`), started and not awaited (`session-host.ts:430-432`): its failure is logged, not the core's start's.
+    // After the first load, rooms whose exchange a dead process left running are marked interrupted and republished (flip-rooms-4).
+    drop(mixdog_core_rooms::rooms::ready::recover(
+        rooms.clone(),
+        rooms_ready.clone(),
+        {
+            let (live, rooms, republish) = (live_rooms.clone(), rooms.clone(), republish.clone());
+            move || async move {
+                if !live.recover(&rooms).await?.is_empty() {
+                    republish();
+                }
+                Ok(())
+            }
+        },
+        room_log.clone(),
+    ));
     // The core is the attached room host (`registerAgentRoomHost(host.agentRoomHost())`, desktop-service.ts:788).
-    let room_host_registration = room_hosts.register(Arc::new(mixdog_core_rooms::rooms::room_relay::MemberRelay::new(rooms.clone(), room_calls.clone())));
+    let room_host_registration = room_hosts.register(Arc::new(mixdog_core_rooms::rooms::room_relay::MemberRelay::new(rooms.clone(), room_calls.clone(), rooms_ready.clone())));
     builder.register(Arc::new(mixdog_core_rooms::rooms::service::RoomService::new(
         rooms.clone(),
         room_host.clone(),
         room_runner.clone(),
         domain_inputs.scopes.scopes("room").map_err(ComposeError::ComposeDomains)?,
         definition_names.clone(),
+        rooms_ready.clone(),
     )))?;
     // A room member's tool approval (wp-session-36) is wired through the ports above: `SessionRoomApprovals` is `RoomPorts.approvals` (`answer_member_approval`) and publishes the
     // decorated view (`RoomSummaries::publish_room`, `thread/roomView/updated`), `DirectoryRoomDaemon::read_snapshot` carries `member_approval` as the snapshot's `toolApproval`, and

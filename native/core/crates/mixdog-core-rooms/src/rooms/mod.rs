@@ -14,6 +14,7 @@ pub mod maintainer;
 pub mod memory;
 pub mod pool;
 pub mod preview;
+pub mod ready;
 pub mod records;
 pub mod row_message;
 pub mod rows;
@@ -33,7 +34,7 @@ pub mod usage;
 pub mod room_hosts;
 pub mod room_relay;
 
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[derive(Clone, Debug, thiserror::Error, PartialEq, Eq)]
 pub enum RoomError {
     #[error("{0}")]
     Invalid(String),

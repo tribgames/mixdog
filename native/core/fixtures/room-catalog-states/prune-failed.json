@@ -1,0 +1,115 @@
+{
+  "scenario": "prune-failed",
+  "listFirst": false,
+  "calls": [
+    "create",
+    "restart-save-fails",
+    "list-sessions"
+  ],
+  "taskWorkspace": "D:\\mixdog-build\\tmp\\room-catalog-prune-failed-y7ugwV\\home\\AppData\\Roaming\\workspace\\unclassified",
+  "bots": [
+    "alpha",
+    "beta",
+    "gamma"
+  ],
+  "botNames": {
+    "alpha": "Alpha",
+    "beta": "Beta",
+    "gamma": "Gamma"
+  },
+  "room": {
+    "sessionId": "sess_room_mwaz8i8vb3d227d7",
+    "roomId": "mwaz8i8vb3d227d7"
+  },
+  "steps": [
+    {
+      "step": "create",
+      "listingFails": true,
+      "loadedBefore": false,
+      "loadedAfter": false,
+      "events": [
+        {
+          "kind": "background-listing-started"
+        },
+        {
+          "kind": "answered",
+          "value": {
+            "sessionId": "sess_room_mwaz8i8vb3d227d7",
+            "roomId": "mwaz8i8vb3d227d7"
+          }
+        }
+      ]
+    },
+    {
+      "step": "restart-save-fails",
+      "listingFails": false,
+      "loadedBefore": false,
+      "loadedAfter": false,
+      "events": [
+        {
+          "kind": "prune-checked",
+          "ids": [
+            "alpha",
+            "beta",
+            "gamma"
+          ]
+        },
+        {
+          "kind": "logged",
+          "parts": [
+            "[mixdog-rooms] Could not recover group rooms:",
+            {
+              "error": "the room records could not be saved"
+            }
+          ]
+        },
+        {
+          "kind": "answered",
+          "value": null
+        }
+      ]
+    },
+    {
+      "step": "list-sessions",
+      "listingFails": false,
+      "loadedBefore": false,
+      "loadedAfter": true,
+      "events": [
+        {
+          "kind": "answered",
+          "value": [
+            {
+              "id": "sess_room_mwaz8i8vb3d227d7",
+              "preview": "",
+              "title": "Room One",
+              "updatedAt": 1794332490230,
+              "activityAt": 1794332490230,
+              "messageCount": 0,
+              "cwd": "D:\\mixdog-build\\tmp\\room-catalog-prune-failed-y7ugwV\\home\\AppData\\Roaming\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "provider": "custom-harness",
+              "model": "harness-model",
+              "createdAt": 1794332490139,
+              "agentRoom": {
+                "id": "mwaz8i8vb3d227d7",
+                "name": "Room One",
+                "members": [
+                  "alpha",
+                  "beta"
+                ],
+                "maxRounds": 3,
+                "maxMessages": 8,
+                "shareTools": false,
+                "memberNames": {
+                  "alpha": "Alpha",
+                  "beta": "Beta"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

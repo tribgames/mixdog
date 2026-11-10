@@ -6,7 +6,7 @@
     "update",
     "reset"
   ],
-  "taskWorkspace": "D:\\mixdog-build\\tmp\\room-catalog-loaded-failing-VbzwoJ\\home\\AppData\\Roaming\\workspace\\unclassified",
+  "taskWorkspace": "D:\\mixdog-build\\tmp\\room-catalog-loaded-failing-ioh62j\\home\\AppData\\Roaming\\workspace\\unclassified",
   "bots": [
     "alpha",
     "beta",
@@ -18,8 +18,8 @@
     "gamma": "Gamma"
   },
   "room": {
-    "sessionId": "sess_room_mwawiq2077547233",
-    "roomId": "mwawiq2077547233"
+    "sessionId": "sess_room_mwaz85fu84c9a698",
+    "roomId": "mwaz85fu84c9a698"
   },
   "steps": [
     {
@@ -40,17 +40,17 @@
           "origin": "room-call",
           "sessions": [
             {
-              "id": "sess_room_mwawiq2077547233",
+              "id": "sess_room_mwaz85fu84c9a698",
               "preview": "",
               "title": "Room One",
-              "updatedAt": 1794327927925,
-              "activityAt": 1794327927925,
+              "updatedAt": 1794332473493,
+              "activityAt": 1794332473493,
               "messageCount": 0,
               "cwd": "",
               "classification": "task",
               "projectPath": null,
               "agentRoom": {
-                "id": "mwawiq2077547233",
+                "id": "mwaz85fu84c9a698",
                 "name": "Room One",
                 "members": [
                   "alpha",
@@ -72,8 +72,8 @@
         {
           "kind": "answered",
           "value": {
-            "sessionId": "sess_room_mwawiq2077547233",
-            "roomId": "mwawiq2077547233"
+            "sessionId": "sess_room_mwaz85fu84c9a698",
+            "roomId": "mwaz85fu84c9a698"
           }
         }
       ]
@@ -89,17 +89,17 @@
           "origin": "room-call",
           "sessions": [
             {
-              "id": "sess_room_mwawiq2077547233",
+              "id": "sess_room_mwaz85fu84c9a698",
               "preview": "",
               "title": "Room Renamed",
-              "updatedAt": 1794327927925,
-              "activityAt": 1794327927925,
+              "updatedAt": 1794332473493,
+              "activityAt": 1794332473493,
               "messageCount": 0,
               "cwd": "",
               "classification": "task",
               "projectPath": null,
               "agentRoom": {
-                "id": "mwawiq2077547233",
+                "id": "mwaz85fu84c9a698",
                 "name": "Room Renamed",
                 "members": [
                   "alpha",
@@ -121,7 +121,7 @@
         {
           "kind": "answered",
           "value": {
-            "id": "mwawiq2077547233",
+            "id": "mwaz85fu84c9a698",
             "name": "Room Renamed",
             "members": [
               "alpha",
@@ -151,17 +151,17 @@
           "origin": "listing",
           "sessions": [
             {
-              "id": "sess_room_mwawiq2077547233",
+              "id": "sess_room_mwaz85fu84c9a698",
               "preview": "",
               "title": "Room Renamed",
-              "updatedAt": 1794327927925,
-              "activityAt": 1794327927925,
+              "updatedAt": 1794332473493,
+              "activityAt": 1794332473493,
               "messageCount": 0,
               "cwd": "",
               "classification": "task",
               "projectPath": null,
               "agentRoom": {
-                "id": "mwawiq2077547233",
+                "id": "mwaz85fu84c9a698",
                 "name": "Room Renamed",
                 "members": [
                   "alpha",
@@ -185,17 +185,17 @@
           "origin": "listing",
           "sessions": [
             {
-              "id": "sess_room_mwawiq2077547233",
+              "id": "sess_room_mwaz85fu84c9a698",
               "preview": "",
               "title": "Room Renamed",
-              "updatedAt": 1794327927925,
-              "activityAt": 1794327927925,
+              "updatedAt": 1794332473493,
+              "activityAt": 1794332473493,
               "messageCount": 0,
               "cwd": "",
               "classification": "task",
               "projectPath": null,
               "agentRoom": {
-                "id": "mwawiq2077547233",
+                "id": "mwaz85fu84c9a698",
                 "name": "Room Renamed",
                 "members": [
                   "alpha",
@@ -219,17 +219,17 @@
           "origin": "room-call",
           "sessions": [
             {
-              "id": "sess_room_mwawiq2077547233",
+              "id": "sess_room_mwaz85fu84c9a698",
               "preview": "",
               "title": "Room Renamed",
-              "updatedAt": 1794327928138,
-              "activityAt": 1794327928138,
+              "updatedAt": 1794332473750,
+              "activityAt": 1794332473750,
               "messageCount": 0,
               "cwd": "",
               "classification": "task",
               "projectPath": null,
               "agentRoom": {
-                "id": "mwawiq2077547233",
+                "id": "mwaz85fu84c9a698",
                 "name": "Room Renamed",
                 "members": [
                   "alpha",

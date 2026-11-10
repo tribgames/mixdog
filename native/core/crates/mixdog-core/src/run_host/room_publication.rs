@@ -111,6 +111,9 @@ mod tests {
     use mixdog_core_base::support::testing::value;
     use mixdog_core_base::support::testing::with_op;
     use mixdog_core_rooms::rooms::catalog_rows::MemberNames;
+    use mixdog_core_rooms::rooms::ready::RoomsReady;
+    use mixdog_core_rooms::rooms::records::RoomDoc;
+    use mixdog_core_rooms::rooms::records::RoomStore;
     use mixdog_core_rooms::rooms::records::Rooms;
     use mixdog_core_rooms::rooms::service::RoomRunner;
     use mixdog_core_rooms::rooms::service::RoomService;
@@ -139,10 +142,12 @@ mod tests {
         roster: Vec<(String, String)>,
         /// The agents whose definitions were deleted (proven gone); every other is present.
         deleted: std::sync::Mutex<Vec<String>>,
+        /// The ids of each presence check, in order (only the rooms' first load checks presence here).
+        checked: std::sync::Mutex<Vec<Vec<String>>>,
     }
     impl Agents {
         fn new(roster: Vec<(String, String)>) -> Self {
-            Self { lookup_fails: false.into(), roster, deleted: std::sync::Mutex::default() }
+            Self { lookup_fails: false.into(), roster, deleted: std::sync::Mutex::default(), checked: std::sync::Mutex::default() }
         }
     }
     impl Default for Agents {
@@ -172,6 +177,7 @@ mod tests {
             false
         }
         async fn presence(&self, ids: &[String]) -> Result<HashMap<String, Presence>, RoomError> {
+            self.checked.lock().unwrap().push(ids.to_vec());
             let deleted = self.deleted.lock().unwrap();
             Ok(ids.iter().map(|id| (id.clone(), if deleted.contains(id) { Presence::Deleted } else { Presence::Present })).collect())
         }
@@ -291,26 +297,127 @@ mod tests {
         }
     }
 
+    /// The room records' store, with a stop in front of a save where a test arms one: the next save says it arrived, then fails
+    /// with the given text or waits until the test opens it.
+    struct Saves {
+        inner: StateRoomStore,
+        armed: Arc<std::sync::Mutex<Option<SaveStop>>>,
+    }
+    struct SaveStop {
+        reached: tokio::sync::oneshot::Sender<()>,
+        fails: Option<String>,
+        held: tokio::sync::oneshot::Receiver<()>,
+    }
+    /// The arming end of [`Saves`].
+    #[derive(Clone, Default)]
+    struct SaveGate(Arc<std::sync::Mutex<Option<SaveStop>>>);
+    impl SaveGate {
+        /// The opener and the arrival signal of the next save, which fails with `fails` when given.
+        fn arm(&self, fails: Option<String>) -> (tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>) {
+            let (open, held) = tokio::sync::oneshot::channel();
+            let (reached, arrived) = tokio::sync::oneshot::channel();
+            *self.0.lock().unwrap() = Some(SaveStop { reached, fails, held });
+            (open, arrived)
+        }
+    }
+    #[async_trait]
+    impl RoomStore for Saves {
+        async fn load(&self) -> Result<RoomDoc, RoomError> {
+            self.inner.load().await
+        }
+        async fn save(&self, doc: &RoomDoc) -> Result<(), RoomError> {
+            let armed = self.armed.lock().unwrap().take();
+            if let Some(stop) = armed {
+                let _ = stop.reached.send(());
+                if let Some(text) = stop.fails {
+                    return Err(RoomError::Port(text));
+                }
+                let _ = stop.held.await;
+            }
+            self.inner.save(doc).await
+        }
+    }
+
     /// How long a step may take before the test calls it hung (a failure bound, not a wait the test relies on).
     const DEADLINE: std::time::Duration = std::time::Duration::from_secs(60);
 
-    type Service = RoomService<StateRoomStore, SessionRoomHost, Idle>;
+    type Service = RoomService<Saves, SessionRoomHost, Idle>;
 
     /// The room service over the production wiring (`wire`, as `compose_flip.rs` composes it), the real index, store and room
     /// records; the list's fence is the test's gate.
     struct Composed {
         service: Arc<Service>,
         list: Arc<ThreadListService>,
-        homes: SessionHomePorts<StateRoomStore>,
+        homes: Arc<SessionHomePorts<Saves>>,
+        ready: Arc<RoomsReady>,
         agents: Arc<Agents>,
         app: MockConnection,
         gate: Arc<Gate>,
         deletes: Arc<Deletes>,
+        saves: SaveGate,
         summaries: Arc<RoomSummaries>,
+        rooms: Arc<Rooms<Saves>>,
+        host: Arc<SessionRoomHost>,
+        sessions: Arc<dyn SessionOps>,
+        ops: mixdog_store::state::CoreState,
+        /// The rooms' log (`[mixdog-rooms] <line>`, `compose_flip.rs` `room_log`), line by line.
+        logged: Arc<std::sync::Mutex<Vec<String>>>,
         _held: (Rig, mixdog_core_session::session::testing::DataDir),
     }
 
+    /// The room service, the agent deletion's room ports and the rooms' first load over the records, as `compose_flip.rs` composes
+    /// them: every room call and a member forgotten await the first load, which prunes the members proven deleted.
+    async fn rooms_over(
+        rooms: &Arc<Rooms<Saves>>,
+        host: &Arc<SessionRoomHost>,
+        sessions: &Arc<dyn SessionOps>,
+        agents: &Arc<Agents>,
+        ops: &mixdog_store::state::CoreState,
+        logged: &Arc<std::sync::Mutex<Vec<String>>>,
+    ) -> (Arc<Service>, Arc<SessionHomePorts<Saves>>, Arc<RoomsReady>) {
+        let ready = RoomsReady::new();
+        let homes = Arc::new(SessionHomePorts::new(agents.clone(), sessions.clone(), rooms.clone(), host.clone(), Arc::new(Idle), ready.clone()));
+        ready
+            .bind({
+                let (homes, log) = (Arc::downgrade(&homes), room_log(logged));
+                move || {
+                    let (homes, log) = (homes.clone(), log.clone());
+                    async move {
+                        let Some(homes) = homes.upgrade() else { return Ok(()) };
+                        homes.prune_deleted(&*log).await
+                    }
+                }
+            })
+            .expect("bound once");
+        let scopes = mixdog_core_base::support::testing::scopes_over(ops.clone(), "room").await;
+        let service = Arc::new(RoomService::new(rooms.clone(), host.clone(), Arc::new(Idle), scopes, agents.clone(), ready.clone()));
+        (service, homes, ready)
+    }
+
+    /// `room_log` of `compose_flip.rs`: each line prefixed `[mixdog-rooms] `.
+    fn room_log(logged: &Arc<std::sync::Mutex<Vec<String>>>) -> Arc<dyn Fn(&str) + Send + Sync> {
+        let logged = logged.clone();
+        Arc::new(move |line| logged.lock().unwrap().push(format!("[mixdog-rooms] {line}")))
+    }
+
     impl Composed {
+        /// The core restarted over the same records (saved; the live records equal them): a new room service, room ports and first
+        /// load, and the start-up `recover` as `compose_flip.rs` starts it, with the rooms' republish (`LiveRooms::recover` →
+        /// `DirectoryRoomDaemon::republish_catalog` → `RoomSummaries::republish`, whose pass is awaited) after the first load.
+        async fn restart(&mut self) -> tokio::task::JoinHandle<()> {
+            (self.service, self.homes, self.ready) = rooms_over(&self.rooms, &self.host, &self.sessions, &self.agents, &self.ops, &self.logged).await;
+            let summaries = self.summaries.clone();
+            mixdog_core_rooms::rooms::ready::recover(
+                self.rooms.clone(),
+                self.ready.clone(),
+                move || async move {
+                    summaries.publish().await;
+                    Ok(())
+                },
+                room_log(&self.logged),
+            )
+        }
+
         async fn create(&self) -> tokio::task::JoinHandle<Result<Value, mixdog_core_api::CoreError>> {
             let service = self.service.clone();
             tokio::spawn(async move { value(&*service, request("room/create", with_op(json!({ "input": { "name": "Release", "members": ["gh", "rel"] } }), 1), Some(1))).await })
@@ -574,7 +681,9 @@ mod tests {
         // The bots' names, as their saved definitions answered them.
         let names = node["botNames"].as_object().expect("the bots' names");
         let roster = bots.iter().map(|id| (id.clone(), names[id].as_str().expect("name").to_owned())).collect();
-        let world = composed_with(Agents::new(roster)).await;
+        let mut world = composed_with(Agents::new(roster)).await;
+        // A first load held at its save by one step, opened by the next: the save's opener and the start-up running.
+        let mut held_save: Option<(tokio::sync::oneshot::Sender<()>, tokio::task::JoinHandle<()>)> = None;
         let workspace = world.agents.path().await.unwrap_or_default();
         let (mut node_names, mut core_names) = (Names::new(node["taskWorkspace"].as_str().expect("task workspace")), Names::new(&workspace));
         let mut fold = Fold::default();
@@ -616,19 +725,70 @@ mod tests {
                             let answer = tokio::time::timeout(DEADLINE, forget).await.expect("forget_room_member answered");
                             (answer.map(|()| Value::Null).map_err(|error| format!("{error:?}")), ReplyQueued::new())
                         }
-                        // No client call: the third bot's definition deleted past the host, then the core's start-up as
-                        // `compose_flip.rs` runs it: the rooms' first load prunes (`prune_deleted`), and `LiveRooms::start`, with no
-                        // exchange cut off, ends with the rooms' republish (`DirectoryRoomDaemon::republish_catalog` →
-                        // `RoomSummaries::republish`, whose pass is awaited here).
-                        "restart-after-agent-deletion" => {
+                        // No client call: the third bot's definition deleted past the host, then the core restarted (`Composed::restart`):
+                        // its start-up `recover` runs the rooms' first load, which prunes the member. Node's step ends at the first load's
+                        // end, or, with its save held, once the save is reached, or, with its save failing, at the start-up's logged end.
+                        "restart-after-agent-deletion" | "restart-held-at-save" | "restart-save-fails" => {
                             world.agents.deleted.lock().unwrap().push(bots[2].clone());
-                            let start = async {
-                                let unpruned = world.homes.prune_deleted().await?;
-                                world.summaries.publish().await;
-                                Ok::<_, RoomError>(unpruned)
+                            let mut stop = match call {
+                                "restart-held-at-save" => Some(world.saves.arm(None)),
+                                "restart-save-fails" => {
+                                    let failure = events.iter().find(|e| e["kind"] == "logged").and_then(|e| e["parts"][1]["error"].as_str());
+                                    Some(world.saves.arm(Some(failure.expect("Node's logged save failure").to_owned())))
+                                }
+                                _ => None,
                             };
-                            let answer = tokio::time::timeout(DEADLINE, start).await.expect("the start-up's prune ended");
-                            (answer.map(|_| Value::Null).map_err(|error| format!("{error:?}")), ReplyQueued::new())
+                            let started = world.restart().await;
+                            if let Some((_, arrived)) = &mut stop {
+                                tokio::time::timeout(DEADLINE, arrived)
+                                    .await
+                                    .unwrap_or_else(|_| panic!("{what}: the first load never reached its save"))
+                                    .expect("the save's stop");
+                            }
+                            match stop {
+                                Some((open, _)) if call == "restart-held-at-save" => held_save = Some((open, started)),
+                                _ => tokio::time::timeout(DEADLINE, started).await.unwrap_or_else(|_| panic!("{what}: the start-up never ended")).expect("the start-up"),
+                            }
+                            (Ok(Value::Null), ReplyQueued::new())
+                        }
+                        // While the first load is held at its save: a room update (it awaits the first load) is started, a listing (it
+                        // does not) is answered, and whether the update had ended by then is Node's; then the save goes on.
+                        "update-rounds-and-list-while-held" => {
+                            let (open, started) = held_save.take().expect("the save held by the step before");
+                            let (updating, replied) = world.spawn_held("room/update", json!({ "roomId": room_id, "maxRounds": 4 }), created);
+                            let listed = tokio::time::timeout(DEADLINE, value(world.list.as_ref(), request(LIST, json!({ "limit": 1000 }), None)))
+                                .await
+                                .unwrap_or_else(|_| panic!("{what}: the listing never answered while the save was held"))
+                                .expect("thread/list");
+                            let node_listed = events.iter().find(|e| e["kind"] == "listed").expect("Node's listing")["sessions"].clone();
+                            assert_eq!(
+                                listed_rows(&listed, &mut core_names, &node_listed),
+                                named_rows(&node_listed, &mut node_names),
+                                "{what}: the listing while the save is held"
+                            );
+                            let ended = &events.iter().find(|e| e["kind"] == "update-ended-before-the-save").expect("Node's update state")["ended"];
+                            assert_eq!(&json!(updating.is_finished()), ended, "{what}: whether the update had ended while the save was held");
+                            // The prune goes on past its save to its member's conversation deletion, stopped there: the first load is
+                            // still pending, and whether the update had ended by then is Node's.
+                            let (deleting, deletion) = world.deletes.arm();
+                            open.send(()).expect("the save waits at its stop");
+                            tokio::time::timeout(DEADLINE, deletion)
+                                .await
+                                .unwrap_or_else(|_| panic!("{what}: the prune never reached its member's deletion"))
+                                .expect("the deletion's stop");
+                            let ended = &events.iter().find(|e| e["kind"] == "update-ended-before-the-deletion").expect("Node's update state")["ended"];
+                            assert_eq!(&json!(updating.is_finished()), ended, "{what}: whether the update had ended when the prune reached its deletion");
+                            deleting.send(()).expect("the deletion waits at its stop");
+                            let answer = tokio::time::timeout(DEADLINE, updating)
+                                .await
+                                .unwrap_or_else(|_| panic!("{what}: the update never answered once the save went on"))
+                                .expect("the update's task");
+                            tokio::time::timeout(DEADLINE, started).await.unwrap_or_else(|_| panic!("{what}: the start-up never ended")).expect("the start-up");
+                            (answer.map_err(|error| format!("{error:?}")), replied)
+                        }
+                        "list-sessions" => {
+                            let listed = value(world.list.as_ref(), request(LIST, json!({ "limit": 1000 }), None)).await.map_err(|error| format!("{error:?}"));
+                            (listed, ReplyQueued::new())
                         }
                         other => panic!("{what}: a call this replay does not know: {other}"),
                     };
@@ -650,7 +810,28 @@ mod tests {
                         .await
                         .unwrap_or_else(|_| panic!("{what}: the core's background listing did not end"));
                     let node_answer = events.iter().find(|e| e["kind"] == "answered" || e["kind"] == "threw").expect("the call's end");
+                    // The rooms' log while the step ran: Node's lines (`console.warn` of its text and the error's message), the core's.
+                    let node_logged: Vec<String> = events
+                        .iter()
+                        .filter(|e| e["kind"] == "logged")
+                        .map(|e| {
+                            let parts = e["parts"].as_array().expect("parts");
+                            parts.iter().map(|part| part["error"].as_str().or(part.as_str()).expect("a text part").to_owned()).collect::<Vec<_>>().join(" ")
+                        })
+                        .collect();
+                    assert_eq!(std::mem::take(&mut *world.logged.lock().unwrap()), node_logged, "{what}: the rooms' log");
+                    // Whether a first load ran in the step (a failed one is run again by the next call that awaits it), by its checks.
+                    let node_checked: Vec<Value> = events.iter().filter(|e| e["kind"] == "prune-checked").map(|e| e["ids"].clone()).collect();
+                    let checked: Vec<Value> = std::mem::take(&mut *world.agents.checked.lock().unwrap()).into_iter().map(|ids| json!(ids)).collect();
+                    assert_eq!(checked, node_checked, "{what}: the rooms' first load's member checks");
                     match (&answer, node_answer["kind"].as_str()) {
+                        (Ok(listed), Some("answered")) if call == "list-sessions" => {
+                            assert_eq!(
+                                listed_rows(listed, &mut core_names, &node_answer["value"]),
+                                named_rows(&node_answer["value"], &mut node_names),
+                                "{what}: the listing"
+                            );
+                        }
                         (Ok(value), Some("answered")) => {
                             if call == "create" {
                                 room = Some(value.clone());
@@ -663,7 +844,9 @@ mod tests {
                             let core_text = value.to_string().replace(&core_room, "<room>");
                             // A call Node answers with nothing (`Promise<void>`, recorded as null) answers the protocol's empty object.
                             // (The member removal is no protocol call: its `()` is the null here.)
-                            let node_value = if node_answer["value"].is_null() && !matches!(call, "forget-member" | "restart-after-agent-deletion") {
+                            let node_value = if node_answer["value"].is_null()
+                                && !matches!(call, "forget-member" | "restart-after-agent-deletion" | "restart-held-at-save" | "restart-save-fails")
+                            {
                                 json!({})
                             } else {
                                 node_answer["value"].clone()
@@ -715,6 +898,29 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Node's listed rows, named.
+    fn named_rows(rows: &Value, names: &mut Names) -> Vec<Value> {
+        rows.as_array().expect("Node's rows").iter().map(|row| names.named(row)).collect()
+    }
+
+    /// The core's `thread/list` answer's rows, named, each in Node's live form where Node's row has it (`live_form`).
+    fn listed_rows(listed: &Value, names: &mut Names, node_rows: &Value) -> Vec<Value> {
+        let node_rows = node_rows.as_array().expect("Node's rows");
+        listed["data"]
+            .as_array()
+            .expect("thread/list data")
+            .iter()
+            .enumerate()
+            .map(|(at, row)| {
+                let row = names.named(row);
+                match node_rows.get(at) {
+                    Some(node) => live_form(row, node),
+                    None => row,
+                }
+            })
+            .collect()
     }
 
     /// The core client's catalog, named: every row of the fold, in the order of the last publication pass in `sent` when that pass
@@ -807,7 +1013,8 @@ mod tests {
         let directory = Arc::new(SessionDirectory::new(Arc::new(parts)));
         std::fs::create_dir_all(data.path().join("state")).expect("state dir");
         let (state, _) = mixdog_store::state::CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &data.path().join("state").join("core.sqlite")).expect("core state");
-        let rooms = Arc::new(Rooms::new(StateRoomStore::new(data.state(state))));
+        let saves = SaveGate::default();
+        let rooms = Arc::new(Rooms::new(Saves { inner: StateRoomStore::new(data.state(state)), armed: saves.0.clone() }));
         let agents = Arc::new(agents);
         let room_rows =Arc::new(RoomListRows::new(rooms.clone(), Arc::new(Idle), agents.clone()));
         let gate = Arc::new(Gate { armed: std::sync::Mutex::new(None), agents: agents.clone() });
@@ -821,10 +1028,9 @@ mod tests {
         let deletions = mixdog_core_session::session::thread_edges::ThreadDeletions::new(sections.clone());
         let publication = wire(list.clone(), sections, deletions, agents.clone(), &index, directory, sessions.clone()).expect("wired");
         let ops = data.state(mixdog_core_base::support::testing::op_state(data.path()));
-        let scopes = mixdog_core_base::support::testing::scopes_over(ops, "room").await;
-        // The agent deletion's room ports, as `compose_flip.rs` composes them.
-        let homes = SessionHomePorts::new(agents.clone(), sessions, rooms.clone(), publication.host.clone(), Arc::new(Idle));
-        let service = Arc::new(RoomService::new(rooms.clone(), publication.host, Arc::new(Idle), scopes, agents.clone()));
-        Composed { service, list, homes, agents, app, gate, deletes, summaries: publication.summaries, _held: (rig, data) }
+        let logged = Arc::default();
+        let host = publication.host;
+        let (service, homes, ready) = rooms_over(&rooms, &host, &sessions, &agents, &ops, &logged).await;
+        Composed { service, list, homes, ready, agents, app, gate, deletes, saves, summaries: publication.summaries, rooms, host, sessions, ops, logged, _held: (rig, data) }
     }
 }

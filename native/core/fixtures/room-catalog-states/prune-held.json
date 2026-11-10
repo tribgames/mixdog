@@ -1,0 +1,278 @@
+{
+  "scenario": "prune-held",
+  "listFirst": false,
+  "calls": [
+    "create",
+    "restart-held-at-save",
+    "update-rounds-and-list-while-held"
+  ],
+  "taskWorkspace": "D:\\mixdog-build\\tmp\\room-catalog-prune-held-PbIWkK\\home\\AppData\\Roaming\\workspace\\unclassified",
+  "bots": [
+    "alpha",
+    "beta",
+    "gamma"
+  ],
+  "botNames": {
+    "alpha": "Alpha",
+    "beta": "Beta",
+    "gamma": "Gamma"
+  },
+  "room": {
+    "sessionId": "sess_room_mwaz8enc3192bbe1",
+    "roomId": "mwaz8enc3192bbe1"
+  },
+  "steps": [
+    {
+      "step": "create",
+      "listingFails": true,
+      "loadedBefore": false,
+      "loadedAfter": false,
+      "events": [
+        {
+          "kind": "background-listing-started"
+        },
+        {
+          "kind": "answered",
+          "value": {
+            "sessionId": "sess_room_mwaz8enc3192bbe1",
+            "roomId": "mwaz8enc3192bbe1"
+          }
+        }
+      ]
+    },
+    {
+      "step": "restart-held-at-save",
+      "listingFails": false,
+      "loadedBefore": false,
+      "loadedAfter": false,
+      "events": [
+        {
+          "kind": "prune-checked",
+          "ids": [
+            "alpha",
+            "beta",
+            "gamma"
+          ]
+        },
+        {
+          "kind": "save-held"
+        },
+        {
+          "kind": "answered",
+          "value": null
+        }
+      ]
+    },
+    {
+      "step": "update-rounds-and-list-while-held",
+      "listingFails": false,
+      "loadedBefore": false,
+      "loadedAfter": true,
+      "events": [
+        {
+          "kind": "listed",
+          "sessions": [
+            {
+              "id": "sess_room_mwaz8enc3192bbe1",
+              "preview": "",
+              "title": "Room One",
+              "updatedAt": 1794332485542,
+              "activityAt": 1794332485542,
+              "messageCount": 0,
+              "cwd": "D:\\mixdog-build\\tmp\\room-catalog-prune-held-PbIWkK\\home\\AppData\\Roaming\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "provider": "custom-harness",
+              "model": "harness-model",
+              "createdAt": 1794332485478,
+              "agentRoom": {
+                "id": "mwaz8enc3192bbe1",
+                "name": "Room One",
+                "members": [
+                  "alpha",
+                  "beta"
+                ],
+                "maxRounds": 3,
+                "maxMessages": 8,
+                "shareTools": false,
+                "memberNames": {
+                  "alpha": "Alpha",
+                  "beta": "Beta"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "update-ended-before-the-save",
+          "ended": false
+        },
+        {
+          "kind": "save-released"
+        },
+        {
+          "kind": "published",
+          "origin": "room-call",
+          "sessions": [
+            {
+              "id": "sess_room_mwaz8enc3192bbe1",
+              "preview": "",
+              "title": "Room One",
+              "updatedAt": 1794332485542,
+              "activityAt": 1794332485542,
+              "messageCount": 0,
+              "cwd": "D:\\mixdog-build\\tmp\\room-catalog-prune-held-PbIWkK\\home\\AppData\\Roaming\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "provider": "custom-harness",
+              "model": "harness-model",
+              "createdAt": 1794332485478,
+              "agentRoom": {
+                "id": "mwaz8enc3192bbe1",
+                "name": "Room One",
+                "members": [
+                  "alpha",
+                  "beta"
+                ],
+                "maxRounds": 3,
+                "maxMessages": 8,
+                "shareTools": false,
+                "memberNames": {
+                  "alpha": "Alpha",
+                  "beta": "Beta"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "update-ended-before-the-deletion",
+          "ended": false
+        },
+        {
+          "kind": "published",
+          "origin": "listing",
+          "sessions": [
+            {
+              "id": "sess_room_mwaz8enc3192bbe1",
+              "preview": "",
+              "title": "Room One",
+              "updatedAt": 1794332485542,
+              "activityAt": 1794332485542,
+              "messageCount": 0,
+              "cwd": "D:\\mixdog-build\\tmp\\room-catalog-prune-held-PbIWkK\\home\\AppData\\Roaming\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "provider": "custom-harness",
+              "model": "harness-model",
+              "createdAt": 1794332485478,
+              "agentRoom": {
+                "id": "mwaz8enc3192bbe1",
+                "name": "Room One",
+                "members": [
+                  "alpha",
+                  "beta"
+                ],
+                "maxRounds": 3,
+                "maxMessages": 8,
+                "shareTools": false,
+                "memberNames": {
+                  "alpha": "Alpha",
+                  "beta": "Beta"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "published",
+          "origin": "room-call",
+          "sessions": [
+            {
+              "id": "sess_room_mwaz8enc3192bbe1",
+              "preview": "",
+              "title": "Room One",
+              "updatedAt": 1794332485542,
+              "activityAt": 1794332485542,
+              "messageCount": 0,
+              "cwd": "D:\\mixdog-build\\tmp\\room-catalog-prune-held-PbIWkK\\home\\AppData\\Roaming\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "provider": "custom-harness",
+              "model": "harness-model",
+              "createdAt": 1794332485478,
+              "agentRoom": {
+                "id": "mwaz8enc3192bbe1",
+                "name": "Room One",
+                "members": [
+                  "alpha",
+                  "beta"
+                ],
+                "maxRounds": 3,
+                "maxMessages": 8,
+                "shareTools": false,
+                "memberNames": {
+                  "alpha": "Alpha",
+                  "beta": "Beta"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "published",
+          "origin": "room-call",
+          "sessions": [
+            {
+              "id": "sess_room_mwaz8enc3192bbe1",
+              "preview": "",
+              "title": "Room One",
+              "updatedAt": 1794332485542,
+              "activityAt": 1794332485542,
+              "messageCount": 0,
+              "cwd": "D:\\mixdog-build\\tmp\\room-catalog-prune-held-PbIWkK\\home\\AppData\\Roaming\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "provider": "custom-harness",
+              "model": "harness-model",
+              "createdAt": 1794332485478,
+              "agentRoom": {
+                "id": "mwaz8enc3192bbe1",
+                "name": "Room One",
+                "members": [
+                  "alpha",
+                  "beta"
+                ],
+                "maxRounds": 4,
+                "maxMessages": 8,
+                "shareTools": false,
+                "memberNames": {
+                  "alpha": "Alpha",
+                  "beta": "Beta"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "answered",
+          "value": {
+            "id": "mwaz8enc3192bbe1",
+            "name": "Room One",
+            "members": [
+              "alpha",
+              "beta"
+            ],
+            "maxRounds": 4,
+            "maxMessages": 8,
+            "shareTools": false,
+            "memberNames": {
+              "alpha": "Alpha",
+              "beta": "Beta"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
