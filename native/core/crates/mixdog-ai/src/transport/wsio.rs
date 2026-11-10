@@ -1,10 +1,12 @@
 //! The byte stream a WebSocket runs on: the bytes the server sent after its upgrade answer, and, when the server
 //! accepted the `permessage-deflate` offer, the translation tungstenite (which has no deflate) needs.
 //!
-//! Inbound, a compressed message (RSV1 on its first frame) is inflated and handed on as one plain frame; every other
-//! frame passes unchanged. Outbound, a data message of at least [`THRESHOLD`] bytes is deflated and sent with RSV1
-//! (what `ws` does: `sender.js:382`, `permessage-deflate.js:56-57`); smaller ones and control frames pass unchanged.
-//! Without the extension this is a plain pass-through.
+//! Every inbound frame is checked as `ws`'s receiver checks it (`ws/lib/receiver.js` `getInfo`; RFC 6455 5.2, 5.4;
+//! RFC 7692 6) before it is translated: a violation closes the connection with the code `ws` uses (1002, 1007 for bad
+//! deflate data, 1009 for a message past the limit), and the close frame is queued before the read fails. A compressed
+//! message is inflated fragment by fragment, bounded while it inflates, and handed on as one plain frame. Outbound, a
+//! single-frame data message is deflated with the negotiated window and sent with RSV1 (`sender.js:373-383`,
+//! `permessage-deflate.js` `_compress`). Without the extension this is a plain pass-through.
 
 use std::io;
 use std::pin::Pin;
@@ -16,66 +18,137 @@ use flate2::Compression;
 use flate2::Decompress;
 use flate2::FlushCompress;
 use flate2::FlushDecompress;
+use flate2::Status;
+use ring::rand::SecureRandom;
 use tokio::io::AsyncRead;
 use tokio::io::AsyncWrite;
 use tokio::io::ReadBuf;
 
-/// `ws`'s default `threshold` for compressing an outgoing message.
+/// `ws`'s default `threshold` for compressing an outgoing message; it applies only when the client's context does not
+/// carry over (`sender.js:373-383`).
 const THRESHOLD: usize = 1024;
-/// The largest message the translation will hold (tungstenite's own default limit).
-const MAX_MESSAGE: usize = 64 << 20;
+/// `WS_MAX_INCOMING_FRAME_BYTES` (`openai-ws-pool.mjs:58`), the `maxPayload` of the Node client: a message, plain or
+/// inflated, past it is refused with 1009.
+pub const MAX_PAYLOAD: usize = 16 << 20;
 /// The bytes `Z_SYNC_FLUSH` ends a deflate block with; the extension leaves them off the wire.
 const TAIL: [u8; 4] = [0x00, 0x00, 0xff, 0xff];
+/// How much room one step of the inflater is given, so that the bound is checked at least this often.
+const STEP: usize = 16 << 10;
 
 /// What the server accepted of the offer `permessage-deflate; client_max_window_bits`.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Extension {
     pub server_no_context_takeover: bool,
     pub client_no_context_takeover: bool,
-    /// The server narrowed the client's window: outgoing messages then go uncompressed (always valid), because the
-    /// deflate backend cannot be asked for a smaller window.
-    pub client_window_limited: bool,
+    /// The window the client deflates with, and the one the server deflates with (8..=15).
+    pub client_max_window_bits: u8,
+    pub server_max_window_bits: u8,
 }
 
-impl Extension {
-    /// Reads the `Sec-WebSocket-Extensions` answer. `Ok(None)` is no extension; an extension other than the one
-    /// offered, or a parameter that is not the RFC 7692 ones, is an error (`ws` aborts the handshake on both).
-    pub fn parse(value: Option<&str>) -> Result<Option<Self>, String> {
-        let Some(value) = value else { return Ok(None) };
-        if value.trim().is_empty() {
-            return Ok(None);
-        }
-        let mut offers = value.split(',');
-        let first = offers.next().unwrap_or_default();
-        if offers.next().is_some() {
-            return Err("Server indicated more than one extension".into());
-        }
-        let mut parts = first.split(';').map(str::trim);
-        if parts.next() != Some("permessage-deflate") {
-            return Err(format!("Server indicated an extension that was not requested: {first}"));
-        }
-        let mut extension = Self::default();
-        for param in parts {
-            let (name, argument) = match param.split_once('=') {
-                Some((name, argument)) => (name.trim(), Some(argument.trim().trim_matches('"'))),
-                None => (param, None),
-            };
-            match (name, argument) {
-                ("server_no_context_takeover", None) => extension.server_no_context_takeover = true,
-                ("client_no_context_takeover", None) => extension.client_no_context_takeover = true,
-                ("server_max_window_bits", Some(bits)) if bits.parse::<u8>().is_ok_and(|b| (8..=15).contains(&b)) => {}
-                ("client_max_window_bits", Some(bits)) if bits.parse::<u8>().is_ok_and(|b| (8..=15).contains(&b)) => {
-                    extension.client_window_limited = bits != "15";
-                }
-                _ => return Err(format!("Unknown extension parameter: {param}")),
-            }
-        }
-        Ok(Some(extension))
+impl Default for Extension {
+    fn default() -> Self {
+        Self { server_no_context_takeover: false, client_no_context_takeover: false, client_max_window_bits: 15, server_max_window_bits: 15 }
     }
 }
 
-fn corrupt(what: &str) -> io::Error {
-    io::Error::new(io::ErrorKind::InvalidData, what.to_owned())
+const NAME: &str = "permessage-deflate";
+
+fn is_token(text: &str) -> bool {
+    !text.is_empty() && text.bytes().all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b))
+}
+
+/// One parameter: a name, and a value if it has one (a quoted value is unquoted; it may hold token characters only).
+type Param = (String, Option<String>);
+
+/// `ws/lib/extension.js` `parse`: `Sec-WebSocket-Extensions` as a list of offers, each a name and its parameters.
+fn parse_offers(header: &str) -> Result<Vec<(String, Vec<Param>)>, String> {
+    const BAD: &str = "Invalid Sec-WebSocket-Extensions header";
+    const BLANK: [char; 2] = [' ', '\t'];
+    let mut offers = Vec::new();
+    for offer in header.split(',') {
+        let mut parts = offer.split(';');
+        let name = parts.next().unwrap_or_default().trim_matches(BLANK);
+        if !is_token(name) {
+            return Err(BAD.into());
+        }
+        let mut params = Vec::new();
+        for part in parts {
+            let part = part.trim_matches(BLANK);
+            let (key, value) = match part.split_once('=') {
+                Some((key, value)) => {
+                    let inner = value.strip_prefix('"').and_then(|v| v.strip_suffix('"')).unwrap_or(value);
+                    if !is_token(inner) {
+                        return Err(BAD.into());
+                    }
+                    (key, Some(inner.to_owned()))
+                }
+                None => (part, None),
+            };
+            if !is_token(key) {
+                return Err(BAD.into());
+            }
+            params.push((key.to_owned(), value));
+        }
+        offers.push((name.to_owned(), params));
+    }
+    Ok(offers)
+}
+
+impl Extension {
+    /// The answer to the offer, as `ws` reads it (`websocket.js` `req.on('upgrade')`, `PerMessageDeflate`
+    /// `accept`/`normalizeParams`). `value` is the joined `Sec-WebSocket-Extensions` header lines. `Ok(None)` is no
+    /// header; a malformed one, an extension other than the one offered, a repeated, unknown or invalid parameter is an
+    /// error (`ws` aborts the handshake on each). Of several `permessage-deflate` configurations the first is used.
+    pub fn parse(value: Option<&str>) -> Result<Option<Self>, String> {
+        let Some(value) = value else { return Ok(None) };
+        let offers = parse_offers(value)?;
+        if offers.iter().any(|(name, _)| name != NAME) {
+            return Err("Server indicated an extension that was not requested".into());
+        }
+        let mut accepted = None;
+        for (_, params) in &offers {
+            let mut extension = Self::default();
+            let mut seen: Vec<&str> = Vec::new();
+            for (key, value) in params {
+                if seen.contains(&key.as_str()) {
+                    return Err(format!("Parameter \"{key}\" must have only a single value"));
+                }
+                seen.push(key);
+                let bits = |value: &Option<String>| match value.as_deref().map(str::parse::<u8>) {
+                    Some(Ok(bits)) if (8..=15).contains(&bits) => Ok(bits),
+                    _ => Err(format!("Invalid value for parameter \"{key}\": {}", value.as_deref().unwrap_or("true"))),
+                };
+                match key.as_str() {
+                    "client_max_window_bits" => extension.client_max_window_bits = bits(value)?,
+                    "server_max_window_bits" => extension.server_max_window_bits = bits(value)?,
+                    "client_no_context_takeover" | "server_no_context_takeover" => {
+                        if value.is_some() {
+                            return Err(format!("Invalid value for parameter \"{key}\": {}", value.as_deref().unwrap_or_default()));
+                        }
+                        if key.starts_with("client") {
+                            extension.client_no_context_takeover = true;
+                        } else {
+                            extension.server_no_context_takeover = true;
+                        }
+                    }
+                    _ => return Err(format!("Unknown parameter \"{key}\"")),
+                }
+            }
+            accepted.get_or_insert(extension);
+        }
+        Ok(accepted)
+    }
+}
+
+/// A protocol violation: the close code `ws` answers it with, and why.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Fault {
+    pub code: u16,
+    pub text: String,
+}
+
+fn fault(code: u16, text: impl Into<String>) -> Fault {
+    Fault { code, text: text.into() }
 }
 
 /// A frame's fixed fields and where its payload lies in the buffer.
@@ -102,19 +175,19 @@ impl Head {
 }
 
 /// The head of the frame at the start of `bytes`, once all of it has arrived.
-fn parse(bytes: &[u8]) -> io::Result<Option<Head>> {
+fn parse(bytes: &[u8]) -> Result<Option<Head>, Fault> {
     if bytes.len() < 2 {
         return Ok(None);
     }
     let masked = bytes[1] & 0x80 != 0;
     let (extra, payload) = match bytes[1] & 0x7f {
-        126 if bytes.len() >= 4 => (2, u16::from_be_bytes([bytes[2], bytes[3]]) as u64),
+        126 if bytes.len() >= 4 => (2, u64::from(u16::from_be_bytes([bytes[2], bytes[3]]))),
         127 if bytes.len() >= 10 => (8, u64::from_be_bytes(bytes[2..10].try_into().expect("eight bytes"))),
         126 | 127 => return Ok(None),
         small => (0, u64::from(small)),
     };
-    if payload > MAX_MESSAGE as u64 {
-        return Err(corrupt("frame beyond the message limit"));
+    if payload > MAX_PAYLOAD as u64 {
+        return Err(fault(1009, "Max payload size exceeded"));
     }
     let header = 2 + extra + if masked { 4 } else { 0 };
     let head = Head { first: bytes[0], masked, header, payload: payload as usize };
@@ -144,81 +217,182 @@ fn frame(first: u8, mask: Option<[u8; 4]>, payload: &[u8], out: &mut Vec<u8>) {
     }
 }
 
-fn inflate(decoder: &mut Decompress, data: &[u8]) -> io::Result<Vec<u8>> {
-    let mut input = [data, &TAIL].concat();
-    let mut out = Vec::with_capacity(data.len().saturating_mul(4).max(256));
+/// The window a raw deflate stream is run with: zlib lifts 8 to 9 (Node does the same, `zlib.js`).
+fn window(bits: u8) -> u8 {
+    bits.max(9)
+}
+
+/// Inflates `data` (a fragment, with the trailer appended by the caller for the last one) onto `out`, which never
+/// grows past `limit`: the bound is checked every [`STEP`] bytes of output, while it inflates.
+fn inflate(decoder: &mut Decompress, data: &[u8], out: &mut Vec<u8>, limit: usize) -> Result<(), Fault> {
+    let mut input = data;
     loop {
-        out.reserve(out.capacity().max(4096));
-        let before = decoder.total_in();
-        decoder.decompress_vec(&input, &mut out, FlushDecompress::Sync).map_err(|e| corrupt(&e.to_string()))?;
-        let used = (decoder.total_in() - before) as usize;
-        input.drain(..used);
-        if out.len() > MAX_MESSAGE {
-            return Err(corrupt("inflated message beyond the limit"));
+        out.reserve(STEP);
+        let (read, wrote) = (decoder.total_in(), decoder.total_out());
+        let status = decoder.decompress_vec(input, out, FlushDecompress::Sync).map_err(|e| fault(1007, e.to_string()))?;
+        input = &input[(decoder.total_in() - read) as usize..];
+        if out.len() > limit {
+            return Err(fault(1009, "Max payload size exceeded"));
+        }
+        if status == Status::StreamEnd {
+            // The server ended its deflate stream (a final block): the next message starts a new one.
+            decoder.reset(false);
+            return Ok(());
         }
         if input.is_empty() && out.len() < out.capacity() {
-            return Ok(out);
+            return Ok(());
         }
-        if used == 0 && out.len() < out.capacity() {
-            return Err(corrupt("deflate stream stalled"));
+        if decoder.total_in() == read && decoder.total_out() == wrote {
+            return Err(fault(1007, "invalid deflate stream"));
         }
     }
 }
 
-fn deflate(encoder: &mut Compress, data: &[u8]) -> io::Result<Vec<u8>> {
+/// `data` deflated and flushed, without the trailing `00 00 ff ff` (`permessage-deflate.js` `_compress`).
+fn deflate(encoder: &mut Compress, data: &[u8]) -> Result<Vec<u8>, Fault> {
     let mut input = data;
     let mut out = Vec::with_capacity(data.len() / 2 + 64);
     loop {
-        out.reserve(out.capacity().max(1024));
+        out.reserve(STEP);
         let before = encoder.total_in();
-        encoder.compress_vec(input, &mut out, FlushCompress::Sync).map_err(|e| corrupt(&e.to_string()))?;
+        encoder.compress_vec(input, &mut out, FlushCompress::Sync).map_err(|e| fault(1011, e.to_string()))?;
         input = &input[(encoder.total_in() - before) as usize..];
         if input.is_empty() && out.len() < out.capacity() {
             break;
         }
     }
-    if out.ends_with(&TAIL) {
-        out.truncate(out.len() - TAIL.len());
+    out.truncate(out.len().saturating_sub(TAIL.len()));
+    if out.is_empty() {
+        // An empty message after a flush produces no output here; `ws` sends the single byte RFC 7692 7.2.3.6 names,
+        // an empty stored block once the trailer is put back.
+        out.push(0);
     }
     Ok(out)
 }
 
-struct Codec {
+/// The data message being received, between its first and last frame.
+struct Message {
+    opcode: u8,
+    compressed: bool,
+    /// Payload bytes received so far, and (compressed) what they inflated to.
+    received: usize,
+    plain: Vec<u8>,
+}
+
+pub struct Codec {
+    /// False when the server did not accept the offer: frames are still checked, and RSV1 is then a violation.
+    negotiated: bool,
     extension: Extension,
     decoder: Decompress,
     encoder: Compress,
-    /// The opcode and payload so far of the compressed message being received.
-    message: Option<(u8, Vec<u8>)>,
+    message: Option<Message>,
 }
 
 impl Codec {
-    /// Translates every complete server frame of `raw` into `out`.
-    fn inbound(&mut self, raw: &mut Vec<u8>, out: &mut Vec<u8>) -> io::Result<()> {
-        while let Some(head) = parse(raw)? {
-            if head.masked {
-                return Err(corrupt("a server frame was masked"));
+    pub fn new(extension: Extension) -> Self {
+        Self::with(true, extension)
+    }
+
+    /// No extension was negotiated; the frames are only checked.
+    pub fn plain() -> Self {
+        Self::with(false, Extension::default())
+    }
+
+    fn with(negotiated: bool, extension: Extension) -> Self {
+        Self {
+            negotiated,
+            extension,
+            decoder: Decompress::new_with_window_bits(false, window(extension.server_max_window_bits)),
+            encoder: Compress::new_with_window_bits(Compression::default(), false, window(extension.client_max_window_bits)),
+            message: None,
+        }
+    }
+
+    /// Checks one inbound frame as `ws` does (`receiver.js` `getInfo`) and moves the fragmentation state.
+    fn admit(&mut self, head: &Head) -> Result<(), Fault> {
+        if head.first & 0x30 != 0 {
+            return Err(fault(1002, "RSV2 and RSV3 must be clear"));
+        }
+        match head.opcode() {
+            _ if head.rsv1() && !self.negotiated => return Err(fault(1002, "RSV1 must be clear")),
+            0 => {
+                if head.rsv1() {
+                    return Err(fault(1002, "RSV1 must be clear"));
+                }
+                if self.message.is_none() {
+                    return Err(fault(1002, "invalid opcode 0"));
+                }
             }
+            op @ (1 | 2) => {
+                if self.message.is_some() {
+                    return Err(fault(1002, format!("invalid opcode {op}")));
+                }
+            }
+            8..=10 => {
+                if head.rsv1() {
+                    return Err(fault(1002, "RSV1 must be clear"));
+                }
+                if !head.fin() {
+                    return Err(fault(1002, "FIN must be set"));
+                }
+                if head.payload > 125 {
+                    return Err(fault(1002, "invalid payload length"));
+                }
+            }
+            op => return Err(fault(1002, format!("invalid opcode {op}"))),
+        }
+        if head.masked {
+            return Err(fault(1002, "MASK must be clear"));
+        }
+        Ok(())
+    }
+
+    /// Translates every complete server frame of `raw` into `out`; a violation is returned with the frames before it
+    /// already translated.
+    pub fn inbound(&mut self, raw: &mut Vec<u8>, out: &mut Vec<u8>) -> Result<(), Fault> {
+        loop {
+            // `ws` judges these as soon as the first two bytes are in.
+            if raw.len() >= 2 && raw[1] & 0x80 != 0 {
+                return Err(fault(1002, "MASK must be clear"));
+            }
+            if !raw.is_empty() && raw[0] & 0x30 != 0 {
+                return Err(fault(1002, "RSV2 and RSV3 must be clear"));
+            }
+            let Some(head) = parse(raw)? else { break };
+            self.admit(&head)?;
             let payload = &raw[head.header..head.total()];
-            let compressed = (head.opcode() < 8 && head.opcode() != 0 && head.rsv1()) || (head.opcode() == 0 && self.message.is_some());
-            if !compressed {
+            let op = head.opcode();
+            if op >= 8 {
                 out.extend_from_slice(&raw[..head.total()]);
             } else {
-                let (opcode, mut data) = match self.message.take() {
-                    Some((opcode, data)) if head.opcode() == 0 => (opcode, data),
-                    _ => (head.opcode(), Vec::new()),
-                };
-                data.extend_from_slice(payload);
-                if data.len() > MAX_MESSAGE {
-                    return Err(corrupt("message beyond the limit"));
+                if op != 0 {
+                    self.message = Some(Message { opcode: op, compressed: head.rsv1(), received: 0, plain: Vec::new() });
                 }
-                if head.fin() {
-                    let plain = inflate(&mut self.decoder, &data)?;
-                    if self.extension.server_no_context_takeover {
-                        self.decoder.reset(false);
+                let message = self.message.as_mut().expect("a data frame belongs to a message");
+                message.received += payload.len();
+                if message.received > MAX_PAYLOAD {
+                    return Err(fault(1009, "Max payload size exceeded"));
+                }
+                if message.compressed {
+                    let room = MAX_PAYLOAD;
+                    if head.fin() {
+                        let framed = [payload, &TAIL].concat();
+                        inflate(&mut self.decoder, &framed, &mut message.plain, room)?;
+                    } else {
+                        inflate(&mut self.decoder, payload, &mut message.plain, room)?;
                     }
-                    frame(0x80 | opcode, None, &plain, out);
+                    if head.fin() {
+                        if self.extension.server_no_context_takeover {
+                            self.decoder.reset(false);
+                        }
+                        let done = self.message.take().expect("the message just read");
+                        frame(0x80 | done.opcode, None, &done.plain, out);
+                    }
                 } else {
-                    self.message = Some((opcode, data));
+                    out.extend_from_slice(&raw[..head.total()]);
+                    if head.fin() {
+                        self.message = None;
+                    }
                 }
             }
             raw.drain(..head.total());
@@ -227,20 +401,25 @@ impl Codec {
     }
 
     /// Translates every complete client frame of `raw` into `out`.
-    fn outbound(&mut self, raw: &mut Vec<u8>, out: &mut Vec<u8>) -> io::Result<()> {
+    pub fn outbound(&mut self, raw: &mut Vec<u8>, out: &mut Vec<u8>) -> Result<(), Fault> {
+        if !self.negotiated {
+            // Outbound frames are not bounded by ws's inbound maxPayload.
+            out.append(raw);
+            return Ok(());
+        }
         while let Some(head) = parse(raw)? {
-            let single = head.fin() && (head.opcode() == 1 || head.opcode() == 2) && head.first & 0x70 == 0;
-            if !(single && head.masked && head.payload >= THRESHOLD && !self.extension.client_window_limited) {
-                out.extend_from_slice(&raw[..head.total()]);
-            } else {
+            let single = self.negotiated && head.fin() && (head.opcode() == 1 || head.opcode() == 2) && head.first & 0x70 == 0 && head.masked;
+            let small = self.extension.client_no_context_takeover && head.payload < THRESHOLD;
+            if single && !small {
                 let key: [u8; 4] = raw[head.header - 4..head.header].try_into().expect("four bytes");
-                let plain: Vec<u8> =
-                    raw[head.header..head.total()].iter().enumerate().map(|(i, b)| b ^ key[i % 4]).collect();
+                let plain: Vec<u8> = raw[head.header..head.total()].iter().enumerate().map(|(i, b)| b ^ key[i % 4]).collect();
                 let packed = deflate(&mut self.encoder, &plain)?;
                 if self.extension.client_no_context_takeover {
                     self.encoder.reset();
                 }
                 frame(head.first | 0x40, Some(key), &packed, out);
+            } else {
+                out.extend_from_slice(&raw[..head.total()]);
             }
             raw.drain(..head.total());
         }
@@ -248,12 +427,25 @@ impl Codec {
     }
 }
 
+/// The close frame `ws` sends on a violation (`websocket.close(code)`): masked, the code alone.
+fn close_frame(code: u16) -> io::Result<Vec<u8>> {
+    let mut mask = [0u8; 4];
+    ring::rand::SystemRandom::new().fill(&mut mask).map_err(|_| io::Error::other("no random bytes for a mask"))?;
+    let mut out = Vec::new();
+    frame(0x88, Some(mask), &code.to_be_bytes(), &mut out);
+    Ok(out)
+}
+
+fn failure(fault: &Fault) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, fault.text.clone())
+}
+
 /// The stream under a WebSocket; see the module.
 pub struct WsIo<S> {
     inner: S,
     /// Bytes the server sent behind its upgrade answer, before anything else.
     early: Vec<u8>,
-    codec: Option<Box<Codec>>,
+    codec: Box<Codec>,
     /// Inbound bytes not yet a whole frame, and the translated ones not yet taken.
     in_raw: Vec<u8>,
     in_ready: Vec<u8>,
@@ -261,23 +453,28 @@ pub struct WsIo<S> {
     /// Outbound bytes not yet a whole frame, and the translated ones not yet written.
     out_raw: Vec<u8>,
     out_ready: Vec<u8>,
+    /// The violation that ended the connection: every later read fails with it, and a later write is refused, so a
+    /// connection whose deflate state is no longer the server's is never used again.
+    failed: Option<Fault>,
 }
 
 impl<S> WsIo<S> {
     pub fn new(inner: S, early: Vec<u8>, extension: Option<Extension>) -> Self {
-        let codec = extension.map(|extension| {
-            Box::new(Codec {
-                extension,
-                decoder: Decompress::new(false),
-                encoder: Compress::new(Compression::default(), false),
-                message: None,
-            })
-        });
-        Self { inner, early, codec, in_raw: Vec::new(), in_ready: Vec::new(), in_taken: 0, out_raw: Vec::new(), out_ready: Vec::new() }
+        Self {
+            inner,
+            early,
+            codec: Box::new(extension.map_or_else(Codec::plain, Codec::new)),
+            in_raw: Vec::new(),
+            in_ready: Vec::new(),
+            in_taken: 0,
+            out_raw: Vec::new(),
+            out_ready: Vec::new(),
+            failed: None,
+        }
     }
 }
 
-impl<S: AsyncRead + Unpin> AsyncRead for WsIo<S> {
+impl<S: AsyncRead + AsyncWrite + Unpin> AsyncRead for WsIo<S> {
     fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
         let this = &mut *self;
         loop {
@@ -291,15 +488,9 @@ impl<S: AsyncRead + Unpin> AsyncRead for WsIo<S> {
                 }
                 return Poll::Ready(Ok(()));
             }
-            let Some(codec) = this.codec.as_mut() else {
-                if !this.early.is_empty() {
-                    let n = this.early.len().min(buf.remaining());
-                    buf.put_slice(&this.early[..n]);
-                    this.early.drain(..n);
-                    return Poll::Ready(Ok(()));
-                }
-                return Pin::new(&mut this.inner).poll_read(cx, buf);
-            };
+            if let Some(violation) = &this.failed {
+                return Poll::Ready(Err(failure(violation)));
+            }
             if !this.early.is_empty() {
                 this.in_raw.append(&mut this.early);
             } else {
@@ -311,7 +502,13 @@ impl<S: AsyncRead + Unpin> AsyncRead for WsIo<S> {
                 }
                 this.in_raw.extend_from_slice(read.filled());
             }
-            codec.inbound(&mut this.in_raw, &mut this.in_ready)?;
+            if let Err(violation) = this.codec.inbound(&mut this.in_raw, &mut this.in_ready) {
+                // The frames before the violation are still delivered; the close frame goes out on the way.
+                this.in_raw.clear();
+                this.out_ready.extend_from_slice(&close_frame(violation.code)?);
+                let _ = this.drain(cx);
+                this.failed = Some(violation);
+            }
         }
     }
 }
@@ -330,13 +527,18 @@ impl<S: AsyncWrite + Unpin> WsIo<S> {
 }
 
 impl<S: AsyncWrite + Unpin> AsyncWrite for WsIo<S> {
-    fn poll_write(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
+    fn poll_write(mut self: Pin<&mut Self>, _cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
         let this = &mut *self;
-        let Some(codec) = this.codec.as_mut() else {
-            return Pin::new(&mut this.inner).poll_write(cx, buf);
-        };
+        if let Some(violation) = &this.failed {
+            return Poll::Ready(Err(failure(violation)));
+        }
         this.out_raw.extend_from_slice(buf);
-        codec.outbound(&mut this.out_raw, &mut this.out_ready)?;
+        if let Err(violation) = this.codec.outbound(&mut this.out_raw, &mut this.out_ready) {
+            this.out_raw.clear();
+            let error = failure(&violation);
+            this.failed = Some(violation);
+            return Poll::Ready(Err(error));
+        }
         Poll::Ready(Ok(buf.len()))
     }
 
@@ -350,90 +552,202 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for WsIo<S> {
         Pin::new(&mut self.inner).poll_shutdown(cx)
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value;
 
-    fn server_frame(first: u8, payload: &[u8]) -> Vec<u8> {
-        let mut out = Vec::new();
-        frame(first, None, payload, &mut out);
-        out
+    /// Recorded from `ws` 8.22.0 itself (`ws-deflate-vectors.mjs`).
+    fn vectors() -> Value {
+        let text = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../benchmarks/terminal-bench-2.1/analysis/parity/fixtures/ws-deflate-vectors.json"));
+        serde_json::from_str(text).unwrap()
     }
 
-    fn codec(extension: Extension) -> Codec {
-        Codec { extension, decoder: Decompress::new(false), encoder: Compress::new(Compression::default(), false), message: None }
+    fn unhex(text: &str) -> Vec<u8> {
+        (0..text.len()).step_by(2).map(|i| u8::from_str_radix(&text[i..i + 2], 16).unwrap()).collect()
     }
 
-    #[test]
-    fn the_answer_is_read_as_the_extension_it_accepts() {
-        assert_eq!(Extension::parse(None), Ok(None));
-        assert_eq!(Extension::parse(Some("permessage-deflate")), Ok(Some(Extension::default())));
-        let narrowed = Extension::parse(Some("permessage-deflate; client_no_context_takeover; client_max_window_bits=10")).unwrap().unwrap();
-        assert!(narrowed.client_no_context_takeover && narrowed.client_window_limited && !narrowed.server_no_context_takeover);
-        assert!(Extension::parse(Some("x-webkit-deflate-frame")).is_err());
-        assert!(Extension::parse(Some("permessage-deflate; bogus")).is_err());
-    }
-
-    /// What the client sends, a server reads back as the same message, and the reverse, across two messages so the
-    /// shared window is exercised.
-    #[test]
-    fn compressed_messages_round_trip_through_both_directions() {
-        let mut client = codec(Extension::default());
-        let mut server_decoder = Decompress::new(false);
-        let text = "{\"type\":\"response.create\",\"input\":\"".to_owned() + &"abc ".repeat(600) + "\"}";
-        for _ in 0..2 {
-            let mut raw = Vec::new();
-            frame(0x81, Some([1, 2, 3, 4]), text.as_bytes(), &mut raw);
-            let mut wire = Vec::new();
-            client.outbound(&mut raw, &mut wire).unwrap();
-            let head = parse(&wire).unwrap().expect("one frame");
-            assert!(head.rsv1() && head.payload < text.len());
-            let key: [u8; 4] = wire[head.header - 4..head.header].try_into().unwrap();
-            let packed: Vec<u8> = wire[head.header..].iter().enumerate().map(|(i, b)| b ^ key[i % 4]).collect();
-            assert_eq!(inflate(&mut server_decoder, &packed).unwrap(), text.as_bytes());
+    fn plain_of(message: &Value) -> Vec<u8> {
+        match message["hex"].as_str() {
+            Some(hex) => unhex(hex),
+            None => message["text"].as_str().unwrap().as_bytes().to_vec(),
         }
-        let mut server_encoder = Compress::new(Compression::default(), false);
-        let packed = deflate(&mut server_encoder, text.as_bytes()).unwrap();
-        let mut raw = server_frame(0xc1, &packed);
-        let mut plain = Vec::new();
-        client.inbound(&mut raw, &mut plain).unwrap();
-        assert!(raw.is_empty());
-        assert_eq!(plain, server_frame(0x81, text.as_bytes()));
     }
 
     #[test]
-    fn small_messages_and_control_frames_pass_unchanged() {
-        let mut client = codec(Extension::default());
-        let mut raw = Vec::new();
-        frame(0x81, Some([9, 9, 9, 9]), b"short", &mut raw);
-        frame(0x89, Some([9, 9, 9, 9]), b"", &mut raw);
-        let expected = raw.clone();
-        let mut wire = Vec::new();
-        client.outbound(&mut raw, &mut wire).unwrap();
-        assert_eq!(wire, expected);
-        let ping = server_frame(0x89, b"x");
-        let mut raw = ping.clone();
-        let mut plain = Vec::new();
-        client.inbound(&mut raw, &mut plain).unwrap();
-        assert_eq!(plain, ping);
+    fn the_answers_ws_negotiates_are_read_as_ws_reads_them() {
+        for case in vectors()["cases"].as_array().unwrap() {
+            let extension = Extension::parse(case["response"].as_str()).unwrap().unwrap();
+            let params = &case["params"];
+            assert_eq!(extension.client_no_context_takeover, params["client_no_context_takeover"] == true, "{}", case["name"]);
+            assert_eq!(extension.server_no_context_takeover, params["server_no_context_takeover"] == true, "{}", case["name"]);
+            assert_eq!(u64::from(extension.client_max_window_bits), params["client_max_window_bits"].as_u64().unwrap_or(15), "{}", case["name"]);
+            assert_eq!(u64::from(extension.server_max_window_bits), params["server_max_window_bits"].as_u64().unwrap_or(15), "{}", case["name"]);
+        }
+        assert_eq!(Extension::parse(None), Ok(None));
+        for bad in [
+            "", "x-webkit-deflate-frame", "permessage-deflate; bogus", "permessage-deflate; client_max_window_bits",
+            "permessage-deflate; client_max_window_bits=7", "permessage-deflate; server_max_window_bits=16",
+            "permessage-deflate; client_no_context_takeover; client_no_context_takeover",
+            "permessage-deflate; server_max_window_bits=9; server_max_window_bits=10",
+            "permessage-deflate; client_no_context_takeover=1", "permessage-deflate, other", "permessage-deflate;", "a b",
+        ] {
+            assert!(Extension::parse(Some(bad)).is_err(), "{bad:?} is refused");
+        }
+        // Several configurations: the first is used (`acceptAsClient` reads `response[0]`).
+        let first = Extension::parse(Some("permessage-deflate; client_max_window_bits=10, permessage-deflate")).unwrap().unwrap();
+        assert_eq!(first.client_max_window_bits, 10);
+        assert_eq!(Extension::parse(Some("permessage-deflate; server_max_window_bits=\"11\"")).unwrap().unwrap().server_max_window_bits, 11);
     }
 
     #[test]
-    fn a_fragmented_compressed_message_is_one_plain_frame_and_a_partial_frame_waits() {
-        let mut client = codec(Extension::default());
+    fn what_ws_sends_is_read_as_the_same_messages_in_every_negotiation() {
+        for case in vectors()["cases"].as_array().unwrap() {
+            let mut codec = Codec::new(Extension::parse(case["response"].as_str()).unwrap().unwrap());
+            for message in case["server"]["messages"].as_array().unwrap() {
+                let mut out = Vec::new();
+                for wire in message["frames"].as_array().unwrap() {
+                    let mut raw = unhex(wire.as_str().unwrap());
+                    codec.inbound(&mut raw, &mut out).unwrap();
+                    assert!(raw.is_empty());
+                }
+                // One plain frame, or (a message ws sent uncompressed in fragments) its fragments unchanged.
+                let mut joined = Vec::new();
+                while let Some(head) = parse(&out).unwrap() {
+                    assert_eq!(head.first & 0x70, 0, "no RSV bits reach tungstenite");
+                    joined.extend_from_slice(&out[head.header..head.total()]);
+                    out.drain(..head.total());
+                }
+                assert_eq!(joined, plain_of(message), "{} / {}", case["name"], message["name"]);
+            }
+        }
+    }
+
+    #[test]
+    fn what_we_send_is_what_ws_sends_in_every_negotiation() {
+        let mut all = Vec::new();
+        for case in vectors()["cases"].as_array().unwrap() {
+            let mut codec = Codec::new(Extension::parse(case["response"].as_str()).unwrap().unwrap());
+            let mut server = Decompress::new_with_window_bits(false, window(codec.extension.client_max_window_bits));
+            let mut sent = Vec::new();
+            for message in case["client"]["messages"].as_array().unwrap() {
+                let plain = plain_of(message);
+                let parts: Vec<&[u8]> = if message["frames"].as_array().unwrap().len() == 2 {
+                    vec![&plain[..700], &plain[700..]]
+                } else {
+                    vec![&plain[..]]
+                };
+                if parts.len() == 2 {
+                    // tungstenite sends whole messages; a fragmented one goes through unchanged and uncompressed.
+                    continue;
+                }
+                let binary = message["hex"].is_string();
+                let mut raw = Vec::new();
+                frame(if binary { 0x82 } else { 0x81 }, Some([1, 2, 3, 4]), parts[0], &mut raw);
+                let mut out = Vec::new();
+                codec.outbound(&mut raw, &mut out).unwrap();
+                let recorded = unhex(message["frames"][0].as_str().unwrap());
+                assert_eq!(out[0] & 0x40, recorded[0] & 0x40, "compressed or not, {} / {}", case["name"], message["name"]);
+                assert_eq!(out[1] & 0x80, recorded[1] & 0x80, "masked");
+                // The bytes of a later message differ with the deflate backend (zlib-rs here, zlib there) but not
+                // in meaning: an independent server-side stream reads them back.
+                let head = parse(&out).unwrap().unwrap();
+                let key: [u8; 4] = out[head.header - 4..head.header].try_into().unwrap();
+                let body: Vec<u8> = out[head.header..].iter().enumerate().map(|(i, b)| b ^ key[i % 4]).collect();
+                let read = if out[0] & 0x40 != 0 {
+                    let mut got = Vec::new();
+                    inflate(&mut server, &[&body[..], &TAIL].concat(), &mut got, MAX_PAYLOAD).unwrap_or_else(|e| panic!("{} / {}: {e:?}, {} bytes", case["name"], message["name"], body.len()));
+                    if codec.extension.client_no_context_takeover {
+                        server.reset(false);
+                    }
+                    got
+                } else {
+                    body
+                };
+                assert_eq!(read, plain, "{} / {}", case["name"], message["name"]);
+                sent.push(hexed(&out));
+            }
+            all.push(serde_json::json!({ "name": case["name"], "response": case["response"], "frames": sent }));
+        }
+        // ws-deflate-verify.mjs reads this and has ws's own receiver take the frames.
+        if let Ok(out) = std::env::var("MIXDOG_WS_OUT") {
+            std::fs::write(out, serde_json::to_string(&all).unwrap()).unwrap();
+        }
+    }
+
+    fn hexed(bytes: &[u8]) -> String {
+        bytes.iter().map(|b| format!("{b:02x}")).collect()
+    }
+
+    #[test]
+    fn what_ws_refuses_is_refused_with_the_close_code_ws_uses() {
+        for negative in vectors()["negatives"].as_array().unwrap() {
+            let name = negative["name"].as_str().unwrap();
+            let mut codec = if negative["extension"] == false { Codec::plain() } else { Codec::new(Extension::default()) };
+            let mut out = Vec::new();
+            let mut outcome = Ok(());
+            for wire in negative["frames"].as_array().unwrap() {
+                let mut raw = unhex(wire.as_str().unwrap());
+                outcome = codec.inbound(&mut raw, &mut out);
+                if outcome.is_err() {
+                    break;
+                }
+            }
+            match negative["result"]["error"]["closeCode"].as_u64() {
+                Some(code) => assert_eq!(outcome.expect_err(name).code, code as u16, "{name}"),
+                None => assert!(outcome.is_ok(), "{name}: ws accepts it"),
+            }
+        }
+    }
+
+    #[test]
+    fn plain_messages_around_a_compressed_one_pass_in_order() {
+        let negatives = vectors();
+        let case = negatives["negatives"].as_array().unwrap().iter().find(|n| n["name"] == "plain text and a compressed message after it").unwrap();
+        let mut codec = Codec::new(Extension::default());
+        let mut out = Vec::new();
+        for wire in case["frames"].as_array().unwrap() {
+            codec.inbound(&mut unhex(wire.as_str().unwrap()), &mut out).unwrap();
+        }
+        let first = parse(&out).unwrap().unwrap();
+        assert_eq!(&out[first.header..first.total()], b"plain");
+    }
+
+    #[test]
+    fn a_message_is_bounded_while_it_inflates() {
+        let mut codec = Codec::new(Extension::default());
         let mut encoder = Compress::new(Compression::default(), false);
-        let packed = deflate(&mut encoder, b"hello hello hello").unwrap();
-        let (a, b) = packed.split_at(packed.len() / 2);
-        let mut raw = [server_frame(0x41, a), server_frame(0x80, b)].concat();
-        let mut plain = Vec::new();
-        let whole = raw.clone();
-        raw.truncate(3);
-        client.inbound(&mut raw, &mut plain).unwrap();
-        assert!(plain.is_empty());
-        raw = whole[3..].to_vec();
-        raw.splice(0..0, whole[..3].iter().copied());
-        client.inbound(&mut raw, &mut plain).unwrap();
-        assert_eq!(plain, server_frame(0x81, b"hello hello hello"));
+        let bomb = deflate(&mut encoder, &vec![0u8; MAX_PAYLOAD + (1 << 20)]).unwrap();
+        assert!(bomb.len() < MAX_PAYLOAD / 100);
+        let mut raw = Vec::new();
+        frame(0xc1, None, &bomb, &mut raw);
+        let mut out = Vec::new();
+        let outcome = codec.inbound(&mut raw, &mut out);
+        assert_eq!(outcome.unwrap_err().code, 1009);
+        // Bounded while inflating, not after: the output never grew far past the limit.
+        assert!(out.capacity() <= MAX_PAYLOAD + 4 * STEP, "{} bytes allocated", out.capacity());
+    }
+
+    #[test]
+    fn a_violation_queues_the_close_frame_and_fails_the_read() {
+        use tokio::io::AsyncReadExt;
+        let (near, mut far) = tokio::io::duplex(1 << 16);
+        let mut ws = WsIo::new(near, Vec::new(), Some(Extension::default()));
+        let mut rsv2 = Vec::new();
+        frame(0xa1, None, b"x", &mut rsv2);
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(async move {
+            use tokio::io::AsyncWriteExt;
+            far.write_all(&rsv2).await.unwrap();
+            let mut byte = [0u8; 1];
+            assert!(ws.read(&mut byte).await.is_err());
+            assert!(ws.read(&mut byte).await.is_err(), "and every later read");
+            let mut close = [0u8; 8];
+            far.read_exact(&mut close).await.unwrap();
+            assert_eq!(close[0], 0x88);
+            assert_eq!(close[1], 0x82, "masked, two bytes");
+            let code = u16::from_be_bytes([close[6] ^ close[2], close[7] ^ close[3]]);
+            assert_eq!(code, 1002);
+        });
     }
 }

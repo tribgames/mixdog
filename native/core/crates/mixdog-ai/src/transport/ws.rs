@@ -352,10 +352,24 @@ async fn upgrade<S: AsyncRead + AsyncWrite + Unpin>(
         &ring::digest::SHA1_FOR_LEGACY_USE_ONLY,
         format!("{key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11").as_bytes(),
     );
-    let accepted = find("sec-websocket-accept") == Some(base64::engine::general_purpose::STANDARD.encode(digest.as_ref()));
-    let upgraded = find("upgrade").is_some_and(|v| v.eq_ignore_ascii_case("websocket"));
-    let extension = Extension::parse(find("sec-websocket-extensions").as_deref());
-    let (true, true, Ok(extension)) = (accepted, upgraded, extension) else {
+    // Node joins repeated header lines with ", " (`_http_incoming.js` `matchKnownFields`), and `ws` reads the joined value.
+    let joined = |name: &str| {
+        let values: Vec<String> = headers
+            .iter()
+            .filter(|(n, _)| n.eq_ignore_ascii_case(name))
+            .map(|(_, v)| String::from_utf8_lossy(v).trim().to_owned())
+            .collect();
+        (!values.is_empty()).then(|| values.join(", "))
+    };
+    let accepted = joined("sec-websocket-accept") == Some(base64::engine::general_purpose::STANDARD.encode(digest.as_ref()));
+    // `ws/lib/websocket.js:965-967`; without a `Connection: upgrade` token Node's parser does not treat the 101 as an
+    // upgrade at all and `ws` fails with "Unexpected server response: 101".
+    let upgraded = joined("upgrade").is_some_and(|v| v.eq_ignore_ascii_case("websocket"))
+        && joined("connection").is_some_and(|v| v.split(',').any(|t| t.trim().eq_ignore_ascii_case("upgrade")));
+    // No subprotocol is ever requested, so any answer is unsolicited (`websocket.js:979-985`).
+    let unsolicited = joined("sec-websocket-protocol").is_some();
+    let extension = Extension::parse(joined("sec-websocket-extensions").as_deref());
+    let (true, true, false, Ok(extension)) = (accepted, upgraded, unsolicited, extension) else {
         return Err(ConnectError::Transport(TransportFault::Closed));
     };
     let response = builder.body(None).map_err(|_| ConnectError::Transport(TransportFault::Closed))?;
@@ -522,4 +536,72 @@ async fn write_loop(
         }
     }
     let _ = sink.close().await;
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Runs [`upgrade`] against a server that answers with `answer(key)` (the lines after the status line).
+    async fn upgrade_against(answer: impl Fn(&str) -> String + Send + 'static) -> Result<Option<Extension>, ConnectError> {
+        let (mut near, mut far) = tokio::io::duplex(1 << 14);
+        let server = tokio::spawn(async move {
+            let mut seen = Vec::new();
+            let mut chunk = [0u8; 2048];
+            while !seen.windows(4).any(|w| w == b"\r\n\r\n") {
+                let n = far.read(&mut chunk).await.unwrap();
+                seen.extend_from_slice(&chunk[..n]);
+            }
+            let text = String::from_utf8(seen).unwrap();
+            let key = text.lines().find_map(|l| l.strip_prefix("Sec-WebSocket-Key: ")).unwrap().to_owned();
+            far.write_all(answer(&key).as_bytes()).await.unwrap();
+        });
+        let request = "ws://example.test/".into_client_request().unwrap();
+        let outcome = upgrade(&mut near, &request).await.map(|(_, _, extension)| extension);
+        server.await.unwrap();
+        outcome
+    }
+
+    fn accept_of(key: &str) -> String {
+        let digest = ring::digest::digest(&ring::digest::SHA1_FOR_LEGACY_USE_ONLY, format!("{key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11").as_bytes());
+        base64::engine::general_purpose::STANDARD.encode(digest.as_ref())
+    }
+
+    fn answer(key: &str, extra: &str) -> String {
+        format!("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {}\r\n{extra}\r\n", accept_of(key))
+    }
+
+    #[tokio::test]
+    async fn a_plain_upgrade_is_accepted() {
+        assert_eq!(upgrade_against(|k| answer(k, "")).await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn a_101_without_a_connection_upgrade_token_is_refused() {
+        let outcome = upgrade_against(|k| answer(k, "").replace("Connection: Upgrade\r\n", "Connection: keep-alive\r\n")).await;
+        assert!(outcome.is_err());
+        let outcome = upgrade_against(|k| answer(k, "").replace("Connection: Upgrade\r\n", "")).await;
+        assert!(outcome.is_err());
+        // A token among others is enough, in any case (`Connection: keep-alive, Upgrade`).
+        let outcome = upgrade_against(|k| answer(k, "").replace("Connection: Upgrade\r\n", "connection: keep-alive, upgrade\r\n")).await;
+        assert!(outcome.is_ok());
+    }
+
+    #[tokio::test]
+    async fn an_unsolicited_subprotocol_is_refused() {
+        let outcome = upgrade_against(|k| answer(k, "Sec-WebSocket-Protocol: chat\r\n")).await;
+        assert!(outcome.is_err());
+    }
+
+    #[tokio::test]
+    async fn extension_lines_are_read_together() {
+        // Two lines are one list to `ws`: the first configuration is used...
+        let outcome = upgrade_against(|k| answer(k, "Sec-WebSocket-Extensions: permessage-deflate; client_max_window_bits=10\r\nSec-WebSocket-Extensions: permessage-deflate\r\n")).await;
+        assert_eq!(outcome.unwrap().unwrap().client_max_window_bits, 10);
+        // ...and a second line that is not the offered extension fails the handshake though the first is fine.
+        let outcome = upgrade_against(|k| answer(k, "Sec-WebSocket-Extensions: permessage-deflate\r\nSec-WebSocket-Extensions: x-other\r\n")).await;
+        assert!(outcome.is_err());
+        // Conflicting repeated parameters are refused.
+        let outcome = upgrade_against(|k| answer(k, "Sec-WebSocket-Extensions: permessage-deflate; client_max_window_bits=10; client_max_window_bits=11\r\n")).await;
+        assert!(outcome.is_err());
+    }
 }

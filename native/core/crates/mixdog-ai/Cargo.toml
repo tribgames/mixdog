@@ -27,7 +27,7 @@ base64 = { workspace = true }
 bytes = { workspace = true }
 ring = { workspace = true }
 chrono = { workspace = true }
-flate2 = { workspace = true }
+flate2 = { workspace = true, features = ["zlib-rs"] }
 httparse = { workspace = true }
 brotli = { workspace = true }
 futures = { workspace = true, features = ["std"] }
