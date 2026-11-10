@@ -22,9 +22,9 @@
       "sha256": "8b63c7e51d857b2c89d826722e34efdb5c7c34485b33f69dd19a5ade73364257"
     },
     {
-      "bytes": 1849938,
+      "bytes": 1849942,
       "path": "golden.json",
-      "sha256": "51b3b66abf8f5bea2e3a4dd0281bcf4a7a9597972582d7a3072c9556bcc78e1d"
+      "sha256": "11424b0de9c72b93b96f10a22bbaa8bec2c8f2f28cf2ebbebbf8f3303cb14503"
     }
   ],
   "groups": {
@@ -77,11 +77,11 @@
   "recorderFiles": [
     {
       "path": "benchmarks/rust-core/recorders/record-phone-scm.mjs",
-      "sha256": "a80cb5d51856a016ccb57cad1a5f6392526938ba2b8958174aaeda841f41dd31"
+      "sha256": "19466069624201a189b483a195e3da0b5f739126ccc26d7d738142cd2f649d5c"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "d4d0064b5b40d5fcb833a69fb3d68a69b1c1317606b5fe341c3445d5d0bbefd4"
+      "sha256": "1f65dbb615d53376c103b20d0df7a53b7ba1bfed8100be99716da900dfc58c66"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/phone-scm-world.mjs",
@@ -776,5 +776,5 @@
       }
     ]
   },
-  "totalBytes": 1875419
+  "totalBytes": 1875423
 }
