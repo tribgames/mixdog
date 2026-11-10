@@ -1,0 +1,103 @@
+{
+  "note": "Node's sessionUsageTotals at b6f10295a2f698afc85332467192de28500bd146 over its unit test's sessions",
+  "cases": [
+    {
+      "session": {
+        "totalInputTokens": 120,
+        "totalOutputTokens": 30,
+        "totalToolCalls": 7
+      },
+      "totals": {
+        "usage": {
+          "inputTokens": 120,
+          "outputTokens": 30,
+          "totalTokens": 150
+        },
+        "toolCalls": 7
+      }
+    },
+    {
+      "session": {
+        "totalInputTokens": 0,
+        "totalOutputTokens": 0,
+        "totalToolCalls": 0
+      },
+      "totals": {
+        "usage": {
+          "inputTokens": 0,
+          "outputTokens": 0,
+          "totalTokens": 0
+        },
+        "toolCalls": 0
+      }
+    },
+    {
+      "session": {
+        "totalInputTokens": 5,
+        "totalOutputTokens": 1
+      },
+      "totals": {
+        "usage": {
+          "inputTokens": 5,
+          "outputTokens": 1,
+          "totalTokens": 6
+        },
+        "toolCalls": null
+      }
+    },
+    {
+      "session": null,
+      "totals": {
+        "usage": null,
+        "toolCalls": null
+      }
+    },
+    {
+      "session": {},
+      "totals": {
+        "usage": null,
+        "toolCalls": null
+      }
+    },
+    {
+      "session": {
+        "totalInputTokens": "x",
+        "totalToolCalls": -1
+      },
+      "totals": {
+        "usage": null,
+        "toolCalls": null
+      }
+    },
+    {
+      "session": {
+        "totalInputTokens": 900,
+        "totalOutputTokens": 100,
+        "totalToolCalls": 12
+      },
+      "totals": {
+        "usage": {
+          "inputTokens": 900,
+          "outputTokens": 100,
+          "totalTokens": 1000
+        },
+        "toolCalls": 12
+      }
+    },
+    {
+      "session": {
+        "totalInputTokens": 40,
+        "totalOutputTokens": 2,
+        "totalToolCalls": 5
+      },
+      "totals": {
+        "usage": {
+          "inputTokens": 40,
+          "outputTokens": 2,
+          "totalTokens": 42
+        },
+        "toolCalls": 5
+      }
+    }
+  ]
+}

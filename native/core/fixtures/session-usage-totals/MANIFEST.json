@@ -1,0 +1,48 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-session-usage-totals.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "exclusions": {
+    "deltaAndTerminalCounting": ":31 (usageDeltaEvent / applyAskTerminalUsageTotals) is not this module; not recorded here",
+    "undefinedSession": "the test also passes undefined; JSON has no undefined, and `session?.` reads it exactly as null, which is recorded"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 2004,
+      "path": "golden.json",
+      "sha256": "0c1dcf32f4724a69b33def8fcf8cab5d3d871af71a0055425808a6b9022a02cc"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-session-usage-totals.mjs",
+  "recorderSha256": "81cedd6363d1316c77c7d27ac7d1ca116c15f16c2c17cc83f316ecb46a2745ab",
+  "set": "session-usage-totals",
+  "tests": [
+    "src/runtime/shared/session-usage-totals.test.mjs:13",
+    "src/runtime/shared/session-usage-totals.test.mjs:46 (stored rows)",
+    "src/runtime/shared/session-usage-totals.test.mjs:83 (live rows)"
+  ],
+  "totalBytes": 2004
+}
