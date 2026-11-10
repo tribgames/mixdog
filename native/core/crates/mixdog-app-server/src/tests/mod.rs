@@ -269,7 +269,9 @@ pub(crate) fn config() -> ServerConfig {
             browser: available(),
             computer: available(),
             voice: available(),
+            remote: Default::default(),
         },
+        native_push: Arc::new(|| false),
         limits: Limits::default(),
         version_gate: Arc::new(|client| match client.version.as_str() {
             VERSION => VersionOrder::Equal,
@@ -329,6 +331,15 @@ impl Rig {
         mock: &'static [&'static str],
         gates: Vec<(&'static str, &'static [&'static str])>,
     ) -> Self {
+        Self::configured(mock, gates, config())
+    }
+
+    /// [`Rig::routed`] with a server configuration of the test's own.
+    pub(crate) fn configured(
+        mock: &'static [&'static str],
+        gates: Vec<(&'static str, &'static [&'static str])>,
+        config: ServerConfig,
+    ) -> Self {
         mixdog_rt::testing::tokens();
         let core = Arc::new(TestCore {
             mock: MockCore::new(mock, MockLimits::default()),
@@ -354,7 +365,7 @@ impl Rig {
         let known = origins.clone();
         let origin_of: crate::OriginOf =
             Arc::new(move |id| known.lock().unwrap().get(&id).copied());
-        let server = AppServer::new(core.clone(), outgoing.clone(), origin_of, config()).unwrap();
+        let server = AppServer::new(core.clone(), outgoing.clone(), origin_of, config).unwrap();
         Self {
             server,
             core,

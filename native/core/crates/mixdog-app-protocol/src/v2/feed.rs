@@ -102,6 +102,11 @@ pub struct Subscription {
     pub epoch: FeedEpoch,
     #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub start_seq: u64,
+    /// The first seq published after this attach. A replay's frames are below it: they were published while the client was away
+    /// (Node's relay sent a phone only what happened while it was connected). Absent from a core that predates it.
+    #[serde(default)]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
+    pub live_seq: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
