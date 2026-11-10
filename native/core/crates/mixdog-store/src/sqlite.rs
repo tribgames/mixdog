@@ -35,6 +35,7 @@ use rusqlite::OptionalExtension;
 use rusqlite::Transaction;
 use rusqlite::params;
 use tokio::sync::oneshot;
+use tokio::sync::watch;
 
 use crate::fold::LineageIndex;
 use crate::fold::LookupError;
@@ -518,6 +519,14 @@ enum Command {
     Labels { labels: PlaceholderLabels, ack: Ack },
     /// Drop the index rows of a deleted session whose folder is gone.
     Purge { session: String, ack: Ack },
+    /// Frames of a session the reconcile read from its log; with `finish`, its row and damage,
+    /// written clean (`reconcile`). Answered on a channel the lane job blocks on.
+    Reconcile {
+        session: String,
+        frames: Vec<ProjectedFrame>,
+        finish: Option<Box<(CatalogHead, Option<String>)>>,
+        ack: mpsc::Sender<Result<(), DbError>>,
+    },
     /// The writer stops at once and closes its connection ([`SqliteStore::close`]).
     #[cfg(any(test, feature = "test-support"))]
     Close,
@@ -570,8 +579,57 @@ struct Writer {
     sink: RowSinkCell,
 }
 
+/// Where the reconcile of the sessions found dirty at open stands (`SqliteStore::reconciled`).
+#[derive(Debug, Clone)]
+enum Settle {
+    Reconciling,
+    Done,
+    Failed(String),
+}
+
 const LABELS_KEY: &str = "ui:placeholder_labels";
 const REFOLD_JOB: &str = "job:refold_titles";
+
+/// The seam of the boot reconcile between a session's projection and its row: a test arms it
+/// for one data dir, and the next reconcile there ends (as a process ending at that point).
+#[cfg(test)]
+pub(crate) mod reconcile_seam {
+    use std::path::Path;
+    use std::path::PathBuf;
+    use std::sync::Mutex;
+
+    static ARMED: Mutex<Option<PathBuf>> = Mutex::new(None);
+    static HELD: Mutex<Option<(PathBuf, std::sync::mpsc::Receiver<()>)>> = Mutex::new(None);
+
+    pub(crate) fn arm(data: &Path) {
+        *ARMED.lock().expect("seam") = Some(data.to_path_buf());
+    }
+
+    /// The next reconcile in `data` starts once the returned sender sends (or is dropped).
+    pub(crate) fn hold(data: &Path) -> std::sync::mpsc::Sender<()> {
+        let (release, held) = std::sync::mpsc::channel();
+        *HELD.lock().expect("seam") = Some((data.to_path_buf(), held));
+        release
+    }
+
+    pub(super) fn wait_if_held(data: &Path) {
+        let mut slot = HELD.lock().expect("seam");
+        if slot.as_ref().is_some_and(|(at, _)| at == data) {
+            let (_, held) = slot.take().expect("held");
+            drop(slot);
+            let _ = held.recv();
+        }
+    }
+
+    pub(super) fn ends_here(data: &Path) -> bool {
+        let mut armed = ARMED.lock().expect("seam");
+        let hit = armed.as_deref() == Some(data);
+        if hit {
+            *armed = None;
+        }
+        hit
+    }
+}
 
 fn send(acks: Vec<Ack>, result: &Result<(), String>) {
     for ack in acks {
@@ -622,6 +680,10 @@ impl Writer {
         self.seq += 1;
         let seq = self.seq;
         match cmd {
+            // Applied as it arrives: every other request waits until the reconcile is done.
+            Command::Reconcile { session, frames, finish, ack } => {
+                let _ = ack.send(self.reconcile_apply(&session, &frames, finish.map(|finish| *finish)));
+            }
             Command::Upsert { head, dirty, ack } => {
                 let entry = self
                     .upserts
@@ -694,47 +756,24 @@ impl Writer {
         }
     }
 
-    /// RL §9.2 rule 5, run by `SqliteStore::open` after the boot purge and before the writer
-    /// thread starts: a session still marked dirty was active when the process last ended,
-    /// and the frames its log acked after the index's projected cursor were never projected
-    /// (the projection runs behind the ack, so a process that ends right after an ack loses
-    /// it). Those frames are projected now and its catalog row is written from its log, so a
-    /// read after a crash sees every acked row (a prompt whose turn the crash interrupted
-    /// included). A session whose log ends at the cursor costs one read at the cursor.
-    #[allow(clippy::disallowed_methods, reason = "runs on the maintenance lane job (lane proof argument)")]
-    fn boot_reconcile(&mut self, data: &Path) -> Result<(), DbError> {
-        let dirty: Vec<String> = self
-            .conn
-            .prepare_cached("SELECT id FROM sessions WHERE dirty = 1 ORDER BY id")?
-            .query_map([], |r| r.get(0))?
-            .collect::<Result<_, _>>()?;
-        let blobs = crate::blobs::BlobStore::new(data);
-        for session in dirty {
-            let dir = data.join("sessions").join(&session);
-            if !dir.is_dir() {
-                continue;
-            }
-            let from = projected_on(&self.conn, &session)?;
-            if let Some(from) = from
-                && crate::log::read_forward_unlaned(&dir, from, 1).is_ok_and(|read| read.frames.is_empty())
-            {
-                continue;
-            }
-            let mut fold = None;
-            let damage = project_session(&mut self.conn, &dir, &blobs, &mut fold, from)
-                .map_err(|e| DbError::Write(format!("{session}: {e}")))?
-                .err()
-                .map(|(error, at)| damage_text(&dir, at, &error));
-            let head = fold.as_ref().map_or_else(|| unreadable_head(&session), CatalogHead::of);
-            let tx = self.conn.transaction()?;
-            upsert(&tx, &head, DirtyMark::Keep, &self.labels)?;
-            if let Some(damage) = damage {
-                set_status_on(&tx, &session, SessionStatus::Damaged, Some(&damage))?;
-            }
-            tx.commit()?;
-            // A fork whose base gained rows may now have a view to finish.
-            self.views = true;
+    /// One message of the reconcile (`reconcile`): the frames, then with `finish` the row
+    /// (and damage) of the session, which clears its dirty mark in the row's transaction.
+    fn reconcile_apply(
+        &mut self,
+        session: &str,
+        frames: &[ProjectedFrame],
+        finish: Option<(CatalogHead, Option<String>)>,
+    ) -> Result<(), DbError> {
+        apply_all(&mut self.conn, session, frames)?;
+        let Some((head, damage)) = finish else { return Ok(()) };
+        let tx = self.conn.transaction()?;
+        upsert(&tx, &head, DirtyMark::Clear, &self.labels)?;
+        if let Some(damage) = damage {
+            set_status_on(&tx, session, SessionStatus::Damaged, Some(&damage))?;
         }
+        tx.commit()?;
+        // A fork whose base gained rows may now have a view to finish.
+        self.views = true;
         Ok(())
     }
 
@@ -860,7 +899,7 @@ impl Writer {
                     }
                     #[cfg(any(test, feature = "test-support"))]
                     Command::Close => unreachable!("the writer stops before it queues a close"),
-                    Command::Upsert { .. } | Command::Project { .. } | Command::Purge { .. } => {
+                    Command::Upsert { .. } | Command::Project { .. } | Command::Purge { .. } | Command::Reconcile { .. } => {
                         unreachable!("queued separately")
                     }
                 }
@@ -1284,6 +1323,7 @@ struct Shared {
     /// The writer thread, joined by [`SqliteStore::close`].
     #[cfg(any(test, feature = "test-support"))]
     writer: Mutex<Option<std::thread::JoinHandle<()>>>,
+    settled: watch::Receiver<Settle>,
 }
 
 /// Cloneable handle on `index/store.sqlite`. The writer thread finishes the queued
@@ -1410,7 +1450,12 @@ impl SqliteStore {
             }
         };
         writer.boot_purge(lane, data, &incomplete)?;
-        writer.boot_reconcile(data)?;
+        let dirty: Vec<String> = writer
+            .conn
+            .prepare_cached("SELECT id FROM sessions WHERE dirty = 1 ORDER BY id")?
+            .query_map([], |r| r.get(0))?
+            .collect::<Result<_, _>>()?;
+        let (settle, settled) = watch::channel(if dirty.is_empty() { Settle::Done } else { Settle::Reconciling });
         let rows = writer.sink.clone();
         let (sender, rx) = mpsc::channel();
         let handle = thread
@@ -1418,16 +1463,45 @@ impl SqliteStore {
             .map_err(|e| DbError::Write(e.to_string()))?;
         #[cfg(not(any(test, feature = "test-support")))]
         drop(handle);
-        Ok(SqliteStore {
+        let store = SqliteStore {
             shared: Arc::new(Shared {
                 path: path.to_path_buf(),
                 pool: ReadPool::new(path, read_lane),
                 rows,
                 #[cfg(any(test, feature = "test-support"))]
                 writer: Mutex::new(Some(handle)),
+                settled,
             }),
             sender,
-        })
+        };
+        if !dirty.is_empty() {
+            let (pool, sender, data) = (store.shared.pool.clone(), store.sender.clone(), data.to_path_buf());
+            let _job = read_lane
+                .submit(&CancellationToken::new(), move |lane| {
+                    match reconcile(lane, &pool, &sender, &data, dirty) {
+                        Ok(true) => drop(settle.send_replace(Settle::Done)),
+                        // The test seam: the process ended mid-reconcile; `settle` is dropped.
+                        Ok(false) => {}
+                        Err(why) => drop(settle.send_replace(Settle::Failed(why))),
+                    }
+                })
+                .map_err(|_| DbError::LaneFull)?;
+        }
+        Ok(store)
+    }
+
+    /// Resolves once the sessions found dirty at open are reconciled (`reconcile`); every read
+    /// and every acknowledged write waits for it, so none sees or changes a row the reconcile
+    /// has yet to write. A reconcile that failed to write the index fails it.
+    pub fn reconciled(&self) -> impl Future<Output = Result<(), DbError>> + Send + 'static {
+        let mut settled = self.shared.settled.clone();
+        async move {
+            let settle = settled.wait_for(|s| !matches!(s, Settle::Reconciling)).await.map_err(|_| DbError::Stopped)?.clone();
+            match settle {
+                Settle::Failed(why) => Err(DbError::Write(why)),
+                Settle::Done | Settle::Reconciling => Ok(()),
+            }
+        }
     }
 
     /// Test teardown: the writer stops at once (what is queued behind the close is dropped, its waiters answered `Stopped`) and
@@ -1453,6 +1527,7 @@ impl SqliteStore {
     }
 
     async fn ask(&self, make: impl FnOnce(Ack) -> Command) -> Result<(), DbError> {
+        self.reconciled().await?;
         let (ack, rx) = oneshot::channel();
         self.submit(make(ack))?;
         rx.await.map_err(|_| DbError::Stopped)?
@@ -1500,7 +1575,11 @@ impl SqliteStore {
         &self,
         f: impl FnOnce(&Connection) -> Result<T, DbError> + Send + 'static,
     ) -> impl Future<Output = Result<T, DbError>> + Send + 'static {
-        self.shared.pool.run(f)
+        let (settled, pool) = (self.reconciled(), self.shared.pool.clone());
+        async move {
+            settled.await?;
+            pool.run(f).await
+        }
     }
 
     /// RL §9.2 rule 5.
@@ -1928,12 +2007,104 @@ pub fn project_index(
 /// Why a log stopped before its end, and the damaged frame when the reader names it.
 type LogFailure = (String, Option<crate::log::Damage>);
 
-/// Projects the log in `dir` forward into `conn`, folding into `fold`. The outer error is
+/// Where `project_session` writes: the index connection of a rebuild, or the writer thread
+/// (the reconcile of an open index).
+trait ProjectTo {
+    /// The log's `session` frame was folded: a rebuild writes the row before its frames.
+    fn started(&mut self, head: &CatalogHead) -> Result<(), String>;
+    fn frames(&mut self, session: &str, frames: Vec<ProjectedFrame>) -> Result<(), String>;
+}
+
+impl ProjectTo for Connection {
+    fn started(&mut self, head: &CatalogHead) -> Result<(), String> {
+        let tx = self.transaction().map_err(|e| e.to_string())?;
+        upsert(&tx, head, DirtyMark::Clear, &PlaceholderLabels::default()).map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())
+    }
+
+    fn frames(&mut self, session: &str, frames: Vec<ProjectedFrame>) -> Result<(), String> {
+        apply_all(self, session, &frames).map_err(|e| e.to_string())
+    }
+}
+
+/// The reconcile's way into the open index: each message is applied by the writer thread,
+/// and the lane job waits for it (one read chunk of frames in memory at a time).
+struct ToWriter<'a>(&'a mpsc::Sender<Command>);
+
+impl ToWriter<'_> {
+    fn send(&self, session: &str, frames: Vec<ProjectedFrame>, finish: Option<(CatalogHead, Option<String>)>) -> Result<(), String> {
+        let (ack, done) = mpsc::channel();
+        let stopped = |_| "the index writer stopped".to_owned();
+        self.0
+            .send(Command::Reconcile { session: session.to_owned(), frames, finish: finish.map(Box::new), ack })
+            .map_err(|_| "the index writer stopped".to_owned())?;
+        done.recv().map_err(stopped)?.map_err(|e| e.to_string())
+    }
+}
+
+impl ProjectTo for ToWriter<'_> {
+    /// The row is there (it is marked dirty); it is written once the log is folded.
+    fn started(&mut self, _head: &CatalogHead) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn frames(&mut self, session: &str, frames: Vec<ProjectedFrame>) -> Result<(), String> {
+        if frames.is_empty() {
+            return Ok(());
+        }
+        self.send(session, frames, None)
+    }
+}
+
+/// RL §9.2 rule 5, a job on the read lane that `SqliteStore::open` starts once the writer
+/// runs: a session still marked dirty was active when the process last ended, and the frames
+/// its log acked after the index's projected cursor were never projected (the projection runs
+/// behind the ack, so a process that ends right after an ack loses it). Those frames are
+/// projected now and its catalog row is written from its log, so a read after a crash sees
+/// every acked row (a prompt whose turn the crash interrupted included). A cursor at the log's
+/// end does not show the row is current (the row is written after the projection, by the live
+/// writer and here alike), so every dirty session is folded; its mark is cleared in the row's
+/// own transaction, and a process that ends between the projection and the row reconciles the
+/// session again. `Ok(false)`: the test seam ended it, as a process ending there.
+#[allow(clippy::disallowed_methods, reason = "runs on the read lane job (lane proof argument)")]
+fn reconcile(
+    _lane: &InLane<InteractiveIo>,
+    pool: &ReadPool,
+    sender: &mpsc::Sender<Command>,
+    data: &Path,
+    dirty: Vec<String>,
+) -> Result<bool, String> {
+    #[cfg(test)]
+    reconcile_seam::wait_if_held(data);
+    let blobs = crate::blobs::BlobStore::new(data);
+    for session in dirty {
+        let dir = data.join("sessions").join(&session);
+        if !dir.is_dir() {
+            continue;
+        }
+        let from = pool.with(|c| projected_on(c, &session)).map_err(|e| format!("{session}: {e}"))?;
+        let mut fold = None;
+        let mut to = ToWriter(sender);
+        let damage = project_session(&mut to, &dir, &blobs, &mut fold, from)
+            .map_err(|e| format!("{session}: {e}"))?
+            .err()
+            .map(|(error, at)| damage_text(&dir, at, &error));
+        #[cfg(test)]
+        if reconcile_seam::ends_here(data) {
+            return Ok(false);
+        }
+        let head = fold.as_ref().map_or_else(|| unreadable_head(&session), CatalogHead::of);
+        to.send(&session, Vec::new(), Some((head, damage))).map_err(|e| format!("{session}: {e}"))?;
+    }
+    Ok(true)
+}
+
+/// Projects the log in `dir` forward into `to`, folding into `fold`. The outer error is
 /// an index write failure; the inner one is the log's own failure, after which the frames
 /// before it stay projected. `from`: the index already holds every frame before this one
-/// (the boot reconcile), so those are folded only.
+/// (the reconcile), so those are folded only.
 fn project_session(
-    conn: &mut Connection,
+    to: &mut impl ProjectTo,
     dir: &Path,
     blobs: &crate::blobs::BlobStore,
     fold: &mut Option<crate::fold::Fold>,
@@ -1943,7 +2114,6 @@ fn project_session(
     use crate::fold::NoIndex;
     use crate::log::ForwardEnd;
     use crate::schema::record::Record;
-    let labels = PlaceholderLabels::default();
     let log = |e: String| (e, None);
     let first = match crate::log::first_ordinal_unlaned(dir) {
         Ok(first) => first,
@@ -1983,9 +2153,7 @@ fn project_session(
             };
             let f = fold.as_ref().expect("folded");
             if started && from.is_none() {
-                let tx = conn.transaction().map_err(|e| e.to_string())?;
-                upsert(&tx, &CatalogHead::of(f), DirtyMark::Clear, &labels).map_err(|e| e.to_string())?;
-                tx.commit().map_err(|e| e.to_string())?;
+                to.started(&CatalogHead::of(f))?;
             }
             if from.is_some_and(|from| at.ordinal < from.ordinal) {
                 continue;
@@ -2008,7 +2176,7 @@ fn project_session(
             });
         }
         let session = fold.as_ref().map(|f| f.session.clone()).unwrap_or_default();
-        apply_all(conn, &session, &frames).map_err(|e| e.to_string())?;
+        to.frames(&session, frames)?;
         if let Some(failure) = failure {
             return Ok(Err(failure));
         }

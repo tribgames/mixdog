@@ -711,8 +711,11 @@ impl SessionDirectory {
     /// when the reason is a process exit (`teardown.mjs:226-237`), every loaded session's agents
     /// are closed (`OwnerTeardown`, bounded at `CLOSE_ALL_DEADLINE_MS`, 5000 ms, per session);
     /// then every loaded thread is closed as its runtime's own session ([`ExitClose`]); then every loaded thread stops (a live run is cancelled) and its memory ingest is awaited,
-    /// all of them together bounded at 2500 ms.
+    /// all of them together bounded at 2500 ms. Before all of it, the new-task attempts in flight are cut ([`super::new_task::NewTaskReceipts::shutdown`]).
     pub async fn shutdown_for(&self, reason: &str) {
+        // The new-task attempts in flight are cut first, as a process ending leaves them, before the directory refuses their
+        // next step (a refusal would mark their receipts refused).
+        self.inner.deps.new_tasks.shutdown().await;
         self.begin_close();
         if is_process_exit_reason(reason)
             && let Some(hook) = self.inner.owner_teardown.get()

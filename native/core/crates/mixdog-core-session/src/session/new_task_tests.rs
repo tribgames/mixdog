@@ -274,7 +274,9 @@ async fn a_request_whose_reply_is_lost_runs_on_and_the_retry_gets_its_task() {
     let (entered, release) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Semaphore::new(0)));
     let mut deps = rig.deps_parts(rig.store.clone());
     deps.new_route = Arc::new(HeldRoute { entered: entered.clone(), release: release.clone(), held: false.into() });
-    let directory = SessionDirectory::new(Arc::new(deps));
+    let deps = Arc::new(deps);
+    let receipts = deps.new_tasks.clone();
+    let directory = SessionDirectory::new(deps);
     let connection = CancellationToken::new();
     // The attempt is past `reserved`: the connection ends and the call is dropped with it, before any answer.
     tokio::select! {
@@ -282,13 +284,70 @@ async fn a_request_whose_reply_is_lost_runs_on_and_the_retry_gets_its_task() {
         answered = submit_on(&directory, "op-1", "sub-l", "write the report", json!({}), connection.clone()) => panic!("answered while held: {answered:?}"),
     }
     assert_eq!(stored(&rig, "sub-l").expect("receipt").phase(), Phase::Reserved, "the reply is lost after `reserved`");
+    // The retry arrives while the attempt is still held, and joins it: no second attempt starts.
+    let retry = tokio::spawn({
+        let directory = directory.share();
+        async move { submit(&directory, "op-2", "sub-l", "write the report", json!({})).await }
+    });
+    receipts.joined.notified().await;
+    assert_eq!(receipts.in_flight(), 1, "one attempt");
     release.add_permits(1);
-    let retry = submit(&directory, "op-2", "sub-l", "write the report", json!({})).await.expect("retry");
+    let retry = retry.await.expect("joined").expect("retry");
     assert_eq!(retry, derived("sub-l"));
     assert_eq!(runs.load(Ordering::SeqCst), 1, "one prompt");
     assert_eq!(directory.loaded_ids().len(), 1, "one task");
     let receipt = stored(&rig, "sub-l").expect("receipt");
     assert_eq!((receipt.phase(), receipt.refused()), (Phase::Accepted, false));
+    let writes = receipts.writes.lock().unwrap().clone();
+    assert_eq!(writes, vec![("reserved".to_owned(), false), ("configured".to_owned(), false), ("accepted".to_owned(), true)], "one attempt's phases");
+}
+
+/// An attempt that panics gives up its place: the callers it had get no answer, and the next request for the id starts afresh
+/// instead of joining an attempt that will never answer.
+#[tokio::test(start_paused = true)]
+async fn an_attempt_that_panics_frees_its_id() {
+    let rig = Rig::new();
+    let receipts = NewTaskReceipts::new(&rig._data.path().join("userdata"), mixdog_rt::testing::tokens().durability_io);
+    let panicked = receipts.run("sub-p", &json!({}), |_| async { panic!("the attempt's seam panics") }).await;
+    assert!(matches!(&panicked, Err(CoreError::DomainError { message: Some(message), .. }) if message.as_ref() == "The new task request ended without an answer."), "{panicked:?}");
+    assert_eq!(receipts.in_flight(), 0, "the panicked attempt gave up its place");
+    let next = receipts.run("sub-p", &json!({}), |_| async { Err(mixdog_core_base::support::failed("session", "the next attempt ran")) }).await;
+    assert!(matches!(&next, Err(CoreError::DomainError { message: Some(message), .. }) if message.as_ref() == "the next attempt ran"), "{next:?}");
+}
+
+/// At shutdown an attempt in flight is cut where it stands, as a process ending there: shutdown returns with nothing in flight,
+/// the receipt keeps the phase it had (not marked refused by the closed directory's refusal), and the next start resumes it.
+#[tokio::test(start_paused = true)]
+async fn shutdown_cuts_an_attempt_in_flight_and_the_next_start_resumes_it() {
+    let rig = Rig::new();
+    let runs = counting(&rig);
+    let (entered, release) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Semaphore::new(0)));
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.new_route = Arc::new(HeldRoute { entered: entered.clone(), release: release.clone(), held: false.into() });
+    let deps = Arc::new(deps);
+    let receipts = deps.new_tasks.clone();
+    let directory = SessionDirectory::new(deps);
+    let caller = tokio::spawn({
+        let directory = directory.share();
+        async move { submit(&directory, "op-1", "sub-s", "write the report", json!({})).await }
+    });
+    entered.notified().await;
+    directory.shutdown().await;
+    assert_eq!(receipts.in_flight(), 0, "the attempt was cut");
+    // Nothing the attempt held runs on: released now, it would write `configured`.
+    release.add_permits(1);
+    let cut = caller.await.expect("joined");
+    assert!(matches!(&cut, Err(CoreError::DomainError { message: Some(message), .. }) if message.as_ref() == "The new task request ended without an answer."), "{cut:?}");
+    assert_eq!(*receipts.writes.lock().unwrap(), vec![("reserved".to_owned(), false)]);
+    let receipt = stored(&rig, "sub-s").expect("receipt");
+    assert_eq!((receipt.phase(), receipt.refused(), receipt.session_id()), (Phase::Reserved, false, derived("sub-s").as_str()));
+    let refused = receipts.run("sub-s", &json!({}), |_| async { Err(mixdog_core_base::support::failed("session", "never runs")) }).await;
+    assert!(matches!(refused, Err(CoreError::ServerShuttingDown { .. })), "{refused:?}");
+    let (restarted, _) = directory_over(&rig);
+    let retry = submit(&restarted, "op-3", "sub-s", "write the report", json!({})).await.expect("retry");
+    assert_eq!(retry, derived("sub-s"));
+    assert_eq!(runs.load(Ordering::SeqCst), 1);
+    assert_eq!(stored(&rig, "sub-s").expect("receipt").phase(), Phase::Accepted);
 }
 
 /// Two identical requests at once start one task; two with other content, the first holds the id.
