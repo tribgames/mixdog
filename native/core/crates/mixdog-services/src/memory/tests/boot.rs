@@ -352,12 +352,12 @@ async fn an_opening_that_panics_is_forgotten_and_the_next_use_opens_again() {
     assert_eq!(installs.load(Ordering::SeqCst), 2, "the next use ran a new opening");
 }
 
-/// A postmaster start admitted before the stop began (its last check passed, `pg_ctl start` not yet spawned) is waited for past the stop's 6 s: the stop
-/// returns only once the start has ended (here it fails for want of a runtime; a postmaster it starts is stopped by the opening before it ends), so the
-/// process never exits with a postmaster coming up that nobody owns. The start is held between its admission and the spawn; the clock is moved past 6 s
-/// while it is held.
+/// A postmaster start admitted before the stop began (its last check passed, `pg_ctl start` not yet spawned) is waited for only within the stop's 6 s, as
+/// Node's stop gives up on its opening (`supervisor.mjs:790-800`): held between its admission and the spawn, the stop is pending before 6 s and has
+/// returned at 6 s; the abandoned start then goes on to `pg_ctl` on its own. What such a start leaves (a postmaster outside the core's job) is attached to
+/// and stopped by the next core: `a_core_after_a_killed_one_attaches_to_its_postmaster_and_stops_it`.
 #[tokio::test(start_paused = true)]
-async fn a_stop_waits_for_a_postmaster_start_admitted_before_it() {
+async fn a_stop_gives_up_on_a_postmaster_start_admitted_before_it_at_six_seconds() {
     struct Silent;
     impl crate::memory::pg::cluster::Health for Silent {
         fn healthy(&self, _port: u16) -> futures::future::BoxFuture<'static, bool> {
@@ -384,21 +384,24 @@ async fn a_stop_waits_for_a_postmaster_start_admitted_before_it() {
     awaiting_for(std::time::Duration::from_secs(10), "the start to be admitted", admissions.recv()).await.expect("admitted");
     let mut stopping = Box::pin(stack.stop());
     let waiting = futures::poll!(&mut stopping).is_pending();
-    tokio::time::advance(std::time::Duration::from_secs(6)).await;
-    let at_the_give_up = match futures::poll!(&mut stopping) {
+    tokio::time::advance(std::time::Duration::from_millis(5_999)).await;
+    let pending_before = futures::poll!(&mut stopping).is_pending();
+    tokio::time::advance(std::time::Duration::from_millis(1)).await;
+    let at_six = match futures::poll!(&mut stopping) {
         std::task::Poll::Pending => None,
         std::task::Poll::Ready(stopped) => Some(stopped),
     };
-    let held_past_the_give_up = at_the_give_up.is_none();
+    let returned_at_six = at_six.is_some();
     release.send(()).expect("the start waits at the gate");
-    let stopped = match at_the_give_up {
+    let stopped = match at_six {
         Some(stopped) => stopped,
         None => awaiting("the stop once the start ended", stopping).await,
     };
-    let used = awaiting("the use of the opening", using).await.unwrap();
-    assert!(waiting && held_past_the_give_up, "the stop waits for the admitted start past its 6 s");
+    let used = awaiting("the use of the abandoned opening", using).await.unwrap();
+    assert!(waiting && pending_before, "the stop waits for the admitted start within its 6 s");
+    assert!(returned_at_six, "the stop returns at 6 s, as Node's gives up on its opening");
     stopped.expect("stop");
-    assert!(message(used).contains("pg_ctl"), "the admitted start went on to pg_ctl");
+    assert!(message(used).contains("pg_ctl"), "the abandoned start went on to pg_ctl on its own");
 }
 
 /// The spawn lock is Node's file, `<profile>/pg-spawn.lock` beside the cluster (`supervisor.mjs:618`), so the two exclude each other: while a holder (as a Node

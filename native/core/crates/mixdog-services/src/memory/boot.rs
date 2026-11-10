@@ -201,9 +201,6 @@ struct Opening {
     flight: Option<(u64, Flight)>,
     /// Openings launched so far: the number of the next one.
     launched: u64,
-    /// The opening in flight has begun starting a postmaster (admitted before any stop): a stop waits for it past its 6 s, so the postmaster is stopped
-    /// before the stop returns.
-    starting: bool,
 }
 
 /// Forgets its opening when the opening task ends, however it ends.
@@ -217,7 +214,6 @@ impl Drop for Settled {
         let mut opening = self.stack.opening.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if opening.flight.as_ref().is_some_and(|(number, _)| *number == self.number) {
             opening.flight = None;
-            opening.starting = false;
         }
     }
 }
@@ -399,14 +395,9 @@ impl MemoryStack {
         Ok(async move { task.await.unwrap_or_else(|error| Err(format!("the memory opening ended: {error}"))) }.boxed().shared())
     }
 
-    /// The last check before a postmaster starts, made under the lock a stop takes: refused once the stop began; admitted, the stop waits for it.
+    /// The last check before a postmaster starts, made under the lock a stop takes: no start begins once a stop has begun.
     fn admit_start(&self) -> bool {
-        let mut opening = self.opening.lock().expect("opening");
-        if opening.stopped {
-            return false;
-        }
-        opening.starting = true;
-        true
+        !self.opening.lock().expect("opening").stopped
     }
 
     /// The opening task: opens, then publishes the result and starts the background work, unless a stop began meanwhile; then it releases what it opened
@@ -606,15 +597,11 @@ impl MemoryStack {
         };
         self.cancel.cancel();
         // The opening task is joined for at most `OPENING_JOIN` (`stopOwnedPgForShutdown`'s race, `supervisor.mjs:790-800`): it was cancelled, so it normally
-        // ends at once, and one that does not goes on alone as Node's does: it publishes nothing after this point and stops what it opened itself. One that
-        // was already starting a postmaster when the stop began is waited for to its end (its start is bounded by the 30 s readiness wait, its stop by
-        // `STOP_SECONDS`): Node leaves such a postmaster to its synchronous exit hook (`supervisor.mjs:832-845`) or to the next start, and the core stops it
-        // before the stop returns, so the process never exits with it running unowned.
-        if let Some(flight) = flight
-            && tokio::time::timeout(OPENING_JOIN, flight.clone()).await.is_err()
-            && self.opening.lock().expect("opening").starting
-        {
-            let _ = flight.await;
+        // ends at once, and one that does not goes on alone as Node's does: it publishes nothing after this point and stops what it opened itself if the
+        // process lives that long. A postmaster started by an opening admitted before the stop and still coming up at 6 s is left as Node leaves it (its
+        // exit hook, `supervisor.mjs:832-845`, covers only a published `_live`): it runs outside the core's job, and the next core attaches to it and stops it.
+        if let Some(flight) = flight {
+            let _ = tokio::time::timeout(OPENING_JOIN, flight).await;
         }
         let opened = self.opened.get();
         let background = self.background.lock().expect("background").take();

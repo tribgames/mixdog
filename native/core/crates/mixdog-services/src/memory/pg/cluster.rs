@@ -497,7 +497,7 @@ impl PgCluster {
     /// postmaster that answers, then the spawn lock (30 s) around the reuse again, the leftover postmaster, `initdb` and the start. A lock another starter
     /// holds for the whole wait falls back to one more reuse and else fails (`:619-627`). `cancel` ends an `initdb` in progress (it has no time limit, as in
     /// Node), and a wait for another starter's lock or postmaster; a start is never begun once it is cancelled or `admit` refuses it, and one that was
-    /// begun is waited for until it is ready (so the caller can stop it) or has failed.
+    /// begun is waited for until it is ready (so the caller, if still there, can stop it) or has failed.
     pub(crate) async fn ensure(
         runtime: PgRuntime,
         profile: &Path,
@@ -542,8 +542,8 @@ impl PgCluster {
             Self::init(lane, &processes, &runtime, &data_dir, cancel).await?;
         }
         let port = free_port(preferred_port).await?;
-        // The last check before the postmaster starts, made with the spawn: `admit` refuses once the owner's stop began, and an admitted start is one the
-        // owner's stop waits for (a cancelled start begins no postmaster: nothing would own it).
+        // The last check before the postmaster starts, made with the spawn: `admit` refuses once the owner's stop began (a cancelled start begins no
+        // postmaster: nothing would own it). An admitted start the stop gives up on at 6 s goes on as Node's does.
         if cancel.is_cancelled() || !admit() {
             return Err(MemoryError::Runtime(CANCELLED_START.to_owned()));
         }
