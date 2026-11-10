@@ -38,6 +38,7 @@ replay-controls = []
 
 [dev-dependencies]
 tempfile = { workspace = true }
+mixdog-testkit = { workspace = true }
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-rt = { workspace = true, features = ["test-support"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
