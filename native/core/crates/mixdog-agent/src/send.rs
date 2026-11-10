@@ -508,6 +508,18 @@ impl Run {
                         Stage::AccountChanged { provider: provider.clone(), account_id: account_id.clone(), at: *at }
                     }
                 })),
+                // `sendOnRoute`'s reroute: a session whose pin named this provider and model takes the new route; the
+                // turn's later sends read it, and the host saves it with the carry.
+                StreamEvent::WireRerouted(route) => {
+                    let new = mixdog_core_api::domain::provider::WirePin::from_route(route);
+                    if let (Some(pin), Some(new)) = (&self.config.options.wire_pin, new)
+                        && pin.provider == new.provider
+                        && pin.model == new.model
+                    {
+                        self.config.options.wire_pin = Some(new);
+                        self.carry.wire_route = Some(route.clone());
+                    }
+                }
                 _ => {}
             }
             let tool_done = matches!(event, StreamEvent::ToolCallDone(_));

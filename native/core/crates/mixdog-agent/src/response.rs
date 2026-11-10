@@ -129,6 +129,7 @@ impl ResponseBuilder {
             | StreamEvent::ProviderKeepalive
             | StreamEvent::Notice { .. }
             | StreamEvent::AccountStage(_)
+            | StreamEvent::WireRerouted(_)
             | StreamEvent::Progress(_)
             | StreamEvent::ChunkProgress(_) => {}
         }

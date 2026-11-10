@@ -370,6 +370,23 @@ pub struct WirePin {
     pub model: String,
     /// `chat`, `responses`, `messages` or `gemini`.
     pub wire: String,
+    /// The stored route when it is a reroute (Node `source: 'reroute'`): every send on it reports it back
+    /// (`wireReroute`), and its first `loweredAssistantCount` assistant turns go without their wire-native replay.
+    pub reroute: Option<JsonValue>,
+}
+
+impl WirePin {
+    /// The pin a stored `wireRoute` names; `None` without provider, model and wire.
+    pub fn from_route(route: &JsonValue) -> Option<Self> {
+        let field = |key: &str| route.get(key).and_then(JsonValue::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
+        let reroute = (route.get("source").and_then(JsonValue::as_str) == Some("reroute")).then(|| route.clone());
+        Some(Self { provider: field("provider")?, model: field("model")?, wire: field("wire")?, reroute })
+    }
+
+    /// `loweredAssistantCount` of a rerouted pin; 0 otherwise.
+    pub fn lowered_assistants(&self) -> usize {
+        self.reroute.as_ref().and_then(|r| r.get("loweredAssistantCount")).and_then(JsonValue::as_u64).unwrap_or(0) as usize
+    }
 }
 
 /// The session's saved provider-native state (Node `session.providerState`).
@@ -732,6 +749,10 @@ pub enum StreamEvent {
     /// in the order Node raises it: a switch before the next account's request, a committed change after the
     /// answer. Folds into nothing.
     AccountStage(AccountStage),
+    /// The gateway refused the model on the routed wire and the send went out once more on another one (Node
+    /// `sendOnRoute`'s `wireReroute`): the session's new `wireRoute`, whole, as Node stores it. A session whose pin
+    /// named this provider and model takes it. Folds into nothing.
+    WireRerouted(JsonValue),
     /// The wire's terminal event. Exactly one per completed attempt, last.
     /// `stop` is `None` when the wire named no stop reason (Node
     /// `stopReason: null`: a plain Responses or Gemini completion); a decoder

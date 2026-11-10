@@ -416,6 +416,7 @@ pub fn event_out(e: &p::StreamEvent) -> w::ProxyEvent {
         E::AccountStage(p::AccountStage::Changed { provider, account_id, at }) => {
             w::ProxyEvent::AccountChanged { provider: provider.clone(), account_id: account_id.clone(), at: *at }
         }
+        E::WireRerouted(route) => w::ProxyEvent::WireRerouted { route: route.clone() },
         E::Completed { stop, pricing_model, request_ms } => w::ProxyEvent::Completed {
             pricing_model: pricing_model.clone(),
             request_ms: *request_ms,
@@ -479,6 +480,7 @@ pub fn event_in(e: w::ProxyEvent) -> Result<Incoming, String> {
         }
         w::ProxyEvent::AccountSwitching { message } => E::AccountStage(p::AccountStage::Switching { message }),
         w::ProxyEvent::AccountChanged { provider, account_id, at } => E::AccountStage(p::AccountStage::Changed { provider, account_id, at }),
+        w::ProxyEvent::WireRerouted { route } => E::WireRerouted(route),
         w::ProxyEvent::Completed { stop, pricing_model, request_ms } => E::Completed {
             pricing_model,
             request_ms,

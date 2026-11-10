@@ -19,6 +19,13 @@
         "profileId": "deepseek:messages",
         "source": "family"
       },
+      "pinAfter": {
+        "provider": "deepseek",
+        "model": "deepseek-v4-pro",
+        "wire": "messages",
+        "profileId": "deepseek:messages",
+        "source": "family"
+      },
       "requests": [
         {
           "method": "POST",
@@ -87,7 +94,8 @@
           "inputTokens": 20,
           "outputTokens": 8
         },
-        "providerMetadata": null
+        "providerMetadata": null,
+        "wireReroute": null
       }
     }
   ]

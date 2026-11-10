@@ -186,7 +186,12 @@ impl WireCodec for AnthropicCodec {
     }
 
     fn classify(&self, response: &ErrorResponse) -> ProviderError {
-        classify_response(response)
+        let mut error = classify_response(response);
+        // The API-key engine posts through the Anthropic SDK, whose error names the refusal its own way.
+        if self.flavor == Flavor::ApiKey {
+            error.message = super::errors::sdk_message(response);
+        }
+        error
     }
 }
 

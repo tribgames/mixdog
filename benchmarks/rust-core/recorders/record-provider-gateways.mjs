@@ -185,6 +185,17 @@ const REASONED_HISTORY = [
   { role: 'assistant', content: 'Earlier answer.', reasoning: 'Earlier thought.', reasoningContent: 'Earlier thought.' },
 ];
 const ANTHROPIC_QUOTA = { type: 'error', error: { type: 'insufficient_quota', message: 'You exceeded your current quota.' } };
+// Reasoning, then an in-band quota error, in one body: the reasoning reached the caller before the refusal.
+const chatReasoningThenQuota = () => {
+  const c = (delta) => ({ id: 'chatcmpl-x', object: 'chat.completion.chunk', model: 'fixture', choices: [{ index: 0, delta, finish_reason: null }] });
+  return sse([c({ role: 'assistant', content: '' }), c({ reasoning_content: 'Thinking first.' }), { error: QUOTA }]);
+};
+// An earlier turn on the routed wire, with the replay state a reroute lowers.
+const ROUTED_HISTORY = [
+  { role: 'user', content: 'Before.' },
+  { role: 'assistant', content: 'Earlier answer.', reasoningContent: 'Earlier thought.', thinkingBlocks: [{ type: 'thinking', thinking: 'Earlier thought.', signature: 'sig-earlier' }] },
+];
+const UNSUPPORTED = { message: 'This model is not available on the /v1/messages endpoint.', code: 400 };
 
 // One send: `session` (optional) is pinned first as the turn does (`pinSessionWireRoute`).
 const send = (model, { tools = [], history = [], session = null, opts = {} } = {}) => ({ model, tools, history, session, opts });
@@ -204,6 +215,29 @@ const scenarios = [
     id: 'openrouter-model-switch', provider: 'openrouter', config: { ...base, apiKey: 'or-fixture' },
     reply: (rec) => ok(rec.path.endsWith('/messages') ? anthropicText() : responsesText()),
     sends: [send('anthropic/claude-sonnet-4.5', { session: { model: 'anthropic/claude-sonnet-4.5' } }), send('openai/gpt-5', { session: { model: 'openai/gpt-5', switched: true } })],
+  },
+  // A clear "unsupported" refusal on the routed wire: the same request once more on the next wire; the session's
+  // pin moves there and its earlier turns are lowered, so the next send goes straight to the new wire.
+  {
+    id: 'openrouter-reroute-unsupported', provider: 'openrouter', config: { ...base, apiKey: 'or-fixture' },
+    // 400, not 404: a 404 on the Messages wire first takes the Anthropic engine's one non-streaming replay.
+    reply: (rec) => (rec.path.endsWith('/messages') ? refusal(400, UNSUPPORTED) : ok(rec.path.endsWith('/responses') ? responsesText() : chatText('The result is 42.'))),
+    sends: [
+      send('anthropic/claude-sonnet-4.5', { history: ROUTED_HISTORY, session: { model: 'anthropic/claude-sonnet-4.5' } }),
+      send('anthropic/claude-sonnet-4.5', { history: ROUTED_HISTORY, session: { model: 'anthropic/claude-sonnet-4.5' } }),
+    ],
+  },
+  // A refusal that does not say the wire is unsupported is the send's error.
+  {
+    id: 'openrouter-refusal-stays', provider: 'openrouter', config: { ...base, apiKey: 'or-fixture' },
+    reply: () => refusal(400, { message: 'No endpoints found for anthropic/claude-sonnet-4.5.', code: 400 }),
+    sends: [send('anthropic/claude-sonnet-4.5')],
+  },
+  // The switch happens once: the next wire refusing as well ends the send.
+  {
+    id: 'openrouter-reroute-once', provider: 'openrouter', config: { ...base, apiKey: 'or-fixture' },
+    reply: () => refusal(405, { message: 'Method Not Allowed', code: 405 }),
+    sends: [send('anthropic/claude-sonnet-4.5')],
   },
   // DeepSeek: Messages for a send carrying tools, Chat for a tool-less one; a session pinned to Messages keeps it.
   { id: 'deepseek-messages-tools', provider: 'deepseek', config: { ...base, apiKey: 'ds-fixture' }, reply: () => ok(anthropicText()), sends: [send('deepseek-v4-pro', { tools: TOOLS })] },
@@ -259,6 +293,11 @@ const scenarios = [
     reply: (rec) => (keyOf(rec) === 'sk-first' ? ok(chatTextThenQuota()) : ok(chatText('from second'))),
     sends: [send('m1')],
   },
+  {
+    id: 'custom-keys-reasoning-then-quota', provider: 'custom-keys-reasoning-then-quota', keys: ['sk-first', 'sk-second'],
+    reply: (rec) => (keyOf(rec) === 'sk-first' ? ok(chatReasoningThenQuota()) : ok(chatText('from second'))),
+    sends: [send('m1')],
+  },
   // A custom model that replays its reasoning: one key; the reply's reasoning is kept, earlier turns' sent back.
   {
     id: 'custom-reasoning-replay', provider: 'custom-reasoning-replay', keys: ['sk-only'],
@@ -300,11 +339,12 @@ const resultOf = (r) => ({
   stopReason: r?.stopReason ?? null,
   usage: r?.usage ? { inputTokens: r.usage.inputTokens ?? null, outputTokens: r.usage.outputTokens ?? null } : null,
   providerMetadata: r?.providerMetadata ?? null,
+  wireReroute: r?.wireReroute ?? null,
 });
 const errorOf = (e) => ({
   message: String(e?.message ?? e),
   status: e?.status ?? e?.httpStatus ?? null,
-  code: typeof e?.code === 'string' ? e.code : null,
+  code: typeof e?.code === 'string' || typeof e?.code === 'number' ? e.code : null,
   quotaExhausted: e?.quotaExhausted ?? null,
 });
 
@@ -349,11 +389,15 @@ for (const s of scenarios) {
       onTextDelta: (text) => events.push({ on: 'textDelta', text }),
       onToolCall: (call) => events.push({ on: 'toolCall', id: call.id, name: call.name, arguments: call.arguments }),
       onStageChange: (stage, payload) => events.push({ on: 'stageChange', stage, payload: payload ?? null }),
+      // The session's liveness feed: only the reasoning kind is a delta the caller is shown (the manifest says why).
+      onStreamDelta: (kind) => {
+        if (kind === 'reasoning') events.push({ on: 'streamDelta', kind });
+      },
     };
     let pin;
     if (one.session) {
       if (!session || one.session.switched) {
-        session = { id: 'sess-1', provider: s.provider, model: one.session.model, wireRoute: null, messages: [] };
+        session = { id: 'sess-1', provider: s.provider, model: one.session.model, wireRoute: null, messages: [...history] };
       }
       pin = await pinSessionWireRoute(session, provider);
       opts.session = session;
@@ -373,7 +417,7 @@ for (const s of scenarios) {
       tools: one.tools.map((t) => t.name),
       history,
       sessionId: opts.sessionId ?? null,
-      ...(one.session ? { pin: pin ?? null } : {}),
+      ...(one.session ? { pin: pin ?? null, pinAfter: session.wireRoute ?? null } : {}),
       requests: hub.records.map(({ reply, ...rec }) => ({ ...rec, answer: { status: reply.status ?? 200, body: reply.body } })),
       events,
       ...outcome,
@@ -401,6 +445,13 @@ writeSetManifest(outDir, {
     replayExclusions: {
       "stageChange 'requesting' / 'streaming'": "the engine's spinner phases; in the core the turn loop raises them around the send (agent Stage::Connecting / Streaming), not the provider stream the replay reads",
       toolCall: "the folded result's toolCalls are compared instead (the core's stream carries the call as ToolCallDone, which the result holds)",
+      "request header accept-encoding": "the recorder dials a plain-http loopback, so undici writes its http value; the replay writes the Rust request's head for that same scheme (node_http::head)",
+      "request header x-stainless-runtime-version": "names the Node runtime the SDK runs under: the recorder's (provenance.nodeVersion, checked) where the product names its own (grok::SDK_RUNTIME_VERSION); the replay expects the product's",
+      "listing requests to raw.githubusercontent.com and models.dev": "the shared model catalogs, fetched by the catalog service (ListingLookup), not by the provider under test",
+      "error.code as a number": "the SDK keeps a numeric body code as a number; the core keeps every code as text, so a number is compared as its decimal text",
+      "result.reasoning": "no engine of these wires returns it (null in every recording) and the core has no such result field: the reasoning shown is compared as the streamDelta events, the reasoning kept as reasoningContent",
+      "error.quotaExhausted provider and model": "the core's error carries the quota kind and reset; the provider and model are the send's own",
+      "onStreamDelta kinds other than 'reasoning'": "not logged by the recorder: 'transport' / 'semantic' / 'text' / 'tool' feed the session's liveness clock (the core's progress stamps), and the text and tool calls are compared as textDelta and the result's toolCalls; 'reasoning' is logged because it is the reasoning the caller is shown",
     }, provenance: recordingProvenance(RECORDER, [RECORDER, 'benchmarks/rust-core/recorders/lib/common.mjs', 'benchmarks/rust-core/recorders/lib/deterministic-world.mjs']) },
   // Refuses to write unless the loaded tree is exactly b6f10295a.
   identity: exactProductIdentity(tree, 'b6f10295a2f698afc85332467192de28500bd146'),

@@ -281,11 +281,10 @@ pub(super) async fn fetch_json(
     extra_headers: &[(String, String)],
     key: Option<&str>,
 ) -> Result<serde_json::Value, ProviderError> {
-    let mut headers: Vec<(String, String)> = Vec::new();
-    headers.extend(profile.headers.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())));
-    if !headers.iter().any(|(k, _)| k.eq_ignore_ascii_case("accept")) {
-        headers.push(("accept".into(), "application/json".into()));
-    }
+    // `Accept` first, then the gateway's own headers (`fetchRoster`, `opencode-go-oauth-tokens.mjs` `request`).
+    let accept = profile.headers.iter().find(|(k, _)| k.eq_ignore_ascii_case("accept")).map_or("application/json", |(_, v)| *v);
+    let mut headers: Vec<(String, String)> = vec![("accept".into(), accept.into())];
+    headers.extend(profile.headers.iter().filter(|(k, _)| !k.eq_ignore_ascii_case("accept")).map(|(k, v)| ((*k).to_owned(), (*v).to_owned())));
     headers.extend(extra_headers.iter().cloned());
     if let Some(key) = key {
         headers.push(("authorization".into(), format!("Bearer {key}")));
