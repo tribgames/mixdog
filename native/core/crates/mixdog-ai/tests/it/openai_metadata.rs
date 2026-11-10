@@ -45,7 +45,7 @@ impl WireContext for Ctx {
 struct Facts;
 impl ModelFactsSource for Facts {
     fn facts(&self, _model: &str) -> ModelFacts {
-        ModelFacts { fast_tier: true, ..ModelFacts::default() }
+        ModelFacts { fast_tier: true, codex_fast_tier: true, ..ModelFacts::default() }
     }
 }
 
