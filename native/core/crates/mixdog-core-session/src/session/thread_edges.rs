@@ -254,7 +254,13 @@ impl ThreadEdgePublisher {
 
 /// The sink the index writer calls: the edges go to one task, in write order, so the notifications keep it.
 pub struct ThreadEdges {
-    queue: tokio::sync::mpsc::UnboundedSender<RowEdge>,
+    queue: tokio::sync::mpsc::UnboundedSender<Queued>,
+}
+
+enum Queued {
+    Edge(RowEdge),
+    /// Answered once every edge queued before it is published.
+    Fence(tokio::sync::oneshot::Sender<()>),
 }
 
 impl ThreadEdges {
@@ -262,16 +268,27 @@ impl ThreadEdges {
     pub fn start(publisher: ThreadEdgePublisher) -> Arc<Self> {
         let (queue, mut edges) = tokio::sync::mpsc::unbounded_channel();
         drop(mixdog_rt::spawn("thread-edges", mixdog_rt::TaskClass::Work, async move {
-            while let Some(edge) = edges.recv().await {
-                publisher.publish(edge).await;
+            while let Some(queued) = edges.recv().await {
+                match queued {
+                    Queued::Edge(edge) => publisher.publish(edge).await,
+                    Queued::Fence(done) => drop(done.send(())),
+                }
             }
         }));
         Arc::new(Self { queue })
+    }
+
+    /// Waits until every edge written so far is published (Node publishes the catalog before a room call answers).
+    pub async fn settled(&self) {
+        let (done, wait) = tokio::sync::oneshot::channel();
+        if self.queue.send(Queued::Fence(done)).is_ok() {
+            let _ = wait.await;
+        }
     }
 }
 
 impl RowSink for ThreadEdges {
     fn written(&self, edge: RowEdge) {
-        let _ = self.queue.send(edge);
+        let _ = self.queue.send(Queued::Edge(edge));
     }
 }

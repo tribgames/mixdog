@@ -336,6 +336,9 @@ pub trait ThreadStore: Send + Sync + 'static {
     /// One index read of a session's metadata; `None` when the catalog does not list it.
     fn session_meta(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<Option<SessionMeta>, CoreError>>;
 
+    /// Resolves once the index holds every barrier acked so far (its row writes have reached the row sink).
+    fn indexed(&self) -> futures::future::BoxFuture<'static, ()>;
+
     /// After a delete mark is acked: the index takes every projection acked so far, then the
     /// fork-aware purge removes each deleted session no live lineage reads (files and index
     /// rows). The ids it removed.

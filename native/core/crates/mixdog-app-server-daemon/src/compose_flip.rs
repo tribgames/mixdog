@@ -2489,14 +2489,15 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     });
     bot_summaries.bind(thread_list.clone(), b.sections.clone()).map_err(|_| ComposeError::AlreadyBound("bot work summaries"))?;
     // The index writer's row writes reach the app feed: `thread/started`, `thread/summary/updated`, `thread/deleted` (Node's roster push).
-    catalog_index
-        .observe_rows(mixdog_core_session::session::thread_edges::ThreadEdges::start(mixdog_core_session::session::thread_edges::ThreadEdgePublisher::new(thread_list.clone(), b.sections.clone(), agents.clone())))
-        .map_err(|_| ComposeError::AlreadyBound("thread edges"))?;
-    let room_summaries = mixdog_core_session::session::thread_list::RoomSummaries::new(thread_list.clone(), b.sections.clone(), directory.clone());
+    let thread_edges = mixdog_core_session::session::thread_edges::ThreadEdges::start(mixdog_core_session::session::thread_edges::ThreadEdgePublisher::new(thread_list.clone(), b.sections.clone(), agents.clone()));
+    catalog_index.observe_rows(thread_edges.clone()).map_err(|_| ComposeError::AlreadyBound("thread edges"))?;
+    let room_summaries = mixdog_core_session::session::thread_list::RoomSummaries::new(thread_list.clone(), b.sections.clone(), directory.clone(), thread_edges);
     late_room_summaries.bind(room_summaries.clone()).map_err(|_| ComposeError::AlreadyBound("room summaries"))?;
     room_approvals.bind_summaries(room_summaries.clone()).map_err(|_| ComposeError::AlreadyBound("room approvals summaries"))?;
     let republish: Arc<dyn Fn() + Send + Sync> = { let s = room_summaries.clone(); Arc::new(move || s.republish()) };
-    let room_host = Arc::new(mixdog_core_rooms::rooms::sessions::SessionRoomHost::new(agents.clone(), room_sessions.clone(), republish.clone()));
+    // A room call answers after the catalog is published (`deps.republishCatalog`, session-host.ts:357-360, publishes synchronously).
+    let republish_settled: mixdog_core_rooms::rooms::sessions::Republish = { let s = room_summaries.clone(); Arc::new(move || { let s = s.clone(); Box::pin(async move { s.republish_settled().await }) }) };
+    let room_host = Arc::new(mixdog_core_rooms::rooms::sessions::SessionRoomHost::new(agents.clone(), room_sessions.clone(), republish_settled));
     // Start-up recover (flip-rooms-4): rooms whose exchange a dead process left running are marked interrupted; their summaries are republished.
     if !live_rooms.start(&rooms).await.map_err(|e| ComposeError::Rooms(format!("{e:?}")))?.is_empty() {
         republish();

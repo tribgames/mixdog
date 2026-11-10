@@ -287,6 +287,8 @@ pub struct RoomSummaries {
     directory: Arc<super::SessionDirectory>,
     /// One pass at a time, in the order they were asked for.
     pass: Arc<mixdog_rt::SerialChain>,
+    /// The row write announcements (`thread/started`, ...), which a room call waits for.
+    edges: Arc<super::thread_edges::ThreadEdges>,
 }
 
 impl RoomSummaries {
@@ -294,8 +296,17 @@ impl RoomSummaries {
         list: Arc<ThreadListService>,
         app: Arc<mixdog_core_base::state::SectionFeedState>,
         directory: Arc<super::SessionDirectory>,
+        edges: Arc<super::thread_edges::ThreadEdges>,
     ) -> Arc<Self> {
-        Arc::new(Self { list, app, directory, pass: mixdog_rt::SerialChain::new() })
+        Arc::new(Self { list, app, directory, pass: mixdog_rt::SerialChain::new(), edges })
+    }
+
+    /// `deps.republishCatalog` (`session-host.ts:357-360`) as a room call waits for it: the writes acked so far are in the
+    /// index, the announcements they caused are published, then every room's row is.
+    pub async fn republish_settled(&self) {
+        self.directory.indexed().await;
+        self.edges.settled().await;
+        self.publish().await;
     }
 
     /// The room service's republish input (`SessionRoomHost::new(.., republish)`): starts a pass,
@@ -529,7 +540,13 @@ mod tests {
         mixdog_core_api::sink::ConnectionSink::send_control_release(&app, bytes::Bytes::from_static(b"{}"), attached.release).unwrap();
         let rig = crate::session::testing::Rig::new();
         let directory = Arc::new(crate::session::SessionDirectory::new(rig.deps()));
-        let summaries = RoomSummaries::new(list, Arc::new(mixdog_core_base::state::SectionFeedState::new(feed)), directory);
+        let app_state = Arc::new(mixdog_core_base::state::SectionFeedState::new(feed));
+        let edges = super::super::thread_edges::ThreadEdges::start(super::super::thread_edges::ThreadEdgePublisher::new(
+            list.clone(),
+            app_state.clone(),
+            Arc::new(crate::session::testing::FixedTaskWorkspace("/tasks")),
+        ));
+        let summaries = RoomSummaries::new(list, app_state, directory, edges);
 
         summaries.publish().await;
         let sent: Vec<String> = app.drain_text().into_iter().filter(|text| text.contains(SUMMARY_UPDATED)).collect();
@@ -558,7 +575,13 @@ mod tests {
         header.insert("createdAt".into(), json!(1));
         header.insert("updatedAt".into(), json!(1));
         directory.create_with_id(thread.clone(), header, json!({})).await.expect("room log");
-        let summaries = RoomSummaries::new(list, Arc::new(mixdog_core_base::state::SectionFeedState::new(feed)), directory.clone());
+        let app_state = Arc::new(mixdog_core_base::state::SectionFeedState::new(feed));
+        let edges = super::super::thread_edges::ThreadEdges::start(super::super::thread_edges::ThreadEdgePublisher::new(
+            list.clone(),
+            app_state.clone(),
+            Arc::new(crate::session::testing::FixedTaskWorkspace("/tasks")),
+        ));
+        let summaries = RoomSummaries::new(list, app_state, directory.clone(), edges);
 
         let view = ThreadRoomView {
             busy: true,

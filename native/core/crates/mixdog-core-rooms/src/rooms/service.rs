@@ -53,12 +53,14 @@ pub trait RoomHost: Send + Sync {
     async fn set_archived(&self, session_id: &str, archived: bool) -> Result<(), RoomError>;
     /// Deletes each session; the number that could not be deleted.
     async fn delete_sessions(&self, session_ids: &[String]) -> usize;
-    fn republish_catalog(&self);
     /// `startSessionOver`: the session is cleared in place and its conversation kept under a new archived id
     /// (`None` when it had nothing to keep).
     async fn start_over(&self, session_id: &str) -> Result<Option<String>, RoomError>;
     /// `resetSessionConversation({ fork: false })`: a member's session is emptied, nothing kept.
     async fn reset_member(&self, session_id: &str) -> Result<(), RoomError>;
+    /// `deps.republishCatalog` (`session-host.ts:357-360`): the catalog is published when this returns, so a room call
+    /// answers only after the rooms it changed are listed and announced.
+    async fn republish_catalog(&self);
 }
 
 /// The exchange scheduler: one bounded exchange per room at a time, memory-only.
@@ -208,7 +210,7 @@ impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> Roo
         self.host.create_session(&session_id, &params).await?;
         self.rooms.create(&config_input(input, None), &room_id, now).await?;
         let _ = self.host.rename_session(&session_id, &probe.name).await;
-        self.host.republish_catalog();
+        self.host.republish_catalog().await;
         Ok(json!({ "sessionId": session_id, "roomId": room_id }))
     }
 
@@ -244,7 +246,7 @@ impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> Roo
                 let _ = self.host.rename_session(&session_id, &updated.room.config.name).await;
             }
         }
-        self.host.republish_catalog();
+        self.host.republish_catalog().await;
         let sessions: Vec<String> = updated.gone.iter().filter_map(|id| room_member_session_id(room_id, id)).collect();
         let failed = self.host.delete_sessions(&sessions).await;
         if failed > 0 {
@@ -265,7 +267,7 @@ impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> Roo
                 room.config.members.iter().filter_map(|id| room_member_session_id(room_id, id)).collect();
             sessions.push(session_id);
             let failed = self.host.delete_sessions(&sessions).await;
-            self.host.republish_catalog();
+            self.host.republish_catalog().await;
             if failed > 0 {
                 return Err(RoomError::Port(format!("The room was removed, but {failed} of its conversations could not be deleted.")));
             }
@@ -293,7 +295,7 @@ impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> Roo
         }
         let archived = self.host.start_over(&session_id).await?;
         self.rooms.reset(room_id, chrono::Utc::now().timestamp_millis()).await?;
-        self.host.republish_catalog();
+        self.host.republish_catalog().await;
         let mut failed = 0;
         for member in &room.config.members {
             let Some(member_session) = room_member_session_id(room_id, member) else { continue };
@@ -443,7 +445,7 @@ mod tests {
         async fn delete_sessions(&self, _: &[String]) -> usize {
             0
         }
-        fn republish_catalog(&self) {}
+        async fn republish_catalog(&self) {}
         async fn start_over(&self, id: &str) -> Result<Option<String>, RoomError> {
             self.calls.lock().unwrap().push(("startOver".into(), id.into()));
             match &self.start_over {
@@ -529,5 +531,100 @@ mod tests {
     fn a_room_id_is_a_valid_room_id() {
         let id = new_room_id(1_793_306_570_000);
         assert!(room_session_id(&id).is_some(), "{id}");
+    }
+
+    #[derive(Default)]
+    struct Records(std::sync::Mutex<super::super::records::RoomDoc>);
+    #[async_trait]
+    impl RoomStore for Records {
+        async fn load(&self) -> Result<super::super::records::RoomDoc, RoomError> {
+            Ok(self.0.lock().unwrap().clone())
+        }
+        async fn save(&self, doc: &super::super::records::RoomDoc) -> Result<(), RoomError> {
+            *self.0.lock().unwrap() = doc.clone();
+            Ok(())
+        }
+    }
+
+    /// A host whose catalog publish stops at a gate the test opens; `began` tells the publish was asked for.
+    struct Gated {
+        began: std::sync::atomic::AtomicBool,
+        open: std::sync::Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
+    }
+    #[async_trait]
+    impl RoomHost for Gated {
+        async fn agents(&self) -> Result<Vec<KnownAgent>, RoomError> {
+            let route = json!({ "provider": "p", "model": "m" });
+            Ok(["gh", "rel"].map(|id| KnownAgent { id: id.into(), route: route.clone() }).to_vec())
+        }
+        async fn mixy_route(&self) -> Value {
+            Value::Null
+        }
+        async fn task_workspace(&self) -> String {
+            "/tasks".into()
+        }
+        async fn session_exists(&self, _: &str) -> bool {
+            false
+        }
+        async fn create_session(&self, _: &str, _: &Value) -> Result<(), RoomError> {
+            Ok(())
+        }
+        async fn rename_session(&self, _: &str, _: &str) -> Result<(), RoomError> {
+            Ok(())
+        }
+        async fn set_archived(&self, _: &str, _: bool) -> Result<(), RoomError> {
+            Ok(())
+        }
+        async fn delete_sessions(&self, _: &[String]) -> usize {
+            0
+        }
+        async fn republish_catalog(&self) {
+            self.began.store(true, std::sync::atomic::Ordering::SeqCst);
+            let open = self.open.lock().unwrap().take();
+            open.expect("one publish").await.expect("the test opens the gate");
+        }
+    }
+
+    struct Idle;
+    #[async_trait]
+    impl RoomRunner for Idle {
+        fn is_running(&self, _: &str) -> bool {
+            false
+        }
+        fn stop(&self, _: &str) {}
+        async fn start(&self, _: &str, _: Vec<String>) -> Result<(), RoomError> {
+            Ok(())
+        }
+        fn cancel_owed_to(&self, _: &str, _: &[String]) {}
+    }
+
+    /// Node answers `createAgentRoom` after `deps.republishCatalog()` (`agent-rooms.ts` `create`, `session-host.ts:357-360`
+    /// publishes the catalog synchronously): the room is listed and announced when the call answers. Polled while the
+    /// publish is held, the creation has not answered; once the gate opens it answers with the room it made. Everything
+    /// the creation awaits here is in memory, so one poll runs it to the gate or to its answer.
+    #[tokio::test]
+    async fn room_create_answers_only_after_the_catalog_is_published() {
+        let (open_tx, open) = tokio::sync::oneshot::channel();
+        let host = Arc::new(Gated { began: false.into(), open: Some(open).into() });
+        let dir = tempfile::tempdir().expect("dir");
+        let service = RoomService::new(
+            Arc::new(Rooms::new(Records::default())),
+            host.clone(),
+            Arc::new(Idle),
+            mixdog_core_base::support::testing::scopes(dir.path(), "room").await,
+        );
+        let input = json!({ "name": "Release", "members": ["gh", "rel"] });
+        let create = service.create(&input);
+        tokio::pin!(create);
+        /// One poll of `future`, whatever it answers.
+        async fn polled<F: std::future::Future>(future: &mut std::pin::Pin<&mut F>) -> std::task::Poll<F::Output> {
+            std::future::poll_fn(|cx| std::task::Poll::Ready(future.as_mut().poll(cx))).await
+        }
+        assert!(polled(&mut create).await.is_pending(), "the creation answered while the catalog publish was held");
+        assert!(host.began.load(std::sync::atomic::Ordering::SeqCst), "it is held at the publish");
+        open_tx.send(()).expect("the creation waits");
+        let std::task::Poll::Ready(answer) = polled(&mut create).await else { panic!("the creation did not answer once the catalog was published") };
+        let answer = answer.expect("created");
+        assert!(answer["sessionId"].as_str().is_some_and(|id| id.starts_with("sess_room_")), "{answer}");
     }
 }
