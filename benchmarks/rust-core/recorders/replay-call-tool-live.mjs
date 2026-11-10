@@ -50,7 +50,6 @@ let client = null;
 let stderr = '';
 let seen = '';
 const hits = [];
-let served = () => {};
 const failures = [];
 
 // Resolves with the first non-null `probe()`, tried now and again on every event `subscribe` reports; rejects naming `label` at the deadline.
@@ -116,7 +115,6 @@ try {
       requests.push(JSON.parse(body || '{}'));
       const next = scenario.script[Math.min(step++, scenario.script.length - 1)];
       const chunk = (delta, finish) => `data: ${JSON.stringify({ id: 'c', model: 'm-a', choices: [{ index: 0, delta, finish_reason: finish }], usage: finish ? { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 } : null })}\n\n`;
-      res.once('finish', () => served());
       res.writeHead(200, { 'content-type': 'text/event-stream' });
       if (next.text !== undefined) return void res.end(chunk({ role: 'assistant', content: next.text }, null) + chunk({}, 'stop') + 'data: [DONE]\n\n');
       const tool_calls = next.calls.map((c, index) => ({ index, id: c.id, type: 'function', function: { name: c.name, arguments: JSON.stringify(c.arguments) } }));
@@ -159,12 +157,22 @@ try {
   );
   const { connect, sessionReducer } = await here('packages/protocol-client/src/index.ts');
   const { createWsConnector } = await here('apps/desktop/src/main/protocol/ws-connector.ts');
+  // Every notification of a thread this client watches passes the reducer, in feed order: the run's own events are seen there.
+  const threadNotes = [];
+  let noted = () => {};
   client = await connect({
     target: { id: 'core' },
     connector: createWsConnector(async () => endpoint),
     clientInfo: { name: 'mixdog-phone', title: 'Mixdog Phone', version: '1.4.5', kind: 'phone' },
     capabilities: { optOutNotificationMethods: [], experimentalApi: false },
-    threadReducer: sessionReducer,
+    threadReducer: {
+      ...sessionReducer,
+      apply(state, notification) {
+        threadNotes.push(notification);
+        noted();
+        return sessionReducer.apply(state, notification);
+      },
+    },
     clock: { sleep: () => Promise.reject(new Error('dropped')) },
     random: Math.random,
   });
@@ -185,26 +193,25 @@ try {
     kind: 'task',
     projectPath: join(world, 'project'),
     draft: { projectPath: join(world, 'project'), route: { provider, model: 'm-a' } },
-    ...(scenario.goal ? {} : { initialInput: { prompt: 'go' } }),
   });
   const threadId = started.thread.id;
+  // A client sees a thread's run once it watches the thread, as the desktop does for the threads it shows (`setVisibleSessions` ->
+  // `thread/resume`, apps/desktop/src/main/protocol/service-route.ts); Node's desktop service likewise sends a session's state only
+  // for a visible session (b6f10295a apps/desktop/src/main/desktop-service-state-sync.ts:191). The thread is watched before its turn starts.
+  await client.resumeThread(threadId, { lastItems: 10 });
   if (scenario.goal) await rpc('thread/goal/set', { threadId, goal: scenario.goal });
-  // Done once the model has said everything the script holds and the turn has ended. This client is told nothing of a thread's turns (no
-  // event reaches it), so the waits are on what the core itself reports: every answer the scripted model gives is an event (`served`),
-  // and once the last one is out the turn's end is read back-to-back, each read starting when the one before answered, never on a timer.
-  const thread = await waitOn(
-    'the turn ending',
+  else await rpc('turn/start', { threadId, input: { prompt: 'go', options: {} } });
+  // Done when the core says the turn completed (`turn/completed` on the thread's feed).
+  const completed = await waitOn(
+    'the turn completing (turn/completed)',
     60_000,
-    (attempt) => ((served = attempt), () => (served = () => {})),
+    (attempt) => ((noted = attempt), () => (noted = () => {})),
     async () => {
-      for (;;) {
-        const read = await rpc('thread/read', { threadId, includeTurns: true });
-        seen = `model steps taken ${step}/${scenario.script.length}; item types ${read?.items?.map((item) => item.type)}`;
-        if (step < scenario.script.length) return null;
-        if (read.items?.at(-1)?.type === 'turnEnd') return read;
-      }
+      seen = `model steps taken ${step}/${scenario.script.length}; thread notifications ${threadNotes.map((n) => n.method).join(', ')}`;
+      return threadNotes.find((n) => n.method === 'turn/completed' && n.params?.threadId === threadId) ?? null;
     }
   );
+  if (step !== scenario.script.length) failures.push(`the turn completed after ${step} of the ${scenario.script.length} model steps the script holds`);
   // ---- what the model was given ----
   const toolAnswers = requests.flatMap((request) => request.messages.filter((m) => m.role === 'tool').map((m) => ({ id: m.tool_call_id, text: m.content })));
   const lastCall = scenario.script.filter((s) => s.calls).at(-1).calls[0].id;
@@ -214,7 +221,7 @@ try {
   else if (!scenario.goalAnswer(answer.text)) failures.push(`${lastCall} was answered ${answer.text}, not what Node's goal tool answers`);
   const finalText = requests.at(-1).messages.at(-1);
   if (finalText.role !== 'tool' && finalText.role !== 'user') failures.push(`the last request ended with a ${finalText.role} message`);
-  console.log(JSON.stringify({ scenario: scenarioName, requests: requests.length, toolAnswers, turnItems: thread.items?.length }, null, 1));
+  console.log(JSON.stringify({ scenario: scenarioName, requests: requests.length, toolAnswers, turn: completed.params.turn?.status ?? null, notifications: threadNotes.map((n) => n.method) }, null, 1));
 } catch (error) {
   failures.push(`${error.message}${seen ? ` (model endpoint hit by: ${hits.join(", ")}; last seen: ${seen})` : ''}${stderr ? `\nmixdogd stderr:\n${stderr.slice(-2000)}` : ''}`);
 } finally {
