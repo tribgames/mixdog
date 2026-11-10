@@ -846,6 +846,59 @@ const TOOL_GRACE: Duration = Duration::from_millis(1_500);
 /// The tools Node runs inside `runReadOnlyIoWithDeadline` (`READ_ONLY_IO_TOOL_NAMES`, `tool-exec/read-only-deadline.mjs:6`).
 const READ_ONLY_IO_TOOL_NAMES: [&str; 12] = ["read", "head", "tail", "wc", "summary", "hex", "grep", "glob", "find", "find_files", "list", "tree"];
 
+/// `READ_ONLY_IO_TIMEOUT_MS` (`read-only-deadline.mjs:20`).
+const READ_ONLY_IO_TIMEOUT: Duration = Duration::from_millis(20_000);
+
+/// The deadline every run's read-only I/O calls get (`runReadOnlyIoWithDeadline`): `READ_ONLY_IO_TIMEOUT`, or what
+/// `MIXDOG_IO_TOOL_TIMEOUT_MS` sets, read at each call as Node reads it (`readOnlyIoTimeoutMs`, `read-only-deadline.mjs:27-32`):
+/// `0` is no deadline, a positive number its whole milliseconds (at least 1), anything else the default. Other tools have none.
+pub fn read_only_io_deadline() -> DeadlineFn {
+    Arc::new(|spec: &ToolSpec| {
+        if !READ_ONLY_IO_TOOL_NAMES.contains(&spec.name.as_str()) {
+            return None;
+        }
+        let raw = std::env::var_os("MIXDOG_IO_TOOL_TIMEOUT_MS").map(|raw| raw.to_string_lossy().into_owned()).unwrap_or_default();
+        let raw = mixdog_js::js_trim(&raw);
+        if raw == "0" {
+            return None;
+        }
+        let configured = mixdog_js::string_to_number(raw);
+        Some(if configured.is_finite() && configured > 0.0 { Duration::from_millis(configured.floor().max(1.0) as u64) } else { READ_ONLY_IO_TIMEOUT })
+    })
+}
+
+/// `runReadOnlyIoWithDeadline`'s timeout error: the text a read-only I/O call gives when it has nothing to hand back past its deadline.
+fn read_only_io_timeout(name: &str, timeout: Option<Duration>) -> ToolError {
+    ToolError::new(
+        ToolErrorCode::DeadlineExceeded { partial: false },
+        format!(
+            "Error: read-only I/O tool \"{name}\" timed out after {}ms with no partial output; narrow the scope (path, glob, more specific pattern, smaller limit) and retry.",
+            timeout.map_or(0, |t| t.as_millis())
+        ),
+    )
+}
+
+/// What a read-only I/O call that settled inside the grace after its deadline gives back (`read-only-deadline.mjs:99-107`): a result
+/// with text, that text and the deadline notice (`withReadOnlyIoDeadlineNotice`); a structured result (one with an image) as it is;
+/// an empty result or a failure, the timeout.
+fn graced(outcome: ToolOutcome, name: &str, timeout: Option<Duration>) -> ToolOutcome {
+    let mut output = outcome.map_err(|_| read_only_io_timeout(name, timeout))?;
+    if output.parts.iter().any(|part| matches!(part, ToolPart::Image { .. })) {
+        return Ok(output);
+    }
+    let Content::Text(text) = render_output(std::mem::take(&mut output.parts)) else {
+        unreachable!("a result without images renders as text");
+    };
+    if text.is_empty() {
+        return Err(read_only_io_timeout(name, timeout));
+    }
+    let ms = timeout.map_or(0, |t| t.as_millis());
+    output.parts = vec![ToolPart::Text(format!(
+        "{text}\n[warning] read-only I/O tool \"{name}\" hit the {ms}ms deadline; PARTIAL results shown — narrow the scope (path, glob, more specific pattern, smaller limit) for the complete set."
+    ))];
+    Ok(output)
+}
+
 /// A hook runs even once the run is cancelled, as in Node (best effort): a PostToolUseFailure
 /// hook is how an aborted call is reported. A hook still running `TOOL_GRACE` after the cancel is dropped.
 async fn hooked<T>(cancel: &CancellationToken, hook: impl Future<Output = T>) -> Option<T> {
@@ -856,14 +909,8 @@ async fn hooked<T>(cancel: &CancellationToken, hook: impl Future<Output = T>) ->
 /// The failure of a call that gave nothing back after the dispatcher ended the wait: its run was
 /// cancelled (`cancelled` is that text), or the tool's deadline passed (Node `runReadOnlyIoWithDeadline`'s timeout text).
 fn ended_error<T>(name: &str, ended: &Scoped<T>, timeout: Option<Duration>, cancelled: String) -> ToolError {
-    match (ended, timeout) {
-        (Scoped::DeadlineExceeded, timeout) => ToolError::new(
-            ToolErrorCode::DeadlineExceeded { partial: false },
-            format!(
-                "Error: read-only I/O tool \"{name}\" timed out after {}ms with no partial output; narrow the scope (path, glob, more specific pattern, smaller limit) and retry.",
-                timeout.map_or(0, |t| t.as_millis())
-            ),
-        ),
+    match ended {
+        Scoped::DeadlineExceeded => read_only_io_timeout(name, timeout),
         _ => ToolError::new(ToolErrorCode::Cancelled, cancelled),
     }
 }
@@ -983,18 +1030,21 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
     });
     let _abort = AbortOnDrop(handle.abort_handle());
     // Node (`runReadOnlyIoWithDeadline`): a read-only I/O tool's wait ends the moment the run is aborted (its own signal fires with
-    // it), and a deadline fires the tool's signal and leaves it `TOOL_GRACE` to hand back what it collected. Every other tool runs
-    // outside that wrapper: the abort reaches it through its own token (a child of the run's) and the call waits for the tool to
-    // settle, however long it takes to honour that.
+    // it), and a deadline fires the tool's signal and leaves it `TOOL_GRACE` to hand back what it collected, which an abort then no
+    // longer ends (the tool's signal has already fired). Every other tool runs outside that wrapper: the abort reaches it through its
+    // own token (a child of the run's) and the call waits for the tool to settle, however long it takes to honour that.
+    let mut past_deadline = false;
     let waited = if read_only_io {
-        match Scope::new()
-            .cancel(&env.cancel)
-            .run(Scope::new().deadline(deadline).run_with_grace(&mut handle, TOOL_GRACE, || tool_cancel.cancel()))
-            .await
-        {
-            Scoped::Done(waited) => waited,
-            Scoped::Cancelled => Scoped::Cancelled,
-            Scoped::DeadlineExceeded => Scoped::DeadlineExceeded,
+        match Scope::new().cancel(&env.cancel).deadline(deadline).run(&mut handle).await {
+            Scoped::DeadlineExceeded => {
+                past_deadline = true;
+                tool_cancel.cancel();
+                match Scope::new().within(TOOL_GRACE).run(&mut handle).await {
+                    Scoped::Done(waited) => Scoped::Done(waited),
+                    _ => Scoped::DeadlineExceeded,
+                }
+            }
+            ended => ended,
         }
     } else {
         Scope::new().deadline(deadline).run_with_grace(&mut handle, TOOL_GRACE, || tool_cancel.cancel()).await
@@ -1008,7 +1058,9 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
         result_completed_at: env.clock.now_ms(),
     };
     let outcome: ToolOutcome = match waited {
+        Scoped::Done(Ok(outcome)) if past_deadline => graced(outcome, &name, timeout),
         Scoped::Done(Ok(outcome)) => outcome,
+        Scoped::Done(Err(_)) if past_deadline => Err(read_only_io_timeout(&name, timeout)),
         Scoped::Done(Err(_)) => Err(ToolError::new(
             ToolErrorCode::Internal {
                 incident_id: "tool-task".to_owned(),
