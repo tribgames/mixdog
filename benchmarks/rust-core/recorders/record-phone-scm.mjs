@@ -47,14 +47,17 @@ const args = parseArgs();
 const REPLAY = args.get('replay') ?? null;
 // `--only <group>`: record or replay one group of cases and stop. A recording of one group is written to `--out <file>`, never to
 // the fixture (the full run is what the fixture holds); a replay of one group compares that group's cases of the fixture.
-// In the order the recording holds them. Every case of the recording is in exactly one group.
+// In the order the recording holds them. Each group runs its own sections on a world of its own, and every case records the
+// group that made it (`group`), so every case of the recording is in exactly one group.
 const GROUPS = {
-  // Every argument check of Node's host for the phone's source-control calls (the cases named `input-*` and `refused-*`), on a
-  // repository of their own that no other case reads.
-  input: (name) => /^(input|refused)-/.test(name),
-  // Everything else: one story on the shared repository (each case's recorded repository is what the cases before it left), the
-  // sign-in terminals and the ordering scenario.
-  scenario: (name) => !/^(input|refused)-/.test(name),
+  // Every argument check of Node's host for the phone's source-control calls, on a repository of their own (section 0).
+  input: 'the argument checks (section 0)',
+  // One story on the shared repository, each case's recorded repository being what the cases before it left (sections 1-5),
+  // then the ordering scenario (section 11).
+  git: 'status, diff, staging, commits, branches, tags, stash, the remote and the ordering scenario (sections 1-5, 11)',
+  // The GitHub CLI from not installed to signed in, with the sign-in terminals, the pull requests and githubRequest.
+  github: 'the GitHub CLI, its sign-in, pull requests and githubRequest (sections 6-8)',
+  runner: "the installers and the git runner's own failures (sections 9-10)",
 };
 const ONLY = args.get('only') ?? null;
 if (ONLY !== null && !GROUPS[ONLY]) throw new Error(`--only takes one of ${Object.keys(GROUPS).join(', ')}, not ${ONLY}`);
@@ -93,11 +96,11 @@ function verifyRecording() {
   assert.deepEqual(fixtureManifest.recorderFiles, recorderFiles(), 'the recording was made by another recorder than this one (the hashes of its files differ): record again before comparing');
 }
 
-// A group's world. The scenario's is the recorded folder: its commit ids carry the folder's path (a merge names the origin it
+// A group's world. The git group's is the recorded folder: its commit ids carry the folder's path (a merge names the origin it
 // pulled from), so it can run nowhere else. Every other group's is a sibling whose name has the same length, so no text moves: what
 // it records is written back to the recorded name, and what it replays is read with its own name.
 const RECORDED_WORK = process.env.PHONE_SCM_RECORDED_WORK ?? WORK;
-const worldOf = (group) => (group === 'scenario' ? WORK : join(dirname(WORK), `${basename(WORK).slice(0, -2)}${String(Object.keys(GROUPS).indexOf(group)).padStart(2, '0')}`));
+const worldOf = (group) => (group === 'git' ? WORK : join(dirname(WORK), `${basename(WORK).slice(0, -2)}${String(Object.keys(GROUPS).indexOf(group)).padStart(2, '0')}`));
 assert.ok(dirname(RECORDED_WORK) === dirname(WORK) && basename(RECORDED_WORK).length === basename(WORK).length, `the world ${WORK} is not a sibling of the recorded ${RECORDED_WORK} with a name of the same length`);
 /** A text that names the folder `from` (the whole name, in any spelling of the path above it) as it names `to` instead. */
 function renamed(text, from, to) {
@@ -152,9 +155,19 @@ if (ONLY === null) {
     let ended = await Promise.race([closed, late]);
     clearTimeout(timer);
     if (ended === null) {
-      endTree(child.pid);
-      await closed;
+      // The group is named first, whatever the cleanup that follows does; the cleanup has a bound of its own and names what it
+      // could not end. The run fails either way (a group with a failure fails it below).
       ended = `did not end within ${deadlineMin} minutes`;
+      console.error(`phone-scm: group ${group} ${ended}; ending its process tree (pid ${child.pid})`);
+      endTree(child.pid);
+      let cleanup;
+      const gone = await Promise.race([closed.then(() => true), new Promise((resolve) => (cleanup = setTimeout(() => resolve(false), 60_000)))]);
+      clearTimeout(cleanup);
+      if (!gone) {
+        ended += `; its process (pid ${child.pid}) and what it started could not be ended within 60 s`;
+        console.error(`phone-scm: group ${group}: pid ${child.pid} and its children are still running after taskkill`);
+        process.exitCode = 1;
+      }
     }
     running.delete(child);
     const ms = performance.now() - began;
@@ -193,7 +206,7 @@ if (ONLY === null) {
   // The recording: the groups' cases in the order of GROUPS, each group's in the order it recorded them.
   const realGits = [...new Set(outs.map((out) => out.realGit))];
   assert.equal(realGits.length, 1, `the groups ran different gits: ${realGits.join(', ')}`);
-  const scenario = outs.find((out) => out.group === 'scenario');
+  const outOf = (group) => outs.find((out) => out.group === group);
   const cases = outs.flatMap((out) => out.cases);
   const covered = new Set(outs.flatMap((out) => out.covered));
   const PATH_SPELLINGS = ['C:\\repo', '\\repo', '/repo', 'C:/repo', '\\\\host\\share', '//host/share', 'repo', './repo', 'C:repo', ' /repo ', '../x', 'C:\\x'];
@@ -214,8 +227,8 @@ if (ONLY === null) {
     cases,
     // Calls the core cannot be compared on, each recorded from Node and kept as JSON text (`recordedText`): see the manifest's notes.
     limits: outs.flatMap((out) => out.limits),
-    ptyEnds: scenario.ptyEnds,
-    ordering: scenario.ordering,
+    ptyEnds: outOf('github').ptyEnds,
+    ordering: outOf('git').ordering,
   });
   writeSetManifest(stage, {
     set: 'phone-scm',
@@ -223,7 +236,10 @@ if (ONLY === null) {
     command: `node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-phone-scm.mjs --tree <git archive of ${REF} with node_modules>`,
     identity,
     extra: {
+      // The Node that ran the recorder and the code under test.
+      node: process.version,
       cases: cases.length,
+      groups: Object.fromEntries(Object.entries(GROUPS).map(([group, what]) => [group, { what, cases: cases.filter((entry) => entry.group === group).length }])),
       calls: PH2_SCM_CALLS.length,
       // The recorder that made this recording, by the hash of each of its files' committed (LF) text; a replay refuses to compare
       // when the running recorder's files differ.
@@ -238,6 +254,12 @@ if (ONLY === null) {
         clock: 'Date.now, new Date() and the run-limit timeouts are virtual; every other timer of the code under test is real and is printed, by delay, at the end of a recording',
       },
       notes: {
+        scratchIndex:
+          'A comparison rule, applied to both sides: the GIT_INDEX_FILE a commit gives its git children names a scratch folder `mixdog-commit-<pid>-<suffix>`, which is compared as `mixdog-commit-*`. Node makes the folder with mkdtemp (apps/desktop/src/main/git-commit-transaction.ts:1203), which appends six random characters to the prefix that holds its pid, so the name differs between any two runs, of Node as of the core; the rest of the path and every other variable are compared as recorded.',
+        repository:
+          'Each case records the state of the repository its request names (`repository`: the first argument of a call that takes a directory, JavaScript-trimmed and without a verbatim `\\\\?\\` prefix, when it is a folder of the world: a repository is read with git, refs by commit tree, message and history length, and its local origin\'s refs; another folder is its files by content hash; a call that names none has `null`) and the global git config file (`globalConfig`). A case Node refused before any program ran (the frame is a refusal and the case has no `processes`) cannot have changed either: its state is read once after the run of such cases, before anything else touches the world, and the replay does the same for the core (only when the core also started no program).',
+        requestText:
+          'A case with `paramsText` was given to Node as those bytes (`{"id":1,"method":<call>,"params":<paramsText>}`). Its `request` is the core request the phone\'s route (shared/scm-operation-route.ts) makes of the same argument texts, each argument kept as spelled (`text`), with the op id the replay gives it; the replay sends those bytes and compares, byte for byte, the params of the frame its socket writer was given.',
         loneSurrogate:
           'An open difference, not parity. A JSON string holding an escaped lone surrogate ("\\ud800") is a string to Node: its string checks take it and the call acts on it (golden.json limits[lone-surrogate-gitLog-query]; Node\'s spawn writes it on git\'s command line as U+FFFD, bytes EF BF BD). The core reads every inbound frame into Rust strings (mixdog-app-protocol rpc.rs decode_inbound_text), which cannot hold one: the frame is invalid and the connection is closed with 1007, for every method, before any check runs. The case is not replayed.',
         posixCwd:
@@ -458,6 +480,12 @@ const pty = scriptedPty({ onSpawn: (spawn) => processes.push(spawn) });
 const main = (name) => importFrom(tree, `apps/desktop/src/main/${name}.ts`);
 const { createRemoteMethods, executeRemoteFrame } = await main('remote-methods');
 const { createDesktopOperations } = await main('desktop-operations');
+// The phone's route from a call to the core request, and the client's method table (which requests carry an op id): a spelled
+// case records the core request its argument texts make (spelledRequest).
+const { SCM_OPERATION_ROUTES } = await import(pathToFileURL(join(REPO_ROOT, 'apps/desktop/src/shared/scm-operation-route.ts')).href);
+const { methodInfo } = await import(pathToFileURL(join(REPO_ROOT, 'packages/protocol-client/src/method-table.ts')).href);
+/** The request a spelled case is sending, until the socket writer has written it (see the replay's connector). */
+const spelledFrame = { pending: null };
 // The daemon that answers the phone starts git on its process-runner worker (desktop-service.ts:1052), so a failed command's text is\n// git-runner.ts gitFailure's (`Command failed: git commit ...`), not execFile's (which names the resolved git.exe).
 const { setGitProcessRunner } = await main('git-runner');
 // The runner the daemon's process pool runs in a worker thread (process-runner.mjs), here on the calling thread - the path its own comment
@@ -496,6 +524,13 @@ setGitProcessRunner((command, runArgs, options) => {
   const start = ChildProcess.prototype.spawn;
   ChildProcess.prototype.spawn = function spawn(options) {
     const result = start.call(this, options);
+    // The runner's own child is waited for until its process has closed too: a child its run limit ended is still exiting when
+    // the runner's promise settles, and holds its program file (this world's git.exe) until it has.
+    if (inRunner && this.pid !== undefined) {
+      const entry = { settled: new Promise((settle) => this.once('close', settle)), argv: (options.args ?? []).slice(1).map(String) };
+      gitInFlight.add(entry);
+      entry.settled.then(() => gitInFlight.delete(entry));
+    }
     if (!inRunner && /(^|[\\/])git(\.exe)?$/i.test(String(options.file))) {
       const attempt = { tool: 'git', argv: (options.args ?? []).slice(1).map(String), cwd: options.cwd ?? null, env: envDelta(pairsToEnv(options.envPairs), process.env) };
       processes.push(attempt);
@@ -577,40 +612,109 @@ const host = {
 const methods = createRemoteMethods({ host });
 
 // ── scratch repositories ──
-const git = (cwd, ...gitArgs) => boundedSync(realGit, ['-c', 'core.autocrlf=false', '-c', 'commit.gpgsign=false', ...gitArgs], { cwd, encoding: 'utf8', stdio: 'pipe' }).stdout;
-/** What a call left in the repositories, read with the real git after the call ended: HEAD, every ref (by the commit's tree, author,
+const gitRaw = (cwd, ...gitArgs) => boundedSync(realGit, ['-c', 'core.autocrlf=false', '-c', 'commit.gpgsign=false', ...gitArgs], { cwd, encoding: 'utf8', stdio: 'pipe' }).stdout;
+/** The recorder's own git on the world: whatever it changes comes after the state of the cases before it was read. */
+const git = (cwd, ...gitArgs) => {
+  touchWorld();
+  return gitRaw(cwd, ...gitArgs);
+};
+/** A commit's tree, author, message and history length, by its id: a commit never changes. */
+const commitFacts = new Map();
+/** What a call left in a repository, read with the real git after the call ended: HEAD, every ref (by the commit's tree, author,
  *  message and history length: a commit's id carries its time, which differs between two runs), the staged index, the working tree
- *  (every file's content hash), the stashes, the local config, and the refs of the remote. Compared case by case: Node's answer is
- *  not the only thing a call leaves behind. */
-function repoState(root, remote) {
-  const read = (cwd, ...args) => git(cwd, '--no-optional-locks', ...args);
+ *  (every file's content hash), the stashes, the local config, and the refs of its origin when that is a folder. Compared case by
+ *  case: Node's answer is not the only thing a call leaves behind. */
+function repoState(root) {
+  const read = (cwd, ...args) => gitRaw(cwd, '--no-optional-locks', ...args);
   // A status that is not an answer (unborn HEAD, detached HEAD) is an empty value, not a failure.
   const soft = (...args) => {
     const result = spawnSync(realGit, ['--no-optional-locks', ...args], { cwd: root, encoding: 'utf8', timeout: CHILD_BOUND_MS, killSignal: 'SIGKILL' });
     assert.ok(!result.error, `${args.join(' ')}: ${result.error?.message}`);
     return result.status === 0 ? result.stdout.trim() : '';
   };
+  // A commit is immutable: what is compared of it is read once per id.
+  const commitOf = (cwd, id) => {
+    if (!commitFacts.has(id)) commitFacts.set(id, { tree: read(cwd, 'rev-parse', `${id}^{tree}`).trim(), message: read(cwd, 'log', '-1', '--format=%an%n%ae%n%B', id), length: read(cwd, 'rev-list', '--count', id).trim() });
+    return commitFacts.get(id);
+  };
   const refsOf = (cwd) =>
     read(cwd, 'for-each-ref', '--format=%(refname)%00%(objecttype)%00%(objectname)').split('\n').filter(Boolean).map((line) => {
       const [name, type, id] = line.split('\0');
-      return type === 'commit'
-        ? { name, tree: read(cwd, 'rev-parse', `${id}^{tree}`).trim(), message: read(cwd, 'log', '-1', '--format=%an%n%ae%n%B', id), length: read(cwd, 'rev-list', '--count', id).trim() }
-        : { name, type };
+      return type === 'commit' ? { name, ...commitOf(cwd, id) } : { name, type };
     });
+  const config = read(root, 'config', '--local', '--list').split('\n').filter(Boolean);
+  const origin = config.find((line) => line.startsWith('remote.origin.url='))?.slice('remote.origin.url='.length) ?? null;
   return {
     headTree: soft('rev-parse', '--verify', '-q', 'HEAD^{tree}'),
     branch: soft('symbolic-ref', '-q', 'HEAD'),
     refs: refsOf(root),
-    remoteRefs: refsOf(remote),
+    remoteRefs: origin !== null && existsSync(origin) ? refsOf(origin) : null,
     index: read(root, 'ls-files', '-s').split('\n').filter(Boolean).map((line) => line.replace(/^(\d+) \S+ /, '$1 ')),
     tree: read(root, 'ls-files', '-co', '--exclude-standard', '-z').split('\0').filter(Boolean).map((file) => {
       const path = join(root, file);
       return [file, existsSync(path) ? createHash('sha256').update(readFileSync(path)).digest('hex') : null];
     }),
     stashes: read(root, 'stash', 'list', '--format=%gs').split('\n').filter(Boolean),
-    config: read(root, 'config', '--local', '--list').split('\n').filter(Boolean),
+    config,
   };
-}const write = (root, rel, text) => {
+}
+/** Every file under a folder that is no repository, by its path and content hash. */
+function folderState(root) {
+  const files = [];
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) walk(path);
+      else files.push([path.slice(root.length + 1).replaceAll('\\', '/'), createHash('sha256').update(readFileSync(path)).digest('hex')]);
+    }
+  };
+  walk(root);
+  return { files };
+}
+// The calls whose first argument is the directory they act in (every git and pull request call but the global ones).
+const GLOBAL_CALLS = new Set(['gitGlobalConfig', 'setGitGlobalConfig', 'gitCliStatus', 'installGitCli']);
+/** The folder of this world a call's request names: its first argument, JavaScript-trimmed and without a verbatim prefix, when it
+ *  is an absolute path to a folder inside the world; null for a call that names none. */
+function namedFolder(call, params) {
+  const takesDirectory = call === 'githubRequest' || call.startsWith('gh') || (call.startsWith('git') && !call.startsWith('github') && !GLOBAL_CALLS.has(call));
+  const given = Array.isArray(params) ? params[0] : undefined;
+  if (!takesDirectory || typeof given !== 'string') return null;
+  const dir = given.trim().replace(/^\\\\\?\\/, '');
+  if (!win32.isAbsolute(dir) || !resolve(dir).toLowerCase().startsWith(`${resolve(WORK).toLowerCase()}\\`)) return null;
+  return existsSync(dir) && fs.statSync(dir).isDirectory() ? resolve(dir) : null;
+}
+/** The world as a call left it: the folder its request names (a repository, or another folder's files) and the global git config. */
+function stateOf(folder) {
+  const globalPath = process.env.GIT_CONFIG_GLOBAL;
+  return {
+    folder: folder === null ? null : folder.slice(WORK.length + 1),
+    repository: folder === null ? null : existsSync(join(folder, '.git')) ? repoState(folder) : folderState(folder),
+    globalConfig: existsSync(globalPath) ? readFileSync(globalPath, 'utf8') : null,
+  };
+}
+// The cases Node refused before any program ran (and, replaying, the core started none either) whose state is not read yet: a
+// refusal that ran nothing changes nothing, so the state of the run of them is read once, before anything else touches the world.
+// `settle(state)` is each case's: it records the state, or compares it.
+const quiet = [];
+/** A case Node's host refused before it invoked any operation and before any program ran. */
+const isQuiet = (entry) => entry.frame.ok === false && !entry.processes?.length && entry.ops.length === 0;
+/** The recording's state read last, by folder, while nothing has touched the world since. */
+const lastStates = new Map();
+/** The recorder is about to change the world itself: what was read of it before is settled, and nothing read is current. */
+function touchWorld() {
+  settleQuiet();
+  lastStates.clear();
+}
+function settleQuiet() {
+  if (!quiet.length) return;
+  const read = new Map();
+  for (const entry of quiet.splice(0)) {
+    if (!read.has(entry.folder)) read.set(entry.folder, stateOf(entry.folder));
+    entry.settle(read.get(entry.folder));
+  }
+}
+const write = (root, rel, text) => {
+  touchWorld();
   mkdirSync(join(root, rel, '..'), { recursive: true });
   writeFileSync(join(root, rel), text);
 };
@@ -815,9 +919,36 @@ if (REPLAY) {
   );
   await withDeadline(wire.connected, 'the core never connected its debug seam (is mixdogd a debug build?)');
   if (process.env.PHONE_SCM_VERBOSE) console.error('endpoint', JSON.stringify(endpoint));
+  // The socket writer: every text frame the phone's client hands it is what leaves on the socket. A request a spelled case
+  // sends (`spelledFrame`) leaves with the recorded params bytes in place of the client's serialisation of the same values: the
+  // client's params must read back as the recorded ones, and the frame actually written is kept for the comparison.
+  const wsConnector = createWsConnector(async () => endpoint);
+  const connector = {
+    async open(target, sink) {
+      const writer = await wsConnector.open(target, sink);
+      return {
+        send(text, sent) {
+          let out = text;
+          const pending = spelledFrame.pending;
+          if (pending && !pending.written) {
+            const frame = JSON.parse(text);
+            if (frame.method === pending.method) {
+              const head = `{"id":${JSON.stringify(frame.id)},"method":${JSON.stringify(frame.method)},"params":`;
+              assert.ok(text.startsWith(head) && text.endsWith('}'), `the client's request frame is not {id, method, params}: ${text}`);
+              assert.equal(JSON.stringify(frame.params), JSON.stringify(JSON.parse(pending.text)), `the client's params of ${pending.method} are not the recorded request's`);
+              out = `${head}${pending.text}}`;
+              pending.written = { head, frame: out };
+            }
+          }
+          return writer.send(out, sent);
+        },
+        close: (code, reason) => writer.close(code, reason),
+      };
+    },
+  };
   const client = await withDeadline(connect({
     target: { id: 'core' },
-    connector: createWsConnector(async () => endpoint),
+    connector,
     clientInfo: { name: 'mixdog-phone', title: 'Mixdog Phone', version: '1.4.5', kind: 'phone' },
     capabilities: { optOutNotificationMethods: [], experimentalApi: false },
     threadReducer: sessionReducer,
@@ -884,12 +1015,8 @@ function replayCall(call, params) {
   const answered = replay.runQueued(replay.host.ctx, call, params, async () => replay.adapter.calls[call](params, replay.host));
   return withDeadline(answered.then(frameOf, failureFrame), `the core never answered ${call}`);
 }
-/**
- * The arguments of a params text (`[cwd, "", 1.0, 40]`) with each argument kept as it is spelled: a primitive becomes
- * `JSON.rawJSON` of its own text, which `JSON.stringify` writes back unchanged, so the request frame carries the bytes Node read.
- * A list or an object is parsed; it must print back as the same text, or the bytes could not be kept.
- */
-function spelledArgs(text) {
+/** The text of each argument of a params text (`[cwd, "", [1.0], {"\\u0061":-0}]`), exactly as it is spelled there. */
+function argTexts(text) {
   const elements = [];
   let depth = 0;
   let quoted = false;
@@ -903,61 +1030,86 @@ function spelledArgs(text) {
     else if (char === '[' || char === '{') depth += 1;
     else if (char === ']' || char === '}') {
       depth -= 1;
-      if (depth === 0) elements.push(text.slice(start, i));
+      if (depth === 0 && i > start) elements.push(text.slice(start, i));
     } else if (char === ',' && depth === 1) {
       elements.push(text.slice(start, i));
       start = i + 1;
     }
   }
   assert.equal(depth, 0, `params text ${text} is not one list`);
-  return elements.map((element) => {
-    if (/^[[{]/.test(element)) {
-      const value = JSON.parse(element);
-      assert.equal(JSON.stringify(value), element, `the argument ${element} would not be sent as it is spelled`);
-      return value;
-    }
-    return JSON.rawJSON(element);
-  });
+  assert.deepEqual(elements.map((element) => JSON.parse(element)), JSON.parse(text), `params text ${text} was not split into its arguments`);
+  return elements;
 }
 /**
- * A call whose recording keeps its params text, sent to the core as those bytes: the operation's request (the page's route,
- * scm-operation-route.ts) made of the spelled arguments, without the page's argument checks, whose conversions (`Number(...)`)
- * would send other bytes. The core checks the arguments itself (mixdog-scm input.rs); its answer is read as the page reads it.
+ * The core request the phone's route (shared/scm-operation-route.ts) makes of a call given as a params text, each argument
+ * standing in it as it is spelled: the route is run on a marker per argument and every marker is then replaced by that
+ * argument's own text. A mutation carries the op id the replay gives it (the client puts it last). Recorded with the case.
  */
-function replaySpelled(call, text) {
-  const args = spelledArgs(text);
+function spelledRequest(call, text, opId) {
+  const texts = argTexts(text);
+  const marker = (index) => `@@phone-scm-argument-${index}@@`;
+  assert.ok(!texts.some((element) => element.includes('@@phone-scm-argument-')), `${text} holds the marker text`);
+  const route = SCM_OPERATION_ROUTES[call](texts.map((_, index) => marker(index)));
+  const info = methodInfo(route.method);
+  assert.ok(info, `${route.method} is not a method of the client's table`);
+  let params = JSON.stringify(info.mutation ? { ...route.params, opId } : route.params);
+  texts.forEach((element, index) => {
+    const quoted = JSON.stringify(marker(index));
+    assert.ok(params.split(quoted).length <= 2, `${call}: the route uses argument ${index} more than once`);
+    params = params.replace(quoted, () => element);
+  });
+  assert.ok(!params.includes('@@phone-scm-argument-'), `${call}: the route reads into argument text it cannot keep: ${params}`);
+  return { method: route.method, ...(info.mutation ? { opId } : {}), text: params };
+}
+/**
+ * A call whose recording keeps its params text, sent to the core as the recorded request bytes (`request.text`), without the
+ * page's argument checks, whose conversions (`Number(...)`) would send other bytes. The core checks the arguments itself
+ * (mixdog-scm input.rs); its answer is read as the page reads it.
+ */
+function replaySpelled(call, text, request) {
+  const args = JSON.parse(text);
   assert.ok(replay.routes[call] && replay.replies[call], `${call} is not one operation of the page's routes`);
-  const route = replay.routes[call](args);
+  const params = JSON.parse(request.text);
   const client = replay.host.client();
-  const answered = replay.runQueued(replay.host.ctx, call, JSON.parse(text), async () => {
+  const pending = { method: request.method, text: request.text, written: null };
+  const answered = replay.runQueued(replay.host.ctx, call, args, async () => {
     try {
-      const reply = await client.call(route.method, route.params);
-      const value = await replay.replies[call](reply, { args, params: route.params, call: (method, params) => client.call(method, params) });
+      assert.equal(spelledFrame.pending, null, 'two spelled requests at once');
+      spelledFrame.pending = pending;
+      let reply;
+      try {
+        reply = await client.call(request.method, params, request.opId ? { opId: request.opId } : undefined);
+      } finally {
+        spelledFrame.pending = null;
+      }
+      const value = await replay.replies[call](reply, { args, params, call: (method, more) => client.call(method, more) });
       return value === undefined ? null : value;
     } catch (error) {
       throw replay.phoneCallError(error);
     }
   });
-  return { route: { method: route.method, params: JSON.parse(JSON.stringify(route.params)) }, text: JSON.stringify(route.params), answered: withDeadline(answered.then(frameOf, failureFrame), `the core never answered ${call}`) };
+  return { pending, answered: withDeadline(answered.then(frameOf, failureFrame), `the core never answered ${call}`) };
 }
 
 async function finishReplay() {
-  // Every sign-in terminal child, in the order started: its program, directory, environment and how it ended. They and the
-  // ordering scenario are the scenario group's.
-  const scenario = ONLY === 'scenario';
+  settleQuiet();
+  // Every sign-in terminal child, in the order started: its program, directory, environment and how it ended (the github group's),
+  // and the ordering scenario (the git group's).
+  const signIns = ONLY === 'github';
+  const scenario = ONLY === 'git';
   const begun = new Map();
   for (const event of replay.wire.events) {
     if (event.event === 'begin' && event.pty) begun.set(event.seq, { argv: event.args, cwd: event.cwd, env: coreEnvDelta(event), ended: null });
     else if (event.event === 'done' && begun.has(event.seq)) begun.get(event.seq).ended = event.result;
   }
-  if (scenario && !isDeepStrictEqual([...begun.values()], replay.golden.ptyEnds)) replay.differences.push({ name: 'sign-in terminal children (program, directory, environment, end)', node: replay.golden.ptyEnds, core: [...begun.values()] });
+  if (signIns && !isDeepStrictEqual([...begun.values()], replay.golden.ptyEnds)) replay.differences.push({ name: 'sign-in terminal children (program, directory, environment, end)', node: replay.golden.ptyEnds, core: [...begun.values()] });
   replay.client.close?.();
   const exited = new Promise((resolve) => replay.core.once('exit', resolve));
   endTree(replay.core.pid);
   await withDeadline(exited, 'the core did not exit after taskkill');
   rmSync(WORK, { recursive: true, force: true });
   const cases = replay.compared.filter((name) => name !== 'ordering');
-  const expected = [...replay.byName.keys()].filter((name) => GROUPS[ONLY](name));
+  const expected = [...replay.byName.values()].filter((entry) => entry.group === ONLY).map((entry) => entry.name);
   const unreplayed = expected.filter((name) => !cases.includes(name));
   const ordering = !scenario ? 'not part of this group' : replay.compared.includes('ordering') ? 'replayed' : 'NOT replayed';
   console.log(`phone-scm replay over ${REPLAY} (group ${ONLY}): ${cases.length} cases and the ordering scenario compared (${ordering}), ${replay.differences.length} differ, ${unreplayed.length} of the recording not replayed${unreplayed.length ? `: ${unreplayed.join(', ')}` : ''}`);
@@ -1100,18 +1252,18 @@ function opsDifference(ops, wires) {
   const actual = actualWires(wires);
   return isDeepStrictEqual(actual, expected) ? null : { node: expected, core: actual };
 }
-/** A call sent as its spelled bytes makes one request of the core, `route`, the request its text stands for: it is answered
- *  with what Node's one operation answered, or refused with Node's text where Node's host refused before acting. */
+/** A call sent as its spelled bytes makes one request of the core, the recorded `request`: it is answered with what Node's one
+ *  operation answered, or refused with Node's text where Node's host refused before acting. The params the socket writer wrote
+ *  for it are the recorded request text, byte for byte. */
 function spelledDifference(recorded, spelled, wires) {
   assert.ok(recorded.ops.length <= 1, `${recorded.name}: a call sent as its bytes stands for one operation`);
   const outcome = recorded.ops.length ? expectedWires(recorded.ops)[0].outcome : { failed: { message: recorded.frame.error } };
-  // The values are compared as read back (mapFlowIds prints `-0` as `0` on both sides); the bytes sent, by their text.
-  // Each argument as the recording spells it (`1.0`, `1e0`, `-0`), read from the recorded text itself, is in the bytes the
-  // request carried: a request re-serialised from parsed values would carry `1` or `0` instead.
-  const tokens = spelledArgs(recorded.paramsText).filter((arg) => JSON.isRawJSON(arg)).map((arg) => arg.rawJSON);
-  const expected = [{ ...mapFlowIds(spelled.route), text: spelled.text, spelled: tokens, outcome }];
-  const actual = actualWires(wires).map((wire, at) => ({ ...wire, text: wires[at].text, spelled: tokens.filter((token) => (wires[at].text ?? '').includes(token)) }));
-  const order = (list) => list.map(({ method, params, text, spelled: kept, outcome: told }) => ({ method, params, text, spelled: kept, outcome: told }));
+  const written = spelled.pending.written;
+  const sentParams = written && written.frame.startsWith(written.head) && written.frame.endsWith('}') ? written.frame.slice(written.head.length, -1) : null;
+  // The values as read back (a copy prints `-0` as `0` on both sides); the bytes, as written.
+  const expected = [{ method: recorded.request.method, params: clone(JSON.parse(recorded.request.text)), outcome, written: recorded.request.text }];
+  const actual = actualWires(wires).map((wire, at) => ({ ...wire, written: at === 0 ? sentParams : null }));
+  const order = (list) => list.map(({ method, params, outcome: told, written: bytes }) => ({ method, params, outcome: told, written: bytes }));
   return isDeepStrictEqual(order(actual), order(expected)) ? null : { node: expected, core: actual };
 }
 
@@ -1218,6 +1370,10 @@ async function rec(name, call, params, note, during, text) {
   if (replay) {
     const recorded = replay.byName.get(name);
     assert.ok(recorded, `${name} is not in the recording`);
+    assert.equal(recorded.group, ONLY, `${name} is a case of the group ${recorded.group}, not of ${ONLY}`);
+    assert.equal(recorded.paramsText, text, `${name}: the params text is not the recorded one`);
+    // A case that can change the world reads it only after the state of the quiet cases before it was read.
+    if (!isQuiet(recorded)) settleQuiet();
     if (process.env.PHONE_SCM_VERBOSE) console.error('replay', name);
     replay.shims.sync();
     processes.length = 0;
@@ -1229,7 +1385,7 @@ async function rec(name, call, params, note, during, text) {
     const steps = [...pendingClock];
     pendingClock.length = 0;
     // A params text is sent as its own bytes (replaySpelled); every other call goes through the phone's page.
-    const spelled = text === undefined ? null : replaySpelled(call, text);
+    const spelled = text === undefined ? null : replaySpelled(call, text, recorded.request);
     const answered = spelled ? spelled.answered : replayCall(call, coreParams(params));
     if (during) await during(steps);
     const core = mapFlowIds(await answered);
@@ -1278,9 +1434,14 @@ async function rec(name, call, params, note, during, text) {
     if (!isDeepStrictEqual(bodies(processes), bodies(recorded.processes))) differ('bodies fed to the tools', bodies(recorded.processes), bodies(processes));
     const operations = spelled ? spelledDifference(recorded, spelled, replay.wires) : opsDifference(recorded.ops, replay.wires);
     if (operations) differ('operations', operations.node, operations.core);
-    // What the call left in the repository, read after the core's answer and every child it started ended.
-    const left = repoState(R, ORIGIN);
-    if (!isDeepStrictEqual(left, recorded.repository)) differ('repository', recorded.repository, left);
+    // What the call left in the folder its request names and in the global git config, read after the core's answer and every
+    // child it started ended; for a case Node refused before running anything, where the core ran nothing either, once after the
+    // run of such cases (settleQuiet).
+    const settle = (state) => {
+      if (!isDeepStrictEqual(state, recorded.state)) differ('state', recorded.state, state);
+    };
+    if (isQuiet(recorded) && rust.length + js.length === 0) quiet.push({ folder: namedFolder(call, params), settle });
+    else settle(stateOf(namedFolder(call, params)));
     const competing = takeCompeting();
     if (!isDeepStrictEqual(competing, recorded.competing ?? null)) differ('another process staging inside the refresh', recorded.competing ?? null, competing);
     replay.compared.push(name);
@@ -1302,18 +1463,29 @@ async function rec(name, call, params, note, during, text) {
   await drainGit();
   const { id: _id, ...answer } = JSON.parse(JSON.stringify(frame));
   if (process.env.PHONE_SCM_VERBOSE) console.log(name, JSON.stringify(answer).slice(0, 300));
+  // What the call left: read now, or, for a case Node refused before running anything, the state read last of the folder it
+  // names when nothing touched the world since (a refusal that ran nothing changed nothing).
+  const folder = namedFolder(call, wire);
+  const quietCase = isQuiet({ frame: answer, processes, ops: trace });
+  let state = quietCase ? lastStates.get(folder) : undefined;
+  if (state === undefined) {
+    state = stateOf(folder);
+    if (!quietCase) lastStates.clear();
+    lastStates.set(folder, state);
+  }
   cases.push({
     name,
+    group: ONLY,
     call,
     params: wire,
-    ...(text === undefined ? {} : { paramsText: text }),
+    ...(text === undefined ? {} : { paramsText: text, request: spelledRequest(call, text, `00000000-0000-7000-8000-${String(cases.length).padStart(12, '0')}`) }),
     ...(note ? { note } : {}),
     frame: answer,
     ops: clone(trace),
     ...(events.length ? { events: clone(events) } : {}),
     ...(processes.length ? { processes: clone(processes) } : {}),
     ...(steps.length ? { clock: clone(steps) } : {}),
-    repository: repoState(R, ORIGIN),
+    state,
     ...(afterOut() ? { competing: takeCompeting() } : {}),
     world: clone(world),
   });
@@ -1596,6 +1768,54 @@ async function recordInputChecks() {
     ['setGitGlobalConfig-long-value', 'setGitGlobalConfig', ['user.name', 'v'.repeat(501)]],
   ];
   for (const [name, call, params] of refused) await rec(`refused-${name}`, call, params);
+  // ── a coercion that throws: `String(x)` and `Number(x)` of an object whose own `toString` or `valueOf` (never callable in JSON)
+  //    shadows the inherited one, alone, in a list and in a nested list, at each argument Node reads through a coercion: the
+  //    action (`Object.hasOwn(GITHUB_ACTIONS, action)`) and the sha (`/^[a-f0-9]{40}$/i.test`) of githubRequest (string hint),
+  //    the merge method (`String(method ?? 'merge')`, string hint) and the pull request number (`Number(value)`, number hint) of
+  //    gh-cli.ts, and the history page (`Number(value)`, number hint) ──
+  const shadowing = [
+    ['own-tostring-null', { toString: null }],
+    ['own-tostring-string', { toString: 'x' }],
+    ['own-tostring-object', { toString: {} }],
+    ['own-valueof-null', { valueOf: null }],
+    ['own-valueof-string', { valueOf: '1' }],
+    ['own-valueof-object', { valueOf: {} }],
+    ['own-both-null', { toString: null, valueOf: null }],
+    ['own-both-string', { toString: 'x', valueOf: '1' }],
+    ['own-both-object', { toString: {}, valueOf: {} }],
+  ];
+  const sites = [
+    ['githubRequest-action', 'githubRequest', (value) => [I, { action: value, repo: 'octo/demo' }]],
+    ['githubRequest-sha', 'githubRequest', (value) => [I, { action: 'pr.merge', repo: 'octo/demo', number: 1, sha: value }]],
+    ['ghPrMerge-method', 'ghPrMerge', (value) => [I, 12, value]],
+    ['ghPrMerge-number', 'ghPrMerge', (value) => [I, value, 'merge']],
+    ['ghPrView-number', 'ghPrView', (value) => [I, value]],
+    ['gitLog-offset', 'gitLog', (value) => [I, '', value, 40]],
+    ['gitLog-limit', 'gitLog', (value) => [I, '', 0, value]],
+  ];
+  for (const [site, call, at] of sites) {
+    for (const [label, value] of shadowing) {
+      for (const [wrap, wrapped] of [['', value], ['-in-list', [value]], ['-in-nested-list', [[value]]]]) {
+        await rec(`coerced-throw-${site}-${label}${wrap}`, call, at(wrapped));
+      }
+    }
+  }
+  // ── spellings the request must carry as they are: inside a list or an object, an escaped key or string, an integer past 2^53 ──
+  const cwdText = JSON.stringify(I);
+  const spelled = [
+    ['gitLog-offset-nested-decimal', 'gitLog', `[${cwdText},"",[1.0],40]`],
+    ['gitLog-offset-nested-minus-zero', 'gitLog', `[${cwdText},"",[-0],40]`],
+    ['gitLog-offset-big-integer', 'gitLog', `[${cwdText},"",9007199254740993,40]`],
+    ['gitLog-limit-nested-big-integer', 'gitLog', `[${cwdText},"",0,[9007199254740993]]`],
+    ['gitLog-escaped-query', 'gitLog', `[${cwdText},"\\u0069nput \\"3\\"",0,40]`],
+    ['gitLog-escaped-cwd', 'gitLog', `[${cwdText.replace(/input"$/, 'inp\\u0075t"')},"",0,40]`],
+    ['gitRequestContext-escaped-keys', 'gitRequestContext', `[${cwdText},{"p\\u0061ths":["f.txt"],"b\\u0061se":"main"}]`],
+    ['githubRequest-nested-decimal', 'githubRequest', `[${cwdText},{"action":"pr.view","repo":"octo/demo","number":1.0}]`],
+    ['githubRequest-nested-minus-zero', 'githubRequest', `[${cwdText},{"action":"pr.list","repo":"octo/demo","page":-0}]`],
+    ['githubRequest-escaped', 'githubRequest', `[${cwdText},{"\\u0061ction":"pr.view","repo":"octo\\/demo","number":1}]`],
+    ['githubRequest-big-integer', 'githubRequest', `[${cwdText},{"action":"pr.view","repo":"octo/demo","number":9007199254740993}]`],
+  ];
+  for (const [label, call, text] of spelled) await rec(`input-spelled-${label}`, call, JSON.parse(text), undefined, undefined, text);
   // ── a lone surrogate in a string: Node's string checks take it; the core cannot decode it into a string at all ──
   if (!replay) await recordLimit('lone-surrogate-gitLog-query', 'gitLog', `[${JSON.stringify(I)},"\\ud800"]`, 'A JSON string escape of a lone surrogate (\\ud800) is a string to Node, which checks it as any other and acts on it; the core reads every frame into Rust strings, which cannot hold it, so its frame decoder closes the connection (1007) before any check runs. An open difference of the whole core.');
 }
@@ -1611,6 +1831,8 @@ if (ONLY === 'input') {
   process.exit(0);
 }
 
+// ═══ the git group: sections 1-5, then the ordering scenario (11) ═══
+if (ONLY === 'git') {
 // ═══ 1. status and diff ═══
 write(R, 'a.txt', 'one\nTWO\nthree\nfour\nfive\n');
 write(R, 'src/b.mjs', 'export const b = 2;\n');
@@ -1890,6 +2112,17 @@ await rec('gitPull-conflict', 'gitPull', [R]);
 await rec('gitAbortOperation-merge', 'gitAbortOperation', [R]);
 await rec('gitPull-bad-cwd', 'gitPull', ['']);
 
+}
+
+// ═══ the github group: sections 6-8 ═══
+if (ONLY === 'github') {
+// The repository the pull requests are about: its main on the origin, and a branch of work that is the pull request's head.
+git(R, 'push', '-q', '-u', 'origin', 'main');
+git(R, 'checkout', '-q', '-b', 'unmerged');
+write(R, 'u.txt', 'unmerged work\n');
+git(R, 'add', 'u.txt');
+git(R, 'commit', '-q', '-m', 'unmerged work');
+git(R, 'checkout', '-q', 'main');
 // ═══ 6. GitHub: the CLI is not installed yet ═══
 await rec('githubCliStatus-not-installed', 'githubCliStatus', []);
 await rec('githubStarStatus-no-gh', 'githubStarStatus', []);
@@ -2055,6 +2288,10 @@ await rec('coerced-githubRequest-number-list', 'githubRequest', [R, { action: 'p
 await rec('coerced-githubRequest-number-boolean', 'githubRequest', [R, { action: 'pr.view', repo: 'octo/demo', number: true }]);
 await rec('coerced-githubRequest-repo-list', 'githubRequest', [R, { action: 'pr.view', repo: ['octo/demo'], number: 1 }]);
 
+}
+
+// ═══ the runner group: sections 9-10 ═══
+if (ONLY === 'runner') {
 // ═══ 9. installers ═══
 await rec('gitCliStatus-installed', 'gitCliStatus', []);
 await rec('installGitCli-present', 'installGitCli', []);
@@ -2177,6 +2414,10 @@ await rec('gitStatus-git-timeout', 'gitStatus', [FAILING], null, async (steps) =
 clock.limit = 0;
 rmSync(HANG_FILE, { force: true });
 
+}
+
+let ordering = null;
+if (ONLY === 'git') {
 // ═══ 11. ordering: a read behind a slow write ═══
 const scenario = [
   ['gitStage', [R, ['ordering.txt']]],
@@ -2243,7 +2484,7 @@ const secondRun = await recordOrderingRun();
 for (const key of ['heldStarts', 'order', 'answers', 'ops']) {
   if (JSON.stringify(firstRun[key]) !== JSON.stringify(secondRun[key])) throw new Error(`the two runs of the ordering scenario differ in ${key}`);
 }
-const ordering = {
+ordering = {
   name: 'read-behind-a-slow-write',
   calls: scenario.map(([call, params]) => ({ call, params: clone(params) })),
   heldStarts: firstRun.heldStarts,
@@ -2251,6 +2492,9 @@ const ordering = {
   answers: firstRun.answers,
   ops: firstRun.ops,
 };
+}
+if (replay) await finishReplay();
+touchWorld();
 if (scripted.unscripted.length) throw new Error(`processes no rule of gh-script.json answers:\n${JSON.stringify(scripted.unscripted, null, 1)}`);
 // How each sign-in terminal child ended, taken before the host is disposed (which ends any left running).
 const ptyEnds = pty.spawned.map((entry) => ({ argv: entry.record.argv, cwd: entry.record.cwd, env: entry.record.env, ended: entry.record.record.ended }));

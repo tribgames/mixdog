@@ -196,8 +196,10 @@ pub fn validate(input: &Value) -> Result<GithubRequest, ScmFailure> {
     let unsupported = || type_error("A supported GitHub action is required.");
     let object = input.as_object().ok_or_else(unsupported)?;
     // `Object.hasOwn(GITHUB_ACTIONS, input.action ?? '')` and every later `GITHUB_ACTIONS[action]` read the action as a property
-    // key, `String(action)`: a list holding one action's name is that action until its first use as a string below.
-    let def = object.get("action").map(mixdog_js::value_to_string).as_deref().and_then(definition).ok_or_else(unsupported)?;
+    // key, `String(action)`: a list holding one action's name is that action until its first use as a string below. The
+    // conversion throws V8's TypeError for an object whose own `toString` shadows the inherited one.
+    let action = object.get("action").map(mixdog_js::try_value_to_string).transpose().map_err(|error| type_error(error.to_string()))?;
+    let def = action.as_deref().and_then(definition).ok_or_else(unsupported)?;
     if object.keys().any(|key| !matches!(key.as_str(), "action" | "repo" | "hostname") && !def.fields.contains(&key.as_str())) {
         return Err(type_error(format!("Unsupported field for GitHub {}.", def.name)));
     }
@@ -273,8 +275,8 @@ pub fn validate(input: &Value) -> Result<GithubRequest, ScmFailure> {
         }
     }
     if let Some(sha) = object.get("sha") {
-        // `/^[a-f0-9]{40}$/i.test(sha)` reads the value as a string.
-        let sha = mixdog_js::value_to_string(sha);
+        // `/^[a-f0-9]{40}$/i.test(sha)` reads the value as a string (`ToString`, which may throw).
+        let sha = mixdog_js::try_value_to_string(sha).map_err(|error| type_error(error.to_string()))?;
         if !(sha.len() == 40 && sha.bytes().all(|b| b.is_ascii_hexdigit())) {
             return Err(type_error("sha must be a full commit hash."));
         }

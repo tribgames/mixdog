@@ -1,6 +1,6 @@
 {
   "calls": 62,
-  "cases": 539,
+  "cases": 739,
   "command": "node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-phone-scm.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": {
     "clock": "Date.now, new Date() and the run-limit timeouts are virtual; every other timer of the code under test is real and is printed, by delay, at the end of a recording",
@@ -22,17 +22,39 @@
       "sha256": "8b63c7e51d857b2c89d826722e34efdb5c7c34485b33f69dd19a5ade73364257"
     },
     {
-      "bytes": 2379571,
+      "bytes": 2230737,
       "path": "golden.json",
-      "sha256": "1c1e634c72604696223bfa4b0907c7b0c141954a8e3c81a34eebab8f4f873239"
+      "sha256": "2d3fc56e389505bbc0dbd893661cae3004309790c1f91c511e30a1ddb6799697"
     }
   ],
+  "groups": {
+    "git": {
+      "cases": 154,
+      "what": "status, diff, staging, commits, branches, tags, stash, the remote and the ordering scenario (sections 1-5, 11)"
+    },
+    "github": {
+      "cases": 97,
+      "what": "the GitHub CLI, its sign-in, pull requests and githubRequest (sections 6-8)"
+    },
+    "input": {
+      "cases": 451,
+      "what": "the argument checks (section 0)"
+    },
+    "runner": {
+      "cases": 37,
+      "what": "the installers and the git runner's own failures (sections 9-10)"
+    }
+  },
+  "node": "v22.20.0",
   "notes": {
     "githubStatusRefresh": "githubCliStatus took no arguments over the relay (remote-methods.ts:562); the core ignores `refresh` on a relay connection and honours it for the desktop's own calls.",
     "loginOptions": "githubCliLoginOpenBrowser's second argument (optionalGithubLoginOptions) has no core param: the page checks it and leaves it out (scm-operation-route.ts), so no core request carries it.",
     "loneSurrogate": "An open difference, not parity. A JSON string holding an escaped lone surrogate (\"\\ud800\") is a string to Node: its string checks take it and the call acts on it (golden.json limits[lone-surrogate-gitLog-query]; Node's spawn writes it on git's command line as U+FFFD, bytes EF BF BD). The core reads every inbound frame into Rust strings (mixdog-app-protocol rpc.rs decode_inbound_text), which cannot hold one: the frame is invalid and the connection is closed with 1007, for every method, before any check runs. The case is not replayed.",
     "posixCwd": "The directory rule is the platform's path.isAbsolute (git-contract.mjs:3), and so is the core's (mixdog-scm input.rs is_absolute): on POSIX only a leading \"/\" is absolute, so a backslash-rooted, a drive (C:\\x) or a UNC spelling is refused there where Windows (this recording) takes it. The trim is JavaScript's on both platforms.",
-    "reviewWithoutFiles": "The core request of the phone's gitReviewDiff and gitReviewDiffs is one method (review/diff/get, scope repo, patch true): one with neither `path` nor `files` cannot say which call it stands for, and is checked as gitReviewDiff. A request that names either is checked as its own call; the page always names one."
+    "repository": "Each case records the state of the repository its request names (`repository`: the first argument of a call that takes a directory, JavaScript-trimmed and without a verbatim `\\\\?\\` prefix, when it is a folder of the world: a repository is read with git, refs by commit tree, message and history length, and its local origin's refs; another folder is its files by content hash; a call that names none has `null`) and the global git config file (`globalConfig`). A case Node refused before any program ran (the frame is a refusal and the case has no `processes`) cannot have changed either: its state is read once after the run of such cases, before anything else touches the world, and the replay does the same for the core (only when the core also started no program).",
+    "requestText": "A case with `paramsText` was given to Node as those bytes (`{\"id\":1,\"method\":<call>,\"params\":<paramsText>}`). Its `request` is the core request the phone's route (shared/scm-operation-route.ts) makes of the same argument texts, each argument kept as spelled (`text`), with the op id the replay gives it; the replay sends those bytes and compares, byte for byte, the params of the frame its socket writer was given.",
+    "reviewWithoutFiles": "The core request of the phone's gitReviewDiff and gitReviewDiffs is one method (review/diff/get, scope repo, patch true): one with neither `path` nor `files` cannot say which call it stands for, and is checked as gitReviewDiff. A request that names either is checked as its own call; the page always names one.",
+    "scratchIndex": "A comparison rule, applied to both sides: the GIT_INDEX_FILE a commit gives its git children names a scratch folder `mixdog-commit-<pid>-<suffix>`, which is compared as `mixdog-commit-*`. Node makes the folder with mkdtemp (apps/desktop/src/main/git-commit-transaction.ts:1203), which appends six random characters to the prefix that holds its pid, so the name differs between any two runs, of Node as of the core; the rest of the path and every other variable are compared as recorded."
   },
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
@@ -55,7 +77,7 @@
   "recorderFiles": [
     {
       "path": "benchmarks/rust-core/recorders/record-phone-scm.mjs",
-      "sha256": "96f4e6bb16fc690421c7e55bbec85c2d7ac3ebb0f0f5ddb94a06d5544a780506"
+      "sha256": "47b4157b88fbf82e2f5a7c8f80090f19acc8078e2ea0af3c3b9855f53a2c350d"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
@@ -754,5 +776,5 @@
       }
     ]
   },
-  "totalBytes": 2405052
+  "totalBytes": 2256218
 }
