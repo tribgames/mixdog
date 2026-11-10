@@ -198,7 +198,7 @@ impl CredentialProbe for RegistryCredentials {
     async fn auth_state(&self, name: &str, entry: &Map<String, Value>) -> Result<&'static str, String> {
         let present = |yes: bool| if yes { "present" } else { "absent" };
         if let Some(variable) = key_environment(entry) {
-            return Ok(present(self.env.var(variable).is_some_and(|value| !value.is_empty())));
+            return Ok(present(self.env.key_var(variable).is_some_and(|value| !value.is_empty())));
         }
         // `modelProxyCredentialProbe`.
         if name == "mixdog-local" || (is_custom(entry) && entry.get("auth").and_then(Value::as_str) == Some("none")) {

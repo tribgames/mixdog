@@ -58,6 +58,14 @@ impl VaultError {
 /// Process environment, injectable.
 pub trait Environment: Send + Sync {
     fn var(&self, name: &str) -> Option<String>;
+
+    /// A read of a credential or key variable. Every such read in production goes through here, so the work counter
+    /// sees it whichever `Environment` is injected.
+    fn key_var(&self, name: &str) -> Option<String> {
+        #[cfg(feature = "count-work")]
+        crate::work::credential_read();
+        self.var(name)
+    }
 }
 
 /// The real process environment.
@@ -132,9 +140,7 @@ impl ApiKeyStore {
 
     /// A key variable's value, as the environment holds it.
     fn read_env(&self, name: &str) -> Option<String> {
-        #[cfg(feature = "count-work")]
-        crate::work::credential_read();
-        self.env.var(name)
+        self.env.key_var(name)
     }
 
     fn set_env(&self, name: &str) -> Option<String> {

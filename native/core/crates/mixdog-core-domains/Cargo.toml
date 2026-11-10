@@ -47,9 +47,13 @@ mixdog-core-ports = { workspace = true }
 mixdog-secrets = { workspace = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
+[features]
+# Test-only: the credential reads of this crate move `mixdog_ai::work`'s counter. A test build of this crate (the
+# self dev-dependency below) or of a crate that depends on it turns it on; no normal build does.
+count-work = ["mixdog-ai/count-work"]
+
 [dev-dependencies]
-# The credential-read counter the OAuth loader's test reads (`mixdog_ai::work`); only this crate's test builds turn it on.
-mixdog-ai = { workspace = true, features = ["count-work"] }
+mixdog-core-domains = { path = ".", features = ["count-work"] }
 bytes = { workspace = true }
 tempfile = { workspace = true }
 mixdog-secrets = { workspace = true }

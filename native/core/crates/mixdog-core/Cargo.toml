@@ -56,7 +56,13 @@ libc = { workspace = true }
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = ["Wdk_System_SystemServices", "Win32_System_SystemInformation"] }
 
+[features]
+# Test-only: the work counters the hot-path tests read, here and in the crates below. A test build of this crate (the
+# self dev-dependency below) or of a crate that depends on it turns it on; no normal build does.
+count-work = ["mixdog-ai/count-work", "mixdog-core-config/count-work", "mixdog-core-domains/count-work"]
+
 [dev-dependencies]
+mixdog-core = { path = ".", features = ["count-work"] }
 mixdog-js = { workspace = true, features = ["fixture-tools"] }
 mixdog-core-review = { workspace = true, features = ["test-support"] }
 mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core"] }
@@ -66,6 +72,3 @@ mixdog-rt = { workspace = true, features = ["test-support"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
 mixdog-core-session = { workspace = true, features = ["test-support"] }
 mixdog-core-base = { workspace = true, features = ["test-support"] }
-# The work counters the hot-path tests read (work of each); only this crate's test builds turn them on.
-mixdog-ai = { workspace = true, features = ["count-work"] }
-mixdog-core-config = { workspace = true, features = ["count-work"] }
