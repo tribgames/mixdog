@@ -38,12 +38,14 @@ const utf8 = (s) => Buffer.byteLength(s, 'utf8');
 const NODE_HELPERS = [/^mixdog-spawn-\d+\.\d+\.\d+$/, /^mixdog-patch-\d+\.\d+\.\d+$/];
 const isNodeHelper = (name) => NODE_HELPERS.some((pattern) => pattern.test(name ?? ''));
 
-// A console host is started by Windows' console driver, not by the program, for a console program that has none; the arguments
-// after its image path are the driver's choice and vary between runs of the same binary (one `mixdogd` build, scenario 9, two
-// replays: `conhost.exe 0x4`, then `conhost.exe 0xffffffff -ForceV1`). They are written `<console host arguments>`; the image path
-// stays compared.
-const CONSOLE_HOST = /^(\\\?\?\\[A-Za-z]:\\WINDOWS\\system32\\conhost\.exe) .*$/i;
-const consoleHost = (line) => (typeof line === 'string' ? line.replace(CONSOLE_HOST, '$1 <console host arguments>') : line);
+// A console host is started by Windows' console driver, not by the program, for a console program that has none; its one argument
+// is the driver's server handle value, in hex, with or without the legacy `-ForceV1` switch, and it varies between runs of the same
+// binary (one `mixdogd` build, scenario 9, two replays: `conhost.exe 0x4`, then `conhost.exe 0xffffffff -ForceV1`). Only a command
+// line that is exactly that, by the grammar
+//   `\??\<drive>:\WINDOWS\system32\conhost.exe` SP `0x` HEXDIGIT+ [ SP `-ForceV1` ]
+// has the part after its image path written `<server handle>`; any other argument text stays as it is and is compared.
+const CONSOLE_HOST = /^(\\\?\?\\[A-Za-z]:\\WINDOWS\\system32\\conhost\.exe) 0x[0-9A-Fa-f]+(?: -ForceV1)?$/i;
+export const consoleHost = (line) => (typeof line === 'string' ? line.replace(CONSOLE_HOST, '$1 <server handle>') : line);
 
 /**
  * What a run's job still held when its program exited (lib/job-run.mjs report), in join order, as `{ name, parent, commandLine }`: the

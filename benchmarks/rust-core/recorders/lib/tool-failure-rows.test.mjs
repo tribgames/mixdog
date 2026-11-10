@@ -13,6 +13,24 @@ test('two leftovers under the same parent with different command lines are diffe
   assert.notDeepEqual(core, node);
 });
 
+const CONHOST = '\\??\\C:\\WINDOWS\\system32\\conhost.exe';
+const conhost = (program, args) => leftAtExit(
+  { program, left: [{ pid: program + 1, name: 'conhost', parentPid: program, parent: 'node', commandLine: `${CONHOST} ${args}` }] },
+  { workspace: 'D:\\a\\ws', dataDir: 'D:\\a\\data' },
+);
+
+test("a console host's server handle, with or without -ForceV1, is the same leftover", () => {
+  assert.deepEqual(conhost(200, '0xffffffff -ForceV1'), conhost(100, '0x4'));
+  assert.equal(conhost(100, '0x4')[0].commandLine, `${CONHOST} <server handle>`);
+});
+
+test('a console host with another or an extra argument is a different leftover', () => {
+  for (const args of ['0x4 --headless', '0xffffffff -ForceV1 D:\\x\\y.exe', '--headless', '0x4 0x8', '0xg4']) {
+    assert.notDeepEqual(conhost(200, args), conhost(100, '0x4'), args);
+    assert.equal(conhost(200, args)[0].commandLine, `${CONHOST} ${args}`, args);
+  }
+});
+
 test("a command line naming each run's own workspace and data folder is the same leftover", () => {
   const node = leftAtExit(report(100, `${NODE} D:\\a\\ws\\fx-mcp.mjs --log D:\\a\\data\\x`), { workspace: 'D:\\a\\ws', dataDir: 'D:\\a\\data' });
   const core = leftAtExit(report(200, `${NODE} D:\\b\\ws\\fx-mcp.mjs --log D:\\b\\data\\x`), { workspace: 'D:\\b\\ws', dataDir: 'D:\\b\\data' });
