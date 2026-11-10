@@ -388,7 +388,8 @@ export const SECTION_READ_DESKTOP_OPERATIONS: readonly string[] = Object.keys(SE
 /** Deleted by the spec, with a caller that still runs on a core connection (it shares code with the Node host). The
  *  pending browser approvals are core state (DS §12.3): the core raises `item/browser/requestApproval` to every client
  *  that can answer it, phones included, so nothing is announced; answered as Node answered it, `undefined`. (The two
- *  other deleted announcements, `notifySettingsChanged` and `notifyProviderModelsChanged`, are handled in `invoke`.) */
+ *  other announcements, `notifySettingsChanged` and `notifyProviderModelsChanged`, are the core's `ui/settings/announce`
+ *  and `ui/providerModels/announce`, sent from `invoke`.) */
 export const IGNORED_DESKTOP_OPERATIONS: readonly string[] = ['publishBrowserApprovalSessions'];
 
 /** Deleted or core-internal; no caller exists on a core connection. Calling one is a bug and is refused. */
