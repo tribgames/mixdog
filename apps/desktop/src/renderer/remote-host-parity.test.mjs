@@ -110,8 +110,8 @@ test('presence follows the host of the current connection after a reconnect', as
   });
 });
 
-// Node set the flag from the challenge (remote-shim-socket.ts, `peerRemoteParity = challenge.remoteParity`). The core's capabilities have no
-// counterpart yet (PEER_FLAGS_WITHOUT_CAPABILITY.remoteParity in apps/mobile/src/phone-capabilities.ts), so a phone on the core reads false.
+// Node set the flag from the challenge (remote-shim-socket.ts, `peerRemoteParity = challenge.remoteParity`). The core says it in
+// `capabilities.remote.remoteParity`; a core that predates `remote` says nothing, so a phone on it reads false.
 test('a phone connected to the core reads no remoteParity until the core advertises it', () => {
   const capabilities = { browser: { state: 'unavailable' } };
   assert.equal(peerFlagsOf(capabilities).peerRemoteParity, false);
