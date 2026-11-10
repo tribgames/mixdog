@@ -165,8 +165,19 @@ pub fn absolute_local_path_in(style: mixdog_js::nodepath::Style, value: &str) ->
 /// string trimmed and, unless empty, resolved by the host's `path.resolve` against the working directory. Nothing else is checked and a
 /// relative path is not refused, unlike `absoluteLocalPath` (local-files.ts:7), which the local-file operations use.
 pub fn project_path(value: &str) -> Option<PathBuf> {
+    let cwd = std::env::current_dir().map(|dir| dir.to_string_lossy().into_owned()).unwrap_or_default();
+    project_path_in(mixdog_js::nodepath::Style::host(), &cwd, value).map(PathBuf::from)
+}
+
+/// [`project_path`] under the path rules of `style` with `cwd` as the working directory: Node's `toAbsolute` (projects.mjs:21),
+/// `isAbsolute(text) ? resolve(text) : resolve(process.cwd(), text)`.
+pub fn project_path_in(style: mixdog_js::nodepath::Style, cwd: &str, value: &str) -> Option<String> {
+    use mixdog_js::nodepath::{is_absolute, resolve};
     let text = mixdog_js::js_trim(value);
-    (!text.is_empty()).then(|| PathBuf::from(mixdog_js::nodepath::resolve_host(&[text])))
+    if text.is_empty() {
+        return None;
+    }
+    Some(if is_absolute(style, text) { resolve(style, &[text]) } else { resolve(style, &[cwd, text]) })
 }
 
 #[cfg(test)]
@@ -233,5 +244,22 @@ mod tests {
             replayed += 1;
         }
         assert_eq!(replayed, 23);
+    }
+
+    /// Node's `resolveProjectPath` under the POSIX rules (apps/mobile/fixtures/project-path-classes/golden.json, `posix`: projects.mjs
+    /// loaded with `node:path` as `path.posix` and the recording's working directory), replayed against the rule every project-path
+    /// read of the workspace takes.
+    #[test]
+    fn project_path_answers_each_recorded_posix_input_as_node_does() {
+        let golden: serde_json::Value = serde_json::from_str(include_str!("../../../../../apps/mobile/fixtures/project-path-classes/golden.json")).unwrap();
+        let posix = &golden["posix"];
+        let cwd = posix["cwd"].as_str().unwrap();
+        let inputs = posix["inputs"].as_array().unwrap();
+        let answers = posix["answers"].as_array().unwrap();
+        assert_eq!(inputs.len(), answers.len());
+        for (input, answer) in inputs.iter().zip(answers) {
+            let got = project_path_in(mixdog_js::nodepath::Style::Posix, cwd, input["value"].as_str().unwrap()).unwrap_or_default();
+            assert_eq!(got, answer["result"].as_str().unwrap(), "{}", input["name"]);
+        }
     }
 }

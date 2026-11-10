@@ -685,6 +685,131 @@ async fn watch_pushes_batched_changes_and_connection_close_drops_the_os_watch() 
     assert_eq!(env.service.open_os_watches(), 0);
 }
 
+/// A folder of the recording's shape (apps/mobile/fixtures/folder-watch/golden.json): `actual`, a junction `alias` to it, a folder Everyone
+/// is denied listing, a file. The deny is undone and the folder removed when it goes, whatever the test did.
+#[cfg(windows)]
+struct WatchFolder(PathBuf);
+
+#[cfg(windows)]
+impl WatchFolder {
+    fn new() -> Self {
+        let root = std::env::temp_dir().join(format!("mixdog-folder-watch-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("actual")).unwrap();
+        std::fs::create_dir(root.join("locked")).unwrap();
+        std::fs::write(root.join("afile.txt"), "a").unwrap();
+        let folder = Self(root);
+        folder.run("cmd", &["/c", "mklink", "/J", &folder.at("alias"), &folder.at("actual")]);
+        folder.run("icacls", &[&folder.at("locked"), "/deny", "*S-1-1-0:(RD)"]);
+        folder
+    }
+
+    fn at(&self, name: &str) -> String {
+        self.0.join(name).to_string_lossy().into_owned()
+    }
+
+    fn fill(&self, template: &str) -> String {
+        template.replace("{root}", &self.0.to_string_lossy())
+    }
+
+    fn run(&self, program: &str, args: &[&str]) {
+        let status = std::process::Command::new(program).args(args).stdout(std::process::Stdio::null()).status().unwrap();
+        assert!(status.success(), "{program} {args:?}: {status}");
+    }
+}
+
+#[cfg(windows)]
+impl Drop for WatchFolder {
+    fn drop(&mut self) {
+        let _ = std::process::Command::new("icacls").args([&self.at("locked"), "/remove:d", "*S-1-1-0"]).stdout(std::process::Stdio::null()).status();
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// Node keys a folder watch by the path as resolved (lower-cased on Windows) and watches that path, so a folder and a junction to it are
+/// two watches, each reporting under its own name; a path `fs.watch` refuses fails with `fs.watch`'s own code and text, and a file is
+/// watched (apps/mobile/fixtures/folder-watch/golden.json, recorded with the real registry and `fs.watch`). The core's watches are the
+/// same: one OS watch per name, every changed path under the name the watch was asked for, and the recorded failures.
+#[cfg(windows)]
+#[tokio::test(flavor = "multi_thread")]
+async fn watches_are_keyed_and_reported_by_the_resolved_name_and_fail_as_fs_watch() {
+    let golden: Value = serde_json::from_str(include_str!("../../../../../../apps/mobile/fixtures/folder-watch/golden.json")).unwrap();
+    let env = env();
+    let folder = WatchFolder::new();
+    let conn = MockConnection::new(ConnectionId(1), env.limits);
+    let watch = |id: &'static str, path: String, recursive: bool| {
+        let service = Arc::clone(&env.service);
+        let conn = &conn;
+        async move {
+            let reply = service.call(request("fs/watch", json!({ "watchId": id, "path": path, "recursive": recursive }))).await?;
+            let Reply::Subscribe(sub) = reply else { panic!("fs/watch must subscribe") };
+            let attached = subscribe(&sub.feed, SubscriptionId::from(id), sub.window, None, conn).unwrap();
+            conn.send_control_release(bytes::Bytes::from_static(b"ok"), attached.release).unwrap();
+            Ok::<(), CoreError>(())
+        }
+    };
+    let changed = |frames: &[String], id: &str| -> Vec<String> {
+        frames
+            .iter()
+            .filter_map(|frame| serde_json::from_str::<Value>(frame.split_once(':').map_or("", |(_, text)| text)).ok())
+            .filter(|frame| frame["method"] == "fs/changed" && frame["params"]["watchId"] == id)
+            .flat_map(|frame| frame["params"]["changedPaths"].as_array().unwrap().iter().map(|p| p.as_str().unwrap().to_owned()).collect::<Vec<_>>())
+            .collect()
+    };
+
+    // Two names of one folder: Node gave fs.watch each name, and reported each change under each name.
+    let two = &golden["twoNames"];
+    let paths: Vec<String> = two["fsWatchPaths"].as_array().unwrap().iter().map(|p| folder.fill(p.as_str().unwrap())).collect();
+    let ids = ["name-1", "name-2"];
+    for (id, path) in ids.iter().zip(&paths) {
+        watch(id, path.clone(), true).await.unwrap();
+    }
+    assert_eq!(env.service.open_os_watches(), paths.len(), "one OS watch per name, as Node's {} fs.watch calls", paths.len());
+    std::fs::write(folder.0.join("actual").join("changed.txt"), "1").unwrap();
+    let frames = tokio::time::timeout(Duration::from_secs(60), conn.drain_text_until(|texts| ids.iter().all(|id| !changed(texts, id).is_empty()))).await.expect("a change under each name within 60 s");
+    for (id, reported) in ids.iter().zip(two["reportedUnder"].as_array().unwrap()) {
+        let dir = folder.fill(reported["dir"].as_str().unwrap());
+        let paths = changed(&frames, id);
+        assert!(paths.iter().all(|path| path.starts_with(&format!("{dir}\\"))), "{id}: every change is reported under {dir}: {paths:?}");
+    }
+    env.service.connection_closed(&ConnectionId(1));
+    assert_eq!(env.service.open_os_watches(), 0);
+
+    // The failures: fs.watch's own code and text, and a file that is watched.
+    let conn = MockConnection::new(ConnectionId(1), env.limits);
+    let watch = |id: &'static str, path: String| {
+        let service = Arc::clone(&env.service);
+        let conn = &conn;
+        async move {
+            let reply = service.call(request("fs/watch", json!({ "watchId": id, "path": path, "recursive": false }))).await?;
+            let Reply::Subscribe(sub) = reply else { panic!("fs/watch must subscribe") };
+            let attached = subscribe(&sub.feed, SubscriptionId::from(id), sub.window, None, conn).unwrap();
+            conn.send_control_release(bytes::Bytes::from_static(b"ok"), attached.release).unwrap();
+            Ok::<(), CoreError>(())
+        }
+    };
+    let failures = golden["failures"].as_array().unwrap();
+    let ids = ["fail-1", "fail-2", "fail-3"];
+    for (id, case) in ids.iter().zip(failures) {
+        let path = folder.fill(case["path"].as_str().unwrap());
+        let got = watch(id, path.clone()).await;
+        match case["answer"].get("error") {
+            Some(error) => {
+                let Err(CoreError::DomainError { code, message, .. }) = got else { panic!("{}: Node failed with {error}, got {got:?}", case["name"]) };
+                assert_eq!(message.as_deref(), Some(folder.fill(error["message"].as_str().unwrap()).as_str()), "{}", case["name"]);
+                assert_eq!(code.as_deref(), error["code"].as_str(), "{}", case["name"]);
+            }
+            None => {
+                got.unwrap_or_else(|error| panic!("{}: Node watched it, got {error:?}", case["name"]));
+                std::fs::write(&path, "b").unwrap();
+                let frames = tokio::time::timeout(Duration::from_secs(60), conn.drain_text_until(|texts| !changed(texts, id).is_empty())).await.expect("the watched file's change within 60 s");
+                let under = folder.fill(case["reportedUnder"].as_str().unwrap());
+                assert!(changed(&frames, id).iter().all(|p| *p == under), "{}: reported under {under}: {:?}", case["name"], changed(&frames, id));
+            }
+        }
+    }
+    env.service.connection_closed(&ConnectionId(1));
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn search_session_ends_with_the_last_query_and_stop_frees_the_index() {
     let env = env();

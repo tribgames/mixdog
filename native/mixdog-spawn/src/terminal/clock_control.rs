@@ -16,6 +16,10 @@ pub(super) const IDLE_DEADLINE: Duration = Duration::from_secs(600);
 pub(super) const LINE_DEADLINE: Duration = Duration::from_secs(10);
 /// How long an answer may take to be accepted by the client.
 pub(super) const WRITE_DEADLINE: Duration = Duration::from_secs(10);
+/// The longest command line, newline included: a client that sends more without a newline is refused before it grows the buffer.
+pub(super) const MAX_LINE: usize = 128;
+/// The environment variable that holds the run's secret: a connection must send `secret <value>` first, or it moves nothing.
+pub(super) const SECRET_VAR: &str = "MIXDOG_TERMINAL_LEASE_CLOCK_SECRET";
 
 /// What ended a connection, as the line sent to the client (if it can still be read) and the text for the core's log.
 pub(super) enum Ended {
@@ -37,12 +41,16 @@ pub(super) fn read_command(reader: &mut BufReader<TcpStream>, idle: Duration, li
     let started = Instant::now();
     let mut bytes = Vec::new();
     while bytes.last() != Some(&b'\n') {
+        if bytes.len() >= MAX_LINE {
+            return Err(Ended::Refused(format!("a command line longer than {MAX_LINE} bytes was sent")));
+        }
         let left = line.checked_sub(started.elapsed()).filter(|left| !left.is_zero());
         let Some(left) = left else {
             return Err(Ended::Refused(format!("the `advance <ms>` command was not finished with a newline within {} s", line.as_secs_f64())));
         };
         reader.get_ref().set_read_timeout(Some(left)).map_err(|e| Ended::Refused(format!("the lease clock connection cannot be read: {e}")))?;
-        match reader.read_until(b'\n', &mut bytes) {
+        let room = (MAX_LINE - bytes.len()) as u64;
+        match std::io::Read::take(&mut *reader, room).read_until(b'\n', &mut bytes) {
             Ok(0) => return Err(Ended::Closed),
             Ok(_) => {}
             Err(e) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {}
@@ -103,6 +111,14 @@ mod tests {
         client.write_all(b"advance 1").unwrap();
         let message = refused(read_command(&mut reader, SHORT, SHORT));
         assert!(message.contains("was not finished with a newline within 0.3 s"), "{message}");
+    }
+
+    #[test]
+    fn a_line_longer_than_the_bound_is_refused_before_its_newline() {
+        let (mut client, mut reader) = pair();
+        client.write_all(&[b'7'; MAX_LINE + 1]).unwrap();
+        let message = refused(read_command(&mut reader, SHORT, Duration::from_secs(60)));
+        assert_eq!(message, format!("a command line longer than {MAX_LINE} bytes was sent"));
     }
 
     #[test]

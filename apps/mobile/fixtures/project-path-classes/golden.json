@@ -320,5 +320,153 @@
         }
       }
     ]
+  },
+  "posix": {
+    "note": "resolveProjectPath (projects.mjs:251) loaded with node:path as path.posix and `cwd` as the working directory: Node's answers on a POSIX host, '' for an input it resolves to nothing.",
+    "cwd": "/home/user/work",
+    "inputs": [
+      {
+        "name": "absolute",
+        "value": "/home/user/proj"
+      },
+      {
+        "name": "trailing separator",
+        "value": "/home/user/proj/"
+      },
+      {
+        "name": "double slashes",
+        "value": "//home//user/proj"
+      },
+      {
+        "name": "dot-dot inside",
+        "value": "/home/user/proj/sub/.."
+      },
+      {
+        "name": "dot-dot above the root",
+        "value": "/../../proj"
+      },
+      {
+        "name": "padded",
+        "value": "  /home/user/proj  "
+      },
+      {
+        "name": "trimmed tab and newline",
+        "value": "\t/home/user/proj\n"
+      },
+      {
+        "name": "case is kept",
+        "value": "/Home/User/PROJ"
+      },
+      {
+        "name": "relative",
+        "value": "proj"
+      },
+      {
+        "name": "relative dot",
+        "value": "./proj"
+      },
+      {
+        "name": "relative dot-dot",
+        "value": "../work/proj"
+      },
+      {
+        "name": "relative, a nested folder",
+        "value": "made/deep"
+      },
+      {
+        "name": "relative above the root",
+        "value": "../../../../x"
+      },
+      {
+        "name": "backslashes are a file name",
+        "value": "a\\b"
+      },
+      {
+        "name": "drive-looking",
+        "value": "C:\\proj"
+      },
+      {
+        "name": "drive-looking with slashes",
+        "value": "C:/proj"
+      },
+      {
+        "name": "root",
+        "value": "/"
+      },
+      {
+        "name": "empty",
+        "value": ""
+      },
+      {
+        "name": "blank",
+        "value": "   "
+      },
+      {
+        "name": "NUL inside",
+        "value": "/home/user/pr\u0000oj"
+      }
+    ],
+    "answers": [
+      {
+        "result": "/home/user/proj"
+      },
+      {
+        "result": "/home/user/proj"
+      },
+      {
+        "result": "/home/user/proj"
+      },
+      {
+        "result": "/home/user/proj"
+      },
+      {
+        "result": "/proj"
+      },
+      {
+        "result": "/home/user/proj"
+      },
+      {
+        "result": "/home/user/proj"
+      },
+      {
+        "result": "/Home/User/PROJ"
+      },
+      {
+        "result": "/home/user/work/proj"
+      },
+      {
+        "result": "/home/user/work/proj"
+      },
+      {
+        "result": "/home/user/work/proj"
+      },
+      {
+        "result": "/home/user/work/made/deep"
+      },
+      {
+        "result": "/x"
+      },
+      {
+        "result": "/home/user/work/a\\b"
+      },
+      {
+        "result": "/home/user/work/C:\\proj"
+      },
+      {
+        "result": "/home/user/work/C:/proj"
+      },
+      {
+        "result": "/"
+      },
+      {
+        "result": ""
+      },
+      {
+        "result": ""
+      },
+      {
+        "result": "/home/user/pr\u0000oj"
+      }
+    ]
   }
 }

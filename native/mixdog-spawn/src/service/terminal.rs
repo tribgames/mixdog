@@ -345,12 +345,16 @@ impl DomainService for TerminalService {
             }
             "terminal/dispose" => {
                 let params: TerminalDisposeParams = decode(&req.params)?;
+                // The phone sees, as Node recorded it (golden.json, trace.claims.order): the tab's end, the dispose's answer, then
+                // what the killed shell still wrote and its exit line. The feed is held from before the kill until the answer is made.
+                let held = self.feeds.hold(params.tab_id.as_str());
                 self.tabs.dispose(params.tab_id.as_str());
                 self.feeds.close(params.tab_id.as_str());
                 let _ = self.changes.send(Change::Tabs);
                 // Node's disposal forwards the tab's end (state: null) before it answers the request (terminal-manager.ts:541,
                 // remote-relay-push-lanes.ts:150, remote-methods.ts:1284).
                 self.published().await;
+                drop(held);
                 Ok(Reply::Value(json!({})))
             }
             other => Err(invalid_params("method", format!("a method of terminal, not {other}"))),
@@ -376,7 +380,10 @@ impl DomainService for TerminalService {
         match method.as_str() {
             "terminal/input" => {
                 if let Ok(input) = serde_json::from_value::<TerminalInputParams>(params) {
-                    self.tabs.write(input.tab_id.as_str(), &input.data);
+                    // Input the tab's queue cannot take yet pauses this connection's reader until it is written, as `process/input` does.
+                    if let Some(pending) = self.tabs.write(input.tab_id.as_str(), &input.data) {
+                        return Admit::Pause(Box::pin(pending.finish()));
+                    }
                 }
             }
             "terminal/resize" => {

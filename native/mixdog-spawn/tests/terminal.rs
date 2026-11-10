@@ -395,6 +395,11 @@ struct Events {
     /// A test's hold on the next announcement that a disposed tab's claims were forgotten: the announcement says it is in hand and
     /// returns once the gate opens, as a slow consumer would.
     hold_forgotten: Mutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
+    /// The same for the next size-owner announcement (made under the id's claim gate).
+    hold_owner: Mutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
+    /// The ids whose claim gate a caller found taken and waited for (`TerminalConfig::gate_waiting`), in order.
+    gate_waits: Mutex<Vec<String>>,
+    gate_waited: Condvar,
 }
 
 /// How long a wait for an event of the product may take before it is a failure that names what was awaited.
@@ -461,6 +466,27 @@ impl Events {
         *self.hold_forgotten.lock().unwrap() = Some((held_tx, open_rx));
         (held_rx, open_tx)
     }
+
+    /// Holds the next size-owner announcement, as [`Self::hold_next_forgotten`] does.
+    fn hold_next_owner(&self) -> (std::sync::mpsc::Receiver<()>, std::sync::mpsc::Sender<()>) {
+        let (held_tx, held_rx) = std::sync::mpsc::channel();
+        let (open_tx, open_rx) = std::sync::mpsc::channel();
+        *self.hold_owner.lock().unwrap() = Some((held_tx, open_rx));
+        (held_rx, open_tx)
+    }
+
+    fn gate_waited(&self, id: &str) {
+        self.gate_waits.lock().unwrap().push(id.to_owned());
+        self.gate_waited.notify_all();
+    }
+
+    /// Returns once a caller waits for the claim gate of `id` (the product's own signal, given just before it blocks).
+    fn wait_gate(&self, id: &str, what: &str) {
+        let waits = self.gate_waits.lock().unwrap();
+        let (waits, timeout) = self.gate_waited.wait_timeout_while(waits, EVENT_DEADLINE, |waits| !waits.iter().any(|w| w == id)).unwrap();
+        drop(waits);
+        assert!(!timeout.timed_out(), "{what}: nothing waited for the claim gate of {id} within {EVENT_DEADLINE:?}");
+    }
 }
 
 impl TerminalEvents for Events {
@@ -471,6 +497,11 @@ impl TerminalEvents for Events {
     }
 
     fn size_owner(&self, change: &SizeOwnerChange) {
+        let hold = self.hold_owner.lock().unwrap().take();
+        if let Some((held, open)) = hold {
+            held.send(()).expect("the test waits for the held announcement");
+            open.recv_timeout(EVENT_DEADLINE).expect("the test never opened the gate on the held owner announcement");
+        }
         self.log.lock().unwrap().push(Ev::Owner(change.clone()));
         self.changed.notify_all();
         self.logged.notify_waiters();
@@ -508,6 +539,8 @@ async fn rig(name: &str) -> Rig {
         1_700_000_000_000
     });
     config.shell_integration_dir = Some(scratch_dir(&format!("{name}-integration")));
+    let waits = Arc::clone(&events);
+    config.gate_waiting = Some(Arc::new(move |id: &str| waits.gate_waited(id)));
     let tabs = Arc::new(TerminalTabs::new(manager.clone(), config));
     let profile = tabs.resolve_profile("").await.expect("this machine has a shell");
     Rig {
@@ -703,6 +736,78 @@ async fn a_claim_made_while_a_disposal_is_announced_is_not_undone_by_it() {
     rig.tabs.dispose_all();
 }
 
+/// Node runs a claim and a dispose of one id one after the other (terminal-manager.ts:455, :536; recorded in golden.json,
+/// trace.claims.order: the owner pushed, then the tab's end and the dispose's answer). A dispose that comes while a claim of the same
+/// id is announcing its owner waits for it: the owner, then the tab's end, then its claims forgotten. Without the gate around the whole
+/// disposal the tab's end came between the claim's change and its announcement, and the forgetting wiped the owner just announced.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_dispose_during_a_claims_announcement_waits_for_it() {
+    let rig = rig("dispose-gate").await;
+    rig.tabs.ensure(Some("term_dgate"), rig.request()).await.unwrap();
+    rig.events.wait_for("the tab's first prompt", |log| log.iter().any(|e| matches!(e, Ev::Activity(id, Some(_)) if id == "term_dgate")));
+    let (held, open) = rig.events.hold_next_owner();
+    let tabs = Arc::clone(&rig.tabs);
+    let claiming = std::thread::spawn(move || tabs.resize("term_dgate", 50, 20, "A"));
+    held.recv_timeout(EVENT_DEADLINE).expect("the claim never announced its owner");
+    let tabs = Arc::clone(&rig.tabs);
+    let disposing = std::thread::spawn(move || tabs.dispose("term_dgate"));
+    rig.events.wait_gate("term_dgate", "the dispose made during the claim's announcement");
+    open.send(()).unwrap();
+    claiming.join().unwrap();
+    disposing.join().unwrap();
+    let ours: Vec<Ev> = rig
+        .events
+        .all()
+        .into_iter()
+        .filter(|e| match e {
+            Ev::Activity(id, None) | Ev::Forgotten(id) => id == "term_dgate",
+            Ev::Owner(c) => c.id == "term_dgate",
+            Ev::Activity(..) => false,
+        })
+        .collect();
+    let owner = Ev::Owner(SizeOwnerChange { id: "term_dgate".into(), cols: 50, rows: 20, owner: "A".into() });
+    assert_eq!(ours, vec![owner, Ev::Activity("term_dgate".into(), None), Ev::Forgotten("term_dgate".into())], "the dispose ran wholly after the claim");
+}
+
+/// An attach made while a claim is announcing its owner waits for the announcement (the owner is read under the id's gate): it never
+/// shows an owner whose PTY fit and announcement are still to come, which Node, one thread, never could.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_attach_during_a_claims_announcement_waits_for_it() {
+    let rig = rig("attach-gate").await;
+    rig.tabs.ensure(Some("term_agate"), rig.request()).await.unwrap();
+    let (held, open) = rig.events.hold_next_owner();
+    let tabs = Arc::clone(&rig.tabs);
+    let claiming = std::thread::spawn(move || tabs.resize("term_agate", 50, 20, "A"));
+    held.recv_timeout(EVENT_DEADLINE).expect("the claim never announced its owner");
+    let tabs = Arc::clone(&rig.tabs);
+    let attaching = tokio::spawn(async move { tabs.attach("term_agate").await });
+    rig.events.wait_gate("term_agate", "the attach made during the claim's announcement");
+    // The waiter is the attach: it has not answered while the announcement is held (a lapse 30 s on would wait for the gate too).
+    assert!(!attaching.is_finished(), "the attach answered while the claim's announcement was still held");
+    open.send(()).unwrap();
+    claiming.join().unwrap();
+    let attached = attaching.await.unwrap().expect("the tab runs");
+    assert_eq!(attached.size_owner, Some(SizeOwner { cols: 50, rows: 20, owner: "A".into() }));
+    rig.tabs.dispose("term_agate");
+}
+
+/// One connection holds claims on at most 256 ids at once; a claim on one more id is ignored (no owner, no announcement), while a
+/// renewal of a held claim still works. Node bounded nothing (`sizeClaims`, terminal-manager.ts:455).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_connection_holds_claims_on_a_bounded_number_of_ids() {
+    let rig = rig("claim-cap").await;
+    for n in 0..256 {
+        rig.tabs.resize(&format!("term_cap_{n}"), 50, 20, "A");
+    }
+    rig.tabs.resize("term_cap_over", 50, 20, "A");
+    assert_eq!(rig.tabs.size_owner("term_cap_over"), None, "the claim beyond the bound is ignored");
+    assert!(rig.events.owners("term_cap_over").is_empty());
+    rig.tabs.resize("term_cap_over", 50, 20, "B");
+    assert!(rig.tabs.size_owner("term_cap_over").is_some(), "another connection still claims");
+    rig.tabs.resize("term_cap_0", 60, 21, "A");
+    assert_eq!(rig.tabs.size_owner("term_cap_0"), Some(SizeOwner { cols: 60, rows: 21, owner: "A".into() }), "a renewal is not a new claim");
+}
+
 /// A claim that is not renewed lapses after `SIZE_OWNER_LEASE` (30 s) and the PTY is fitted to the
 /// next claimant; a renewal restarts the lease. Time is the paused tokio clock the core ticker follows.
 #[tokio::test(start_paused = true)]
@@ -734,29 +839,49 @@ async fn a_size_claim_lapses_after_its_lease_unless_renewed() {
 }
 /// A rig on the manual lease clock (debug builds, `MIXDOG_TERMINAL_LEASE_CLOCK` set to a directory) and one tab.
 /// The tests step the clock through the socket the core publishes in that directory, as the replay does.
-#[cfg(debug_assertions)]
+#[cfg(feature = "lease-clock")]
 async fn manual_lease_rig(name: &str) -> (Rig, String, LeaseClock) {
     let clock_dir = std::env::temp_dir().join(format!("mixdog-lease-clock-{}-{name}", std::process::id()));
     std::fs::create_dir_all(&clock_dir).unwrap();
     // SAFETY: set before this test's tabs exist; the test binary runs each test in its own process under nextest.
     unsafe { std::env::set_var("MIXDOG_TERMINAL_LEASE_CLOCK", &clock_dir) };
+    // SAFETY: as above.
+    unsafe { std::env::set_var("MIXDOG_TERMINAL_LEASE_CLOCK_SECRET", LEASE_CLOCK_SECRET) };
     let rig = rig(name).await;
     let attached = rig.tabs.ensure(Some("term_manual"), rig.request()).await.unwrap();
     let id = attached.id.clone();
-    // The seam as the replay uses it: the port the core published in the directory, then the socket.
-    let port: u16 = std::fs::read_to_string(clock_dir.join("port")).unwrap().parse().unwrap();
+    let clock = LeaseClock::admitted(lease_clock_port(name));
+    (rig, id, clock)
+}
+/// The run's secret this test process gives its core; a connection that does not send it moves nothing.
+#[cfg(feature = "lease-clock")]
+const LEASE_CLOCK_SECRET: &str = "terminal-test-secret";
+/// The port the core published in the rig's clock directory: the seam as the replay uses it.
+#[cfg(feature = "lease-clock")]
+fn lease_clock_port(name: &str) -> u16 {
+    let dir = std::env::temp_dir().join(format!("mixdog-lease-clock-{}-{name}", std::process::id()));
+    std::fs::read_to_string(dir.join("port")).unwrap().parse().unwrap()
+}
+#[cfg(feature = "lease-clock")]
+fn lease_clock_stream(port: u16) -> std::net::TcpStream {
     let stream = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
     // A clock that never answers fails the test by its message instead of blocking it.
     stream.set_read_timeout(Some(std::time::Duration::from_secs(30))).unwrap();
-    (rig, id, LeaseClock { reader: std::io::BufReader::new(stream) })
+    stream
 }
 /// The replay's end of the manual lease clock: a command line out, the core's answer line back (a blocking read).
-#[cfg(debug_assertions)]
+#[cfg(feature = "lease-clock")]
 struct LeaseClock {
     reader: std::io::BufReader<std::net::TcpStream>,
 }
-#[cfg(debug_assertions)]
+#[cfg(feature = "lease-clock")]
 impl LeaseClock {
+    /// A connection that has sent the run's secret.
+    fn admitted(port: u16) -> Self {
+        let mut clock = LeaseClock { reader: std::io::BufReader::new(lease_clock_stream(port)) };
+        assert_eq!(clock.send(&format!("secret {LEASE_CLOCK_SECRET}")), "admitted");
+        clock
+    }
     fn send(&mut self, line: &str) -> String {
         use std::io::{BufRead, Write};
         writeln!(self.reader.get_mut(), "{line}").unwrap();
@@ -769,7 +894,7 @@ impl LeaseClock {
     }
 }
 /// A claim renewed at 10 s holds until 40 s and lapses at that edge, to the instant.
-#[cfg(debug_assertions)]
+#[cfg(feature = "lease-clock")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_manual_lease_clock_moves_the_edge_with_a_renewal() {
     let (rig, id, mut clock) = manual_lease_rig("manual-renewal").await;
@@ -783,7 +908,7 @@ async fn the_manual_lease_clock_moves_the_edge_with_a_renewal() {
     rig.tabs.dispose(&id);
 }
 /// An unrenewed claim holds until its 30 s edge, not a millisecond before, and lapses there.
-#[cfg(debug_assertions)]
+#[cfg(feature = "lease-clock")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_manual_lease_clock_lapses_an_unrenewed_claim_at_exactly_30_seconds() {
     let (rig, id, mut clock) = manual_lease_rig("manual-edge").await;
@@ -794,7 +919,7 @@ async fn the_manual_lease_clock_lapses_an_unrenewed_claim_at_exactly_30_seconds(
     rig.tabs.dispose(&id);
 }
 /// A line that is not `advance <ms>` is refused and moves nothing; the clock answers the next command on the same connection.
-#[cfg(debug_assertions)]
+#[cfg(feature = "lease-clock")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_manual_lease_clock_refuses_what_is_not_an_advance() {
     let (rig, id, mut clock) = manual_lease_rig("manual-refuse").await;
@@ -805,30 +930,42 @@ async fn the_manual_lease_clock_refuses_what_is_not_an_advance() {
     assert_eq!(clock.advance(1), "lapsed 1");
     rig.tabs.dispose(&id);
 }
+/// A local process that does not know the run's secret moves nothing: its first line is refused and its connection closed.
+#[cfg(feature = "lease-clock")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_manual_lease_clock_refuses_a_client_without_the_secret() {
+    use std::io::BufRead;
+    let (rig, id, mut clock) = manual_lease_rig("manual-secret").await;
+    rig.tabs.resize(&id, 50, 20, "A");
+    let mut stranger = LeaseClock { reader: std::io::BufReader::new(lease_clock_stream(lease_clock_port("manual-secret"))) };
+    assert_eq!(stranger.send("advance 30000"), "refused: the first line must be `secret <the run's secret>`");
+    let mut rest = String::new();
+    assert_eq!(stranger.reader.read_line(&mut rest).unwrap(), 0, "the stranger's connection is closed");
+    assert_eq!(clock.advance(29_999), "lapsed 0", "the stranger moved no time");
+    rig.tabs.dispose(&id);
+}
 /// A control connection that leaves a line unfinished must not stop another connection's dvance from being answered.
-#[cfg(debug_assertions)]
+#[cfg(feature = "lease-clock")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_stalled_clock_connection_does_not_block_another() {
     use std::io::Write;
     let (rig, id, _first) = manual_lease_rig("manual-stalled").await;
-    let port: u16 = std::fs::read_to_string(std::env::temp_dir().join(format!("mixdog-lease-clock-{}-manual-stalled", std::process::id())).join("port")).unwrap().parse().unwrap();
+    let port = lease_clock_port("manual-stalled");
     let mut stalled = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
     stalled.write_all(b"advance 1").unwrap();
-    let late = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
-    late.set_read_timeout(Some(std::time::Duration::from_secs(30))).unwrap();
-    let mut late = LeaseClock { reader: std::io::BufReader::new(late) };
+    let mut late = LeaseClock::admitted(port);
     rig.tabs.resize(&id, 50, 20, "A");
     assert_eq!(late.advance(30_000), "lapsed 1", "a connection after a stalled one is still served");
     rig.tabs.dispose(&id);
 }
 /// The control connection has deadlines: a line left unfinished is answered with what was awaited, and the connection is closed (its
 /// thread and socket are released), not held for ever.
-#[cfg(debug_assertions)]
+#[cfg(feature = "lease-clock")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_connection_that_leaves_a_line_unfinished_is_refused_and_closed() {
     use std::io::{BufRead, Write};
     let (rig, id, _first) = manual_lease_rig("manual-unfinished").await;
-    let port: u16 = std::fs::read_to_string(std::env::temp_dir().join(format!("mixdog-lease-clock-{}-manual-unfinished", std::process::id())).join("port")).unwrap().parse().unwrap();
+    let port = lease_clock_port("manual-unfinished");
     let mut stalled = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
     // The test's own guard, longer than the core's line deadline: a core without one fails here by its message instead of hanging.
     stalled.set_read_timeout(Some(std::time::Duration::from_secs(60))).unwrap();
@@ -853,7 +990,7 @@ async fn activity_follows_the_shell_markers_and_focus() {
     // The prompt appears: idle. No marker text ever reaches the replay.
     rig.events.wait_for("the first prompt", |log| log.iter().any(|e| matches!(e, Ev::Activity(_, Some(ActivityState::Idle)))));
     assert_eq!(rig.tabs.activity_snapshot(), vec![(id.clone(), ActivityState::Idle)]);
-    rig.tabs.write(&id, "Start-Sleep -Milliseconds 600; Write-Output MIXDOG_DONE_$((1+1))\r");
+    let _ = rig.tabs.write(&id, "Start-Sleep -Milliseconds 600; Write-Output MIXDOG_DONE_$((1+1))\r");
     rig.events.wait_for("running then finished", |log| {
         let states: Vec<_> = log.iter().filter_map(|e| if let Ev::Activity(_, s) = e { Some(*s) } else { None }).collect();
         states.ends_with(&[Some(ActivityState::Running), Some(ActivityState::Finished)])
@@ -865,7 +1002,7 @@ async fn activity_follows_the_shell_markers_and_focus() {
     rig.tabs.focus(&id, "view-1", true);
     assert_eq!(rig.events.activity(&id).last(), Some(&Some(ActivityState::Idle)));
     // With a view focused, a finished command goes straight back to idle.
-    rig.tabs.write(&id, "Write-Output MIXDOG_SECOND\r");
+    let _ = rig.tabs.write(&id, "Write-Output MIXDOG_SECOND\r");
     rig.wait_text(&id, "MIXDOG_SECOND");
     rig.events.wait_for("second command cycle", |log| log.iter().filter(|e| matches!(e, Ev::Activity(_, Some(ActivityState::Running)))).count() >= 2);
     rig.tabs.connection_closed("view-1");
@@ -891,7 +1028,7 @@ async fn tabs_reuse_ids_share_one_spawn_and_report_exit() {
     assert!(generated.id.starts_with("term_"), "{}", generated.id);
     assert_ne!(generated.id, "not a valid id");
 
-    rig.tabs.write("term_shared", "exit 3\r");
+    let _ = rig.tabs.write("term_shared", "exit 3\r");
     rig.wait_text("term_shared", "[process exited with code 3]");
     assert_eq!(rig.tabs.attach("term_shared").await, None, "an exited tab is not running");
     let before = rig.tabs.snapshot("term_shared", None).unwrap();
@@ -982,7 +1119,7 @@ async fn terminal_corpus_replays_on_a_real_tab() {
             "termWrite" => {
                 let target = if args.unwrap()[0] == "<id>" { id.as_str() } else { args.unwrap()[0].as_str().unwrap() };
                 // The recorded line has a literal backslash-r: typed, echoed, never submitted.
-                rig.tabs.write(target, args.unwrap()[1].as_str().unwrap());
+                let _ = rig.tabs.write(target, args.unwrap()[1].as_str().unwrap());
                 assert_eq!(expect, &Value::Null);
             }
             "termSnapshot" => {
@@ -1156,7 +1293,7 @@ async fn terminal_tool_lists_runs_and_reads_in_process() {
     let other = bridge.execute(&json!({ "action": "list" }), "other-session", &options).await;
     assert_eq!(other.text, "No terminal tabs open for this session.");
     // Only now does the shell leave, on its own.
-    rig.tabs.write("session-terminal:sess8", "exit\r");
+    let _ = rig.tabs.write("session-terminal:sess8", "exit\r");
     let (_, exit) = collect(&rig.manager, &mixdog_protocol::ProcessHandle::from("session-terminal:sess8")).await;
     assert!(exit.killed.is_none(), "the shell left on its own");
     rig.tabs.dispose_all();
@@ -1262,7 +1399,7 @@ async fn terminal_operation_failure_paths_equal_nodes_recording() {
                 Value::Null
             }
             "termWrite" => {
-                tabs.write(&coerced(args.first()), args[1].as_str().unwrap());
+                let _ = tabs.write(&coerced(args.first()), args[1].as_str().unwrap());
                 Value::Null
             }
             "termResize" => {
@@ -1285,6 +1422,8 @@ async fn scripted_rig(name: &str) -> Rig {
     let mut config = TerminalConfig::new(events.clone());
     config.piped = true;
     config.shell_integration_dir = Some(scratch_dir(&format!("{name}-integration")));
+    let waits = Arc::clone(&events);
+    config.gate_waiting = Some(Arc::new(move |id: &str| waits.gate_waited(id)));
     let tabs = Arc::new(TerminalTabs::new(manager.clone(), config));
     Rig { tabs, manager, events, clock_reads, profile: mixdog_spawn::scripted::profile(), dir: scratch_dir(name) }
 }

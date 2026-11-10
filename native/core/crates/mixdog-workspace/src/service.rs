@@ -51,7 +51,6 @@ use crate::lanes::run_fallible;
 use crate::lsp::DocumentInput;
 use crate::lsp::LspManager;
 use crate::lsp::LspSink;
-use crate::pathguard::canonical;
 use crate::pathguard::canonical_through_existing;
 use crate::pathguard::project_entry_path;
 use crate::recovery::Action;
@@ -835,17 +834,12 @@ impl WorkspaceService {
             }
             "fs/watch" => {
                 let id = s(params, "watchId")?.to_owned();
-                // Any absolute path, as Node's `folderWatch` (`absoluteLocalPath`, then `fs.watch`): a path
-                // that does not exist fails with the text `fs.watch` gives.
+                // Any absolute path, as Node's `folderWatch` (`absoluteLocalPath`, then `fs.watch` of that resolved string,
+                // desktop-operations.ts:185-213): the watch is of the path as resolved, not of its real path, so a junction
+                // watched under two names is two watches that each report under their own name, and a failure is `fs.watch`'s own
+                // (`ENOENT: no such file or directory, watch '<path>'`). Every touch of the file system is on the lane below.
                 let Some(given) = params.get("path").and_then(Value::as_str) else { return Err(WsError::invalid("path must be a string.")) };
-                let wanted = crate::pathguard::absolute_local_path(given)?;
-                let path = match canonical(&wanted) {
-                    Ok(path) => path,
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                        return Err(WsError::new(Reason::Io, format!("ENOENT: no such file or directory, watch '{}'", wanted.display())));
-                    }
-                    Err(error) => return Err(WsError::new(Reason::Io, format!("Cannot watch {}: {error}", wanted.display()))),
-                };
+                let path = crate::pathguard::absolute_local_path(given)?;
                 let recursive = opt_bool(params, "recursive");
                 let publisher = Arc::new(Publisher::create(self.search_feeds(), &format!("fs:{id}"), json!({})));
                 self.router.fs.lock().expect("fs watches").insert(id.clone(), publisher.clone());

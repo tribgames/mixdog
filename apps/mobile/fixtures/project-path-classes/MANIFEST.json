@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 6265,
+      "bytes": 9253,
       "path": "golden.json",
-      "sha256": "a391035546c08f5bda3910306fba2bc0a0e6d7b7b149335856328de9f5da4285"
+      "sha256": "d9459df8def8c29b1ec22088e6d0094601cfe5ec399682e2ab970030121304ac"
     }
   ],
   "inputs": 20,
@@ -14,6 +14,7 @@
     "ensure",
     "add"
   ],
+  "posixInputs": 20,
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -33,5 +34,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-project-path-classes.mjs",
   "set": "project-path-classes",
-  "totalBytes": 6265
+  "totalBytes": 9253
 }

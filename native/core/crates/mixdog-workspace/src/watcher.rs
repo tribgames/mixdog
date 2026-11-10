@@ -108,6 +108,30 @@ pub fn git_dirs_of(dir: &Path) -> Vec<PathBuf> {
     dirs
 }
 
+/// A watch the backend refused, as Node's `fs.watch` threw it: libuv's code and text for the OS error, `watch '<path>'`.
+fn watch_failure(error: &notify::Error, path: &Path) -> WsError {
+    // libuv opens the path itself and fails with what the system said; the backend checks the path first and says it in words of its
+    // own, so a path the system cannot even stat is named by that system error.
+    if let Err(stat) = std::fs::metadata(path) {
+        return crate::nodeerr::io_error(&stat, "watch", path);
+    }
+    // libuv opens a directory to watch for listing (`FILE_LIST_DIRECTORY`, `FILE_FLAG_BACKUP_SEMANTICS`); a folder the user may not list
+    // fails there with the system's own error, which the backend reports as a missing path.
+    #[cfg(windows)]
+    if path.is_dir() {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+        if let Err(open) = std::fs::OpenOptions::new().read(true).custom_flags(FILE_FLAG_BACKUP_SEMANTICS).open(path) {
+            return crate::nodeerr::io_error(&open, "watch", path);
+        }
+    }
+    match &error.kind {
+        notify::ErrorKind::Io(io) => crate::nodeerr::io_error(io, "watch", path),
+        notify::ErrorKind::PathNotFound => crate::nodeerr::io_error(&std::io::ErrorKind::NotFound.into(), "watch", path),
+        _ => WsError::new(Reason::Io, format!("Cannot watch {}: {error}", path.display())),
+    }
+}
+
 fn classify(kind: &EventKind) -> ChangeKind {
     match kind {
         EventKind::Remove(_) => ChangeKind::Removed,
@@ -128,7 +152,7 @@ impl State {
         let mode = if entry.recursive_refs > 0 { RecursiveMode::Recursive } else { RecursiveMode::NonRecursive };
         let Some(w) = self.watcher.as_mut() else { return Ok(()) };
         let _ = w.unwatch(path);
-        w.watch(path, mode).map_err(|e| WsError::new(Reason::Io, format!("Cannot watch {}: {e}", path.display())))
+        w.watch(path, mode).map_err(|error| watch_failure(&error, path))
     }
 
     fn add_os(&mut self, path: &Path, recursive: bool) -> WsResult<()> {

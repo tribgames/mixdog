@@ -947,7 +947,8 @@ impl LocalProcessManager {
     }
 
     /// Resolves with the output bytes pushed once the process's reader is parked at its feed's gate: held back by a consumer that trails by
-    /// the ring bound, or by a paused feed. The reader's own signal; there is no deadline here, the caller bounds the wait.
+    /// the ring bound, or by a paused feed. The reader's own signal; there is no deadline here, the caller bounds the wait. Tests only.
+    #[cfg(feature = "core-test")]
     pub async fn output_blocked(&self, handle: &ProcessHandle) -> Result<u64, ProcessError> {
         let feed = Arc::clone(&self.inner.lookup(handle)?.feed);
         Ok(feed.blocked_pushed().await)
