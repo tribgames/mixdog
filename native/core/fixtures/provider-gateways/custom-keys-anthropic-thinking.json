@@ -1,0 +1,219 @@
+{
+  "id": "custom-keys-anthropic-thinking",
+  "provider": "custom-keys-anthropic-thinking",
+  "config": {
+    "type": "custom",
+    "name": "Keys",
+    "protocol": "anthropic",
+    "baseURL": "https://keys.example.com/v1",
+    "enabled": true,
+    "apiKey": "sk-first",
+    "preconnect": false,
+    "schemaVersion": 2,
+    "modelOverrides": {
+      "m1": {
+        "manual": true
+      }
+    },
+    "headers": {
+      "X-Team": "blue"
+    }
+  },
+  "keys": [
+    "sk-first",
+    "sk-second"
+  ],
+  "keyIds": [
+    "default",
+    "fe3f9075-0280-4c97-80c5-922553925d74"
+  ],
+  "pool": {
+    "accounts": [
+      {
+        "id": "default",
+        "blockedUntil": 1794225900000,
+        "blockedModel": "m1",
+        "blockedQuota": true,
+        "label": "Account 1"
+      },
+      {
+        "id": "fe3f9075-0280-4c97-80c5-922553925d74",
+        "label": "Account 2"
+      }
+    ],
+    "selectedId": "fe3f9075-0280-4c97-80c5-922553925d74",
+    "auto": true,
+    "policy": "limit",
+    "useCredits": true
+  },
+  "sends": [
+    {
+      "model": "m1",
+      "tools": [],
+      "history": [
+        {
+          "role": "user",
+          "content": "Before."
+        },
+        {
+          "role": "assistant",
+          "content": "Earlier answer.",
+          "thinkingBlocks": [
+            {
+              "type": "thinking",
+              "thinking": "Earlier thought.",
+              "signature": "sig-earlier"
+            }
+          ],
+          "providerMetadata": {
+            "accountRouting": {
+              "provider": "custom-keys-anthropic-thinking",
+              "accountId": "fe3f9075-0280-4c97-80c5-922553925d74",
+              "sessionAccountId": "fe3f9075-0280-4c97-80c5-922553925d74"
+            }
+          }
+        }
+      ],
+      "sessionId": null,
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://keys.example.com",
+          "path": "/v1/messages",
+          "headers": {
+            "host": "keys.example.com",
+            "connection": "keep-alive",
+            "accept": "application/json",
+            "user-agent": "Anthropic/JS 0.137.0",
+            "x-stainless-retry-count": "0",
+            "x-stainless-timeout": "600",
+            "x-stainless-lang": "js",
+            "x-stainless-package-version": "0.137.0",
+            "x-stainless-os": "Windows",
+            "x-stainless-arch": "x64",
+            "x-stainless-runtime": "node",
+            "x-stainless-runtime-version": "v22.20.0",
+            "anthropic-version": "2023-06-01",
+            "x-api-key": "sk-first",
+            "x-team": "blue",
+            "content-type": "application/json",
+            "accept-language": "*",
+            "sec-fetch-mode": "cors",
+            "accept-encoding": "gzip, deflate",
+            "content-length": "367"
+          },
+          "body": "{\"model\":\"m1\",\"max_tokens\":8192,\"system\":[{\"type\":\"text\",\"text\":\"You are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"messages\":[{\"role\":\"user\",\"content\":\"Before.\"},{\"role\":\"assistant\",\"content\":\"Earlier answer.\"},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true}",
+          "answer": {
+            "status": 429,
+            "body": "{\"type\":\"error\",\"error\":{\"type\":\"insufficient_quota\",\"message\":\"You exceeded your current quota.\"}}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://keys.example.com",
+          "path": "/v1/messages",
+          "headers": {
+            "host": "keys.example.com",
+            "connection": "keep-alive",
+            "accept": "application/json",
+            "user-agent": "Anthropic/JS 0.137.0",
+            "x-stainless-retry-count": "0",
+            "x-stainless-timeout": "600",
+            "x-stainless-lang": "js",
+            "x-stainless-package-version": "0.137.0",
+            "x-stainless-os": "Windows",
+            "x-stainless-arch": "x64",
+            "x-stainless-runtime": "node",
+            "x-stainless-runtime-version": "v22.20.0",
+            "anthropic-version": "2023-06-01",
+            "x-api-key": "sk-second",
+            "x-team": "blue",
+            "content-type": "application/json",
+            "accept-language": "*",
+            "sec-fetch-mode": "cors",
+            "accept-encoding": "gzip, deflate",
+            "content-length": "468"
+          },
+          "body": "{\"model\":\"m1\",\"max_tokens\":8192,\"system\":[{\"type\":\"text\",\"text\":\"You are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"messages\":[{\"role\":\"user\",\"content\":\"Before.\"},{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"Earlier thought.\",\"signature\":\"sig-earlier\"},{\"type\":\"text\",\"text\":\"Earlier answer.\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true}",
+          "answer": {
+            "status": 200,
+            "body": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_x\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"fixture\",\"content\":[],\"usage\":{\"input_tokens\":20,\"output_tokens\":1}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"The result is 42.\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":8}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+          }
+        }
+      ],
+      "events": [
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "request",
+          "n": 1
+        },
+        {
+          "on": "stageChange",
+          "stage": "reconnecting",
+          "payload": {
+            "message": "Quota exhausted — switching to the next account"
+          }
+        },
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "request",
+          "n": 2
+        },
+        {
+          "on": "stageChange",
+          "stage": "streaming",
+          "payload": null
+        },
+        {
+          "on": "textDelta",
+          "text": "The result is 42."
+        },
+        {
+          "on": "stageChange",
+          "stage": "account-changed",
+          "payload": {
+            "provider": "custom-keys-anthropic-thinking",
+            "accountId": "fe3f9075-0280-4c97-80c5-922553925d74",
+            "at": 1794225600000
+          }
+        }
+      ],
+      "result": {
+        "content": "The result is 42.",
+        "reasoning": null,
+        "toolCalls": [],
+        "reasoningContent": null,
+        "stopReason": "end_turn",
+        "usage": {
+          "inputTokens": 20,
+          "outputTokens": 8
+        },
+        "providerMetadata": {
+          "accountRouting": {
+            "provider": "custom-keys-anthropic-thinking",
+            "accountId": "fe3f9075-0280-4c97-80c5-922553925d74",
+            "sessionAccountId": "fe3f9075-0280-4c97-80c5-922553925d74"
+          }
+        }
+      }
+    }
+  ]
+}

@@ -57,6 +57,10 @@
           "payload": null
         },
         {
+          "on": "request",
+          "n": 1
+        },
+        {
           "on": "stageChange",
           "stage": "streaming",
           "payload": null
@@ -74,6 +78,7 @@
         "content": "The result is 42.",
         "reasoning": null,
         "toolCalls": [],
+        "reasoningContent": null,
         "stopReason": null,
         "usage": {
           "inputTokens": 20,

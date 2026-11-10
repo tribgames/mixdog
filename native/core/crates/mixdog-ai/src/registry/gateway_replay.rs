@@ -16,6 +16,7 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use mixdog_core_api::domain::provider::AccountStage;
 use mixdog_core_api::domain::provider::Content;
 use mixdog_core_api::domain::provider::Message;
 use mixdog_core_api::domain::provider::ModelRequest;
@@ -69,14 +70,40 @@ fn transport_header(name: &str, value: &str) -> bool {
 struct Endpoint {
     answers: Mutex<VecDeque<(u16, String)>>,
     sent: Mutex<Vec<WireRequest>>,
+    /// The send's event log as Node's recorder keeps it: each request's arrival, then the stream's events as the
+    /// session takes them.
+    log: Mutex<Vec<Value>>,
 }
 
-struct Once(Option<Bytes>);
+impl Endpoint {
+    fn note(&self, event: Value) {
+        self.log.lock().unwrap().push(event);
+    }
+}
+
+/// The answer one event per body chunk, as a streaming server writes it. (A decoder fed several events in one
+/// chunk loses the events before an in-band error: `WireDecoder::feed` returns the error alone.)
+struct Chunks(VecDeque<Bytes>);
+
+impl Chunks {
+    fn of(body: String) -> Self {
+        let mut chunks = VecDeque::new();
+        let mut rest = body.as_str();
+        while let Some(at) = rest.find("\n\n") {
+            chunks.push_back(Bytes::from(rest[..at + 2].to_owned()));
+            rest = &rest[at + 2..];
+        }
+        if !rest.is_empty() {
+            chunks.push_back(Bytes::from(rest.to_owned()));
+        }
+        Self(chunks)
+    }
+}
 
 #[async_trait]
-impl BodyStream for Once {
+impl BodyStream for Chunks {
     async fn next(&mut self) -> Option<Result<Bytes, mixdog_core_api::domain::provider::TransportFault>> {
-        self.0.take().map(Ok)
+        self.0.pop_front().map(Ok)
     }
 }
 
@@ -85,8 +112,10 @@ impl HttpSend for Endpoint {
     async fn send(&self, request: WireRequest, _: Exchange) -> Result<HttpResponse, ProviderError> {
         let url = request.url.clone();
         self.sent.lock().unwrap().push(request);
+        let n = self.log.lock().unwrap().iter().filter(|e| e["on"] == "request").count() + 1;
+        self.note(json!({"on": "request", "n": n}));
         let (status, body) = self.answers.lock().unwrap().pop_front().unwrap_or_else(|| panic!("no recorded answer for {url}"));
-        Ok(HttpResponse { status, headers: vec![], body: Box::new(Once(Some(Bytes::from(body)))) })
+        Ok(HttpResponse { status, headers: vec![], body: Box::new(Chunks::of(body)) })
     }
 }
 
@@ -140,7 +169,7 @@ fn world(scenario: &Value) -> World {
     for request in listing.iter().chain(sends.iter().flat_map(|s| s["requests"].as_array().unwrap())) {
         answers.push_back((request["answer"]["status"].as_u64().unwrap() as u16, request["answer"]["body"].as_str().unwrap().to_owned()));
     }
-    let endpoint = Arc::new(Endpoint { answers: Mutex::new(answers), sent: Mutex::default() });
+    let endpoint = Arc::new(Endpoint { answers: Mutex::new(answers), sent: Mutex::default(), log: Mutex::default() });
     let vault = Arc::new(MemoryVault::default());
     let accounts = AccountStore::new(dir.path().to_path_buf(), io);
     let env: Arc<dyn super::keys::Environment> = Arc::new(NoEnv);
@@ -190,14 +219,65 @@ fn login(provider: &str) -> Option<Value> {
     }
 }
 
-fn message(value: &Value) -> Message {
+/// A history message of the recording as the session hands it to the provider: Node's `reasoningContent` rides
+/// the Chat replay envelope, `thinkingBlocks` the message's own field, `providerMetadata.accountRouting` the
+/// routing the turn loop reads off the stored message (`AgentMessage::wire`).
+fn message(provider: &str, value: &Value) -> Message {
     let role = match value["role"].as_str().unwrap() {
         "system" => Role::System,
         "user" => Role::User,
         "assistant" => Role::Assistant,
+        "tool" => Role::Tool,
         other => panic!("role {other}"),
     };
-    Message::new(role, Content::Text(value["content"].as_str().unwrap().to_owned()))
+    let mut message = Message::new(role, Content::Text(value["content"].as_str().unwrap().to_owned()));
+    message.tool_call_id = value["toolCallId"].as_str().map(str::to_owned);
+    for call in value["toolCalls"].as_array().into_iter().flatten() {
+        message.tool_calls.push(mixdog_core_api::domain::provider::ToolCall {
+            id: call["id"].as_str().unwrap().to_owned(),
+            name: call["name"].as_str().unwrap().to_owned(),
+            arguments: call["arguments"].clone(),
+            native_type: None,
+        });
+    }
+    if let Some(reasoning) = value["reasoningContent"].as_str() {
+        message.push_replay(mixdog_core_api::domain::provider::ProviderReplay {
+            owner: mixdog_protocol::ProviderId::from(provider),
+            items: json!({"reasoningContent": reasoning}),
+        });
+    }
+    message.thinking_blocks = value.get("thinkingBlocks").cloned();
+    if let Some(routing) = value.pointer("/providerMetadata/accountRouting") {
+        message.account_routing = Some(mixdog_core_api::domain::provider::AccountRouting {
+            provider: routing["provider"].as_str().unwrap().to_owned(),
+            account_id: routing["accountId"].as_str().unwrap().to_owned(),
+            session_account_id: routing["sessionAccountId"].as_str().map(str::to_owned),
+        });
+    }
+    message
+}
+
+/// The session's view of one stream event in Node's callback vocabulary, for the events the replay compares.
+fn shown(event: &StreamEvent) -> Option<Value> {
+    match event {
+        StreamEvent::TextDelta(text) => Some(json!({"on": "textDelta", "text": text})),
+        StreamEvent::AccountStage(AccountStage::Switching { message }) => {
+            Some(json!({"on": "stageChange", "stage": "reconnecting", "payload": {"message": message}}))
+        }
+        StreamEvent::AccountStage(AccountStage::Changed { provider, account_id, at }) => Some(json!({
+            "on": "stageChange", "stage": "account-changed", "payload": {"provider": provider, "accountId": account_id, "at": at},
+        })),
+        _ => None,
+    }
+}
+
+/// Node's events the replay compares (the manifest's `replayExclusions` name what it leaves out and why).
+fn compared(event: &Value) -> bool {
+    match event["on"].as_str() {
+        Some("request" | "textDelta") => true,
+        Some("stageChange") => !matches!(event["stage"].as_str(), Some("requesting" | "streaming")),
+        _ => false,
+    }
 }
 
 fn tool(name: &str) -> ToolDefinition {
@@ -234,13 +314,19 @@ fn sent(request: &WireRequest) -> Value {
 }
 
 /// Node's result fields from the stream the adapter returned.
-fn folded(events: &[StreamEvent]) -> (Value, Vec<String>) {
-    let (mut content, mut usage, mut stop, mut deltas, mut calls) = (String::new(), Value::Null, Value::Null, Vec::new(), Vec::new());
+fn folded(events: &[StreamEvent]) -> Value {
+    let (mut content, mut usage, mut stop, mut calls) = (String::new(), Value::Null, Value::Null, Vec::new());
+    let (mut reasoning_content, mut metadata) = (Value::Null, Value::Null);
     for event in events {
         match event {
-            StreamEvent::TextDelta(text) => {
-                content.push_str(text);
-                deltas.push(text.clone());
+            StreamEvent::TextDelta(text) => content.push_str(text),
+            StreamEvent::ReasoningReplay(replay) => {
+                if let Some(text) = replay.items.get("reasoningContent") {
+                    reasoning_content = text.clone();
+                }
+            }
+            StreamEvent::AccountRouting(routing) => {
+                metadata = json!({"accountRouting": {"provider": routing.provider, "accountId": routing.account_id, "sessionAccountId": routing.session_account_id}});
             }
             StreamEvent::FinalContent(text) => content = text.clone(),
             StreamEvent::ToolCallDone(call) => calls.push(json!({"id": call.id, "name": call.name, "arguments": call.arguments})),
@@ -257,7 +343,7 @@ fn folded(events: &[StreamEvent]) -> (Value, Vec<String>) {
             _ => {}
         }
     }
-    (json!({"content": content, "toolCalls": calls, "stopReason": stop, "usage": usage}), deltas)
+    json!({"content": content, "toolCalls": calls, "reasoningContent": reasoning_content, "stopReason": stop, "usage": usage, "providerMetadata": metadata})
 }
 
 async fn replay(id: &str) {
@@ -268,7 +354,8 @@ async fn replay(id: &str) {
         std::fs::write(w._dir.path().join(format!("{provider}.json")), doc.to_string()).unwrap();
     }
     if let Some(keys) = scenario["keys"].as_array() {
-        let ids: Vec<String> = scenario["keyIds"].as_array().unwrap()[1..].iter().map(|k| k.as_str().unwrap().to_owned()).collect();
+        // A provider with no additional key has no roster (`keyIds` is empty).
+        let ids: Vec<String> = scenario["keyIds"].as_array().unwrap().iter().skip(1).map(|k| k.as_str().unwrap().to_owned()).collect();
         for (id, key) in ids.iter().zip(&keys[1..]) {
             w.vault.set(&format!("agent.{provider}.apiKey.{id}"), key.as_str().unwrap()).await.unwrap();
         }
@@ -293,9 +380,10 @@ async fn replay(id: &str) {
     }
     for (n, send) in scenario["sends"].as_array().unwrap().iter().enumerate() {
         let before = w.endpoint.sent.lock().unwrap().len();
-        let mut messages = vec![message(&json!({"role": "system", "content": "You are a fixture assistant."}))];
-        messages.extend(send["history"].as_array().unwrap().iter().map(message));
-        messages.push(message(&json!({"role": "user", "content": "Look up the answer."})));
+        w.endpoint.log.lock().unwrap().clear();
+        let mut messages = vec![message(provider, &json!({"role": "system", "content": "You are a fixture assistant."}))];
+        messages.extend(send["history"].as_array().unwrap().iter().map(|m| message(provider, m)));
+        messages.push(message(provider, &json!({"role": "user", "content": "Look up the answer."})));
         let mut options = RequestOptions { session_id: send["sessionId"].as_str().map(str::to_owned), ..RequestOptions::default() };
         if let Some(pin) = send.get("pin") {
             options.wire_pin = pin["wire"].as_str().map(|wire| WirePin { provider: provider.to_owned(), model: send["model"].as_str().unwrap().to_owned(), wire: wire.to_owned() });
@@ -312,7 +400,12 @@ async fn replay(id: &str) {
                 let mut failed = None;
                 while let Some(item) = stream.next().await {
                     match item {
-                        Ok(event) => events.push(event),
+                        Ok(event) => {
+                            if let Some(view) = shown(&event) {
+                                w.endpoint.note(view);
+                            }
+                            events.push(event);
+                        }
                         Err(e) => {
                             failed = Some(e);
                             break;
@@ -329,12 +422,15 @@ async fn replay(id: &str) {
         let sent_now: Vec<Value> = w.endpoint.sent.lock().unwrap()[before..].iter().map(sent).collect();
         let node_now: Vec<Value> = send["requests"].as_array().unwrap().iter().map(recorded).collect();
         assert_eq!(sent_now, node_now, "{id} send {n}: the requests");
+        let node_events: Vec<Value> = send["events"].as_array().unwrap().iter().filter(|e| compared(e)).cloned().collect();
+        assert_eq!(*w.endpoint.log.lock().unwrap(), node_events, "{id} send {n}: the requests and what the session was shown, in order");
         match (&outcome, send.get("result")) {
-            (Ok((result, deltas)), Some(node)) => {
-                let node_result = json!({"content": node["content"], "toolCalls": node["toolCalls"], "stopReason": node["stopReason"], "usage": node["usage"]});
+            (Ok(result), Some(node)) => {
+                let node_result = json!({
+                    "content": node["content"], "toolCalls": node["toolCalls"], "reasoningContent": node["reasoningContent"],
+                    "stopReason": node["stopReason"], "usage": node["usage"], "providerMetadata": node["providerMetadata"],
+                });
                 assert_eq!(result, &node_result, "{id} send {n}: the result");
-                let node_deltas: Vec<String> = send["events"].as_array().unwrap().iter().filter(|e| e["on"] == "textDelta").map(|e| e["text"].as_str().unwrap().to_owned()).collect();
-                assert_eq!(deltas, &node_deltas, "{id} send {n}: the text the session was shown");
             }
             (Err(error), Some(_)) => panic!("{id} send {n}: Node answered, Rust failed: {error:?}"),
             (Ok(_), None) => panic!("{id} send {n}: Node failed with {}, Rust answered", send["error"]),
@@ -385,6 +481,9 @@ scenarios! {
     command_code_claude_sends_on_messages => "command-code-messages",
     command_code_gpt_sends_on_responses => "command-code-responses",
     command_code_other_models_send_on_chat => "command-code-chat",
+    a_custom_model_replays_its_reasoning => "custom-reasoning-replay",
+    the_chat_reasoning_goes_to_whichever_key_serves => "custom-keys-reasoning",
+    a_turn_another_key_served_goes_without_its_thinking => "custom-keys-anthropic-thinking",
     a_quota_refusal_moves_to_the_next_key_which_the_next_send_keeps => "custom-keys-switch",
     every_key_refused_reports_the_exhausted_roster => "custom-keys-exhausted",
     a_refusal_that_is_not_quota_ends_the_send_on_its_key => "custom-keys-not-quota",

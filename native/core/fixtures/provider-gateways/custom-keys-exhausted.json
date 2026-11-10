@@ -168,21 +168,8 @@
           "payload": null
         },
         {
-          "on": "stageChange",
-          "stage": "reconnecting",
-          "payload": {
-            "message": "Quota exhausted — switching to the next account"
-          }
-        },
-        {
-          "on": "stageChange",
-          "stage": "requesting",
-          "payload": null
-        },
-        {
-          "on": "stageChange",
-          "stage": "requesting",
-          "payload": null
+          "on": "request",
+          "n": 1
         },
         {
           "on": "stageChange",
@@ -200,6 +187,31 @@
           "on": "stageChange",
           "stage": "requesting",
           "payload": null
+        },
+        {
+          "on": "request",
+          "n": 2
+        },
+        {
+          "on": "stageChange",
+          "stage": "reconnecting",
+          "payload": {
+            "message": "Quota exhausted — switching to the next account"
+          }
+        },
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "request",
+          "n": 3
         },
         {
           "on": "stageChange",

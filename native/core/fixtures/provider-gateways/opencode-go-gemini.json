@@ -81,6 +81,10 @@
           "payload": null
         },
         {
+          "on": "request",
+          "n": 1
+        },
+        {
           "on": "textDelta",
           "text": "The result "
         },
@@ -93,6 +97,7 @@
         "content": "The result is 42.",
         "reasoning": null,
         "toolCalls": [],
+        "reasoningContent": null,
         "stopReason": null,
         "usage": {
           "inputTokens": 20,

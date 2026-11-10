@@ -91,6 +91,10 @@
           "on": "stageChange",
           "stage": "requesting",
           "payload": null
+        },
+        {
+          "on": "request",
+          "n": 1
         }
       ],
       "error": {

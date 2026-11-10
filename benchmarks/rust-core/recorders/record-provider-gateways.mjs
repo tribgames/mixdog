@@ -84,7 +84,9 @@ const hooks = `export async function load(url, context, next) {
 register(`data:text/javascript,${encodeURIComponent(hooks)}`);
 
 // ---- the scripted loopback endpoint ----
-const hub = { records: [], reply: null };
+// `events`: the current send's callback log; each request's arrival is logged in it, so a notice is placed between
+// the requests it came between.
+const hub = { records: [], reply: null, events: null };
 const server = http.createServer(async (req, res) => {
   const chunks = [];
   for await (const c of req) chunks.push(c);
@@ -94,6 +96,7 @@ const server = http.createServer(async (req, res) => {
   for (const name of order) headers[name] = name === 'host' ? new URL(origin).host : req.headers[name];
   const rec = { method: req.method, origin, path: req.url, headers, body: Buffer.concat(chunks).toString('utf8') };
   hub.records.push(rec);
+  hub.events?.push({ on: 'request', n: hub.records.length });
   const reply = hub.reply?.(rec, hub.records.length) ?? { status: 404, contentType: 'application/json', body: '{"error":{"message":"not scripted"}}' };
   rec.reply = reply;
   res.writeHead(reply.status ?? 200, { 'content-type': reply.contentType ?? 'text/event-stream' });
@@ -169,7 +172,19 @@ const custom = (apiKey, extra = {}) => ({
   type: 'custom', name: 'Keys', protocol: 'openai-chat', baseURL: 'https://keys.example.com/v1', enabled: true, apiKey, preconnect: false,
   schemaVersion: 2, modelOverrides: { m1: { manual: true } }, headers: { 'X-Team': 'blue' }, ...extra,
 });
-const keyOf = (rec) => String(rec.headers.authorization || '').replace(/^Bearer /, '');
+const keyOf = (rec) => String(rec.headers.authorization || rec.headers['x-api-key'] || '').replace(/^Bearer /, '');
+const chatReasoningText = (reasoning, text) => {
+  const c = (delta, finish = null) => ({ id: 'chatcmpl-x', object: 'chat.completion.chunk', model: 'fixture', choices: [{ index: 0, delta, finish_reason: finish }] });
+  return `${sse([c({ role: 'assistant', content: '' }), c({ reasoning_content: reasoning }), c({ content: text }), c({}, 'stop'), { id: 'chatcmpl-x', object: 'chat.completion.chunk', model: 'fixture', choices: [], usage: { prompt_tokens: 20, completion_tokens: 8, total_tokens: 28 } }])}data: [DONE]\n\n`;
+};
+// An earlier tool round without reasoning, then a turn that kept its reasoning.
+const REASONED_HISTORY = [
+  { role: 'user', content: 'Before.' },
+  { role: 'assistant', content: '', toolCalls: [{ id: 'call_a', name: 'lookup', arguments: { key: 'a' } }] },
+  { role: 'tool', toolCallId: 'call_a', content: '1' },
+  { role: 'assistant', content: 'Earlier answer.', reasoning: 'Earlier thought.', reasoningContent: 'Earlier thought.' },
+];
+const ANTHROPIC_QUOTA = { type: 'error', error: { type: 'insufficient_quota', message: 'You exceeded your current quota.' } };
 
 // One send: `session` (optional) is pinned first as the turn does (`pinSessionWireRoute`).
 const send = (model, { tools = [], history = [], session = null, opts = {} } = {}) => ({ model, tools, history, session, opts });
@@ -244,6 +259,36 @@ const scenarios = [
     reply: (rec) => (keyOf(rec) === 'sk-first' ? ok(chatTextThenQuota()) : ok(chatText('from second'))),
     sends: [send('m1')],
   },
+  // A custom model that replays its reasoning: one key; the reply's reasoning is kept, earlier turns' sent back.
+  {
+    id: 'custom-reasoning-replay', provider: 'custom-reasoning-replay', keys: ['sk-only'],
+    config: { modelOverrides: { m1: { manual: true, reasoning: { levels: ['low', 'high'], replay: true } } } },
+    reply: () => ok(chatReasoningText('Fresh thought.', 'The result is 42.')),
+    sends: [send('m1', { history: REASONED_HISTORY })],
+  },
+  // The same with two keys: the Chat wire's reasoning goes to whichever key serves.
+  {
+    id: 'custom-keys-reasoning', provider: 'custom-keys-reasoning', keys: ['sk-first', 'sk-second'],
+    config: { modelOverrides: { m1: { manual: true, reasoning: { levels: ['low', 'high'], replay: true } } } },
+    reply: (rec) => (keyOf(rec) === 'sk-first' ? refusal(429, QUOTA) : ok(chatText('from second'))),
+    sends: [send('m1', { history: REASONED_HISTORY })],
+  },
+  // Anthropic protocol, two keys: a turn the second key served keeps its thinking for that key alone.
+  {
+    id: 'custom-keys-anthropic-thinking', provider: 'custom-keys-anthropic-thinking', keys: ['sk-first', 'sk-second'],
+    config: { protocol: 'anthropic', baseURL: 'https://keys.example.com/v1' },
+    reply: (rec) => (keyOf(rec) === 'sk-first' ? { status: 429, contentType: 'application/json', body: j(ANTHROPIC_QUOTA) } : ok(anthropicText())),
+    sends: [send('m1', {
+      history: (ids, provider) => [
+        { role: 'user', content: 'Before.' },
+        {
+          role: 'assistant', content: 'Earlier answer.',
+          thinkingBlocks: [{ type: 'thinking', thinking: 'Earlier thought.', signature: 'sig-earlier' }],
+          providerMetadata: { accountRouting: { provider, accountId: ids[0], sessionAccountId: ids[0] } },
+        },
+      ],
+    })],
+  },
 ];
 
 // ---- run ----
@@ -251,6 +296,7 @@ const resultOf = (r) => ({
   content: r?.content ?? null,
   reasoning: r?.reasoning ?? null,
   toolCalls: (r?.toolCalls ?? []).map((c) => ({ id: c.id, name: c.name, arguments: c.arguments })),
+  reasoningContent: r?.reasoningContent ?? null,
   stopReason: r?.stopReason ?? null,
   usage: r?.usage ? { inputTokens: r.usage.inputTokens ?? null, outputTokens: r.usage.outputTokens ?? null } : null,
   providerMetadata: r?.providerMetadata ?? null,
@@ -270,9 +316,10 @@ for (const s of scenarios) {
   if (only && s.id !== only) continue;
   s.setup?.();
   let config = s.config;
+  let ids = [];
   if (s.keys) {
     const [primary, ...extra] = s.keys;
-    const ids = extra.map((value) => {
+    ids = extra.map((value) => {
       const id = newProviderAccountId();
       secrets[`agent.${s.provider}.apiKey.${id}`] = value;
       return id;
@@ -295,6 +342,8 @@ for (const s of scenarios) {
   for (const one of s.sends) {
     hub.records = [];
     const events = [];
+    hub.events = events;
+    const history = typeof one.history === 'function' ? one.history(ids, s.provider) : one.history;
     const opts = {
       ...one.opts,
       onTextDelta: (text) => events.push({ on: 'textDelta', text }),
@@ -312,16 +361,17 @@ for (const s of scenarios) {
     }
     let outcome;
     try {
-      outcome = { result: resultOf(await withinDeadline(`${s.id} ${one.model}`, provider.send([SYSTEM, ...one.history, USER], one.model, one.tools, opts))) };
+      outcome = { result: resultOf(await withinDeadline(`${s.id} ${one.model}`, provider.send([SYSTEM, ...history, USER], one.model, one.tools, opts))) };
     } catch (e) {
       if (/^recorder:/.test(e?.message)) throw e;
       outcome = { error: errorOf(e) };
     }
+    hub.events = null;
     console.log(`${s.id} ${one.model}: ${hub.records.length} request(s)`);
     sends.push({
       model: one.model,
       tools: one.tools.map((t) => t.name),
-      history: one.history,
+      history,
       sessionId: opts.sessionId ?? null,
       ...(one.session ? { pin: pin ?? null } : {}),
       requests: hub.records.map(({ reply, ...rec }) => ({ ...rec, answer: { status: reply.status ?? 200, body: reply.body } })),
@@ -344,7 +394,14 @@ writeSetManifest(outDir, {
   set: 'provider-gateways',
   recorder: RECORDER,
   command: `node ${RECORDER} --tree <b6f tree>`,
-  extra: { scenarios: recorded.sort(), clockStartMs: T0, provenance: recordingProvenance(RECORDER, [RECORDER, 'benchmarks/rust-core/recorders/lib/common.mjs', 'benchmarks/rust-core/recorders/lib/deterministic-world.mjs']) },
+  extra: {
+    scenarios: recorded.sort(),
+    clockStartMs: T0,
+    // What the replay leaves out of a send's `events`, and why.
+    replayExclusions: {
+      "stageChange 'requesting' / 'streaming'": "the engine's spinner phases; in the core the turn loop raises them around the send (agent Stage::Connecting / Streaming), not the provider stream the replay reads",
+      toolCall: "the folded result's toolCalls are compared instead (the core's stream carries the call as ToolCallDone, which the result holds)",
+    }, provenance: recordingProvenance(RECORDER, [RECORDER, 'benchmarks/rust-core/recorders/lib/common.mjs', 'benchmarks/rust-core/recorders/lib/deterministic-world.mjs']) },
   // Refuses to write unless the loaded tree is exactly b6f10295a.
   identity: exactProductIdentity(tree, 'b6f10295a2f698afc85332467192de28500bd146'),
 });

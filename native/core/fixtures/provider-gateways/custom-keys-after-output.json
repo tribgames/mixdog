@@ -96,6 +96,10 @@
           "payload": null
         },
         {
+          "on": "request",
+          "n": 1
+        },
+        {
           "on": "stageChange",
           "stage": "streaming",
           "payload": null

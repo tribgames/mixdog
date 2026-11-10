@@ -582,6 +582,82 @@
           "type": "object"
         },
         {
+          "description": "The roster account that served the answer (`StreamEvent::AccountRouting`, Node `providerMetadata.accountRouting`).",
+          "properties": {
+            "account_id": {
+              "type": "string"
+            },
+            "provider": {
+              "type": "string"
+            },
+            "session_account_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "enum": [
+                "accountRouting"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "account_id",
+            "provider",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The account pool moves on to the next account (`StreamEvent::AccountStage`, Node `onStageChange('reconnecting')`).",
+          "properties": {
+            "message": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "accountSwitching"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "message",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A fallback account became the selected one (`StreamEvent::AccountStage`, Node `onStageChange('account-changed')`).",
+          "properties": {
+            "account_id": {
+              "type": "string"
+            },
+            "at": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "provider": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "accountChanged"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "account_id",
+            "at",
+            "provider",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
           "description": "`pricing_model`: the catalog model the send bills as when it differs from the one sent. `request_ms`: the request's wall time as the usage ledger measured it (Node `usageDurationMs`).",
           "properties": {
             "pricing_model": {

@@ -700,6 +700,11 @@ impl RunObserver for PortObserver {
             }
             // The context section is the route's window choice (`runtime.contextPercent`, exact `contextTokens` only for a
             // non-default window), never the usage reading: usage reaches clients as `thread/tokenUsage/updated`.
+            // `applyStageChange('account-changed')`: the selection change is thread state, never a transcript item.
+            RunEvent::Stage(Stage::AccountChanged { provider, account_id, at }) => {
+                let change = mixdog_app_protocol::v2::thread::ProviderAccountChange { provider, account_id, at };
+                let _ = self.out.send(Shown::Section(mixdog_core_ports::ports::threads::Section::ProviderAccount(change)));
+            }
             RunEvent::Stage(Stage::ModelFallback { model }) => {
                 let route = mixdog_app_protocol::v2::thread::ThreadRoute { session_model: Some(model), ..Default::default() };
                 let _ = self.out.send(Shown::Section(mixdog_core_ports::ports::threads::Section::Route(route)));
