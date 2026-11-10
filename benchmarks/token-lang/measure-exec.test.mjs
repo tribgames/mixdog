@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { LANGS, MODELS, execInputTokens, inputTokensOfFirstRequest, measureModel, renderTable, usageLogInput } from './measure-exec.mjs';
@@ -99,38 +101,70 @@ test('the net count of a language is its count less the "." baseline', async () 
   assert.deepEqual(measured.net, Object.fromEntries(LANGS.map(([lang], i) => [lang, 10 * (i + 1)])));
 });
 
+// A child that never answers; `endImpl` records the end instead of killing, as the fake has no process.
+const silentChild = () => () => {
+  const c = new EventEmitter();
+  c.stdout = new EventEmitter();
+  c.stderr = new EventEmitter();
+  return c;
+};
+
 test('an exec that does not finish by the deadline is ended and reported, not waited for', async () => {
-  const killed = [];
-  const hung = () => {
-    const c = new EventEmitter();
-    c.stdout = new EventEmitter();
-    c.stderr = new EventEmitter();
-    c.kill = () => killed.push('killed');
-    return c;
-  };
-  await assert.rejects(execInputTokens({ bin: 'mixdogd', provider: 'x', model: 'm', text: 't', cwd: '/w', spawnImpl: hung, deadlineMs: 20 }), /did not finish within 20ms and was ended/);
-  assert.deepEqual(killed, ['killed']);
+  const ended = [];
+  await assert.rejects(
+    execInputTokens({ bin: 'mixdogd', provider: 'x', model: 'm', text: 't', cwd: '/w', spawnImpl: silentChild(), endImpl: async (child) => ended.push(child), deadlineMs: 20 }),
+    /did not finish within 20ms and was ended/,
+  );
+  assert.equal(ended.length, 1);
 });
 
 test('a child that cannot start is ended and rejects', async () => {
-  const killed = [];
+  const ended = [];
   const broken = () => {
-    const c = new EventEmitter();
-    c.stdout = new EventEmitter();
-    c.stderr = new EventEmitter();
-    c.kill = () => killed.push('killed');
+    const c = silentChild()();
     queueMicrotask(() => c.emit('error', new Error('spawn ENOENT')));
     return c;
   };
-  await assert.rejects(execInputTokens({ bin: 'mixdogd', provider: 'x', model: 'm', text: 't', cwd: '/w', spawnImpl: broken, deadlineMs: 60_000 }), /spawn ENOENT/);
-  assert.deepEqual(killed, ['killed']);
+  await assert.rejects(execInputTokens({ bin: 'mixdogd', provider: 'x', model: 'm', text: 't', cwd: '/w', spawnImpl: broken, endImpl: async (child) => ended.push(child), deadlineMs: 60_000 }), /could not run: spawn ENOENT/);
+  assert.equal(ended.length, 1);
 });
 
+test('a tree that cannot be ended is reported beside the deadline', async () => {
+  const stuck = async () => {
+    throw new Error('taskkill of the process tree of pid 7 exited 1');
+  };
+  await assert.rejects(
+    execInputTokens({ bin: 'mixdogd', provider: 'x', model: 'm', text: 't', cwd: '/w', spawnImpl: silentChild(), endImpl: stuck, deadlineMs: 20 }),
+    /did not finish within 20ms and was ended.*; taskkill of the process tree of pid 7 exited 1/,
+  );
+});
+
+test('at the deadline the exec and everything it started are gone, on a real process tree', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'measure-exec-tree-'));
+  const previous = process.env.NODE_OPTIONS;
+  try {
+    // `node exec --json ...` stands for mixdogd: the preload starts a grandchild, records both pids and blocks, which is a hung core with a tool process under it.
+    const preload = join(dir, 'hang.cjs').replaceAll('\\', '/');
+    writeFileSync(
+      preload,
+      `delete process.env.NODE_OPTIONS;\nconst gc = require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });\nrequire('node:fs').writeFileSync(${JSON.stringify(join(dir, 'pids.json').replaceAll('\\', '/'))}, JSON.stringify([process.pid, gc.pid]));\nAtomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);\n`,
+    );
+    process.env.NODE_OPTIONS = `--require "${preload}"`;
+    await assert.rejects(execInputTokens({ bin: process.execPath, provider: 'x', model: 'm', text: 't', cwd: dir, deadlineMs: 5000 }), /did not finish within 5000ms and was ended/);
+    const pids = JSON.parse(readFileSync(join(dir, 'pids.json'), 'utf8'));
+    assert.equal(pids.length, 2);
+    for (const pid of pids) assert.throws(() => process.kill(pid, 0), `pid ${pid} is still running`);
+  } finally {
+    if (previous === undefined) delete process.env.NODE_OPTIONS;
+    else process.env.NODE_OPTIONS = previous;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 test('the command fails when a selected model fails, and leaves results.json as it was', () => {
   const results = new URL('./results/results.json', import.meta.url);
   const before = readFileSync(results, 'utf8');
   // node is the "mixdogd" here: `node exec --json ...` exits 1, which is a failed measurement of the selected model.
-  const run = spawnSync(process.execPath, [fileURLToPath(new URL('./measure-exec.mjs', import.meta.url)), '--mixdogd', process.execPath, '--models', 'kimi', '--n', '1'], { encoding: 'utf8' });
+  const run = spawnSync(process.execPath, [fileURLToPath(new URL('./measure-exec.mjs', import.meta.url)), '--mixdogd', process.execPath, '--models', 'kimi', '--n', '1'], { encoding: 'utf8', timeout: 60_000 });
   assert.notEqual(run.status, 0);
   assert.match(run.stderr, /FAILED: Kimi K3/);
   assert.match(run.stderr, /measurement failed for: Kimi K3/);

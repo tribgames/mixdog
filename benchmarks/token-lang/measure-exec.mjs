@@ -5,11 +5,11 @@
 // tokens of the run's first model request, read from the `model.request.completed` event. Subscription routes
 // ask at low effort, as before.
 // Usage: node benchmarks/token-lang/measure-exec.mjs --mixdogd <bin> [--n 200] [--models a,b] [--render]
-import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { endTree, spawnTree } from '../../scripts/rust-core/lib/process-tree.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DATA = join(HERE, 'data', 'flores200_dataset', 'devtest');
@@ -74,9 +74,10 @@ const WINDOWS_ARGUMENT_LIMIT = 30_000;
 // One exec is one model request; one that has not finished by now is a hung provider or core, not a slow answer.
 const EXEC_DEADLINE_MS = 300_000;
 
-/** One run: `<bin> exec --json ... <text>`, answering the input tokens of its first request. The child is ended when
- *  the deadline passes, when it fails to start and when it exits; the scratch directory goes with it. */
-export function execInputTokens({ bin, provider, model, effort, text, cwd, spawnImpl = spawn, deadlineMs = EXEC_DEADLINE_MS }) {
+/** One run: `<bin> exec --json ... <text>`, answering the input tokens of its first request. At the deadline, and when
+ *  the child cannot start, the whole process tree is ended (a failed kill is reported beside the cause); the scratch
+ *  directory goes with it on every path. */
+export function execInputTokens({ bin, provider, model, effort, text, cwd, spawnImpl = spawnTree, endImpl = endTree, deadlineMs = EXEC_DEADLINE_MS }) {
   if (process.platform === 'win32' && text.length > WINDOWS_ARGUMENT_LIMIT) {
     throw new Error(`a text of ${text.length} characters does not fit a Windows command line; use a smaller --n`);
   }
@@ -89,18 +90,28 @@ export function execInputTokens({ bin, provider, model, effort, text, cwd, spawn
     let stderr = '';
     child.stdout.on('data', (chunk) => (stdout += chunk));
     child.stderr.on('data', (chunk) => (stderr += chunk));
-    const deadline = setTimeout(() => {
-      child.kill();
-      rmSync(scratch, { recursive: true, force: true });
-      reject(new Error(`mixdogd exec (${provider} ${model}) did not finish within ${deadlineMs}ms and was ended; stderr: ${stderr.trim().slice(0, 300)}`));
-    }, deadlineMs);
+    let ending = false; // once the tree is being ended, the child's own close is the kill working, not a result
+    const fail = async (message) => {
+      ending = true;
+      try {
+        await endImpl(child);
+      } catch (error) {
+        message = `${message}; ${error.message}`;
+      } finally {
+        rmSync(scratch, { recursive: true, force: true });
+      }
+      reject(new Error(message));
+    };
+    const deadline = setTimeout(
+      () => fail(`mixdogd exec (${provider} ${model}) did not finish within ${deadlineMs}ms and was ended; stderr: ${stderr.trim().slice(0, 300)}`),
+      deadlineMs,
+    );
     child.once('error', (error) => {
       clearTimeout(deadline);
-      child.kill();
-      rmSync(scratch, { recursive: true, force: true });
-      reject(error);
+      fail(`mixdogd exec (${provider} ${model}) could not run: ${error.message}`);
     });
     child.once('close', (code) => {
+      if (ending) return;
       clearTimeout(deadline);
       try {
         if (code !== 0) throw new Error(`mixdogd exec exited ${code}: ${stderr.trim().slice(0, 300)}`);

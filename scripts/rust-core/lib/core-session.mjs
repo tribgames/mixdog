@@ -2,11 +2,12 @@
 // Node-core CI, release and benchmark steps (K1). Nothing here reaches the user's profile, daemon or credentials:
 // every profile variable points under `root`, the parent's proxy/provider/MIXDOG_* variables are dropped, and the
 // only process ever stopped is the one this module started.
-import { spawn } from 'node:child_process';
+
 import { copyFileSync, mkdirSync, readFileSync, watch, writeFileSync } from 'node:fs';
 import { register } from 'node:module';
 import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { endTree, spawnTree } from './process-tree.mjs';
 
 export const REPO_ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '..', '..', '..');
 const DROP = /^(MIXDOG_|HTTPS?_PROXY$|ALL_PROXY$|NO_PROXY$|OPENAI_|ANTHROPIC_|GOOGLE_|GEMINI_|AZURE_|XDG_|ELECTRON_)/i;
@@ -187,9 +188,9 @@ export function within(promise, ms, what) {
   return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
 }
 
-/** Ends the process this module started, by its own handle only (never a name or pattern), and waits for its exit. */
+/** Ends the process this module started and everything it started, by its own handle only (never a name or pattern), and waits for its exit. */
 async function endChild(child, exited, ms = 15_000) {
-  if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+  await endTree(child);
   await within(exited, ms, `the killed core (pid ${child.pid}) exiting`);
 }
 /**
@@ -207,7 +208,7 @@ export async function startCore({ bin, root, config, prepare, extraEnv = {}, rea
   const tail = [];
   // The process-start instant: the boot budget runs from here, not from the staging copy above.
   const spawnedAt = performance.now();
-  const child = spawn(exe, ['serve'], { env: isolatedEnv(paths, extraEnv), cwd: paths.root, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+  const child = spawnTree(exe, ['serve'], { env: isolatedEnv(paths, extraEnv), cwd: paths.root, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
   for (const stream of ['stdout', 'stderr']) {
     child[stream].setEncoding('utf8');
     child[stream].on('data', (chunk) => {
