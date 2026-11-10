@@ -844,6 +844,28 @@ mod tests {
         if let Ok(out) = std::env::var("MIXDOG_WS_OUT") {
             std::fs::write(out, serde_json::to_string(&all).unwrap()).unwrap();
         }
+        // What ws's receiver read when it took these frames (`ws-deflate-verify.mjs --out`): the frames written now are
+        // the ones it read, whole and in order, and it read each as the message sent.
+        let read: Value = serde_json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../benchmarks/terminal-bench-2.1/analysis/parity/fixtures/ws-read-rust.json"))).unwrap();
+        let vectors_text = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../benchmarks/terminal-bench-2.1/analysis/parity/fixtures/ws-deflate-vectors.json"));
+        let digest: String = <sha2::Sha256 as sha2::Digest>::digest(vectors_text.as_bytes()).iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(read["manifest"]["vectorsSha256"], digest.as_str(), "ws read the frames of other vectors");
+        assert_eq!(read["manifest"]["ws"], "8.22.0");
+        let cases = read["cases"].as_array().unwrap();
+        assert_eq!(cases.len(), all.len(), "ws read as many negotiations as are written");
+        for (ws, ours) in cases.iter().zip(&all) {
+            assert_eq!(ws["name"], ours["name"]);
+            assert_eq!(ws["response"], ours["response"], "{}", ours["name"]);
+            assert_eq!(ws["frames"], ours["frames"], "{}: the frames ws read", ours["name"]);
+            let sent: Vec<Value> = vectors()["cases"].as_array().unwrap().iter().find(|c| c["name"] == ours["name"]).unwrap()["client"]["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|m| m["frames"].as_array().unwrap().len() == 1)
+                .map(|m| Value::String(hexed(&plain_of(m))))
+                .collect();
+            assert_eq!(ws["read"], Value::Array(sent), "{}: ws read the messages sent", ours["name"]);
+        }
     }
 
     fn hexed(bytes: &[u8]) -> String {

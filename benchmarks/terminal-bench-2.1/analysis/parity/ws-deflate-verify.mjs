@@ -1,8 +1,12 @@
 // Has `ws`'s own Receiver read the frames the Rust client wrote (`wsio.rs` test `what_we_send_is_what_ws_sends_in_every_negotiation`
-// dumps them to MIXDOG_WS_OUT): each must come back as the message the vectors name. The server side of that proof.
-// Usage: node ws-deflate-verify.mjs <node-tree> <rust-frames.json> <ws-deflate-vectors.json>
+// dumps them to MIXDOG_WS_OUT; its mask is fixed, so the frames are the same on every run): each must come back as the
+// message the vectors name. It writes what ws read with the frames it read (`--out`, `fixtures/ws-read-rust.json`), and
+// the Rust test checks that it still writes exactly those frames and that ws read them as the messages sent, so no test
+// runs this script or cargo.
+// Usage: node ws-deflate-verify.mjs <node-tree> <rust-frames.json> <ws-deflate-vectors.json> --out <ws-read-rust.json>
+import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
 const require = createRequire(`${resolve(process.argv[2])}/package.json`);
@@ -20,6 +24,7 @@ const rust = JSON.parse(readFileSync(process.argv[3], 'utf8'));
 const vectors = JSON.parse(readFileSync(process.argv[4], 'utf8'));
 let failures = 0;
 let frames = 0;
+const cases = [];
 for (const entry of rust) {
   const recorded = vectors.cases.find((c) => c.name === entry.name);
   // The messages the Rust side sent: every one of the vectors' client messages that is not fragmented.
@@ -42,6 +47,12 @@ for (const entry of rust) {
   receiver.end();
   await done;
   if (JSON.stringify(seen) !== JSON.stringify(expected)) { failures += 1; console.error(`${entry.name}: ws read ${seen.length} messages that differ from the ${expected.length} sent`); }
+  cases.push({ name: entry.name, response: entry.response, frames: entry.frames, read: seen });
 }
 if (failures) process.exit(1);
+const out = process.argv[process.argv.indexOf('--out') + 1];
+const wsVersion = JSON.parse(readFileSync(join(wsRoot, 'package.json'), 'utf8')).version;
+const vectorsSha256 = createHash('sha256').update(readFileSync(process.argv[4])).digest('hex');
+const manifest = { exact: true, ws: wsVersion, maxPayload: MAX_PAYLOAD, vectorsSha256, read: 'ws Receiver, server side, the case\'s negotiated permessage-deflate parameters' };
+writeFileSync(resolve(out), `${JSON.stringify({ manifest, cases }, null, 1)}\n`);
 console.log(`ws read ${frames} frames of ${rust.length} negotiations as the messages the Rust client sent`);
