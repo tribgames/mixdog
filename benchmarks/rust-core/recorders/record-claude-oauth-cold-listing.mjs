@@ -14,7 +14,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { FIXTURES_ROOT, commitStage, parseArgs, productIdentity, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
+import { FIXTURES_ROOT, commitStage, exactProductIdentity, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 
 // The commit the exported tree is (`--commit`; b6f10295a when not given). Re-recorded from 7f633e730, whose
 // offline model list (lib/anthropic-models.mjs) is what this listing answers.
@@ -67,8 +67,7 @@ for (const scenario of SCENARIOS) {
   results.push({ name: scenario.name, env: scenario.env, net: scenario.net, ...JSON.parse(line.slice(7)) });
 }
 
-const identity = productIdentity(tree, NODE_COMMIT);
-if (!identity.refComparison.exact) throw new Error(`the tree is not an exact export of ${NODE_COMMIT}: ${JSON.stringify(identity.refComparison)}`);
+const identity = exactProductIdentity(tree, NODE_COMMIT);
 const finalDir = join(FIXTURES_ROOT, 'claude-oauth-cold-listing');
 const stage = stageSet(finalDir);
 writeJson(join(stage, 'golden.json'), { scenarios: results });

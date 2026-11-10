@@ -12,6 +12,7 @@
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "7f633e7305166c5fc8ee66464859ab7de7b60b4d",
     "comparedAgainst": "7f633e7305166c5fc8ee66464859ab7de7b60b4d",
+    "exact": true,
     "files": 9142,
     "refComparison": {
       "closestCommit": "7f633e7305166c5fc8ee66464859ab7de7b60b4d",
