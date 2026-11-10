@@ -69,6 +69,63 @@ fn the_stored_model_identity_is_nodes_meta_key() {
     );
 }
 
+/// Node starts the memory runtime at the first memory call, never at daemon boot (`registerMemoryRuntimeLazy`, `daemon.mjs:202`), and its ready signal does not wait
+/// for PostgreSQL: a fresh profile must not download or initialise anything while the stack is built, and a data directory that holds a cluster opens it only
+/// when the host asks for the background start. Neither the install nor the start needs a network or a postmaster here: the install is a counter that fails.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stack_installs_and_starts_nothing_until_the_database_is_used() {
+    use crate::memory::boot::PgRuntimeSource;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let installs = Arc::new(AtomicUsize::new(0));
+    let dir = tempfile::tempdir().expect("dir");
+    let counted = installs.clone();
+    let stack = MemoryStack::start(MemoryBoot {
+        data_dir: dir.path().to_owned(),
+        pg_runtime: PgRuntimeSource::Install(Arc::new(move |_| {
+            counted.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async { Err(crate::memory::error::MemoryError::Runtime("no network in this test".to_owned())) })
+        })),
+        embedder: None,
+        embedding_provider: None,
+        flags: RuntimeFlags::default(),
+        progress: None,
+        sensitive: Arc::new(SensitiveStore::default()),
+        lane: mixdog_rt::testing::tokens().durability_io,
+        maintenance: mixdog_rt::testing::tokens().maintenance_io,
+        transcripts: None,
+        cycles: None,
+        backfill: None,
+        processes: crate::tidy::process::Processes::for_tests(),
+        cancel: tokio_util::sync::CancellationToken::new(),
+    })
+    .await
+    .expect("the stack is built without a database");
+    assert_eq!(installs.load(Ordering::SeqCst), 0, "building the stack installs nothing");
+
+    // A fresh profile has no cluster: the background start has nothing to open.
+    stack.open_in_background();
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert_eq!(installs.load(Ordering::SeqCst), 0, "no cluster on disk, so no background start");
+
+    // The first use opens the database, and a failed opening is tried again by the next use.
+    assert!(stack.db().client().await.is_err());
+    assert_eq!(installs.load(Ordering::SeqCst), 1);
+    assert!(stack.db().client().await.is_err());
+    assert_eq!(installs.load(Ordering::SeqCst), 2);
+
+    // A cluster on disk is opened by the background start.
+    std::fs::create_dir_all(dir.path().join("pgdata")).expect("pgdata");
+    std::fs::write(dir.path().join("pgdata").join("PG_VERSION"), "16\n").expect("version");
+    stack.open_in_background();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while installs.load(Ordering::SeqCst) < 3 && std::time::Instant::now() < deadline {
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert_eq!(installs.load(Ordering::SeqCst), 3, "an existing cluster starts after ready");
+
+    stack.stop().await.expect("a stack that never opened has nothing to stop");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
 async fn a_started_stack_serves_the_close_ingest_and_the_turn_search_copy() {
@@ -76,7 +133,7 @@ async fn a_started_stack_serves_the_close_ingest_and_the_turn_search_copy() {
     let dir = tempfile::tempdir().expect("temp dir");
     let stack = MemoryStack::start(MemoryBoot {
         data_dir: dir.path().to_owned(),
-        pg_runtime: runtime,
+        pg_runtime: crate::memory::boot::PgRuntimeSource::Dir(runtime),
         embedder: None,
         embedding_provider: None,
         flags: RuntimeFlags::default(),

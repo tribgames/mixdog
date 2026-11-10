@@ -390,6 +390,10 @@ impl ComposedCore {
         self.real.start_heartbeat();
     }
 
+    pub fn open_memory_in_background(&self) {
+        self.real.open_memory_in_background();
+    }
+
     /// The idle sweep's store (`Real::sweep_store`).
     pub fn sweep_store(&self, data_dir: &std::path::Path, stop: tokio_util::sync::CancellationToken) -> Arc<crate::sweep_store::DirectorySweepStore> {
         self.real.sweep_store(data_dir, stop)
