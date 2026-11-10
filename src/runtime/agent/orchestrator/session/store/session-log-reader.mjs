@@ -8,8 +8,8 @@
  * is rebuilt from the last `compacted` record in that sequence; header
  * patches apply from the start.
  */
-import { readFileSync, statSync } from 'node:fs';
-import { readFile, stat } from 'node:fs/promises';
+import { closeSync, fstatSync, openSync, readFileSync, readSync, statSync } from 'node:fs';
+import { open, readFile, stat } from 'node:fs/promises';
 import { basename } from 'node:path';
 import { holdsNoData } from '../../../../shared/atomic-file.mjs';
 import {
@@ -43,35 +43,40 @@ const NEWLINE = 0x0a;
  *   replayFrom   sequence number of the `compacted` record the transcript starts at
  */
 export function parseSessionLog(bytes, { messages: wantMessages = true } = {}) {
-  const result = {
-    valid: false,
-    logId: null,
-    sessionId: null,
-    prev: null,
-    legacy: null,
-    seq: -1,
-    header: null,
+  const replay = newReplay(wantMessages);
+  replayBytes(replay, bytes, 0);
+  return replayResult(replay, bytes.length);
+}
+
+// A replay in progress: what the records read so far amount to.
+function newReplay(wantMessages) {
+  return {
+    base: null,
+    count: 0,
+    length: 0,
+    lastCompacted: -1,
     messages: wantMessages ? [] : undefined,
-    messageCount: 0,
-    size: bytes.length,
-    tornTail: null,
     skipped: [],
     damage: null,
-    replayFrom: -1,
+    tornTail: null,
   };
+}
+
+// Applies the whole lines of `bytes` (the file's bytes from offset `at`) to
+// `replay`; returns the file offset it stopped at: after the last whole line,
+// or at the line the replay stops for good on (`damage`).
+function replayBytes(replay, bytes, at) {
   // Records are applied as they are read and then dropped: a log of hundreds
   // of megabytes is replayed holding its base, its header and (full replay)
   // the transcript as it stands, never every record it ever held. Kept whole,
   // a 205 MB log took a listing's rebuild worker past its heap and the daemon
   // with it (2026-11-10).
-  let base = null;
-  let count = 0;
-  let length = 0;
-  let lastCompacted = -1;
-  for (let pos = 0; pos < bytes.length; ) {
+  replay.tornTail = null;
+  let pos = 0;
+  while (pos < bytes.length) {
     const nl = bytes.indexOf(NEWLINE, pos);
     if (nl < 0) {
-      result.tornTail = { offset: pos, length: bytes.length - pos };
+      replay.tornTail = { offset: at + pos, length: bytes.length - pos };
       break;
     }
     let record = null;
@@ -81,11 +86,11 @@ export function parseSessionLog(bytes, { messages: wantMessages = true } = {}) {
       record = null;
     }
     if (!record) {
-      result.skipped.push({ offset: pos, length: nl + 1 - pos });
+      replay.skipped.push({ offset: at + pos, length: nl + 1 - pos });
       pos = nl + 1;
       continue;
     }
-    const expected = count;
+    const expected = replay.count;
     // The base is written whole (one atomic file), so its second record is
     // always the history: anything else there is not a log of ours.
     const misplaced =
@@ -93,42 +98,66 @@ export function parseSessionLog(bytes, { messages: wantMessages = true } = {}) {
       (expected === 0 && record.t !== RECORD.SESSION) ||
       (expected === 1 && record.t !== RECORD.COMPACTED) ||
       (expected > 0 && record.t === RECORD.SESSION);
-    const nextLength = misplaced ? -1 : lengthAfter(length, record);
+    const nextLength = misplaced ? -1 : lengthAfter(replay.length, record);
     if (nextLength < 0) {
-      result.damage = {
-        offset: pos,
+      replay.damage = {
+        offset: at + pos,
         expectedSeq: expected,
         foundSeq: record.s,
         reason: misplaced ? 'sequence' : 'length',
       };
       break;
     }
-    length = nextLength;
-    if (record.t === RECORD.COMPACTED) lastCompacted = count;
+    replay.length = nextLength;
+    if (record.t === RECORD.COMPACTED) replay.lastCompacted = replay.count;
     // The first record is the base; the second is always the history (a
     // `compacted` record, which empties the transcript before it fills it),
     // so a patch or a message record only ever follows a valid opening.
-    if (count === 0) base = record;
-    else if (record.t === RECORD.PATCH) applyPatch(base.header, record);
-    else if (wantMessages && isMessageRecord(record)) applyMessageRecord(result.messages, record);
-    count += 1;
+    if (replay.count === 0) replay.base = record;
+    else if (record.t === RECORD.PATCH) applyPatch(replay.base.header, record);
+    else if (replay.messages && isMessageRecord(record)) applyMessageRecord(replay.messages, record);
+    replay.count += 1;
     pos = nl + 1;
   }
+  return at + pos;
+}
+
+// What `replay` describes of a log `size` bytes long. `kept`: the replay goes
+// on being applied to (a resumed header scan), so the result shares nothing
+// with it.
+function replayResult(replay, size, kept = false) {
+  const { base, count } = replay;
+  const result = {
+    valid: false,
+    logId: null,
+    sessionId: null,
+    prev: null,
+    legacy: null,
+    seq: -1,
+    header: null,
+    messages: replay.messages,
+    messageCount: 0,
+    size,
+    tornTail: replay.tornTail,
+    skipped: kept ? replay.skipped.slice() : replay.skipped,
+    damage: replay.damage,
+    replayFrom: -1,
+  };
   if (count < 2) {
     if (!result.damage && count) {
-      result.damage = { offset: bytes.length, expectedSeq: 1, foundSeq: null, reason: 'no-history' };
+      result.damage = { offset: size, expectedSeq: 1, foundSeq: null, reason: 'no-history' };
     }
     return result;
   }
   result.valid = true;
   result.logId = base.logId;
   result.sessionId = base.id;
-  result.prev = base.prev;
-  result.legacy = base.legacy;
+  result.prev = kept ? structuredClone(base.prev) : base.prev;
+  result.legacy = kept ? structuredClone(base.legacy) : base.legacy;
   result.seq = count - 1;
-  result.messageCount = length;
-  result.replayFrom = lastCompacted;
-  result.header = base.header;
+  result.messageCount = replay.length;
+  result.replayFrom = replay.lastCompacted;
+  result.header = kept ? structuredClone(base.header) : base.header;
   return result;
 }
 
@@ -141,8 +170,122 @@ function absent(err) {
   return err?.code === 'ENOENT' || err?.code === 'ENOTDIR';
 }
 
+// Header scans (no transcript kept) resume where the last scan of the same
+// file stopped, so a scan costs what was appended since, not what the log has
+// grown to: a live log is scanned after each of its appends (a record stamp
+// changes with every one), and at 250 MB each of those scans read and parsed
+// the whole file (683 MB read and 44 s of CPU per 20 s, 2026-11-11).
+//
+// A log only grows within one file; a rewrite is a new file (a new inode).
+// So a scan is resumed only on the same inode, at an offset the file still
+// reaches, when the bytes just before that offset are the ones the last scan
+// ended on; anything else is scanned from the start. What a resume does not
+// see is bytes changed in place further back than that, which nothing of
+// ours does; a full replay (a load, an open for writing) reads everything.
+const SCAN_RESUME_LIMIT = 256;
+const SCAN_GUARD_BYTES = 1024;
+const _scans = new Map(); // path → { ino, offset, guard, replay }
+
+// The scan of `path` to resume on a file whose bigint stat is `st`, taken out
+// of the table for as long as it is being applied to (a scan of the same path
+// started meanwhile starts over); null to scan from the start.
+function takeScan(path, st) {
+  const held = _scans.get(path);
+  _scans.delete(path);
+  return held && held.ino === st.ino && st.size >= BigInt(held.offset) ? held : null;
+}
+
+function keepScan(path, st, replay, offset, guard) {
+  // A damaged log is replayed whole each time: its end is not a place to go on from.
+  if (replay.damage) return;
+  _scans.set(path, { ino: st.ino, offset, guard, replay });
+  while (_scans.size > SCAN_RESUME_LIMIT) _scans.delete(_scans.keys().next().value);
+}
+
+// The last bytes before `offset`, of `before` (the guard of the offset the
+// read started at) followed by the `read` bytes that were applied.
+function guardAt(before, read, applied) {
+  const all = applied >= SCAN_GUARD_BYTES ? read.subarray(0, applied) : Buffer.concat([before, read.subarray(0, applied)]);
+  return Buffer.from(all.subarray(Math.max(0, all.length - SCAN_GUARD_BYTES)));
+}
+
+const NO_BYTES = Buffer.alloc(0);
+
+function readAtSync(fd, length, position) {
+  const bytes = Buffer.allocUnsafe(length);
+  let got = 0;
+  while (got < length) {
+    const n = readSync(fd, bytes, got, length - got, position + got);
+    if (n === 0) break;
+    got += n;
+  }
+  return got === length ? bytes : bytes.subarray(0, got);
+}
+
+async function readAt(handle, length, position) {
+  const bytes = Buffer.allocUnsafe(length);
+  let got = 0;
+  while (got < length) {
+    const { bytesRead } = await handle.read(bytes, got, length - got, position + got);
+    if (bytesRead === 0) break;
+    got += bytesRead;
+  }
+  return got === length ? bytes : bytes.subarray(0, got);
+}
+
+function scanned(path, st, held, bytes) {
+  const replay = held ? held.replay : newReplay(false);
+  const from = held ? held.offset : 0;
+  const offset = replayBytes(replay, bytes, from);
+  keepScan(path, st, replay, offset, guardAt(held ? held.guard : NO_BYTES, bytes, offset - from));
+  return replayResult(replay, from + bytes.length, true);
+}
+
+function scanSessionLogSync(path) {
+  let fd;
+  try {
+    fd = openSync(path, 'r');
+  } catch (err) {
+    _scans.delete(path);
+    if (absent(err)) return null;
+    throw err;
+  }
+  try {
+    const st = fstatSync(fd, { bigint: true });
+    let held = takeScan(path, st);
+    if (held && !readAtSync(fd, held.guard.length, held.offset - held.guard.length).equals(held.guard)) held = null;
+    const from = held ? held.offset : 0;
+    return scanned(path, st, held, readAtSync(fd, Number(st.size) - from, from));
+  } finally {
+    closeSync(fd);
+  }
+}
+
+async function scanSessionLog(path) {
+  let handle;
+  try {
+    handle = await open(path, 'r');
+  } catch (err) {
+    _scans.delete(path);
+    if (absent(err)) return null;
+    throw err;
+  }
+  try {
+    const st = await handle.stat({ bigint: true });
+    let held = takeScan(path, st);
+    if (held && !(await readAt(handle, held.guard.length, held.offset - held.guard.length)).equals(held.guard)) {
+      held = null;
+    }
+    const from = held ? held.offset : 0;
+    return scanned(path, st, held, await readAt(handle, Number(st.size) - from, from));
+  } finally {
+    await handle.close();
+  }
+}
+
 /** Replay `path`; null when the log does not exist. */
 export async function readSessionLog(path, options) {
+  if (options?.messages === false) return scanSessionLog(path);
   let bytes;
   try {
     bytes = await readFile(path);
@@ -154,6 +297,7 @@ export async function readSessionLog(path, options) {
 }
 
 export function readSessionLogSync(path, options) {
+  if (options?.messages === false) return scanSessionLogSync(path);
   let bytes;
   try {
     bytes = readFileSync(path);
@@ -191,7 +335,8 @@ function statOrNullSync(path, bigint = false) {
   }
 }
 
-function part(st) {
+/** One file's part of a record stamp, from its bigint stat (null: absent). */
+export function recordStampPart(st) {
   return st ? `${st.ino}:${st.size}:${st.mtimeNs}:${st.ctimeNs}` : '-';
 }
 
@@ -204,11 +349,11 @@ function part(st) {
  */
 export async function sessionRecordStamp({ jsonPath, logPath }) {
   const [log, json] = await Promise.all([statOrNull(logPath, true), statOrNull(jsonPath, true)]);
-  return `log:${part(log)}|json:${part(json)}`;
+  return `log:${recordStampPart(log)}|json:${recordStampPart(json)}`;
 }
 
 export function sessionRecordStampSync({ jsonPath, logPath }) {
-  return `log:${part(statOrNullSync(logPath, true))}|json:${part(statOrNullSync(jsonPath, true))}`;
+  return `log:${recordStampPart(statOrNullSync(logPath, true))}|json:${recordStampPart(statOrNullSync(jsonPath, true))}`;
 }
 
 /** `{ log, json }` of a record stamp, each `{ ino, size, mtimeNs, ctimeNs }`

@@ -763,16 +763,23 @@ test("a legacy tombstone's owner is resolved off the status read and announced w
 // imports included).
 function countRecordReads(t, sessionId) {
   const recordFile = sessionLogPath(sessionId);
-  const readFile = fsp.readFile;
+  const { readFile, open } = fsp;
   let reads = 0;
+  // A read is the whole file (a replay) or the file opened to be read from
+  // where the last header scan stopped.
   fsp.readFile = async (path, ...args) => {
     const bytes = await readFile(path, ...args);
     if (String(path) === recordFile) reads += 1;
     return bytes;
   };
+  fsp.open = async (path, ...args) => {
+    const handle = await open(path, ...args);
+    if (String(path) === recordFile) reads += 1;
+    return handle;
+  };
   syncBuiltinESMExports();
   t.after(() => {
-    fsp.readFile = readFile;
+    Object.assign(fsp, { readFile, open });
     syncBuiltinESMExports();
   });
   return () => reads;

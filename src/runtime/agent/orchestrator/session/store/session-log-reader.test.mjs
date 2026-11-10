@@ -19,6 +19,7 @@ import {
   resolveSessionRecord,
   resolveSessionRecordSync,
   scanSessionLogHeader,
+  scanSessionLogHeaderSync,
   sessionFromLog,
   parseSessionRecordStamp,
   sessionRecordStamp,
@@ -284,4 +285,77 @@ test('a log whose base names another session than its file is log-invalid', asyn
   const args = { jsonPath: join(root, 'sess_named_log.json'), logPath, loadLegacy };
   assert.equal((await resolveSessionRecord(args)).kind, 'log-invalid');
   assert.equal(resolveSessionRecordSync(args).kind, 'log-invalid');
+});
+
+test('a header scan of a log that grew reads what was appended, not the log again; a replaced or rewritten log is read whole', async (t) => {
+  const logPath = join(root, 'sess_grows.log.jsonl');
+  const filler = 'x'.repeat(64 * 1024);
+  writeFileSync(logPath, baseLines({ id: 'sess_grows', messages: [msg(filler)] }) + encodeAppend(2, 2, j([msg(filler)])));
+  let read = 0;
+  const original = { readSync: fs.readSync, readFileSync: fs.readFileSync };
+  fs.readSync = function (fd, buffer, offset, length, ...rest) {
+    read += length;
+    return original.readSync.call(this, fd, buffer, offset, length, ...rest);
+  };
+  fs.readFileSync = function (file, ...rest) {
+    const bytes = original.readFileSync.call(this, file, ...rest);
+    read += bytes.length;
+    return bytes;
+  };
+  syncBuiltinESMExports();
+  t.after(() => {
+    Object.assign(fs, original);
+    syncBuiltinESMExports();
+  });
+  // What a scan read, and its result beside a whole replay of the file as it is.
+  const scan = () => {
+    read = 0;
+    const log = scanSessionLogHeaderSync(logPath);
+    const cost = read;
+    assert.deepEqual(log, parseSessionLog(original.readFileSync(logPath), { messages: false }));
+    return { log, cost };
+  };
+  const size = () => statSync(logPath).size;
+  assert.equal(scan().cost, size(), 'the first scan reads the log');
+
+  const grown = encodePatch(3, [['title', '"renamed"']], []) + encodeAppend(4, 3, j([msg('c')]));
+  appendFileSync(logPath, grown);
+  const second = scan();
+  assert.ok(second.cost < 4096, `the scan after an append read ${second.cost} bytes of a ${size()} byte log`);
+  assert.equal(second.log.header.title, 'renamed');
+  assert.equal(second.log.messageCount, 3);
+  // What a scan hands out is the caller's: changing it changes no later scan.
+  second.log.header.title = 'changed by the caller';
+
+  // A torn tail is not gone over: the next scan reads from the last whole line.
+  const line = encodeAppend(5, 4, j([msg('d')]));
+  appendFileSync(logPath, line.slice(0, 33));
+  assert.deepEqual(scan().log.tornTail, { offset: size() - 33, length: 33 });
+  appendFileSync(logPath, line.slice(33));
+  const whole = scan();
+  assert.equal(whole.log.tornTail, null);
+  assert.equal(whole.log.messageCount, 4);
+  assert.equal(whole.log.header.title, 'renamed');
+  assert.deepEqual(await scanSessionLogHeader(logPath), whole.log, 'the async scan goes on from the same place');
+
+  // Bytes changed in place where the last scan ended: nothing of it is trusted.
+  const bytes = original.readFileSync(logPath);
+  const rewritten = Buffer.from(bytes.toString('utf8').replace('"content":"d"', '"content":"e"'));
+  assert.equal(rewritten.length, bytes.length);
+  writeFileSync(logPath, rewritten);
+  assert.ok(scan().cost >= size(), 'a log rewritten in place is read whole');
+
+  // A new file under the name (a rebase, a repair): read whole.
+  const next = join(root, 'sess_grows.next');
+  writeFileSync(next, baseLines({ id: 'sess_grows', header: { title: 'rebased' }, messages: [msg(filler)] }));
+  fs.renameSync(next, logPath);
+  const rebased = scan();
+  assert.equal(rebased.cost, size());
+  assert.equal(rebased.log.header.title, 'rebased');
+
+  // A log that got shorter than where the last scan ended: read whole.
+  appendFileSync(logPath, encodeAppend(2, 2, j([msg('b')])));
+  scan();
+  fs.truncateSync(logPath, size() - 10);
+  assert.ok(scan().cost >= size() - 4096);
 });
