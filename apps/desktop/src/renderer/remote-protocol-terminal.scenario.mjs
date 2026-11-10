@@ -17,6 +17,8 @@ const realClearTimeout = globalThis.clearTimeout;
 
 const golden = JSON.parse(readFileSync(new URL('../../../mobile/fixtures/phone-terminal/golden.json', import.meta.url), 'utf8'));
 const ROOT = golden.root;
+// A touched file's content changes with every touch (what the watcher reports is the change, not the time).
+let touches = 0;
 const CORE_ROOT = `${ROOT}-core`;
 const CLOCK_DIR = join(CORE_ROOT, 'clock');
 const BIN =process.env.MIXDOGD_BIN || 'D:\\mixdog-build\\pool\\w11-target\\debug\\mixdogd.exe';
@@ -205,7 +207,7 @@ async function main() {
       if (on) held.set(lane, lanes[lane]());
       else for (const stop of held.get(lane) ?? []) stop();
     },
-    touch: (file) => writeFileSync(file, `${Date.now()}`),
+    touch: (file) => writeFileSync(file, `${(touches += 1)}`),
     // The agent's reveal comes from the `terminal` tool of a running turn, which no model-free core run reaches: the frame the core
     // publishes for it (terminal_host.rs `AppFeedOpen::publish_open`, its params as that crate's test pins them) continues the app feed.
     run(request) {

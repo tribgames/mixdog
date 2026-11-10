@@ -22,6 +22,8 @@ const TRACE_END = '@@END@@';
 const realSetTimeout = globalThis.setTimeout;
 const realClearTimeout = globalThis.clearTimeout;
 const WAIT_MS = 60_000;
+// A touched file's content changes with every touch (what the watcher reports is the change, not the time).
+let touches = 0;
 const RECORDING_MS = 15 * 60_000;
 const args = parseArgs();
 const tree = resolveTree(args);
@@ -58,7 +60,10 @@ if (!args.has('child')) {
     });
   }).finally(() => {
     // The recording's ConPTY shells are children of the child: the whole tree ends, and a child that already exited is not an error.
-    spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true, timeout: 30_000 });
+    const ended = spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true, timeout: 30_000 });
+    if (ended.error) {
+      throw new Error(`taskkill did not end the recording's process tree (pid ${child.pid}) within 30000 ms: ${ended.error.message}`);
+    }
   });
   const finalOut = join(REPO_ROOT, 'apps', 'mobile', 'fixtures', 'phone-terminal');
   const out = stageSet(finalOut);
@@ -191,7 +196,7 @@ const driver = {
   lane(lane, on) {
     state.lanes[on ? 'add' : 'delete'](lane);
   },
-  touch: (file) => writeFileSync(file, `${Date.now()}`),
+  touch: (file) => writeFileSync(file, `${(touches += 1)}`),
   run(request, redeliver) {
     // The core's redelivery after a reconnect is not something Node had.
     if (redeliver) return;

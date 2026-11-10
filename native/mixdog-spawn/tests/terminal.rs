@@ -389,8 +389,6 @@ enum Ev {
 struct Events {
     log: Mutex<Vec<Ev>>,
     changed: Condvar,
-    /// The async twin of `changed`, for tests on the paused clock, where blocking the one thread would stop the ticker.
-    pushed: tokio::sync::Notify,
 }
 
 impl Events {
@@ -425,30 +423,17 @@ impl Events {
         }
     }
 
-    async fn wait_for_async(&self, predicate: impl Fn(&[Ev]) -> bool) {
-        loop {
-            let pushed = self.pushed.notified();
-            tokio::pin!(pushed);
-            pushed.as_mut().enable();
-            if predicate(&self.log.lock().unwrap()) {
-                return;
-            }
-            pushed.await;
-        }
-    }
 }
 
 impl TerminalEvents for Events {
     fn activity(&self, id: &str, state: Option<ActivityState>) {
         self.log.lock().unwrap().push(Ev::Activity(id.to_owned(), state));
         self.changed.notify_all();
-        self.pushed.notify_waiters();
     }
 
     fn size_owner(&self, change: &SizeOwnerChange) {
         self.log.lock().unwrap().push(Ev::Owner(change.clone()));
         self.changed.notify_all();
-        self.pushed.notify_waiters();
     }
 }
 
@@ -650,13 +635,11 @@ async fn a_size_claim_lapses_after_its_lease_unless_renewed() {
     // A's lease ended at 30 s, B renewed at 20 s: B still owns and A is gone.
     assert_eq!(held(&rig.tabs), Some(("B".to_owned(), 61, 26)));
     tokio::time::advance(std::time::Duration::from_secs(11)).await;
-    // The lapse is announced as the release event: that is the state the assertions below read.
-    tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        rig.events.wait_for_async(|log| log.iter().any(|e| matches!(e, Ev::Owner(c) if c.owner.is_empty() && c.cols == 0))),
-    )
-    .await
-    .expect("the 30 s lease lapsed and announced the release");
+    // The lapse is announced as the release event, which the advance has run by the time it returns: nothing waits on the clock here.
+    assert!(
+        rig.events.owners(id).iter().any(|c| c.owner.is_empty() && c.cols == 0),
+        "the 30 s lease lapsed and announced the release"
+    );
     assert_eq!(held(&rig.tabs), None, "B's lease ended 30 s after its renewal");
     let owners: Vec<(String, u16, u16)> = rig.events.owners(id).into_iter().map(|c| (c.owner, c.cols, c.rows)).collect();
     assert_eq!(owners, vec![("A".into(), 50, 20), ("B".into(), 60, 25), ("B".into(), 61, 26), (String::new(), 0, 0)]);
