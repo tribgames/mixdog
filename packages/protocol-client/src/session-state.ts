@@ -173,7 +173,9 @@ function* initialSteps(snapshot: Json): Generator<void, SessionFold, void> {
     if (i % ITEMS_PER_STEP === ITEMS_PER_STEP - 1) yield;
   }
   transcriptCache.set(items, yield* mergeToolRowsSteps(items));
-  return { sessionId: String(asObj(p.thread).id ?? ''), items, fields: fieldsOfState(asObj(p.state), p.hasOlder === true), live: null, structureRevision: 0 };
+  // Node's store begins at 0 (initial-state.mjs:18) and a snapshot's rows enter it as one structure change (transcript-store.mjs:74,
+  // a restore's `replaceItems`; a new task's first row is a push, frame-batched-store.mjs:37): a snapshot with rows is revision 1.
+  return { sessionId: String(asObj(p.thread).id ?? ''), items, fields: fieldsOfState(asObj(p.state), p.hasOlder === true), live: null, structureRevision: items.length ? 1 : 0 };
 }
 
 export const sessionReducer: ThreadReducer<SessionFold> = {
