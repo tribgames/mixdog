@@ -34,6 +34,7 @@ import { coreErrorForWindow } from '../main/protocol/core-error';
 import { routeService } from '../main/protocol/service-route';
 import { summariesOfThreadRows } from '../main/protocol/thread-rows';
 import { remoteToolOutput } from '../main/remote-transcript';
+import { approvalAllowIsPointerOnly, approvalAllowOnceDecision } from '../shared/approval-enter-rule';
 import { normalizedProviderModels } from '../shared/desktop-transcript-limits';
 
 /** The part of `ProtocolClient` (packages/protocol-client) this adapter uses. */
@@ -74,17 +75,16 @@ export interface ChatShared {
   normalizedProviderModels(rows: unknown): DesktopModelOption[];
   /** `sessionStateOf` (protocol-client): the `SessionSnapshot` of a thread this client folds. */
   sessionStateOf(threadId: string): SessionSnapshot | undefined;
+  /** Runs `resume` (the thread's subscription) and resolves once the client has folded the thread's snapshot: the client folds a
+   *  snapshot in budgeted steps after the subscription's reply (client.ts `fold`), so the reply alone leaves no fold to read. */
+  whenFolded(threadId: string, resume: () => Promise<unknown>): Promise<void>;
+  /** Resolves once the core no longer asks request `id` of this connection (`serverRequest/resolved`, or the socket's end). */
+  whenSettled(id: string): Promise<void>;
   /** `remoteToolOutput` (main/remote-transcript.ts) over a folded state. */
   remoteToolOutput(
     state: unknown,
     itemId: string
   ): { id: string; result?: unknown; rawResult?: unknown; uiDiff?: unknown } | null;
-}
-
-/** RemoteMethodDependencies['approvalNotifications'] (remote-methods.ts): the host's rules for a phone's bare Allow. */
-export interface ChatApprovalNotifications {
-  approvalPointerOnly(sessionId: string, approvalId: string): boolean;
-  approvalAllowDecision(sessionId: string, approvalId: string): Record<string, unknown> | null | undefined;
 }
 
 export type ApprovalNotificationAnswer = 'answered' | 'settled' | 'open';
@@ -93,11 +93,7 @@ export type ApprovalNotificationAnswer = 'answered' | 'settled' | 'open';
 const record = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 
-export function createChatApi(
-  client: ChatClient,
-  shared: ChatShared,
-  options: { approvalNotifications?: ChatApprovalNotifications } = {}
-) {
+export function createChatApi(client: ChatClient, shared: ChatShared) {
   const { lane } = shared;
   const send = (request: { method: string; params: unknown }): Promise<unknown> =>
     client.call(request.method, request.params).catch((error: unknown) => {
@@ -113,7 +109,7 @@ export function createChatApi(
     const held = shared.sessionStateOf(threadId);
     if (held) return held;
     const [resume] = shared.routeService('prefetchSession', [threadId]).requests;
-    await client.resumeThread(threadId, resume?.params.window);
+    await shared.whenFolded(threadId, () => client.resumeThread(threadId, resume?.params.window));
     const resumed = shared.sessionStateOf(threadId);
     if (!resumed) throw new Error('The core did not fold the thread.');
     return resumed;
@@ -136,8 +132,23 @@ export function createChatApi(
   const addressed = async (capability: string, args: unknown[], sessionId: string): Promise<boolean> =>
     (await lane.invoke(capability, args, sessionId)).value === true;
 
-  const resolveApproval = (sessionId: string, id: string, decision: Record<string, unknown>) =>
-    lane.resolveToolApproval(sessionId, id, decision);
+  // Node's host answered once the daemon had resolved the approval (session-host resolveToolApproval awaits the daemon's reply), so a
+  // second answer to it found it settled: an answer here is over when the core has resolved the request it answered.
+  const resolveApproval = async (sessionId: string, id: string, decision: Record<string, unknown>): Promise<boolean> => {
+    const settled = shared.whenSettled(id);
+    const answered = await lane.resolveToolApproval(sessionId, id, decision);
+    if (answered) await settled;
+    return answered;
+  };
+  /** The approval the session shows now, as Node's push notifier held it from the host's session states (push-notifier.ts
+   *  onSessionState: `toolApproval`, a question being none, its id `String(id ?? 'pending')`), read from this client's fold of the
+   *  thread. The thread is followed first when it is not: the core hands a pending request only to a connection that follows its
+   *  thread (outgoing.rs `deliver`), and the answer goes to that request. */
+  const shownApproval = async (sessionId: string): Promise<{ id: string; approval: Record<string, unknown> } | null> => {
+    const approval = (await snapshotOf(sessionId))?.toolApproval as unknown;
+    if (!approval || typeof approval !== 'object' || record(approval).kind === 'question') return null;
+    return { id: String(record(approval).id ?? 'pending'), approval: record(approval) };
+  };
 
   return {
     viewerDevice: async (): Promise<string> => client.server.connection?.device || 'Web app',
@@ -234,17 +245,22 @@ export function createChatApi(
     },
     resolveToolApprovalForSession: async (sessionId: string, id: string, decision: ToolApprovalDecision): Promise<boolean> => {
       const answer = decision as unknown as Record<string, unknown>;
-      // remote-session-methods.ts:183: a bare Allow of an approval the notification already opened the app on.
-      if (answer.approved && answer.response === undefined && options.approvalNotifications?.approvalPointerOnly(sessionId, id) === true) {
-        return false;
+      // remote-session-methods.ts:175-183: a bare Allow of the shown approval that only a click allows (push-notifier.ts approvalPointerOnly).
+      if (answer.approved && answer.response === undefined) {
+        const shown = await shownApproval(sessionId);
+        if (shown?.id === id && approvalAllowIsPointerOnly(shown.approval)) return false;
       }
       return resolveApproval(sessionId, id, answer);
     },
+    // remote-session-methods.ts:199-213: Deny answers as the card's 거절; Allow answers with the decision the card's 한 번만 허용 sends,
+    // and only for the approval the session shows now where a bare Enter allows it once (push-notifier.ts approvalAllowDecision);
+    // any other Allow is 'open'.
     answerApprovalNotification: async (sessionId: string, id: string, action: 'allow' | 'deny'): Promise<ApprovalNotificationAnswer> => {
       if (action !== 'allow' && action !== 'deny') throw new TypeError('action must be allow or deny.');
-      const decision = action === 'allow' ? options.approvalNotifications?.approvalAllowDecision(sessionId, id) : { approved: false };
+      const shown = await shownApproval(sessionId);
+      const decision = action === 'allow' ? (shown?.id === id ? approvalAllowOnceDecision(shown.approval) : null) : { approved: false };
       if (!decision) return 'open';
-      return (await resolveApproval(sessionId, id, decision)) ? 'answered' : 'settled';
+      return (await resolveApproval(sessionId, id, decision as unknown as Record<string, unknown>)) ? 'answered' : 'settled';
     },
     provideSecretInput: async (requestId: string, value: string): Promise<boolean> => {
       await send({ method: 'approval/provideSecret', params: { requestId, secret: typeof value === 'string' ? value : '' } });
@@ -431,7 +447,6 @@ export function createChatAdapter(options: {
   sharedFor(client: ChatClient): ChatHostShared;
   /** The `hostState` value of key `remoteSession` this client holds (remote-chat-host.ts `ChatHostOptions`). */
   remoteSession(client: ChatClient): unknown;
-  approvalNotifications?: ChatApprovalNotifications;
   roster: { summaries(rows: ThreadRow[]): unknown[] };
 }): PhoneProtocolAdapter {
   let feed: ReturnType<typeof createRosterFeed> | undefined;
@@ -440,7 +455,7 @@ export function createChatAdapter(options: {
   const api = (host: PhoneProtocolHost) => {
     const client = host.client() as unknown as ChatClient;
     const shared = options.sharedFor(client);
-    const base = createChatApi(client, shared, { approvalNotifications: options.approvalNotifications });
+    const base = createChatApi(client, shared);
     return createChatHostApi(client, shared, base, { remoteSession: () => options.remoteSession(client) });
   };
   const calls: Record<string, (params: unknown[], host: PhoneProtocolHost) => unknown> = {};
@@ -491,6 +506,32 @@ const sharedFor = (scoped: ChatClient): ChatHostShared => {
     coreErrorForWindow,
     normalizedProviderModels,
     sessionStateOf: (threadId) => sessionStateOf(client, threadId) as unknown as SessionSnapshot | undefined,
+    whenFolded: async (threadId, resume) => {
+      let off = (): void => undefined;
+      // Listened for before the subscription is asked for, so a fold that lands with its reply is not missed.
+      const folded = new Promise<void>((resolve) => {
+        off = client.store.subscribe((change) => {
+          if (change.type === 'thread' && change.threadId === threadId) resolve();
+        });
+      });
+      try {
+        await resume();
+        await folded;
+      } finally {
+        off();
+      }
+    },
+    whenSettled: (id) =>
+      new Promise<void>((resolve) => {
+        const pending = () => client.pendingServerRequests().some((asked) => String(asked.id) === id);
+        if (!pending()) return resolve();
+        const off = client.on((event) => {
+          if (event.type !== 'serverRequestResolved' && event.type !== 'status') return;
+          if (pending()) return;
+          off();
+          resolve();
+        });
+      }),
     remoteToolOutput,
     // The client's own fold of thread items into transcript rows (`rowOf`, then `mergeToolRows`).
     foldRows: (items) => mergeToolRows(items.map((item) => rowOf(item as never)).filter((row) => row !== null)),
@@ -501,6 +542,4 @@ const sharedFor = (scoped: ChatClient): ChatHostShared => {
 const remoteSession = (scoped: ChatClient): unknown =>
   (scoped as unknown as ProtocolClient<SessionFold>).store.section('hostState', 'remoteSession')?.value;
 
-// `approvalNotifications` stays unset: Node's rules read the approvals the DESKTOP's notifier had shown (push-notifier.ts shownApprovals),
-// and nothing of the core says what a push showed, so `answerApprovalNotification` answers 'open' (Node's answer without them).
 export const adapter: PhoneProtocolAdapter = createChatAdapter({ sharedFor, remoteSession, roster: { summaries: summariesOfThreadRows } });

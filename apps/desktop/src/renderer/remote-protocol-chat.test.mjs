@@ -30,11 +30,6 @@ const threadRead = (state = {}) => ({
 });
 const rpcError = (reason, message) => Object.assign(new Error(message), { detail: { kind: 'rpc', code: -32000, reason, message, data: { reason } } });
 
-// The stand-in the recorder gave `approvalNotifications` (push-notifier.ts rules are not under test).
-const NOTIFICATIONS = {
-  approvalAllowDecision: (_s, id) => (id === 'ap1' ? { approved: true, scope: 'once' } : undefined),
-  approvalPointerOnly: (_s, id) => id === 'ptr',
-};
 const PENDING_AP1 = { id: 'ap1', method: 'item/tool/requestApproval', params: { threadId: S, order: 1 } };
 const startedTask = (n) => ({ 'thread/start': { thread: { id: n.result.sessionId }, turn: { kind: 'started', turnId: 't1' } }, state: n.result.snapshot });
 const startedBlank = (n) => ({
@@ -53,8 +48,9 @@ const SCRIPT = {
   'abortSession-idle': () => ({ 'turn/interrupt': coreReply('abortSession-idle') }),
   // actor.rs:3980 `{ "kind": "started" }`
   'submitToSession-accepted': () => ({ 'turn/start': { kind: 'started', turnId: 't1' } }),
-  'resolveToolApproval-approved': () => ({ pending: [{ id: 'ap1', method: 'item/tool/requestApproval', params: { threadId: S, order: 1 } }] }),
-  'resolveToolApproval-settled': () => ({ pending: [] }),
+  // A bare Allow reads the approval the thread shows (the card of the pending request, or none once it settled).
+  'resolveToolApproval-approved': () => ({ pending: [PENDING_AP1], state: { toolApproval: { id: 'ap1' } } }),
+  'resolveToolApproval-settled': () => ({ pending: [], state: { toolApproval: null } }),
   setFast: () => ({ 'fast/set': true, 'thread/read': threadRead({ route: { provider: 'p', model: 'm', fast: true } }) }),
   setModelRoute: () => ({ 'route/set': { provider: 'p2', model: 'm2' }, 'thread/read': threadRead({ route: { provider: 'p2', model: 'm2', fast: false } }) }),
   'stopShellJob-stopped': (n) => ({ 'thread/backgroundTerminals/terminate': n.daemon.configure.value }),
@@ -89,10 +85,6 @@ const SCRIPT = {
   'readTranscriptItem-found': (n) => ({ state: { items: n.daemon.read.full.items } }),
   'readTranscriptItem-not-viewed': () => ({ state: undefined }),
   'readTranscriptItem-not-held': (n) => ({ state: { items: n.daemon.read.full.items } }),
-  'answerApprovalNotification-answered': () => ({ notifications: NOTIFICATIONS, pending: [PENDING_AP1] }),
-  'answerApprovalNotification-settled': () => ({ notifications: NOTIFICATIONS, pending: [] }),
-  'answerApprovalNotification-open': () => ({ notifications: NOTIFICATIONS, pending: [] }),
-  'resolveToolApproval-pointer-only': () => ({ notifications: NOTIFICATIONS, pending: [PENDING_AP1] }),
   // call.rs:76: `approval/provideSecret` answers `EmptyResult`
   'provideSecretInput-true': () => ({ 'approval/provideSecret': {} }),
   readCapabilities: () => ({ 'thread/start': { thread: { id: 'ctl' } }, 'config/getProfile': { name: 'Mixy' } }),
@@ -189,9 +181,10 @@ function adapterFor(script) {
       coreErrorForWindow,
       normalizedProviderModels,
       sessionStateOf: () => script.state,
+      whenFolded: (_threadId, resume) => resume().then(() => undefined),
+      whenSettled: async () => undefined,
       remoteToolOutput,
-    },
-    { approvalNotifications: script.notifications }
+    }
   );
   return { api, sent };
 }

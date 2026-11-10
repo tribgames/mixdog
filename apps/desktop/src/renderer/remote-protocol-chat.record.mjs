@@ -180,19 +180,8 @@ await record('readTranscriptItem-not-viewed', 'readTranscriptItem', [S, 'tool1']
   r.readTranscriptItem([S, 'tool1']), { client: clientOf({ viewedSessionIds: () => [] }) });
 await record('readTranscriptItem-not-held', 'readTranscriptItem', [S, 'nope'], { read: full(S, { items: toolRows }) }, (_h, r) =>
   r.readTranscriptItem([S, 'nope']), { client: clientOf() });
-const notifications = {
-  approvalAllowDecision: (_s, id) => (id === 'ap1' ? { approved: true, scope: 'once' } : undefined),
-  approvalPointerOnly: (_s, id) => id === 'ptr',
-};
-const notifNote = 'approvalNotifications is a scripted stand-in for push-notifier.ts (its rules are not under test)';
-await record('answerApprovalNotification-answered', 'answerApprovalNotification', [S, 'ap1', 'allow'], { approve: { ...full(S), approved: true } },
-  (_h, r) => r.answerApprovalNotification([S, 'ap1', 'allow']), { client: clientOf(), approvalNotifications: notifications, note: notifNote });
-await record('answerApprovalNotification-settled', 'answerApprovalNotification', [S, 'ap1', 'deny'], { approve: { ...full(S), approved: false } },
-  (_h, r) => r.answerApprovalNotification([S, 'ap1', 'deny']), { client: clientOf(), approvalNotifications: notifications, note: notifNote });
-await record('answerApprovalNotification-open', 'answerApprovalNotification', [S, 'ap2', 'allow'], {},
-  (_h, r) => r.answerApprovalNotification([S, 'ap2', 'allow']), { client: clientOf(), approvalNotifications: notifications, note: notifNote });
-await record('resolveToolApproval-pointer-only', 'resolveToolApprovalForSession', [S, 'ptr', { approved: true }], {},
-  (_h, r) => r.resolveToolApprovalForSession([S, 'ptr', { approved: true }]), { client: clientOf(), approvalNotifications: notifications, note: notifNote });
+// A notification's Allow / Deny and the card's pointer-only refusal are recorded from Node's real push notifier over a real daemon
+// (remote-protocol-chat-abort.record.mjs, the `notify-` cases).
 await record('provideSecretInput-true', 'provideSecretInput', ['req1', 's3cret'], {}, (_h, r) => r.provideSecretInput(['req1', 's3cret']), {
   client: clientOf(), hostReply: true, note: 'hostRequest (the window process) is scripted: the secret slot is not part of the daemon',
 });
