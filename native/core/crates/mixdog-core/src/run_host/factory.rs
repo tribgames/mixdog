@@ -704,6 +704,9 @@ impl RunObserver for PortObserver {
                 let route = mixdog_app_protocol::v2::thread::ThreadRoute { session_model: Some(model), ..Default::default() };
                 let _ = self.out.send(Shown::Section(mixdog_core_ports::ports::threads::Section::Route(route)));
             }
+            RunEvent::TurnEffort(effort) => {
+                let _ = self.out.send(Shown::Section(mixdog_core_ports::ports::threads::Section::TurnEffort(effort)));
+            }
             RunEvent::ToolCalls { calls, .. } => {
                 {
                     let mut observed = lock(&self.observed);

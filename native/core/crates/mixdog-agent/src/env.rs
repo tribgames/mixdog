@@ -346,6 +346,9 @@ pub enum RunEvent {
     /// A cut stream that ended after complete tool calls goes on as a tool-call turn (`recoverPartialToolCalls`,
     /// `session/send-with-recovery.mjs:767`): Node's `partial_tool_recovery` trace row.
     PartialToolRecovery(PartialToolRecovery),
+    /// The effort the turn in flight runs at (`currentTurnEffort`, `turn-effort.mjs`): the turn's
+    /// own snapshot as the run starts (`None` without one), then each step the Auto judge marks.
+    TurnEffort(Option<String>),
 }
 
 /// What `recoverPartialToolCalls` traces (`traceLoop(state, 'partial_tool_recovery', ...)`).

@@ -84,6 +84,9 @@ pub enum Section {
     /// `progressHint` of the runtime section alone (`None` removes it): the rest of the section stays as it was. Producers of a hint (the running tool, the voice install) publish this, never a whole `Runtime`.
     ProgressHint(Option<Value>),
     Route(ThreadRoute),
+    /// `turnEffort` of the route section alone (`None` clears it): the effort the turn in flight
+    /// runs at. The rest of the section stays as it was.
+    TurnEffort(Option<String>),
     Context(ThreadContext),
     Todo(Option<Value>),
     Goal(Option<Value>),

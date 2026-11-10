@@ -582,6 +582,8 @@ impl Run {
 
     /// The loop. Completion, cancellation and terminal failures end it.
     pub async fn run(mut self) -> Result<RunOutput, RunFailure> {
+        let seeded = self.config.effort.as_ref().and_then(|wiring| wiring.route.seed.as_ref()).map(|seed| seed.effort.clone());
+        self.emit(RunEvent::TurnEffort(seeded));
         match self.drive().await {
             Ok(()) => Ok(self.finish()),
             Err(error) => Err(RunFailure {
