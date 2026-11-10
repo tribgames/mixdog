@@ -2,15 +2,19 @@
 import '../../../../../../scripts/lib/isolated-test-env.mjs';
 import assert from 'node:assert/strict';
 import fs, {
+  appendFileSync,
+  closeSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readdirSync,
   readFileSync,
   renameSync,
   rmSync,
   utimesSync,
   writeFileSync,
+  writeSync,
 } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -30,8 +34,14 @@ import {
 } from '../store.mjs';
 import { forgetSessionLoadCache, sessionLoadCacheStats } from './load-cache.mjs';
 import { acquireOsExclusiveLockSync } from '../../../../shared/os-exclusive-lock.mjs';
-import { releaseSessionWriter } from './session-writer-claim.mjs';
+import {
+  releaseSessionWriter,
+  sessionWriterHeldHere,
+  sessionWriterHeldStrictlyHere,
+} from './session-writer-claim.mjs';
 import { _sessionLogIoForTest } from './session-log-writer.mjs';
+import { parseSessionLog } from './session-log-reader.mjs';
+import { encodePatch } from './session-log-format.mjs';
 import { readDurableSessionRecord } from './transcript-durability.mjs';
 import { settleSummaryIndexWrites } from '../store-summary-index.mjs';
 import {
@@ -529,6 +539,41 @@ test('more than eight live sessions keep their validation headers and are not re
   assert.ok(sessionLoadCacheStats().documents <= 8);
 });
 
+test('a live session this process is writing is never read back, however often it was written or whether it was read here before', async (t) => {
+  const f = fixture(t);
+  const session = { id: `${f.id}_live`, generation: 1, closed: false, messages: [{ role: 'user', content: 'x' }], beats: 0 };
+  t.after(() => _liveSessions.delete(session.id));
+  setLiveSession(session);
+  const beat = async (count) => {
+    for (let i = 0; i < count; i++) {
+      session.beats += 1;
+      await saveSessionAsync(session);
+    }
+  };
+  await beat(1);
+  let reads = 0;
+  const original = fs.readFileSync;
+  fs.readFileSync = function (file, ...rest) {
+    if (String(file).includes(session.id)) reads++;
+    return original.call(this, file, ...rest);
+  };
+  syncBuiltinESMExports();
+  t.after(() => {
+    fs.readFileSync = original;
+    syncBuiltinESMExports();
+  });
+  assert.equal(loadSession(session.id), session);
+  assert.equal(reads, 0, 'never read here before');
+  await beat(200);
+  assert.equal(loadSession(session.id), session);
+  assert.equal(reads, 0, 'two hundred saves since it was last asked about');
+  forgetSessionLoadCache(session.id);
+  assert.equal(loadSession(session.id), session);
+  assert.equal(loadSessionStatus(session.id), session.status ?? null);
+  assert.equal(reads, 0, 'its cache entry was dropped');
+  assert.equal(await releaseSessionWriter(session.id), true);
+});
+
 test('loadSessionStatus reuses a settled file answer and never outranks a rewrite or a live copy', (t) => {
   const f = fixture(t);
   f.write({ ...f.saved, status: 'error' });
@@ -560,6 +605,148 @@ test('loadSessionStatus reuses a settled file answer and never outranks a rewrit
   _liveSessions.delete(f.id);
   f.write('{"id":');
   assert.equal(loadSessionStatus(f.id), null, 'an unreadable file speaks for no status');
+});
+
+for (const reader of ['loadSession', 'loadSessionStatus']) {
+  test(`${reader} after this process's own save does not replay the log; after another writer's append it does and returns that change`, async (t) => {
+    const f = fixture(t);
+    const logPath = join(dirname(f.path), `${f.id}.log.jsonl`);
+    let reads = 0;
+    const original = fs.readFileSync;
+    fs.readFileSync = function (file, ...rest) {
+      if (String(file) === logPath) reads++;
+      return original.call(this, file, ...rest);
+    };
+    syncBuiltinESMExports();
+    t.after(() => {
+      fs.readFileSync = original;
+      syncBuiltinESMExports();
+    });
+    const read = (id) => (reader === 'loadSession' ? loadSession(id) : loadSessionStatus(id));
+    const live = loadSession(f.id);
+    live.status = 'running';
+    live.messages = [...live.messages, { role: 'user', content: 'turn 1' }];
+    assert.equal(await saveSessionAsync(live), 'saved');
+    // The first load of the new log reads it.
+    assert.equal(loadSession(f.id), live);
+    // One own save, then two in a row before the next load.
+    for (const saves of [1, 2]) {
+      for (let i = 0; i < saves; i++) {
+        live.messages = [...live.messages, { role: 'assistant', content: `reply ${saves}.${i}` }];
+        assert.equal(await saveSessionAsync(live), 'saved');
+      }
+      const before = reads;
+      assert.equal(read(f.id), reader === 'loadSession' ? live : 'running');
+      assert.equal(loadSession(f.id), live);
+      assert.equal(loadSessionStatus(f.id), 'running');
+      assert.equal(reads, before, `the log was read again after ${saves} own save(s)`);
+    }
+    // Another process took the session over and appended to the same log.
+    const { seq } = parseSessionLog(readFileSync(logPath));
+    const foreign = { generation: live.generation + 1, status: 'foreign' };
+    appendFileSync(
+      logPath,
+      encodePatch(
+        seq + 1,
+        Object.entries(foreign).map(([key, value]) => [key, JSON.stringify(value)]),
+        []
+      )
+    );
+    const before = reads;
+    if (reader === 'loadSession') {
+      const loaded = loadSession(f.id);
+      assert.notEqual(loaded, live);
+      assert.deepEqual({ generation: loaded.generation, status: loaded.status }, foreign);
+    } else {
+      assert.equal(loadSessionStatus(f.id), 'foreign');
+    }
+    assert.ok(reads > before, "another writer's append was not read");
+    assert.equal(await releaseSessionWriter(f.id), true);
+  });
+}
+
+test("loadSession replays a log another writer rewrote at the same length while this process's save was being fsynced", async (t) => {
+  const f = fixture(t);
+  const logPath = join(dirname(f.path), `${f.id}.log.jsonl`);
+  const live = loadSession(f.id);
+  live.messages = [...live.messages, { role: 'user', content: 'turn 1' }];
+  assert.equal(await saveSessionAsync(live), 'saved');
+  assert.equal(loadSession(f.id), live);
+  const io = _sessionLogIoForTest();
+  const realFsync = io.fsync;
+  let resume = null;
+  io.fsync = (fd, callback) => {
+    io.fsync = realFsync;
+    resume = () => realFsync(fd, callback);
+  };
+  t.after(() => {
+    io.fsync = realFsync;
+  });
+  live.generation = 2;
+  const saving = saveSessionAsync(live);
+  while (resume === null) await turns(1);
+  // The batch is written, its fsync pending: another process puts a valid
+  // patch of the same length over it, in a later tick of the file clock.
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const bytes = readFileSync(logPath);
+  const rewritten = Buffer.from(bytes.toString('utf8').replace('"generation":2', '"generation":9'));
+  assert.equal(rewritten.length, bytes.length);
+  const fd = openSync(logPath, 'r+');
+  writeSync(fd, rewritten, 0, rewritten.length, 0);
+  closeSync(fd);
+  resume();
+  assert.equal(await saving, 'saved');
+  const loaded = loadSession(f.id);
+  assert.notEqual(loaded, live, 'the stale live copy was served');
+  assert.equal(loaded.generation, 9);
+  assert.equal(await releaseSessionWriter(f.id), true);
+});
+
+test("loadSession replays the log after this process's own save when the real writer claim's file cannot be read", async (t) => {
+  const f = fixture(t);
+  const logPath = join(dirname(f.path), `${f.id}.log.jsonl`);
+  let reads = 0;
+  let unreadable = false;
+  const originalRead = fs.readFileSync;
+  const originalStat = fs.statSync;
+  fs.readFileSync = function (file, ...rest) {
+    if (String(file) === logPath) reads++;
+    return originalRead.call(this, file, ...rest);
+  };
+  fs.statSync = function (file, ...rest) {
+    if (unreadable && String(file).endsWith(`${f.id}.lock`)) {
+      throw Object.assign(new Error(`EACCES: injected, stat '${file}'`), { code: 'EACCES' });
+    }
+    return originalStat.call(this, file, ...rest);
+  };
+  syncBuiltinESMExports();
+  t.after(() => {
+    fs.readFileSync = originalRead;
+    fs.statSync = originalStat;
+    syncBuiltinESMExports();
+  });
+  const live = loadSession(f.id);
+  const save = async (content) => {
+    live.messages = [...live.messages, { role: 'user', content }];
+    assert.equal(await saveSessionAsync(live), 'saved');
+  };
+  await save('turn 1');
+  assert.equal(loadSession(f.id), live);
+  await save('turn 2');
+  let before = reads;
+  assert.equal(loadSession(f.id), live);
+  assert.equal(reads, before, 'the own-save shortcut did not hold with a readable claim');
+  await save('turn 3');
+  unreadable = true;
+  // Everything but the shortcut gives the unreadable claim the benefit of the doubt.
+  assert.equal(sessionWriterHeldHere(f.id), true);
+  assert.equal(sessionWriterHeldStrictlyHere(f.id), false);
+  before = reads;
+  assert.equal(loadSession(f.id), live);
+  assert.ok(reads > before, 'the log was not replayed under a claim whose file cannot be read');
+  unreadable = false;
+  assert.equal(sessionWriterHeldStrictlyHere(f.id), true);
+  assert.equal(await releaseSessionWriter(f.id), true);
 });
 
 test('a genuinely absent disk record does not discard an unsaved live conversation', (t) => {

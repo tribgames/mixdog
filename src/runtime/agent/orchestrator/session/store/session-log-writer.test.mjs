@@ -1,13 +1,16 @@
 import assert from 'node:assert/strict';
 import fs, {
   appendFileSync,
+  closeSync,
   existsSync,
   mkdtempSync,
+  openSync,
   readFileSync,
   readdirSync,
   rmSync,
   statSync,
   writeFileSync,
+  writeSync,
 } from 'node:fs';
 import fsp from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
@@ -15,7 +18,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { encodePatch, jsonEqual, sha1Hex } from './session-log-format.mjs';
-import { parseSessionLog, readSessionLog, resolveSessionRecord, sessionFromLog } from './session-log-reader.mjs';
+import {
+  parseSessionLog,
+  readSessionLog,
+  recordStampPart,
+  resolveSessionRecord,
+  sessionFromLog,
+} from './session-log-reader.mjs';
 import {
   SESSION_LOG_ERRORS,
   convertLegacySession,
@@ -38,7 +47,12 @@ function paths() {
 function fakeClaim() {
   const claim = {
     held: true,
+    // The claim file's metadata cannot be read: assertHeld gives it the
+    // benefit of the doubt (as the real lock's intact() does), the strict
+    // check does not.
+    unreadable: false,
     checks: 0,
+    strictChecks: 0,
     assertHeld() {
       claim.checks += 1;
       if (!claim.held) {
@@ -46,6 +60,11 @@ function fakeClaim() {
         err.code = 'ESESSIONCHANGED';
         throw err;
       }
+    },
+    assertHeldStrict() {
+      claim.strictChecks += 1;
+      claim.assertHeld();
+      if (claim.unreadable) throw Object.assign(new Error('claim unreadable'), { code: 'ESESSIONCHANGED' });
     },
   };
   return claim;
@@ -890,6 +909,100 @@ test('flushSync writes everything queued, an in-flight batch included', async ()
   assert.deepEqual(parseSessionLog(readFileSync(logPath)).messages, session.messages);
   await rec.close();
   assert.deepEqual(parseSessionLog(readFileSync(logPath)).messages, session.messages);
+});
+
+// The log's record-stamp part, as a reader sees the file now.
+const stampOf = (logPath) => recordStampPart(statSync(logPath, { bigint: true }));
+
+test('a recorder knows the generation only of a log that its own acknowledged batches left', async () => {
+  const { id, logPath } = paths();
+  const session = { id, generation: 1, messages: [msg('a')] };
+  const rec = await createSessionLog({ logPath, session, claim: fakeClaim() });
+  const opened = stampOf(logPath);
+  assert.equal(rec.knownGeneration(opened), 1, 'the state it read when it opened the log');
+  await rec.record({ ...session, generation: 2 });
+  assert.equal(rec.knownGeneration(stampOf(logPath)), 2);
+  await rec.record({ ...session, generation: 3 });
+  assert.equal(rec.knownGeneration(stampOf(logPath)), 3, 'two own batches in a row');
+  appendFileSync(logPath, encodePatch(rec.seq + 1, [['generation', '4']], []));
+  assert.equal(rec.knownGeneration(stampOf(logPath)), null, "another writer's append");
+  await rec.close();
+});
+
+// The file clock ticks coarsely (Windows especially): a rewrite must come in a
+// later tick than the write it follows for its mtime/ctime to tell.
+const laterTick = () => new Promise((resolve) => setTimeout(resolve, 50));
+
+for (const foreign of [false, true]) {
+  const what = foreign
+    ? "another writer's same-length rewrite during the fsync is not certified as the recorder's own"
+    : 'an fsync nobody touched leaves its batch known';
+  test(`a batch acknowledged after ${what}`, async () => {
+    const { id, logPath } = paths();
+    const session = { id, generation: 1, messages: [msg('a')] };
+    const rec = await createSessionLog({ logPath, session, claim: fakeClaim() });
+    let resumeSync = null;
+    holdNextSync = (resume) => {
+      resumeSync = resume;
+    };
+    const saving = rec.record({ ...session, generation: 2 });
+    await until(() => resumeSync !== null);
+    if (foreign) {
+      // The batch is written and its fsync is awaited: another writer puts a
+      // valid patch of the very same length over it.
+      await laterTick();
+      const bytes = readFileSync(logPath);
+      const rewritten = Buffer.from(bytes.toString('utf8').replace('"generation":2', '"generation":9'));
+      assert.equal(rewritten.length, bytes.length);
+      const fd = openSync(logPath, 'r+');
+      writeSync(fd, rewritten, 0, rewritten.length, 0);
+      closeSync(fd);
+    }
+    resumeSync();
+    await saving;
+    assert.equal((await replayed(logPath)).generation, foreign ? 9 : 2);
+    assert.equal(rec.knownGeneration(stampOf(logPath)), foreign ? null : 2);
+    await rec.close();
+  });
+}
+
+test('a claim lost without a write noticing it no longer vouches for the log, even if it comes back', async () => {
+  const { id, logPath } = paths();
+  const claim = fakeClaim();
+  const session = { id, generation: 1, messages: [msg('a')] };
+  const rec = await createSessionLog({ logPath, session, claim });
+  await rec.record({ ...session, generation: 2 });
+  const current = stampOf(logPath);
+  assert.equal(rec.knownGeneration(current), 2);
+  const checks = claim.strictChecks;
+  claim.held = false;
+  assert.equal(rec.knownGeneration(current), null);
+  assert.ok(claim.strictChecks > checks, 'the claim was not asked');
+  claim.held = true;
+  assert.equal(rec.knownGeneration(current), null, 'the proof outlived the loss');
+  await rec.close();
+});
+
+test('a claim that cannot be proven does not vouch for the log: unreadable metadata, or no strict check', async () => {
+  const { id, logPath } = paths();
+  const claim = fakeClaim();
+  const session = { id, generation: 1, messages: [msg('a')] };
+  const rec = await createSessionLog({ logPath, session, claim });
+  await rec.record({ ...session, generation: 2 });
+  const current = stampOf(logPath);
+  claim.unreadable = true;
+  assert.equal(rec.knownGeneration(current), null, 'a claim whose metadata cannot be read vouched');
+  assert.doesNotThrow(() => claim.assertHeld(), 'the plain check still gives it the benefit of the doubt');
+  claim.unreadable = false;
+  assert.equal(rec.knownGeneration(current), null, 'the proof outlived the unreadable claim');
+  await rec.close();
+
+  const plain = { assertHeld() {} };
+  const other = paths();
+  const bare = await createSessionLog({ logPath: other.logPath, session: { ...session, id: other.id }, claim: plain });
+  const start = stampOf(other.logPath);
+  assert.equal(bare.knownGeneration(start), null, 'a claim without a strict check vouched');
+  await bare.close();
 });
 
 test('immutable keys compare by reference; projected messages and transient keys', async () => {

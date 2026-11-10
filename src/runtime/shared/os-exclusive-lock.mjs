@@ -66,6 +66,7 @@ function sameFile(a, b) {
 }
 
 function heldLock(lockPath, identity, close) {
+  const namesLockedFile = () => sameFile(statSync(lockPath, { bigint: true, throwIfNoEntry: false }), identity);
   return {
     held: true,
     path: lockPath,
@@ -73,10 +74,19 @@ function heldLock(lockPath, identity, close) {
      *  acquiring now would lock (or name) a different one. */
     intact() {
       try {
-        return sameFile(statSync(lockPath, { bigint: true, throwIfNoEntry: false }), identity);
+        return namesLockedFile();
       } catch {
         // Unreadable metadata (an antivirus scan) is not a replacement.
         return true;
+      }
+    },
+    /** intact() for a verdict that lets work be skipped: true only when the
+     *  path was read and names the locked file; unreadable metadata is no proof. */
+    intactStrict() {
+      try {
+        return namesLockedFile();
+      } catch {
+        return false;
       }
     },
     release() {

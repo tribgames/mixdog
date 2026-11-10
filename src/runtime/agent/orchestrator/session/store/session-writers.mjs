@@ -25,6 +25,7 @@ import { existsSync } from 'node:fs';
 import { sessionLogPath, sessionPath } from './session-paths.mjs';
 import {
   sessionWriterHeldHere,
+  sessionWriterHeldStrictlyHere,
   sessionWriterRefusalError,
   setSessionWriterReleaseHook,
 } from './session-writer-claim.mjs';
@@ -72,6 +73,11 @@ function claimOf(id) {
   return {
     assertHeld() {
       if (!sessionWriterHeldHere(id)) throw sessionWriterRefusalError({ id, reason: 'changed' });
+    },
+    // For what skips a replay of the log (SessionLogRecorder.knownGeneration):
+    // a claim file that cannot be read is no proof of the claim.
+    assertHeldStrict() {
+      if (!sessionWriterHeldStrictlyHere(id)) throw sessionWriterRefusalError({ id, reason: 'changed' });
     },
   };
 }
@@ -341,6 +347,17 @@ function redactionOf(id) {
 export function openRecorderOf(id) {
   const recorder = _recorders.get(id);
   return recorder && !recorder.finished ? recorder : null;
+}
+
+/**
+ * The generation `id`'s log at `logPath` holds at `current` (a record
+ * stamp's log part, as a reader sees it now) when this process's open
+ * recorder of it knows the file in exactly that state; otherwise null
+ * (SessionLogRecorder.knownGeneration).
+ */
+export function ownLogGeneration(id, logPath, current) {
+  const recorder = openRecorderOf(id);
+  return recorder?.logPath === logPath ? recorder.knownGeneration(current) : null;
 }
 
 /** Whether `id` has recorded state not yet acknowledged. */
