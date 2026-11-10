@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Records `setBoundedTextCacheEntry` (session/cache/text-cache-budget.mjs) over the steps of its unit test
-// (text-cache-budget.test.mjs:5, :22): after each put, the return value, the keys in insertion order and the
-// keys the eviction callback received so far.
+// (text-cache-budget.test.mjs:5, :22): after each put, the return value, the stored entries in insertion order and
+// the keys the eviction callback received so far.
 //
 //   node benchmarks/rust-core/recorders/record-text-cache-budget.mjs --tree <exact export of b6f10295a with node_modules>
 //
@@ -23,7 +23,7 @@ const scenario = (name, maxEntries, maxBytes, puts) => {
   const evicted = [];
   const steps = puts.map(([key, content]) => {
     const stored = setBoundedTextCacheEntry(map, key, { content }, { maxEntries, maxBytes, onEvict: (k) => evicted.push(k) });
-    return { key, content, stored, keys: [...map.keys()], evicted: [...evicted] };
+    return { key, content, stored, entries: [...map].map(([k, v]) => ({ key: k, content: v.content })), evicted: [...evicted] };
   });
   return { name, maxEntries, maxBytes, steps };
 };
