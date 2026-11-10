@@ -4015,6 +4015,7 @@ version = "1.4.5"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
+ "bytes",
  "chrono",
  "futures",
  "libc",
@@ -4401,6 +4402,7 @@ dependencies = [
  "mixdog-workspace",
  "mixdog-workspace-hack",
  "regex",
+ "rusqlite",
  "serde",
  "serde_json",
  "sha1",

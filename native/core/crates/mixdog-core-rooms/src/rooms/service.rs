@@ -60,7 +60,7 @@ pub trait RoomHost: Send + Sync {
     async fn reset_member(&self, session_id: &str) -> Result<(), RoomError>;
     /// `deps.republishCatalog` (`session-host.ts:357-360`): the catalog is published when this returns, so a room call
     /// answers only after the rooms it changed are listed and announced.
-    async fn republish_catalog(&self);
+    async fn republish_catalog(&self) -> Result<(), RoomError>;
 }
 
 /// The exchange scheduler: one bounded exchange per room at a time, memory-only.
@@ -210,7 +210,7 @@ impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> Roo
         self.host.create_session(&session_id, &params).await?;
         self.rooms.create(&config_input(input, None), &room_id, now).await?;
         let _ = self.host.rename_session(&session_id, &probe.name).await;
-        self.host.republish_catalog().await;
+        self.host.republish_catalog().await?;
         Ok(json!({ "sessionId": session_id, "roomId": room_id }))
     }
 
@@ -246,7 +246,7 @@ impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> Roo
                 let _ = self.host.rename_session(&session_id, &updated.room.config.name).await;
             }
         }
-        self.host.republish_catalog().await;
+        self.host.republish_catalog().await?;
         let sessions: Vec<String> = updated.gone.iter().filter_map(|id| room_member_session_id(room_id, id)).collect();
         let failed = self.host.delete_sessions(&sessions).await;
         if failed > 0 {
@@ -267,7 +267,7 @@ impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> Roo
                 room.config.members.iter().filter_map(|id| room_member_session_id(room_id, id)).collect();
             sessions.push(session_id);
             let failed = self.host.delete_sessions(&sessions).await;
-            self.host.republish_catalog().await;
+            self.host.republish_catalog().await?;
             if failed > 0 {
                 return Err(RoomError::Port(format!("The room was removed, but {failed} of its conversations could not be deleted.")));
             }
@@ -295,7 +295,7 @@ impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> Roo
         }
         let archived = self.host.start_over(&session_id).await?;
         self.rooms.reset(room_id, chrono::Utc::now().timestamp_millis()).await?;
-        self.host.republish_catalog().await;
+        self.host.republish_catalog().await?;
         let mut failed = 0;
         for member in &room.config.members {
             let Some(member_session) = room_member_session_id(room_id, member) else { continue };
@@ -546,10 +546,11 @@ mod tests {
         }
     }
 
-    /// A host whose catalog publish stops at a gate the test opens; `began` tells the publish was asked for.
+    /// A host whose catalog publish stops at a gate the test opens with the publish's outcome; `began` tells the publish was
+    /// asked for. A second publish, or one with no gate, panics.
     struct Gated {
         began: std::sync::atomic::AtomicBool,
-        open: std::sync::Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
+        open: std::sync::Mutex<Option<tokio::sync::oneshot::Receiver<Result<(), RoomError>>>>,
     }
     #[async_trait]
     impl RoomHost for Gated {
@@ -578,10 +579,10 @@ mod tests {
         async fn delete_sessions(&self, _: &[String]) -> usize {
             0
         }
-        async fn republish_catalog(&self) {
+        async fn republish_catalog(&self) -> Result<(), RoomError> {
             self.began.store(true, std::sync::atomic::Ordering::SeqCst);
             let open = self.open.lock().unwrap().take();
-            open.expect("one publish").await.expect("the test opens the gate");
+            open.expect("one publish").await.expect("the test opens the gate")
         }
     }
 
@@ -605,7 +606,52 @@ mod tests {
     #[tokio::test]
     async fn room_create_answers_only_after_the_catalog_is_published() {
         let (open_tx, open) = tokio::sync::oneshot::channel();
-        let host = Arc::new(Gated { began: false.into(), open: Some(open).into() });
+        let (service, host, _dir) = service_over(Some(open)).await;
+        let input = json!({ "name": "Release", "members": ["gh", "rel"] });
+        let create = service.create(&input);
+        tokio::pin!(create);
+        assert!(polled(&mut create).await.is_pending(), "the creation answered while the catalog publish was held");
+        assert!(host.began.load(std::sync::atomic::Ordering::SeqCst), "it is held at the publish");
+        open_tx.send(Ok(())).expect("the creation waits");
+        let std::task::Poll::Ready(answer) = polled(&mut create).await else { panic!("the creation did not answer once the catalog was published") };
+        let answer = answer.expect("created");
+        assert!(answer["sessionId"].as_str().is_some_and(|id| id.starts_with("sess_room_")), "{answer}");
+    }
+
+    /// Node's publish throws into the room call (`agent-rooms.ts:289`, a `void` return of `session-host.ts:353`): the creation
+    /// rejects with the publish's error, and the room it saved stays saved (no rollback).
+    #[tokio::test]
+    async fn room_create_rejects_with_the_publish_error_and_keeps_the_room() {
+        let (open_tx, open) = tokio::sync::oneshot::channel();
+        let (service, _host, _dir) = service_over(Some(open)).await;
+        open_tx.send(Err(RoomError::Port("the room log was not indexed".into()))).expect("gate");
+        let input = json!({ "name": "Release", "members": ["gh", "rel"] });
+        let error = service.create(&input).await.expect_err("the publish failed");
+        assert_eq!(error, RoomError::Port("the room log was not indexed".into()));
+        assert_eq!(service.rooms.list().await.expect("rooms").len(), 1, "the saved room stays");
+    }
+
+    /// Node's `leave` only archives the room's log (`agent-rooms.ts:364-369`); it publishes nothing, so it must not wait for a
+    /// publish: the host has no gate, and a publish panics.
+    #[tokio::test]
+    async fn room_leave_does_not_wait_for_a_publish() {
+        let (open_tx, open) = tokio::sync::oneshot::channel();
+        let (service, _host, _dir) = service_over(Some(open)).await;
+        open_tx.send(Ok(())).expect("gate");
+        let made = service.create(&json!({ "name": "Release", "members": ["gh", "rel"] })).await.expect("created");
+        service.leave(&json!({ "roomId": made["roomId"] })).await.expect("left with no second publish");
+    }
+
+    /// One poll of `future`, whatever it answers. Everything the room service awaits here is in memory, so one poll runs it
+    /// to the gate or to its answer.
+    async fn polled<F: std::future::Future>(future: &mut std::pin::Pin<&mut F>) -> std::task::Poll<F::Output> {
+        std::future::poll_fn(|cx| std::task::Poll::Ready(future.as_mut().poll(cx))).await
+    }
+
+    async fn service_over(
+        gate: Option<tokio::sync::oneshot::Receiver<Result<(), RoomError>>>,
+    ) -> (RoomService<Records, Gated, Idle>, Arc<Gated>, tempfile::TempDir) {
+        let host = Arc::new(Gated { began: false.into(), open: gate.into() });
         let dir = tempfile::tempdir().expect("dir");
         let service = RoomService::new(
             Arc::new(Rooms::new(Records::default())),
@@ -613,18 +659,6 @@ mod tests {
             Arc::new(Idle),
             mixdog_core_base::support::testing::scopes(dir.path(), "room").await,
         );
-        let input = json!({ "name": "Release", "members": ["gh", "rel"] });
-        let create = service.create(&input);
-        tokio::pin!(create);
-        /// One poll of `future`, whatever it answers.
-        async fn polled<F: std::future::Future>(future: &mut std::pin::Pin<&mut F>) -> std::task::Poll<F::Output> {
-            std::future::poll_fn(|cx| std::task::Poll::Ready(future.as_mut().poll(cx))).await
-        }
-        assert!(polled(&mut create).await.is_pending(), "the creation answered while the catalog publish was held");
-        assert!(host.began.load(std::sync::atomic::Ordering::SeqCst), "it is held at the publish");
-        open_tx.send(()).expect("the creation waits");
-        let std::task::Poll::Ready(answer) = polled(&mut create).await else { panic!("the creation did not answer once the catalog was published") };
-        let answer = answer.expect("created");
-        assert!(answer["sessionId"].as_str().is_some_and(|id| id.starts_with("sess_room_")), "{answer}");
+        (service, host, dir)
     }
 }

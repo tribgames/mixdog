@@ -10,7 +10,7 @@
     {
       "bytes": 51250,
       "path": ".mixdog/data/sessions/sess_4242_1700000000001_1700000003000_15564abbf59b4dd1ed3fda0fab4c34a5.log.jsonl",
-      "sha256": "3fbd0d8149d4283a810cd8f72e5c5e77ac8b26b2d7397ca4ba7bc3166d037f09"
+      "sha256": "a393b23b875a47270f8d74c053e6ed4b5dffcd805599d50e42dc60484389bd5b"
     },
     {
       "bytes": 47473,
@@ -43,86 +43,91 @@
       "sha256": "53e8245832c7d4dedd22f8a7881eee0d7e0efef91ca7d8945e1701eff20064d6"
     },
     {
-      "bytes": 50395,
-      "path": ".mixdog/data/sessions/sess_4242_1700000000008_1700000027000_30e79a81dad8db6ca8206547703a9dc0.json",
-      "sha256": "7f2b24660b62b470f9073126312e972c532910701cca7c3b1d55f2e9a5e76b79"
-    },
-    {
       "bytes": 58366,
-      "path": ".mixdog/data/sessions/sess_4242_1700000000009_1700000028000_75c35f8d53abceed34912923b0a8bfbe.log.jsonl",
-      "sha256": "247381501e005e207d78a3bdf3ef4ea4fb17d451a4307012494bd017c819e0fe"
+      "path": ".mixdog/data/sessions/sess_4242_1700000000008_1700000027000_30e79a81dad8db6ca8206547703a9dc0.log.jsonl",
+      "sha256": "80da4bf9585c4cc0b01652a39180ebc486fe4c72be5f8283d3e82026cddea975"
     },
     {
       "bytes": 51206,
-      "path": ".mixdog/data/sessions/sess_4242_1700000000010_1700000030000_9665f0084f0d10d73db876eda77a5074.log.jsonl",
-      "sha256": "70f69a61deaa35c12b12024ba7f495dba758b59b60b484ded85b676c71d58f7d"
+      "path": ".mixdog/data/sessions/sess_4242_1700000000009_1700000029000_75c35f8d53abceed34912923b0a8bfbe.log.jsonl",
+      "sha256": "9a65461ece6bd8c785e68e12cf5057a795600b9b284983d228be3dd79ab57869"
     },
     {
       "bytes": 51591,
-      "path": ".mixdog/data/sessions/sess_4242_1700000000011_1700000032000_b37119ba36ad55010d9db39ec9fe2080.log.jsonl",
-      "sha256": "bc07fb1e256a5e16235dad6c42a4752bac9be67263128ddcd6042f4e3ea017ea"
+      "path": ".mixdog/data/sessions/sess_4242_1700000000010_1700000031000_9665f0084f0d10d73db876eda77a5074.log.jsonl",
+      "sha256": "a2c5879d08899809b467414c076a39f831e34c5eba0a8da4ea0b851e2e221549"
     },
     {
       "bytes": 48150,
-      "path": ".mixdog/data/sessions/sess_4242_1700000000012_1700000094000_33372a417438b61ae98f1cba4ad2ac19.log.jsonl",
-      "sha256": "6f74258f475c29e9b48611bae1119b86ac394653630e34177a9a61a4e57c16a2"
+      "path": ".mixdog/data/sessions/sess_4242_1700000000011_1700000093000_b37119ba36ad55010d9db39ec9fe2080.log.jsonl",
+      "sha256": "7fdf4a925d7ea4b82b737e4245524a9e07adc03917e383411d12a3aa83c64984"
     },
     {
       "bytes": 48078,
-      "path": ".mixdog/data/sessions/sess_4242_1700000000013_1700000155000_90f42cc9c062a57269e3c7f35fe771f2.log.jsonl",
-      "sha256": "8fefaf2df3fe7a4c2e4dbfa3b8a1cf729be0279889192822fc9c644e68e7838b"
+      "path": ".mixdog/data/sessions/sess_4242_1700000000012_1700000154000_33372a417438b61ae98f1cba4ad2ac19.log.jsonl",
+      "sha256": "cf554f956d40138a4f20c33ff26431288f2016ab14fd4cabbc90dd8079b88331"
     },
     {
       "bytes": 48087,
-      "path": ".mixdog/data/sessions/sess_4242_1700000000014_1700000216000_41bb24799b5d44229c6c8f61124d95ef.log.jsonl",
-      "sha256": "14b8941ac23fd0bf01fdd12d8c2b290e682de24289dff03f637fc9bb32d1ad28"
+      "path": ".mixdog/data/sessions/sess_4242_1700000000013_1700000215000_90f42cc9c062a57269e3c7f35fe771f2.log.jsonl",
+      "sha256": "7de7346fbb1b1c283da9ada6b8eae6ca6ce729fca982a920ad2b690987fe3937"
     },
     {
       "bytes": 48168,
-      "path": ".mixdog/data/sessions/sess_4242_1700000000015_1700000277000_4fe8df51fbfd22119772021cd3716fbb.log.jsonl",
-      "sha256": "f35af44af49b1a00ee6df7ec5d3061eb68f7dda94500863baea091560c95c5de"
+      "path": ".mixdog/data/sessions/sess_4242_1700000000014_1700000276000_41bb24799b5d44229c6c8f61124d95ef.log.jsonl",
+      "sha256": "5ed26f7a67e7ba8967252bfebcdcf01314a73995b6a61f4c5bedcb56af83e838"
     },
     {
       "bytes": 48159,
-      "path": ".mixdog/data/sessions/sess_4242_1700000000016_1700000338000_df10d8211c9e498a8cca0614e121d0a9.log.jsonl",
-      "sha256": "45ca87cac3c2a8b5452995ec7544925db691482b299470031f1d83e4926f2ec6"
+      "path": ".mixdog/data/sessions/sess_4242_1700000000015_1700000337000_4fe8df51fbfd22119772021cd3716fbb.log.jsonl",
+      "sha256": "6465eaa42de336d6c55cd6e52e6f0c5b44f9a1f2df0b8a8c93b42403e497ec36"
     },
     {
       "bytes": 48189,
-      "path": ".mixdog/data/sessions/sess_4242_1700000000017_1700000399000_82c435ace65656b0d5c490366d3552a7.log.jsonl",
-      "sha256": "b2ec4e9edbc6018a03fc0b118764bc8e5e42c9644d593293b40026b97cf3df14"
+      "path": ".mixdog/data/sessions/sess_4242_1700000000016_1700000398000_df10d8211c9e498a8cca0614e121d0a9.log.jsonl",
+      "sha256": "d5d0f80e82184981fd624a5cefe9b154c5cd044925f9f7b0319915b7676e4a19"
+    },
+    {
+      "bytes": 49658,
+      "path": ".mixdog/data/sessions/sess_4243_1700000027000_1700000027000_2b94d07a22339d69c88f1e7d29672eb6.json",
+      "sha256": "65dac9f3c7f8f25268b6c11e419098d8e6ac8c23ef1a9dd9dd50a916d659a39a"
     },
     {
       "bytes": 55992,
       "path": ".mixdog/data/sessions/sess_home_kestrel.log.jsonl",
-      "sha256": "e2d407a1b751f88f2f4f200190a4fadd304b2f5055d5768cbb4be810432b9960"
+      "sha256": "08d97370c895c5efa7f9f13e941138c631ad36c99b779bfbc37f534224ddc784"
     },
     {
       "bytes": 47423,
-      "path": ".mixdog/data/sessions/sess_room_loywcfpca9cf1847.log.jsonl",
-      "sha256": "133f003ec8084a7a48b3ac2cf585095e24575560ce92449ba718783919458f26"
+      "path": ".mixdog/data/sessions/sess_room_loywcexka9cf1847.log.jsonl",
+      "sha256": "001c9d2b6f6456ec31557fb75afb4ea2c1e643e99cf92b3ba38dd1e26c651525"
     },
     {
-      "bytes": 663892,
+      "bytes": 663880,
       "path": "answers.json",
-      "sha256": "d509ab2fd60877b24e0caf197ab1eb4ab12cc2875bc861f2b2269362715945a8"
+      "sha256": "bfceab22999b954262b746060f13acbeb2da79828f6fac58a579e6e713528945"
     },
     {
       "bytes": 622,
       "path": "profile/agent-rooms.json",
-      "sha256": "a3ac825f09a0a100a4d7ba1ef56b433dfa58f277c0c21e5fc8e038e72388567d"
+      "sha256": "b95aa28ea053d8952b4baf62b719a3bd86b668fe1b45419641bf015b8930a74f"
     },
     {
       "bytes": 322,
       "path": "profile/agent-rooms.json.bak",
-      "sha256": "f2a1d1380f3066a4d710d94e274216e8b2d3ba7216ce4890de195bcae9603e23"
+      "sha256": "02c9b08728db5ad362a0f77cf47134b3d69c46af4532c5ded210985c01b8adf2"
     },
     {
-      "bytes": 978,
+      "bytes": 879,
       "path": "profile/desktop-session-metadata.json",
-      "sha256": "00bff503279d356b3010faf1cc57919630a6b19e07f8ee7a4fd906c6dbc6d681"
+      "sha256": "3e4c65976c503de2085ff85c54459e7959a7510224f33e86712877c522f95071"
     }
   ],
+  "legacyWriter": {
+    "tag": "v1.4.5",
+    "tagCommit": "69fe41b056d3407d7fc7da10ed71e3960b497166",
+    "writer": "benchmarks/rust-core/recorders/lib/write-v145-session.mjs: the tag manager.createSession + askSession, saved by the tag store.mjs saveSession"
+  },
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -142,5 +147,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-roster-rows.mjs",
   "set": "roster-rows",
-  "totalBytes": 1788387
+  "totalBytes": 1787539
 }

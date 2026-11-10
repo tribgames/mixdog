@@ -2172,7 +2172,36 @@ async fn a_fork_is_placed_and_stamped_as_nodes_fork_is() {
     let mut deps = rig.deps_parts(Arc::new(threads));
     deps.new_place = Arc::new(super::testing::RecordingPlace { projects: registered, ..Default::default() });
     deps.task_workspace = Arc::new(super::testing::FixedTaskWorkspace(tasks));
-    let directory = SessionDirectory::new(Arc::new(deps));
+    // The heir's prompt is composed for the heir (`createSession`): its scratch directory is `s.` and the first 16 hex digits of the
+    // sha256 of its id (`session-scratch.mjs`). The rebuild stands in for the product's compose, whose text is the source's except that
+    // directory; Node's recorded heirs say whether the core asked for it.
+    struct Rebuilds(std::sync::OnceLock<Arc<SessionDirectory>>);
+    #[async_trait::async_trait]
+    impl super::EmptyToolSurface for Rebuilds {
+        async fn refresh_empty(&self, thread: &ThreadId) -> Result<bool, String> {
+            use sha2::Digest;
+            let ctx = CallContext::internal("test");
+            let handle = self.0.get().expect("directory").open_handle(thread, &ctx).await.map_err(|error| format!("{error:?}"))?;
+            let header = handle.cell.header.load_full();
+            let scratch = format!("s.{}", &format!("{:x}", sha2::Sha256::digest(thread.as_str().as_bytes()))[..16]);
+            let mut set = serde_json::Map::new();
+            let source = self.0.get().expect("directory").open_handle(&ThreadId::from(header["inheritedFromSessionId"].as_str().expect("source")), &ctx).await.map_err(|error| format!("{error:?}"))?;
+            let (was, now) = (source.cell.header.load_full()["cwd"].as_str().expect("source cwd").to_owned(), header["cwd"].as_str().expect("heir cwd").to_owned());
+            for key in ["bp3EnvironmentContext", "promptEnv"] {
+                let text = header.get(key).and_then(Value::as_str).expect("the heir carries the prompt text").replace(&was, &now);
+                let text = text.as_str();
+                let line = text.find("- Scratch: ").expect("a scratch line");
+                let at = line + text[line..].find("\n").map_or(0, |end| text[line..line + end].rfind("\\scratch\\s.").expect("a scratch name")) + "\\scratch\\".len();
+                set.insert(key.into(), json!(format!("{}{scratch}{}", &text[..at], &text[at + scratch.len()..])));
+            }
+            handle.request(CoreRequest { method: Method("thread/header/patch"), params: json!({ "threadId": thread, "set": set, "unset": [] }), op: None, ctx }).await.map_err(|error| format!("{error:?}"))?;
+            Ok(true)
+        }
+    }
+    let rebuilds = Arc::new(Rebuilds(std::sync::OnceLock::new()));
+    deps.empty_surface = rebuilds.clone();
+    let directory = Arc::new(SessionDirectory::new(Arc::new(deps)));
+    assert!(rebuilds.0.set(directory.clone()).is_ok());
     let list = super::thread_list::ThreadListService::new(Arc::new(index), Arc::new(NoLive), Arc::new(NoRooms), Arc::new(super::testing::FixedTaskWorkspace(tasks)));
     let ctx = CallContext::internal("test");
     let forks = answers["forks"].as_array().expect("forks");
@@ -2206,9 +2235,25 @@ async fn a_fork_is_placed_and_stamped_as_nodes_fork_is() {
         let (rust_messages, node_messages) = (read_messages(rust.clone()).await["messages"].clone(), read_messages(node.clone()).await["messages"].clone());
         assert_eq!(named(rust_messages, &rust.id), named(node_messages, &node_heir), "messages of {label}");
         let (rust_header, node_header) = (rust.cell.header.load_full(), node.cell.header.load_full());
-        // Mapping: the thread id, and the two prompt texts the heir's first turn restamps with its own scratch directory (the core's
-        // fork copies the source's; Node rebuilds them for the heir), are not compared. Every other header key is.
-        let keys: std::collections::BTreeSet<&String> = rust_header.keys().chain(node_header.keys()).filter(|key| !["id", "bp3EnvironmentContext", "promptEnv"].contains(&key.as_str())).collect();
+        // The thread id is the one header key that differs by construction; every other key is compared, the two prompt texts included.
+        // A heir's scratch directory is named by its own id (`s.` + sha256 prefix): each side's name is asserted to be that rule's
+        // value for its own id, then named `id`, as the boundary above is.
+        let scratched = |header: &mixdog_store::schema::record::Header, id: &ThreadId| {
+            use sha2::Digest;
+            let digest = format!("s.{}", &format!("{:x}", sha2::Sha256::digest(id.as_str().as_bytes()))[..16]);
+            let mut header = header.clone();
+            for key in ["bp3EnvironmentContext", "promptEnv"] {
+                let text = header.get(key).and_then(Value::as_str).expect("prompt text").to_owned();
+                assert_eq!(text.matches(&digest).count(), 1, "{key} of {label} names the heir's own scratch directory");
+                // The listing of the folder at the time (`Cwd entries at startup`) is a fact of the host's disk, which the recording's
+                // folders are not part of; it is the one line the heir's prompt composition reads from the file system.
+                let text: Vec<String> = text.replace(&digest, "s.<id>").split('\n').map(|line| if line.starts_with("- Cwd entries at startup:") { "- Cwd entries at startup: <disk>".to_owned() } else { line.to_owned() }).collect();
+                header.insert(key.into(), json!(text.join("\n")));
+            }
+            header
+        };
+        let (rust_header, node_header) = (scratched(&rust_header, &rust.id), scratched(&node_header, &node_heir));
+        let keys: std::collections::BTreeSet<&String> = rust_header.keys().chain(node_header.keys()).filter(|key| key.as_str() != "id").collect();
         let differing: Vec<String> = keys.into_iter().filter(|key| rust_header.get(*key) != node_header.get(*key)).map(|key| format!("{key}: rust {:?} node {:?}", rust_header.get(key), node_header.get(key))).collect();
         assert!(differing.is_empty(), "header of {label}: {differing:#?}");
         // The row `thread/list` shows for each heir, whole, as the desktop's roster showed Node's (the protocol names the fork source
@@ -2221,6 +2266,15 @@ async fn a_fork_is_placed_and_stamped_as_nodes_fork_is() {
             node_row.insert("forkedFromId".into(), from);
         }
         let mut node_row = Value::Object(node_row);
+        // The ids differ by construction; each is the heir that was asked for and has the shape Node's ids have.
+        let shape = |id: &Value| {
+            let id = id.as_str().expect("id");
+            let parts: Vec<&str> = id.strip_prefix("sess_").expect("sess_ prefix").split('_').collect();
+            (parts.len(), parts[0].chars().all(|c| c.is_ascii_digit()), parts[1].chars().all(|c| c.is_ascii_digit()), parts[2].len(), parts[3].len(), parts[3].chars().all(|c| c.is_ascii_hexdigit()))
+        };
+        assert_eq!(rust_row["id"], rust.id.as_str());
+        assert_eq!(node_row["id"], node_heir.as_str());
+        assert_eq!(shape(&rust_row["id"]), shape(&node_row["id"]), "id shape of {label}");
         rust_row["id"] = Value::Null;
         node_row["id"] = Value::Null;
         assert_eq!(rust_row, node_row, "row of {label}");

@@ -106,40 +106,74 @@ fn internal(step: &str, error: &dyn std::fmt::Display) -> CoreError {
 /// Forwards every barrier's projection to the index writer in barrier order; the blob store
 /// keeps the batch's pins until the projection is committed.
 #[derive(Clone)]
-pub struct Projector(mpsc::UnboundedSender<Projecting>);
+pub struct Projector(mpsc::UnboundedSender<Projecting>, Arc<std::sync::atomic::AtomicUsize>);
 
 enum Projecting {
     Frames(Box<Projection>),
-    /// Answered once every projection sent before it is committed.
-    Flush(tokio::sync::oneshot::Sender<()>),
+    /// Answered once every projection sent before it is committed: `Err` names the first of `sessions` whose latest projection
+    /// failed (the index does not hold its rows).
+    Flush(Vec<String>, tokio::sync::oneshot::Sender<Result<(), String>>),
 }
 
 impl Projector {
     /// Starts the forwarding task on the current Tokio runtime.
     pub fn spawn(index: SqliteStore) -> Self {
         let (tx, mut rx) = mpsc::unbounded_channel::<Projecting>();
+        let pending = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let done_count = pending.clone();
         tokio::spawn(async move {
+            // The sessions whose latest projection failed, until a later one succeeds. A failed projection leaves the session dirty;
+            // reconcile re-projects it from its log at the next start.
+            let mut failed = std::collections::BTreeMap::<String, String>::new();
             while let Some(msg) = rx.recv().await {
                 match msg {
-                    // A failed projection leaves the session dirty; reconcile re-projects it.
-                    Projecting::Frames(projection) => drop(index.project(*projection).await),
-                    Projecting::Flush(done) => drop(done.send(())),
+                    Projecting::Frames(projection) => {
+                        let session = projection.session.clone();
+                        match index.project(*projection).await {
+                            Ok(()) => drop(failed.remove(&session)),
+                            Err(error) => drop(failed.insert(session, error.to_string())),
+                        }
+                        done_count.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                    }
+                    Projecting::Flush(sessions, done) => {
+                        let verdict = sessions.iter().find_map(|id| failed.get(id).map(|error| format!("{id}: {error}")));
+                        drop(done.send(verdict.map_or(Ok(()), Err)));
+                    }
                 }
             }
         });
-        Self(tx)
+        Self(tx, pending)
     }
 
     fn send(&self, projection: Projection) {
-        let _ = self.0.send(Projecting::Frames(Box::new(projection)));
+        // Counted before it is queued, so a reader that follows the barrier's ack sees it pending until the index holds it.
+        self.1.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        if self.0.send(Projecting::Frames(Box::new(projection))).is_err() {
+            self.1.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        }
     }
 
-    /// Waits until the index holds every barrier acked so far.
-    async fn flush(&self) {
-        let (done, wait) = tokio::sync::oneshot::channel();
-        if self.0.send(Projecting::Flush(done)).is_ok() {
-            let _ = wait.await;
+    /// `None` when no projection is queued or running (one atomic load); otherwise the wait for those already sent.
+    fn settle(&self) -> Option<futures::future::BoxFuture<'static, ()>> {
+        if self.1.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+            return None;
         }
+        let projector = self.clone();
+        Some(Box::pin(async move { projector.flush().await }))
+    }
+
+    /// Waits until every barrier acked so far has been through the index writer, and answers whether `sessions` are indexed: the
+    /// error names the first whose projection failed, or says the writer's task is gone.
+    async fn flush_of(&self, sessions: &[String]) -> Result<(), String> {
+        let (done, wait) = tokio::sync::oneshot::channel();
+        self.0.send(Projecting::Flush(sessions.to_vec(), done)).map_err(|_| "the index projector has stopped".to_owned())?;
+        wait.await.map_err(|_| "the index projector stopped before it answered".to_owned())?
+    }
+
+    /// Waits until every barrier acked so far has been through the index writer; a projection that failed stays dirty for
+    /// reconcile, which these callers (the log's own reads) do not wait on.
+    async fn flush(&self) {
+        drop(self.flush_of(&[]).await);
     }
 }
 
@@ -186,6 +220,12 @@ pub struct StoreThreads {
     projector: Projector,
     maintenance: MaintenanceIo,
     runtime: tokio::runtime::Handle,
+}
+
+impl super::thread_list::ListFence for StoreThreads {
+    fn pending(&self) -> Option<futures::future::BoxFuture<'static, ()>> {
+        self.projector.settle()
+    }
 }
 
 impl StoreThreads {
@@ -867,9 +907,10 @@ impl ThreadStore for StoreThreads {
         })
     }
 
-    fn indexed(&self) -> futures::future::BoxFuture<'static, ()> {
+    fn indexed(&self, sessions: &[ThreadId]) -> futures::future::BoxFuture<'static, Result<(), CoreError>> {
         let projector = self.projector.clone();
-        Box::pin(async move { projector.flush().await })
+        let sessions: Vec<String> = sessions.iter().map(|id| id.as_str().to_owned()).collect();
+        Box::pin(async move { projector.flush_of(&sessions).await.map_err(|error| internal("index", &error)) })
     }
 
     fn purge_deleted(&self) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>> {
@@ -1075,5 +1116,65 @@ fn prompt_row(text: String) -> ItemRecord {
         prompt: Some(Slot::Inline(text)),
         refs: Vec::new().try_into().expect("empty list fits"),
         body: Slot::Inline(serde_json::Value::Null),
+    }
+}
+
+#[cfg(test)]
+mod projector_tests {
+    use super::*;
+    use mixdog_store::sqlite::SqliteStore;
+    use mixdog_store::summary::CatalogHead;
+
+    async fn index_in(data: &Path) -> SqliteStore {
+        let tokens = mixdog_rt::testing::tokens();
+        let root = data.to_path_buf();
+        mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
+            SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root)
+        })
+        .expect("lane")
+        .await
+        .expect("job ran")
+        .expect("index")
+    }
+
+    fn empty_projection(session: &str) -> Projection {
+        let head = CatalogHead { session: session.into(), log_id: "L".into(), base_session: None, header: serde_json::Map::new() };
+        Projection { session: session.into(), frames: Vec::new(), head, pins: Vec::new() }
+    }
+
+    /// What a list asks of the projector: pending from the moment a projection is queued until the index holds it, and nothing
+    /// to wait for (no future at all) when idle.
+    #[tokio::test]
+    async fn a_queued_projection_is_pending_until_the_index_holds_it() {
+        let data = tempfile::tempdir().expect("data");
+        let projector = Projector::spawn(index_in(data.path()).await);
+        assert!(projector.settle().is_none(), "idle");
+        projector.send(empty_projection("sess_ok"));
+        let wait = projector.settle().expect("a queued projection is pending");
+        wait.await;
+        assert!(projector.settle().is_none(), "the index holds it");
+    }
+    /// A projection the index writer cannot take (its catalog table is gone) is reported by the flush for that session, not
+    /// acknowledged as indexed; a session whose projection did not fail is still reported indexed, and a projector that is gone
+    /// answers with an error too.
+    #[tokio::test]
+    async fn a_flush_reports_a_failed_projection_instead_of_indexed() {
+        let data = tempfile::tempdir().expect("data");
+        let index = index_in(data.path()).await;
+        let projector = Projector::spawn(index);
+        projector.send(empty_projection("sess_ok"));
+        projector.flush_of(&["sess_ok".into()]).await.expect("a healthy projection is indexed");
+
+        let broken = rusqlite::Connection::open(data.path().join(mixdog_store::sqlite::INDEX_FILE)).expect("index file");
+        broken.execute_batch("DROP TABLE sessions").expect("drop the catalog table");
+        projector.send(empty_projection("sess_lost"));
+        let error = projector.flush_of(&["sess_lost".into()]).await.expect_err("the projection failed");
+        assert!(error.starts_with("sess_lost: "), "{error}");
+        projector.flush_of(&["sess_ok".into()]).await.expect("another session's projection did not fail");
+
+        let (stopped, rx) = mpsc::unbounded_channel::<Projecting>();
+        drop(rx);
+        let error = Projector(stopped, Arc::default()).flush_of(&["sess_lost".into()]).await.expect_err("no projector");
+        assert!(error.contains("stopped"), "{error}");
     }
 }

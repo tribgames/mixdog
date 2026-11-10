@@ -522,6 +522,9 @@ impl SessionHandle {
                 starting: None,
             })
             .await?;
+        // The heir's prompt is composed for the heir (`createSession`: its scratch directory, tools and workflow), never the
+        // source's text; `carryConversation` carries the conversation only ("System blocks belong to the session that BUILT them").
+        directory.deps.empty_surface.refresh_empty(&created.id).await.map_err(|message| mixdog_core_base::support::failed("session", message))?;
         // `inheritFrom` (`lifecycle/inheritance.mjs`): the heir is a created, empty session and the source's conversation is
         // carried into it with its inheritance boundary, as an `intoThreadId` heir's is.
         let heirs = super::SessionDirectory::over(directory.clone());
