@@ -282,6 +282,9 @@ fn options_in(o: w::ProxyOptions) -> Result<p::RequestOptions, Invalid> {
         transport_scope: None,
         effort: o.effort,
         model_max_output_tokens: None,
+        // The proxy wire does not carry the session's wire pin (Node's `options.session.wireRoute`): this PC's
+        // gateway routes the model afresh.
+        wire_pin: None,
         max_output_tokens_override: o.max_output_tokens_override,
         fast: o.fast,
         tool_choice: o.tool_choice,

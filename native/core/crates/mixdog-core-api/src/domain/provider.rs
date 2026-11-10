@@ -330,6 +330,18 @@ pub struct RequestOptions {
     pub source_type: Option<String>,
     /// Node `opts.onToolExcluded`: where a tool the adapter leaves out of this request is reported.
     pub on_tool_excluded: Option<ToolExclusionSink>,
+    /// Node `session.wireRoute`: the wire the session pinned for a provider and model. A gateway sends on it while
+    /// it names the gateway and the request's model and the model is still offered there (`sendWireRoute`).
+    pub wire_pin: Option<WirePin>,
+}
+
+/// A session's pinned wire route (Node `session.wireRoute`: `{ provider, model, wire }`).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct WirePin {
+    pub provider: String,
+    pub model: String,
+    /// `chat`, `responses`, `messages` or `gemini`.
+    pub wire: String,
 }
 
 /// The session's saved provider-native state (Node `session.providerState`).

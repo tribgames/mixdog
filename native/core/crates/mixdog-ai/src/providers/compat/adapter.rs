@@ -87,6 +87,10 @@ pub struct RouteInputs {
 }
 
 impl CompatAdapter {
+    pub fn profile(&self) -> &CompatProfile {
+        self.codec.profile()
+    }
+
     pub fn with_routing(mut self, routing: RouteInputs) -> Self {
         self.routing = routing;
         self
@@ -141,12 +145,12 @@ impl CompatAdapter {
         profile.credential == CredentialKind::StaticKey { reauth_on_401: false }
     }
 
-    async fn failure(&self, response: HttpResponse, key: Option<&str>) -> ProviderError {
+    async fn failure(codec: &dyn WireCodec, response: HttpResponse, key: Option<&str>) -> ProviderError {
         let body = match response.read_all().await {
             Ok(body) => body,
             Err(err) => return err,
         };
-        let mut err = self.codec.classify(&body);
+        let mut err = codec.classify(&body);
         if let Some(key) = key {
             err.message = redact_key(&err.message, key);
         }
@@ -190,7 +194,15 @@ impl ProviderAdapter for CompatAdapter {
     }
 
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
-        let wire = self.codec.encode(&request)?;
+        self.attempt_with(&self.codec, request).await
+    }
+}
+
+impl CompatAdapter {
+    /// One attempt of this provider's key and transport on another of its wires (`codec`): the gateway's
+    /// Responses wire rides the same account as its Chat wire.
+    pub async fn attempt_with(&self, codec: &dyn WireCodec, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        let wire = codec.encode(&request)?;
         let mut key = match &self.key {
             Some(source) => Some(source.key().await?),
             None => None,
@@ -202,9 +214,9 @@ impl ProviderAdapter for CompatAdapter {
                 .send(Self::with_key(&wire, key.as_deref()), MODEL_STREAM)
                 .await?;
             if response.is_success() {
-                return Ok(Box::new(CompatStream::new(response.body, self.codec.decoder(&request))));
+                return Ok(Box::new(CompatStream::new(response.body, codec.decoder(&request))));
             }
-            let err = self.failure(response, key.as_deref()).await;
+            let err = Self::failure(codec, response, key.as_deref()).await;
             if err.status == Some(401)
                 && !reloaded
                 && Self::reloadable(self.codec.profile())

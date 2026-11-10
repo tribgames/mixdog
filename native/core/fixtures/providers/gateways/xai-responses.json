@@ -1,0 +1,84 @@
+{
+  "id": "xai-responses",
+  "provider": "xai",
+  "config": {
+    "enabled": true,
+    "preconnect": false,
+    "apiKey": "xai-fixture"
+  },
+  "sends": [
+    {
+      "model": "grok-4.3",
+      "tools": [],
+      "history": [],
+      "sessionId": null,
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://api.x.ai",
+          "path": "/v1/responses",
+          "headers": {
+            "host": "api.x.ai",
+            "connection": "keep-alive",
+            "accept": "application/json",
+            "user-agent": "OpenAI/JS 6.49.0",
+            "x-stainless-retry-count": "0",
+            "x-stainless-lang": "js",
+            "x-stainless-package-version": "6.49.0",
+            "x-stainless-os": "Windows",
+            "x-stainless-arch": "x64",
+            "x-stainless-runtime": "node",
+            "x-stainless-runtime-version": "v22.20.0",
+            "authorization": "Bearer xai-fixture",
+            "content-type": "application/json",
+            "accept-language": "*",
+            "sec-fetch-mode": "cors",
+            "accept-encoding": "gzip, deflate",
+            "content-length": "269"
+          },
+          "body": "{\"model\":\"grok-4.3\",\"input\":[{\"role\":\"system\",\"content\":[{\"type\":\"input_text\",\"text\":\"You are a fixture assistant.\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Look up the answer.\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true}",
+          "answer": {
+            "status": 200,
+            "body": "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_x\",\"model\":\"fixture\"}}\n\nevent: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"m1\",\"role\":\"assistant\",\"content\":[]}}\n\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"m1\",\"delta\":\"The result \"}\n\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"m1\",\"delta\":\"is 42.\"}\n\nevent: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"m1\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"The result is 42.\"}]}}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_x\",\"model\":\"fixture\",\"status\":\"completed\",\"usage\":{\"input_tokens\":20,\"output_tokens\":8,\"total_tokens\":28},\"output\":[{\"type\":\"message\",\"id\":\"m1\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"The result is 42.\"}]}]}}\n\n"
+          }
+        }
+      ],
+      "events": [
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "stageChange",
+          "stage": "streaming",
+          "payload": null
+        },
+        {
+          "on": "textDelta",
+          "text": "The result "
+        },
+        {
+          "on": "textDelta",
+          "text": "is 42."
+        }
+      ],
+      "result": {
+        "content": "The result is 42.",
+        "reasoning": null,
+        "toolCalls": [],
+        "stopReason": null,
+        "usage": {
+          "inputTokens": 20,
+          "outputTokens": 8
+        },
+        "providerMetadata": null
+      }
+    }
+  ]
+}
