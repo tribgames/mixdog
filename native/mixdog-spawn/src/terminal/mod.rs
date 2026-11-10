@@ -1323,6 +1323,8 @@ impl TerminalTabs {
     /// The tree ended is the disposed process's own, captured here: never a process created under the same id since.
     /// Elsewhere, and for a tab whose terminal cannot be closed, the tree is ended at once.
     fn end_process(&self, handle: &ProcessHandle) {
+        // A write waiting for room in the tab's input ends now (Node's dispose leaves no write behind); already closed or gone is fine.
+        self.manager.refuse_input(handle);
         // Already gone is fine.
         let events = if cfg!(windows) { self.manager.subscribe(handle, None).ok() } else { None };
         let hung = events.as_ref().and_then(|_| self.manager.hang_up(handle).ok());

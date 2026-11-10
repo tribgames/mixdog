@@ -597,6 +597,41 @@ async fn a_write_in_pieces_is_never_interleaved_with_another_write() {
     let _ = collect(&m, &h).await;
 }
 
+/// A write whose caller is dropped after it began is still written whole (Node's `pty.write` takes the string at once,
+/// terminal-manager.ts:419): the next write, which waits behind it, finds all of it written first.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_write_whose_caller_is_dropped_midway_is_written_whole() {
+    let m = manager_with(ProcessConfig { input_queue_bytes: 16, ..ProcessConfig::default() });
+    let h = handle("dropped-writer");
+    m.spawn(SpawnRequest { stdin_piped: true, ..request(&h, CommandSpec::Argv { program: "sort".into(), args: vec![] }) }).await.unwrap();
+    // Longer than the queue many times over, within `sort`'s line limit (4096 on Windows).
+    let long = "x".repeat(4000);
+    let mut first = Box::pin(m.write_input_wait(&h, format!("{long}\n").into_bytes()));
+    let _ = poll_once(&mut first).await;
+    drop(first);
+    tokio::time::timeout(WAIT, m.write_input_wait(&h, b"END\n".to_vec())).await.expect("the second write within the deadline").unwrap();
+    m.close_stdin(&h).unwrap();
+    let (output, _) = collect(&m, &h).await;
+    let lines: Vec<String> = String::from_utf8(output).unwrap().lines().map(|line| line.trim_end().to_owned()).collect();
+    assert_eq!(lines, ["END".to_owned(), long], "both writes, whole");
+}
+
+/// A write waiting for room ends when the input is refused (a disposed terminal), and lets go of the write side: a later write is
+/// refused as closed, not queued behind it.
+#[tokio::test(flavor = "multi_thread")]
+async fn refusing_the_input_ends_a_waiting_write() {
+    let m = manager_with(ProcessConfig { input_queue_bytes: 16, ..ProcessConfig::default() });
+    let h = handle("refused-writer");
+    m.spawn(SpawnRequest { stdin_piped: true, ..request(&h, long_sleep()) }).await.unwrap();
+    let mut first = Box::pin(m.write_input_wait(&h, "é".repeat(256 * 1024).into_bytes()));
+    assert!(poll_once(&mut first).await.is_pending(), "the large write waits for room");
+    m.refuse_input(&h);
+    assert_eq!(tokio::time::timeout(WAIT, first).await.expect("the write ends when the input is refused"), Err(ProcessError::StdinClosed));
+    assert_eq!(m.write_input(&h, b"x".to_vec()), Err(ProcessError::StdinClosed), "the write side is free and refuses");
+    m.kill(&h).unwrap();
+    let _ = collect(&m, &h).await;
+}
+
 async fn poll_once<F: std::future::Future + Unpin>(future: &mut F) -> std::task::Poll<F::Output> {
     std::future::poll_fn(|cx| std::task::Poll::Ready(std::pin::Pin::new(&mut *future).poll(cx))).await
 }

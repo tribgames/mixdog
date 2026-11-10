@@ -75,7 +75,7 @@ if (!args.has('child')) {
     let stdout = '';
     let stderr = '';
     const deadline = realSetTimeout(
-      () => reject(new Error(`the recording sent no end marker (${TRACE_END}) within ${RECORDING_MS} ms:\n${stdout.slice(-2000)}\n${stderr.slice(-4000)}`)),
+      () => reject(Object.assign(new Error(`the recording sent no end marker (${TRACE_END}) within ${RECORDING_MS} ms:\n${stdout.slice(-2000)}\n${stderr.slice(-4000)}`), { output: { stdout, stderr } })),
       RECORDING_MS
     );
     child.stdout.setEncoding('utf8').on('data', (chunk) => {
@@ -88,7 +88,7 @@ if (!args.has('child')) {
     child.stderr.setEncoding('utf8').on('data', (chunk) => (stderr += chunk));
     child.once('exit', (status) => {
       realClearTimeout(deadline);
-      reject(new Error(`recording failed (${status}):\n${stdout.slice(-2000)}\n${stderr.slice(-4000)}`));
+      reject(Object.assign(new Error(`recording failed (${status}):\n${stdout.slice(-2000)}\n${stderr.slice(-4000)}`), { output: { stdout, stderr } }));
     });
   }).then(
     (value) => {
@@ -111,14 +111,24 @@ if (!args.has('child')) {
   // disagree on varies, within what they recorded (remote-protocol-terminal-compare.mjs). No run is dropped and no batch is picked.
   const runs = Number(args.get('runs') ?? 5);
   const traces = [];
-  for (let run = 1; run <= runs; run += 1) traces.push(await recordOnce());
+  for (let run = 1; run <= runs; run += 1) {
+    try {
+      traces.push(await recordOnce());
+    } catch (failure) {
+      // The whole failure (the child's output tails are in its message) and which run it was, kept beside the work folder.
+      const log = `${ROOT}-failure-${Date.now()}.log`;
+      const output = failure?.output ? `\n--- the recording's stdout ---\n${failure.output.stdout}\n--- its stderr ---\n${failure.output.stderr}\n` : '';
+      writeFileSync(log, `run ${run} of ${runs}\n${failure?.stack ?? String(failure)}\n${output}`);
+      throw new Error(`run ${run} of ${runs} failed; the whole error is in ${log}`, { cause: failure });
+    }
+  }
   const trace = traces[0];
   const variance = { runs, ...varianceReport(traces) };
   // `--out` writes the set elsewhere (a probe of Node's variance over more runs than the fixture keeps).
   const finalOut = args.get('out') ?? join(REPO_ROOT, 'apps', 'mobile', 'fixtures', 'phone-terminal');
   const out = stageSet(finalOut);
   writeJson(join(out, 'golden.json'), {
-    note: 'Node terminal and folder-watch calls and pushes as a phone sees them: one ordered list of each call\'s answer or error text and each push its listeners got. Terminal text is compared as the screen at each checkpoint: Node\'s own bytes differ from run to run (see lib/phone-terminal-script.mjs).',
+    note: 'Node terminal and folder-watch calls and pushes as a phone sees them: one ordered list of each call\'s answer or error text, each push its listeners got and each output frame. Output no answered call causes is waited for before the next call (see the manifest\'s `settled` and lib/phone-terminal-script.mjs); every run is in runs.json.',
     root: ROOT,
     trace,
   });
@@ -129,7 +139,11 @@ if (!args.has('child')) {
     recorder: 'benchmarks/rust-core/recorders/record-phone-terminal.mjs',
     command: `node benchmarks/rust-core/recorders/record-phone-terminal.mjs --tree <git archive of ${REF} (src, apps) with node_modules>`,
     identity: exactProductIdentity(tree, REF),
-    extra: { entries: trace.order.length },
+    extra: {
+      entries: trace.order.length,
+      settled:
+        'Output no answered call causes (a resize re-render, a prompt after idle, a closing output against the next dispose) is waited for before the next call: its place among later calls is call latency, 0 ms in this in-process recorder and a socket round trip for a phone. The immediate part keeps the answer-ordered sequences (ensure then first output, dispose then closing output) unsettled.',
+    },
   });
   commitStage(out, finalOut);
   console.log(`phone-terminal: ${trace.order.length} entries`);

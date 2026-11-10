@@ -449,6 +449,42 @@ async fn an_ensure_keeps_its_feed_hold_until_the_answer_is_queued() {
     service.call(request("terminal/dispose", json!({ "tabId": "term_new" }), 1)).await.unwrap();
 }
 
+/// No process of a disposed tab's tree is left after the grace, counted by ownership: the tab's own containment (its job, or its process
+/// group) is empty. The shell runs a child that would outlive it; the disposal closes the terminal, and once the shell has ended (or the
+/// grace has passed) the captured process's tree is ended with everything in it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_disposed_tabs_tree_is_empty_after_the_grace() {
+    let manager = manager();
+    let feeds = ProcessFeeds::new(manager.clone(), scoped());
+    let publisher = Arc::new(SectionLog::default());
+    let service = TerminalService::new(manager.clone(), feeds, publisher, TerminalServiceConfig::default());
+    let cwd = temp_dir().as_path().to_string_lossy().into_owned();
+    service.call(request("terminal/ensure", json!({ "tabId": "term_tree", "options": { "cwd": cwd } }), 1)).await.unwrap();
+    let handle = ProcessHandle::from("term_tree");
+    let mut events = manager.subscribe(&handle, Some(0)).unwrap();
+    let child = if cfg!(windows) { "ping -n 120 127.0.0.1\r" } else { "sleep 120\r" };
+    manager.write_input(&handle, child.as_bytes().to_vec()).unwrap();
+    // The child is running once the shell has echoed its command line and (on Windows) ping has written its first line, which names the
+    // address again (the line's wording is the system's language).
+    let (started, times) = if cfg!(windows) { ("127.0.0.1", 2) } else { ("sleep 120", 1) };
+    let mut seen = String::new();
+    tokio::time::timeout(WAIT, async {
+        while seen.matches(started).count() < times {
+            match events.next().await {
+                Some(ProcessEvent::Output { bytes, .. }) => seen.push_str(&String::from_utf8_lossy(&bytes)),
+                other => panic!("the shell ended before its child ran: {other:?}"),
+            }
+        }
+    })
+    .await
+    .expect("the child started within the deadline");
+    service.call(request("terminal/dispose", json!({ "tabId": "term_tree" }), 1)).await.unwrap();
+    let survivors = mixdog_spawn::survivors::ProcessSurvivors::new(manager.clone());
+    // The grace is 5 s; the deadline is past it.
+    assert!(tokio::time::timeout(WAIT, survivors.wait_gone(&handle, &CancellationToken::new())).await.expect("within the deadline"), "the tab's tree emptied");
+    assert!(survivors.survivors(&handle).is_none(), "nothing of the tab's tree is left");
+}
+
 /// Node's `termActivity` walked its tab map, so the tabs came in creation order, not sorted by id.
 #[tokio::test(flavor = "multi_thread")]
 async fn terminal_activity_lists_tabs_in_creation_order() {
