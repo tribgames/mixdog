@@ -13,9 +13,11 @@
 //   node benchmarks/rust-core/recorders/record-call-tool.mjs --tree <exact export of b6f10295a with node_modules>
 //
 // Output: native/core/fixtures/call-tool/golden.json (+ MANIFEST.json). The `script` of each scenario is the recorder's input.
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { pathToFileURL } from 'node:url';
 
 const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
@@ -32,6 +34,43 @@ process.env.MIXDOG_AGENT_TRACE_PATH = join(sandbox, 'agent-trace.jsonl');
 process.env.MIXDOG_RUNTIME_ROOT = join(sandbox, 'no-service');
 mkdirSync(process.env.MIXDOG_DATA_DIR, { recursive: true });
 
+// The Node daemon the scenarios start leaves a Postgres (and its cmd.exe launcher) running under the sandbox profile, and nothing else ends
+// it. Every process it started is found by the profile path in its command line (the path is unique to this run: mkdtemp), ended with its
+// tree, and the profile removed, on every way out of this process: a normal end, a throw, an unhandled rejection (all reach 'exit') and an
+// interrupt or termination (turned into an exit). Only a kill of this process itself (SIGKILL) skips it; the next run's profile is a new folder,
+// so the leftover is the folder named `rec-call-tool-*` with the processes whose command line holds it.
+// A detached janitor outlives this process: it ends what is left once this process is gone, whichever way it went (see sandbox-janitor.mjs).
+spawn(process.execPath, [fileURLToPath(new URL('./sandbox-janitor.mjs', import.meta.url)), String(process.pid), sandbox], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+
+function cleanSandbox() {
+  const list = spawnSync(
+    'powershell.exe',
+    ['-NoProfile', '-Command', "Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine.Contains($env:REC_SANDBOX) -and -not $_.CommandLine.Contains('sandbox-janitor') } | ForEach-Object { $_.ProcessId }"],
+    { env: { ...process.env, REC_SANDBOX: sandbox }, encoding: 'utf8', timeout: 30_000 }
+  );
+  if (list.status !== 0) {
+    console.error(`cannot list the processes of ${sandbox}: status ${list.status} ${list.error ?? list.stderr}`);
+    process.exitCode = 1;
+  }
+  for (const pid of (list.stdout ?? '').split(/\s+/).filter(Boolean)) {
+    // 128: the process already ended with its parent's tree.
+    const ended = spawnSync('taskkill', ['/T', '/F', '/PID', pid], { stdio: 'ignore', timeout: 15_000 });
+    if (ended.status !== 0 && ended.status !== 128) {
+      console.error(`cannot end pid ${pid} of ${sandbox}: status ${ended.status} ${ended.error ?? ''}`);
+      process.exitCode = 1;
+    }
+  }
+  try {
+    rmSync(sandbox, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+  } catch (error) {
+    console.error(`cannot remove ${sandbox}: ${error.message}`);
+    process.exitCode = 1;
+  }
+}
+// Registered now for a failure while loading, and again once the tree's modules are loaded (below): the tree's own exit hooks write a
+// trace and a usage file under the profile, and run in the order they were registered, so the last registration removes what they wrote.
+process.on('exit', cleanSandbox);
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGBREAK']) process.on(signal, () => process.exit(130));
 const { FIXTURES_ROOT, commitStage, exactProductIdentity, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
 const tree = resolveTree(parseArgs());
 const identity = exactProductIdentity(tree, NODE_COMMIT);
@@ -519,6 +558,7 @@ function stripTiming(message) {
 
 // The first approval of a process builds the human gate's store (human-gate/store.mjs:186 `humanGateStore`, a dynamic import): once, before any scenario.
 await humanGateStore();
+process.on('exit', cleanSandbox);
 
 const scenarios = [];
 for (const scenario of SCENARIOS) {
