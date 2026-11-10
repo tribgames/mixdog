@@ -79,13 +79,16 @@ export async function startCore(exe, coreRoot, relay, fresh = true, extraEnv = {
     stirred = true;
     wake?.();
   };
-  const watcher = watch(dir, stir);
-  child.once('exit', stir);
-  const deadline = setTimeout(() => {
-    late = true;
-    stir();
-  }, START_DEADLINE_MS);
+  let watcher = null;
+  let deadline = null;
+  // Owned from the spawn: a throw from here on (the watch included) ends the child.
   try {
+    watcher = watch(dir, stir);
+    child.once('exit', stir);
+    deadline = setTimeout(() => {
+      late = true;
+      stir();
+    }, START_DEADLINE_MS);
     for (;;) {
       stirred = false;
       if (child.exitCode !== null) throw new Error(`mixdogd exited ${child.exitCode}:\n${stderr}`);
@@ -101,7 +104,7 @@ export async function startCore(exe, coreRoot, relay, fresh = true, extraEnv = {
     throw error;
   } finally {
     clearTimeout(deadline);
-    watcher.close();
+    watcher?.close();
   }
 }
 

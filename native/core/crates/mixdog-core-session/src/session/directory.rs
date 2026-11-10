@@ -710,7 +710,10 @@ impl SessionDirectory {
     pub async fn shutdown_for(&self, reason: &str) {
         // The new-task attempts in flight are cut first, as a process ending leaves them, before the directory refuses their
         // next step (a refusal would mark their receipts refused).
-        self.inner.deps.new_tasks.shutdown().await;
+        // Under the directory's own stop bound: a receipt write stalled on durability cannot hold the rest of the teardown.
+        if let Err(overrun) = self.inner.deps.new_tasks.shutdown(SHUTDOWN_INGEST_DEADLINE).await {
+            tracing::error!(%overrun, "the new-task receipts did not shut down in time");
+        }
         self.begin_close();
         if is_process_exit_reason(reason)
             && let Some(hook) = self.inner.owner_teardown.get()
