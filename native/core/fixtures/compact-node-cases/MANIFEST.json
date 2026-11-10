@@ -1,0 +1,54 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-compact-node-cases.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "exclusions": {
+    "schemaHeadWithoutRole": "summary-schema.test.mjs:21 passes head rows without a role; the replay reads them as assistant rows (neither is a user turn)",
+    "staleObservations": "Node returns a Map keyed by transcript index in its backward walk order; recorded as membership per index, the only thing a caller reads (Rust returns a HashMap)",
+    "summaryModeNull": "the `undefined` compaction of the test is written as null (JSON has no undefined); the recorder passes undefined to Node",
+    "supersededMessage": "only `content` of the superseded message is recorded: supersedeObservation copies every other field unchanged"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 106887,
+      "path": "golden.json",
+      "sha256": "5043976a229ebaa6a50bae76a97de605a36f494c2ff4d19fa533d368bc657c4b"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-compact-node-cases.mjs",
+  "recorderSha256": "e1c70912b6eb886f12b340248503c0c99f7f419b03660f1741b4b102f2ef36c9",
+  "set": "compact-node-cases",
+  "tests": [
+    "src/runtime/agent/orchestrator/session/compact/execution-tail.test.mjs:21",
+    "src/runtime/agent/orchestrator/session/compact/observation-supersession.test.mjs (every case)",
+    "src/runtime/agent/orchestrator/session/compact/summary-mode.test.mjs:157",
+    "src/runtime/agent/orchestrator/session/compact/summary-prompt.test.mjs (every case)",
+    "src/runtime/agent/orchestrator/session/compact/summary-schema.test.mjs (every case)",
+    "src/runtime/agent/orchestrator/session/compact/text-utils.test.mjs (every case)",
+    "src/runtime/agent/orchestrator/session/loop/arg-schema-coerce.test.mjs (every case)"
+  ],
+  "totalBytes": 106887
+}
