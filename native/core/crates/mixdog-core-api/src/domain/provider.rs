@@ -488,6 +488,9 @@ pub struct RequestThread {
     /// The turn this request serves, which scopes `x-codex-turn-state`;
     /// `None` for a request outside a turn (prewarm).
     pub turn: Option<TurnId>,
+    /// The turn's start (Node's `turnStartedAtUnixMs`), when the caller knows it; else the Codex metadata takes the
+    /// stamp of the session id.
+    pub turn_started_at_ms: Option<u64>,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -1027,6 +1030,12 @@ pub trait ProviderAdapter: Send + Sync {
     /// 'session-deleted')`): its connections and per-session transport state go. Nothing to do
     /// for a provider that keeps none.
     fn release_session(&self, _session_id: &str) {}
+    /// A forked request's transport scope is disposed (`disposeTransportScope`:
+    /// `__mixdogCloseProviderConnectionsForSession(scope, 'transport_scope_disposed')`): the scope's
+    /// connections and transport state go. By default as [`Self::release_session`].
+    fn release_transport_scope(&self, scope: &str) {
+        self.release_session(scope);
+    }
     /// `provider.nativePdf !== false` (`providerTakesNativePdf`): the provider takes a PDF as a
     /// native document block. Each adapter class declares it; one that declares nothing takes it.
     fn native_pdf(&self) -> bool {

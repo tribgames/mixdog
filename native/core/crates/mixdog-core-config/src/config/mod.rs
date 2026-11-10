@@ -397,6 +397,8 @@ impl Config {
     /// (retired local providers and fields dropped, incomplete or superseded routes migrated,
     /// `providers` and `webSearchRoute` always present, …). The catalog is read as a lane job.
     pub async fn loaded_agent(&self) -> Result<Doc, ConfigError> {
+        #[cfg(feature = "count-work")]
+        crate::work::agent_rebuilt();
         let agent = self.agent();
         let dir = self.shared.path.parent().map(Path::to_path_buf).unwrap_or_default();
         let now_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
@@ -981,6 +983,8 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 #[allow(clippy::disallowed_methods, reason = "an io-interactive job body: the proof says it runs there")]
 fn read_file(_lane: &InLane<InteractiveIo>, path: &Path) -> Result<Doc, ConfigError> {
+    #[cfg(feature = "count-work")]
+    crate::work::file_read();
     let bytes = match fs::read(path) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Doc::new()),

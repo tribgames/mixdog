@@ -204,29 +204,11 @@ pub fn is_shell_tool(name: &str) -> bool {
     matches!(strip_mcp(name), "shell" | "bash_session")
 }
 
-const GITHUB_READ_ACTIONS: [&str; 15] = [
-    "repo.list",
-    "repo.view",
-    "issue.list",
-    "issue.view",
-    "issue.comments",
-    "pr.list",
-    "pr.view",
-    "pr.comments",
-    "workflow.list",
-    "run.list",
-    "run.view",
-    "run.logs",
-    "release.list",
-    "release.view",
-    "notification.list",
-];
-
 /// `_isGitMutationTool`: an unknown github action counts as a mutation.
 pub fn is_git_mutation(name: &str, args: &JsonValue) -> bool {
     match strip_mcp(name).to_lowercase().as_str() {
         "git" => mixdog_tools::git::git_call_mutates(args),
-        "github" => !args.get("action").and_then(|a| a.as_str()).is_some_and(|a| GITHUB_READ_ACTIONS.contains(&a)),
+        "github" => mixdog_tools::github::github_call_mutates(args),
         _ => false,
     }
 }

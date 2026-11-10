@@ -35,8 +35,7 @@ use super::*;
 use crate::session::seams::RunOutcome;
 use crate::session::testing::Rig;
 use crate::session::testing::lock;
-use crate::session::tests::eventually;
-use crate::session::tests::eventually_on;
+use crate::eventually_on;
 use crate::session::tests::turn;
 use crate::session::worktree::worktree_tests;
 
@@ -246,6 +245,7 @@ async fn world() -> World {
         app: Arc::new(mixdog_core_base::state::SectionFeedState::new(feed)),
         ops: scopes(ops.path(), "thread").await,
         surface: surface.clone(),
+        archive_stamps: Arc::default(),
     });
     World { rig, directory, workspace, settings, projects, notes, effort, agent_only, app, surface, _ops: ops }
 }
@@ -334,7 +334,7 @@ async fn favorites_and_archives_replay_the_desktops_metadata() {
             let method = if flag { "thread/archived" } else { "thread/unarchived" };
             let frame = format!(r#""method":"{method}","params":{{"threadId":"{id}"}}"#);
             if step["value"] == true {
-                eventually(|| world.published().iter().any(|text| text.contains(&frame)).then_some(())).await;
+                world.app.drain_text_until(|texts| texts.iter().any(|text| text.contains(&frame))).await;
             } else {
                 tokio::time::sleep(Duration::from_millis(20)).await;
                 assert!(!world.published().iter().any(|text| text.contains(method)), "step {at}: nothing changed");
@@ -392,7 +392,7 @@ async fn a_tool_mode_reaches_only_an_empty_idle_session() {
     world.session("sess_busy", json!({ "toolSpec": "full" })).await;
     let handle = world.directory.handle(&ThreadId::from("sess_busy")).expect("loaded");
     turn(&handle, "work", "op-busy").await;
-    eventually(|| handle.cell.run.load().is_some().then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load().is_some().then_some(())).await;
     let answer = world.call(SET_TOOL_MODE, json!({ "threadId": "sess_busy", "mode": "readonly" }), 3).await.unwrap();
     assert_eq!(answer, json!("readonly"));
     assert_eq!(world.header("sess_busy").await["toolSpec"], json!("full"), "a running turn keeps its tool surface");
@@ -548,20 +548,21 @@ async fn a_session_working_in_any_way_the_host_counts_is_not_moved() {
         match name {
             "lead-working" => {
                 turn(&handle, "work", "op-working").await;
-                eventually_on(&[stepped], || handle.cell.run.load().is_some().then_some(())).await;
+                eventually_on!(&[stepped], || handle.cell.run.load().is_some().then_some(())).await;
             }
             "live-busy" => {
                 let runtime = ThreadRuntime { busy: true, ..ThreadRuntime::default() };
                 handle.set_section(Section::Runtime(runtime)).await.expect("section");
-                eventually_on(&[stepped], || world.directory.runtime_facts(&id).filter(|facts| facts.busy).map(|_| ())).await;
+                eventually_on!(&[stepped], || world.directory.runtime_facts(&id).filter(|facts| facts.busy).map(|_| ())).await;
             }
             _ => {
                 *lock(&world.rig.compaction.hold) = Some(hold.clone());
                 let running = handle.clone();
-                compacting = Some(tokio::spawn(async move {
+                let mut task = tokio::spawn(async move {
                     running.request(request("thread/compact/start", with_op(json!({ "threadId": "sess_working" }), 2), Some(2))).await
-                }));
-                eventually_on(&[stepped], || handle.cell.compacting.load(Ordering::SeqCst).then_some(())).await;
+                });
+                crate::eventually_on_until!(&[stepped], || handle.cell.compacting.load(Ordering::SeqCst).then_some(()), &mut task).await;
+                compacting = Some(task);
             }
         }
         let repo = world.workspace.repo.to_string_lossy().into_owned();

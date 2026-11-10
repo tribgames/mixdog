@@ -181,7 +181,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn the_same_route_in_flight_is_joined_and_a_refusal_never_fails_the_save() {
         let setter = Arc::new(Refusing(AtomicUsize::new(0)));
         let publisher = SessionRoutePublisher::new(Arc::new(AgentRouteFollow::new(Arc::new(Two), setter.clone())));
@@ -212,7 +212,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn a_stored_route_a_chat_refused_is_retried_and_once_taken_not_sent_again() {
         let setter = Arc::new(Flaky { taking: false.into(), taken: 0.into(), attempts: 0.into() });
         let publisher = SessionRoutePublisher::new(Arc::new(AgentRouteFollow::new(Arc::new(Two), setter.clone())));

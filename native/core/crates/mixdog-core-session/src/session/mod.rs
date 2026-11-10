@@ -29,6 +29,7 @@ mod cards;
 pub mod close;
 mod completions;
 mod control;
+mod stop;
 #[cfg(test)]
 mod resumed_tools_tests;
 #[cfg(test)]
@@ -183,6 +184,8 @@ mod steer_tests;
 mod assembly_tests;
 #[cfg(test)]
 mod recorded_145_tests;
+#[cfg(test)]
+mod phone_chat_tests;
 
 use std::sync::Arc;
 
@@ -460,6 +463,17 @@ impl Default for SessionLimits {
 /// A fresh 128-bit feed epoch (P §6.1), lowercase hex.
 fn new_epoch() -> mixdog_core_api::ids::FeedEpoch {
     mixdog_core_api::ids::FeedEpoch::from(uuid::Uuid::new_v4().simple().to_string())
+}
+
+/// A new session id as Node mints it (`mintSessionId`, `session-id.mjs`): `sess_<pid>_<counter>_<ms>_<32 hex>`, the counter a
+/// process-wide sequence that starts at the time of the first mint.
+fn new_session_id(now_ms: i64) -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: std::sync::OnceLock<AtomicU64> = std::sync::OnceLock::new();
+    let counter = NEXT
+        .get_or_init(|| AtomicU64::new(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_millis() as u64)))
+        .fetch_add(1, Ordering::Relaxed);
+    format!("sess_{}_{counter}_{now_ms}_{}", std::process::id(), uuid::Uuid::new_v4().simple())
 }
 
 /// A fresh time-ordered id (turns, queue entries, items created by the core).

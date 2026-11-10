@@ -182,7 +182,7 @@ impl OAuthProvider for FileOAuth {
     async fn describe(&self, account: &str) -> Value {
         let (id, now) = (self.id, (self.wiring.now_ms)());
         // `CURSOR_ACCESS_TOKEN` stands in for the default account's file only.
-        let token = (id == "cursor-oauth" && account == "default").then(|| self.wiring.env.var("CURSOR_ACCESS_TOKEN")).flatten();
+        let token = (id == "cursor-oauth" && account == "default").then(|| self.wiring.env.key_var("CURSOR_ACCESS_TOKEN")).flatten();
         let path = self.file(account).ok().map(|file| file.path().to_path_buf());
         // The credential file is read on the lane, as the other credential readers do. A read the
         // lane did not run describes the provider as not signed in, as an unreadable file does.

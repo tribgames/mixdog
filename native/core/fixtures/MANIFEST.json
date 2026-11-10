@@ -776,6 +776,15 @@
       "totalBytes": 40329
     },
     {
+      "command": "(cwd <tree>/apps/desktop) node --import ./scripts/test-env.mjs --import ./scripts/test-tsx.mjs <repo>/benchmarks/rust-core/recorders/record-roster-rows.mjs --tree <tree>",
+      "fileCount": 24,
+      "manifest": "roster-rows/MANIFEST.json",
+      "manifestSha256": "4aec7e2c9306f0246e3b854f83378c3cec3ec093f384bcc55ed1d9c83920e3c4",
+      "recorder": "benchmarks/rust-core/recorders/record-roster-rows.mjs",
+      "set": "roster-rows",
+      "totalBytes": 1788387
+    },
+    {
       "command": "(cd apps/desktop && node --import tsx ../../benchmarks/rust-core/recorders/record-saved-login.mjs --tree <tree>)",
       "fileCount": 3,
       "manifest": "saved-login/MANIFEST.json",

@@ -32,12 +32,16 @@ impl KeychainStore {
 impl SecretStore for KeychainStore {
     async fn get(&self, account: &str) -> Result<Option<String>, SecretError> {
         let account = account.to_owned();
-        on_lane(self.io, move || match get_generic_password(SERVICE, &account) {
-            // `security ... -w` prints the value and a newline; Node drops trailing whitespace.
-            Ok(bytes) => Ok(Some(js_trim_end(&String::from_utf8_lossy(&bytes)).to_owned())),
-            Err(error) if error.code() == ITEM_NOT_FOUND => Ok(None),
-            // Node reads any other failure as "nothing stored".
-            Err(_) => Ok(None),
+        on_lane(self.io, move || {
+            #[cfg(feature = "count-work")]
+            crate::work::secret_read();
+            match get_generic_password(SERVICE, &account) {
+                // `security ... -w` prints the value and a newline; Node drops trailing whitespace.
+                Ok(bytes) => Ok(Some(js_trim_end(&String::from_utf8_lossy(&bytes)).to_owned())),
+                Err(error) if error.code() == ITEM_NOT_FOUND => Ok(None),
+                // Node reads any other failure as "nothing stored".
+                Err(_) => Ok(None),
+            }
         })
         .await?
     }

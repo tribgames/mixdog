@@ -133,6 +133,8 @@ mod fs_unix {
     /// without following a symlink or blocking on a FIFO and judged by fstat on the descriptor
     /// that is actually read.
     pub fn get(files: &SecretsFiles, account: &str) -> Result<Option<String>, SecretError> {
+        #[cfg(feature = "count-work")]
+        crate::work::secret_read();
         if dir(files, false, true)?.is_none() {
             return Ok(None);
         }

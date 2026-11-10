@@ -1,0 +1,33 @@
+{
+  "_": "Inputs of node-cache-key-capture.mjs: each case is (env, options, prefix) handed to Node's buildStableProviderPromptCacheKey('openai-oauth', options, prefix). The keys are recorded, never written here.",
+  "cases": [
+    { "name": "thread-session", "options": { "sessionId": "01a1c203-1d1e-7689-970e-9d71ae87052b", "promptCacheKey": "mixdog-codex" } },
+    { "name": "codex-identity-alone", "options": { "codexSessionId": "0190f0a0-aaaa-7bbb-8ccc-123456789abc", "promptCacheKey": "mixdog-codex" } },
+    { "name": "codex-identity-before-session", "options": { "codexSessionId": "0190f0a0-aaaa-7bbb-8ccc-123456789abc", "sessionId": "01a1c203-1d1e-7689-970e-9d71ae87052b", "promptCacheKey": "mixdog-codex" } },
+    { "name": "no-session-named-key", "options": { "promptCacheKey": "mixdog-codex" } },
+    { "name": "nothing", "options": {} },
+    { "name": "named-key-needs-normalizing", "options": { "promptCacheKey": " my key! " } },
+    { "name": "named-key-over-limit", "options": { "promptCacheKey": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" } },
+    { "name": "session-not-a-uuid", "options": { "sessionId": "sess_1_2_3", "promptCacheKey": "mixdog-codex" } },
+    { "name": "session-over-limit", "options": { "sessionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" } },
+    { "name": "named-key-nothing-left-after-normalizing", "options": { "promptCacheKey": "ä-ö" } },
+    { "name": "named-key-blank", "options": { "promptCacheKey": "   " } },
+    { "name": "session-blank-named-key", "options": { "sessionId": "  ", "promptCacheKey": "mine" } },
+    { "name": "shared-key-env-with-session", "env": { "MIXDOG_OAI_CACHE_KEY_SHARED": "1" }, "options": { "sessionId": "sess_a", "promptCacheKey": "mine" } },
+    { "name": "shared-key-env-without-named-key", "env": { "MIXDOG_OAI_CACHE_KEY_SHARED": "1" }, "options": { "sessionId": "sess_a" } },
+    { "name": "shared-key-env-other-value", "env": { "MIXDOG_OAI_CACHE_KEY_SHARED": "true" }, "options": { "sessionId": "sess_a" } },
+    { "name": "shared-key-env-named-key-over-limit", "env": { "MIXDOG_OAI_CACHE_KEY_SHARED": "1" }, "options": { "promptCacheKey": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz" } },
+    { "name": "shared-scope-with-session", "options": { "sessionId": "sess_a", "promptCacheScope": "shared", "effort": "high" }, "prefix": { "model": "gpt-6.1-sol", "instructions": " Be brief. ", "tools": [ { "type": "function", "name": "read", "description": "Read a file", "parameters": { "type": "object", "properties": { "path": { "type": "string" } }, "required": ["path"] } } ], "effort": "xhigh", "serviceTier": "priority" } },
+    { "name": "shared-scope-other-session", "options": { "sessionId": "sess_b", "promptCacheScope": "shared", "effort": "high" }, "prefix": { "model": "gpt-6.1-sol", "instructions": " Be brief. ", "tools": [ { "type": "function", "name": "read", "description": "Read a file", "parameters": { "type": "object", "properties": { "path": { "type": "string" } }, "required": ["path"] } } ], "effort": "xhigh", "serviceTier": "priority" } },
+    { "name": "shared-scope-no-session-no-prefix", "options": { "promptCacheScope": "shared" }, "prefix": {} },
+    { "name": "shared-scope-effort-from-options", "options": { "promptCacheScope": "shared", "effort": "low", "fast": true }, "prefix": { "model": "m" } },
+    { "name": "shared-scope-key-named", "options": { "promptCacheScope": "shared", "promptCacheKey": "role-explore" }, "prefix": { "model": "m", "instructions": "i" } },
+    { "name": "shared-scope-tool-shapes", "options": { "promptCacheScope": "shared" }, "prefix": { "model": "m", "tools": [ { "type": "custom", "name": "apply_patch", "description": "Patch", "format": { "type": "grammar" } }, { "name": "bare", "inputSchema": { "type": "object" } }, { "function": { "name": "nested", "description": "N", "parameters": { "type": "object", "properties": { "n": { "type": "number", "default": 1.5 } } } } }, { "type": " ", "name": " padded ", "description": " ", "parameters": 0 } ] } },
+    { "name": "thread-gate-off-0", "env": { "MIXDOG_OAI_CODEX_THREAD_CACHE_KEY": "0" }, "options": { "sessionId": "sess_a" }, "prefix": { "model": "m", "instructions": "i", "effort": "high" } },
+    { "name": "thread-gate-off-false", "env": { "MIXDOG_OAI_CODEX_THREAD_CACHE_KEY": "FALSE" }, "options": { "sessionId": "sess_a" }, "prefix": { "model": "m", "instructions": "i", "effort": "high" } },
+    { "name": "thread-gate-on-1", "env": { "MIXDOG_OAI_CODEX_THREAD_CACHE_KEY": "1" }, "options": { "sessionId": "sess_a" }, "prefix": { "model": "m" } },
+    { "name": "thread-gate-off-and-shared-key", "env": { "MIXDOG_OAI_CODEX_THREAD_CACHE_KEY": "0", "MIXDOG_OAI_CACHE_KEY_SHARED": "1" }, "options": { "sessionId": "sess_a", "promptCacheKey": "mine" }, "prefix": { "model": "m", "instructions": "i" } },
+    { "name": "shared-scope-and-shared-key", "env": { "MIXDOG_OAI_CACHE_KEY_SHARED": "1" }, "options": { "sessionId": "sess_a", "promptCacheScope": "shared", "promptCacheKey": "mine" }, "prefix": { "model": "m", "instructions": "i" } },
+    { "name": "named-scope-not-shared", "options": { "sessionId": "sess_a", "promptCacheScope": "session" }, "prefix": { "model": "m" } }
+  ]
+}

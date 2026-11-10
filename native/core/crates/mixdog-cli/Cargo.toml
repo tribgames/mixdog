@@ -11,6 +11,10 @@ path = "src/main.rs"
 [lints]
 workspace = true
 
+[features]
+# The controls a replay of the download recording drives a spawned core with (mixdog-workspace, replay_controls.rs). Never in an ordinary build.
+replay-controls = ["mixdog-app-server-daemon/replay-controls"]
+
 [dependencies]
 mixdog-app-server-daemon = { workspace = true }
 mixdog-app-server-client = { workspace = true }

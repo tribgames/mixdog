@@ -102,6 +102,8 @@ pub struct CredentialFile {
 type Document = Map<String, Value>;
 
 fn read_document(path: &Path) -> Probe<Document> {
+    #[cfg(feature = "count-work")]
+    crate::work::credential_read();
     match fs::read(path) {
         Ok(bytes) => match mixdog_statefile::parse_json_text(&bytes) {
             Ok(Value::Object(map)) => Probe::Present(map),

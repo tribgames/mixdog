@@ -9,6 +9,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use mixdog_core_api::domain::tool::CallProjection;
 use mixdog_core_api::domain::tool::Tool;
 use mixdog_core_api::domain::tool::ToolContext;
 use mixdog_core_api::domain::tool::ToolError;
@@ -45,9 +46,9 @@ fn is_meta_tool(name: &str) -> bool {
     META_NAMES.contains(&name.to_lowercase().as_str())
 }
 
-/// A bridge error: `CODE: message` is the model text.
+/// A bridge error: `Error: CODE: message` is the model text (`bridgeErrorText`).
 fn bridge_error(code: &str, message: impl AsRef<str>) -> ToolError {
-    let text = format!("{code}: {}", message.as_ref());
+    let text = format!("Error: {code}: {}", message.as_ref());
     let tool_code = match code {
         "TOOL_NOT_FOUND" => ToolErrorCode::NotFound { target: String::new() },
         "TOOL_UNAVAILABLE" | "TOOL_EXCLUDED" => ToolErrorCode::Unavailable { capability: "tool".to_owned(), reason: text.clone() },
@@ -540,15 +541,11 @@ impl CallTool {
     }
 }
 
-#[async_trait]
-impl Tool for CallTool {
-    fn spec(&self) -> &ToolSpec {
-        &self.spec
-    }
-
-    async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
-        // The wire call must project onto its target: a malformed one is answered with the
-        // bridge error and never executed.
+impl CallTool {
+    /// `resolveExecutionToolCall`: the target a wire call stands for and its arguments. A
+    /// malformed call, or one naming no tool of this session, is answered with the bridge error
+    /// and never executed.
+    fn project_call(&self, thread: &ThreadId, args: &JsonValue) -> Result<(String, JsonValue), ToolError> {
         let Some(object) = args.as_object() else {
             return Err(bridge_error("INVALID_ARGUMENTS", "call_tool requires {name, arguments}."));
         };
@@ -559,14 +556,14 @@ impl Tool for CallTool {
         if !object.get("arguments").is_some_and(Value::is_object) {
             return Err(bridge_error("INVALID_ARGUMENTS", "call_tool arguments must be an object of the target tool arguments."));
         }
-        let name = args.get("name").and_then(Value::as_str).map(str::trim).unwrap_or_default();
+        let name = args.get("name").and_then(Value::as_str).map(mixdog_js::js_trim).unwrap_or_default();
         if name.is_empty() || name.js_len() > NAME_MAX_CHARS {
             return Err(bridge_error("INVALID_ARGUMENTS", format!("name must be 1-{NAME_MAX_CHARS} characters.")));
         }
         if is_meta_tool(name) {
             return Err(bridge_error("BRIDGE_RECURSION", format!("call_tool cannot run the bridge tool \"{name}\"; call it directly.")));
         }
-        let target = match self.catalog.resolve_call(&ctx.thread_id, name) {
+        let target = match self.catalog.resolve_call(thread, name) {
             CallResolution::Direct(direct) => {
                 return Err(bridge_error("USE_DIRECT_TOOL", format!("\"{direct}\" is directly available; call {direct} directly instead of call_tool.")));
             }
@@ -582,7 +579,30 @@ impl Tool for CallTool {
             }
             CallResolution::Deferred(canonical) => canonical,
         };
-        let arguments = args["arguments"].clone();
+        Ok((target, args["arguments"].clone()))
+    }
+}
+
+impl CallProjection for CallTool {
+    fn project(&self, thread: &ThreadId, arguments: &JsonValue) -> Result<(String, JsonValue), String> {
+        self.project_call(thread, arguments).map_err(|error| error.message_for_model)
+    }
+}
+
+#[async_trait]
+impl Tool for CallTool {
+    fn spec(&self) -> &ToolSpec {
+        &self.spec
+    }
+
+    fn projection(&self) -> Option<&dyn CallProjection> {
+        Some(self)
+    }
+
+    /// Reached only by a caller that does not project (the loop does): the target runs through
+    /// the dispatcher's pipeline.
+    async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
+        let (target, arguments) = self.project_call(&ctx.thread_id, &args)?;
         self.dispatcher.dispatch(ctx, &target, arguments).await
     }
 }
@@ -690,11 +710,11 @@ mod tests {
         let tool = CallTool::new(Arc::new(catalog()), Arc::new(Never));
         let ctx = super::super::tests::ctx();
         for (args, want) in [
-            (json!("x"), "INVALID_ARGUMENTS: call_tool requires {name, arguments}."),
-            (json!({"name":"web_fetch","arguments":{},"extra":1}), "INVALID_ARGUMENTS: call_tool does not accept: extra."),
-            (json!({"name":"web_fetch"}), "INVALID_ARGUMENTS: call_tool arguments must be an object of the target tool arguments."),
-            (json!({"name":"load_tool","arguments":{}}), "BRIDGE_RECURSION: call_tool cannot run the bridge tool \"load_tool\"; call it directly."),
-            (json!({"name":"web_fetch","arguments":{}}), "TOOL_NOT_FOUND: no tool named \"web_fetch\" is available in this session; find tools with load_tool {names: keyword}."),
+            (json!("x"), "Error: INVALID_ARGUMENTS: call_tool requires {name, arguments}."),
+            (json!({"name":"web_fetch","arguments":{},"extra":1}), "Error: INVALID_ARGUMENTS: call_tool does not accept: extra."),
+            (json!({"name":"web_fetch"}), "Error: INVALID_ARGUMENTS: call_tool arguments must be an object of the target tool arguments."),
+            (json!({"name":"load_tool","arguments":{}}), "Error: BRIDGE_RECURSION: call_tool cannot run the bridge tool \"load_tool\"; call it directly."),
+            (json!({"name":"web_fetch","arguments":{}}), "Error: TOOL_NOT_FOUND: no tool named \"web_fetch\" is available in this session; find tools with load_tool {names: keyword}."),
         ] {
             assert_eq!(tool.call(&ctx, args).await.unwrap_err().message_for_model, want);
         }
@@ -704,10 +724,10 @@ mod tests {
     fn bad_input_and_tampered_tokens_are_refused() {
         let c = catalog();
         let err = describe(&c, &thread(), &json!({"name":"read"})).unwrap_err();
-        assert!(err.message_for_model.starts_with("INVALID_ARGUMENTS: load_tool does not accept: name."));
+        assert!(err.message_for_model.starts_with("Error: INVALID_ARGUMENTS: load_tool does not accept: name."));
         let err = describe(&c, &thread(), &json!({"names": "@continue:AAAA"})).unwrap_err();
-        assert!(err.message_for_model.starts_with("INVALID_CONTINUATION:"));
+        assert!(err.message_for_model.starts_with("Error: INVALID_CONTINUATION:"));
         let err = describe(&c, &thread(), &json!({"names": ["a", "@continue:AAAA"]})).unwrap_err();
-        assert_eq!(err.message_for_model, "INVALID_ARGUMENTS: pass a continuation token alone in names.");
+        assert_eq!(err.message_for_model, "Error: INVALID_ARGUMENTS: pass a continuation token alone in names.");
     }
 }

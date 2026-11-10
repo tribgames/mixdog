@@ -59,7 +59,7 @@ fn request() -> p::ModelRequest {
         iteration: 3,
         temperature: p::Temperature::new(0.5),
         model_parameters: Some(json!({ "serviceTier": "priority" })),
-        thread: Some(p::RequestThread { id: ThreadId::from("t1"), window: 2, turn: Some(TurnId::from("u1")) }),
+        thread: Some(p::RequestThread { id: ThreadId::from("t1"), window: 2, turn: Some(TurnId::from("u1")), turn_started_at_ms: None }),
         shared_cache_prefix_count: Some(4),
         provider_state: Some(provider_state()),
         effort_projection: Some(p::EffortProjection { initial_effort: "low".into(), updates: BTreeMap::from([(2, "high".into())]) }),

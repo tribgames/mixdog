@@ -40,7 +40,7 @@ use super::SessionDirectory;
 use super::testing::EventLog;
 use super::testing::Rig;
 use super::testing::lock;
-use super::tests::eventually_on;
+use crate::eventually_on;
 use super::tests::start_thread;
 
 const METHODS: [&str; 2] = ["beginMcpOAuthLogin", "signOutMcpServer"];
@@ -317,7 +317,7 @@ async fn a_session_unloaded_during_the_action_is_disposed_after_its_notice() {
         let call = world.parked(&handle.id).await;
 
         unload(&handle);
-        eventually_on(&[world.directory.left()], || world.directory.handle(&handle.id).is_none().then_some(())).await;
+        eventually_on!(&[world.directory.left()], || world.directory.handle(&handle.id).is_none().then_some(())).await;
         world.rig.closes.ended.notified().await;
         world.park.go.notify_one();
         let reply = world.reply(call).await;
@@ -387,7 +387,7 @@ async fn a_reopen_waits_for_the_previous_runtimes_teardown() {
         let first = world.parked(&handle.id).await;
 
         unload(&handle);
-        eventually_on(&[world.directory.left()], || world.directory.handle(&handle.id).is_none().then_some(())).await;
+        eventually_on!(&[world.directory.left()], || world.directory.handle(&handle.id).is_none().then_some(())).await;
         let ctx = CallContext::connection(ConnectionId(1), mixdog_protocol::Origin::Local, CancellationToken::new());
         let mut reopen = Box::pin(world.directory.open_handle(&handle.id, &ctx));
         assert!(futures::poll!(reopen.as_mut()).is_pending(), "{method}: the reopen waits for the teardown");

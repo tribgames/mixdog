@@ -24,6 +24,13 @@ tag-gates = { max-threads = 1 }
 filter = 'package(mixdog-migrate) & (test(=desktop_profile::tests::the_crash_matrix_ends_in_the_state_of_an_uninterrupted_run) | test(=run::tests::every_crash_point_resumes_to_the_same_tree))'
 test-group = 'migration-crash-matrix'
 
+# The four migration crash matrices are fsync-bound: each passed in 84-95 s with its temp dirs on an idle drive and
+# was killed at the default 120 s in five of five workspace runs on 2026-11-10 with them on the build drive, which
+# the builds keep 85-99% busy. They are excluded from `--profile agent`; where they do run, they get the time.
+[[profile.default.overrides]]
+filter = 'package(mixdog-migrate) & (test(/^desktop_profile::tests::(a_late_pass_killed_at_every_point|a_late_pass_started_with_a_profile|the_crash_matrix)/) | test(=run::tests::every_crash_point_resumes_to_the_same_tree))'
+slow-timeout = { period = "60s", terminate-after = 6 }
+
 # Every test of mixdog-services' `memory::tests` (documented there as the end-to-end suite over a
 # temporary Postgres cluster) and of `memory::thread_search::tests` starts its own initdb + postmaster
 # (about 4 s and a dozen processes each, fsync-bound). Started together, the postmasters of a run are

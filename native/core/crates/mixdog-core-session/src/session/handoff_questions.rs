@@ -40,8 +40,13 @@ pub struct SectionPublisher {
 impl SectionPublisher {
     /// Needs a tokio runtime: one task per holding thread drains the publications in order.
     pub fn spawn(threads: Arc<dyn ThreadState>, thread: ThreadId) -> Self {
+        Self::start(threads, thread).0
+    }
+
+    /// [`Self::spawn`], with the drain task's handle for the tests to await.
+    pub(crate) fn start(threads: Arc<dyn ThreadState>, thread: ThreadId) -> (Self, tokio::task::JoinHandle<()>) {
         let (queue, mut inbox) = mpsc::unbounded_channel::<Vec<Value>>();
-        tokio::spawn(async move {
+        let task = tokio::spawn(async move {
             while let Some(questions) = inbox.recv().await {
                 let section = Section::Approvals(ThreadApprovals { handoff_questions: Some(questions), ..ThreadApprovals::default() });
                 if let Err(error) = threads.publish(&thread, section).await {
@@ -49,7 +54,7 @@ impl SectionPublisher {
                 }
             }
         });
-        Self { queue }
+        (Self { queue }, task)
     }
 }
 

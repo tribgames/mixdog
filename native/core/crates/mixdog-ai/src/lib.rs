@@ -28,3 +28,5 @@ pub mod retry;
 pub mod service;
 pub mod transport;
 pub mod warmer;
+#[cfg(feature = "count-work")]
+pub mod work;

@@ -92,6 +92,9 @@ enum Step {
 #[derive(Default)]
 pub struct DelegatedApprovalHost {
     registry: Mutex<Registry>,
+    /// The deferred offers still running, for the tests to await.
+    #[cfg(test)]
+    deferred: Mutex<Vec<tokio::task::JoinHandle<()>>>,
 }
 
 /// The report-watch store's [`Handoffs`] over the one host: a watch added is `noteHandoff`, a watch
@@ -138,6 +141,15 @@ fn js_string(value: &Value) -> String {
 impl DelegatedApprovalHost {
     pub fn new() -> Arc<Self> {
         Arc::new(Self::default())
+    }
+
+    /// Returns once every deferred offer, and any it started in turn, has ended.
+    #[cfg(test)]
+    async fn deferred_offers(&self) {
+        loop {
+            let Some(offer) = self.deferred.lock().unwrap().pop() else { return };
+            crate::session::testing::awaiting(|| "a deferred offer to end".to_owned(), offer).await.unwrap();
+        }
     }
 
     fn lock(&self) -> MutexGuard<'_, Registry> {
@@ -323,12 +335,16 @@ impl DelegatedApprovalHost {
         }
         let Some(opener) = self.lock().opener.clone() else { return };
         let host = self.clone();
-        tokio::spawn(async move {
+        let offer = tokio::spawn(async move {
             // `.catch(() => {})`: a chat that cannot be opened shows nothing.
             if opener.open(&copy.session_id).await.is_ok() && host.still(&current, &copy) {
                 host.offer_to(&copy);
             }
         });
+        #[cfg(test)]
+        self.deferred.lock().unwrap().push(offer);
+        #[cfg(not(test))]
+        drop(offer);
     }
 }
 

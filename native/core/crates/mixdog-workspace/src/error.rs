@@ -24,8 +24,10 @@ pub enum Reason {
     /// The file or folder changed under a transfer or a save.
     Changed,
     Expired,
-    /// A download the host no longer holds (Node's FileDownloadError('expired'), whose code is ile-download:expired).
+    /// A download the host no longer holds (Node's FileDownloadError('expired'), whose code is file-download:expired).
     DownloadExpired,
+    /// Any other refusal of a phone's download (Node's `FileDownloadError`); the value is the whole code, `file-download:<reason>`.
+    Download(&'static str),
     Busy,
     /// An upload chunk that does not start where the received bytes end.
     OutOfOrder,
@@ -33,7 +35,8 @@ pub enum Reason {
     GrantUnavailable,
     /// A one-file grant presented for a path other than the file it names.
     GrantMismatch,
-    FolderTooLarge,
+    /// What the walk counted (after the exclusions): Node's `FolderTooLargeError.files` and `.bytes`.
+    FolderTooLarge { files: u64, bytes: u64 },
     /// A `RECOVERY_*` code of the recovery journal.
     Recovery(&'static str),
     InvalidEncoding,
@@ -64,11 +67,12 @@ impl Reason {
             Self::Changed => "changed",
             Self::Expired => "expired",
             Self::DownloadExpired => "file-download:expired",
+            Self::Download(code) => code,
             Self::Busy => "busy",
             Self::OutOfOrder => "outOfOrder",
             Self::GrantUnavailable => "SELECTED_FILE_GRANT_UNAVAILABLE",
             Self::GrantMismatch => "grantMismatch",
-            Self::FolderTooLarge => "folderTooLarge",
+            Self::FolderTooLarge { .. } => "folderTooLarge",
             Self::Recovery(code) => code,
             Self::InvalidEncoding => "invalidEncoding",
             Self::Unsupported => "unsupported",

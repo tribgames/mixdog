@@ -15,6 +15,38 @@ use serde_json::Value;
 
 pub type Row = Map<String, Value>;
 
+/// The per-row and per-tombstone work the worker index does, counted so a test can show that
+/// reading an unchanged index does none (the status recompute runs on every session activity
+/// change, `decisions.md` "Node daemon hot paths found by profiling" 1).
+#[cfg(test)]
+pub(super) mod work {
+    use std::cell::Cell;
+
+    #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+    pub struct Counts {
+        pub tombstones_normalized: usize,
+        pub tombstones_keyed: usize,
+        pub rows_normalized: usize,
+        pub rows_tested: usize,
+    }
+
+    thread_local! {
+        static COUNTS: Cell<Counts> = const { Cell::new(Counts { tombstones_normalized: 0, tombstones_keyed: 0, rows_normalized: 0, rows_tested: 0 }) };
+    }
+
+    pub fn note(count: impl FnOnce(&mut Counts)) {
+        COUNTS.with(|cell| {
+            let mut counts = cell.get();
+            count(&mut counts);
+            cell.set(counts);
+        });
+    }
+
+    pub fn counts() -> Counts {
+        COUNTS.with(Cell::get)
+    }
+}
+
 /// `TAG_TOMBSTONE_TTL_MS`: tombstones and released markers count this long.
 pub const TAG_TOMBSTONE_TTL_MS: f64 = 7.0 * 24.0 * 60.0 * 60.0 * 1000.0;
 /// `MAX_TAG_TOMBSTONES`.
@@ -154,6 +186,8 @@ pub fn matches_scope(row: &Row, scope: &Scope) -> bool {
 /// `normalizeWorkerRows` for one row: `None` for a row without a tag or session id, or a
 /// Lead pool row.
 pub fn normalize_row(row: &Row) -> Option<Row> {
+    #[cfg(test)]
+    work::note(|c| c.rows_normalized += 1);
     let text = |key: &str| text_or_null(clean(row.get(key)));
     let mut out = Row::new();
     out.insert("tag".into(), Value::String(clean(row.get("tag"))));
@@ -383,6 +417,8 @@ pub fn is_unnotified_restart_failure(row: &Row) -> bool {
 
 /// `tagTombstoneKey`.
 pub fn tombstone_key(row: &Row) -> String {
+    #[cfg(test)]
+    work::note(|c| c.tombstones_keyed += 1);
     let parent = clean(either(row, "parentSessionId", "ownerSessionId"));
     let tag = clean(row.get("tag"));
     if parent.is_empty() {
@@ -401,6 +437,8 @@ pub fn find_tombstone<'a>(row: &Row, by_key: &'a std::collections::HashMap<Strin
 
 /// `tombstoneBlocksWork`.
 pub fn blocks_work(row: &Row, tombstone: Option<&Row>) -> bool {
+    #[cfg(test)]
+    work::note(|c| c.rows_tested += 1);
     let reaped_at = stamp_ms(tombstone.and_then(|t| t.get("reapedAt")));
     if reaped_at == 0.0 {
         return false;
@@ -411,6 +449,8 @@ pub fn blocks_work(row: &Row, tombstone: Option<&Row>) -> bool {
 /// `normalizeTagTombstones` for one stored tombstone of session `session_id`: `None` when it
 /// has no tag or no time, or is past the TTL at `now`.
 pub fn normalize_tombstone(raw: &Row, session_id: &str, now: f64) -> Option<Row> {
+    #[cfg(test)]
+    work::note(|c| c.tombstones_normalized += 1);
     let parsed = parse_or_zero(&clean(raw.get("reapedAt")));
     let reaped_at = (parsed != 0.0).then(|| iso(parsed.min(now)));
     let mut t = Row::new();

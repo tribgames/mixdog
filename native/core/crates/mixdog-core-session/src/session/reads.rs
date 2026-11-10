@@ -50,6 +50,7 @@ use serde_json::json;
 
 use super::SessionDeps;
 use super::directory::DirInner;
+use super::transcript::position_of_id;
 use super::view::meta;
 
 /// `PAGE_MIN_ROWS` (`store-transcript-projection.mjs`): a byte budget never cuts a page below
@@ -185,8 +186,7 @@ fn items_list(id: &ThreadId, rev: u64, rows: &[(ThreadItem, usize)], p: ThreadIt
     let at = match anchor {
         None => None,
         Some(item) => Some(
-            turn.iter()
-                .position(|(row, _)| row.id().as_str() == item)
+            position_of_id(turn.iter().map(|(row, _)| row), item)
                 .ok_or_else(|| CoreError::CursorInvalidated { thread_id: id.clone(), history_rev: rev })?,
         ),
     };
@@ -208,9 +208,9 @@ fn items_list(id: &ThreadId, rev: u64, rows: &[(ThreadItem, usize)], p: ThreadIt
 fn items_read(id: &ThreadId, items: &[ThreadItem], p: ThreadItemsReadParams) -> Result<Reply, CoreError> {
     let mut found = Vec::with_capacity(p.item_ids.len());
     for wanted in &p.item_ids {
-        let item = items
-            .iter()
-            .find(|item| item.id().as_str() == wanted.as_str() && p.turn_id.as_ref().is_none_or(|turn| meta(item).turn_id.as_ref().is_some_and(|t| t.as_str() == turn.as_str())))
+        let in_turn = items.iter().filter(|item| p.turn_id.as_ref().is_none_or(|turn| meta(item).turn_id.as_ref().is_some_and(|t| t.as_str() == turn.as_str())));
+        let item = position_of_id(in_turn.clone(), wanted.as_str())
+            .and_then(|at| in_turn.clone().nth(at))
             .ok_or_else(|| CoreError::ItemNotFound { thread_id: id.clone(), item_id: wanted.clone() })?;
         found.push(item.clone());
     }
