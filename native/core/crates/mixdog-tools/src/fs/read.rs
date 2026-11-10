@@ -266,6 +266,12 @@ fn parse_public(args: &JsonValue) -> Result<Public, ToolError> {
         }
     }
     entries.retain(|e| kept.contains(&e.path));
+    // `executeModeRead`: the single form keeps its `mode` and `n`; its window (always present here) then drops a
+    // head/tail/summary glance, while count and hex still answer by their own tools.
+    if !batch && let Some(e) = entries.first_mut() {
+        e.mode = arg_str(args, "mode").map(str::to_owned);
+        e.n = args.get("n").filter(|v| !v.is_null()).cloned();
+    }
     Ok(Public { single: !batch, entries, skipped, pages: arg_str(args, "pages").map(str::to_owned) })
 }
 

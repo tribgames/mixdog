@@ -295,6 +295,12 @@ async fn code_graph_answers_casing_misses_and_capped_references_as_node_does() {
     replay_fs_search("code-graph-refs-casing").await;
 }
 
+/// The public read's `mode`, in both argument forms.
+#[tokio::test]
+async fn read_honours_mode_as_node_does() {
+    replay_fs_search("read-modes").await;
+}
+
 /// A missing `list` / `grep` path carries Node's recovery hints.
 #[tokio::test]
 async fn list_and_grep_answer_a_missing_path_as_node_does() {

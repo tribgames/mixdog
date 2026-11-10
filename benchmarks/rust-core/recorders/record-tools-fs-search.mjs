@@ -28,6 +28,38 @@ const FIXED = '2026-01-02T03:04:05Z';
 // path, written with forward slashes.
 const notebook = (cells) => JSON.stringify({ cells, metadata: {}, nbformat: 4, nbformat_minor: 5 }, null, 1);
 const SCENARIOS = [
+  // The public read's `mode` (read-tool.mjs, read-single-tool.mjs): the legacy `path` form reads every glance mode, the
+  // `file_path` form only `count` and `hex`; an entry object of a `file_path` array may not carry one.
+  {
+    name: 'read-modes',
+    files: {
+      'nb.ipynb': notebook([{ cell_type: 'markdown', metadata: {}, source: ['# Title\n', 'Some *text*.'] }]),
+      'a.txt': Array.from({ length: 30 }, (_, i) => `line ${i + 1}`).join('\n') + '\n',
+    },
+    calls: [
+      { tool: 'read', input: { path: 'nb.ipynb', mode: 'head' } },
+      { tool: 'read', input: { path: 'nb.ipynb', mode: 'hex' } },
+      { tool: 'read', input: { file_path: 'nb.ipynb', mode: 'head' } },
+      { tool: 'read', input: { file_path: 'nb.ipynb', mode: 'tail' } },
+      { tool: 'read', input: { file_path: 'nb.ipynb', mode: 'count' } },
+      { tool: 'read', input: { file_path: 'nb.ipynb', mode: 'summary' } },
+      { tool: 'read', input: { file_path: 'nb.ipynb', mode: 'hex' } },
+      { tool: 'read', input: { file_path: 'a.txt', mode: 'head' } },
+      { tool: 'read', input: { file_path: 'a.txt', mode: 'head', n: 3 } },
+      { tool: 'read', input: { file_path: 'a.txt', mode: 'tail', n: 2 } },
+      { tool: 'read', input: { file_path: 'a.txt', mode: 'count' } },
+      { tool: 'read', input: { file_path: 'a.txt', mode: 'summary' } },
+      { tool: 'read', input: { file_path: 'a.txt', mode: 'hex', n: 32 } },
+      { tool: 'read', input: { file_path: 'a.txt', mode: 'full' } },
+      { tool: 'read', input: { file_path: 'a.txt', mode: 'bogus' } },
+      { tool: 'read', input: { file_path: 'a.txt', mode: 'head', offset: 5, limit: 2 } },
+      { tool: 'read', input: { file_path: [{ file_path: 'a.txt', mode: 'tail', n: 2 }, 'nb.ipynb'] } },
+      { tool: 'read', input: { path: 'a.txt', mode: 'head', n: 3 } },
+      { tool: 'read', input: { path: 'a.txt', mode: 'tail', n: 2 } },
+      { tool: 'read', input: { path: 'a.txt', mode: 'count' } },
+      { tool: 'read', input: { path: 'a.txt', mode: 'summary' } },
+    ],
+  },
   // A missing `list` / `grep` path is answered with Node's recovery hints (search-path-diagnostics.mjs buildNotFoundHint):
   // the same filename or directory name elsewhere, the entries under the nearest existing directory, a conclusive absence.
   {
