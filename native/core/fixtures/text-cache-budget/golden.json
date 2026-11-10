@@ -1,0 +1,119 @@
+{
+  "note": "Node's setBoundedTextCacheEntry at b6f10295a2f698afc85332467192de28500bd146 over its unit test's steps",
+  "scenarios": [
+    {
+      "name": "count and UTF-16 byte bounds",
+      "maxEntries": 2,
+      "maxBytes": 16,
+      "steps": [
+        {
+          "key": "a",
+          "content": "가가",
+          "stored": true,
+          "keys": [
+            "a"
+          ],
+          "evicted": []
+        },
+        {
+          "key": "b",
+          "content": "bb",
+          "stored": true,
+          "keys": [
+            "a",
+            "b"
+          ],
+          "evicted": []
+        },
+        {
+          "key": "c",
+          "content": "cc",
+          "stored": true,
+          "keys": [
+            "b",
+            "c"
+          ],
+          "evicted": [
+            "a"
+          ]
+        },
+        {
+          "key": "b",
+          "content": "bbbb",
+          "stored": true,
+          "keys": [
+            "c",
+            "b"
+          ],
+          "evicted": [
+            "a",
+            "b"
+          ]
+        },
+        {
+          "key": "d",
+          "content": "dddd",
+          "stored": true,
+          "keys": [
+            "d"
+          ],
+          "evicted": [
+            "a",
+            "b",
+            "c",
+            "b"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "an oversized replacement drops only its old value",
+      "maxEntries": 2,
+      "maxBytes": 12,
+      "steps": [
+        {
+          "key": "a",
+          "content": "aa",
+          "stored": true,
+          "keys": [
+            "a"
+          ],
+          "evicted": []
+        },
+        {
+          "key": "b",
+          "content": "bb",
+          "stored": true,
+          "keys": [
+            "a",
+            "b"
+          ],
+          "evicted": []
+        },
+        {
+          "key": "a",
+          "content": "123456",
+          "stored": false,
+          "keys": [
+            "b"
+          ],
+          "evicted": [
+            "a"
+          ]
+        },
+        {
+          "key": "c",
+          "content": "cc",
+          "stored": true,
+          "keys": [
+            "b",
+            "c"
+          ],
+          "evicted": [
+            "a"
+          ]
+        }
+      ]
+    }
+  ]
+}
