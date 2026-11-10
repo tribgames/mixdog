@@ -45,6 +45,11 @@ const load = (path) => import(pathToFileURL(join(tree, path)).href);
 // `not-loaded-large`: more rooms than one page of the core's listing (`DEFAULT_PAGE_LIMIT`, 50) are made while the listing fails, so
 // the catalog stays unloaded; then an update of the rounds alone (it renames nothing, so no listing of its own runs before it answers:
 // `agent-rooms.ts:311-312`) starts the background listing, which answers and publishes them all after the call.
+// `pruned-at-load`: a room is made while the listing fails (the catalog stays unloaded); then one member's definition is deleted at the
+// daemon, as a chat's setup tool deletes it, past the host (`deleteAgentDefinition` as a control call, not the host's capability, which
+// would take the member out itself, `session-host-lifecycle.ts:1169`), and the host restarts: its start-up `recover` loads the rooms
+// (`agent-rooms.ts:465-469`), whose first load prunes the member (`ready`, `:353-361`; `pruneDeleted`, `agent-room-membership.ts:64-76`:
+// saved, `republishCatalog`, its room conversation deleted); then an update of the rounds.
 // `failing(step)`: whether the daemon's `session.list` fails while that step runs (`list` for the first listing, else the call's index);
 // each step records it as `listingFails`, which the replay sets.
 const ROOM_CALLS = ['create', 'update', 'reset', 'forget-member', 'remove'];
@@ -60,6 +65,7 @@ const SCENARIOS = {
   // sessions (member removal, remove) then report; those are recorded in the loaded scenario only.
   'loaded-failing': { listFirst: true, failing: (step) => step !== 'list', calls: ['create', 'update', 'reset'] },
   'not-loaded-large': { listFirst: false, failing: (step) => step < LARGE, calls: [...Array(LARGE).fill('create'), 'update-rounds'] },
+  'pruned-at-load': { listFirst: false, failing: (step) => step === 0, calls: ['create', 'restart-after-agent-deletion', 'update-rounds'] },
 };
 const only = args.get('only');
 if (only && !SCENARIOS[only]) throw new Error(`--only ${only}: unknown scenario; known: ${Object.keys(SCENARIOS).join(', ')}`);
@@ -123,36 +129,45 @@ async function record(name) {
       },
     };
     const { SessionHost } = await load('apps/desktop/src/main/session-host.ts');
-    host = await SessionHost.create({ userDataPath: paths.appData, resourcesPath: paths.workspace, appPath: paths.workspace, packaged: false }, runtime);
-
-    // ── observation ──
     const origin = new AsyncLocalStorage();
     const events = [];
     const background = [];
-    const publishSessions = host.publication.publishSessions.bind(host.publication);
-    host.publication.publishSessions = (sessions) => {
-      const stack = new Error().stack ?? '';
-      const from = origin.getStore() ?? (stack.includes('republishCatalog') ? 'room-call' : stack.includes('scheduleCatalogRefresh') || stack.includes('Timeout') ? 'store-refresh' : 'listing');
-      events.push({ kind: 'published', origin: from, sessions: plain(sessions) });
-      return publishSessions(sessions);
+    // A host, observed. Its start-up `recover` (`session-host.ts:430-432`) is started inside `create` and not awaited; the
+    // observation is in place before it can reach a publication, which its first awaited file read (`loadRecords`) comes before.
+    const open = async () => {
+      host = await SessionHost.create({ userDataPath: paths.appData, resourcesPath: paths.workspace, appPath: paths.workspace, packaged: false }, runtime);
+      const publishSessions = host.publication.publishSessions.bind(host.publication);
+      host.publication.publishSessions = (sessions) => {
+        const stack = new Error().stack ?? '';
+        const from = origin.getStore() ?? (stack.includes('republishCatalog') ? 'room-call' : stack.includes('scheduleCatalogRefresh') || stack.includes('Timeout') ? 'store-refresh' : 'listing');
+        events.push({ kind: 'published', origin: from, sessions: plain(sessions) });
+        return publishSessions(sessions);
+      };
+      // A room's title goes through the host's rename (`session-host.ts:316`), which awaits a whole listing of its own
+      // (`session-host-lifecycle.ts:225-233`): what that listing publishes is the rename's.
+      const renameSession = host.lifecycle.renameSession.bind(host.lifecycle);
+      host.lifecycle.renameSession = (sessionId, title) => origin.run('room-rename', () => renameSession(sessionId, title));
+      const publishCatalogs = host.catalog.publishCatalogs.bind(host.catalog);
+      host.catalog.publishCatalogs = () => {
+        const fromRoomCall = (new Error().stack ?? '').includes('republishCatalog');
+        if (!fromRoomCall) return publishCatalogs();
+        events.push({ kind: 'background-listing-started' });
+        const done = origin.run('room-call-background-listing', () => publishCatalogs());
+        background.push(done);
+        return done;
+      };
     };
-    // A room's title goes through the host's rename (`session-host.ts:316`), which awaits a whole listing of its own
-    // (`session-host-lifecycle.ts:225-233`): what that listing publishes is the rename's.
-    const renameSession = host.lifecycle.renameSession.bind(host.lifecycle);
-    host.lifecycle.renameSession = (sessionId, title) => origin.run('room-rename', () => renameSession(sessionId, title));
-    const publishCatalogs = host.catalog.publishCatalogs.bind(host.catalog);
-    host.catalog.publishCatalogs = () => {
-      const fromRoomCall = (new Error().stack ?? '').includes('republishCatalog');
-      if (!fromRoomCall) return publishCatalogs();
-      events.push({ kind: 'background-listing-started' });
-      const done = origin.run('room-call-background-listing', () => publishCatalogs());
-      background.push(done);
-      return done;
-    };
+    await open();
 
-    const saveBot = async (label) => (await deadline.race(host.invokeCapability('saveAgentDefinition', [{ kind: 'bot', name: label, description: `${label} bot`, body: `You are ${label}.`, route }]), `saving ${label}`)).value.id;
+    const saveBot = async (label) => (await deadline.race(host.invokeCapability('saveAgentDefinition', [{ kind: 'bot', name: label, description: `${label} bot`, body: `You are ${label}.`, route }]), `saving ${label}`)).value;
     const bots = [];
-    for (const label of ['Alpha', 'Beta', 'Gamma']) bots.push(await saveBot(label));
+    // Each bot's name as its saved definition answers it: a replay names the agents with it, also one no room summary names.
+    const botNames = {};
+    for (const label of ['Alpha', 'Beta', 'Gamma']) {
+      const saved = await saveBot(label);
+      bots.push(saved.id);
+      botNames[saved.id] = saved.name;
+    }
     events.splice(0);
     const steps = [];
     if (scenario.listFirst) {
@@ -174,6 +189,16 @@ async function record(name) {
       reset: () => host.agentRoomAction('reset', [room.roomId]),
       'forget-member': () => host.agentRooms.forgetMember(bots[2]),
       remove: () => host.agentRoomAction('remove', [room.roomId]),
+      // No client call: the start-up's own end is the rooms' first load (`ready`, the promise `recover` awaits), which the
+      // recorder awaits as `recover` does; `recover` goes on with no await when no exchange was cut off (`agent-rooms.ts:470-479`).
+      'restart-after-agent-deletion': async () => {
+        await host.transport.invokeControl('deleteAgentDefinition', [bots[2]]);
+        await host.dispose();
+        host = null;
+        await open();
+        await host.agentRooms.ready();
+        return null;
+      },
     };
     for (const [index, call] of scenario.calls.entries()) {
       listingFails = scenario.failing(index);
@@ -195,7 +220,7 @@ async function record(name) {
     // The host's task workspace, where a room log is made (`agent-rooms.ts:284`), as the host itself names it.
     const taskWorkspace = await deadline.race(host.taskWorkspace(), 'the task workspace');
     const { failing: _, ...shape } = scenario;
-    return { scenario: name, ...shape, taskWorkspace, bots, room, steps };
+    return { scenario: name, ...shape, taskWorkspace, bots, botNames, room, steps };
   } finally {
     deadline.clear();
     if (host) await host.dispose().catch(() => {});

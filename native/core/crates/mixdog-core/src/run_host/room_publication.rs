@@ -137,10 +137,12 @@ mod tests {
         lookup_fails: std::sync::atomic::AtomicBool,
         /// Each agent's id and name.
         roster: Vec<(String, String)>,
+        /// The agents whose definitions were deleted (proven gone); every other is present.
+        deleted: std::sync::Mutex<Vec<String>>,
     }
     impl Agents {
         fn new(roster: Vec<(String, String)>) -> Self {
-            Self { lookup_fails: false.into(), roster }
+            Self { lookup_fails: false.into(), roster, deleted: std::sync::Mutex::default() }
         }
     }
     impl Default for Agents {
@@ -169,8 +171,9 @@ mod tests {
         async fn mixy_created(&self) -> bool {
             false
         }
-        async fn presence(&self, _: &[String]) -> Result<HashMap<String, Presence>, RoomError> {
-            Ok(HashMap::new())
+        async fn presence(&self, ids: &[String]) -> Result<HashMap<String, Presence>, RoomError> {
+            let deleted = self.deleted.lock().unwrap();
+            Ok(ids.iter().map(|id| (id.clone(), if deleted.contains(id) { Presence::Deleted } else { Presence::Present })).collect())
         }
         async fn archived_name(&self, _: &str) -> String {
             String::new()
@@ -397,30 +400,15 @@ mod tests {
 
     /// Node's room update before any listing answers before its background listing publishes: `deps.republishCatalog()` starts
     /// `publishCatalogs` (`session-host.ts:355`), whose rows wait for the daemon's `session.list` reply (`session-host.ts:797`), and
-    /// `update` awaits no I/O before its answer (`agent-rooms.ts:312-319`, `deleteSessions([])` loops over nothing); recorded as
-    /// `not-loaded-large / update-rounds`. The core's listing starts inside the call and reads at once. Forced to have its rows in
-    /// hand after the update has answered and before the server has queued the reply, it sends none until the reply's mark is set,
-    /// and then the room's row. The test runs as a task of the runtime's one worker: the listing, told it has its rows in hand,
-    /// runs on until it awaits something before the test sees anything (the session store's blocking reads need a multi-threaded
-    /// runtime).
+    /// `update` awaits no I/O before its answer (`agent-rooms.ts:312-319`, `deleteSessions([])` loops over nothing). The recorded
+    /// scenario with that step (`not-loaded-large / update-rounds`) is replayed whole, as [`room_calls_replay_nodes_catalog_states`]
+    /// replays it, with the losing order forced at that step: the core's listing has its rows in hand after the update has answered
+    /// and before the server has queued the reply; what the client was sent by then and after the listing are compared with Node's
+    /// recording. The test runs as a task of the runtime's one worker: the listing, told it has its rows in hand, runs on until it
+    /// awaits something before the test sees anything (the session store's blocking reads need a multi-threaded runtime).
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn before_any_listing_a_room_update_answers_before_its_background_listing_publishes() {
-        tokio::spawn(update_before_any_listing()).await.expect("the test task");
-    }
-
-    async fn update_before_any_listing() {
-        let world = composed().await;
-        let created = world.unloaded_room().await;
-        let (answer, replied) = world.call_held("room/update", json!({ "roomId": created["roomId"], "maxRounds": 4 }), 2).await;
-        let answer = answer.expect("room/update");
-        assert_eq!(answer["maxRounds"], json!(4), "{answer}");
-        tokio::time::timeout(DEADLINE, world.summaries.listing_in_hand()).await.expect("the update's background listing never had its rows in hand");
-        assert!(world.sent("thread/summary/updated").is_empty(), "the background listing sent rows before the update's reply was queued");
-
-        replied.mark();
-        tokio::time::timeout(DEADLINE, world.summaries.background_ended()).await.expect("the update's background listing never ended");
-        assert!(world.list.catalog_loaded(), "the background listing loaded the catalog");
-        assert!(world.sent("thread/summary/updated").contains(&log_of(&created)), "the background listing sent the room's row after the reply");
+        tokio::spawn(replay("not-loaded-large", Some("update-rounds"))).await.expect("the test task");
     }
 
     /// Node's room update that removes a member, before any listing, starts the background listing and then deletes the member's
@@ -574,23 +562,17 @@ mod tests {
         .expect("manifest json");
         assert_eq!(manifest["product"]["exact"], json!(true), "the recording is of the exact product");
         for scenario in manifest["scenarios"].as_array().expect("scenarios") {
-            replay(scenario.as_str().expect("scenario")).await;
+            replay(scenario.as_str().expect("scenario"), None).await;
         }
     }
 
-    async fn replay(scenario: &str) {
+    /// One recorded scenario replayed. At step `forced` (a call that starts a background listing), the listing is let have its
+    /// rows in hand before the replay reads what the call sent by its reply: the order a busy runtime can produce.
+    async fn replay(scenario: &str, forced: Option<&str>) {
         let node = recorded(scenario);
         let bots: Vec<String> = node["bots"].as_array().expect("bots").iter().map(|b| b.as_str().expect("bot").to_owned()).collect();
-        // The bots' names, as Node's room summary names them.
-        let named = node["steps"].as_array().expect("steps").iter().find_map(|step| {
-            step["events"].as_array()?.iter().find_map(|event| {
-                event["value"]["memberNames"]
-                    .as_object()
-                    .or_else(|| event["sessions"].as_array()?.iter().find_map(|row| row["agentRoom"]["memberNames"].as_object()))
-                    .cloned()
-            })
-        });
-        let names = named.expect("a step answers the members' names");
+        // The bots' names, as their saved definitions answered them.
+        let names = node["botNames"].as_object().expect("the bots' names");
         let roster = bots.iter().map(|id| (id.clone(), names[id].as_str().expect("name").to_owned())).collect();
         let world = composed_with(Agents::new(roster)).await;
         let workspace = world.agents.path().await.unwrap_or_default();
@@ -634,8 +616,31 @@ mod tests {
                             let answer = tokio::time::timeout(DEADLINE, forget).await.expect("forget_room_member answered");
                             (answer.map(|()| Value::Null).map_err(|error| format!("{error:?}")), ReplyQueued::new())
                         }
+                        // No client call: the third bot's definition deleted past the host, then the core's start-up as
+                        // `compose_flip.rs` runs it: the rooms' first load prunes (`prune_deleted`), and `LiveRooms::start`, with no
+                        // exchange cut off, ends with the rooms' republish (`DirectoryRoomDaemon::republish_catalog` →
+                        // `RoomSummaries::republish`, whose pass is awaited here).
+                        "restart-after-agent-deletion" => {
+                            world.agents.deleted.lock().unwrap().push(bots[2].clone());
+                            let start = async {
+                                let unpruned = world.homes.prune_deleted().await?;
+                                world.summaries.publish().await;
+                                Ok::<_, RoomError>(unpruned)
+                            };
+                            let answer = tokio::time::timeout(DEADLINE, start).await.expect("the start-up's prune ended");
+                            (answer.map(|_| Value::Null).map_err(|error| format!("{error:?}")), ReplyQueued::new())
+                        }
                         other => panic!("{what}: a call this replay does not know: {other}"),
                     };
+                    if forced == Some(name) {
+                        assert!(
+                            step["loadedBefore"] == json!(false) && step["listingFails"] != json!(true),
+                            "{what}: the forced step starts no background listing that lists"
+                        );
+                        tokio::time::timeout(DEADLINE, world.summaries.listing_in_hand())
+                            .await
+                            .unwrap_or_else(|_| panic!("{what}: the call's background listing never had its rows in hand"));
+                    }
                     // What the client was sent before the reply: the server queues the reply and then sets its mark.
                     let sent = frames(&world.app);
                     replied.mark();
@@ -658,7 +663,11 @@ mod tests {
                             let core_text = value.to_string().replace(&core_room, "<room>");
                             // A call Node answers with nothing (`Promise<void>`, recorded as null) answers the protocol's empty object.
                             // (The member removal is no protocol call: its `()` is the null here.)
-                            let node_value = if node_answer["value"].is_null() && call != "forget-member" { json!({}) } else { node_answer["value"].clone() };
+                            let node_value = if node_answer["value"].is_null() && !matches!(call, "forget-member" | "restart-after-agent-deletion") {
+                                json!({})
+                            } else {
+                                node_answer["value"].clone()
+                            };
                             let node_text = node_value.to_string().replace(node_room, "<room>");
                             assert_eq!(core_text, node_text, "{what}: the answer");
                         }

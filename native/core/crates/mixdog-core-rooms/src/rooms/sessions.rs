@@ -16,7 +16,7 @@ use serde_json::{Map, Value, json};
 use super::RoomError;
 use super::home::{HomePlan, HomePorts, Presence};
 use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
-use super::records::{RoomStore, Rooms};
+use super::records::{Left, RoomStore, Rooms};
 use super::service::{KnownAgent, ListingEnd, RoomHost, RoomRunner, join, route_params};
 use mixdog_rt::CancellationToken;
 
@@ -80,6 +80,48 @@ impl<S: RoomStore> SessionHomePorts<S> {
         runner: Arc<dyn RoomRunner>,
     ) -> Self {
         Self { catalog, sessions, rooms, room_host, runner }
+    }
+
+    /// Node's `pruneDeleted` (`agent-room-membership.ts:64-76`), which the rooms' first load runs (`agent-rooms.ts:353-361`
+    /// `ready`, reached at start-up by `recover`, `:465-469`, whenever rooms exist): members whose definition is proven deleted
+    /// leave every room, saved; the catalog is republished and their room conversations are deleted. How many of those could
+    /// not be (Node logs it; the load does not fail on it).
+    pub async fn prune_deleted(&self) -> Result<usize, RoomError> {
+        let mut ids: Vec<String> = Vec::new();
+        for room in self.rooms.list().await? {
+            for id in room.config.members {
+                if !ids.contains(&id) {
+                    ids.push(id);
+                }
+            }
+        }
+        if !ids.iter().any(|id| id != MIXY_AGENT_ID) {
+            return Ok(0);
+        }
+        // An unknown or failed check proves nothing (`.catch(() => null)`).
+        let Ok(presence) = self.catalog.presence(&ids).await else { return Ok(0) };
+        let deleted: Vec<String> = ids.into_iter().filter(|id| presence.get(id) == Some(&Presence::Deleted)).collect();
+        let left = self.rooms.drop_members(&deleted).await?;
+        if left.is_empty() {
+            return Ok(0);
+        }
+        self.leave(&left).await
+    }
+
+    /// Members that left their rooms (`dropMembers`, saved): what was owed to them ends, the catalog is republished and their room
+    /// conversations are deleted; how many could not be. No client waits on it (`forgetMember`, `agent-rooms.ts:345-346`;
+    /// `pruneDeleted`, `agent-room-membership.ts:72-74`): the deletions follow the start at once, and the first joins the listing
+    /// in flight (`session-host-lifecycle.ts:527`, `session-host.ts:790`).
+    async fn leave(&self, left: &[Left]) -> Result<usize, RoomError> {
+        // `removeFromRoom` of `dropMembers`: the calls owed to the member end, room by room.
+        for gone in left {
+            self.runner.cancel_owed_to(&gone.room_id, std::slice::from_ref(&gone.agent_id));
+        }
+        let publish = CancellationToken::new();
+        let listing = self.room_host.republish_catalog(&publish).await?;
+        let sessions: Vec<String> = left.iter().filter_map(|l| l.session_id()).collect();
+        join(&publish, listing).await;
+        Ok(self.room_host.delete_sessions(&sessions).await)
     }
 }
 
@@ -152,17 +194,7 @@ impl<S: RoomStore + 'static> HomePorts for SessionHomePorts<S> {
         if left.is_empty() {
             return Ok(());
         }
-        // `removeFromRoom` of `dropMembers`: the calls owed to the member end, room by room.
-        for gone in &left {
-            self.runner.cancel_owed_to(&gone.room_id, std::slice::from_ref(&gone.agent_id));
-        }
-        // Node's `forgetMember` answers no client: its deletions follow the start at once (`agent-rooms.ts:345-346`), and the
-        // first joins the listing in flight (`session-host-lifecycle.ts:527`, `session-host.ts:790`).
-        let publish = CancellationToken::new();
-        let listing = self.room_host.republish_catalog(&publish).await?;
-        let sessions: Vec<String> = left.iter().filter_map(|l| l.session_id()).collect();
-        join(&publish, listing).await;
-        let failed = self.room_host.delete_sessions(&sessions).await;
+        let failed = self.leave(&left).await?;
         if failed > 0 {
             return Err(RoomError::Port(format!(
                 "The member left its rooms, but {failed} of its conversations could not be deleted."
