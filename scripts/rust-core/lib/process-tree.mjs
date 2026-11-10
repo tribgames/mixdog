@@ -4,7 +4,9 @@
 // The program runs under `treerun` (scripts/rust-core/tree-helper, a small Rust program), which owns the tree and ends it
 // when the program exits and when this Node process dies, however it dies. Ownership is by handle, never by number: a
 // Windows job object, or on POSIX the process group of a child the helper has not reaped yet. What escapes a group (a
-// descendant that made its own session) is not hunted for; see process-probe.mjs for how a run proves it left nothing.
+// descendant that made its own session) is never looked up by number: on Linux the helper is a child subreaper, so it
+// becomes the helper's own child and is ended through that; macOS cannot adopt it, and the result says so
+// (`escapes: 'undetectable'`). See process-probe.mjs for how a run proves it left nothing inside its own directory.
 // Windows PowerShell as the owner cost 275 ms per spawn (a C# type compiled each time); the helper costs the process
 // start. The helper must be built before this module
 // spawns anything: `cargo build --release --manifest-path scripts/rust-core/tree-helper/Cargo.toml` (the rust-core job
@@ -60,7 +62,8 @@ const readOutcome = (file) => {
  * channel to this process (POSIX), so a caller passes at most three entries.
  */
 export function spawnTree(program, args, options = {}) {
-  const { shell, env, stdio = 'pipe', ...rest } = options;
+  // `signal` is not forwarded to `spawn` (that would end only the helper): an abort ends the tree through the helper.
+  const { shell, env, stdio = 'pipe', signal, ...rest } = options;
   const resultFile = join(tmpdir(), `treerun-${randomUUID()}.json`);
   const streams = typeof stdio === 'string' ? [stdio, stdio, stdio] : [...stdio];
   if (streams.length > 3) throw new Error('spawnTree: stdio index 3 is the tree helper\'s channel; pass at most three entries');
@@ -78,6 +81,14 @@ export function spawnTree(program, args, options = {}) {
     windowsHide: true,
   });
   child.stdio[3]?.on('error', () => {});
+  if (signal) {
+    const abort = () => endTree(child).catch((error) => child.emit('error', Object.assign(error, { code: 'ETREEHELPER' })));
+    if (signal.aborted) abort();
+    else {
+      signal.addEventListener('abort', abort, { once: true });
+      child.once('close', () => signal.removeEventListener('abort', abort));
+    }
+  }
   // Read before removed: this listener is registered first, so it runs before any caller's 'close'.
   let settled;
   child.once('close', () => {
@@ -87,6 +98,8 @@ export function spawnTree(program, args, options = {}) {
       settled = { error };
     }
     rmSync(resultFile, { force: true });
+    // The helper writes the record beside the result and renames it; one that died between the two leaves this.
+    rmSync(`${resultFile}.tmp`, { force: true });
   });
   child.treeOutcome = () => {
     if (!settled) return readOutcome(resultFile);
@@ -115,13 +128,18 @@ const gone = (child) => child.exitCode !== null || child.signalCode !== null;
 
 /**
  * Ends `child`'s tree, whether or not the program is still running, and answers `{ killed }`: the helper's pid when it
- * had to be ended, empty when it had already gone (it ends the tree as it goes). Rejects when the helper does not exit
- * in time. Windows: the helper is killed and its job ends every member. POSIX: closing descriptor 3 tells the helper to
- * signal the program's group; it is killed by its own group only when it does not answer.
+ * had to be ended, empty when it had already gone (it ends the tree as it goes). Windows: the helper is killed and its job
+ * ends every member. POSIX: the helper is asked first (closing descriptor 3 makes it end the program's group and whatever
+ * left it), and waited for under the deadline. Rejects, saying that the end of the tree cannot be established, when the
+ * helper does not answer in time (it is then killed, by its handle, never by a looked-up number: its tree may still run)
+ * and when a POSIX helper had already died of a signal (it could not have ended anything).
  * @param {import('node:child_process').ChildProcess} child started by `spawnTree`
  */
 export async function endTree(child, { deadlineMs = KILL_DEADLINE_MS } = {}) {
   if (!child.pid) return { killed: [] };
+  if (gone(child) && !WINDOWS && child.signalCode !== null) {
+    throw new Error(`the tree helper of pid ${child.pid} died of ${child.signalCode}, so the end of its tree cannot be established`);
+  }
   const killed = gone(child) ? [] : [child.pid];
   if (killed.length) {
     let timer;
@@ -137,14 +155,8 @@ export async function endTree(child, { deadlineMs = KILL_DEADLINE_MS } = {}) {
     try {
       await exited;
     } catch (error) {
-      if (!WINDOWS) {
-        try {
-          process.kill(-child.pid, 'SIGKILL');
-        } catch {
-          // the group is already gone
-        }
-      }
-      throw error;
+      child.kill('SIGKILL');
+      throw new Error(`${error.message}; the helper was killed and the end of its tree cannot be established`);
     }
   }
   return { killed };
@@ -155,22 +167,29 @@ export async function endTree(child, { deadlineMs = KILL_DEADLINE_MS } = {}) {
  * deadline, or when the child cannot start, the tree is ended and the run rejects with `label` in the message; a failed
  * kill is appended as its own error. A tree that could not be ended after the command finished rejects with the
  * command's own status and stderr beside the cleanup failure (and on `error.result`). `inherit` passes the child's stdio
- * through instead of capturing it; onSpawn(child) is called with the started child.
+ * through instead of capturing it; onSpawn(child) is called with the started child after every handler is installed (a
+ * callback that throws ends the tree and rejects). An aborted `signal` ends the tree and rejects with code ABORT_ERR. The
+ * result also carries `escapes` ('undetectable' on macOS: a descendant that left the process group cannot be found there)
+ * and `escapedEnded` (pids of descendants outside the group that the helper adopted and ended); a helper that could not show
+ * the tree ended rejects.
  */
-export function runTree(program, args, { label, cwd, env, deadlineMs, inherit = false, shell = false, onSpawn }) {
+export function runTree(program, args, { label, cwd, env, deadlineMs, inherit = false, shell = false, onSpawn, signal: abortSignal }) {
   return new Promise((resolveRun, reject) => {
+    if (abortSignal?.aborted) return reject(Object.assign(new Error(`${label} was aborted before it started`), { code: 'ABORT_ERR' }));
     const child = spawnTree(program, args, { cwd, env, shell, windowsHide: true, stdio: inherit ? 'inherit' : ['ignore', 'pipe', 'pipe'] });
-    onSpawn?.(child);
     const out = [];
     const err = [];
     child.stdout?.on('data', (chunk) => out.push(chunk));
     child.stderr?.on('data', (chunk) => err.push(chunk));
     const stderrText = () => Buffer.concat(err).toString('utf8');
-    // Once the tree is being ended, the child's own close is the kill working, not an answer.
+    // Once the tree is being ended, the child's own close is the kill working, not an answer; the first way out wins.
     let ending = false;
     // `code` is the spawn error's own (ENOENT for a program that is not there), so a caller can tell that from a deadline.
     const fail = async (message, code) => {
+      if (ending) return;
       ending = true;
+      clearTimeout(deadline);
+      abortSignal?.removeEventListener('abort', onAbort);
       try {
         const { killed } = await endTree(child);
         reject(Object.assign(new Error(`${message} (ended: ${killed.length ? killed.join(', ') : 'nothing was left running'})`), { code }));
@@ -179,14 +198,15 @@ export function runTree(program, args, { label, cwd, env, deadlineMs, inherit = 
       }
     };
     const deadline = setTimeout(() => fail(`${label} did not finish within ${deadlineMs}ms and was ended\n${stderrText().slice(-600)}`), deadlineMs);
-    child.once('error', (error) => {
-      clearTimeout(deadline);
-      fail(`${label} could not run: ${error.message}`, error.code);
-    });
+    const onAbort = () => fail(`${label} was aborted and its tree ended`, 'ABORT_ERR');
+    abortSignal?.addEventListener('abort', onAbort, { once: true });
+    child.once('error', (error) => fail(`${label} could not run: ${error.message}`, error.code));
     // The helper ends whatever the command left behind as it exits, success included: a run owns its whole tree.
     child.once('close', async (code, signal) => {
       if (ending) return;
+      ending = true;
       clearTimeout(deadline);
+      abortSignal?.removeEventListener('abort', onAbort);
       // A helper that reports nothing, or an incomplete report, died before it finished: that is never a success.
       let outcome = null;
       let unreported;
@@ -197,7 +217,8 @@ export function runTree(program, args, { label, cwd, env, deadlineMs, inherit = 
         unreported = error.message;
       }
       const stdoutBytes = Buffer.concat(out);
-      const result = { status: outcome?.signal ? null : code, signal: outcome?.signal ? signalName(outcome.signal) : signal, stdout: stdoutBytes.toString('utf8'), stderr: stderrText(), stdoutBytes };
+      if (outcome?.failure) unreported = `the tree helper could not show the tree ended: ${outcome.failure}`;
+      const result = { status: outcome?.signal ? null : code, signal: outcome?.signal ? signalName(outcome.signal) : signal, escapes: outcome?.escapes, escapedEnded: outcome?.escaped_ended ?? [], stdout: stdoutBytes.toString('utf8'), stderr: stderrText(), stdoutBytes };
       let cleanup;
       try {
         await endTree(child);
@@ -211,5 +232,11 @@ export function runTree(program, args, { label, cwd, env, deadlineMs, inherit = 
       }
       resolveRun(result);
     });
+    // Last, once every handler is in place: a callback that throws leaves a tree that is still managed, and is ended.
+    try {
+      onSpawn?.(child);
+    } catch (error) {
+      fail(`${label}: the onSpawn callback threw: ${error.message}`);
+    }
   });
 }
