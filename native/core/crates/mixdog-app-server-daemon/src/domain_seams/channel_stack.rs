@@ -240,6 +240,37 @@ impl mixdog_services::channels::WebhookListener for ServerListener {
     }
 }
 
+/// `createConfigReloadWatch` (config-reload-watch.mjs): every installed config document (an
+/// in-process write or another process's edit through the file watch) whose `channels` or `voice`
+/// section differs from the one last applied reloads the channels runtime; other sections never
+/// restart the listeners. Ends with `cancel`.
+pub fn watch_channels_config<F, Fut>(config: Config, reload: F, cancel: CancellationToken) -> tokio::task::JoinHandle<()>
+where
+    F: Fn() -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = Result<(), String>> + Send + 'static,
+{
+    let mut changes = config.changes();
+    let snapshot = |config: &Config| (config.get("channels"), config.get("voice"));
+    let mut applied = snapshot(&config);
+    mixdog_rt::spawn("channels-config-reload", mixdog_rt::TaskClass::Work, async move {
+        loop {
+            tokio::select! {
+                () = cancel.cancelled() => return,
+                changed = changes.changed() => if changed.is_err() { return },
+            }
+            let next = snapshot(&config);
+            if next == applied {
+                continue;
+            }
+            applied = next;
+            // Node's `.catch(() => {})`: a failed reload leaves the watch running.
+            if let Err(error) = reload().await {
+                tracing::warn!("mixdog channels: config reload failed: {error}");
+            }
+        }
+    })
+}
+
 #[cfg(test)]
 #[path = "channel_stack_tests.rs"]
 mod tests;
