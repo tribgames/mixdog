@@ -19,11 +19,11 @@ import { basename, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { commitStage, exactProductIdentity, importFrom, parseArgs, recordingProvenance, REPO_ROOT, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
-import { attachmentsScript, attachmentsWorld, conversation, FIXED_NOW_MS, play, REFS, seedRecovery, worldState } from './lib/phone-attachments-script.mjs';
+import { attachmentsScript, attachmentsWorld, conversation, FIXED_NOW_MS, play, recoveryRoots, REFS, seedRecovery, WORKTREE_STATES, worldState } from './lib/phone-attachments-script.mjs';
 
 const REF = 'b6f10295a2f698afc85332467192de28500bd146';
 const RECORDER = 'benchmarks/rust-core/recorders/record-phone-attachments.mjs';
-const RECORDER_MODULES = ['lib/common.mjs', 'lib/phone-attachments-script.mjs', 'lib/phone-files-replay.mjs', 'lib/phone-relay-core.mjs'].map((file) => `benchmarks/rust-core/recorders/${file}`);
+const RECORDER_MODULES = ['lib/common.mjs', 'lib/phone-attachments-script.mjs', 'lib/phone-files-replay.mjs', 'lib/phone-files-script.mjs', 'lib/phone-relay-core.mjs'].map((file) => `benchmarks/rust-core/recorders/${file}`);
 const FIXTURES = join(REPO_ROOT, 'apps', 'mobile', 'fixtures', 'phone-attachments');
 const args = parseArgs();
 const REPLAY = args.get('replay') ?? null;
@@ -59,7 +59,10 @@ for (const [id, messages] of Object.entries(conversation())) {
 }
 const sessionsDir = join(world.data, 'sessions');
 const sessionFiles = readdirSync(sessionsDir).sort().map((name) => ({ name, text: readFileSync(join(sessionsDir, name), 'utf8') }));
-const records = await seedRecovery(recoveryStore, world.userData, world.project);
+const seededRoots = [world.project, ...WORKTREE_STATES.map((state) => world.worktrees[state])];
+const records = await seedRecovery(recoveryStore, world.userData, seededRoots);
+world.registerWorktrees(world.data);
+const worktrees = await importFrom(tree, 'src/runtime/shared/worktrees/manager.mjs');
 
 const sessionClient = { list: async () => ({ sessions: [] }), close: async () => {} };
 const host = await SessionHost.create(
@@ -69,9 +72,13 @@ const host = await SessionHost.create(
     loadProjects: async () => projects,
     loadSessionStore: async () => ({ listStoredAgentWorkers: () => [] }),
     loadStatuslineSegments: async () => ({}),
+    loadWorktrees: async () => worktrees,
   }
 );
-const operations = createDesktopOperations({ userDataPath: world.userData, packaged: false, resourcesPath: '', appPath: join(tree, 'apps', 'desktop'), loadConfig: async () => ({}), emit() {} });
+// Every recovery call runs under the worktree manager's store seam, as desktop-service.ts worktreeRecoveryStore (:754-766) hands it to
+// createDesktopOperations when the loaded module has withWorktreeRecoveryStore.
+const withRecoveryStore = (root, action, run) => worktrees.withWorktreeRecoveryStore(root, recoveryStore.projectRecoveryStorePath(world.userData, root), action, run);
+const operations = createDesktopOperations({ userDataPath: world.userData, packaged: false, resourcesPath: '', appPath: join(tree, 'apps', 'desktop'), loadConfig: async () => ({}), withRecoveryStore, emit() {} });
 host.invokeDesktopOperation = (name, operationArgs) => operations.invoke(name, operationArgs);
 // The PC's transcripts of a conversation no window holds: the session service's cold read of the stored files, and its whole
 // stored conversation for the attachment lookup (session-views.mjs `readSession`, `attachmentHistory`).
@@ -96,7 +103,7 @@ const driver = {
 const { steps } = await play(attachmentsScript(world), driver, records);
 await host.dispose();
 await operations.dispose();
-const state = worldState(world, recoveryStore.projectRecoveryStorePath(world.userData, world.project), records);
+const state = worldState(world, (root) => recoveryStore.projectRecoveryStorePath(world.userData, root), records, world.data);
 
 if (ONLY) {
   const text = `${JSON.stringify({ steps, state }, null, 2)}\n`;
@@ -121,14 +128,16 @@ writeSetManifest(out, {
     steps: steps.length,
     ...recordingProvenance(RECORDER, RECORDER_MODULES),
     entry: {
-      runs: 'executeRemoteFrame over createRemoteMethods (remote-methods.ts) with a real SessionHost (project registry, readAttachmentImage over the attachment store), createDesktopOperations (readLocalFileAbs, statLocalEntryAbs, projectRecoveryIn) and createSelectedFileGrants',
+      runs: "executeRemoteFrame over createRemoteMethods (remote-methods.ts) with a real SessionHost (project registry, readAttachmentImage over the attachment store, projectRecoveryDirectory with the worktree runtime src/runtime/shared/worktrees/manager.mjs as loadWorktrees), createDesktopOperations (readLocalFileAbs, statLocalEntryAbs, projectRecoveryIn, under manager.mjs withWorktreeRecoveryStore as desktop-service.ts worktreeRecoveryStore hands it) and createSelectedFileGrants",
       notRun:
         "the relay transport (encryption, admission) and the session service process: the host's transcript reads are the service's own stored-session reads (store-summary-reader.mjs readStoredSessionTranscript, the cold read and the attachmentHistory read session-views.mjs makes), since no window holds these conversations",
     },
     worldSetup: {
       conversations: "two conversations saved with Node's saveSessionAsync (session/store.mjs); the files it wrote are the golden's sessionFiles, which the replay puts in the core's data dir before it starts",
       attachments: 'blobs written at <data>/prompt-attachments/sha256/<2>/<ref> (the layout both stores read)',
-      recovery: "two interrupted workspace edits: beginProjectRecovery then releaseRecoveryDirectory of project-recovery-store.ts (b6f10295a's here, the identical file of this repository in the replay), on Date.now = FIXED_NOW_MS",
+      recovery: "two interrupted workspace edits in the project and in each managed worktree: beginProjectRecovery then releaseRecoveryDirectory of project-recovery-store.ts (b6f10295a's here, the identical file of this repository in the replay), on Date.now = FIXED_NOW_MS",
+      worktrees:
+        "a git repository (git init) and four checkout folders, one per registry state (ready, deleting, recovery, creating), written as records of <data>/worktrees-v1/registry.json (one format for Node's registry.mjs and the core's): before the host is made here; in the replay once the core serves, so its startup reconcile (Node's daemon ran one at its start, this recording runs no daemon) meets an empty registry. The replay fails if the core's daemon.log reports a reconcile",
     },
     comparison: {
       placeholders:
@@ -136,12 +145,13 @@ writeSetManifest(out, {
       fileMtime:
         "a file call's answer (readProjectFile, statProjectFile, previewProjectFileRange) carries the file's mtimeMs, which the OS stamps when a staged attachment or a restore writes it: each side proves the answer equals its own file's mtime on disk right after the call (lib/phone-attachments-script.mjs `play` fails the run otherwise) and the answer holds { $fileMtime: true } in its place",
       heldWhole:'a string over 64 KiB in an answer (limit.bin read whole, the 2 MiB thumbnail) is held as its length and sha256, on both sides',
-      recoveryStore: "the recovery store after the script is compared by entry name (record ids as $record<n>) and each payload's size and sha256; manifest.json and state.json by name only (they hold the record id and the world's file identities)",
+      recoveryStore: "each recovery folder's store after the script (the project, each worktree, the ready worktree's subfolder) is compared by entry name (record ids as $record<n>) and each payload's size and sha256; manifest.json and state.json by name only (they hold the record id and the world's file identities)",
+      worktreeRegistry:
+        "the worktree registry after the script, every record whole but `updatedAt` (Node's putRecord stamps it, the core's registry write does not), with each editorRecoveryStores directory as $journal/<digest of its root>: Node keeps the stores in <userData>/editor-recovery, the core in <data>/recovery",
     },
     notRecorded: {
       pathDeadline:
         "resolveLocalPaths's 15 s per-path deadline (remote-methods.ts:646-660) needs a path whose stat does not answer (a stalled network share), which this world cannot make; the adapter keeps the deadline and its sentence",
-      worktreeRecovery: "projectRecovery of a worktree that is no registered project (session-host.ts projectRecoveryDirectory's worktree branch) needs Node's worktree runtime, not loaded here",
     },
   },
 });
@@ -165,11 +175,11 @@ async function replay(exe) {
   // The recovery records, written by this repository's copy of the store (the same file as b6f10295a's) and moved where the core keeps
   // its journals (`<data>/recovery/<digest of the root>`).
   const recoveryStore = await here('apps/desktop/src/main/project-recovery-store.ts');
-  const records = await seedRecovery(recoveryStore, world.userData, world.project);
-  const nodeJournal = recoveryStore.projectRecoveryStorePath(world.userData, world.project);
-  const coreJournal = join(world.data, 'recovery', basename(nodeJournal));
+  const seededRoots = [world.project, ...WORKTREE_STATES.map((state) => world.worktrees[state])];
+  const records = await seedRecovery(recoveryStore, world.userData, seededRoots);
+  const coreJournal = (root) => join(world.data, 'recovery', basename(recoveryStore.projectRecoveryStorePath(world.userData, root)));
   mkdirSync(join(world.data, 'recovery'), { recursive: true });
-  renameSync(nodeJournal, coreJournal);
+  for (const root of seededRoots) renameSync(recoveryStore.projectRecoveryStorePath(world.userData, root), coreJournal(root));
   writeFileSync(join(world.data, 'remote-activated.json'), '{"activatedAt":1}');
 
   const relay = await startRelay({ repoRoot: REPO_ROOT, clients: [], capabilities: { textFrames: 1, maxFrameBytes: 1048576 } });
@@ -196,6 +206,9 @@ async function replay(exe) {
       clock: { sleep: () => Promise.reject(new Error(`the core closed the replay's connection (${closed}) during ${inFlight}`)) },
       random: Math.random,
     }));
+    // The worktree registry is written once the core serves: its startup reconcile (which Node's daemon ran at its own start, and the
+    // recording, which runs no daemon, did not) has then met an empty registry, so the records are the ones the recording read.
+    world.registerWorktrees(world.data);
     globalThis.window = { setTimeout: () => 0, clearTimeout() {} };
     const { adapter: files } = await here('apps/desktop/src/renderer/remote-protocol-files.ts');
     const { adapter: attachments } = await here('apps/desktop/src/renderer/remote-protocol-attachments.ts');
@@ -217,7 +230,7 @@ async function replay(exe) {
       },
     };
     const { steps } = await play(attachmentsScript(world), driver, records);
-    const state = worldState(world, coreJournal, records);
+    const state = worldState(world, coreJournal, records, world.data);
     const differences = [];
     if (steps.length !== golden.steps.length) differences.push({ label: 'step count', node: golden.steps.length, core: steps.length });
     golden.steps.forEach((node, index) => {
@@ -226,6 +239,9 @@ async function replay(exe) {
     for (const field of Object.keys(golden.state)) {
       if (!isDeepStrictEqual(golden.state[field], state[field])) differences.push({ label: `state.${field}`, node: golden.state[field], core: state[field] });
     }
+    const log = existsSync(join(world.data, 'daemon.log')) ? readFileSync(join(world.data, 'daemon.log'), 'utf8') : '';
+    const reconciled = log.split(/\r?\n/u).filter((line) => line.includes('worktree reconcile'));
+    if (reconciled.length) differences.push({ label: "the core's startup reconcile ran over the world's worktrees", node: [], core: reconciled });
     console.log(`phone-attachments replay over ${exe}: ${golden.steps.length} steps and ${Object.keys(golden.state).length} state fields compared, ${differences.length} differ`);
     for (const entry of differences) {
       console.log(`DIFF ${entry.label}`);

@@ -16,11 +16,11 @@
   "sessionFiles": [
     {
       "name": "sess_phone_attach.log.jsonl",
-      "text": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"2ba0df953e702be474f175f8\",\"id\":\"sess_phone_attach\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_phone_attach\",\"provider\":\"openai\",\"model\":\"gpt-test\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\ph-attachments\\\\proj\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"look at these\"}],\"meta\":{\"transcript\":{\"attachments\":[{\"id\":\"0eb1d84a90fef03a6949fb1052da1ec76b9429d41e15f55b09b739dcaf6c2d55\",\"attachmentRef\":\"0eb1d84a90fef03a6949fb1052da1ec76b9429d41e15f55b09b739dcaf6c2d55\",\"kind\":\"file\",\"name\":\"report\",\"mimeType\":\"application/pdf\",\"size\":56},{\"id\":\"8b115e8d7e791462c44e3da8763b3f76f58ef922e31843dac5fc42e0a9538dfa\",\"attachmentRef\":\"8b115e8d7e791462c44e3da8763b3f76f58ef922e31843dac5fc42e0a9538dfa\",\"kind\":\"file\",\"name\":\"notes.md\",\"mimeType\":\"text/markdown\",\"size\":32},{\"id\":\"497790947d4666760ce38f3c00e852c71fdb66cae849bae8e9ede352719e1581\",\"attachmentRef\":\"497790947d4666760ce38f3c00e852c71fdb66cae849bae8e9ede352719e1581\",\"kind\":\"image\",\"name\":\"shot.png\",\"mimeType\":\"image/png\",\"size\":70},{\"id\":\"a9daccaecd68e446d76070cc759afcfb3b85f593361f2ab8daf19004e2c687b9\",\"attachmentRef\":\"a9daccaecd68e446d76070cc759afcfb3b85f593361f2ab8daf19004e2c687b9\",\"kind\":\"image\",\"name\":\"photo.jpg\",\"mimeType\":\"image/jpeg\",\"size\":16},{\"id\":\"1f19970f056cd116a5fe3c02422c1ee1ac827136df470b5c89af492620512aa4\",\"attachmentRef\":\"1f19970f056cd116a5fe3c02422c1ee1ac827136df470b5c89af492620512aa4\",\"kind\":\"image\",\"name\":\"anim.gif\",\"mimeType\":\"image/gif\",\"size\":14},{\"id\":\"481f6f468a765b390b85635d98245fa0db8ae6cca1529e463fe1924ce8b470a6\",\"attachmentRef\":\"481f6f468a765b390b85635d98245fa0db8ae6cca1529e463fe1924ce8b470a6\",\"kind\":\"image\",\"name\":\"pic.webp\",\"mimeType\":\"image/webp\",\"size\":20},{\"id\":\"1178fd36bc4e418a4cffa2a642283ffa52b838a345081dad42ff41b356266d8e\",\"attachmentRef\":\"1178fd36bc4e418a4cffa2a642283ffa52b838a345081dad42ff41b356266d8e\",\"kind\":\"image\",\"name\":\"limit.png\",\"mimeType\":\"image/png\",\"size\":2097152},{\"id\":\"8aa68c14c4cdf5d03a98c3780ccfc34c6b6492033dc2fe275734d73ddd3e8460\",\"attachmentRef\":\"8aa68c14c4cdf5d03a98c3780ccfc34c6b6492033dc2fe275734d73ddd3e8460\",\"kind\":\"image\",\"name\":\"over.png\",\"mimeType\":\"image/png\",\"size\":2097153},{\"id\":\"b68565cf5699273f6a21847b3fe44726374cbd6c3bfdc829527f1db2a0504341\",\"attachmentRef\":\"b68565cf5699273f6a21847b3fe44726374cbd6c3bfdc829527f1db2a0504341\",\"kind\":\"file\",\"name\":\"gone.txt\",\"mimeType\":\"text/plain\",\"size\":12}]}}},{\"role\":\"assistant\",\"content\":\"got them\"}]}\n"
+      "text": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"8beee592d8078070128be1bf\",\"id\":\"sess_phone_attach\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_phone_attach\",\"provider\":\"openai\",\"model\":\"gpt-test\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\ph-attachments\\\\proj\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"look at these\"}],\"meta\":{\"transcript\":{\"attachments\":[{\"id\":\"0eb1d84a90fef03a6949fb1052da1ec76b9429d41e15f55b09b739dcaf6c2d55\",\"attachmentRef\":\"0eb1d84a90fef03a6949fb1052da1ec76b9429d41e15f55b09b739dcaf6c2d55\",\"kind\":\"file\",\"name\":\"report\",\"mimeType\":\"application/pdf\",\"size\":56},{\"id\":\"8b115e8d7e791462c44e3da8763b3f76f58ef922e31843dac5fc42e0a9538dfa\",\"attachmentRef\":\"8b115e8d7e791462c44e3da8763b3f76f58ef922e31843dac5fc42e0a9538dfa\",\"kind\":\"file\",\"name\":\"notes.md\",\"mimeType\":\"text/markdown\",\"size\":32},{\"id\":\"497790947d4666760ce38f3c00e852c71fdb66cae849bae8e9ede352719e1581\",\"attachmentRef\":\"497790947d4666760ce38f3c00e852c71fdb66cae849bae8e9ede352719e1581\",\"kind\":\"image\",\"name\":\"shot.png\",\"mimeType\":\"image/png\",\"size\":70},{\"id\":\"a9daccaecd68e446d76070cc759afcfb3b85f593361f2ab8daf19004e2c687b9\",\"attachmentRef\":\"a9daccaecd68e446d76070cc759afcfb3b85f593361f2ab8daf19004e2c687b9\",\"kind\":\"image\",\"name\":\"photo.jpg\",\"mimeType\":\"image/jpeg\",\"size\":16},{\"id\":\"1f19970f056cd116a5fe3c02422c1ee1ac827136df470b5c89af492620512aa4\",\"attachmentRef\":\"1f19970f056cd116a5fe3c02422c1ee1ac827136df470b5c89af492620512aa4\",\"kind\":\"image\",\"name\":\"anim.gif\",\"mimeType\":\"image/gif\",\"size\":14},{\"id\":\"481f6f468a765b390b85635d98245fa0db8ae6cca1529e463fe1924ce8b470a6\",\"attachmentRef\":\"481f6f468a765b390b85635d98245fa0db8ae6cca1529e463fe1924ce8b470a6\",\"kind\":\"image\",\"name\":\"pic.webp\",\"mimeType\":\"image/webp\",\"size\":20},{\"id\":\"1178fd36bc4e418a4cffa2a642283ffa52b838a345081dad42ff41b356266d8e\",\"attachmentRef\":\"1178fd36bc4e418a4cffa2a642283ffa52b838a345081dad42ff41b356266d8e\",\"kind\":\"image\",\"name\":\"limit.png\",\"mimeType\":\"image/png\",\"size\":2097152},{\"id\":\"8aa68c14c4cdf5d03a98c3780ccfc34c6b6492033dc2fe275734d73ddd3e8460\",\"attachmentRef\":\"8aa68c14c4cdf5d03a98c3780ccfc34c6b6492033dc2fe275734d73ddd3e8460\",\"kind\":\"image\",\"name\":\"over.png\",\"mimeType\":\"image/png\",\"size\":2097153},{\"id\":\"b68565cf5699273f6a21847b3fe44726374cbd6c3bfdc829527f1db2a0504341\",\"attachmentRef\":\"b68565cf5699273f6a21847b3fe44726374cbd6c3bfdc829527f1db2a0504341\",\"kind\":\"file\",\"name\":\"gone.txt\",\"mimeType\":\"text/plain\",\"size\":12}]}}},{\"role\":\"assistant\",\"content\":\"got them\"}]}\n"
     },
     {
       "name": "sess_phone_other.log.jsonl",
-      "text": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"59028ed378adf37ee1ffad77\",\"id\":\"sess_phone_other\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_phone_other\",\"provider\":\"openai\",\"model\":\"gpt-test\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\ph-attachments\\\\proj\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"another\"}],\"meta\":{\"transcript\":{\"attachments\":[{\"id\":\"c2e33eb673dde29d6827508a4fe650cb21d2cb8e7419e019bde4490166cde26c\",\"attachmentRef\":\"c2e33eb673dde29d6827508a4fe650cb21d2cb8e7419e019bde4490166cde26c\",\"kind\":\"file\",\"name\":\"stray.txt\",\"mimeType\":\"text/plain\",\"size\":32}]}}},{\"role\":\"assistant\",\"content\":\"ok\"}]}\n"
+      "text": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"6e2b3fdde203d2126436e7d5\",\"id\":\"sess_phone_other\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_phone_other\",\"provider\":\"openai\",\"model\":\"gpt-test\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\ph-attachments\\\\proj\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"another\"}],\"meta\":{\"transcript\":{\"attachments\":[{\"id\":\"c2e33eb673dde29d6827508a4fe650cb21d2cb8e7419e019bde4490166cde26c\",\"attachmentRef\":\"c2e33eb673dde29d6827508a4fe650cb21d2cb8e7419e019bde4490166cde26c\",\"kind\":\"file\",\"name\":\"stray.txt\",\"mimeType\":\"text/plain\",\"size\":32}]}}},{\"role\":\"assistant\",\"content\":\"ok\"}]}\n"
     }
   ],
   "steps": [
@@ -1468,6 +1468,947 @@
         "ok": false,
         "error": "projectPath must be a string."
       }
+    },
+    {
+      "call": "projectRecovery",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\wt\\ready",
+        {
+          "action": "list"
+        }
+      ],
+      "frame": {
+        "ok": false,
+        "error": "Project is not available.",
+        "errorCode": "PROJECT_UNAVAILABLE"
+      }
+    },
+    {
+      "call": "addProject",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\repo"
+      ],
+      "frame": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "call": "projectRecovery",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\wt\\ready",
+        {
+          "action": "list"
+        }
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "records": [
+            {
+              "id": "$record3",
+              "createdAt": 1780819753000,
+              "fileCount": 1,
+              "payloadBytes": 39,
+              "phase": "interrupted"
+            },
+            {
+              "id": "$record2",
+              "createdAt": 1780819752000,
+              "fileCount": 1,
+              "payloadBytes": 55,
+              "phase": "interrupted"
+            }
+          ],
+          "rootAvailable": true,
+          "storage": {
+            "usedRecords": 2,
+            "maxRecords": 20,
+            "unresolvedRecords": 2,
+            "resolvedRecords": 0,
+            "payloadBytes": 94,
+            "unknownSizeRecords": 0,
+            "maxBatchBytes": 16777216,
+            "maxBatchFiles": 100
+          }
+        }
+      }
+    },
+    {
+      "call": "projectRecovery",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\wt\\ready\\sub",
+        {
+          "action": "list"
+        }
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "records": [],
+          "rootAvailable": true,
+          "storage": {
+            "usedRecords": 0,
+            "maxRecords": 20,
+            "unresolvedRecords": 0,
+            "resolvedRecords": 0,
+            "payloadBytes": 0,
+            "unknownSizeRecords": 0,
+            "maxBatchBytes": 16777216,
+            "maxBatchFiles": 100
+          }
+        }
+      }
+    },
+    {
+      "call": "projectRecovery",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\wt\\ready\\sub\\..",
+        {
+          "action": "list"
+        }
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "records": [
+            {
+              "id": "$record3",
+              "createdAt": 1780819753000,
+              "fileCount": 1,
+              "payloadBytes": 39,
+              "phase": "interrupted"
+            },
+            {
+              "id": "$record2",
+              "createdAt": 1780819752000,
+              "fileCount": 1,
+              "payloadBytes": 55,
+              "phase": "interrupted"
+            }
+          ],
+          "rootAvailable": true,
+          "storage": {
+            "usedRecords": 2,
+            "maxRecords": 20,
+            "unresolvedRecords": 2,
+            "resolvedRecords": 0,
+            "payloadBytes": 94,
+            "unknownSizeRecords": 0,
+            "maxBatchBytes": 16777216,
+            "maxBatchFiles": 100
+          }
+        }
+      }
+    },
+    {
+      "call": "projectRecovery",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\wt\\ready",
+        {
+          "action": "inspect",
+          "id": "$record2"
+        }
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "records": [
+            {
+              "id": "$record3",
+              "createdAt": 1780819753000,
+              "fileCount": 1,
+              "payloadBytes": 39,
+              "phase": "interrupted"
+            },
+            {
+              "id": "$record2",
+              "createdAt": 1780819752000,
+              "fileCount": 1,
+              "payloadBytes": 55,
+              "phase": "interrupted"
+            }
+          ],
+          "rootAvailable": true,
+          "storage": {
+            "usedRecords": 2,
+            "maxRecords": 20,
+            "unresolvedRecords": 2,
+            "resolvedRecords": 0,
+            "payloadBytes": 94,
+            "unknownSizeRecords": 0,
+            "maxBatchBytes": 16777216,
+            "maxBatchFiles": 100
+          },
+          "detail": {
+            "id": "$record2",
+            "createdAt": 1780819752000,
+            "fileCount": 1,
+            "phase": "interrupted",
+            "active": false,
+            "revision": "$revision3",
+            "files": [
+              {
+                "relPath": "edited.txt",
+                "status": "written"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "call": "projectRecovery",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\wt\\ready",
+        {
+          "action": "restore",
+          "id": "$record2",
+          "revision": "$revision3"
+        }
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "records": [
+            {
+              "id": "$record3",
+              "createdAt": 1780819753000,
+              "fileCount": 1,
+              "payloadBytes": 39,
+              "phase": "interrupted"
+            },
+            {
+              "id": "$record2",
+              "createdAt": 1780819752000,
+              "fileCount": 1,
+              "payloadBytes": 55,
+              "phase": "recovered"
+            }
+          ],
+          "rootAvailable": true,
+          "storage": {
+            "usedRecords": 2,
+            "maxRecords": 20,
+            "unresolvedRecords": 1,
+            "resolvedRecords": 1,
+            "payloadBytes": 94,
+            "unknownSizeRecords": 0,
+            "maxBatchBytes": 16777216,
+            "maxBatchFiles": 100
+          },
+          "detail": {
+            "id": "$record2",
+            "createdAt": 1780819752000,
+            "fileCount": 1,
+            "phase": "recovered",
+            "active": false,
+            "revision": "$revision4",
+            "files": [
+              {
+                "relPath": "edited.txt",
+                "status": "restored"
+              }
+            ],
+            "message": "Original bytes restored. No changed, missing or unavailable file was overwritten."
+          }
+        }
+      }
+    },
+    {
+      "call": "readProjectFile",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\wt\\ready",
+        "edited.txt",
+        null
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "content": "before the interrupted edit\n",
+          "mtimeMs": {
+            "$fileMtime": true
+          },
+          "binary": false,
+          "tooLarge": false,
+          "encoding": "utf8"
+        }
+      }
+    },
+    {
+      "call": "projectRecovery",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\wt\\ready",
+        {
+          "action": "inspect",
+          "id": "$record3"
+        }
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "records": [
+            {
+              "id": "$record3",
+              "createdAt": 1780819753000,
+              "fileCount": 1,
+              "payloadBytes": 39,
+              "phase": "interrupted"
+            },
+            {
+              "id": "$record2",
+              "createdAt": 1780819752000,
+              "fileCount": 1,
+              "payloadBytes": 55,
+              "phase": "recovered"
+            }
+          ],
+          "rootAvailable": true,
+          "storage": {
+            "usedRecords": 2,
+            "maxRecords": 20,
+            "unresolvedRecords": 1,
+            "resolvedRecords": 1,
+            "payloadBytes": 94,
+            "unknownSizeRecords": 0,
+            "maxBatchBytes": 16777216,
+            "maxBatchFiles": 100
+          },
+          "detail": {
+            "id": "$record3",
+            "createdAt": 1780819753000,
+            "fileCount": 1,
+            "phase": "interrupted",
+            "active": false,
+            "revision": "$revision5",
+            "files": [
+              {
+                "relPath": "dropped.txt",
+                "status": "written"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "call": "projectRecovery",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\wt\\ready",
+        {
+          "action": "discard",
+          "id": "$record3",
+          "revision": "$revision5"
+        }
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "records": [
+            {
+              "id": "$record2",
+              "createdAt": 1780819752000,
+              "fileCount": 1,
+              "payloadBytes": 55,
+              "phase": "recovered"
+            }
+          ],
+          "rootAvailable": true,
+          "storage": {
+            "usedRecords": 1,
+            "maxRecords": 20,
+            "unresolvedRecords": 0,
+            "resolvedRecords": 1,
+            "payloadBytes": 55,
+            "unknownSizeRecords": 0,
+            "maxBatchBytes": 16777216,
+            "maxBatchFiles": 100
+          }
+        }
+      }
+    },
+    {
+      "call": "projectRecovery",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\wt\\ready",
+        {
+          "action": "list"
+        }
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "records": [
+            {
+              "id": "$record2",
+              "createdAt": 1780819752000,
+              "fileCount": 1,
+              "payloadBytes": 55,
+              "phase": "recovered"
+            }
+          ],
+          "rootAvailable": true,
+          "storage": {
+            "usedRecords": 1,
+            "maxRecords": 20,
+            "unresolvedRecords": 0,
+            "resolvedRecords": 1,
+            "payloadBytes": 55,
+            "unknownSizeRecords": 0,
+            "maxBatchBytes": 16777216,
+            "maxBatchFiles": 100
+          }
+        }
+      }
+    },
+    {
+      "call": "projectRecovery",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\wt\\deleting",
+        {
+          "action": "list"
+        }
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "records": [
+            {
+              "id": "$record5",
+              "createdAt": 1780819755000,
+              "fileCount": 1,
+              "payloadBytes": 39,
+              "phase": "interrupted"
+            },
+            {
+              "id": "$record4",
+              "createdAt": 1780819754000,
+              "fileCount": 1,
+              "payloadBytes": 55,
+              "phase": "interrupted"
+            }
+          ],
+          "rootAvailable": true,
+          "storage": {
+            "usedRecords": 2,
+            "maxRecords": 20,
+            "unresolvedRecords": 2,
+            "resolvedRecords": 0,
+            "payloadBytes": 94,
+            "unknownSizeRecords": 0,
+            "maxBatchBytes": 16777216,
+            "maxBatchFiles": 100
+          }
+        }
+      }
+    },
+    {
+      "call": "projectRecovery",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\wt\\deleting",
+        {
+          "action": "inspect",
+          "id": "$record4"
+        }
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "records": [
+            {
+              "id": "$record5",
+              "createdAt": 1780819755000,
+              "fileCount": 1,
+              "payloadBytes": 39,
+              "phase": "interrupted"
+            },
+            {
+              "id": "$record4",
+              "createdAt": 1780819754000,
+              "fileCount": 1,
+              "payloadBytes": 55,
+              "phase": "interrupted"
+            }
+          ],
+          "rootAvailable": true,
+          "storage": {
+            "usedRecords": 2,
+            "maxRecords": 20,
+            "unresolvedRecords": 2,
+            "resolvedRecords": 0,
+            "payloadBytes": 94,
+            "unknownSizeRecords": 0,
+            "maxBatchBytes": 16777216,
+            "maxBatchFiles": 100
+          },
+          "detail": {
+            "id": "$record4",
+            "createdAt": 1780819754000,
+            "fileCount": 1,
+            "phase": "interrupted",
+            "active": false,
+            "revision": "$revision6",
+            "files": [
+              {
+                "relPath": "edited.txt",
+                "status": "written"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "call": "projectRecovery",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\wt\\deleting",
+        {
+          "action": "restore",
+          "id": "$record4",
+          "revision": "$revision6"
+        }
+      ],
+      "frame": {
+        "ok": false,
+        "error": "The managed worktree no longer exists.",
+        "errorCode": "WORKTREE_MISSING"
+      }
+    },
+    {
+      "call": "projectRecovery",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\wt\\deleting",
+        {
+          "action": "inspect",
+          "id": "$record5"
+        }
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "records": [
+            {
+              "id": "$record5",
+              "createdAt": 1780819755000,
+              "fileCount": 1,
+              "payloadBytes": 39,
+              "phase": "interrupted"
+            },
+            {
+              "id": "$record4",
+              "createdAt": 1780819754000,
+              "fileCount": 1,
+              "payloadBytes": 55,
+              "phase": "interrupted"
+            }
+          ],
+          "rootAvailable": true,
+          "storage": {
+            "usedRecords": 2,
+            "maxRecords": 20,
+            "unresolvedRecords": 2,
+            "resolvedRecords": 0,
+            "payloadBytes": 94,
+            "unknownSizeRecords": 0,
+            "maxBatchBytes": 16777216,
+            "maxBatchFiles": 100
+          },
+          "detail": {
+            "id": "$record5",
+            "createdAt": 1780819755000,
+            "fileCount": 1,
+            "phase": "interrupted",
+            "active": false,
+            "revision": "$revision7",
+            "files": [
+              {
+                "relPath": "dropped.txt",
+                "status": "written"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "call": "projectRecovery",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\wt\\deleting",
+        {
+          "action": "discard",
+          "id": "$record5",
+          "revision": "$revision7"
+        }
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "records": [
+            {
+              "id": "$record4",
+              "createdAt": 1780819754000,
+              "fileCount": 1,
+              "payloadBytes": 55,
+              "phase": "interrupted"
+            }
+          ],
+          "rootAvailable": true,
+          "storage": {
+            "usedRecords": 1,
+            "maxRecords": 20,
+            "unresolvedRecords": 1,
+            "resolvedRecords": 0,
+            "payloadBytes": 55,
+            "unknownSizeRecords": 0,
+            "maxBatchBytes": 16777216,
+            "maxBatchFiles": 100
+          }
+        }
+      }
+    },
+    {
+      "call": "projectRecovery",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\wt\\deleting",
+        {
+          "action": "list"
+        }
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "records": [
+            {
+              "id": "$record4",
+              "createdAt": 1780819754000,
+              "fileCount": 1,
+              "payloadBytes": 55,
+              "phase": "interrupted"
+            }
+          ],
+          "rootAvailable": true,
+          "storage": {
+            "usedRecords": 1,
+            "maxRecords": 20,
+            "unresolvedRecords": 1,
+            "resolvedRecords": 0,
+            "payloadBytes": 55,
+            "unknownSizeRecords": 0,
+            "maxBatchBytes": 16777216,
+            "maxBatchFiles": 100
+          }
+        }
+      }
+    },
+    {
+      "call": "projectRecovery",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\wt\\recovery",
+        {
+          "action": "list"
+        }
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "records": [
+            {
+              "id": "$record7",
+              "createdAt": 1780819757000,
+              "fileCount": 1,
+              "payloadBytes": 39,
+              "phase": "interrupted"
+            },
+            {
+              "id": "$record6",
+              "createdAt": 1780819756000,
+              "fileCount": 1,
+              "payloadBytes": 55,
+              "phase": "interrupted"
+            }
+          ],
+          "rootAvailable": true,
+          "storage": {
+            "usedRecords": 2,
+            "maxRecords": 20,
+            "unresolvedRecords": 2,
+            "resolvedRecords": 0,
+            "payloadBytes": 94,
+            "unknownSizeRecords": 0,
+            "maxBatchBytes": 16777216,
+            "maxBatchFiles": 100
+          }
+        }
+      }
+    },
+    {
+      "call": "projectRecovery",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\wt\\recovery",
+        {
+          "action": "inspect",
+          "id": "$record6"
+        }
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "records": [
+            {
+              "id": "$record7",
+              "createdAt": 1780819757000,
+              "fileCount": 1,
+              "payloadBytes": 39,
+              "phase": "interrupted"
+            },
+            {
+              "id": "$record6",
+              "createdAt": 1780819756000,
+              "fileCount": 1,
+              "payloadBytes": 55,
+              "phase": "interrupted"
+            }
+          ],
+          "rootAvailable": true,
+          "storage": {
+            "usedRecords": 2,
+            "maxRecords": 20,
+            "unresolvedRecords": 2,
+            "resolvedRecords": 0,
+            "payloadBytes": 94,
+            "unknownSizeRecords": 0,
+            "maxBatchBytes": 16777216,
+            "maxBatchFiles": 100
+          },
+          "detail": {
+            "id": "$record6",
+            "createdAt": 1780819756000,
+            "fileCount": 1,
+            "phase": "interrupted",
+            "active": false,
+            "revision": "$revision8",
+            "files": [
+              {
+                "relPath": "edited.txt",
+                "status": "written"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "call": "projectRecovery",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\wt\\recovery",
+        {
+          "action": "restore",
+          "id": "$record6",
+          "revision": "$revision8"
+        }
+      ],
+      "frame": {
+        "ok": false,
+        "error": "The managed worktree no longer exists.",
+        "errorCode": "WORKTREE_MISSING"
+      }
+    },
+    {
+      "call": "projectRecovery",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\wt\\recovery",
+        {
+          "action": "inspect",
+          "id": "$record7"
+        }
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "records": [
+            {
+              "id": "$record7",
+              "createdAt": 1780819757000,
+              "fileCount": 1,
+              "payloadBytes": 39,
+              "phase": "interrupted"
+            },
+            {
+              "id": "$record6",
+              "createdAt": 1780819756000,
+              "fileCount": 1,
+              "payloadBytes": 55,
+              "phase": "interrupted"
+            }
+          ],
+          "rootAvailable": true,
+          "storage": {
+            "usedRecords": 2,
+            "maxRecords": 20,
+            "unresolvedRecords": 2,
+            "resolvedRecords": 0,
+            "payloadBytes": 94,
+            "unknownSizeRecords": 0,
+            "maxBatchBytes": 16777216,
+            "maxBatchFiles": 100
+          },
+          "detail": {
+            "id": "$record7",
+            "createdAt": 1780819757000,
+            "fileCount": 1,
+            "phase": "interrupted",
+            "active": false,
+            "revision": "$revision9",
+            "files": [
+              {
+                "relPath": "dropped.txt",
+                "status": "written"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "call": "projectRecovery",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\wt\\recovery",
+        {
+          "action": "discard",
+          "id": "$record7",
+          "revision": "$revision9"
+        }
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "records": [
+            {
+              "id": "$record6",
+              "createdAt": 1780819756000,
+              "fileCount": 1,
+              "payloadBytes": 55,
+              "phase": "interrupted"
+            }
+          ],
+          "rootAvailable": true,
+          "storage": {
+            "usedRecords": 1,
+            "maxRecords": 20,
+            "unresolvedRecords": 1,
+            "resolvedRecords": 0,
+            "payloadBytes": 55,
+            "unknownSizeRecords": 0,
+            "maxBatchBytes": 16777216,
+            "maxBatchFiles": 100
+          }
+        }
+      }
+    },
+    {
+      "call": "projectRecovery",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\wt\\recovery",
+        {
+          "action": "list"
+        }
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "records": [
+            {
+              "id": "$record6",
+              "createdAt": 1780819756000,
+              "fileCount": 1,
+              "payloadBytes": 55,
+              "phase": "interrupted"
+            }
+          ],
+          "rootAvailable": true,
+          "storage": {
+            "usedRecords": 1,
+            "maxRecords": 20,
+            "unresolvedRecords": 1,
+            "resolvedRecords": 0,
+            "payloadBytes": 55,
+            "unknownSizeRecords": 0,
+            "maxBatchBytes": 16777216,
+            "maxBatchFiles": 100
+          }
+        }
+      }
+    },
+    {
+      "call": "projectRecovery",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\wt\\creating",
+        {
+          "action": "list"
+        }
+      ],
+      "frame": {
+        "ok": false,
+        "error": "Project is not available.",
+        "errorCode": "PROJECT_UNAVAILABLE"
+      }
+    },
+    {
+      "call": "projectRecovery",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\wt\\creating",
+        {
+          "action": "inspect",
+          "id": "$record8"
+        }
+      ],
+      "frame": {
+        "ok": false,
+        "error": "Project is not available.",
+        "errorCode": "PROJECT_UNAVAILABLE"
+      }
+    },
+    {
+      "call": "projectRecovery",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\wt",
+        {
+          "action": "list"
+        }
+      ],
+      "frame": {
+        "ok": false,
+        "error": "Project is not available.",
+        "errorCode": "PROJECT_UNAVAILABLE"
+      }
+    },
+    {
+      "call": "projectRecovery",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\wt\\unknown",
+        {
+          "action": "list"
+        }
+      ],
+      "frame": {
+        "ok": false,
+        "error": "Project is not available.",
+        "errorCode": "PROJECT_UNAVAILABLE"
+      }
+    },
+    {
+      "call": "projectRecovery",
+      "params": [
+        "wt\\ready",
+        {
+          "action": "list"
+        }
+      ],
+      "frame": {
+        "ok": false,
+        "error": "Project is not available.",
+        "errorCode": "PROJECT_UNAVAILABLE"
+      }
     }
   ],
   "state": {
@@ -1586,6 +2527,239 @@
       {
         "entry": "$record0/state.json"
       }
-    ]
+    ],
+    "checkouts": [
+      {
+        "path": "creating",
+        "dir": true
+      },
+      {
+        "path": "creating/dropped.txt",
+        "size": 19,
+        "sha256": "f394bfd42797481cba3e6f21be1870f60e47fb6ce39f0cd2b03fba0ed0d4cf25"
+      },
+      {
+        "path": "creating/edited.txt",
+        "size": 27,
+        "sha256": "f3fd45af77d78c9c789ae2fa743edfa90c69006f2c4e21ab1436d8196bdd5a11"
+      },
+      {
+        "path": "creating/sub",
+        "dir": true
+      },
+      {
+        "path": "creating/sub/inner.txt",
+        "size": 6,
+        "sha256": "940a68104d3b690442453f4be394b0a14721a174127d84c1c2f834b7ad05d684"
+      },
+      {
+        "path": "deleting",
+        "dir": true
+      },
+      {
+        "path": "deleting/dropped.txt",
+        "size": 19,
+        "sha256": "f394bfd42797481cba3e6f21be1870f60e47fb6ce39f0cd2b03fba0ed0d4cf25"
+      },
+      {
+        "path": "deleting/edited.txt",
+        "size": 27,
+        "sha256": "f3fd45af77d78c9c789ae2fa743edfa90c69006f2c4e21ab1436d8196bdd5a11"
+      },
+      {
+        "path": "deleting/sub",
+        "dir": true
+      },
+      {
+        "path": "deleting/sub/inner.txt",
+        "size": 6,
+        "sha256": "940a68104d3b690442453f4be394b0a14721a174127d84c1c2f834b7ad05d684"
+      },
+      {
+        "path": "ready",
+        "dir": true
+      },
+      {
+        "path": "ready/dropped.txt",
+        "size": 19,
+        "sha256": "f394bfd42797481cba3e6f21be1870f60e47fb6ce39f0cd2b03fba0ed0d4cf25"
+      },
+      {
+        "path": "ready/edited.txt",
+        "size": 28,
+        "sha256": "9b3d2f12bbe92d68bf87fca6925757deeea8448211e89eab44715ad2607b186b"
+      },
+      {
+        "path": "ready/sub",
+        "dir": true
+      },
+      {
+        "path": "ready/sub/inner.txt",
+        "size": 6,
+        "sha256": "940a68104d3b690442453f4be394b0a14721a174127d84c1c2f834b7ad05d684"
+      },
+      {
+        "path": "recovery",
+        "dir": true
+      },
+      {
+        "path": "recovery/dropped.txt",
+        "size": 19,
+        "sha256": "f394bfd42797481cba3e6f21be1870f60e47fb6ce39f0cd2b03fba0ed0d4cf25"
+      },
+      {
+        "path": "recovery/edited.txt",
+        "size": 27,
+        "sha256": "f3fd45af77d78c9c789ae2fa743edfa90c69006f2c4e21ab1436d8196bdd5a11"
+      },
+      {
+        "path": "recovery/sub",
+        "dir": true
+      },
+      {
+        "path": "recovery/sub/inner.txt",
+        "size": 6,
+        "sha256": "940a68104d3b690442453f4be394b0a14721a174127d84c1c2f834b7ad05d684"
+      }
+    ],
+    "worktreeRecovery": {
+      "ready": [
+        {
+          "entry": "$record2/0.after",
+          "size": 27,
+          "sha256": "f3fd45af77d78c9c789ae2fa743edfa90c69006f2c4e21ab1436d8196bdd5a11"
+        },
+        {
+          "entry": "$record2/0.before",
+          "size": 28,
+          "sha256": "9b3d2f12bbe92d68bf87fca6925757deeea8448211e89eab44715ad2607b186b"
+        },
+        {
+          "entry": "$record2/manifest.json"
+        },
+        {
+          "entry": "$record2/state.json"
+        }
+      ],
+      "deleting": [
+        {
+          "entry": "$record4/0.after",
+          "size": 27,
+          "sha256": "f3fd45af77d78c9c789ae2fa743edfa90c69006f2c4e21ab1436d8196bdd5a11"
+        },
+        {
+          "entry": "$record4/0.before",
+          "size": 28,
+          "sha256": "9b3d2f12bbe92d68bf87fca6925757deeea8448211e89eab44715ad2607b186b"
+        },
+        {
+          "entry": "$record4/manifest.json"
+        }
+      ],
+      "recovery": [
+        {
+          "entry": "$record6/0.after",
+          "size": 27,
+          "sha256": "f3fd45af77d78c9c789ae2fa743edfa90c69006f2c4e21ab1436d8196bdd5a11"
+        },
+        {
+          "entry": "$record6/0.before",
+          "size": 28,
+          "sha256": "9b3d2f12bbe92d68bf87fca6925757deeea8448211e89eab44715ad2607b186b"
+        },
+        {
+          "entry": "$record6/manifest.json"
+        }
+      ],
+      "creating": [
+        {
+          "entry": "$record8/0.after",
+          "size": 27,
+          "sha256": "f3fd45af77d78c9c789ae2fa743edfa90c69006f2c4e21ab1436d8196bdd5a11"
+        },
+        {
+          "entry": "$record8/0.before",
+          "size": 28,
+          "sha256": "9b3d2f12bbe92d68bf87fca6925757deeea8448211e89eab44715ad2607b186b"
+        },
+        {
+          "entry": "$record8/manifest.json"
+        },
+        {
+          "entry": "$record9/0.after",
+          "size": 19,
+          "sha256": "f394bfd42797481cba3e6f21be1870f60e47fb6ce39f0cd2b03fba0ed0d4cf25"
+        },
+        {
+          "entry": "$record9/0.before",
+          "size": 20,
+          "sha256": "1bf3381c0250d9d1047240147d3a82e3d0f107e8433d9de0b26e044dfc3f19a1"
+        },
+        {
+          "entry": "$record9/manifest.json"
+        }
+      ],
+      "readySub": []
+    },
+    "worktreeRegistry": {
+      "wt-ready": {
+        "id": "wt-ready",
+        "repoCommonDir": "D:\\mixdog-build\\tmp\\ph-attachments\\repo\\.git",
+        "projectPath": "D:\\mixdog-build\\tmp\\ph-attachments\\repo",
+        "path": "D:\\mixdog-build\\tmp\\ph-attachments\\wt\\ready",
+        "branch": "wt/ready",
+        "createdAt": 1767323045000,
+        "state": "ready",
+        "editorRecoveryStores": [
+          {
+            "root": "D:\\mixdog-build\\tmp\\ph-attachments\\wt\\ready",
+            "directory": "$journal/56cdd41dd7bf4ff1520518ce060b3d1a59d6f3d338f0fda25d9b9569aee1da2a"
+          },
+          {
+            "root": "D:\\mixdog-build\\tmp\\ph-attachments\\wt\\ready\\sub",
+            "directory": "$journal/956653d6f221f4a519651b2f45d7bbeb838c88621aead32533bc32b63dec127f"
+          }
+        ]
+      },
+      "wt-deleting": {
+        "id": "wt-deleting",
+        "repoCommonDir": "D:\\mixdog-build\\tmp\\ph-attachments\\repo\\.git",
+        "projectPath": "D:\\mixdog-build\\tmp\\ph-attachments\\repo",
+        "path": "D:\\mixdog-build\\tmp\\ph-attachments\\wt\\deleting",
+        "branch": "wt/deleting",
+        "createdAt": 1767323045000,
+        "state": "deleting",
+        "editorRecoveryStores": [
+          {
+            "root": "D:\\mixdog-build\\tmp\\ph-attachments\\wt\\deleting",
+            "directory": "$journal/0837cf70de13280a1fa6edab28adb9d9e2d3349dfa0a1399974386e4ffaa2fa4"
+          }
+        ]
+      },
+      "wt-recovery": {
+        "id": "wt-recovery",
+        "repoCommonDir": "D:\\mixdog-build\\tmp\\ph-attachments\\repo\\.git",
+        "projectPath": "D:\\mixdog-build\\tmp\\ph-attachments\\repo",
+        "path": "D:\\mixdog-build\\tmp\\ph-attachments\\wt\\recovery",
+        "branch": "wt/recovery",
+        "createdAt": 1767323045000,
+        "state": "recovery",
+        "editorRecoveryStores": [
+          {
+            "root": "D:\\mixdog-build\\tmp\\ph-attachments\\wt\\recovery",
+            "directory": "$journal/42aae154c59e2eeef671114b3d5059f0a4e19bb3c4504abba52c0c490e155e45"
+          }
+        ]
+      },
+      "wt-creating": {
+        "id": "wt-creating",
+        "repoCommonDir": "D:\\mixdog-build\\tmp\\ph-attachments\\repo\\.git",
+        "projectPath": "D:\\mixdog-build\\tmp\\ph-attachments\\repo",
+        "path": "D:\\mixdog-build\\tmp\\ph-attachments\\wt\\creating",
+        "branch": "wt/creating",
+        "createdAt": 1767323045000,
+        "state": "creating"
+      }
+    }
   }
 }
