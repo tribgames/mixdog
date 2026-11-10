@@ -1085,8 +1085,9 @@ impl WorkspaceService {
                     crate::transfer::DownloadRequest::Attachment(id) => {
                         // Node's `authorizeAttachment`: an id the conversation the core resolved names, staged by the attachment domain.
                         let source = self.sources.iter().find(|x| x.kind() == "attachment").ok_or_else(|| WsError::new(Reason::Unsupported, "Attachments are not available."))?;
-                        let staged = source.open(&json!({ "sessionId": session, "attachmentId": id }), &cancel).await;
-                        run_fallible(self.lanes.interactive, &cancel, move || crate::transfer::open_staged_download(staged)).await?
+                        let read = source.bytes(&json!({ "sessionId": session, "attachmentId": id }), &cancel).await.map_err(crate::transfer::source_refusal)?;
+                        let (owner, session) = (owner.clone(), session.clone());
+                        run_fallible(self.lanes.interactive, &cancel, move || t.stage(&owner, &session, &read.bytes, read.name, read.mime_type)).await?
                     }
                     crate::transfer::DownloadRequest::Folder(path) => {
                         // Node's `authorizeFolderZip`: the folder as the conversation names it, zipped as `zipFolder` zips it, staged.
@@ -1097,8 +1098,12 @@ impl WorkspaceService {
                             .await
                             .map_err(crate::transfer::phone_folder_refusal)?;
                         left_out = Some(crate::transfer::LeftOut { ignored: scan.ignored, secret: 0 });
-                        let t = self.transfers.clone();
-                        run_fallible(self.lanes.cpu_bulk, &cancel, move || crate::transfer::staged_folder_zip(&folder, &scan.files, &|point| t.point(point))).await?
+                        let (t, owner, session) = (self.transfers.clone(), owner.clone(), session.clone());
+                        run_fallible(self.lanes.cpu_bulk, &cancel, move || {
+                            let (archive, name) = crate::transfer::folder_zip(&folder, &scan.files, &|point| t.point(point))?;
+                            t.stage(&owner, &session, &archive, name, "application/zip".into())
+                        })
+                        .await?
                     }
                 };
                 let t = self.transfers.clone();

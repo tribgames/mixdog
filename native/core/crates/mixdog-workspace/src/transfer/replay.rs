@@ -35,6 +35,16 @@ use crate::service::WorkspaceService;
 
 const RECORDING: &str = include_str!("../../../../fixtures/file-downloads/file-downloads.json");
 
+/// A text naming a staged download's folder in the recording's terms, as the recorder wrote Node's: the folder (the temp folder's
+/// `mixdog-download-<id>`) is `<staged>`, with forward slashes.
+fn unstaged(text: &str) -> Option<String> {
+    let prefix = std::env::temp_dir().join("mixdog-download-").to_string_lossy().into_owned();
+    let at = text.find(&prefix)?;
+    let rest = &text[at + prefix.len()..];
+    let end = rest.find(|c: char| !c.is_ascii_alphanumeric()).unwrap_or(rest.len());
+    Some(format!("{}<staged>{}", &text[..at], rest[end..].replace('\\', "/")))
+}
+
 /// The conversations the host's catalog lists now: `s1` a project conversation of the world's project, `s2` a task conversation.
 struct Present(Mutex<HashSet<String>>, PathBuf, Mutex<std::collections::HashMap<String, crate::grants::MediaEntry>>);
 
@@ -79,7 +89,12 @@ impl TransferSource for Attachments {
         "attachment"
     }
 
-    async fn open(&self, source: &Value, _: &CancellationToken) -> WsResult<SourceFile> {
+    /// The phone's download stages the bytes itself ([`Self::bytes`]); nothing here opens a file.
+    async fn open(&self, _: &Value, _: &CancellationToken) -> WsResult<SourceFile> {
+        Err(WsError::new(Reason::Unsupported, "The replay's attachments are only staged by the download service."))
+    }
+
+    async fn bytes(&self, source: &Value, _: &CancellationToken) -> WsResult<SourceBytes> {
         use sha2::Digest as _;
         let (session, id) = (source["sessionId"].as_str().unwrap().to_owned(), source["attachmentId"].as_str().unwrap().to_owned());
         let (name, mime) = self.named.lock().unwrap().get(&(session, id.clone())).cloned().ok_or_else(|| WsError::new(Reason::NotLinked, "This conversation has no such attachment."))?;
@@ -102,10 +117,7 @@ impl TransferSource for Attachments {
             _ => "",
         };
         let name = if name.rfind('.').is_some_and(|at| at > 0) { name } else { format!("{name}{extension}") };
-        let (folder, mut out) = crate::transfer::staged_payload()?;
-        std::io::Write::write_all(&mut out, &bytes)?;
-        drop(out);
-        Ok(SourceFile { file: File::open(folder.join(crate::transfer::STAGED_PAYLOAD))?, name, mime_type: mime, cleanup: Some(folder) })
+        Ok(SourceBytes { bytes, name, mime_type: mime })
     }
 }
 
@@ -235,6 +247,7 @@ impl World {
         let native = self.dir.to_string_lossy().into_owned();
         let forward = native.replace('\\', "/");
         match value {
+            Value::String(text) if unstaged(text).is_some() => json!(unstaged(text).unwrap()),
             Value::String(text) if text.contains(&native) => json!(text.replace(&native, "<dir>").replace('\\', "/")),
             Value::String(text) if text.contains(&forward) => json!(text.replace(&forward, "<dir>")),
             Value::Array(items) => Value::Array(items.iter().map(|item| self.unswap_dir(item)).collect()),
@@ -459,6 +472,15 @@ async fn every_recorded_download_scenario_is_answered_and_held_as_nodes_service_
                 // The relay handle closing: what the remote runtime's `relay_closed` reaches (`PairedDeviceCleanup::relay_closed`).
                 "revokeAll" => world.service.revoke_all_downloads(),
                 "sessions" => world.publish(&ids_of(step)),
+                // An archive is published with the same conversations listed (the adapter replay archives the core's own thread).
+                "archive" => {
+                    let listed: Vec<String> = world.present.0.lock().unwrap().iter().cloned().collect();
+                    world.publish(&listed);
+                }
+                // The project leaves the core's registry, as `project/remove` does; the conversation stays.
+                "removeProject" => {
+                    world.service.catalog().remove(&world.dir.join("project").to_string_lossy(), None).await.unwrap();
+                }
                 "media" => world.media(step),
                 "attachment" => {
                     let field = |key: &str| step[key].as_str().unwrap().to_owned();
@@ -509,6 +531,7 @@ async fn every_recorded_download_scenario_is_answered_and_held_as_nodes_service_
                         "stat" => "begin.verify",
                         "afterResolve" => "authorize.resolved",
                         "zipOpen" => "zip.open",
+                        "stageWrite" => "stage.write",
                         other => panic!("{other}"),
                     };
                     let (sent, event, release, answer) = (&steps[at], &steps[at + 1], &steps[at + 2], &steps[at + 3]);

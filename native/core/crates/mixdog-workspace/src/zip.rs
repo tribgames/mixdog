@@ -207,6 +207,9 @@ struct Location {
     is_dir: bool,
     is_file: bool,
     size: u64,
+    /// Off Windows the file's identity from that same `lstat` (Node's `entryLocation`: dev and ino, nothing opened); on Windows an
+    /// `lstat` gives none, so the walk takes it from the opened file.
+    id: Option<FileId>,
 }
 
 /// Node's `entryLocation`: the entry's own `lstat` failing fails the walk; a link whose target cannot be resolved or read is left out.
@@ -225,7 +228,14 @@ fn entry_location(root: &Path, child: &Path) -> WsResult<Option<Location>> {
     } else {
         (child.to_path_buf(), meta)
     };
-    Ok(Some(Location { at, is_dir: meta.is_dir(), is_file: meta.is_file(), size: meta.len() }))
+    #[cfg(unix)]
+    let id = {
+        use std::os::unix::fs::MetadataExt;
+        Some(FileId { volume: meta.dev(), index: u128::from(meta.ino()) })
+    };
+    #[cfg(not(unix))]
+    let id = None;
+    Ok(Some(Location { at, is_dir: meta.is_dir(), is_file: meta.is_file(), size: meta.len(), id }))
 }
 
 fn is_canonical(path: &Path) -> bool {
@@ -329,8 +339,13 @@ fn walk<'b, 'a: 'b>(w: &'b mut Walk<'a>, absolute: PathBuf, rel: String, ancesto
                     // The recursion borrows `self` for its whole run: a fresh reborrow per entry.
                     walk(w, at, child_rel, deeper, inside, inside_rel).await?;
                 } else if location.is_file {
-                    let at = location.at.clone();
-                    let id = run(w.lanes.maintenance, w.cancel, move || open_listed(&at).and_then(|f| file_id(&f)).at("open", &at)).await??;
+                    let id = match location.id {
+                        Some(id) => id,
+                        None => {
+                            let at = location.at.clone();
+                            run(w.lanes.maintenance, w.cancel, move || open_listed(&at).and_then(|f| file_id(&f)).at("open", &at)).await??
+                        }
+                    };
                     w.count += 1;
                     w.bytes += location.size;
                     // Past a cap the walk only counts, so the refusal can say how far over.
@@ -493,6 +508,38 @@ pub fn write_archive<W: Write + Seek>(out: &mut W, files: &[FolderFile], max_byt
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Node's walk takes a file's identity from its `lstat` and opens nothing (`entryLocation`), so the walk lists a file it could not
+    /// open, and a final path part swapped for a link after the walk is left out by the archive's `O_NOFOLLOW` open (`readListedFile`'s
+    /// `ELOOP`), never failing the walk.
+    #[cfg(unix)]
+    #[test]
+    fn the_walk_takes_identity_without_opening_and_a_link_swapped_in_after_it_is_left_out() {
+        use std::os::unix::fs::MetadataExt;
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let root = canonical(dir.path()).unwrap();
+        let (a, b, other) = (root.join("a.txt"), root.join("b.txt"), root.join("other.txt"));
+        std::fs::write(&a, "alpha").unwrap();
+        std::fs::write(&b, "bravo").unwrap();
+        std::fs::write(&other, "other").unwrap();
+        std::fs::set_permissions(&a, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let location = entry_location(&root, &a).unwrap().expect("a listed file");
+        let meta = std::fs::symlink_metadata(&a).unwrap();
+        assert_eq!(location.id, Some(FileId { volume: meta.dev(), index: u128::from(meta.ino()) }));
+        let listed = |rel: &str, at: &Path| {
+            let location = entry_location(&root, at).unwrap().unwrap();
+            FolderFile { rel: rel.into(), absolute: location.at, size: location.size, id: location.id.unwrap() }
+        };
+        let files = vec![listed("a.txt", &a), listed("b.txt", &b)];
+        std::fs::remove_file(&a).unwrap();
+        std::os::unix::fs::symlink(&other, &a).unwrap();
+        let mut out = std::io::Cursor::new(Vec::new());
+        write_archive(&mut out, &files, u64::MAX, &|_: &str| {}).unwrap();
+        let archive = out.into_inner();
+        let named = |name: &str| archive.windows(name.len()).any(|w| w == name.as_bytes());
+        assert!(!named("a.txt") && named("b.txt"), "only b.txt is archived");
+    }
 
     /// A field past its width fails the archive with the `RangeError` Node's `writeUInt16LE` / `writeUInt32LE` throw (texts taken from
     /// Node 22's own throw), never a cut value.

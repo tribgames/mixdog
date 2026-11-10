@@ -82,9 +82,12 @@ struct Grant {
 struct Staged {
     owner: String,
     session: String,
-    /// The staged file's real path: a grant or transfer reading it was opened there (Node's `readsRecord`).
+    /// The staged file's path, its real one once opened: a grant or transfer reading it was opened there (Node's `readsRecord`).
     location: PathBuf,
     expires_at: i64,
+    /// Its payload is still being written and opened (Node's `staging`): never dropped to make room or by the sweep, but a revocation
+    /// removes it as any other.
+    staging: bool,
     /// Held for its drop: the folder goes with the record.
     _file: Cleanup,
 }
@@ -94,10 +97,9 @@ pub const STAGED_TTL_MS: i64 = 10 * 60_000;
 /// Staged downloads one device holds; room is made by dropping its oldest that no transfer reads (`MAX_EXPORTS_PER_DEVICE`).
 const MAX_STAGED_PER_DEVICE: usize = 8;
 
-/// Whether a grant or a phone transfer reads the staged file at `location` (Node's `exportHeld`, less `staging`: a record is added only
-/// once its file is made).
-fn staged_read(grants: &[(String, Grant)], reads: &HashMap<String, Read>, location: &Path) -> bool {
-    grants.iter().any(|(_, grant)| grant.location == location) || leased(reads, location)
+/// Whether the staged download is still being staged or a grant or a phone transfer reads its file (Node's `exportHeld`).
+fn staged_held(grants: &[(String, Grant)], reads: &HashMap<String, Read>, staged: &Staged) -> bool {
+    staged.staging || grants.iter().any(|(_, grant)| grant.location == staged.location) || leased(reads, &staged.location)
 }
 
 /// Whether a phone transfer reads the file at `location`.
@@ -301,13 +303,13 @@ impl Drop for Cleanup {
     fn drop(&mut self) {
         if self.0.is_dir() {
             // Node's `rm(dir, { recursive, force, maxRetries: 5 })`: a handle still closing on
-            // Windows is retried.
-            for attempt in 0..=5 {
+            // Windows is retried, each wait `retryDelay` (100 ms) longer than the one before.
+            for attempt in 0..=5u64 {
                 if std::fs::remove_dir_all(&self.0).is_ok() || !self.0.exists() {
                     return;
                 }
                 if attempt < 5 {
-                    std::thread::sleep(std::time::Duration::from_millis(100));
+                    std::thread::sleep(std::time::Duration::from_millis(100 * (attempt + 1)));
                 }
             }
         } else {
@@ -402,9 +404,14 @@ pub struct DownloadFile {
     pub location: PathBuf,
     pub name: String,
     pub mime_type: String,
-    /// A file the service staged for this download (an attachment's bytes): removed when the grant or its transfer ends, or here when
-    /// it never becomes one. Declared after `file`, so the handle is closed first.
-    staged: Option<Cleanup>,
+}
+
+/// Bytes a source domain hands over for the service to stage as a phone's download (Node's `readSessionAttachment` result): the
+/// checked bytes, the offered name and the type.
+pub struct SourceBytes {
+    pub bytes: Vec<u8>,
+    pub name: String,
+    pub mime_type: String,
 }
 
 /// A readable file a source domain hands to the transfer service.
@@ -427,6 +434,11 @@ pub trait TransferSource: Send + Sync + 'static {
     fn kind(&self) -> &'static str;
     /// `source` is the request's whole `source` object.
     async fn open(&self, source: &serde_json::Value, cancel: &tokio_util::sync::CancellationToken) -> WsResult<SourceFile>;
+    /// The source's bytes for a phone's download, which the service stages itself ([`Transfers::stage`]); only a source whose bytes Node
+    /// stages (`attachment`) has them.
+    async fn bytes(&self, _source: &serde_json::Value, _cancel: &tokio_util::sync::CancellationToken) -> WsResult<SourceBytes> {
+        Err(WsError::new(Reason::Unsupported, "This download source has no bytes to stage."))
+    }
 }
 
 /// Monotonic time for the idle sweep of abandoned uploads and the deadlines of downloads; tests substitute a controllable one.
@@ -571,9 +583,10 @@ impl Transfers {
         self.staged.lock().expect("staged downloads").iter().filter(|staged| staged._file.0.exists()).count()
     }
 
-    /// Adds a staged download of `owner` (Node's `addRecord`): room is made first by dropping the device's oldest staged downloads that no
-    /// transfer reads, with the unredeemed grants reading them, and the sweeper runs while it is held.
-    fn add_staged(&self, owner: &str, session: &str, location: PathBuf, file: Cleanup) {
+    /// Adds a staged download of `owner` in its `staging` state, its folder made and its payload not yet written (Node's `addRecord` in
+    /// `stageTemporaryDownload`): room is made first by dropping the device's oldest staged downloads that are neither being staged nor
+    /// read by a transfer, with the unredeemed grants reading them, and the sweeper runs while it is held.
+    fn add_staged(&self, owner: &str, session: &str, folder: &Path) {
         let expires_at = self.now_ms() + STAGED_TTL_MS;
         let (dropped_grants, dropped) = {
             let mut grants = self.grants.lock().expect("transfer grants");
@@ -583,7 +596,7 @@ impl Transfers {
             let (mut dropped_grants, mut dropped) = (Vec::new(), Vec::new());
             let mut at = 0;
             while at < staged.len() && excess > 0 {
-                if staged[at].owner != owner || leased(&reads, &staged[at].location) {
+                if staged[at].owner != owner || staged[at].staging || leased(&reads, &staged[at].location) {
                     at += 1;
                     continue;
                 }
@@ -594,13 +607,45 @@ impl Transfers {
                 dropped.push(stale);
                 excess -= 1;
             }
-            staged.push(Staged { owner: owner.to_owned(), session: session.to_owned(), location, expires_at, _file: file });
+            let location = folder.join(STAGED_PAYLOAD);
+            staged.push(Staged { owner: owner.to_owned(), session: session.to_owned(), location, expires_at, staging: true, _file: Cleanup(folder.to_owned()) });
             (dropped_grants, dropped)
         };
         // The grants' handles close before their files are removed.
         drop(dropped_grants);
         drop(dropped);
         self.arm_sweeper();
+    }
+
+    /// Node's `stageTemporaryDownload`: bytes the host built (a folder's zip, an attachment) staged for `owner`'s download in a private
+    /// folder of their own, the record added before the payload is written, then opened as the download. A revocation meanwhile removes
+    /// the record and its folder, and the write or open then fails the call as Node's does; any failure drops the record (`dropExport`),
+    /// and the record leaves its `staging` state whatever the outcome.
+    pub fn stage(&self, owner: &str, session: &str, bytes: &[u8], name: String, mime_type: String) -> WsResult<DownloadFile> {
+        let folder = staged_folder()?;
+        self.add_staged(owner, session, &folder);
+        self.point("stage.write");
+        let payload = folder.join(STAGED_PAYLOAD);
+        let opened = staged_file(&folder)
+            .map_err(|error| crate::nodeerr::io_error(&error, "open", &payload))
+            .and_then(|mut out| Ok(out.write_all(bytes)?))
+            .and_then(|()| open_regular(&payload, &|_| {}));
+        let gone: Vec<Staged> = {
+            let mut staged = self.staged.lock().expect("staged downloads");
+            let at = staged.iter().position(|held| held._file.0 == folder);
+            match (&opened, at) {
+                (Ok((real, _)), Some(at)) => {
+                    staged[at].staging = false;
+                    staged[at].location = real.clone();
+                    Vec::new()
+                }
+                (Err(_), Some(at)) => vec![staged.remove(at)],
+                (_, None) => Vec::new(),
+            }
+        };
+        drop(gone);
+        let (real, file) = opened?;
+        Ok(DownloadFile { file, location: real, name, mime_type })
     }
 
     /// Ends the staged downloads `ends` names (Node's `dropMatching` over its records); their files go after the lock is released.
@@ -629,7 +674,7 @@ impl Transfers {
             let grants = self.grants.lock().expect("transfer grants");
             let reads = self.reads.lock().expect("transfer reads");
             let mut staged = self.staged.lock().expect("staged downloads");
-            let (kept, expired) = std::mem::take(&mut *staged).into_iter().partition(|held| held.expires_at > now || staged_read(&grants, &reads, &held.location));
+            let (kept, expired) = std::mem::take(&mut *staged).into_iter().partition(|held| held.expires_at > now || staged_held(&grants, &reads, held));
             *staged = kept;
             expired
         };
@@ -779,11 +824,8 @@ impl Transfers {
     pub fn authorize(&self, owner: &str, session: &str, mark: u64, opened: DownloadFile) -> WsResult<Authorized> {
         let _reporting = Reporting(self);
         self.sweep_downloads();
-        let DownloadFile { file, location, name, mime_type, staged } = opened;
-        // Node's `stageTemporaryDownload` adds the record before the marks are checked: a revoked authorize leaves it to its time.
-        if let Some(staged) = staged {
-            self.add_staged(owner, session, location.clone(), staged);
-        }
+        // A staged download's record was added by [`Self::stage`] before the marks are checked: a revoked authorize leaves it to its time.
+        let DownloadFile { file, location, name, mime_type } = opened;
         let size = file.metadata()?.len();
         self.point("authorize.opened");
         let version = version_string(&file_version(&file)?);
@@ -1517,7 +1559,7 @@ fn open_regular(path: &Path, between: &dyn Fn(&str)) -> WsResult<(PathBuf, File)
 fn offered(path: &Path, real: PathBuf, file: File) -> DownloadFile {
     // The offered name and type are the requested path's (`basename(lexical)`), not the real one's.
     let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
-    DownloadFile { file, location: real, mime_type: mime_type(path).to_owned(), name, staged: None }
+    DownloadFile { file, location: real, mime_type: mime_type(path).to_owned(), name }
 }
 
 /// A project file of a conversation (`authorizeProjectFile`): the relative path may not leave `root`, and neither may its real place.
@@ -1658,17 +1700,8 @@ pub const STAGED_PAYLOAD: &str = "payload";
 /// Windows both inherit the ACL of the user's temp folder, as Node's do (its modes do not apply there). The folder is the cleanup: it
 /// goes whole. A failure removes what was made.
 pub fn staged_payload() -> std::io::Result<(PathBuf, File)> {
-    let folder = std::env::temp_dir().join(format!("mixdog-download-{}", new_id().replace('-', "")));
-    #[cfg_attr(not(unix), allow(unused_mut))]
-    let mut dir = std::fs::DirBuilder::new();
-    #[cfg(unix)]
-    std::os::unix::fs::DirBuilderExt::mode(&mut dir, 0o700);
-    dir.create(&folder)?;
-    let mut options = File::options();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    match options.open(folder.join(STAGED_PAYLOAD)) {
+    let folder = staged_folder()?;
+    match staged_file(&folder) {
         Ok(file) => Ok((folder, file)),
         Err(error) => {
             let _ = std::fs::remove_dir_all(&folder);
@@ -1677,19 +1710,33 @@ pub fn staged_payload() -> std::io::Result<(PathBuf, File)> {
     }
 }
 
-/// The zip of a phone's folder staged as the download (`stageTemporaryDownload`): named `<folder>.zip` by its real name, held as a staged
-/// download (see [`Staged`]).
-pub fn staged_folder_zip(folder: &Path, files: &[crate::zip::FolderFile], between: &dyn Fn(&str)) -> WsResult<DownloadFile> {
-    let (temp, out) = staged_payload()?;
-    let staged = Cleanup(temp.clone());
-    // Bound after the cleanup, so on a failure the file is closed before its folder is removed.
-    let mut out = out;
+/// The private folder of one staged download (`mkdtemp`, 0700 on Unix).
+fn staged_folder() -> std::io::Result<PathBuf> {
+    let folder = std::env::temp_dir().join(format!("mixdog-download-{}", new_id().replace('-', "")));
+    #[cfg_attr(not(unix), allow(unused_mut))]
+    let mut dir = std::fs::DirBuilder::new();
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut dir, 0o700);
+    dir.create(&folder)?;
+    Ok(folder)
+}
+
+/// The payload of a staged download's folder, created new for writing (0600 on Unix).
+fn staged_file(folder: &Path) -> std::io::Result<File> {
+    let mut options = File::options();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    options.open(folder.join(STAGED_PAYLOAD))
+}
+
+/// The zip of a phone's folder, whole in memory as Node's `zipFolder` builds it before it is staged, and the name it is offered by:
+/// `<folder>.zip` by its real name.
+pub fn folder_zip(folder: &Path, files: &[crate::zip::FolderFile], between: &dyn Fn(&str)) -> WsResult<(Vec<u8>, String)> {
+    let mut out = std::io::Cursor::new(Vec::new());
     crate::zip::write_archive(&mut out, files, ZIP_MAX_BYTES, between).map_err(phone_folder_refusal)?;
-    out.flush()?;
-    drop(out);
-    let (real, file) = open_regular(&temp.join(STAGED_PAYLOAD), &|_| {})?;
     let base = folder.file_name().map(|name| name.to_string_lossy().into_owned()).filter(|name| !name.is_empty()).unwrap_or_else(|| "folder".into());
-    Ok(DownloadFile { file, location: real, name: format!("{base}.zip"), mime_type: "application/zip".into(), staged: Some(staged) })
+    Ok((out.into_inner(), format!("{base}.zip")))
 }
 
 /// A media asset, by the file the host resolved its id to (`authorizeMediaAsset`): an absolute path, opened and proved like any file. The
@@ -1704,26 +1751,19 @@ pub fn open_media_download(entry: Option<&crate::grants::MediaEntry>, between: &
     let (real, file) = open_regular(path, between)?;
     let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
     let mime_type = entry.mime.as_deref().filter(|mime| !mime.is_empty()).map_or_else(|| mime_type(&real).to_owned(), str::to_owned);
-    Ok(DownloadFile { file, location: real, name, mime_type, staged: None })
+    Ok(DownloadFile { file, location: real, name, mime_type })
 }
 
-/// Bytes another domain staged for a download (`stageTemporaryDownload`: an attachment), opened and proved like any file
-/// (`openRegularFile`); the staged file goes when the download does. The source's own refusals are Node's download errors here, with
-/// their codes, as `readSessionAttachment` throws them.
-pub fn open_staged_download(staged: WsResult<SourceFile>) -> WsResult<DownloadFile> {
-    let as_download = |error: WsError| match error.reason {
+/// A source domain's refusal of the bytes to stage (an attachment) as Node's download error, with its code, as `readSessionAttachment`
+/// throws it.
+pub fn source_refusal(error: WsError) -> WsError {
+    match error.reason {
         Reason::NotLinked => download("file-download:not-linked", &error.message),
         Reason::NotFound => download("file-download:not-found", &error.message),
         Reason::Changed => download("file-download:changed", &error.message),
         Reason::TooLarge => download("file-download:too-large", &error.message),
         _ => error,
-    };
-    let SourceFile { file: _, name, mime_type, cleanup } = staged.map_err(as_download)?;
-    // The source staged its bytes as [`staged_payload`] does: the folder is what goes, its payload is what is read.
-    let folder = cleanup.ok_or_else(|| WsError::new(Reason::Io, "The staged download has no file."))?;
-    let staged = Cleanup(folder.clone());
-    let (real, file) = open_regular(&folder.join(STAGED_PAYLOAD), &|_| {})?;
-    Ok(DownloadFile { file, location: real, name, mime_type, staged: Some(staged) })
+    }
 }
 
 fn upload_gone() -> WsError {

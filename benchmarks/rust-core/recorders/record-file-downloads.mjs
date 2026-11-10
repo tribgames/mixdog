@@ -113,9 +113,21 @@ const sessions = [...allSessions];
 /** The host's media store: asset id -> the file it resolves to (Node's `invokeCapability('resolveMediaFile', [id, { variant: 'original' }])`). An
  *  asset the store does not know resolves to `null`; one whose bytes are gone is `available: false`. */
 const assets = new Map();
+// The registered projects: Node's own registry (`DesktopProjectRegistry` over the core's `projects.mjs` store) in this run's folder. The
+// host's `projectDirectory` is the session host's (`session-host.ts:715-718`: `projectScope` -> `knownPath`, then `canonicalDirectory`);
+// this world has no managed worktrees, so `projectScope`'s worktree fallback finds none.
+process.env.MIXDOG_PROJECTS_FILE = join(dir, 'registry', 'projects.json');
+const projectsStore = await importFrom(tree, 'src/runtime/shared/projects.mjs');
+const { DesktopProjectRegistry } = await importFrom(tree, 'apps/desktop/src/main/desktop-project-registry.ts');
+const registry = new DesktopProjectRegistry({ loadProjectsModule: async () => projectsStore, userDataRoot: () => join(dir, 'registry') });
+await registry.register(PROJECT);
 const host = {
   listSessions: async () => sessions,
-  projectDirectory: async (path) => realpathSync.native(path),
+  projectDirectory: async (path) => {
+    const canonical = realpathSync.native(await registry.knownPath(path));
+    if (!(await fsPromises.stat(canonical)).isDirectory()) throw new TypeError('Session workspace is not a directory.');
+    return canonical;
+  },
   invokeCapability: async (name, [assetId] = []) => {
     if (name !== 'resolveMediaFile' || !assets.has(assetId)) return { value: null };
     const { file, mime } = assets.get(assetId);
@@ -198,6 +210,16 @@ fsPromises.open = async (target, ...given) => {
     await armed.hold();
   }
   return realOpen(target, ...given);
+};
+// `stageTemporaryDownload` writes its payload after the staging record is added: the `stageWrite` gate holds a call there.
+const realWriteFile = fsPromises.writeFile;
+fsPromises.writeFile = async (target, ...given) => {
+  const armed = gates.get('stageWrite');
+  if (armed && String(target).startsWith(STAGING)) {
+    gates.delete('stageWrite');
+    await armed.hold();
+  }
+  return realWriteFile(target, ...given);
 };
 syncBuiltinESMExports();
 
@@ -1071,6 +1093,21 @@ revokeDevice('phone');
 await staged();
 await handles();
 
+begin('unpair while staging', 'an unpair that meets a staged download whose record is added and whose payload is not yet written removes its folder; the write then fails the authorize, nothing is left staged and no handle is open');
+file('mkdir', { file: 'outside/staging' });
+file('write', { file: 'outside/staging/s.txt', text: 'staging' });
+const staging = gate('stageWrite');
+step({ op: 'hold', gate: 'stageWrite' });
+await call('phone', 'fileDownloadAuthorize', [folderOf(path('outside/staging'))], { key: 'authorize' });
+await staging.arrived;
+revokeDevice('phone');
+// The unpair's removal of the folder (`dropExport`'s `rm`, not awaited by the service) ends before the write goes on.
+await settle();
+await release('stageWrite', staging);
+await answer('authorize');
+await staged();
+await handles();
+
 begin('media assets','a media asset is offered by the store\'s file name and type (the extension\'s when the store states none); an unknown asset, one whose bytes are gone and a conversation not in the catalog are refused');
 const png = (id, name, mime, text = `${name} bytes`) => media({ id, name, mime, text });
 png('m-typed', 'a1.png', 'image/png');
@@ -1113,6 +1150,38 @@ await call('phone', 'fileDownloadAuthorize', [mediaOf('m-typed')]);
 grant = await call('phone', 'fileDownloadAuthorize', [mediaOf('m-typed', 's2')]);
 await call('phone', 'fileDownloadBegin', [grantOf(grant)]);
 
+// An archive keeps the conversation in the catalog Node publishes, marked archived (roster-steps `archive`, rs-thread-list-rows); a deleted
+// agent's home is archived the same way (`agent-delete`). The catalog the service is given lists the same conversations.
+begin('archived conversation', 'archiving a conversation leaves it in the catalog: its grant, its transfer and a new authorize all go on');
+file('write', { file: 'project/a.bin', text: 'archived bytes' });
+const unbegunArchived = await call('phone', 'fileDownloadAuthorize', [session('project/a.bin')]);
+lease = await call('phone', 'fileDownloadBegin', [grantOf(await call('phone', 'fileDownloadAuthorize', [session('project/a.bin')]))]);
+sessions.splice(0, sessions.length, ...allSessions.map((row) => (row.id === 's1' ? { ...row, archived: true } : row)));
+service.retainSessions(sessions.map((row) => row.id));
+step({ op: 'archive', id: 's1' });
+await call('phone', 'fileDownloadRange', [transferOf(lease), 0, 8, versionOf(lease)]);
+await call('phone', 'fileDownloadBegin', [grantOf(unbegunArchived)]);
+await call('phone', 'fileDownloadAuthorize', [session('project/a.bin')]);
+await handles();
+
+// A project removal (`removeProject` -> `DesktopProjectRegistry.remove`, `session-host.ts:724`) publishes no session catalog: the conversation
+// stays, so its grants and transfers go on; only the project's own rule (`projectRoot`, `file-downloads.ts:302-306`) now finds no root.
+begin('project removed', 'removing the project keeps its conversation and what it granted; a project path is then outside the project, a path the conversation names is not');
+file('write', { file: 'project/p.bin', text: 'project bytes' });
+file('mkdir', { file: 'project/sub' });
+file('write', { file: 'project/sub/s.txt', text: 'sub bytes' });
+const unbegunProject = await call('phone', 'fileDownloadAuthorize', [request('project', { relPath: 'p.bin' })]);
+lease = await call('phone', 'fileDownloadBegin', [grantOf(await call('phone', 'fileDownloadAuthorize', [request('project', { relPath: 'p.bin' })]))]);
+await registry.remove(PROJECT);
+step({ op: 'removeProject' });
+await call('phone', 'fileDownloadRange', [transferOf(lease), 0, 8, versionOf(lease)]);
+await call('phone', 'fileDownloadBegin', [grantOf(unbegunProject)]);
+await call('phone', 'fileDownloadAuthorize', [request('project', { relPath: 'p.bin' })]);
+await call('phone', 'fileDownloadAuthorize', [session('project/p.bin')]);
+await call('phone', 'fileDownloadAuthorize', [link(`${forwardDir}/project/p.bin`)]);
+await handles();
+await registry.register(PROJECT);
+
 if (process.platform === 'win32') {
   begin('windows path names', 'a stream name, a device name, a namespace prefix and a drive-relative path, as this host\'s realpath and open treat them');
   scenarios.at(-1).platform = 'win32';
@@ -1152,6 +1221,10 @@ for (const { steps: all } of scenarios) for (const entry of all) collect(entry.f
 const swap = (node) => {
   if (typeof node === 'string') {
     if (tokens.has(node)) return tokens.get(node);
+    // A staged download's folder (`mkdtemp`'s six random characters): `<staged>` and forward slashes after it.
+    const stagedPrefix = join(STAGING, 'mixdog-download-');
+    const stagedAt = node.indexOf(stagedPrefix);
+    if (stagedAt !== -1) return `${node.slice(0, stagedAt)}<staged>${node.slice(stagedAt + stagedPrefix.length + 6).replaceAll('\\', '/')}`;
     // A path of this run's folder: `<dir>` and forward slashes, so a replay on any system joins its own folder to it.
     if (node.includes(dir)) return node.split(dir).join('<dir>').replaceAll('\\', '/');
     // The same folder written with forward slashes (a `file:` URL of it).
@@ -1165,7 +1238,7 @@ const swap = (node) => {
 };
 const remapped = swap(scenarios);
 const text = JSON.stringify(remapped);
-if (text.includes(dir)) throw new Error('the recording still holds this run\'s temporary directory');
+if (text.includes(dir) || text.includes(STAGING)) throw new Error('the recording still holds this run\'s temporary directory');
 // A frame that is not a reply or an error is a recorder fault.
 for (const { steps: all } of remapped) for (const entry of all) if (entry.frame && !(typeof entry.frame.id === 'number' && typeof entry.frame.ok === 'boolean')) throw new Error(`not a reply frame: ${JSON.stringify(entry.frame)}`);
 
