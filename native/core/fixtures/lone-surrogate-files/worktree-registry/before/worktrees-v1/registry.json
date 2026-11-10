@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "entries": {
+    "topic-one": {
+      "id": "topic-one",
+      "txId": "tx-topic-one",
+      "repoCommonDir": "C:/repo/.git",
+      "projectPath": "C:/repo",
+      "projectSubdir": "",
+      "path": "C:/repo/.mixdog/worktrees/topic-one",
+      "branch": "topic-\ud83d",
+      "baseCommit": "0123456789abcdef0123456789abcdef01234567",
+      "mergeTarget": "main",
+      "createdAt": 1794355202000,
+      "ownerSessionId": "sess_owner",
+      "state": "ready",
+      "disposable": false,
+      "warnings": [],
+      "resources": {
+        "branch": "created",
+        "worktree": "created"
+      },
+      "updatedAt": 1794355202000
+    }
+  }
+}

@@ -474,7 +474,8 @@ impl RecoveryStore {
         let state = if state_bytes.is_empty() {
             None
         } else {
-            let state: State = serde_json::from_slice(&state_bytes)
+            // Node cuts the message at 8000 UTF-16 units, inside an emoji too: half of one is U+FFFD here.
+            let state: State = serde_json::from_slice(&mixdog_js::json_well_formed(&state_bytes))
                 .map_err(|_| WsError::new(Reason::InvalidParams, "Recovery state is invalid. No file will be restored."))?;
             let known = |rel: &String| manifest.files.iter().any(|f| &f.rel_path == rel);
             if state.message.chars().count() > 8000 || state.restored.len() > manifest.files.len() || !state.restored.iter().all(known) {
@@ -1060,4 +1061,30 @@ fn require_revision(approved: &Detail, revision: &str) -> WsResult<()> {
         return Err(recovery_err("RECOVERY_CHANGED", "Files or recovery data changed since inspection. Inspect and confirm again."));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::Value;
+
+    /// A record Node wrote after a failure whose message it cut at 8000 units inside an emoji
+    /// (`native/core/fixtures/lone-surrogate-files`, record-lone-surrogate-files.mjs): the core reads its state as Node's
+    /// `readRecoveryRecord` does (the half emoji as U+FFFD), so the record stays restorable.
+    #[test]
+    fn a_state_node_cut_inside_an_emoji_is_read_as_node_reads_it() {
+        let set = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/lone-surrogate-files");
+        let cases: Value = serde_json::from_slice(&fs::read(set.join("cases.json")).unwrap()).unwrap();
+        let case = cases.as_array().unwrap().iter().find(|c| c["name"] == "project-recovery").unwrap();
+        let base = tempfile::tempdir().unwrap();
+        let directory = base.path().join("store").join(case["recordId"].as_str().unwrap());
+        fs::create_dir_all(&directory).unwrap();
+        for entry in fs::read_dir(set.join("project-recovery/before/record")).unwrap() {
+            let entry = entry.unwrap();
+            fs::copy(entry.path(), directory.join(entry.file_name())).unwrap();
+        }
+        let record = RecoveryStore::new(base.path().to_path_buf()).read_record(&directory).unwrap();
+        assert_eq!(serde_json::to_value(record.state).unwrap(), case["nodeRead"]);
+        assert_eq!(serde_json::to_value(record.manifest).unwrap(), case["before"]["record/manifest.json"]);
+    }
 }

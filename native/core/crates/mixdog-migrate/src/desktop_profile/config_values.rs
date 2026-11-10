@@ -257,7 +257,8 @@ fn read_config(data: &Path) -> Result<(Value, Option<String>), ApplyError> {
         })
     };
     let text = std::str::from_utf8(&bytes).map_err(|error| schema(error.to_string()))?;
-    let doc: Value = serde_json::from_str(text.strip_prefix('\u{feff}').unwrap_or(text))
+    // A profile title a phone sent cut inside an emoji is stored by Node with half of it: U+FFFD here.
+    let doc: Value = serde_json::from_str(&mixdog_js::json_well_formed_str(text.strip_prefix('\u{feff}').unwrap_or(text)))
         .map_err(|error| schema(error.to_string()))?;
     if !doc.is_object() {
         return Err(schema("the config is not an object".to_owned()));
@@ -360,6 +361,21 @@ mod tests {
 
     fn json(text: &str) -> Value {
         serde_json::from_str(text).unwrap()
+    }
+
+    /// A config Node wrote with a profile title a phone sent cut inside an emoji
+    /// (`native/core/fixtures/lone-surrogate-files`, record-lone-surrogate-files.mjs): the migration reads the document
+    /// Node's `JSON.parse` reads (the half emoji as U+FFFD) instead of stopping the run.
+    #[test]
+    fn a_config_node_wrote_with_half_an_emoji_is_read_whole() {
+        let set = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/lone-surrogate-files");
+        let cases: Value = json(&std::fs::read_to_string(set.join("cases.json")).unwrap());
+        let case = cases.as_array().unwrap().iter().find(|c| c["name"] == "config-profile").unwrap();
+        let data = tempfile::tempdir().unwrap();
+        std::fs::copy(set.join("config-profile/before").join(CONFIG_FILE), data.path().join(CONFIG_FILE)).unwrap();
+        let (doc, hash) = read_config(data.path()).unwrap();
+        assert_eq!(doc.to_string(), case["before"][CONFIG_FILE].to_string());
+        assert!(hash.is_some());
     }
 
     #[test]
