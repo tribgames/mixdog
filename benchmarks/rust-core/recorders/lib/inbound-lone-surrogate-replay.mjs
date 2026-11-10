@@ -85,6 +85,8 @@ export async function replay({ exe, golden, only }) {
 
     let phone = await openRouter();
     const unexpected = [];
+    // A step marked `accepted` (cases file) is a difference decisions.md accepts: shown whole, not counted as unexpected.
+    const accepted = [];
     let compared = 0;
     for (const step of STEPS) {
       if (only && step.name !== only && step.name !== 'register-project') continue;
@@ -121,7 +123,7 @@ export async function replay({ exe, golden, only }) {
       }
       const expected = node.closed !== undefined ? { closed: node.closed } : step.coreRaw !== undefined ? { answered: true } : { answer: wellFormed(node.answer) };
       compared += 1;
-      if (!isDeepStrictEqual(got, expected)) unexpected.push({ step: step.name, node: expected, core: got });
+      if (!isDeepStrictEqual(got, expected)) (step.accepted ? accepted : unexpected).push({ step: step.name, node: expected, core: got, why: step.accepted });
     }
     if (!only) {
       const files = readdirSync(PROJECT, { withFileTypes: true })
@@ -130,7 +132,12 @@ export async function replay({ exe, golden, only }) {
       compared += 1;
       if (!isDeepStrictEqual(files, golden.files)) unexpected.push({ step: 'project folder', node: golden.files, core: files });
     }
-    console.log(`inbound-lone-surrogate replay over ${exe}: ${compared} compared, ${unexpected.length} unexpected`);
+    console.log(`inbound-lone-surrogate replay over ${exe}: ${compared} compared, ${accepted.length} accepted differences, ${unexpected.length} unexpected`);
+    for (const entry of accepted) {
+      console.log(`ACCEPTED ${entry.step} (${entry.why})`);
+      console.log(`   node: ${JSON.stringify(entry.node).slice(0, 600)}`);
+      console.log(`   core: ${JSON.stringify(entry.core).slice(0, 600)}`);
+    }
     for (const entry of unexpected) {
       console.log(`DIFF ${entry.step}`);
       console.log(`   node: ${JSON.stringify(entry.node).slice(0, 600)}`);

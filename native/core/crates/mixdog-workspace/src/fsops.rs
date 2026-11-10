@@ -79,14 +79,22 @@ pub struct BatchFile {
     pub rel_path: String,
     pub content: String,
     pub expected_content: String,
-    /// The client's `content` held an unpaired surrogate, read as U+FFFD (`CallContext::lone_surrogates`).
-    pub unpaired: bool,
+    pub unpaired: Unpaired,
+}
+
+/// What of a client's save held an unpaired surrogate escape, read as U+FFFD (`CallContext::lone_surrogates`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Unpaired {
+    /// The content: refused at the point Node encodes it ([`check_paired`]).
+    pub content: bool,
+    /// The file's name on a paired device's save: refused where Node authorizes the open file (`inplace::open_authorized_rw`).
+    pub name: bool,
 }
 
 /// Node's `encodeProjectText` (project-files.ts:96): a save of content holding a lone surrogate is refused, the file untouched.
 /// The core reads the unit as U+FFFD, so the request says which content held one; it is refused at the point Node encodes.
-fn check_paired(unpaired: bool) -> WsResult<()> {
-    if unpaired {
+fn check_paired(unpaired: Unpaired) -> WsResult<()> {
+    if unpaired.content {
         return Err(WsError::invalid("File content contains unpaired Unicode surrogates."));
     }
     Ok(())
@@ -157,9 +165,9 @@ pub fn read_text(root: &Path, rel: &str) -> WsResult<TextFile> {
 
 /// The paired device's read (Node's `readProjectTextFileAuthorized`): the file is opened first and the open file is checked to be a regular
 /// file inside `root`; the bytes come through that handle.
-pub fn read_text_authorized(root: &Path, rel: &str) -> WsResult<TextFile> {
+pub fn read_text_authorized(root: &Path, rel: &str, lone_name: bool) -> WsResult<TextFile> {
     let file = project_entry_path(root, rel)?;
-    let mut opened = open_authorized_ro(&file, root)?;
+    let mut opened = open_authorized_ro(&file, root, lone_name)?;
     let meta = opened.file.metadata().at("fstat", &file)?;
     let mtime = mtime_ms(&meta);
     if meta.len() > VIEW_MAX {
@@ -243,11 +251,11 @@ impl ProjectFs {
         content: &str,
         expected: &str,
         encoding: Option<Encoding>,
-        unpaired: bool,
+        unpaired: Unpaired,
     ) -> WsResult<f64> {
         check_content(content, expected)?;
         let file = project_entry_path(root, rel)?;
-        let mut opened = open_authorized_rw(&file, root)?;
+        let mut opened = open_authorized_rw(&file, root, unpaired.name)?;
         let _claim = self.identities.lock(vec![opened.id.key()]);
         path_names_file(root, rel, &opened)?;
         let (original, decoded) = expected_text(&mut opened.file, expected, rel)?;
@@ -278,8 +286,8 @@ impl ProjectFs {
             check_content(&write.content, &write.expected_content)?;
         }
         let mut opened = Vec::with_capacity(normalized.len());
-        for (rel, _) in &normalized {
-            opened.push(open_authorized_rw(&project_entry_path(root, rel)?, root)?);
+        for (rel, write) in &normalized {
+            opened.push(open_authorized_rw(&project_entry_path(root, rel)?, root, write.unpaired.name)?);
         }
         let keys: Vec<String> = opened.iter().map(|o| o.id.key()).collect();
         if keys.iter().collect::<HashSet<_>>().len() != keys.len() {
@@ -705,9 +713,9 @@ mod tests {
     fn cas_write_keeps_identity_and_refuses_stale_content() {
         let (_d, root, fs_) = fixture();
         let before = path_id(&root.join("utf8.txt")).unwrap();
-        let stale = fs_.write_text(&root, "utf8.txt", "x", "other", None, false).unwrap_err();
+        let stale = fs_.write_text(&root, "utf8.txt", "x", "other", None, Unpaired::default()).unwrap_err();
         assert_eq!(stale.message, "File changed on disk. Reload or keep your edits before saving.");
-        fs_.write_text(&root, "utf8.txt", "rewritten\n", "héllo\nworld\n", None, false).unwrap();
+        fs_.write_text(&root, "utf8.txt", "rewritten\n", "héllo\nworld\n", None, Unpaired::default()).unwrap();
         assert_eq!(fs::read_to_string(root.join("utf8.txt")).unwrap(), "rewritten\n");
         assert_eq!(path_id(&root.join("utf8.txt")).unwrap(), before);
     }
@@ -716,7 +724,7 @@ mod tests {
     fn hard_link_sees_the_in_place_write() {
         let (_d, root, fs_) = fixture();
         fs::hard_link(root.join("utf8.txt"), root.join("link.txt")).unwrap();
-        fs_.write_text(&root, "utf8.txt", "new", "héllo\nworld\n", None, false).unwrap();
+        fs_.write_text(&root, "utf8.txt", "new", "héllo\nworld\n", None, Unpaired::default()).unwrap();
         assert_eq!(fs::read_to_string(root.join("link.txt")).unwrap(), "new");
     }
 
@@ -725,23 +733,46 @@ mod tests {
     #[test]
     fn a_save_of_content_that_held_a_lone_surrogate_is_refused_and_the_file_kept() {
         let (_d, root, fs_) = fixture();
-        let refused = fs_.write_text(&root, "utf8.txt", "x\u{fffd}", "héllo\nworld\n", None, true).unwrap_err();
+        let content = Unpaired { content: true, name: false };
+        let refused = fs_.write_text(&root, "utf8.txt", "x\u{fffd}", "héllo\nworld\n", None, content).unwrap_err();
         assert_eq!(refused.message, "File content contains unpaired Unicode surrogates.");
         assert_eq!(fs::read_to_string(root.join("utf8.txt")).unwrap(), "héllo\nworld\n");
         let batch = |unpaired| {
             vec![
-                BatchFile { rel_path: "utf8.txt".into(), content: "A".into(), expected_content: "héllo\nworld\n".into(), unpaired: false },
+                BatchFile { rel_path: "utf8.txt".into(), content: "A".into(), expected_content: "héllo\nworld\n".into(), unpaired: Unpaired::default() },
                 BatchFile { rel_path: "crlf.txt".into(), content: "B\u{fffd}".into(), expected_content: "a\r\nb\r\n".into(), unpaired },
             ]
         };
-        let refused = fs_.write_batch(&root, &batch(true), true).unwrap_err();
+        let refused = fs_.write_batch(&root, &batch(content), true).unwrap_err();
         assert_eq!(refused.message, "File content contains unpaired Unicode surrogates.");
         assert_eq!(fs::read_to_string(root.join("utf8.txt")).unwrap(), "héllo\nworld\n");
         assert_eq!(fs::read_to_string(root.join("crlf.txt")).unwrap(), "a\r\nb\r\n");
-        fs_.write_batch(&root, &batch(false), true).unwrap();
+        fs_.write_batch(&root, &batch(Unpaired::default()), true).unwrap();
         assert_eq!(fs::read_to_string(root.join("crlf.txt")).unwrap(), "B\u{fffd}");
-        fs_.write_text(&root, "utf8.txt", "x\u{fffd}", "A", None, false).unwrap();
+        fs_.write_text(&root, "utf8.txt", "x\u{fffd}", "A", None, Unpaired::default()).unwrap();
         assert_eq!(fs::read_to_string(root.join("utf8.txt")).unwrap(), "x\u{fffd}");
+    }
+
+    /// A paired device's file name that held a lone surrogate: Node's authorized open refuses the file as changed and nothing is read
+    /// or written (opened-file-authorization.ts:77, recorded as native/core/fixtures/inbound-lone-surrogate
+    /// `batch-real-replacement-lone-name`, `*-lone-name`).
+    #[test]
+    fn a_paired_devices_open_of_a_name_that_held_a_lone_surrogate_is_refused() {
+        let (_d, root, fs_) = fixture();
+        let name = Unpaired { content: false, name: true };
+        let changed = "The file changed while it was opened.";
+        assert_eq!(fs_.write_text(&root, "utf8.txt", "x", "héllo\nworld\n", None, name).unwrap_err().message, changed);
+        let batch = vec![
+            BatchFile { rel_path: "crlf.txt".into(), content: "B".into(), expected_content: "a\r\nb\r\n".into(), unpaired: Unpaired::default() },
+            BatchFile { rel_path: "utf8.txt".into(), content: "A".into(), expected_content: "héllo\nworld\n".into(), unpaired: name },
+        ];
+        assert_eq!(fs_.write_batch(&root, &batch, true).unwrap_err().message, changed);
+        assert_eq!(fs::read_to_string(root.join("utf8.txt")).unwrap(), "héllo\nworld\n");
+        assert_eq!(fs::read_to_string(root.join("crlf.txt")).unwrap(), "a\r\nb\r\n");
+        assert_eq!(read_text_authorized(&root, "utf8.txt", true).unwrap_err().message, changed);
+        assert_eq!(read_text_authorized(&root, "utf8.txt", false).unwrap().content, "héllo\nworld\n");
+        // A name that names no file is the open's own error, as in Node.
+        assert!(read_text_authorized(&root, "missing.txt", true).unwrap_err().message.starts_with("ENOENT"));
     }
 
     #[test]
@@ -762,8 +793,8 @@ mod tests {
         let (_d, root, fs_) = fixture();
         let files = |second: &str| {
             vec![
-                BatchFile { rel_path: "utf8.txt".into(), content: "A".into(), expected_content: "héllo\nworld\n".into(), unpaired: false },
-                BatchFile { rel_path: "crlf.txt".into(), content: "B".into(), expected_content: second.into(), unpaired: false },
+                BatchFile { rel_path: "utf8.txt".into(), content: "A".into(), expected_content: "héllo\nworld\n".into(), unpaired: Unpaired::default() },
+                BatchFile { rel_path: "crlf.txt".into(), content: "B".into(), expected_content: second.into(), unpaired: Unpaired::default() },
             ]
         };
         let bad = fs_.write_batch(&root, &files("wrong"), true).unwrap_err();

@@ -1011,7 +1011,7 @@ impl RecoveryStore {
                 if !fs::symlink_metadata(&file)?.is_file() {
                     return Err(WsError::new(Reason::NotAFile, "Target is not a regular file."));
                 }
-                let mut opened = open_authorized_rw(&file, root)?;
+                let mut opened = open_authorized_rw(&file, root, false)?;
                 if read_all(&mut opened.file)? != after {
                     return Err(WsError::precondition("", ""));
                 }
