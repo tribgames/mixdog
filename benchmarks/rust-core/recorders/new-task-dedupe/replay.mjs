@@ -15,7 +15,7 @@ import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { REPO_ROOT } from '../lib/common.mjs';
 import { killTree, startCore } from '../lib/phone-files-replay.mjs';
-import { CONTENTS, CORRUPT } from './scenarios.mjs';
+import { COMPARISON, CONTENTS, CORRUPT } from './scenarios.mjs';
 
 // A connection that is dropped on purpose (the core ended at a gate, or was stopped) ends the client's reconnect ladder with this error, which nobody awaits.
 process.on('unhandledRejection', (error) => {
@@ -159,14 +159,26 @@ const reply = async (lane, { id, content }) => {
   }
 };
 
-/** The sessions the core lists that carry a prompt, with how many prompts, read as a client reads them (`thread/list`, `thread/items/list`). */
-async function prompted(client) {
-  const listed = await client.call('thread/list', {});
+/** Every session the core holds, with its prompts and whether it is still only reserved: the translation of Node's daemon model
+ *  (COMPARISON.translated). The listing leaves out an untitled session with no message (Node's `isLeadVisibleRow`), which is what a
+ *  reservation is, so the sessions are the core's stored ones (a folder each under `<data>/sessions`), each read as a client reads it
+ *  (`thread/items/list`); one the core answers `threadNotFound` for (deleted, not yet purged) is not there. */
+async function sessionsOf(client, dataDir) {
+  let stored = [];
+  try {
+    stored = readdirSync(join(dataDir, 'sessions'));
+  } catch {}
   const out = {};
-  for (const { id } of listed.data) {
-    const items = await client.call('thread/items/list', { threadId: id });
-    const users = items.data.filter((item) => item.type === 'userMessage').length;
-    if (users > 0) out[id] = users;
+  for (const id of stored) {
+    let items;
+    try {
+      items = await client.call('thread/items/list', { threadId: id });
+    } catch (error) {
+      if (error.code === 'threadNotFound') continue;
+      throw new Error(`thread/items/list of stored session ${id}: ${error.message} (${JSON.stringify({ code: error.code, data: error.data })})`);
+    }
+    const prompts = items.data.filter((item) => item.type === 'userMessage').length;
+    out[id] = { prompts, reserved: prompts === 0 };
   }
   return out;
 }
@@ -208,11 +220,26 @@ const receiptsOf = (dataDir) => {
 async function replayScenario({ exe, scenario, numberFresh }) {
   const coreRoot = join(WORLDS, scenario.name);
   rmSync(coreRoot, { recursive: true, force: true });
-  let core = await startCore(exe, coreRoot, null, true);
-  let session = await connectLane(core);
+  // Every core this scenario starts is owned from the moment `startCore` hands it over (until then `startCore` ends it on its own
+  // failure), and every connection from the moment it is opened: the cleanup below ends them all, whatever failed.
+  const cores = [];
+  const connections = [];
+  const own = async (env, fresh = false) => {
+    const started = await startCore(exe, coreRoot, null, fresh, env);
+    cores.push(started);
+    return started;
+  };
+  const connect = async (target) => {
+    const opened = await connectLane(target);
+    connections.push(opened);
+    return opened;
+  };
   const survivors = [];
   const got = [];
+  let core = null;
   try {
+    core = await own({}, true);
+    let session = await connect(core);
     for (const [index, step] of scenario.steps.entries()) {
       let answer = null;
       if (step.op === 'submit') answer = await reply(session.lane, step);
@@ -235,64 +262,62 @@ async function replayScenario({ exe, scenario, numberFresh }) {
         else mkdirSync(file, { recursive: true });
       } else if (step.op === 'crash') {
         // The core ends itself at the gate; whatever it started stays up, and is ended here with the core's recorded tree.
-        await endAndRestart({ exe, coreRoot, session, core, at: step.at }, step, async (next) => {
-          core = next.core;
-          session = next.session;
-        }, survivors, scenario);
+        session.client.close?.();
+        (await stopCore(exe, core))();
+        await endAtGate({ core: await own({ MIXDOG_NEW_TASK_CRASH_AT: step.at }), connect, step, survivors });
+        core = await own({});
+        session = await connect(core);
         answer = { crashed: step.at };
       } else if (step.op === 'restart') {
         session.client.close?.();
         (await stopCore(exe, core))();
-        core = await startCore(exe, coreRoot, null, false);
-        session = await connectLane(core);
+        core = await own({});
+        session = await connect(core);
       }
-      got.push({ reply: answer, receipts: receiptsOf(core.dataDir), prompted: await prompted(session.client) });
+      got.push({ step, reply: answer, receipts: receiptsOf(core.dataDir), sessions: await sessionsOf(session.client, core.dataDir) });
     }
   } finally {
-    session.client.close?.();
+    for (const opened of connections) opened.client.close?.();
     // The next scenario's database takes the first free port; this one's must have let go of its own.
-    if (core.child.exitCode === null) await stopCore(exe, core).then((free) => free(), () => {});
-    killTree(core.child);
-    await exitWithin(core.child, 60_000, "the core's process tree, ended with taskkill");
+    if (core && core.child.exitCode === null) await stopCore(exe, core).then((free) => free(), () => {});
+    for (const started of cores) {
+      killTree(started.child);
+      await exitWithin(started.child, 60_000, "the core's process tree, ended with taskkill");
+    }
     // A pid already gone is no error here.
     for (const pid of survivors) runSync(`taskkill of the crashed core's process ${pid}`, 'taskkill', ['/F', '/PID', String(pid)], 60_000, { stdio: 'ignore' });
   }
   return numberFresh(scenario, got);
 }
 
-/** The crash step: the core's descendants are noted, a core is started with the gate, the step's request is sent and the core ends. */
-async function endAndRestart({ exe, coreRoot, session, core, at }, step, adopt, survivors) {
-  session.client.close?.();
-  (await stopCore(exe, core))();
-  const gated = await startCore(exe, coreRoot, null, false, { MIXDOG_NEW_TASK_CRASH_AT: at });
-  const connection = await connectLane(gated);
-  const tree = descendants(gated.child.pid);
-  survivors.push(...tree);
-  const exited = new Promise((resolve) => gated.child.once('exit', resolve));
+/** The crash step on a core started with the gate: its descendants are noted, the step's request is sent and the core ends at the gate.
+ *  One deadline, armed before the request is sent, covers both the request and the core's exit. Its database is then recovered. */
+async function endAtGate({ core, connect, step, survivors }) {
+  const at = step.at;
+  let lost = null;
+  let timer;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`the core did not end at its ${at} gate within 60 s; the call ${lost ? `ended with ${JSON.stringify(lost)}` : 'was still open'}`)), 60_000);
+  });
+  // Bounded by `deadline`, with which it is always raced.
+  const exited = core.child.exitCode !== null ? Promise.resolve() : new Promise((resolve) => core.child.once('exit', resolve));
   try {
+    const connection = await Promise.race([connect(core), deadline]);
+    survivors.push(...descendants(core.child.pid));
     // The call of a core that ends never settles (the client's ladder gives up unawaited): the core's exit is the answer.
-    const lost = await Promise.race([reply(connection.lane, step), exited.then(() => ({ exited: true }))]);
+    lost = await Promise.race([reply(connection.lane, step), exited.then(() => ({ exited: true })), deadline]);
     if (lost.ok) throw new Error(`the core answered a request that was to end it at ${at}`);
     // The call fails as the connection drops, which can come before the exit is seen.
-    let timer;
-    await Promise.race([
-      exited,
-      new Promise((_, reject) => (timer = setTimeout(() => reject(new Error(`the core did not end at its ${at} gate within 60 s; the call ended with ${JSON.stringify(lost)}`)), 60_000))),
-    ]).finally(() => clearTimeout(timer));
-  } catch (error) {
-    killTree(gated.child);
-    throw error;
+    await Promise.race([exited, deadline]);
+  } finally {
+    clearTimeout(timer);
   }
   databaseEnded(core.dataDir);
-  const core2 = await startCore(exe, coreRoot, null, false);
-  adopt({ core: core2, session: await connectLane(core2) });
 }
 
-const nodeSide = (recorded) => recorded.map((step) => ({
-  reply: step.reply,
-  receipts: step.receipts,
-  prompted: Object.fromEntries(Object.entries(step.sessions).filter(([, entry]) => entry.prompts > 0).map(([id, entry]) => [id, entry.prompts])),
-}));
+/** A recorded step less the paths the manifest declares not compared (COMPARISON.notCompared), nothing else. */
+const NOT_COMPARED = Object.keys(COMPARISON.notCompared).map((path) => path.replace(/^recorded\[\]\./, ''));
+const nodeSide = (recorded) => recorded.map((step) => Object.fromEntries(Object.entries(step).filter(([key]) => !NOT_COMPARED.includes(key))));
 
 /** The core's memory database takes the first free port from 55432 and keeps it in its data directory; other runs on this PC start and end their own databases on those ports, so a
  *  restart over the same data directory could find its port taken or another one free. The ports the product scans first are held here for the whole replay, so the core's port is above them and stays. */
@@ -311,6 +336,9 @@ async function holdPorts() {
 
 export async function replayNewTaskDedupe({ exe, scenarios, golden, numberFresh }) {
   let failed = 0;
+  // The comparison applied is the one the fixture's manifest declares.
+  const manifest = JSON.parse(readFileSync(join(REPO_ROOT, 'native', 'core', 'fixtures', 'new-task-dedupe', 'MANIFEST.json'), 'utf8'));
+  if (!isDeepStrictEqual(manifest.comparison, COMPARISON)) throw new Error('the manifest declares another comparison than scenarios.mjs COMPARISON: record the fixture again');
   const release = await holdPorts();
   mkdirSync(WORLDS, { recursive: true });
   try {
@@ -318,6 +346,8 @@ export async function replayNewTaskDedupe({ exe, scenarios, golden, numberFresh 
       const expected = nodeSide(golden[scenario.name].recorded);
       const got = await replayScenario({ exe, scenario, numberFresh });
       const unexpected = [];
+      // The recording ran the steps the replay drives.
+      if (!isDeepStrictEqual(golden[scenario.name].steps, scenario.steps)) unexpected.push({ index: 'steps', paths: ['steps'], node: golden[scenario.name].steps, core: scenario.steps });
       expected.forEach((node, index) => {
         const paths = differences(node, got[index]);
         if (paths.length) unexpected.push({ index, step: scenario.steps[index], paths, node, core: got[index] });

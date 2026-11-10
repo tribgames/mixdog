@@ -1,5 +1,22 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-new-task-dedupe.mjs --tree <exact export of b6f10295a with node_modules>",
+  "comparison": {
+    "method": "each scenario whole: its `steps`, and for every recorded step everything in the recording except the paths of `notCompared`; the core's side is built as `translated` states, and both sides are normalised only as `normalised` states",
+    "normalised": {
+      "fresh session address": "numbered `<fresh:N>` by first appearance in the scenario on both sides (see `random`)",
+      "key order": "objects are compared without regard to key order (the recording is written with sorted keys); arrays in order",
+      "thread.id": "the core's session address in `thread.id` is the reply's `sessionId` (see `translated`)"
+    },
+    "notCompared": {
+      "recorded[].daemonCalls": "Node's calls from the desktop host to its daemon client inside one request (create, configure, submit, unsubscribe, read; the daemon is a model, leg.mjs): the core runs these steps inside its own `thread/start` with no wire between them. What they do is compared through `sessions` (a session made, given its prompt, or removed again) and `receipts`"
+    },
+    "translated": {
+      "recorded[].receipts": "the files of `<userdata>/new-task-receipts`, by name, byte for byte (latin1), as the recorder reads them",
+      "recorded[].reply": "`submitNewTask` through the desktop's service lane (service-route.ts: `thread/start`): an answer is `{ok: true, accepted: true, sessionId: thread.id}` (the core answers only a started task; Node's recording has no `accepted: false`), a rejection `{ok: false, error: message, code?}`; a crash step's reply is `{crashed: at}` on both sides",
+      "recorded[].sessions": "every thread `thread/list` lists, with `prompts` = its `userMessage` items (`thread/items/list`) and `reserved` = no prompt yet (Node's daemon model sets `reserved` false exactly when it records a prompt, leg.mjs `submit`, and removes a reserved session without one on `unsubscribe`)",
+      "recorded[].step": "the step the replay drives (scenarios.mjs), the same list the recording ran"
+    }
+  },
   "daemon": "the daemon is a model (leg.mjs) of the rules the new-task path uses; its calls are recorded for Node only",
   "fileCount": 1,
   "files": [
