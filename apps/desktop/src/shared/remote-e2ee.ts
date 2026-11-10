@@ -649,6 +649,16 @@ export class RelayE2EEChannel {
     return this.encrypt(value, true) as Promise<Uint8Array<ArrayBuffer>>;
   }
 
+  /** Takes back the newest transport box, sealed and never sent (refused at
+   *  its write): the next box carries its sequence, so the stream has no
+   *  hole. The nonce is random per seal, so the sequence is never sealed
+   *  twice under one nonce. Throws for any other box. */
+  withdrawSeal(box: Uint8Array): void {
+    const sequence = Number(new DataView(box.buffer, box.byteOffset, box.byteLength).getBigUint64(4, false));
+    if (!this.transport || sequence !== this.sendSequence) throw new Error('Only the newest transport seal can be withdrawn.');
+    this.sendSequence -= 1;
+  }
+
   decryptJson(raw: unknown): Promise<unknown> {
     let resolveResult!: (value: unknown) => void;
     let rejectResult!: (reason: unknown) => void;

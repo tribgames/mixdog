@@ -359,12 +359,17 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
   });
   const browserStreams = createBrowserRemoteStreams({
     isLive: (clientId) => Boolean(clients.get(clientId)?.channel),
-    send: (clientId, payload) => sendEncryptedFrame(clientId, payload, true),
+    // Asked again at the write: a frame encrypted across an unpair goes nowhere.
+    send: (clientId, payload) =>
+      sendEncryptedFrame(clientId, payload, true, undefined, false, () => screenAccessPublisher.viewAllowed(clientId)),
     request: (sessionId, streamOptions) => {
       if (!options.browserRemote) return Promise.reject(new TypeError('Remote Browser Use is unavailable.'));
       return options.browserRemote('stream', [sessionId, streamOptions]);
     },
     onDrop: (clientId, sessionId) => browserWebrtc.viewerLeft(clientId, sessionId),
+    // An unpaired connection stays open until the relay closes it (or for good
+    // when the relay refuses the revoke): it subscribes to nothing and sees nothing.
+    allowed: (clientId) => screenAccessPublisher.viewAllowed(clientId),
   });
   // WebRTC live view: signaling to and from the window process's sender, and
   // the decode-order input gate. A viewer is a client streaming the session.
@@ -400,7 +405,10 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     },
     viewerLeft: (clientId, sourceKey) =>
       options.browserRemote ? options.browserRemote('webrtcViewerLeft', [clientId, sourceKey]) : Promise.resolve(),
-    send: (clientId, payload) => sendEncryptedFrame(clientId, payload, false),
+    // A window signal still on its way when the phone was unpaired goes
+    // nowhere: its permission is asked at the write, after the encryption.
+    send: (clientId, payload) =>
+      sendEncryptedFrame(clientId, payload, false, undefined, false, () => screenAccessPublisher.viewAllowed(clientId)),
   });
   // The window process enforces a screen session's access itself, read live
   // (remote-screen/screen-webrtc-sources.ts). The publisher binds every push
@@ -615,8 +623,14 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       // loses screen access for good now, before anything is awaited. The
       // caller records the unpair first (`unpairPending`), which refuses its
       // connections, including new ones, until the relay confirms it.
-      screenAccessPublisher.revokeCredential(clientId);
-      browserStreams.dropClient(clientId);
+      // The streams are keyed by connection: each of the credential's live
+      // connections ends its browser streams, frames in flight and resends now.
+      // A live-view message half in its transport stream cannot be finished:
+      // that session ends first (and the connection with it).
+      for (const connectionId of screenAccessPublisher.revokeCredential(clientId)) {
+        clients.get(connectionId)?.transport?.viewRevoked();
+        browserStreams.dropClient(connectionId);
+      }
       browserTabs.dropClient(clientId);
       deviceMethods.forgetDeviceName(clientId);
       if (!/^[0-9a-f-]{8,64}$/u.test(clientId)) throw new TypeError('Invalid remote client id.');

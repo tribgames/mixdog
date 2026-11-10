@@ -327,6 +327,191 @@ test('a refusal before sealing leaves nextSequence unchanged', async () => {
   assert.equal(h.phone.receiver.stats().deliveredThrough, full - 1);
 });
 
+test('regression: a message whose permission ends while it is sealed never enters the stream', async () => {
+  const h = await harness();
+  await h.ready();
+  // The seal is held until the test releases it.
+  const seal = h.desktopChannel.encryptBinary.bind(h.desktopChannel);
+  const sealing = [];
+  h.desktopChannel.encryptBinary = (value) =>
+    new Promise((resolve, reject) => sealing.push(() => seal(value).then(resolve, reject)));
+  let allowed = true;
+  const before = h.coordinator.nextSequence();
+  const sent = h.coordinator.send({ event: 'browserRemoteFrame', payload: { seq: 1 } }, { mayWrite: () => allowed });
+  assert.equal(sealing.length, 1, 'the message is being sealed');
+  // The unpair, while it is.
+  allowed = false;
+  h.desktopChannel.encryptBinary = seal;
+  sealing[0]();
+  assert.equal(await sent, null);
+  assert.equal(h.coordinator.nextSequence(), before, 'no sequence consumed');
+  // The stream has no hole: the next message is the phone's next.
+  await h.coordinator.send({ event: 'push', payload: 2 });
+  await h.phoneReadsRelay();
+  assert.deepEqual(h.phone.messages.slice(1), [{ event: 'push', payload: 2 }]);
+});
+
+/** `promise`, or a failure naming `what` after 10 s. */
+const within = async (promise, what) => {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${what} did not happen within 10 s`)), 10_000);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+test('regression: a live-view picture past the old ceiling, or past the window, arrives whole; one whose permission ends while a later fragment is sealed enters none of it', async () => {
+  let wrote = () => {};
+  let h;
+  h = await harness({
+    relaySend: async (message) => {
+      h.relay.push(message);
+      wrote();
+    },
+  });
+  await h.ready();
+  // The phone reads each write and acks what it read, until the send settles.
+  const delivered = async (sent, what) => {
+    for (;;) {
+      const write = new Promise((resolve) => (wrote = resolve));
+      const done = await within(Promise.race([sent.then((value) => ({ value })), write.then(() => undefined)]), `${what}: a write or the send's end`);
+      await h.phoneReadsRelay();
+      if (done) return done.value;
+      h.coordinator.receive('relay', await h.phone.control(remoteTransportAck(h.coordinator.nextSequence() - 1)));
+    }
+  };
+  const picture = (jpegBytes) => ({
+    event: 'browserRemoteFrame',
+    payload: { sessionId: 'sess_1', image: { mimeType: 'image/jpeg', data: Buffer.alloc(jpegBytes, 0x5a).toString('base64') } },
+  });
+  const allowed = () => true;
+  for (const [what, jpegBytes] of [
+    ['past the old ceiling', 4 * 1024 * 1024],
+    ['past the window', 10 * 1024 * 1024],
+  ]) {
+    const frame = picture(jpegBytes);
+    const bytes = await delivered(h.coordinator.send(frame, { mayWrite: allowed }), what);
+    assert.equal(typeof bytes, 'number', `the picture ${what} entered the stream`);
+    assert.deepEqual(h.phone.messages.at(-1), frame, `the phone rebuilt the picture ${what}`);
+  }
+
+  // The unpair while the fifth record of such a picture is sealed (held until the test releases it).
+  const seal = h.desktopChannel.encryptBinary.bind(h.desktopChannel);
+  let seals = 0;
+  let release;
+  let sealingFifth;
+  const fifthSealed = new Promise((resolve) => (sealingFifth = resolve));
+  h.desktopChannel.encryptBinary = (value) => {
+    seals += 1;
+    if (seals !== 5) return seal(value);
+    sealingFifth();
+    return new Promise((resolve, reject) => (release = () => seal(value).then(resolve, reject)));
+  };
+  let permitted = true;
+  const before = h.coordinator.nextSequence();
+  const rebuilt = h.phone.messages.length;
+  const sent = h.coordinator.send(picture(4 * 1024 * 1024), { mayWrite: () => permitted });
+  await within(fifthSealed, 'the fifth seal');
+  permitted = false;
+  h.desktopChannel.encryptBinary = seal;
+  release();
+  assert.equal(await within(sent, 'the refused send'), null);
+  assert.equal(h.coordinator.nextSequence(), before, 'no record of it is in the stream');
+  // The stream has no hole and the phone rebuilt nothing of it: the next message is the phone's next.
+  assert.equal(typeof (await delivered(h.coordinator.send({ event: 'push', payload: 3 }), 'the next message')), 'number');
+  assert.deepEqual(h.phone.messages.slice(rebuilt), [{ event: 'push', payload: 3 }]);
+
+  // A picture larger than the window, its head in the stream and its tail waiting for acks, when the phone is unpaired with its
+  // connection open: no record of its tail enters, its unsent seals are taken back, and the session ends; the pictures that
+  // completed before stay whole on the phone.
+  let viewing = true;
+  const firstWrite = new Promise((resolve) => (wrote = resolve));
+  const halfSent = h.coordinator.send(picture(6 * 1024 * 1024), { mayWrite: () => viewing });
+  halfSent.catch(() => {});
+  await within(firstWrite, "the picture's head");
+  const written = h.relay.length;
+  const tail = h.coordinator.nextSequence();
+  await h.phoneReadsRelay();
+  viewing = false;
+  h.coordinator.viewRevoked();
+  assert.deepEqual(h.ended.map(({ reason }) => reason), ['revoked'], 'the session ended at the unpair');
+  await assert.rejects(halfSent, (error) => error.reason === 'revoked');
+  h.coordinator.receive('relay', await h.phone.control(remoteTransportAck(tail - 1)));
+  assert.equal(h.relay.length, written, 'no record was written after the unpair');
+  assert.deepEqual(h.phone.messages.slice(rebuilt), [{ event: 'push', payload: 3 }], 'the phone rebuilt nothing of the half-sent picture');
+});
+
+test('regression: a live-view picture whose tail waits for the window enters no more of it once the permission ended, and the session ends', async () => {
+  // Without `viewRevoked`: the tail is asked about at its entry, when the
+  // phone's acks open the window.
+  let wrote = () => {};
+  let h;
+  h = await harness({
+    relaySend: async (message) => {
+      h.relay.push(message);
+      wrote();
+    },
+  });
+  await h.ready();
+  let viewing = true;
+  const firstWrite = new Promise((resolve) => (wrote = resolve));
+  const halfSent = h.coordinator.send(
+    { event: 'browserRemoteFrame', payload: { image: { data: Buffer.alloc(6 * 1024 * 1024, 0x5a).toString('base64') } } },
+    { mayWrite: () => viewing }
+  );
+  halfSent.catch(() => {});
+  await within(firstWrite, "the picture's head");
+  const written = h.relay.length;
+  const tail = h.coordinator.nextSequence();
+  viewing = false;
+  // The phone's acks open the window: the tail is asked about, refused, and the session ends.
+  h.coordinator.receive('relay', await h.phone.control(remoteTransportAck(tail - 1)));
+  await within(
+    assert.rejects(halfSent, (error) => error.reason === 'revoked'),
+    'the half-sent picture ending with the session'
+  );
+  assert.deepEqual(h.ended.map(({ reason }) => reason), ['revoked']);
+  assert.equal(h.relay.length, written, 'no record was written after the unpair');
+});
+
+test('regression: a large message whose permission ends while a later fragment is sealed never enters the stream', async () => {
+  const h = await harness();
+  await h.ready();
+  // The seal of the second record is held until the test releases it.
+  const seal = h.desktopChannel.encryptBinary.bind(h.desktopChannel);
+  let seals = 0;
+  let release;
+  let sealingSecond;
+  const secondSealed = new Promise((resolve) => (sealingSecond = resolve));
+  h.desktopChannel.encryptBinary = (value) => {
+    seals += 1;
+    if (seals !== 2) return seal(value);
+    sealingSecond();
+    return new Promise((resolve, reject) => (release = () => seal(value).then(resolve, reject)));
+  };
+  let allowed = true;
+  const before = h.coordinator.nextSequence();
+  const frame = { event: 'browserRemoteFrame', payload: { data: 'a'.repeat(1_200_000) } };
+  const sent = h.coordinator.send(frame, { mayWrite: () => allowed });
+  await secondSealed;
+  // The unpair, while the second record is sealed.
+  allowed = false;
+  h.desktopChannel.encryptBinary = seal;
+  release();
+  assert.equal(await sent, null);
+  assert.equal(h.coordinator.nextSequence(), before, 'no record of it is in the stream');
+  // The stream has no hole and the phone rebuilt nothing: the next message is the phone's next.
+  await h.coordinator.send({ event: 'push', payload: 2 });
+  await h.phoneReadsRelay();
+  assert.deepEqual(h.phone.messages.slice(1), [{ event: 'push', payload: 2 }]);
+});
+
 test('record expiry ends the session and fails unacked calls as ambiguous', async () => {
   const h = await harness();
   await h.ready();
