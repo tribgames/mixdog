@@ -3782,6 +3782,21 @@ pub struct UsageGetUsageRequestsParams {
     pub options: Option<JsonValue>,
 }
 
+/// Params of `notify/state`: none.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+pub struct NotifyStateParams {}
+
+/// Result of `notify/state`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+pub struct NotifyStateResult {
+    /// The desktop host answered that this PC shows OS notifications (`Notification.isSupported()`).
+    pub supported: bool,
+    /// The config's `notifications` subtree after the defaults were written (`null` while it has none).
+    pub notifications: JsonValue,
+}
+
 /// Params of `update/getUpdateStatus`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]

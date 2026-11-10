@@ -5,7 +5,9 @@
 // (registry.mjs:717), the pending flag clears and the parked warm-ups are woken (`settle`), the model caches drop with the
 // providers kept (`invalidateProviderCaches({ preserveProviderInit: true })`) and the secrets-carrying re-warm starts
 // (`warmProviderModelCache({ loadSecrets: true })`). Also the 24 h catalog timer that each new refresh arms
-// (`armNextCatalogRefresh`, registry.mjs:686-697): due and not due at its boundary.
+// (`armNextCatalogRefresh`, registry.mjs:686-697): due and not due at its boundary. And which providers each refresh asks
+// once a provider was disabled (`disableProvider`) or registered (`initProviders`) after the last readiness call, or while
+// a refresh runs: the startup refresh, the timer's, a forced `refreshCatalogs`, a provider-scoped forced read and a read.
 //
 // Each scenario runs in its own Node process (the registry is process-global), side by side, in-process over the tree's
 // own modules: the registry, `createProviderReadiness`, `createProviderModels` and the custom providers' real listing
@@ -48,12 +50,19 @@ const provider = (name, path, extra = {}) => ({ type: 'custom', schemaVersion: 2
 const list = (...ids) => ({ object: 'list', data: ids.map((id) => ({ id, object: 'model', owned_by: 'fixture' })) });
 const agent = (providers) => ({ providers, presets: [{ id: 'p1', name: 'P1', provider: A, model: 'a-1' }], default: 'p1' });
 const A_AND_DISABLED_B = agent({ [A]: provider('Alpha', 'a'), [B]: provider('Beta', 'b', { enabled: false }) });
+const A_AND_B = agent({ [A]: provider('Alpha', 'a'), [B]: provider('Beta', 'b') });
+const AB_STUB = { '/a/v1/models': list('a-1'), '/b/v1/models': list('b-1') };
 
 // Steps: `ready` (a readiness call over the runtime's providers, or with `enable` switched on as a route selection does,
 // `ensureProviderEnabled`; `hold` paths are held at the endpoint and the step waits for each to arrive), `release` (the held
 // requests are answered), `settle` (the observed refresh, the completion's re-warms and any load in flight have ended),
-// `read` (a full `listProviderModels` read), `serve` (the endpoint answers `stub` from now on), `advance` (virtual time
-// moves by `ms`, running each timer that falls due), `settleTimer` (the catalog refresh the 24 h timer started has ended).
+// `read` (a full `listProviderModels` read; `force` and `provider` as `collectProviderModels` takes them), `serve` (the
+// endpoint answers `stub` from now on), `advance` (virtual time moves by `ms`, running each timer that falls due; `hold`
+// as for `ready`), `settleTimer` (the catalog refresh the 24 h timer started has ended), `disable` (`disableProvider`,
+// what turning a provider off or removing it does to the registry, apis.mjs:300,327,461), `init` (the registry initialized
+// with `enable` switched on, outside the readiness, as an agent run's provider setup does), `refresh` (a forced
+// `refreshCatalogs`, then the model caches drop with the providers kept: `refreshLocalProviderCatalog`'s tail,
+// apis.mjs:308-309).
 const SCENARIOS = [
   {
     name: 'a-ready-call-starts-the-refresh-and-its-completion-rewarms',
@@ -136,6 +145,72 @@ const SCENARIOS = [
       { do: 'advance', ms: 1 },
       { do: 'settleTimer' },
       { do: 'read' },
+    ],
+  },
+  // A provider turned off, then each kind of refresh: none asks it again. The list each refresh asks is the registry's
+  // as it stands when that refresh begins (registry.mjs:708, 729, 762; `sharedProviderCatalog`, provider-catalog-cache.mjs:147).
+  {
+    name: 'a-ready-call-and-a-read-after-a-disable',
+    agent: A_AND_B,
+    stub: AB_STUB,
+    steps: [{ do: 'ready' }, { do: 'settle' }, { do: 'read' }, { do: 'disable', disable: B }, { do: 'ready' }, { do: 'settle' }, { do: 'read' }],
+  },
+  {
+    name: 'a-forced-refresh-after-a-disable',
+    agent: A_AND_B,
+    stub: AB_STUB,
+    steps: [{ do: 'ready' }, { do: 'settle' }, { do: 'disable', disable: B }, { do: 'refresh' }, { do: 'settle' }, { do: 'read' }],
+  },
+  {
+    name: 'a-forced-read-of-the-disabled-provider',
+    agent: A_AND_B,
+    stub: AB_STUB,
+    steps: [{ do: 'ready' }, { do: 'settle' }, { do: 'disable', disable: B }, { do: 'read' }, { do: 'read', force: true, provider: B }],
+  },
+  {
+    name: 'the-catalog-timer-after-a-disable',
+    agent: A_AND_B,
+    stub: AB_STUB,
+    steps: [{ do: 'ready' }, { do: 'settle' }, { do: 'disable', disable: B }, { do: 'advance', ms: DAY_MS }, { do: 'settleTimer' }, { do: 'read' }],
+  },
+  {
+    name: 'a-disable-during-a-running-refresh',
+    agent: A_AND_B,
+    stub: AB_STUB,
+    steps: [
+      { do: 'ready', hold: ['/a/v1/models', '/b/v1/models'] },
+      { do: 'disable', disable: B },
+      { do: 'release' },
+      { do: 'settle' },
+      { do: 'read' },
+      { do: 'advance', ms: DAY_MS, hold: ['/a/v1/models'] },
+      { do: 'disable', disable: A },
+      { do: 'release' },
+      { do: 'settleTimer' },
+      { do: 'refresh' },
+      { do: 'settle' },
+    ],
+  },
+  // A provider registered outside the readiness, then the next refreshes: they ask it.
+  {
+    name: 'the-catalog-timer-after-an-enable',
+    agent: A_AND_DISABLED_B,
+    stub: AB_STUB,
+    steps: [{ do: 'ready' }, { do: 'settle' }, { do: 'init', enable: B }, { do: 'advance', ms: DAY_MS }, { do: 'settleTimer' }, { do: 'read' }],
+  },
+  {
+    name: 'an-enable-during-a-running-refresh',
+    agent: A_AND_DISABLED_B,
+    stub: AB_STUB,
+    steps: [
+      { do: 'ready' },
+      { do: 'settle' },
+      { do: 'advance', ms: DAY_MS, hold: ['/a/v1/models'] },
+      { do: 'init', enable: B },
+      { do: 'release' },
+      { do: 'settleTimer' },
+      { do: 'advance', ms: DAY_MS },
+      { do: 'settleTimer' },
     ],
   },
 ];
@@ -327,10 +402,11 @@ async function child(args) {
         real.clearTimeout(timer);
       }
     }
-    function arrived(path) {
+    // A request to `path` arrived at or after the `from`th arrival.
+    function arrived(path, from) {
       return new Promise((done) => {
         const check = () => {
-          if (arrivals.includes(path)) done();
+          if (arrivals.indexOf(path, from) !== -1) done();
           else arrivalWaiters.push(check);
         };
         check();
@@ -398,6 +474,8 @@ async function child(args) {
 
     for (const step of scenario.steps) {
       const label = `${name} step ${out.steps.length} (${step.do})`;
+      // A held path is waited for among the requests this step makes.
+      const from = arrivals.length;
       if (step.do === 'ready') {
         hold = new Set(step.hold ?? []);
         const providers = step.enable ? ensureProviderEnabled(rt.config, step.enable) : rt.config.providers || {};
@@ -408,7 +486,7 @@ async function child(args) {
         } catch (error) {
           result = { ok: false, error: String(error?.message || error) };
         }
-        for (const path of step.hold ?? []) await within(`${label}: the held request to ${path}`, arrived(path));
+        for (const path of step.hold ?? []) await within(`${label}: the held request to ${path}`, arrived(path, from));
         await checkpoint();
         // Without a hold nothing has settled at this point: how many requests the started listings already handed to
         // fetch is a matter of microtask timing, so the count is recorded at the next step that waits for them.
@@ -422,19 +500,35 @@ async function child(args) {
         await settle(label);
         out.steps.push({ ...step, observed: observe() });
       } else if (step.do === 'read') {
-        const rows = await within(label, models.collectProviderModels({}));
+        const options = step.force ? { force: true, provider: step.provider ?? null } : {};
+        const rows = await within(label, models.collectProviderModels(options));
         await checkpoint();
         out.steps.push({ ...step, observed: observe({ rows }) });
+      } else if (step.do === 'disable') {
+        const removed = registry.disableProvider(step.disable);
+        await checkpoint();
+        out.steps.push({ ...step, removed, observed: observe() });
+      } else if (step.do === 'init') {
+        await within(label, registry.initProviders(ensureProviderEnabled(rt.config, step.enable)));
+        await checkpoint();
+        out.steps.push({ ...step, observed: observe() });
+      } else if (step.do === 'refresh') {
+        await within(label, registry.refreshCatalogs({ force: true }));
+        readiness.invalidateProviderCaches({ preserveProviderInit: true });
+        await checkpoint();
+        out.steps.push({ ...step, observed: observe() });
       } else if (step.do === 'serve') {
         stub = step.stub;
         out.steps.push({ ...step, observed: observe() });
       } else if (step.do === 'advance') {
         const fired = timerLog.length;
+        if (step.hold) hold = new Set(step.hold);
         await advance(step.ms);
+        for (const path of step.hold ?? []) await within(`${label}: the held request to ${path}`, arrived(path, from));
         await checkpoint();
         // As an unheld `ready`: a refresh the timer started has not settled, so the request count waits for `settleTimer`.
-        const { requests: _sent, ...state } = observe({ timersFired: timerLog.slice(fired).filter((t) => t.ms === DAY_MS).length });
-        out.steps.push({ ...step, observed: state });
+        const { requests: sent, ...state } = observe({ timersFired: timerLog.slice(fired).filter((t) => t.ms === DAY_MS).length });
+        out.steps.push({ ...step, observed: step.hold ? { requests: sent, ...state } : state });
       } else if (step.do === 'settleTimer') {
         // The refresh the 24 h timer started (`refreshCatalogs`, single flight while it runs): joined, not started. The
         // timer that fired re-armed itself before its refresh began, so this call cannot arm one either.

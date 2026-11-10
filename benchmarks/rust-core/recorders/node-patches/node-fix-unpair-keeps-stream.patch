@@ -1,0 +1,794 @@
+diff --git a/apps/desktop/src/main/remote-browser-streams.test.mjs b/apps/desktop/src/main/remote-browser-streams.test.mjs
+index 792de5d..b253f1c 100644
+--- a/apps/desktop/src/main/remote-browser-streams.test.mjs
++++ b/apps/desktop/src/main/remote-browser-streams.test.mjs
+@@ -6,7 +6,7 @@ import {
+   REMOTE_BROWSER_OPEN_EVENT,
+   BROWSER_OPEN_REQUESTED_DESKTOP_EVENT,
+ } from '../shared/remote-browser.ts';
+-import { createBrowserRemoteStreams } from './remote-browser-streams.ts';
++import { createBrowserRemoteStreams, REMOTE_BROWSER_VIEW_NOT_ALLOWED } from './remote-browser-streams.ts';
+ import { createRelayPushLanes } from './remote-relay-push-lanes.ts';
+ 
+ const SIZE = { maxWidth: 800, maxHeight: 600 };
+@@ -282,3 +282,94 @@ test('an explicit reveal or hide request is forwarded to every client as a non-d
+     [{ event: REMOTE_BROWSER_OPEN_EVENT, payload: { sessionId: 's', hide: true } }, false],
+   ]);
+ });
++
++test('regression: a client that may no longer view is refused a subscription and sent no frame, its connection still open', (t) => {
++  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
++  const sent = [];
++  const allowed = new Set(['c1', 'c2']);
++  const streams = createBrowserRemoteStreams({
++    isLive: () => true,
++    allowed: (id) => allowed.has(id),
++    send: async (id, message) => {
++      sent.push([id, message.payload.seq]);
++    },
++    request: async () => undefined,
++  });
++  streams.subscribe('c1', 's', SIZE);
++  streams.subscribe('c2', 's', SIZE);
++  streams.publish(frame(1));
++  // c1 is unpaired and its drop is missed: no frame, no resend, no subscription seen, and no new one.
++  allowed.delete('c1');
++  streams.publish(frame(2));
++  t.mock.timers.tick(1_500);
++  assert.equal(streams.subscribed('c1', 's'), false);
++  assert.throws(() => streams.subscribe('c1', 's', SIZE), { message: REMOTE_BROWSER_VIEW_NOT_ALLOWED });
++  streams.acknowledge('c2', 's', 1);
++  assert.deepEqual(sent, [
++    ['c1', 1],
++    ['c2', 1],
++    ['c2', 2],
++  ]);
++});
++
++test('regression: a frame and a window signal encrypted across an unpair are not written to the phone left open', async (t) => {
++  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
++  const { createRelayEncryptedDelivery } = await import('./remote-relay-delivery.ts');
++  const { createScreenAccessPublisher } = await import('./remote-screen/screen-access-publisher.ts');
++  // Every encryption is held until the test releases it.
++  const encrypting = [];
++  const channel = {
++    encryptJson: (payload) => new Promise((resolve) => encrypting.push(() => resolve(JSON.stringify(payload)))),
++  };
++  // The relay's client registry: c1 is the device being unpaired, c2 another device.
++  const registry = new Map([
++    ['c1', { credentialId: 'cred-a', channel, binaryFrames: false }],
++    ['c2', { credentialId: 'cred-b', channel, binaryFrames: false }],
++  ]);
++  const unpaired = new Set();
++  const access = createScreenAccessPublisher({
++    client: (id) => registry.get(id),
++    clients: () => registry.entries(),
++    unpaired: (credentialId) => unpaired.has(credentialId),
++    label: () => 'Paired phone',
++    send: async () => undefined,
++  });
++  for (const client of registry.values()) access.admitted(client);
++  const writes = [];
++  const { sendEncryptedFrame } = createRelayEncryptedDelivery({
++    clients: { clients: registry, get: (id) => registry.get(id), close: () => assert.fail('no client is closed') },
++    relayBinaryFrames: () => false,
++    relayFrameLimit: () => 1 << 20,
++    sendRawAndWait: async (wire) => {
++      const { clientId, data } = JSON.parse(String(wire));
++      writes.push([clientId, JSON.parse(data).event]);
++    },
++    byteMeter: { record: () => null },
++  });
++  // As remote-relay.ts wires them: the frames and the window's signals ask `viewAllowed` at the write.
++  const mayView = (id) => () => access.viewAllowed(id);
++  const sending = [];
++  const streams = createBrowserRemoteStreams({
++    isLive: (id) => registry.has(id),
++    send: (id, message) => {
++      const sent = sendEncryptedFrame(id, message, true, undefined, false, mayView(id));
++      sending.push(sent);
++      return sent;
++    },
++    request: async () => undefined,
++    allowed: (id) => access.viewAllowed(id),
++  });
++  streams.subscribe('c1', 's', SIZE);
++  streams.subscribe('c2', 's', SIZE);
++  streams.publish(frame(1));
++  sending.push(
++    sendEncryptedFrame('c1', { event: 'browserRemoteWebrtc', payload: { type: 'offer' } }, false, undefined, false, mayView('c1'))
++  );
++  assert.equal(encrypting.length, 3, 'both frames and the signal are being encrypted');
++  // The unpair while they are: recorded, then every connection of the device revoked and its streams dropped (revokeClient).
++  unpaired.add('cred-a');
++  for (const id of access.revokeCredential('cred-a')) streams.dropClient(id);
++  for (const release of encrypting.splice(0)) release();
++  await Promise.all(sending);
++  assert.deepEqual(writes, [['c2', REMOTE_BROWSER_FRAME_EVENT]]);
++});
+diff --git a/apps/desktop/src/main/remote-browser-streams.ts b/apps/desktop/src/main/remote-browser-streams.ts
+index 15e6e8c..eba6291 100644
+--- a/apps/desktop/src/main/remote-browser-streams.ts
++++ b/apps/desktop/src/main/remote-browser-streams.ts
+@@ -15,6 +15,8 @@ export const REMOTE_BROWSER_FRAME_ACK_TIMEOUT_MS = 1_500;
+ const ACK_TIMEOUT_MS = REMOTE_BROWSER_FRAME_ACK_TIMEOUT_MS;
+ /** A subscription not renewed within this window is dropped. */
+ const SUBSCRIPTION_EXPIRY_MS = 4_000;
++/** The refusal of a subscription from a client that may no longer view (unpaired). */
++export const REMOTE_BROWSER_VIEW_NOT_ALLOWED = 'Remote browser view is not allowed for this device.';
+ 
+ interface Subscription {
+   options: DesktopRemoteBrowserStreamOptions;
+@@ -60,6 +62,9 @@ export interface BrowserRemoteStreamsDeps {
+   request(sessionId: string, options: DesktopRemoteBrowserStreamOptions | null): Promise<unknown>;
+   /** A client's subscription to a session ended (stop, lapse, or departure). */
+   onDrop?(clientId: string, sessionId: string): void;
++  /** Whether the client may still be shown the view (not unpaired): a client
++   *  that may not is refused a subscription, holds none, and is sent no frame. */
++  allowed?(clientId: string): boolean;
+   ackTimeoutMs?: number;
+   expiryMs?: number;
+ }
+@@ -70,6 +75,7 @@ export function createBrowserRemoteStreams(deps: BrowserRemoteStreamsDeps) {
+   const sessions = new Map<string, Map<string, Subscription>>();
+   /** The latest frame per session, so a client joining a static page gets one. */
+   const latest = new Map<string, DesktopRemoteBrowserStreamFrame>();
++  const allowed = (clientId: string): boolean => (deps.allowed ? deps.allowed(clientId) : true);
+ 
+   const largest = (subscriptions: Map<string, Subscription>): DesktopRemoteBrowserStreamOptions => {
+     let maxWidth = 0;
+@@ -106,9 +112,10 @@ export function createBrowserRemoteStreams(deps: BrowserRemoteStreamsDeps) {
+     subscription.slot = null;
+     subscription.inflightSeq = frame.seq;
+     subscription.sentAt = Date.now();
+-    void deps
+-      .send(clientId, { event: REMOTE_BROWSER_FRAME_EVENT, payload: shaped(subscription, frame) })
+-      .catch(() => undefined);
++    const payload = shaped(subscription, frame);
++    // A client unpaired since it subscribed sees nothing, even if its drop was missed.
++    if (!allowed(clientId)) return;
++    void deps.send(clientId, { event: REMOTE_BROWSER_FRAME_EVENT, payload }).catch(() => undefined);
+   }
+ 
+   function drop(sessionId: string, clientId: string): void {
+@@ -151,6 +158,7 @@ export function createBrowserRemoteStreams(deps: BrowserRemoteStreamsDeps) {
+   return {
+     /** Start or renew a client's subscription. */
+     subscribe(clientId: string, sessionId: string, options: DesktopRemoteBrowserStreamOptions): void {
++      if (!allowed(clientId)) throw new TypeError(REMOTE_BROWSER_VIEW_NOT_ALLOWED);
+       let subscriptions = sessions.get(sessionId);
+       if (!subscriptions) {
+         subscriptions = new Map();
+@@ -202,7 +210,7 @@ export function createBrowserRemoteStreams(deps: BrowserRemoteStreamsDeps) {
+     },
+     /** Whether the client holds a live subscription to the session. */
+     subscribed(clientId: string, sessionId: string): boolean {
+-      return sessions.get(sessionId)?.has(clientId) === true;
++      return sessions.get(sessionId)?.has(clientId) === true && allowed(clientId);
+     },
+     /** A take-over subscriber not yet sent a picture of the settled (fitted)
+      *  layout: its WebRTC view must not be promoted yet either. */
+diff --git a/apps/desktop/src/main/remote-relay-clients.ts b/apps/desktop/src/main/remote-relay-clients.ts
+index d811579..01002c8 100644
+--- a/apps/desktop/src/main/remote-relay-clients.ts
++++ b/apps/desktop/src/main/remote-relay-clients.ts
+@@ -140,13 +140,17 @@ export function clientViewsSessionLane(
+   return Boolean(state.lanes?.has(lane) && state.visibleSessionIds.has(sessionId));
+ }
+ 
+-/** Sends one payload inside a client's encrypted channel. */
++/** Sends one payload inside a client's encrypted channel. `mayWrite`, when
++ *  given, is asked once the payload is encrypted, in the same synchronous
++ *  step as its write (or its entry into the client's transport stream): a
++ *  false answer writes nothing. */
+ export type SendEncryptedFrame = (
+   clientId: string,
+   payload: unknown,
+   droppable?: boolean,
+   onSent?: (bytes: number) => void,
+-  requireDelivery?: boolean
++  requireDelivery?: boolean,
++  mayWrite?: () => boolean
+ ) => Promise<void>;
+ 
+ export interface RelayClientRegistryDeps {
+diff --git a/apps/desktop/src/main/remote-relay-delivery.ts b/apps/desktop/src/main/remote-relay-delivery.ts
+index c84ee0a..6edcf08 100644
+--- a/apps/desktop/src/main/remote-relay-delivery.ts
++++ b/apps/desktop/src/main/remote-relay-delivery.ts
+@@ -84,7 +84,8 @@ export function createRelayEncryptedDelivery(deps: RelayEncryptedDeliveryDeps):
+     droppable: boolean,
+     guardOversize: boolean,
+     onSent?: (bytes: number) => void,
+-    requireDelivery = false
++    requireDelivery = false,
++    mayWrite?: () => boolean
+   ): Promise<void> => {
+     const state = clients.get(clientId);
+     if (!state?.channel) {
+@@ -100,6 +101,7 @@ export function createRelayEncryptedDelivery(deps: RelayEncryptedDeliveryDeps):
+         // socket took, never what a direct carrier moved.
+         const bytes = await transport.send(payload, {
+           droppable,
++          mayWrite,
+           onRelayWrite: (relayBytes) => {
+             const meterReport = deps.byteMeter.record(payload, relayBytes);
+             if (meterReport) reportRemoteByteWindow(meterReport);
+@@ -115,7 +117,7 @@ export function createRelayEncryptedDelivery(deps: RelayEncryptedDeliveryDeps):
+             relayFrameCallId(payload)
+           );
+           if (refusal) {
+-            await deliverEncryptedFrame(clientId, relayPayloadRejectedFrame(refusal), false, false, onSent);
++            await deliverEncryptedFrame(clientId, relayPayloadRejectedFrame(refusal), false, false, onSent, false, mayWrite);
+             if (requireDelivery) throw new Error('View synchronization payload exceeds the relay frame limit.');
+             return;
+           }
+@@ -147,10 +149,14 @@ export function createRelayEncryptedDelivery(deps: RelayEncryptedDeliveryDeps):
+       if (refusal) {
+         // Never sent: the relay would refuse it, and nothing downstream could
+         // say whose frame it was. Answer the waiting call instead.
+-        await deliverEncryptedFrame(clientId, relayPayloadRejectedFrame(refusal), false, false, onSent);
++        await deliverEncryptedFrame(clientId, relayPayloadRejectedFrame(refusal), false, false, onSent, false, mayWrite);
+         if (requireDelivery) throw new Error('View synchronization payload exceeds the relay frame limit.');
+         return;
+       }
++      // Asked after the encryption, with nothing awaited before the socket
++      // write below: a permission that ended while the payload was encrypted
++      // (an unpair) writes nothing.
++      if (mayWrite && !mayWrite()) return;
+       // Count only a completed socket write, not a refused or failed send.
+       await deps.sendRawAndWait(wire);
+       const meterReport = deps.byteMeter.record(payload, bytes);
+@@ -166,8 +172,9 @@ export function createRelayEncryptedDelivery(deps: RelayEncryptedDeliveryDeps):
+     payload: unknown,
+     droppable = false,
+     onSent?: (bytes: number) => void,
+-    requireDelivery = false
+-  ): Promise<void> => deliverEncryptedFrame(clientId, payload, droppable, true, onSent, requireDelivery);
++    requireDelivery = false,
++    mayWrite?: () => boolean
++  ): Promise<void> => deliverEncryptedFrame(clientId, payload, droppable, true, onSent, requireDelivery, mayWrite);
+   const broadcastEncryptedAsync = (
+     payload: unknown,
+     droppable: boolean,
+diff --git a/apps/desktop/src/main/remote-relay.ts b/apps/desktop/src/main/remote-relay.ts
+index 86624f3..1a1c506 100644
+--- a/apps/desktop/src/main/remote-relay.ts
++++ b/apps/desktop/src/main/remote-relay.ts
+@@ -359,12 +359,17 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
+   });
+   const browserStreams = createBrowserRemoteStreams({
+     isLive: (clientId) => Boolean(clients.get(clientId)?.channel),
+-    send: (clientId, payload) => sendEncryptedFrame(clientId, payload, true),
++    // Asked again at the write: a frame encrypted across an unpair goes nowhere.
++    send: (clientId, payload) =>
++      sendEncryptedFrame(clientId, payload, true, undefined, false, () => screenAccessPublisher.viewAllowed(clientId)),
+     request: (sessionId, streamOptions) => {
+       if (!options.browserRemote) return Promise.reject(new TypeError('Remote Browser Use is unavailable.'));
+       return options.browserRemote('stream', [sessionId, streamOptions]);
+     },
+     onDrop: (clientId, sessionId) => browserWebrtc.viewerLeft(clientId, sessionId),
++    // An unpaired connection stays open until the relay closes it (or for good
++    // when the relay refuses the revoke): it subscribes to nothing and sees nothing.
++    allowed: (clientId) => screenAccessPublisher.viewAllowed(clientId),
+   });
+   // WebRTC live view: signaling to and from the window process's sender, and
+   // the decode-order input gate. A viewer is a client streaming the session.
+@@ -400,7 +405,10 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
+     },
+     viewerLeft: (clientId, sourceKey) =>
+       options.browserRemote ? options.browserRemote('webrtcViewerLeft', [clientId, sourceKey]) : Promise.resolve(),
+-    send: (clientId, payload) => sendEncryptedFrame(clientId, payload, false),
++    // A window signal still on its way when the phone was unpaired goes
++    // nowhere: its permission is asked at the write, after the encryption.
++    send: (clientId, payload) =>
++      sendEncryptedFrame(clientId, payload, false, undefined, false, () => screenAccessPublisher.viewAllowed(clientId)),
+   });
+   // The window process enforces a screen session's access itself, read live
+   // (remote-screen/screen-webrtc-sources.ts). The publisher binds every push
+@@ -615,8 +623,14 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
+       // loses screen access for good now, before anything is awaited. The
+       // caller records the unpair first (`unpairPending`), which refuses its
+       // connections, including new ones, until the relay confirms it.
+-      screenAccessPublisher.revokeCredential(clientId);
+-      browserStreams.dropClient(clientId);
++      // The streams are keyed by connection: each of the credential's live
++      // connections ends its browser streams, frames in flight and resends now.
++      // A live-view message half in its transport stream cannot be finished:
++      // that session ends first (and the connection with it).
++      for (const connectionId of screenAccessPublisher.revokeCredential(clientId)) {
++        clients.get(connectionId)?.transport?.viewRevoked();
++        browserStreams.dropClient(connectionId);
++      }
+       browserTabs.dropClient(clientId);
+       deviceMethods.forgetDeviceName(clientId);
+       if (!/^[0-9a-f-]{8,64}$/u.test(clientId)) throw new TypeError('Invalid remote client id.');
+diff --git a/apps/desktop/src/main/remote-screen/screen-access-publisher.test.mjs b/apps/desktop/src/main/remote-screen/screen-access-publisher.test.mjs
+index 5b7474a..c17fb9e 100644
+--- a/apps/desktop/src/main/remote-screen/screen-access-publisher.test.mjs
++++ b/apps/desktop/src/main/remote-screen/screen-access-publisher.test.mjs
+@@ -237,3 +237,19 @@ test('revisions only grow, across clients and kinds of push', async () => {
+   );
+   assert.equal(new Set(revisions).size, revisions.length);
+ });
++
++test('regression: an unpair names every live connection of the credential, and none of them may view any more', () => {
++  const env = build();
++  env.connect('c1', 'cred-a');
++  env.connect('c2', 'cred-a');
++  env.connect('c3', 'cred-b');
++  env.connect('c4', 'cred-a', null);
++  assert.deepEqual(['c1', 'c2', 'c3', 'c4'].map((id) => env.publisher.viewAllowed(id)), [true, true, true, false]);
++  assert.deepEqual(env.publisher.revokeCredential('cred-a'), ['c1', 'c2', 'c4']);
++  assert.deepEqual(['c1', 'c2', 'c3'].map((id) => env.publisher.viewAllowed(id)), [false, false, true]);
++  // The connection stays open (the relay refused the revoke): still no view; nor for one admitted while the unpair is in force.
++  env.unpair('cred-a');
++  env.connect('c5', 'cred-a');
++  assert.equal(env.publisher.viewAllowed('c5'), false);
++  assert.equal(env.publisher.viewAllowed('gone'), false);
++});
+diff --git a/apps/desktop/src/main/remote-screen/screen-access-publisher.ts b/apps/desktop/src/main/remote-screen/screen-access-publisher.ts
+index 45bda07..ebf1eee 100644
+--- a/apps/desktop/src/main/remote-screen/screen-access-publisher.ts
++++ b/apps/desktop/src/main/remote-screen/screen-access-publisher.ts
+@@ -145,16 +145,29 @@ export function createScreenAccessPublisher(deps: ScreenAccessPublisherDeps) {
+       if (known.has(clientId)) void deny(clientId, 'left').catch(ignore);
+     },
+ 
++    /** Whether the client under `clientId` may still be shown this PC's
++     *  browser view: E2EE-established, not revoked, and its credential has no
++     *  unpair in force. Asked at every subscribe and every send, so an unpair
++     *  leaves a connection that stays open nothing to see. */
++    viewAllowed(clientId: string): boolean {
++      const client = deps.client(clientId);
++      return Boolean(client?.channel) && !revoked.has(client as object) && !deps.unpaired(client!.credentialId);
++    },
++
+     /** The credential is being unpaired (its record already in force): each
+      *  of its live connections is revoked for its lifetime and, if it may
+-     *  hold access, denied now, before this returns. */
+-    revokeCredential(credentialId: string): void {
+-      if (!credentialId) return;
++     *  hold access, denied now, before this returns. Returns their client
++     *  ids, so the caller can end what each of them streams. */
++    revokeCredential(credentialId: string): string[] {
++      const ids: string[] = [];
++      if (!credentialId) return ids;
+       for (const [clientId, client] of [...deps.clients()]) {
+         if (client.credentialId !== credentialId) continue;
+         revoked.add(client);
++        ids.push(clientId);
+         if (known.has(clientId)) void deny(clientId, 'revoked').catch(ignore);
+       }
++      return ids;
+     },
+   };
+ }
+diff --git a/apps/desktop/src/main/remote-transport/coordinator.test.mjs b/apps/desktop/src/main/remote-transport/coordinator.test.mjs
+index facdec9..60136a1 100644
+--- a/apps/desktop/src/main/remote-transport/coordinator.test.mjs
++++ b/apps/desktop/src/main/remote-transport/coordinator.test.mjs
+@@ -327,6 +327,191 @@ test('a refusal before sealing leaves nextSequence unchanged', async () => {
+   assert.equal(h.phone.receiver.stats().deliveredThrough, full - 1);
+ });
+ 
++test('regression: a message whose permission ends while it is sealed never enters the stream', async () => {
++  const h = await harness();
++  await h.ready();
++  // The seal is held until the test releases it.
++  const seal = h.desktopChannel.encryptBinary.bind(h.desktopChannel);
++  const sealing = [];
++  h.desktopChannel.encryptBinary = (value) =>
++    new Promise((resolve, reject) => sealing.push(() => seal(value).then(resolve, reject)));
++  let allowed = true;
++  const before = h.coordinator.nextSequence();
++  const sent = h.coordinator.send({ event: 'browserRemoteFrame', payload: { seq: 1 } }, { mayWrite: () => allowed });
++  assert.equal(sealing.length, 1, 'the message is being sealed');
++  // The unpair, while it is.
++  allowed = false;
++  h.desktopChannel.encryptBinary = seal;
++  sealing[0]();
++  assert.equal(await sent, null);
++  assert.equal(h.coordinator.nextSequence(), before, 'no sequence consumed');
++  // The stream has no hole: the next message is the phone's next.
++  await h.coordinator.send({ event: 'push', payload: 2 });
++  await h.phoneReadsRelay();
++  assert.deepEqual(h.phone.messages.slice(1), [{ event: 'push', payload: 2 }]);
++});
++
++/** `promise`, or a failure naming `what` after 10 s. */
++const within = async (promise, what) => {
++  let timer;
++  try {
++    return await Promise.race([
++      promise,
++      new Promise((_, reject) => {
++        timer = setTimeout(() => reject(new Error(`${what} did not happen within 10 s`)), 10_000);
++      }),
++    ]);
++  } finally {
++    clearTimeout(timer);
++  }
++};
++
++test('regression: a live-view picture past the old ceiling, or past the window, arrives whole; one whose permission ends while a later fragment is sealed enters none of it', async () => {
++  let wrote = () => {};
++  let h;
++  h = await harness({
++    relaySend: async (message) => {
++      h.relay.push(message);
++      wrote();
++    },
++  });
++  await h.ready();
++  // The phone reads each write and acks what it read, until the send settles.
++  const delivered = async (sent, what) => {
++    for (;;) {
++      const write = new Promise((resolve) => (wrote = resolve));
++      const done = await within(Promise.race([sent.then((value) => ({ value })), write.then(() => undefined)]), `${what}: a write or the send's end`);
++      await h.phoneReadsRelay();
++      if (done) return done.value;
++      h.coordinator.receive('relay', await h.phone.control(remoteTransportAck(h.coordinator.nextSequence() - 1)));
++    }
++  };
++  const picture = (jpegBytes) => ({
++    event: 'browserRemoteFrame',
++    payload: { sessionId: 'sess_1', image: { mimeType: 'image/jpeg', data: Buffer.alloc(jpegBytes, 0x5a).toString('base64') } },
++  });
++  const allowed = () => true;
++  for (const [what, jpegBytes] of [
++    ['past the old ceiling', 4 * 1024 * 1024],
++    ['past the window', 10 * 1024 * 1024],
++  ]) {
++    const frame = picture(jpegBytes);
++    const bytes = await delivered(h.coordinator.send(frame, { mayWrite: allowed }), what);
++    assert.equal(typeof bytes, 'number', `the picture ${what} entered the stream`);
++    assert.deepEqual(h.phone.messages.at(-1), frame, `the phone rebuilt the picture ${what}`);
++  }
++
++  // The unpair while the fifth record of such a picture is sealed (held until the test releases it).
++  const seal = h.desktopChannel.encryptBinary.bind(h.desktopChannel);
++  let seals = 0;
++  let release;
++  let sealingFifth;
++  const fifthSealed = new Promise((resolve) => (sealingFifth = resolve));
++  h.desktopChannel.encryptBinary = (value) => {
++    seals += 1;
++    if (seals !== 5) return seal(value);
++    sealingFifth();
++    return new Promise((resolve, reject) => (release = () => seal(value).then(resolve, reject)));
++  };
++  let permitted = true;
++  const before = h.coordinator.nextSequence();
++  const rebuilt = h.phone.messages.length;
++  const sent = h.coordinator.send(picture(4 * 1024 * 1024), { mayWrite: () => permitted });
++  await within(fifthSealed, 'the fifth seal');
++  permitted = false;
++  h.desktopChannel.encryptBinary = seal;
++  release();
++  assert.equal(await within(sent, 'the refused send'), null);
++  assert.equal(h.coordinator.nextSequence(), before, 'no record of it is in the stream');
++  // The stream has no hole and the phone rebuilt nothing of it: the next message is the phone's next.
++  assert.equal(typeof (await delivered(h.coordinator.send({ event: 'push', payload: 3 }), 'the next message')), 'number');
++  assert.deepEqual(h.phone.messages.slice(rebuilt), [{ event: 'push', payload: 3 }]);
++
++  // A picture larger than the window, its head in the stream and its tail waiting for acks, when the phone is unpaired with its
++  // connection open: no record of its tail enters, its unsent seals are taken back, and the session ends; the pictures that
++  // completed before stay whole on the phone.
++  let viewing = true;
++  const firstWrite = new Promise((resolve) => (wrote = resolve));
++  const halfSent = h.coordinator.send(picture(6 * 1024 * 1024), { mayWrite: () => viewing });
++  halfSent.catch(() => {});
++  await within(firstWrite, "the picture's head");
++  const written = h.relay.length;
++  const tail = h.coordinator.nextSequence();
++  await h.phoneReadsRelay();
++  viewing = false;
++  h.coordinator.viewRevoked();
++  assert.deepEqual(h.ended.map(({ reason }) => reason), ['revoked'], 'the session ended at the unpair');
++  await assert.rejects(halfSent, (error) => error.reason === 'revoked');
++  h.coordinator.receive('relay', await h.phone.control(remoteTransportAck(tail - 1)));
++  assert.equal(h.relay.length, written, 'no record was written after the unpair');
++  assert.deepEqual(h.phone.messages.slice(rebuilt), [{ event: 'push', payload: 3 }], 'the phone rebuilt nothing of the half-sent picture');
++});
++
++test('regression: a live-view picture whose tail waits for the window enters no more of it once the permission ended, and the session ends', async () => {
++  // Without `viewRevoked`: the tail is asked about at its entry, when the
++  // phone's acks open the window.
++  let wrote = () => {};
++  let h;
++  h = await harness({
++    relaySend: async (message) => {
++      h.relay.push(message);
++      wrote();
++    },
++  });
++  await h.ready();
++  let viewing = true;
++  const firstWrite = new Promise((resolve) => (wrote = resolve));
++  const halfSent = h.coordinator.send(
++    { event: 'browserRemoteFrame', payload: { image: { data: Buffer.alloc(6 * 1024 * 1024, 0x5a).toString('base64') } } },
++    { mayWrite: () => viewing }
++  );
++  halfSent.catch(() => {});
++  await within(firstWrite, "the picture's head");
++  const written = h.relay.length;
++  const tail = h.coordinator.nextSequence();
++  viewing = false;
++  // The phone's acks open the window: the tail is asked about, refused, and the session ends.
++  h.coordinator.receive('relay', await h.phone.control(remoteTransportAck(tail - 1)));
++  await within(
++    assert.rejects(halfSent, (error) => error.reason === 'revoked'),
++    'the half-sent picture ending with the session'
++  );
++  assert.deepEqual(h.ended.map(({ reason }) => reason), ['revoked']);
++  assert.equal(h.relay.length, written, 'no record was written after the unpair');
++});
++
++test('regression: a large message whose permission ends while a later fragment is sealed never enters the stream', async () => {
++  const h = await harness();
++  await h.ready();
++  // The seal of the second record is held until the test releases it.
++  const seal = h.desktopChannel.encryptBinary.bind(h.desktopChannel);
++  let seals = 0;
++  let release;
++  let sealingSecond;
++  const secondSealed = new Promise((resolve) => (sealingSecond = resolve));
++  h.desktopChannel.encryptBinary = (value) => {
++    seals += 1;
++    if (seals !== 2) return seal(value);
++    sealingSecond();
++    return new Promise((resolve, reject) => (release = () => seal(value).then(resolve, reject)));
++  };
++  let allowed = true;
++  const before = h.coordinator.nextSequence();
++  const frame = { event: 'browserRemoteFrame', payload: { data: 'a'.repeat(1_200_000) } };
++  const sent = h.coordinator.send(frame, { mayWrite: () => allowed });
++  await secondSealed;
++  // The unpair, while the second record is sealed.
++  allowed = false;
++  h.desktopChannel.encryptBinary = seal;
++  release();
++  assert.equal(await sent, null);
++  assert.equal(h.coordinator.nextSequence(), before, 'no record of it is in the stream');
++  // The stream has no hole and the phone rebuilt nothing: the next message is the phone's next.
++  await h.coordinator.send({ event: 'push', payload: 2 });
++  await h.phoneReadsRelay();
++  assert.deepEqual(h.phone.messages.slice(1), [{ event: 'push', payload: 2 }]);
++});
++
+ test('record expiry ends the session and fails unacked calls as ambiguous', async () => {
+   const h = await harness();
+   await h.ready();
+diff --git a/apps/desktop/src/main/remote-transport/coordinator.ts b/apps/desktop/src/main/remote-transport/coordinator.ts
+index e10720e..c16116b 100644
+--- a/apps/desktop/src/main/remote-transport/coordinator.ts
++++ b/apps/desktop/src/main/remote-transport/coordinator.ts
+@@ -256,6 +256,7 @@ export type RemoteTransportChannel = Pick<
+   | 'registerControlLane'
+   | 'activateControlLane'
+   | 'retireControlLane'
++  | 'withdrawSeal'
+ > & { readonly mediaKey?: CryptoKey | null };
+ 
+ /** The relay carrier of one session: writes one MXT message as one binary
+@@ -353,6 +354,13 @@ export interface RemoteTransportCoordinator {
+        *  records once the RELAY socket took it (re-sends included; none for
+        *  messages a direct carrier moved). Can fire after `send` resolved. */
+       onRelayWrite?(bytes: number): void;
++      /** Asked once, after the message's last record is sealed (all are
++       *  sealed once its first is admitted), in the same synchronous step as
++       *  their commit to the stream: false takes every seal back and drops the
++       *  message unsent (resolves null, no sequence consumed); true commits
++       *  them, and they enter as the window admits them, ahead of anything
++       *  else. */
++      mayWrite?(): boolean;
+     }
+   ): Promise<number | null>;
+   /** Whether a (non-bulk) record would be admitted now. */
+@@ -363,6 +371,11 @@ export interface RemoteTransportCoordinator {
+   tick(): void;
+   /** Ends the session from outside (client removed, revoked, replaced). */
+   close(reason?: RemoteTransportEndReason): RemoteTransportEnded;
++  /** The phone's permission to view ended (an unpair): a `mayWrite` message
++   *  whose first record already entered cannot be finished, and the phone
++   *  cannot reassemble half of it, so it is abandoned and the session ends
++   *  ('revoked'). Nothing else changes. */
++  viewRevoked(): void;
+   nextSequence(): number;
+   diagnostics(): RemoteTransportCoordinatorDiagnostics;
+ }
+@@ -400,6 +413,11 @@ interface Outgoing {
+   callId: number | null;
+   wireBytes: number;
+   onRelayWrite: ((bytes: number) => void) | undefined;
++  mayWrite: (() => boolean) | undefined;
++  /** The records of a `mayWrite` message sealed so far. */
++  sealed: Uint8Array[];
++  /** Its `mayWrite` allowed it: its sealed records enter as the window admits them. */
++  committed: boolean;
+   resolve(bytes: number | null): void;
+   reject(error: unknown): void;
+ }
+@@ -1087,23 +1105,46 @@ export function createRemoteTransportCoordinator(deps: RemoteTransportCoordinato
+       while (!closed && queue.length > 0) {
+         const item = queue[0];
+         const admission = item.stream === undefined ? {} : { stream: item.stream, bufferedAmount: bufferedOf(current) };
+-        if (!sender.canAdmit(admission)) {
++        // A `mayWrite` message being sealed takes no room until it commits.
++        const sealing = item.sealed.length > 0 && !item.committed;
++        if (!sealing && !sender.canAdmit(admission)) {
+           // Dropping happens here, BEFORE sealing, never after.
+-          if (item.index === 0 && (item.droppable || item.stream !== undefined)) {
++          if (item.index === 0 && item.sealed.length === 0 && (item.droppable || item.stream !== undefined)) {
+             queue.shift();
+             item.resolve(null);
+             continue;
+           }
+           break;
+         }
++        if (item.committed) {
++          // A committed message's records enter as the window admits them,
++          // ahead of anything else: nothing else is sealed meanwhile. Each is
++          // asked about again, in the step it enters: none enters once the
++          // permission ended.
++          if (!item.mayWrite?.()) {
++            abandonView(item);
++            if (closed) return;
++            continue;
++          }
++          const sealed = item.sealed[item.index];
++          let sequence: number;
++          try {
++            sequence = sender.push(sealed, item.stream === undefined ? {} : { stream: item.stream });
++          } catch {
++            fail('seal-failed');
++            return;
++          }
++          entered(item, sequence, sealed);
++          continue;
++        }
+         let box: Uint8Array;
+         try {
+-          box = await deps.channel.encryptBinary(item.pieces[item.index]);
++          box = await deps.channel.encryptBinary(item.pieces[item.mayWrite ? item.sealed.length : item.index]);
+         } catch (error) {
+           if (closed) return;
+           // A size refusal runs before the sequence is assigned: nothing was
+           // consumed. Anything else broke the stream.
+-          if (error instanceof RangeError && item.index === 0) {
++          if (error instanceof RangeError && item.index === 0 && item.sealed.length === 0) {
+             queue.shift();
+             item.reject(error);
+             continue;
+@@ -1112,6 +1153,29 @@ export function createRemoteTransportCoordinator(deps: RemoteTransportCoordinato
+           return;
+         }
+         if (closed) return;
++        if (item.mayWrite) {
++          // All its records are sealed once its first is admitted, as any
++          // message's first is; then it is asked, in the step that commits
++          // them: a permission that ended while any was sealed (an unpair)
++          // takes every seal back, newest first, so the phone gets no part of
++          // it and the stream has no hole. Allowed, its sequences are taken
++          // and it enters whole as the window admits it, however large.
++          item.sealed.push(box);
++          if (item.sealed.length < item.pieces.length) continue;
++          if (!item.mayWrite()) {
++            queue.shift();
++            try {
++              for (const sealed of [...item.sealed].reverse()) deps.channel.withdrawSeal(sealed);
++            } catch {
++              fail('seal-failed');
++              return;
++            }
++            item.resolve(null);
++            continue;
++          }
++          item.committed = true;
++          continue;
++        }
+         let sequence: number;
+         try {
+           sequence = sender.push(box, item.stream === undefined ? {} : { stream: item.stream });
+@@ -1119,22 +1183,51 @@ export function createRemoteTransportCoordinator(deps: RemoteTransportCoordinato
+           fail('seal-failed');
+           return;
+         }
+-        if (item.onRelayWrite) relayWriters.set(sequence, item.onRelayWrite);
+-        item.wireBytes += recordWireBytes(box.byteLength);
+-        item.index += 1;
+-        if (item.index === item.pieces.length) {
+-          queue.shift();
+-          if (item.callId !== null) callIds.set(sequence, item.callId);
+-          item.resolve(item.wireBytes);
+-        }
+-        noteOutstanding(now());
+-        flushCarrier();
++        entered(item, sequence, box);
+       }
+     } finally {
+       pumping = false;
+     }
+   };
+ 
++  /** A committed `mayWrite` message whose permission ended: its unsent seals
++   *  are taken back, newest first, and the session ends. */
++  const abandonView = (item: Outgoing): void => {
++    try {
++      for (const sealed of item.sealed.slice(item.index).reverse()) deps.channel.withdrawSeal(sealed);
++    } catch {
++      fail('seal-failed');
++      return;
++    }
++    // None of it entered: it is dropped, and the stream goes on.
++    if (item.index === 0) {
++      queue.shift();
++      item.resolve(null);
++      return;
++    }
++    fail('revoked');
++  };
++
++  const viewRevoked = (): void => {
++    const item = queue[0];
++    if (closed || !item?.committed || item.mayWrite?.()) return;
++    abandonView(item);
++  };
++
++  /** The head message's next record is in the stream as `sequence`. */
++  const entered = (item: Outgoing, sequence: number, box: Uint8Array): void => {
++    if (item.onRelayWrite) relayWriters.set(sequence, item.onRelayWrite);
++    item.wireBytes += recordWireBytes(box.byteLength);
++    item.index += 1;
++    if (item.index === item.pieces.length) {
++      queue.shift();
++      if (item.callId !== null) callIds.set(sequence, item.callId);
++      item.resolve(item.wireBytes);
++    }
++    noteOutstanding(now());
++    flushCarrier();
++  };
++
+   const send: RemoteTransportCoordinator['send'] = (payload, options = {}) => {
+     if (closed) return Promise.reject(new RemoteTransportEndedError(ended?.reason ?? 'session-ended'));
+     let pieces: unknown[];
+@@ -1165,6 +1258,9 @@ export function createRemoteTransportCoordinator(deps: RemoteTransportCoordinato
+         callId: relayFrameCallId(payload),
+         wireBytes: 0,
+         onRelayWrite: options.onRelayWrite,
++        mayWrite: options.mayWrite,
++        sealed: [],
++        committed: false,
+         resolve,
+         reject,
+       });
+@@ -1284,6 +1380,7 @@ export function createRemoteTransportCoordinator(deps: RemoteTransportCoordinato
+     receive,
+     tick,
+     close,
++    viewRevoked,
+     nextSequence: () => sender.nextSequence(),
+     diagnostics: () => {
+       const stats = sender.stats();
+diff --git a/apps/desktop/src/shared/remote-e2ee.ts b/apps/desktop/src/shared/remote-e2ee.ts
+index b6a61eb..0cabb6e 100644
+--- a/apps/desktop/src/shared/remote-e2ee.ts
++++ b/apps/desktop/src/shared/remote-e2ee.ts
+@@ -649,6 +649,16 @@ export class RelayE2EEChannel {
+     return this.encrypt(value, true) as Promise<Uint8Array<ArrayBuffer>>;
+   }
+ 
++  /** Takes back the newest transport box, sealed and never sent (refused at
++   *  its write): the next box carries its sequence, so the stream has no
++   *  hole. The nonce is random per seal, so the sequence is never sealed
++   *  twice under one nonce. Throws for any other box. */
++  withdrawSeal(box: Uint8Array): void {
++    const sequence = Number(new DataView(box.buffer, box.byteOffset, box.byteLength).getBigUint64(4, false));
++    if (!this.transport || sequence !== this.sendSequence) throw new Error('Only the newest transport seal can be withdrawn.');
++    this.sendSequence -= 1;
++  }
++
+   decryptJson(raw: unknown): Promise<unknown> {
+     let resolveResult!: (value: unknown) => void;
+     let rejectResult!: (reason: unknown) => void;
