@@ -104,9 +104,11 @@ function compareRuns(a, b) {
     undeclared.push(`${path}: ${JSON.stringify(x)?.slice(0, 200)} / ${JSON.stringify(y)?.slice(0, 200)}`);
   };
   walk(a.golden, b.golden, '', '');
+  // Every rule must have replaced a difference. A key of a rule need not differ in every pair of runs: a measured duration of a few
+  // milliseconds can come out the same twice (`postprocess_ms` did once in four pairs); the keys that did differ are printed.
   const wider = [
-    ...[...CLOCK_KEYS].filter((key) => !differed.clockValues.has(key)).map((key) => `clockValues: ${key}`),
-    ...[...BATCH_ID_KEYS].filter((key) => !differed.batchIds.has(key)).map((key) => `batchIds: ${key}`),
+    ...(differed.clockValues.size ? [] : ['clockValues: no clock value differed']),
+    ...(differed.batchIds.size ? [] : ['batchIds: no generated id differed']),
     ...(differed.sandboxPath.size ? [] : ['sandboxPath: no value held the sandbox']),
   ];
   if (undeclared.length || wider.length) {
@@ -157,10 +159,8 @@ if (!RAW_OUT && !ONLY) {
         batchIds: "generated ids: the batch_id of a trace row (and inside a tool row's payload.batch) becomes <BATCH-n>, and a stored row's meta.transcript.messageId becomes <MESSAGE-n>, n by first appearance of each kind within the scenario",
         keptWhole: 'everything else: system messages, stored and requested messages, events, cards, hooks, executed calls, the timeline, the human gate\'s audit records and every trace row of the session',
       },
-      // `compareRuns`: the recording was made twice, each run in a sandbox of its own; these are the keys whose values differed between
-      // the two, per normalisation. Nothing else differed, every declared key differed at least once, and the two normalised runs were
-      // the same bytes.
-      twoRunEvidence: evidence,
+      // `compareRuns` (the keys that differed in this recording's pair are printed by the run, not kept: they vary with timing).
+      twoRunCheck: 'the recording was made twice, each run in a process and a sandbox of its own; nothing differed between the two but values the rules above replace, every rule replaced a difference, and the two normalised runs were the same bytes',
     },
   });
   commitStage(stage, finalDir);

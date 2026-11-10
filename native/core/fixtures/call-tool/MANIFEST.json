@@ -33,7 +33,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-call-tool.mjs",
-  "recorderSha256": "109b143913b6db8b246be3433c8a4fb17ac663f35c52ac5158633dd0dd1963c8",
+  "recorderSha256": "d6816f0ee9785fc3a2845941d3314ab6af8573e714c3c2a9afef6108bcc1639e",
   "scenarios": 65,
   "set": "call-tool",
   "syntheticInputs": [
@@ -49,36 +49,5 @@
     "the session: createSession with the sandbox profile (MIXDOG_DATA_DIR and the home variables under the sandbox), a fixed id per scenario, a work directory holding x.txt"
   ],
   "totalBytes": 9903141,
-  "twoRunEvidence": {
-    "batchIds": [
-      "batch_id",
-      "messageId"
-    ],
-    "clockValues": [
-      "at",
-      "completed_at_ms",
-      "createdAt",
-      "dispatchStartedAt",
-      "dispatch_wait_ms",
-      "duration",
-      "elapsedMs",
-      "executionCompletedAt",
-      "executionStartedAt",
-      "execution_ms",
-      "postprocessStartedAt",
-      "postprocess_ms",
-      "requestMs",
-      "resultCompletedAt",
-      "result_collection_wait_ms",
-      "started_at_ms",
-      "tool_ms",
-      "total_ms",
-      "ts"
-    ],
-    "sandboxPath": [
-      "content",
-      "cwd",
-      "workdir"
-    ]
-  }
+  "twoRunCheck": "the recording was made twice, each run in a process and a sandbox of its own; nothing differed between the two but values the rules above replace, every rule replaced a difference, and the two normalised runs were the same bytes"
 }
