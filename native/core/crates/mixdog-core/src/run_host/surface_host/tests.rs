@@ -152,11 +152,31 @@ impl SessionMcp for Mcp {
     }
 }
 
-/// The prompt a rebuild composes: fixed blocks, and the request it was asked for.
-struct FakePrompt(Mutex<Vec<RebuildRequest>>);
+/// The prompt a rebuild composes: fixed blocks, and the request it was asked for; with how many of the requests came
+/// through its read-only view.
+struct FakePrompt(Mutex<Vec<RebuildRequest>>, std::sync::atomic::AtomicUsize);
+
+/// [`FakePrompt`]'s read-only view: the same composition, counted.
+struct ReadOnlyFake(Arc<FakePrompt>);
+
+#[async_trait]
+impl PromptRebuild for ReadOnlyFake {
+    async fn rebuild(&self, request: RebuildRequest) -> Result<SessionPrompt, String> {
+        self.0.1.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.0.rebuild(request).await
+    }
+
+    fn read_only(self: Arc<Self>) -> Arc<dyn PromptRebuild> {
+        self
+    }
+}
 
 #[async_trait]
 impl PromptRebuild for FakePrompt {
+    fn read_only(self: Arc<Self>) -> Arc<dyn PromptRebuild> {
+        Arc::new(ReadOnlyFake(self))
+    }
+
     async fn rebuild(&self, request: RebuildRequest) -> Result<SessionPrompt, String> {
         // The identity a rebuild gives back is the one it was asked for (`composeSessionSystem` keeps the session's).
         let identity = request.header.get("promptIdentity").cloned().unwrap_or_else(|| json!({}));
@@ -403,7 +423,7 @@ fn try_rig(g: &Value, setup: Setup) -> Result<Rig, VariantError> {
         pool[at] = Arc::new(Stub(pool[at].spec().clone(), None));
     }
     let threads = Arc::new(Threads { header: Mutex::new(header), patches: Mutex::default() });
-    let prompts = Arc::new(FakePrompt(Mutex::default()));
+    let prompts = Arc::new(FakePrompt(Mutex::default(), Default::default()));
     let connectors = Arc::new(Connectors(Mutex::default()));
     let generation = SurfaceGeneration::default();
     let standalone = standalone.unwrap_or_else(|| internal_tools(&pool).iter().map(tool_doc).collect());
@@ -1075,6 +1095,9 @@ async fn a_projected_turn_start_is_what_the_turn_start_stores_and_stores_nothing
         assert!(shown.threads.patches.lock().unwrap().is_empty(), "{name}: the projection wrote the header");
         assert_eq!(*shown.threads.header.lock().unwrap(), header, "{name}: the stored header moved");
         assert!(shown.host.applied.lock().unwrap().is_empty() && shown.host.mcp_state.lock().unwrap().is_empty(), "{name}: the reconcile memory moved");
+        // Every composition the projection makes is the read-only one: no probe cache is used up, no probe started.
+        let composed = shown.prompts.0.lock().unwrap().len();
+        assert_eq!(shown.prompts.1.load(std::sync::atomic::Ordering::SeqCst), composed, "{name}: the projection composed through the probing prompt");
 
         TurnSettings::reconcile(&turned.host, &thread, talked).await.expect(name);
         TurnSettings::migrate_exposure(&turned.host, &thread, &messages).await.expect(name);

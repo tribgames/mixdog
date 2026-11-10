@@ -25,6 +25,7 @@ use std::time::Instant;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
+use crate::access::Access;
 use crate::publish::rename_retryable;
 
 /// `DEFAULT_LOCK_TIMEOUT_MS`, or `MIXDOG_LOCK_TIMEOUT_MS` when that is a number of at least 0.
@@ -118,16 +119,23 @@ pub(crate) fn backoff_ms(attempt: usize) -> u64 {
     [25, 50, 100].get(attempt).copied().unwrap_or(200)
 }
 
-/// Jittered wait before the next attempt, never past the deadline (`lockRetryDelayMs`).
-fn retry_delay(attempt: usize, deadline: Instant) -> Duration {
+/// The wait before attempt `attempt + 1` when the deadline is `remaining_ms` away (`lockRetryDelayMs`): the backoff
+/// plus `floor(draw · min(75, backoff))`, never past the deadline and at least 1 ms. `draw` is `Math.random()`.
+pub fn lock_retry_delay(attempt: usize, remaining_ms: u64, draw: f64) -> u64 {
     let base = backoff_ms(attempt);
-    let jitter = rand::random::<u64>() % base.clamp(1, 75);
-    let left = deadline.saturating_duration_since(Instant::now()).max(Duration::from_millis(1));
-    left.min(Duration::from_millis(base + jitter))
+    let jitter = (draw * base.clamp(1, 75) as f64).floor() as u64;
+    remaining_ms.max(1).min(base + jitter)
 }
 
-fn now_ms() -> u128 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis())
+/// Jittered wait before the next attempt, never past the deadline (`lockRetryDelayMs`).
+fn retry_delay(attempt: usize, deadline: Instant) -> Duration {
+    let left = deadline.saturating_duration_since(Instant::now()).as_millis() as u64;
+    Duration::from_millis(lock_retry_delay(attempt, left, rand::random::<f64>()))
+}
+
+/// The wall clock in nanoseconds since the Unix epoch: the instant a lock's staleness and its owner record are read at.
+fn now_ns() -> i128 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_nanos() as i128)
 }
 
 fn hex16() -> String {
@@ -138,6 +146,28 @@ fn hex16() -> String {
 fn owner_token() -> &'static str {
     static TOKEN: OnceLock<String> = OnceLock::new();
     TOKEN.get_or_init(|| format!("{:024x}", rand::random::<u128>() >> 32))
+}
+
+/// The owner a lock's record names (`${process.pid} ${Date.now()} ${OWNER_TOKEN}`): its process, and the token that
+/// tells it apart from another holder sharing the pid.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LockOwner {
+    pid: u32,
+    token: String,
+}
+
+impl LockOwner {
+    /// This process's owner: its pid and its one token.
+    pub fn process() -> Self {
+        Self { pid: std::process::id(), token: owner_token().to_owned() }
+    }
+
+    /// An owner of this process with a token of its own, as a second copy of Node's `file-lock.mjs` loaded into one
+    /// process is (each copy mints its `OWNER_TOKEN`): it and this process's own owner exclude each other as two
+    /// processes do, and neither releases the other's lock.
+    pub fn another_in_process() -> Self {
+        Self { pid: std::process::id(), token: format!("{:024x}", rand::random::<u128>() >> 32) }
+    }
 }
 
 struct Owner {
@@ -215,20 +245,24 @@ fn owner_is_live(owner: &Owner) -> bool {
     }
 }
 
-fn owned_by_self(path: &Path) -> bool {
-    let owner = read_owner(path);
-    owner.pid == Some(std::process::id()) && owner.token.as_deref() == Some(owner_token())
+fn owned_by(path: &Path, owner: &LockOwner) -> bool {
+    let record = read_owner(path);
+    record.pid == Some(owner.pid) && record.token.as_deref() == Some(owner.token.as_str())
 }
 
-fn modified_ms_ago(meta: &fs::Metadata) -> u128 {
-    meta.modified()
-        .ok()
-        .and_then(|m| SystemTime::now().duration_since(m).ok())
-        .map_or(0, |d| d.as_millis())
+/// `Date.now() - stat.mtimeMs`, in nanoseconds, at `now_ns`.
+fn age_ns(meta: &fs::Metadata, now_ns: i128) -> i128 {
+    let modified = meta.modified().ok().and_then(|m| m.duration_since(UNIX_EPOCH).ok()).map_or(0, |d| d.as_nanos() as i128);
+    now_ns - modified
 }
 
-/// `describeLockHolder`.
-fn describe_holder(path: &Path) -> String {
+/// Whether the file is `limit` old or older at `now_ns`.
+fn aged(meta: &fs::Metadata, now_ns: i128, limit: Duration) -> bool {
+    age_ns(meta, now_ns) >= limit.as_nanos() as i128
+}
+
+/// `describeLockHolder` at `now_ns`.
+fn describe_holder(path: &Path, now_ns: i128) -> String {
     let Ok(meta) = fs::metadata(path) else { return "holder unknown (lock file unreadable/absent)".into() };
     let owner = read_owner(path);
     let live = match owner.pid {
@@ -238,23 +272,21 @@ fn describe_holder(path: &Path) -> String {
     };
     let pid = owner.pid.map_or("?".to_owned(), |p| p.to_string());
     let token = owner.token.map_or("?".to_owned(), |t| t.chars().take(8).collect());
-    format!("holder pid={pid} token={token} age={}ms {live}", modified_ms_ago(&meta))
+    // `Math.max(0, Math.round(Date.now() - stat.mtimeMs))`.
+    let age = (age_ns(&meta, now_ns) as f64 / 1e6).round().max(0.0);
+    format!("holder pid={pid} token={token} age={age}ms {live}")
 }
 
-fn create_exclusive(path: &Path, data: &str) -> io::Result<()> {
-    let mut options = fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    options.open(path)?.write_all(data.as_bytes())
+fn create_exclusive(path: &Path, data: &str, access: Access) -> io::Result<()> {
+    crate::access::create_new_platform(path, access, 0o600)?.write_all(data.as_bytes())
 }
 
-/// `publishLock`: the owner record is staged privately, hard-linked to the lock path, and the
-/// staged name removed whether or not the link won.
-fn publish_lock(lock: &Path) -> io::Result<()> {
-    let staged = PathBuf::from(format!("{}.{}.{}.tmp", lock.display(), std::process::id(), hex16()));
-    let linked = create_exclusive(&staged, &format!("{} {} {}\n", std::process::id(), now_ms(), owner_token()))
-        .and_then(|()| fs::hard_link(&staged, lock));
+/// `publishLock`: `owner`'s record (stamped `now_ns`) is staged privately, hard-linked to the lock path, and the staged
+/// name removed whether or not the link won. The link shares the staged file's access.
+fn publish_lock(lock: &Path, owner: &LockOwner, now_ns: i128, access: Access) -> io::Result<()> {
+    let staged = PathBuf::from(format!("{}.{}.{}.tmp", lock.display(), owner.pid, hex16()));
+    let record = format!("{} {} {}\n", owner.pid, now_ns.div_euclid(1_000_000), owner.token);
+    let linked = create_exclusive(&staged, &record, access).and_then(|()| fs::hard_link(&staged, lock));
     let _ = fs::remove_file(&staged);
     linked
 }
@@ -294,10 +326,10 @@ struct ReclaimGuard {
 /// `revokeDeadReclaimGuard`: only a guard whose owner is proven dead and which is older than any
 /// live reclaim, moved aside first; if the moved file is not the one inspected, a newer guard was
 /// displaced and is linked back.
-fn revoke_dead_guard(guard: &Path) -> bool {
+fn revoke_dead_guard(guard: &Path, now_ns: i128) -> bool {
     let Ok(before_meta) = fs::metadata(guard) else { return false };
     let Ok(before) = file_id(guard) else { return false };
-    if modified_ms_ago(&before_meta) < RECLAIM_GUARD_STALE.as_millis() {
+    if !aged(&before_meta, now_ns, RECLAIM_GUARD_STALE) {
         return false;
     }
     let owner = read_owner(guard);
@@ -316,18 +348,18 @@ fn revoke_dead_guard(guard: &Path) -> bool {
     revoked
 }
 
-/// `tryAcquireReclaimGuard`.
-fn acquire_reclaim_guard(lock: &Path) -> Option<ReclaimGuard> {
+/// `tryAcquireReclaimGuard` at `now_ns`.
+fn acquire_reclaim_guard(lock: &Path, now_ns: i128) -> Option<ReclaimGuard> {
     let guard = PathBuf::from(format!("{}.reclaim", lock.display()));
-    let token = format!("{} {} {}\n", std::process::id(), now_ms(), hex16());
+    let token = format!("{} {} {}\n", std::process::id(), now_ns.div_euclid(1_000_000), hex16());
     for attempt in 0..2 {
         let staged = PathBuf::from(format!("{}.{}.{}.tmp", guard.display(), std::process::id(), hex16()));
-        let linked = create_exclusive(&staged, &token).and_then(|()| fs::hard_link(&staged, &guard));
+        let linked = create_exclusive(&staged, &token, Access::Inherit).and_then(|()| fs::hard_link(&staged, &guard));
         let _ = fs::remove_file(&staged);
         match linked {
             Ok(()) => return Some(ReclaimGuard { path: guard, token }),
             Err(error) if !rename_retryable(&error) => return None,
-            Err(_) if attempt > 0 || !revoke_dead_guard(&guard) => return None,
+            Err(_) if attempt > 0 || !revoke_dead_guard(&guard, now_ns) => return None,
             Err(_) => {}
         }
     }
@@ -340,29 +372,29 @@ fn release_reclaim_guard(guard: &ReclaimGuard) {
     }
 }
 
-/// `lockReclaimable`: owner dead, or no owner and outlived the stale window.
-fn reclaimable(owner: &Owner, meta: &fs::Metadata, opts: &LockOpts) -> bool {
+/// `lockReclaimable` at `now_ns`: owner dead, or no owner and outlived the stale window.
+fn reclaimable(owner: &Owner, meta: &fs::Metadata, opts: &LockOpts, now_ns: i128) -> bool {
     if owner.pid.is_some() {
         return !owner_is_live(owner);
     }
     if opts.strict_owner {
         return false;
     }
-    modified_ms_ago(meta) >= opts.stale.unwrap_or(DEFAULT_STALE).as_millis()
+    aged(meta, now_ns, opts.stale.unwrap_or(DEFAULT_STALE))
 }
 
-/// `tryReclaimStaleLock`: true when the stale lock was removed and publishing should be retried.
-fn try_reclaim(lock: &Path, opts: &LockOpts) -> bool {
+/// `tryReclaimStaleLock` at `now_ns`: true when the stale lock was removed and publishing should be retried.
+fn try_reclaim(lock: &Path, opts: &LockOpts, now_ns: i128) -> bool {
     let Ok(initial) = fs::metadata(lock) else { return false };
     let owner = read_owner(lock);
-    if !reclaimable(&owner, &initial, opts) {
+    if !reclaimable(&owner, &initial, opts, now_ns) {
         return false;
     }
-    let Some(guard) = acquire_reclaim_guard(lock) else { return false };
+    let Some(guard) = acquire_reclaim_guard(lock, now_ns) else { return false };
     let removed = (|| {
         let current = fs::metadata(lock).ok()?;
         let now = read_owner(lock);
-        if now.pid != owner.pid || now.token != owner.token || !reclaimable(&now, &current, opts) {
+        if now.pid != owner.pid || now.token != owner.token || !reclaimable(&now, &current, opts, now_ns) {
             return None;
         }
         fs::remove_file(lock).ok()
@@ -374,7 +406,7 @@ fn try_reclaim(lock: &Path, opts: &LockOpts) -> bool {
 
 /// A staged record left by a process killed between its create and unlink: swept once per lock
 /// path, only when old and its pid is dead. Cleanup only; no lock decision depends on it.
-fn sweep_staged(lock: &Path) {
+fn sweep_staged(lock: &Path, now_ns: i128) {
     static SWEPT: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
     let first = SWEPT.get_or_init(Mutex::default).lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(lock.to_owned());
     if !first {
@@ -392,7 +424,7 @@ fn sweep_staged(lock: &Path) {
         else {
             continue;
         };
-        let old = entry.metadata().is_ok_and(|m| modified_ms_ago(&m) >= STAGED_STALE.as_millis());
+        let old = entry.metadata().is_ok_and(|m| aged(&m, now_ns, STAGED_STALE));
         if old && !owner_is_live(&Owner { pid: Some(pid), token: None }) {
             let _ = fs::remove_file(entry.path());
         }
@@ -464,27 +496,19 @@ pub(crate) fn locked<R>(lock: &Path, opts: &LockOpts, body: impl FnOnce() -> R) 
         fs::create_dir_all(dir)?;
     }
     let Some(_turn) = take_turn(&line_of(lock), timeout.is_zero()) else {
-        return Err(LockError::Contended { path: lock.to_owned(), holder: describe_holder(lock) });
+        return Err(LockError::Contended { path: lock.to_owned(), holder: describe_holder(lock, now_ns()) });
     };
     // The budget is for the file: it starts at the front of the line (`acquireLock` runs after
     // `lockQueue` hands over), not when the request joins it.
     let deadline = Instant::now() + timeout;
+    let owner = LockOwner::process();
     let mut attempt = 0;
-    loop {
-        let error = match publish_lock(lock) {
-            Ok(()) => break,
-            Err(error) if !rename_retryable(&error) => return Err(LockError::Io(error)),
-            Err(error) => error,
-        };
-        drop(error);
-        if try_reclaim(lock, opts) {
-            continue;
-        }
+    while try_take(lock, opts, &owner, Access::Inherit, now_ns())? == Attempt::Held {
         if timeout.is_zero() {
-            return Err(LockError::Contended { path: lock.to_owned(), holder: describe_holder(lock) });
+            return Err(LockError::Contended { path: lock.to_owned(), holder: describe_holder(lock, now_ns()) });
         }
         if Instant::now() >= deadline {
-            return Err(LockError::Timeout { path: lock.to_owned(), timeout, holder: describe_holder(lock) });
+            return Err(LockError::Timeout { path: lock.to_owned(), timeout, holder: describe_holder(lock, now_ns()) });
         }
         std::thread::sleep(retry_delay(attempt, deadline));
         attempt += 1;
@@ -494,7 +518,7 @@ pub(crate) fn locked<R>(lock: &Path, opts: &LockOpts, body: impl FnOnce() -> R) 
         let _release = Release(lock);
         body()
     };
-    sweep_staged(lock);
+    sweep_staged(lock, now_ns());
     Ok(result)
 }
 
@@ -504,8 +528,79 @@ struct Release<'a>(&'a Path);
 impl Drop for Release<'_> {
     fn drop(&mut self) {
         HELD.with(|held| held.borrow_mut().remove(self.0));
-        if owned_by_self(self.0) {
+        if owned_by(self.0, &LockOwner::process()) {
             let _ = fs::remove_file(self.0);
+        }
+    }
+}
+
+/// What one pass of `acquireLock`'s loop found.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Attempt {
+    /// The lock is `owner`'s now.
+    Taken,
+    /// Another holds it, and it is not stale.
+    Held,
+}
+
+/// `publishLock`, and while another holds the lock, `tryReclaimStaleLock` and publish again.
+fn try_take(lock: &Path, opts: &LockOpts, owner: &LockOwner, access: Access, now_ns: i128) -> Result<Attempt, LockError> {
+    loop {
+        match publish_lock(lock, owner, now_ns, access) {
+            Ok(()) => return Ok(Attempt::Taken),
+            Err(error) if !rename_retryable(&error) => return Err(LockError::Io(error)),
+            Err(_) => {}
+        }
+        if !try_reclaim(lock, opts, now_ns) {
+            return Ok(Attempt::Held);
+        }
+    }
+}
+
+/// The steps of `withFileLock` for a caller that waits on a clock of its own (Node's async `acquireLock`, whose
+/// clock is `Date.now()` and whose waits are timers): the caller keeps the in-process line, the deadline and the waits
+/// ([`lock_retry_delay`]), and runs each step as a write-lane job. `now_ms` is that clock's reading.
+pub mod steps {
+    use std::path::Path;
+
+    use mixdog_rt::InLane;
+
+    use super::Access;
+    use super::Attempt;
+    use super::LockError;
+    use super::LockOpts;
+    use super::LockOwner;
+    use crate::WriteLane;
+
+    fn ns(now_ms: u64) -> i128 {
+        i128::from(now_ms) * 1_000_000
+    }
+
+    /// Before the first attempt: the lock's directory is made, and staged records a dead process left beside the
+    /// lock are swept (once per lock path in the process).
+    pub fn prepare<L: WriteLane>(_lane: &InLane<L>, lock: &Path, now_ms: u64) -> std::io::Result<()> {
+        if let Some(dir) = lock.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        super::sweep_staged(lock, ns(now_ms));
+        Ok(())
+    }
+
+    /// One attempt: `owner`'s record published at `lock`, a stale holder's lock reclaimed first. `access` is the lock
+    /// file's (owner-only for a lock taken with `secret`).
+    pub fn attempt<L: WriteLane>(_lane: &InLane<L>, lock: &Path, opts: &LockOpts, owner: &LockOwner, access: Access, now_ms: u64) -> Result<Attempt, LockError> {
+        super::try_take(lock, opts, owner, access, ns(now_ms))
+    }
+
+    /// `describeLockHolder` for the timeout's message.
+    pub fn holder<L: WriteLane>(_lane: &InLane<L>, lock: &Path, now_ms: u64) -> String {
+        super::describe_holder(lock, ns(now_ms))
+    }
+
+    /// `releaseLock`: the lock file is removed while it still names `owner`.
+    pub fn release<L: WriteLane>(_lane: &InLane<L>, lock: &Path, owner: &LockOwner) {
+        if super::owned_by(lock, owner) {
+            let _ = std::fs::remove_file(lock);
         }
     }
 }

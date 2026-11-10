@@ -268,6 +268,12 @@ pub async fn compose<R: Send + 'static>(
     Ok(result)
 }
 
+/// One composition for a reader that leaves no trace: it runs over a copy of the observations as they stand (what it
+/// reads is not marked used there, what it misses reads as unanswered), and no probe is run, cold or refresh.
+pub async fn compose_read_only<R: Send + 'static>(io: &ToolIo, observed: &Arc<StartupObservations>, facts: Arc<PromptFacts>, job: ComposeJob<R>) -> Result<R, String> {
+    in_lane(io, &facts, &Arc::new(observed.copy()), &job).await
+}
+
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup builds a real repository")]
 mod tests {
@@ -315,5 +321,148 @@ mod tests {
         assert!(tail.contains("Git startup state:"), "{tail}");
         assert!(tail.contains("changes present"), "{tail}");
         assert!(!tail.contains("was not inside a git repository"), "{tail}");
+    }
+
+    // An inline module's path is resolved from `src/run_host/prewarm/tests/`.
+    #[path = "../../../../../mixdog-ai/src/providers/grok/fixture_manifest.rs"]
+    mod fixture_manifest;
+
+    const EFFECTS_RECORDER: &str = "native/core/crates/mixdog-core/src/run_host/snapshot_effects/record.mjs";
+
+    /// The process service, with the subcommand of every git process asked of it logged in order (Node's recording sees
+    /// each request its probes hand the git worker pool) and the count published for a waiter.
+    struct Logged {
+        inner: Arc<dyn ProcessManager>,
+        log: Mutex<Vec<String>>,
+        count: tokio::sync::watch::Sender<usize>,
+    }
+
+    #[async_trait::async_trait]
+    impl ProcessManager for Logged {
+        async fn spawn(&self, request: SpawnRequest) -> Result<mixdog_core_api::domain::process::SpawnedProcess, mixdog_core_api::domain::process::ProcessError> {
+            if let CommandSpec::Argv { program, args } = &request.command
+                && program == "git"
+            {
+                let at = args.iter().position(|arg| arg == "-C").map_or(0, |c| c + 2);
+                let mut log = self.log.lock().unwrap();
+                log.push(args[at].clone());
+                self.count.send_replace(log.len());
+            }
+            self.inner.spawn(request).await
+        }
+        fn subscribe(
+            &self,
+            handle: &ProcessHandle,
+            from_seq: Option<u64>,
+        ) -> Result<Box<dyn mixdog_core_api::domain::common::EventSource<ProcessEvent>>, mixdog_core_api::domain::process::ProcessError> {
+            self.inner.subscribe(handle, from_seq)
+        }
+        async fn write_stdin(&self, handle: &ProcessHandle, bytes: Vec<u8>) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+            self.inner.write_stdin(handle, bytes).await
+        }
+        fn close_stdin(&self, handle: &ProcessHandle) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+            self.inner.close_stdin(handle)
+        }
+        fn resize_pty(&self, handle: &ProcessHandle, size: mixdog_core_api::domain::process::PtySize) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+            self.inner.resize_pty(handle, size)
+        }
+        fn kill(&self, handle: &ProcessHandle) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+            self.inner.kill(handle)
+        }
+        fn list(&self) -> Vec<mixdog_core_api::domain::process::ProcessInfo> {
+            self.inner.list()
+        }
+    }
+
+    /// Every file under `dir` with its bytes.
+    fn files(dir: &std::path::Path) -> std::collections::BTreeMap<String, Vec<u8>> {
+        let mut out = std::collections::BTreeMap::new();
+        let mut stack = vec![dir.to_path_buf()];
+        while let Some(at) = stack.pop() {
+            for entry in std::fs::read_dir(&at).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else {
+                    out.insert(path.strip_prefix(dir).unwrap().to_string_lossy().replace('\\', "/"), std::fs::read(&path).unwrap());
+                }
+            }
+        }
+        out
+    }
+
+    /// Node's request built without sending (`lastSentMainRequest`, the core's request snapshot) starts no git process
+    /// and writes no file, and leaves the startup-probe cache as it was: the next turn's composition refreshes what it
+    /// would have refreshed without it. The same steps as Node's recording (`snapshot_effects/record.mjs`): the
+    /// session's creation (the cold probes, then the composition they serve), the snapshot's read-only composition, and
+    /// the next turn's composition; each step compared whole with Node's.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[allow(clippy::disallowed_methods, reason = "a test builds a real repository")]
+    async fn a_snapshot_composition_starts_no_probe_and_leaves_the_cache_as_node_does() {
+        let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../..");
+        let set = repo_root.join("native/core/fixtures/request-snapshot-effects");
+        fixture_manifest::verify_dir(&repo_root, &set, EFFECTS_RECORDER);
+        let node: serde_json::Value = serde_json::from_slice(&std::fs::read(set.join("node-recorded.json")).unwrap()).unwrap();
+
+        let repo = tempfile::tempdir().unwrap();
+        let git = |args: &[&str]| assert!(Command::new("git").args(args).current_dir(repo.path()).output().unwrap().status.success(), "git {args:?}");
+        git(&["init", "-q"]);
+        std::fs::write(repo.path().join("note.txt"), "x").unwrap();
+        std::fs::write(repo.path().join(".gitignore"), "build/\n").unwrap();
+        std::fs::create_dir(repo.path().join("build")).unwrap();
+        std::fs::write(repo.path().join("build").join("out.txt"), "y").unwrap();
+        let tokens = mixdog_rt::testing::tokens();
+        let io = ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io };
+        let (count, mut counted) = tokio::sync::watch::channel(0);
+        let logged = Arc::new(Logged {
+            inner: Arc::new(mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default())),
+            log: Mutex::default(),
+            count,
+        });
+        let processes: Arc<dyn ProcessManager> = logged.clone();
+        let started = || {
+            let mut log = logged.log.lock().unwrap();
+            logged.count.send_replace(0);
+            std::mem::take(&mut *log)
+        };
+        let probes = Arc::new(StartupProbes::new(io, processes));
+        let observed = Arc::new(StartupObservations::new(Arc::new(Fixed)));
+        let data = tempfile::tempdir().unwrap();
+        let facts = Arc::new(PromptFacts::from_process(data.path().to_path_buf(), data.path().to_path_buf(), None));
+        let cwd = repo.path().to_string_lossy().into_owned();
+        let job: ComposeJob<String> = Arc::new(move |lane, host, observed| {
+            let sources = mixdog_core_prompt::prompt::real_sources::RealSources::new(lane, host, observed);
+            let input = SessionPromptInput { session_id: "s1", provider: "grok-oauth", model: "grok-4", cwd: Some(&cwd), has_git_tool: true, ..Default::default() };
+            let paths = PromptPaths { plugin_root: host.plugin_root, data_dir: host.data_dir };
+            compose_session_prompt(&input, &paths, &sources).environment_tail
+        });
+        let mut steps = Vec::new();
+
+        // The creation: the cold probes (Node's boot prewarm), then the composition they serve, which refreshes nothing.
+        in_lane(&io, &facts, &observed, &job).await.unwrap();
+        let cold = observed.take_requests();
+        probes.settle(&observed, cold).await;
+        in_lane(&io, &facts, &observed, &job).await.unwrap();
+        assert_eq!(observed.take_requests(), Vec::new(), "the creation's composition asked for a refresh");
+        steps.push(serde_json::json!({ "step": "creation", "gitRequested": started() }));
+
+        // The snapshot.
+        let (before, cache) = (files(data.path()), observed.copy());
+        let built = compose_read_only(&io, &observed, facts.clone(), job.clone()).await.unwrap();
+        let after = files(data.path());
+        let changed: Vec<&String> = before.keys().chain(after.keys()).collect::<std::collections::BTreeSet<_>>().into_iter().filter(|path| before.get(*path) != after.get(*path)).collect();
+        assert!(observed.same_as(&cache), "the snapshot's composition changed the startup-probe cache");
+        steps.push(serde_json::json!({ "step": "request-without-sending", "requestBuilt": !built.is_empty(), "gitRequested": started(), "dataFilesChanged": changed }));
+
+        // The next turn: its composition refreshes, off the turn, what it serves; the refresh's processes are waited for.
+        compose(&io, &probes, &observed, facts.clone(), job.clone()).await.unwrap();
+        let expected = node["steps"][2]["gitRequested"].as_array().unwrap().len();
+        tokio::time::timeout(Duration::from_secs(30), counted.wait_for(|n| *n >= expected))
+            .await
+            .unwrap_or_else(|_| panic!("the next turn's refresh did not start {expected} git processes within 30 s: {:?}", logged.log.lock().unwrap()))
+            .unwrap();
+        steps.push(serde_json::json!({ "step": "next-turn-composition", "gitRequested": started() }));
+
+        assert_eq!(serde_json::json!({ "steps": steps }), node);
     }
 }

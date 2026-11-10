@@ -2599,16 +2599,16 @@ mod tests {
         (status["requestSnapshot"].clone(), handed)
     }
 
-    /// Waits until `count` runs of the thread have completed in the store and the last turn's settlement is over: the end
-    /// record is written before the settle's last step, the turn's coverage stamp (`actor.rs` settle), and a turn started
-    /// before that stamp is queued behind the settlement. `covered_before` is the stamp before the turn started.
+    /// Waits until `count` runs of the thread have completed in the store and the last turn's settlement is over: the
+    /// coverage stamp is written before the Goal settlement comes back (`JobDone::GoalSettled`), and a turn started
+    /// while the actor is still busy settling is queued. `covered_before` is the stamp before the turn started.
     async fn settled_turns(world: &World, id: &ThreadId, handle: &Arc<mixdog_core_session::session::SessionHandle>, count: usize, covered_before: Option<Value>) {
         let done = || world.rig.store.records(id).into_iter().filter(|(_, record)| matches!(record, Record::Run(run) if run.phase == mixdog_store::schema::record::RunPhase::Completed)).count();
         let covered = || handle.header_snapshot().get("turnCoverage").cloned();
         eventually_on_awaiting(
-            || format!("{count} completed runs of {} and the changed turnCoverage stamp", id.as_str()),
+            || format!("{count} completed runs of {}, the changed turnCoverage stamp and an idle actor", id.as_str()),
             &[&world.rig.store.committed, handle.stepped()],
-            || (done() >= count && covered() != covered_before).then_some(()),
+            || (done() >= count && covered() != covered_before && !handle.turn_busy()).then_some(()),
         )
         .await;
     }

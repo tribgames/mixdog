@@ -683,7 +683,9 @@ impl TurnSettings for LeadSurfaceHost {
         }
         let shadow = LeadSurfaceHost {
             mode: self.mode,
-            sources: SurfaceSources { threads: copy.clone(), ..self.sources.clone() },
+            // The prompt is composed as a reader composes it: the startup observations are read, not used up, and no
+            // probe or refresh is started.
+            sources: SurfaceSources { threads: copy.clone(), prompt: self.sources.prompt.clone().read_only(), ..self.sources.clone() },
             agent_defs: self.agent_defs.clone(),
             applied: memory(&self.applied),
             mcp_state: memory(&self.mcp_state),

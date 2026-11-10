@@ -65,21 +65,26 @@ pub(crate) fn js_number(x: f64) -> String {
     }
 }
 
-/// `String(value)` / a template literal of a JSON value.
-fn js_to_string(value: &Value) -> String {
-    match value {
+/// `String(value)` / a template literal of a parsed JSON value. An object is `ToPrimitive`d: its `toString`, then its
+/// `valueOf`, whichever is a function and gives a primitive. A parsed object inherits both from `Object.prototype`
+/// (`"[object Object]"`) unless it has an own `toString` key: that one is never a function, so `toString` is skipped and
+/// `valueOf` (its own, never a function either, or `Object.prototype`'s, which gives the object back) gives no
+/// primitive, and V8 throws.
+fn js_to_string(value: &Value) -> Js<String> {
+    Ok(match value {
         Value::Null => "null".to_owned(),
         Value::Bool(b) => b.to_string(),
         Value::Number(n) => js_number(n.as_f64().unwrap_or(f64::NAN)),
         Value::String(s) => s.clone(),
-        Value::Array(items) => js_join(items, ","),
+        Value::Array(items) => js_join(items, ",")?,
+        Value::Object(map) if map.contains_key("toString") => return Err(TypeError("Cannot convert object to primitive value".to_owned())),
         Value::Object(_) => "[object Object]".to_owned(),
-    }
+    })
 }
 
 /// `Array.prototype.join(separator)`: `null` (and `undefined`) elements are empty.
-fn js_join(items: &[Value], separator: &str) -> String {
-    items.iter().map(|item| if item.is_null() { String::new() } else { js_to_string(item) }).collect::<Vec<_>>().join(separator)
+fn js_join(items: &[Value], separator: &str) -> Js<String> {
+    items.iter().map(|item| if item.is_null() { Ok(String::new()) } else { js_to_string(item) }).collect::<Js<Vec<_>>>().map(|parts| parts.join(separator))
 }
 
 /// `String.prototype.trim`: JavaScript's white space and line terminators (U+FEFF is one, U+0085 is not).
@@ -138,41 +143,130 @@ fn js_ordered_deep(value: Value) -> Value {
     }
 }
 
-struct JsNumbers;
+// A JavaScript string is UTF-16: `Object.entries` (and a spread) of a string takes it apart by code unit, so a character
+// outside the Basic Multilingual Plane becomes two strings of one lone surrogate each, which a Rust string cannot hold.
+// Such a string is written here as the flatten's marker followed by the unit's four lowercase hex digits, and
+// `JSON.stringify` writes it as JavaScript does (`"\ud83d"`). The marker is a run of U+F0000 longer than any run in the
+// body the flatten works on, so no string of the body, nor any text the flatten builds from them (always joined with
+// ASCII), is a marked one.
+thread_local! {
+    static LONE_MARKER: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
+}
 
-impl serde_json::ser::Formatter for JsNumbers {
-    fn write_f64<W: ?Sized + std::io::Write>(&mut self, writer: &mut W, value: f64) -> std::io::Result<()> {
-        writer.write_all(js_number(value).as_bytes())
+const MARK: char = '\u{F0000}';
+
+/// The marker for `value`: one U+F0000 more than the longest run of it in any of its strings and keys.
+fn lone_marker(value: &Value) -> String {
+    fn longest(text: &str) -> usize {
+        text.split(|c| c != MARK).map(|run| run.chars().count()).max().unwrap_or(0)
+    }
+    fn walk(value: &Value) -> usize {
+        match value {
+            Value::String(text) => longest(text),
+            Value::Array(items) => items.iter().map(walk).max().unwrap_or(0),
+            Value::Object(map) => map.iter().map(|(key, value)| longest(key).max(walk(value))).max().unwrap_or(0),
+            _ => 0,
+        }
+    }
+    MARK.to_string().repeat(walk(value) + 1)
+}
+
+/// The JavaScript string of one lone surrogate `unit`.
+fn lone_unit(unit: u16) -> Value {
+    LONE_MARKER.with(|marker| Value::String(format!("{}{unit:04x}", marker.borrow())))
+}
+
+/// The lone surrogate a marked string stands for.
+fn lone_of<'a>(text: &'a str, marker: &str) -> Option<&'a str> {
+    let hex = text.strip_prefix(marker).filter(|_| !marker.is_empty())?;
+    (hex.len() == 4 && hex.bytes().all(|b| b.is_ascii_hexdigit())).then_some(hex)
+}
+
+/// `JSON.stringify`'s quoting: `"`, `\`, the five short escapes, other controls as `\u00xx`, a lone surrogate (a marked
+/// string) as `\udxxx`, everything else as it is.
+fn write_js_string(out: &mut Vec<u8>, text: &str, marker: &str) {
+    if let Some(hex) = lone_of(text, marker) {
+        out.extend_from_slice(format!("\"\\u{hex}\"").as_bytes());
+        return;
+    }
+    out.push(b'"');
+    for c in text.chars() {
+        match c {
+            '"' => out.extend_from_slice(b"\\\""),
+            '\\' => out.extend_from_slice(b"\\\\"),
+            '\u{8}' => out.extend_from_slice(b"\\b"),
+            '\u{c}' => out.extend_from_slice(b"\\f"),
+            '\n' => out.extend_from_slice(b"\\n"),
+            '\r' => out.extend_from_slice(b"\\r"),
+            '\t' => out.extend_from_slice(b"\\t"),
+            c if (c as u32) < 0x20 => out.extend_from_slice(format!("\\u{:04x}", c as u32).as_bytes()),
+            c => {
+                let mut buf = [0; 4];
+                out.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
+            }
+        }
+    }
+    out.push(b'"');
+}
+
+fn write_js_json(out: &mut Vec<u8>, value: &Value, marker: &str) {
+    match value {
+        Value::Null => out.extend_from_slice(b"null"),
+        Value::Bool(b) => out.extend_from_slice(if *b { b"true" } else { b"false" }),
+        Value::Number(n) if n.is_f64() => out.extend_from_slice(js_number(n.as_f64().unwrap_or(f64::NAN)).as_bytes()),
+        Value::Number(n) => out.extend_from_slice(n.to_string().as_bytes()),
+        Value::String(text) => write_js_string(out, text, marker),
+        Value::Array(items) => {
+            out.push(b'[');
+            for (i, item) in items.iter().enumerate() {
+                if i > 0 {
+                    out.push(b',');
+                }
+                write_js_json(out, item, marker);
+            }
+            out.push(b']');
+        }
+        Value::Object(map) => {
+            out.push(b'{');
+            for (i, (key, item)) in map.iter().enumerate() {
+                if i > 0 {
+                    out.push(b',');
+                }
+                write_js_string(out, key, "");
+                out.push(b':');
+                write_js_json(out, item, marker);
+            }
+            out.push(b'}');
+        }
     }
 }
 
-/// `JSON.stringify(value)`: the map's key order, JSON's escapes (the same as serde_json's), numbers as JavaScript
-/// writes them.
-pub fn js_json(value: &Value) -> Vec<u8> {
+/// `JSON.stringify(value)`: the map's key order, JSON's escapes, numbers as JavaScript writes them, and the strings
+/// `marker` marks as the lone surrogates they stand for.
+pub fn js_json(value: &Value, marker: &str) -> Vec<u8> {
     let mut out = Vec::new();
-    let mut serializer = serde_json::Serializer::with_formatter(&mut out, JsNumbers);
-    serde::Serialize::serialize(value, &mut serializer).expect("a JSON value serializes");
+    write_js_json(&mut out, value, marker);
     out
 }
 
 /// `Object.entries(value)` (and the keys `{ ...value }` copies): an object's own keys in JavaScript order, an array's or
-/// a string's indices, nothing for a number, a boolean or null. A string is split into UTF-16 code units; a character
-/// outside the Basic Multilingual Plane, which JavaScript splits into two lone surrogates a Rust string cannot hold, stays
-/// one entry at its first index.
+/// a string's indices, nothing for a number, a boolean or null. A string is taken apart by UTF-16 code unit: a
+/// character outside the Basic Multilingual Plane is two entries, each one lone surrogate.
 fn entries(value: Option<&Value>) -> Vec<(String, Value)> {
     match value {
         Some(Value::Object(map)) => js_ordered(map.clone()).into_iter().collect(),
         Some(Value::Array(items)) => items.iter().enumerate().map(|(i, item)| (i.to_string(), item.clone())).collect(),
-        Some(Value::String(text)) => {
-            let mut index = 0;
-            text.chars()
-                .map(|c| {
-                    let entry = (index.to_string(), Value::String(c.to_string()));
-                    index += c.len_utf16();
-                    entry
-                })
-                .collect()
-        }
+        Some(Value::String(text)) => text
+            .encode_utf16()
+            .enumerate()
+            .map(|(index, unit)| {
+                let entry = match char::from_u32(u32::from(unit)) {
+                    Some(c) => Value::String(c.to_string()),
+                    None => lone_unit(unit),
+                };
+                (index.to_string(), entry)
+            })
+            .collect(),
         _ => Vec::new(),
     }
 }
@@ -408,22 +502,22 @@ fn describes_scalar(schema: &Value) -> bool {
     get(schema, "type").is_some_and(|t| t.is_string() || t.is_array()) || get(schema, "enum").is_some_and(Value::is_array)
 }
 
-fn project_dropped_branches(schema: Value, dropped: &[&Value]) -> Value {
+fn project_dropped_branches(schema: Value, dropped: &[&Value]) -> Js<Value> {
     let note = if describes_array(&schema) {
         dropped.iter().any(|b| describes_scalar(b)).then_some(ARRAY_ONLY_NOTE)
     } else {
         dropped.iter().any(|b| describes_array(b)).then_some(ARRAY_DROP_NOTE)
     };
-    let Some(note) = note else { return schema };
+    let Some(note) = note else { return Ok(schema) };
     // `String(schema.description || '').trim()`
-    let description = get(&schema, "description").filter(|d| truthy(Some(d))).map(js_to_string).unwrap_or_default();
+    let description = get(&schema, "description").filter(|d| truthy(Some(d))).map(js_to_string).transpose()?.unwrap_or_default();
     let description = js_trim(&description);
     if description.contains(note) {
-        return schema;
+        return Ok(schema);
     }
     let mut out = schema.as_object().cloned().unwrap_or_default();
     out.insert("description".into(), Value::String(if description.is_empty() { note.to_owned() } else { format!("{description} {note}") }));
-    Value::Object(out)
+    Ok(Value::Object(out))
 }
 
 /// The index in `branches` of the branch a flatten keeps: the array branch of a "one or many" field, else the first object.
@@ -436,27 +530,27 @@ fn preferred_branch(branches: &[Value]) -> Option<usize> {
     objects.first().copied()
 }
 
-fn normalize_property_schema(schema: &Value) -> Value {
-    let Some(map) = schema.as_object() else { return schema.clone() };
+fn normalize_property_schema(schema: &Value) -> Js<Value> {
+    let Some(map) = schema.as_object() else { return Ok(schema.clone()) };
     let branches: Vec<Value> = ["anyOf", "oneOf"].iter().flat_map(|key| map.get(*key).and_then(Value::as_array).cloned().unwrap_or_default()).collect();
     if !branches.is_empty() {
         if let Some(kept) = preferred_branch(&branches) {
             let siblings = without(map, &["anyOf", "oneOf"]);
             let merged = Value::Object(spread(branches[kept].as_object().cloned().unwrap_or_default(), &siblings));
             let dropped: Vec<&Value> = branches.iter().enumerate().filter(|(i, _)| *i != kept).map(|(_, b)| b).collect();
-            return normalize_property_schema(&project_dropped_branches(merged, &dropped));
+            return normalize_property_schema(&project_dropped_branches(merged, &dropped)?);
         }
     }
     let mut result = map.clone();
     for key in SCHEMA_MAP_KEYWORDS {
         match map.get(key) {
             Some(Value::Object(children)) => {
-                let normalized: Map<String, Value> = children.iter().map(|(name, child)| (name.clone(), normalize_property_schema(child))).collect();
+                let normalized = children.iter().map(|(name, child)| Ok((name.clone(), normalize_property_schema(child)?))).collect::<Js<Map<String, Value>>>()?;
                 result.insert(key.to_owned(), Value::Object(normalized));
             }
             // `Object.fromEntries(Object.entries(array))`, taken only when a child changed: an object keyed by index.
             Some(Value::Array(children)) => {
-                let normalized: Vec<Value> = children.iter().map(normalize_property_schema).collect();
+                let normalized = children.iter().map(normalize_property_schema).collect::<Js<Vec<Value>>>()?;
                 if !children.iter().zip(&normalized).all(|(before, after)| deep_equal(before, after)) {
                     result.insert(key.to_owned(), Value::Object(normalized.into_iter().enumerate().map(|(i, child)| (i.to_string(), child)).collect()));
                 }
@@ -467,15 +561,15 @@ fn normalize_property_schema(schema: &Value) -> Value {
     for key in SCHEMA_VALUED_KEYWORDS {
         match map.get(key) {
             Some(Value::Array(children)) => {
-                result.insert(key.to_owned(), Value::Array(children.iter().map(normalize_property_schema).collect()));
+                result.insert(key.to_owned(), Value::Array(children.iter().map(normalize_property_schema).collect::<Js<Vec<Value>>>()?));
             }
             Some(child @ Value::Object(_)) => {
-                result.insert(key.to_owned(), normalize_property_schema(child));
+                result.insert(key.to_owned(), normalize_property_schema(child)?);
             }
             _ => {}
         }
     }
-    Value::Object(result)
+    Ok(Value::Object(result))
 }
 
 fn is_object_branch(branch: &Value) -> bool {
@@ -515,7 +609,7 @@ fn action_input_contract(schema: &Value) -> Js<String> {
                 return Err(reading_null("enum"));
             }
             let field_value = |key: &str| get(&field, key).cloned().unwrap_or(Value::Null);
-            let key = js_json(&json!([field_value("enum"), field_value("minimum"), field_value("maximum")]));
+            let key = js_json(&json!([field_value("enum"), field_value("minimum"), field_value("maximum")]), "");
             let set = variants.entry(name).or_default();
             if !set.contains(&key) {
                 set.push(key);
@@ -538,20 +632,20 @@ fn action_input_contract(schema: &Value) -> Js<String> {
             let mut label = format!("{name}{}", if required.contains(&name) { "*" } else { "" });
             if variants[&name].len() > 1 {
                 match get(&field, "enum") {
-                    Some(Value::Array(values)) => label += &format!("={}", js_join(values, "|")),
+                    Some(Value::Array(values)) => label += &format!("={}", js_join(values, "|")?),
                     values if truthy(values) => return Err(TypeError("field.enum.join is not a function".to_owned())),
                     _ => {}
                 }
                 if let Some(minimum) = get(&field, "minimum") {
-                    label += &format!(">={}", js_to_string(minimum));
+                    label += &format!(">={}", js_to_string(minimum)?);
                 }
                 if let Some(maximum) = get(&field, "maximum") {
-                    label += &format!("<={}", js_to_string(maximum));
+                    label += &format!("<={}", js_to_string(maximum)?);
                 }
             }
             fields.push(label);
         }
-        rows.push(format!("{}({})", js_join(&action_enum(branch).unwrap_or_default(), "/"), fields.join(",")));
+        rows.push(format!("{}({})", js_join(&action_enum(branch).unwrap_or_default(), "/")?, fields.join(",")));
     }
     Ok(format!("Allowed input by action (* required): {}.", rows.join("; ")))
 }
@@ -612,7 +706,7 @@ fn union_required(root: &Value, object_branches: &[Value]) -> Vec<Value> {
 
 fn normalize_tool_schema(schema: &Value) -> Js<Value> {
     let Some(map) = schema.as_object().filter(|m| m.get("anyOf").is_some_and(Value::is_array) || m.get("oneOf").is_some_and(Value::is_array)) else {
-        return Ok(normalize_property_schema(schema));
+        return normalize_property_schema(schema);
     };
     let root = without(map, &["anyOf", "oneOf"]);
     let branches: Vec<Value> = ["anyOf", "oneOf"].iter().flat_map(|key| map.get(*key).and_then(Value::as_array).cloned().unwrap_or_default()).collect();
@@ -630,7 +724,7 @@ fn normalize_tool_schema(schema: &Value) -> Js<Value> {
         if !root.contains_key("additionalProperties") {
             out.insert("additionalProperties".into(), Value::Bool(true));
         }
-        return Ok(normalize_property_schema(&Value::Object(out)));
+        return normalize_property_schema(&Value::Object(out));
     }
     let mut properties = merged_schema_properties(&root, &object_branches)?;
     let contract = action_input_contract(schema)?;
@@ -658,29 +752,39 @@ fn normalize_tool_schema(schema: &Value) -> Js<Value> {
     if !required.is_empty() {
         out.insert("required".into(), Value::Array(required));
     }
-    Ok(normalize_property_schema(&Value::Object(out)))
+    normalize_property_schema(&Value::Object(out))
 }
 
-/// One tool's schema as Node's `normalizeGrokToolSchemas` returns it for the `JSON.parse` of `schema`'s text.
-pub(crate) fn flatten_schema(schema: &Value) -> Js<Value> {
+/// One tool's schema as Node's `normalizeGrokToolSchemas` returns it for the `JSON.parse` of `schema`'s text, a lone
+/// surrogate it makes marked with `marker` ([`lone_marker`] of a value holding `schema`).
+pub(crate) fn flatten_schema(schema: &Value, marker: &str) -> Js<Value> {
+    LONE_MARKER.with(|current| *current.borrow_mut() = marker.to_owned());
     normalize_tool_schema(&from_json(schema)).map(js_ordered_deep)
 }
 
-/// Flattens each tool's `parameters` of a parsed request body for Grok; whether any tool's text changed (the body is
-/// then written with [`js_json`]).
-pub fn flatten_tools(body: &mut Value) -> Js<bool> {
-    let Some(tools) = body.get_mut("tools").and_then(Value::as_array_mut) else { return Ok(false) };
+/// What [`flatten_tools`] did: whether any tool's text changed, and the marker of the lone surrogates the body may
+/// now hold, to write it with [`js_json`].
+pub struct Flattened {
+    pub changed: bool,
+    pub marker: String,
+}
+
+/// Flattens each tool's `parameters` of a parsed request body for Grok.
+pub fn flatten_tools(body: &mut Value) -> Js<Flattened> {
+    let marker = lone_marker(body);
     let mut changed = false;
-    for tool in tools {
-        if let Some(parameters) = tool.get_mut("parameters") {
-            let flat = flatten_schema(parameters)?;
-            if js_json(&flat) != serde_json::to_vec(parameters).unwrap_or_default() {
-                *parameters = flat;
-                changed = true;
+    if let Some(tools) = body.get_mut("tools").and_then(Value::as_array_mut) {
+        for tool in tools {
+            if let Some(parameters) = tool.get_mut("parameters") {
+                let flat = flatten_schema(parameters, &marker)?;
+                if js_json(&flat, &marker) != serde_json::to_vec(parameters).unwrap_or_default() {
+                    *parameters = flat;
+                    changed = true;
+                }
             }
         }
     }
-    Ok(changed)
+    Ok(Flattened { changed, marker })
 }
 
 #[cfg(test)]
