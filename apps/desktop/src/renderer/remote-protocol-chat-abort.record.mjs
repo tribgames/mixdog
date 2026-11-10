@@ -11,12 +11,13 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ABORT_CASES, ASKED_PROJECT_FILE, DEVICES, HOOK_RULES, PROJECT_FILE } from './remote-protocol-chat-abort-cases.mjs';
+import { endLeftovers, leftBy } from './remote-protocol-chat-abort-procs.mjs';
 import { startAbortProvider } from './remote-protocol-chat-abort-provider.mjs';
 
 const [exportDir, outFile, harness, flag, only] = process.argv.slice(2);
 if (!harness || (flag !== undefined && (flag !== '--only' || !only))) throw new Error('usage: <export dir> <out file> <real-turn-harness dir> [--only <case name>]');
 // `--only` records one case into <out file> (for working on that case); the committed recording is the full run.
-const CASES = only === undefined ? ABORT_CASES : ABORT_CASES.filter((c) => c.name === only);
+const CASES = only === undefined ? ABORT_CASES : ABORT_CASES.filter((c) => only.split(',').includes(c.name));
 if (!CASES.length) throw new Error(`--only names no abort case: ${JSON.stringify(only)}`);
 const COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
 const NODE_CHECKOUT = 'C:/Project/mixdog';
@@ -49,7 +50,12 @@ const project = join(envPaths.workspace, 'a');
  *  the project with its two files, the hook rules and the provider config), so nothing one case leaves (the prompt history, the stored
  *  threads, the daemon) is seen by the next. */
 const freshEnvironment = (baseURL) => {
-  rmSync(envPaths.envRoot, { recursive: true, force: true });
+  try {
+    rmSync(envPaths.envRoot, { recursive: true, force: true });
+  } catch (error) {
+    // Who holds the folder is named with the failure (no daemon tree is left by then: -1 walks none).
+    throw new Error(`${error.message}; processes naming the folder: ${JSON.stringify(leftBy(-1, envPaths.envRoot).map((p) => [p.ProcessId, p.Name, p.CommandLine]))}`);
+  }
   for (const d of [envPaths.dataDir, envPaths.runtimeRoot, envPaths.appData, envPaths.localAppData, envPaths.tmp, envPaths.workspace]) mkdirSync(d, { recursive: true });
   mkdirSync(project, { recursive: true });
   writeFileSync(join(project, PROJECT_FILE.name), PROJECT_FILE.text);
@@ -86,10 +92,19 @@ async function recordCase(c, provider) {
     const ended = createDeadline(90_000, () => `ending the world of ${c.name}`);
     try {
       try {
-        if (host) await ended.race(host.dispose(), 'the host to dispose');
+        try {
+          if (host) await ended.race(host.dispose(), 'the host to dispose');
+        } finally {
+          // Node's own bounded wait for the daemon to exit, under this deadline too.
+          if (discovery) await ended.race(sessionClient.shutdownDaemon(discovery, { waitForExit: true, timeoutMs: 60_000 }), `the Node daemon of ${c.name} to exit`);
+        }
       } finally {
-        // Node's own bounded wait for the daemon to exit, under this deadline too.
-        if (discovery) await ended.race(sessionClient.shutdownDaemon(discovery, { waitForExit: true, timeoutMs: 60_000 }), `the Node daemon of ${c.name} to exit`);
+        // Whatever the case started that is still running is ended, and proved ended, before the next case's folder is made again.
+        const left = endLeftovers(Number(discovery?.pid) || 0, envPaths.envRoot);
+        if (left.length) {
+          leftovers.push({ case: c.name, left });
+          process.stderr.write(`${c.name}: left running after the daemon's shutdown: ${JSON.stringify(left)}\n`);
+        }
       }
     } finally {
       ended.clear();
@@ -255,6 +270,7 @@ async function recordCase(c, provider) {
 // The model endpoint answers by prompt (each case's prompt is its own) and is shared by the cases; it is closed on every path.
 const provider = await startAbortProvider();
 const cases = [];
+const leftovers = [];
 try {
   for (const c of CASES) cases.push(await recordCase(c, provider));
 } finally {
@@ -262,7 +278,7 @@ try {
   try { await closing.race(provider.close(), 'the model endpoint to close'); } finally { closing.clear(); }
 }
 writeFileSync(outFile, `${JSON.stringify({
-  manifest: { exact: true, commit: COMMIT, filesVerified: checked, environment: 'one fresh environment per case (freshEnvironment): its own data, runtime, app data, temp and project folders, hook rules and provider config; its own Node daemon and SessionHost', source: 'Node daemon + SessionHost from the exact export, run unchanged; model endpoint remote-protocol-chat-abort-provider.mjs' },
+  manifest: { exact: true, commit: COMMIT, filesVerified: checked, environment: 'one fresh environment per case (freshEnvironment): its own data, runtime, app data, temp and project folders, hook rules and provider config; its own Node daemon and SessionHost', leftovers, source: 'Node daemon + SessionHost from the exact export, run unchanged; model endpoint remote-protocol-chat-abort-provider.mjs' },
   cases,
 }, null, 2)}\n`);
 console.log(`recorded ${cases.length} abort cases`);
