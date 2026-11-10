@@ -6,7 +6,6 @@
 // path's length). Every scenario is compared; the full run (the default) is the verdict.
 //   MIXDOG_RECORDER_SCRATCH=<the recording's scratch parent> node replay-tool-failures.mjs --mixdogd <exe> [--only <n>,<n>]
 // The exit code is 1 on any difference.
-import { spawn, spawnSync } from 'node:child_process';
 import { closeSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { register } from 'node:module';
@@ -14,6 +13,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { FILES, scenarios } from './lib/tool-failure-scenarios.mjs';
 import { rowsByScenario } from './lib/tool-failure-rows.mjs';
+import { readJobReport, spawnInJob } from './lib/job-run.mjs';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const repo = resolve(here, '..', '..', '..');
@@ -63,15 +63,11 @@ async function loadLibs() {
   return libs;
 }
 
-/** The processes whose command line names `folder`, other than the lister itself. */
-function processesNaming(folder) {
-  const script = `Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -like '*${folder.replace(/'/g, "''")}*' } | ForEach-Object { "$($_.ProcessId) $($_.Name)" }`;
-  const listed = spawnSync('powershell', ['-NoProfile', '-Command', script], { encoding: 'utf8', timeout: 30_000 });
-  if (listed.status !== 0) throw new Error(`listing the processes that name ${folder} failed (${listed.status ?? listed.signal}): ${listed.stderr}`);
-  return listed.stdout.split('\n').map((l) => l.trim()).filter(Boolean);
-}
-
-/** Runs one scenario on a fresh core and returns the file it wrote. `root` is this scenario's folder under the run's folder. */
+/**
+ * Runs one scenario on a fresh core and returns the file it wrote. `root` is this scenario's folder under the run's folder. The core runs
+ * in a job object of its own (lib/job-run.mjs): every process it or its tools start is a member, and a member still running after the
+ * core exits fails the scenario (and is ended); ending the core's host on any failure path ends the job.
+ */
 async function runScenario(scenario, root, ws, bin) {
   const home = join(root, 'home');
   const p = { data: join(home, '.mixdog', 'data'), runtime: join(root, 'runtime'), appData: join(home, 'AppData', 'Roaming'), local: join(home, 'AppData', 'Local'), tmp: join(root, 'tmp'), bin: join(root, 'bin') };
@@ -83,8 +79,8 @@ async function runScenario(scenario, root, ws, bin) {
   let exited;
   let client;
   try {
-    const prov = await provider(scenario.replies);
-    cleanups.push(() => prov.close());
+    const prov = await deadline(provider(scenario.replies), 30_000, 'the scripted provider listening');
+    cleanups.push(() => deadline(prov.close(), 30_000, 'the scripted provider closing'));
     // A `full` scenario sees the MCP server `fx` (the recording connected the same stdio server under the session's scope).
     const mcpServers = scenario.full ? { fx: { command: process.execPath, args: ['fx-mcp.mjs'], cwd: ws } } : undefined;
     writeFileSync(join(p.data, 'mixdog-config.json'), JSON.stringify({ agent: { ...(mcpServers ? { mcpServers } : {}), providers: { [CUSTOM]: { type: 'custom', name: 'tf', protocol: 'openai-chat', baseURL: prov.baseURL, auth: 'none', models: [{ id: golden.model }] } } } }));
@@ -99,7 +95,7 @@ async function runScenario(scenario, root, ws, bin) {
     Object.assign(env, { MIXDOG_DATA_DIR: p.data, MIXDOG_HOME: join(home, '.mixdog'), MIXDOG_CONFIG_DIR: join(home, '.mixdog'), MIXDOG_DESKTOP_USER_DATA: join(p.appData, 'Mixdog'), MIXDOG_RUNTIME_ROOT: p.runtime, MIXDOG_SKIP_USER_DATA_BACKUP: '1', HOME: home, USERPROFILE: home, APPDATA: p.appData, LOCALAPPDATA: p.local, TEMP: p.tmp, TMP: p.tmp, NO_PROXY: '127.0.0.1,localhost' });
     // REPLAY_STDERR=<file> keeps the core's stderr for a scenario that does not replay.
     const stderrFile = process.env.REPLAY_STDERR ? openSync(process.env.REPLAY_STDERR, 'a') : 'ignore';
-    child = spawn(exe, ['serve'], { env, cwd: root, stdio: ['ignore', 'ignore', stderrFile], windowsHide: true });
+    child = spawnInJob(exe, ['serve'], { env, cwd: root, stdio: ['ignore', 'ignore', stderrFile], report: join(root, 'job.json') });
     if (typeof stderrFile === 'number') closeSync(stderrFile);
     exited = new Promise((r) => child.once('exit', r));
     const doc = await deadline(new Promise((res, rej) => {
@@ -119,12 +115,12 @@ async function runScenario(scenario, root, ws, bin) {
       target: { id: 'local' },
       connector: { async open(_t, sink) {
         const socket = new WebSocket(`ws://127.0.0.1:${doc.core.rpc.port}/rpc`, { headers: { Authorization: `Bearer ${doc.endpoints.session.token}` }, perMessageDeflate: false });
-        return new Promise((res, rej) => {
+        return deadline(new Promise((res, rej) => {
           socket.on('open', () => res({ send: (t) => socket.send(t), close: (c, r) => socket.close(c, r) }));
           socket.on('message', (d) => sink.frame(d.toString('utf8')));
           socket.on('close', (c, r) => sink.closed(c, r.toString('utf8')));
           socket.on('error', rej);
-        });
+        }), 30_000, 'the WebSocket to the core opening').catch((error) => { socket.terminate(); throw error; });
       } },
       clientInfo: { name: 'tf-replay', title: 'tf-replay', version: String(JSON.parse(readFileSync(join(repo, 'package.json'), 'utf8')).version), kind: 'tui' },
       capabilities: {},
@@ -179,7 +175,7 @@ async function runScenario(scenario, root, ws, bin) {
     } else {
       await deadline(completed, 120_000, 'the scripted turn completing');
     }
-    await client.close();
+    await deadline(client.close(), 30_000, 'the client closing');
     client = null;
     const stopping = new AbortController();
     const stopped = await deadline(
@@ -189,15 +185,25 @@ async function runScenario(scenario, root, ws, bin) {
     ).finally(() => stopping.abort());
     if (!stopped.ok) throw new Error(`/mgmt/stop answered ${stopped.status}`);
     await deadline(exited, 30_000, 'the core exiting');
+    const job = readJobReport(join(root, 'job.json'));
+    if (job.left.length) throw new Error(`the core left processes behind (ended now): ${JSON.stringify(job.left)}`);
+    if (job.exitCode !== 0) throw new Error(`the core exited with ${job.exitCode}`);
     const file = join(p.data, 'history', 'tool-failures.jsonl');
     return { threadId, dataDir: p.data, text: existsSync(file) ? readFileSync(file, 'utf8') : '' };
   } finally {
-    for (const cleanup of cleanups.reverse()) { try { await cleanup(); } catch {} }
-    try { await client?.close(); } catch {}
+    // Every step of the teardown is bounded and runs; the first that failed fails the scenario (after a failure of its own, that one).
+    const problems = [];
+    for (const cleanup of cleanups.reverse()) {
+      try { await cleanup(); } catch (error) { problems.push(error); }
+    }
+    if (client) {
+      try { await deadline(client.close(), 30_000, 'the client closing'); } catch (error) { problems.push(error); }
+    }
     if (child && child.exitCode === null && child.signalCode === null) {
       child.kill();
-      await deadline(exited, 30_000, 'the core ending after its kill');
+      await deadline(exited, 30_000, 'the core\'s job host ending after its kill');
     }
+    if (problems.length) throw problems[0];
   }
 }
 
@@ -232,14 +238,12 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   } catch (error) {
     failure = error;
   }
-  // Nothing may outlive the run: a process still naming its folder fails it, and the folder is kept for a look.
-  const left = processesNaming(base);
-  if (left.length) {
-    console.log(`processes still naming ${base}: ${left.join(', ')}; the folder is kept`);
-    bad += 1;
-  } else {
-    rmSync(base, { recursive: true, force: true });
+  // A failed run keeps its folder for a look (what each core left behind is its job report's, checked in `runScenario`).
+  if (failure) {
+    console.log(`the run's folder ${base} is kept`);
+    throw failure;
   }
-  if (failure) throw failure;
+  if (bad) console.log(`the run's folder ${base} is kept`);
+  else rmSync(base, { recursive: true, force: true });
   process.exit(bad ? 1 : 0);
 }
