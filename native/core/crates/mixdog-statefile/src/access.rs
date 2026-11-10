@@ -99,6 +99,24 @@ fn create_private_dir<P: WriteProof>(proof: &P, path: &Path) -> io::Result<()> {
     }
 }
 
+/// Makes the existing directory `path` private (Node's `enforceOwnerOnlyDirectoryWin32Async` on Windows, `chmod 0o700` elsewhere):
+/// Unix mode 0700; Windows its whole DACL replaced by the one protected, inheritable owner-only entry
+/// [`create_private_dir_all`] gives a new directory, and the files directly in it reset to inherit only that entry.
+pub fn secure_private_dir<L: WriteLane>(_lane: &InLane<L>, path: &Path) -> io::Result<()> {
+    secure_private_dir_platform(path)
+}
+
+#[cfg(unix)]
+fn secure_private_dir_platform(path: &Path) -> io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
+}
+
+#[cfg(windows)]
+fn secure_private_dir_platform(path: &Path) -> io::Result<()> {
+    owner_only::secure_dir(path)
+}
+
 #[cfg(unix)]
 fn create_dir_platform<P: WriteProof>(proof: &P, path: &Path) -> io::Result<()> {
     mixdog_fsio::DirBuilder::new().mode(0o700).create(proof, path)
@@ -110,13 +128,13 @@ fn create_dir_platform<P: WriteProof>(_proof: &P, path: &Path) -> io::Result<()>
 }
 
 #[cfg(unix)]
-fn create_new_platform<P: WriteProof>(proof: &P, path: &Path, access: Access, unix_mode: u32) -> io::Result<File> {
+pub(crate) fn create_new_platform<P: WriteProof>(proof: &P, path: &Path, access: Access, unix_mode: u32) -> io::Result<File> {
     let mode = if access == Access::OwnerOnly { 0o600 } else { unix_mode };
     OpenOptions::new().write(true).create_new(true).mode(mode).open(proof, path)
 }
 
 #[cfg(windows)]
-fn create_new_platform<P: WriteProof>(proof: &P, path: &Path, access: Access, _unix_mode: u32) -> io::Result<File> {
+pub(crate) fn create_new_platform<P: WriteProof>(proof: &P, path: &Path, access: Access, _unix_mode: u32) -> io::Result<File> {
     match access {
         Access::OwnerOnly => owner_only::create_new(path),
         Access::Inherit => OpenOptions::new().write(true).create_new(true).open(proof, path),
@@ -215,8 +233,15 @@ mod owner_only {
     use windows_sys::Win32::Security::Authorization::ConvertStringSecurityDescriptorToSecurityDescriptorW;
     use windows_sys::Win32::Security::Authorization::GetNamedSecurityInfoW;
     use windows_sys::Win32::Security::Authorization::SDDL_REVISION_1;
+    use windows_sys::Win32::Security::ACL;
+    use windows_sys::Win32::Security::ACL_REVISION;
     use windows_sys::Win32::Security::Authorization::SE_FILE_OBJECT;
+    use windows_sys::Win32::Security::Authorization::SetNamedSecurityInfoW;
     use windows_sys::Win32::Security::DACL_SECURITY_INFORMATION;
+    use windows_sys::Win32::Security::GetSecurityDescriptorDacl;
+    use windows_sys::Win32::Security::InitializeAcl;
+    use windows_sys::Win32::Security::PROTECTED_DACL_SECURITY_INFORMATION;
+    use windows_sys::Win32::Security::UNPROTECTED_DACL_SECURITY_INFORMATION;
     use windows_sys::Win32::Security::GetTokenInformation;
     use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
     use windows_sys::Win32::Security::TOKEN_QUERY;
@@ -314,6 +339,46 @@ mod owner_only {
         // SAFETY: allocated by ConvertStringSecurityDescriptorToSecurityDescriptorW.
         unsafe { LocalFree(descriptor) };
         if created == 0 { Err(error) } else { Ok(()) }
+    }
+
+    /// The DACL of `path` replaced (`protected`: no inheritance from its parent) by `dacl`.
+    fn set_dacl(path: &Path, dacl: *mut ACL, protected: bool) -> io::Result<()> {
+        let name = super::verbatim_wide(path)?;
+        let flags = DACL_SECURITY_INFORMATION | if protected { PROTECTED_DACL_SECURITY_INFORMATION } else { UNPROTECTED_DACL_SECURITY_INFORMATION };
+        // SAFETY: `name` is NUL-terminated; `dacl` is a valid ACL that outlives the call.
+        let status = unsafe { SetNamedSecurityInfoW(name.as_ptr().cast_mut(), SE_FILE_OBJECT, flags, null_mut(), null_mut(), dacl, null_mut()) };
+        if status == 0 { Ok(()) } else { Err(io::Error::from_raw_os_error(status as i32)) }
+    }
+
+    /// `secure_private_dir`: the directory's DACL becomes the owner-only entry (inherited by what it holds, which the system
+    /// propagates), and each file directly in it is given an empty unprotected DACL, so it inherits only that entry.
+    pub fn secure_dir(path: &Path) -> io::Result<()> {
+        let sddl = wide(std::ffi::OsStr::new(&owner_only_sddl(true)?));
+        let mut descriptor = null_mut();
+        // SAFETY: `sddl` is NUL-terminated; the descriptor is freed below.
+        if unsafe { ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.as_ptr(), SDDL_REVISION_1, &mut descriptor, null_mut()) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let (mut present, mut defaulted, mut dacl) = (0, 0, null_mut());
+        // SAFETY: `descriptor` was just built; the ACL it yields lives as long as it does.
+        let got = unsafe { GetSecurityDescriptorDacl(descriptor, &mut present, &mut dacl, &mut defaulted) };
+        let result = if got == 0 || present == 0 { Err(io::Error::last_os_error()) } else { set_dacl(path, dacl, true) };
+        // SAFETY: allocated by ConvertStringSecurityDescriptorToSecurityDescriptorW.
+        unsafe { LocalFree(descriptor) };
+        result?;
+        // An empty ACL (revision header only), eight bytes, aligned for the ACL structure.
+        let mut empty = [0u64; 1];
+        // SAFETY: the buffer holds eight bytes, the size of an empty ACL.
+        if unsafe { InitializeAcl(empty.as_mut_ptr().cast(), 8, ACL_REVISION) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        for entry in std::fs::read_dir(path)? {
+            let entry = entry?;
+            if entry.file_type()?.is_file() {
+                set_dacl(&entry.path(), empty.as_mut_ptr().cast(), false)?;
+            }
+        }
+        Ok(())
     }
 
     pub fn create_new(path: &Path) -> io::Result<File> {
