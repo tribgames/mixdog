@@ -284,13 +284,20 @@ async fn a_request_whose_reply_is_lost_runs_on_and_the_retry_gets_its_task() {
         answered = submit_on(&directory, "op-1", "sub-l", "write the report", json!({}), connection.clone()) => panic!("answered while held: {answered:?}"),
     }
     assert_eq!(stored(&rig, "sub-l").expect("receipt").phase(), Phase::Reserved, "the reply is lost after `reserved`");
-    // The retry arrives while the attempt is still held, and joins it: no second attempt starts.
-    let retry = tokio::spawn({
+    // The retry arrives while the attempt is still held, and joins it: no second attempt starts. Each other way the retry can go
+    // (a second attempt, or an answer without joining) ends the wait as a failure.
+    let mut attempts = receipts.attempts.subscribe();
+    assert_eq!(*attempts.borrow(), 1, "the held attempt");
+    let mut retry = tokio::spawn({
         let directory = directory.share();
         async move { submit(&directory, "op-2", "sub-l", "write the report", json!({})).await }
     });
-    receipts.joined.notified().await;
-    assert_eq!(receipts.in_flight(), 1, "one attempt");
+    tokio::select! {
+        () = receipts.joined.notified() => {}
+        _ = attempts.wait_for(|started| *started > 1) => panic!("the retry started a second attempt instead of joining the held one"),
+        answered = &mut retry => panic!("the retry was answered without joining the held attempt: {answered:?}"),
+    }
+    assert_eq!(*attempts.borrow(), 1, "one attempt");
     release.add_permits(1);
     let retry = retry.await.expect("joined").expect("retry");
     assert_eq!(retry, derived("sub-l"));
@@ -316,7 +323,9 @@ async fn an_attempt_that_panics_frees_its_id() {
 }
 
 /// At shutdown an attempt in flight is cut where it stands, as a process ending there: shutdown returns with nothing in flight,
-/// the receipt keeps the phase it had (not marked refused by the closed directory's refusal), and the next start resumes it.
+/// the receipt keeps the phase it had (not marked refused by the closed directory's refusal), and the next start resumes it. As in
+/// Node's quit, neither the caller in flight nor a request after shutdown gets an answer or a refusal: the request ends with its
+/// connection (`apps/desktop/src/main/index.ts:1662-1664` detaches the phones' carriers first and nothing ends the attempt).
 #[tokio::test(start_paused = true)]
 async fn shutdown_cuts_an_attempt_in_flight_and_the_next_start_resumes_it() {
     let rig = Rig::new();
@@ -327,27 +336,63 @@ async fn shutdown_cuts_an_attempt_in_flight_and_the_next_start_resumes_it() {
     let deps = Arc::new(deps);
     let receipts = deps.new_tasks.clone();
     let directory = SessionDirectory::new(deps);
-    let caller = tokio::spawn({
-        let directory = directory.share();
-        async move { submit(&directory, "op-1", "sub-s", "write the report", json!({})).await }
-    });
-    entered.notified().await;
+    let caller = submit(&directory, "op-1", "sub-s", "write the report", json!({}));
+    tokio::pin!(caller);
+    tokio::select! {
+        () = entered.notified() => {}
+        answered = &mut caller => panic!("answered while held: {answered:?}"),
+    }
     directory.shutdown().await;
     assert_eq!(receipts.in_flight(), 0, "the attempt was cut");
     // Nothing the attempt held runs on: released now, it would write `configured`.
     release.add_permits(1);
-    let cut = caller.await.expect("joined");
-    assert!(matches!(&cut, Err(CoreError::DomainError { message: Some(message), .. }) if message.as_ref() == "The new task request ended without an answer."), "{cut:?}");
+    let polled = |future: std::pin::Pin<&mut dyn std::future::Future<Output = Result<String, CoreError>>>| {
+        future.poll(&mut std::task::Context::from_waker(std::task::Waker::noop())).map(|answer| format!("{answer:?}"))
+    };
+    assert_eq!(polled(caller.as_mut()), std::task::Poll::Pending, "the caller in flight got an answer at shutdown");
     assert_eq!(*receipts.writes.lock().unwrap(), vec![("reserved".to_owned(), false)]);
     let receipt = stored(&rig, "sub-s").expect("receipt");
     assert_eq!((receipt.phase(), receipt.refused(), receipt.session_id()), (Phase::Reserved, false, derived("sub-s").as_str()));
-    let refused = receipts.run("sub-s", &json!({}), |_| async { Err(mixdog_core_base::support::failed("session", "never runs")) }).await;
-    assert!(matches!(refused, Err(CoreError::ServerShuttingDown { .. })), "{refused:?}");
+    let later = submit(&directory, "op-2", "sub-s", "write the report", json!({}));
+    tokio::pin!(later);
+    assert_eq!(polled(later.as_mut()), std::task::Poll::Pending, "a request after shutdown got an answer");
+    assert_eq!(*receipts.attempts.borrow(), 1, "a request after shutdown started an attempt");
     let (restarted, _) = directory_over(&rig);
     let retry = submit(&restarted, "op-3", "sub-s", "write the report", json!({})).await.expect("retry");
     assert_eq!(retry, derived("sub-s"));
     assert_eq!(runs.load(Ordering::SeqCst), 1);
     assert_eq!(stored(&rig, "sub-s").expect("receipt").phase(), Phase::Accepted);
+}
+
+/// A receipt write that does not end (stalled on durability) holds shutdown only up to its bound: shutdown is still waiting one tick
+/// before it, and at the bound it ends, reporting the overrun.
+#[tokio::test(start_paused = true)]
+async fn shutdown_waits_for_a_stalled_receipt_write_only_up_to_its_bound() {
+    let bound = std::time::Duration::from_millis(2500);
+    let _clock = super::testing::HeldClock::hold();
+    let rig = Rig::new();
+    counting(&rig);
+    let (directory, receipts) = directory_over(&rig);
+    let stall = Arc::new(super::new_task::WriteStall::default());
+    *receipts.stall.lock().unwrap() = Some(stall.clone());
+    let caller = submit(&directory, "op-1", "sub-w", "write the report", json!({}));
+    tokio::pin!(caller);
+    tokio::select! {
+        () = stall.entered.notified() => {}
+        answered = &mut caller => panic!("answered while its write was stalled: {answered:?}"),
+    }
+    let shutdown = receipts.shutdown(bound);
+    tokio::pin!(shutdown);
+    let mut polled = || shutdown.as_mut().poll(&mut std::task::Context::from_waker(std::task::Waker::noop()));
+    assert!(polled().is_pending(), "shutdown did not wait for the write that began");
+    tokio::time::advance(bound - std::time::Duration::from_millis(1)).await;
+    assert!(polled().is_pending(), "shutdown stopped waiting before its bound");
+    tokio::time::advance(std::time::Duration::from_millis(1)).await;
+    match polled() {
+        std::task::Poll::Ready(Err(overrun)) => assert!(overrun.contains("did not end within 2.5s"), "{overrun}"),
+        other => panic!("at the bound shutdown answered {other:?}, not the overrun"),
+    }
+    stall.release.add_permits(1);
 }
 
 /// Two identical requests at once start one task; two with other content, the first holds the id.
@@ -396,8 +441,15 @@ async fn an_io_error_reading_the_receipt_fails_the_request() {
     let failed = submit(&directory, "op-1", "sub-i", "write the report", json!({})).await.expect_err("refused");
     let CoreError::DomainError { code: Some(code), message: Some(message), .. } = &failed else { panic!("a coded failure: {failed:?}") };
     let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/new-task-dedupe/golden.json")).expect("golden");
-    let node = &golden["scenarios"]["io-error"]["recorded"][1]["reply"];
-    assert_eq!(json!({ "ok": false, "error": message.as_ref(), "code": code.as_ref() }), *node);
+    let manifest: Value = serde_json::from_str(include_str!("../../../../fixtures/new-task-dedupe/MANIFEST.json")).expect("manifest");
+    let mut node = golden["scenarios"]["io-error"]["recorded"][1]["reply"].clone();
+    // Less only the reply fields the manifest declares not compared (fields of Node's in-process fs error that no caller receives).
+    for path in manifest["comparison"]["notCompared"].as_object().expect("declared").keys() {
+        if let Some(field) = path.strip_prefix("recorded[].reply.") {
+            node.as_object_mut().expect("a reply").remove(field);
+        }
+    }
+    assert_eq!(json!({ "ok": false, "error": message.as_ref(), "code": code.as_ref() }), node);
     assert_eq!(runs.load(Ordering::SeqCst), 0);
     assert_eq!(directory.loaded_ids().len(), 0);
 }

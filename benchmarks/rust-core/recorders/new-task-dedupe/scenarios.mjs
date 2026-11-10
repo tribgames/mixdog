@@ -53,6 +53,9 @@ export const COMPARISON = {
       "Node's calls from the desktop host to its daemon client inside one request (create, configure, submit, unsubscribe, read; the daemon is a model, leg.mjs): the core runs these steps inside its own `thread/start` with no wire between them. What they do is compared through `sessions` (a session made, given its prompt, or removed again) and `receipts`",
     'recorded[].reply.snapshot':
       "Node's answer carries the session snapshot its daemon returned (session-host-lifecycle.ts:922,951: the leg's daemon model, leg.mjs `full`, with the host's remote fields): the recording has no real one. The core's answer has no snapshot (its session state travels on the subscription's feed)",
+    'recorded[].reply.errno':
+      "a field of the Node fs error the leg catches in the host's own process (io-error): libuv's number for the error, which differs by operating system (UV_EISDIR is -4068 on Windows, -21 on Linux: libuv include/uv/errno.h), and which no Node caller receives across a process (the window's IPC rejection carries the message; the phone's remote call the message and code). The core's rejection is a protocol `domainError` with a code and a message (mixdog-app-protocol ErrorData), which the desktop turns into an Error with `code` (apps/desktop/src/main/protocol/core-error.ts:17-22): no field of it carries an errno",
+    'recorded[].reply.syscall': 'as `recorded[].reply.errno`: the name of the fs call inside Node (`read`), a field of the same in-process error object only',
   },
   /** Paths of the core's answer (each step's `reply`, every element of a `together` reply) that Node's answer has no counterpart for; every other path of the core's answer is compared. */
   coreNotCompared: {

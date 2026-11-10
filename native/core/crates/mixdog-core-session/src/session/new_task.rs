@@ -65,6 +65,12 @@ pub struct NewTaskReceipts {
     /// Told each time a request joins an attempt in flight.
     #[cfg(test)]
     pub(super) joined: tokio::sync::Notify,
+    /// How many attempts started.
+    #[cfg(test)]
+    pub(super) attempts: watch::Sender<usize>,
+    /// When set, each receipt write stops once it has begun (holding its place at shutdown) until the stall releases it.
+    #[cfg(test)]
+    pub(super) stall: Mutex<Option<Arc<WriteStall>>>,
     /// The identity of the folder as it was secured (`securedFolders`); held while it is secured, so a second request joins.
     secured: tokio::sync::Mutex<Option<String>>,
     /// Every receipt written, as `phase` (`+refused` when marked) and whether it was flushed before being reported.
@@ -92,8 +98,25 @@ fn reused() -> CoreError {
     failed("session", "Submission id was reused for different content.")
 }
 
-fn shutting_down() -> CoreError {
-    CoreError::ServerShuttingDown { drain_reason: mixdog_core_api::handle::DrainReason::Quit }
+/// A test's hold on the receipt writes: `entered` is told when a write has begun, which then waits for a permit of `release`.
+#[cfg(test)]
+pub(super) struct WriteStall {
+    pub(super) entered: tokio::sync::Notify,
+    pub(super) release: tokio::sync::Semaphore,
+}
+
+#[cfg(test)]
+impl Default for WriteStall {
+    fn default() -> Self {
+        Self { entered: tokio::sync::Notify::new(), release: tokio::sync::Semaphore::new(0) }
+    }
+}
+
+/// What a caller gets once the receipts are shut down: no answer. Node's quit does not answer or refuse a new-task request (its
+/// attempt ends with the process); the core's callers are disconnected before the directory shuts down (the release's
+/// `closeConnections` comes before `closeDataHandles`), so the request ends with its connection, as in Node.
+async fn unanswered() -> Outcome {
+    std::future::pending().await
 }
 
 /// An attempt's place in `active`, given up however the attempt ends (an answer, a panic, the cut at shutdown): a later request
@@ -164,6 +187,10 @@ impl NewTaskReceipts {
             alive: Arc::default(),
             #[cfg(test)]
             joined: tokio::sync::Notify::new(),
+            #[cfg(test)]
+            attempts: watch::Sender::new(0),
+            #[cfg(test)]
+            stall: Mutex::default(),
             secured: tokio::sync::Mutex::new(None),
             #[cfg(test)]
             writes: Mutex::default(),
@@ -171,11 +198,16 @@ impl NewTaskReceipts {
     }
 
     /// At shutdown, what a process that ends there leaves: every attempt in flight is cut at its next await, its receipt in the
-    /// last phase it wrote (a write that began ends whole first); none runs on with a closed directory, whose refusals would mark
-    /// its receipt refused. The next start resumes each phase as it resumes it after a crash. Requests after this are refused.
-    pub async fn shutdown(&self) {
+    /// last phase it wrote (a write that began ends whole first, within `bound`); none runs on with a closed directory, whose
+    /// refusals would mark its receipt refused. The next start resumes each phase as it resumes it after a crash (an atomic
+    /// rename leaves the receipt before or after a write that outlives `bound`). The callers in flight and later requests get no
+    /// answer ([`unanswered`]). `Err` when a write outlived `bound`.
+    pub async fn shutdown(&self, bound: std::time::Duration) -> Result<(), String> {
         self.closing.cancel();
-        drop(self.alive.write().await);
+        match tokio::time::timeout(bound, self.alive.write()).await {
+            Ok(_) => Ok(()),
+            Err(_) => Err(format!("a new-task receipt write did not end within {bound:?} of shutdown; its receipt holds the phase before or after it")),
+        }
     }
 
     /// How many requests are in flight.
@@ -233,10 +265,17 @@ impl NewTaskReceipts {
         lock(&self.writes).push((format!("{}{}", receipt.phase().name(), if receipt.refused() { "+refused" } else { "" }), durable));
         let (path, bytes) = (path.to_owned(), receipt.to_bytes());
         let opts = mixdog_statefile::Opts { fsync: durable, fsync_dir: durable, ..mixdog_statefile::Opts::default() };
-        let alive = self.alive.clone().try_read_owned().map_err(|_| shutting_down())?;
+        let Ok(alive) = self.alive.clone().try_read_owned() else { return Err(failed("session", "The receipts are shut down.")) };
         let (io, written) = (self.io, tokio::sync::oneshot::channel());
+        #[cfg(test)]
+        let stall = lock(&self.stall).clone();
         // A write that began ends whole even when its attempt is cut at shutdown, which waits for it.
         drop(mixdog_rt::spawn("new-task-receipt-write", TaskClass::Work, async move {
+            #[cfg(test)]
+            if let Some(stall) = stall {
+                stall.entered.notify_one();
+                stall.release.acquire().await.expect("open").forget();
+            }
             let result = on_lane(io, &CancellationToken::new(), move |lane| mixdog_statefile::write_file(lane, &path, &bytes, &opts)).await;
             let _ = written.0.send(result);
             drop(alive);
@@ -257,7 +296,8 @@ impl NewTaskReceipts {
     {
         let key = sha256_hex(id.as_bytes());
         let signature = sha256_hex(mixdog_js::json_stringify(&sorted(input)).as_bytes());
-        let mut done = {
+        // `None`: the receipts are shut down, and the request gets no answer.
+        let done = {
             let mut active = lock(&self.active);
             if let Some(existing) = active.get(&key) {
                 if existing.signature != signature {
@@ -265,36 +305,60 @@ impl NewTaskReceipts {
                 }
                 #[cfg(test)]
                 self.joined.notify_one();
-                existing.done.clone()
+                Some(existing.done.clone())
             } else {
                 if active.len() >= MAX_ACTIVE {
                     return Err(failed("session", "Too many new task requests are in progress."));
                 }
-                if self.closing.is_cancelled() {
-                    return Err(shutting_down());
+                match self.alive.clone().try_read_owned() {
+                    Ok(alive) if !self.closing.is_cancelled() => Some(self.begin(&mut active, key, signature, alive, execute)),
+                    _ => None,
                 }
-                let alive = self.alive.clone().try_read_owned().map_err(|_| shutting_down())?;
-                let (settled, done) = watch::channel(None);
-                active.insert(key.clone(), Active { signature: signature.clone(), done: done.clone() });
-                let gate = self.clone();
-                drop(mixdog_rt::spawn("new-task-request", TaskClass::Work, async move {
-                    let leave = Leave { gate: gate.clone(), key: key.clone() };
-                    let outcome = tokio::select! {
-                        biased;
-                        () = gate.closing.cancelled() => None,
-                        outcome = gate.attempt(&key, signature, execute) => Some(outcome),
-                    };
-                    drop(leave);
-                    if let Some(outcome) = outcome {
-                        let _ = settled.send(Some(outcome));
-                    }
-                    drop(alive);
-                }));
-                done
             }
         };
-        let settled = done.wait_for(Option::is_some).await.map_err(|_| failed("session", "The new task request ended without an answer."))?;
-        settled.clone().expect("waited for an answer")
+        let Some(mut done) = done else { return unanswered().await };
+        let outcome = done.wait_for(Option::is_some).await.map(|settled| settled.clone().expect("waited for an answer"));
+        match outcome {
+            Ok(outcome) => outcome,
+            // Cut at shutdown: no answer, as the process ends.
+            Err(_) if self.closing.is_cancelled() => unanswered().await,
+            // The attempt panicked.
+            Err(_) => Err(failed("session", "The new task request ended without an answer.")),
+        }
+    }
+
+    /// Starts the attempt for `key` on its own task, holding its place in `active` and its read hold on `alive`.
+    fn begin<F, Fut>(
+        self: &Arc<Self>,
+        active: &mut HashMap<String, Active>,
+        key: String,
+        signature: String,
+        alive: tokio::sync::OwnedRwLockReadGuard<()>,
+        execute: F,
+    ) -> watch::Receiver<Option<Outcome>>
+    where
+        F: FnOnce(Arc<Request>) -> Fut + Send + 'static,
+        Fut: Future<Output = Outcome> + Send + 'static,
+    {
+        #[cfg(test)]
+        self.attempts.send_modify(|n| *n += 1);
+        let (settled, done) = watch::channel(None);
+        active.insert(key.clone(), Active { signature: signature.clone(), done: done.clone() });
+        let gate = self.clone();
+        drop(mixdog_rt::spawn("new-task-request", TaskClass::Work, async move {
+            let leave = Leave { gate: gate.clone(), key: key.clone() };
+            let outcome = tokio::select! {
+                biased;
+                () = gate.closing.cancelled() => None,
+                outcome = gate.attempt(&key, signature, execute) => Some(outcome),
+            };
+            drop(leave);
+            if let Some(outcome) = outcome {
+                let _ = settled.send(Some(outcome));
+            }
+            drop(alive);
+        }));
+        done
     }
 
     async fn attempt<F, Fut>(self: &Arc<Self>, key: &str, signature: String, execute: F) -> Outcome

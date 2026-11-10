@@ -817,7 +817,10 @@ async fn a_boot_ended_between_the_projection_and_the_row_reconciles_again() {
     let end = acked.unwrap().positions.last().unwrap().ordinal + 1;
     crate::sqlite::reconcile_seam::arm(&env.data);
     let ended = open_index(&env.data).unwrap();
-    assert!(matches!(ended.reconciled().await, Err(DbError::Stopped)));
+    let outcome = tokio::time::timeout(std::time::Duration::from_secs(60), ended.reconciled())
+        .await
+        .expect("the reconcile the seam ended answered within 60 s");
+    assert!(matches!(outcome, Err(DbError::Stopped)));
     drop(ended);
     let reopened = open_index(&env.data).unwrap();
     assert_eq!(reopened.projected("s1").await.unwrap().unwrap().ordinal, end);
@@ -828,11 +831,42 @@ async fn a_boot_ended_between_the_projection_and_the_row_reconciles_again() {
     assert_eq!(session_rows(&env.data), session_rows(rebuilt.path()));
 }
 
+/// A reconcile that fails to write the index fails every way into it with its reason: a read,
+/// a write, a read from inside a read-lane job and the wait for the reconcile itself. None
+/// answers from the index the crash left.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failed_reconcile_fails_every_access() {
+    let env = Env::new();
+    let w = env.create("s1", None).await;
+    let (w, _) = env.commit(w, vec![item("a")]).await;
+    let (_w, acked) = env.append(w, vec![item("b")]).await;
+    acked.unwrap();
+    crate::sqlite::reconcile_seam::fail(&env.data);
+    let failed = open_index(&env.data).unwrap();
+    let why = "s1: the test seam failed the index write";
+    let read = failed.history_page(lineage(&[("s1", None)]), None, None, 10).await;
+    assert!(matches!(&read, Err(DbError::Write(w)) if w == why), "{read:?}");
+    let write = failed.mark_dirty("s1").await;
+    assert!(matches!(&write, Err(DbError::Write(w)) if w == why), "{write:?}");
+    let laned = failed.clone();
+    let on_lane = tokens()
+        .interactive_io
+        .submit(&CancellationToken::new(), move |lane| laned.history_page_on_lane(lane, &lineage(&[("s1", None)]), None, None, 10).map(drop))
+        .expect("lane");
+    let on_lane = tokio::time::timeout(std::time::Duration::from_secs(60), on_lane).await.expect("the lane read answered within 60 s").expect("job ran");
+    assert!(matches!(&on_lane, Err(DbError::Write(w)) if w == why), "{on_lane:?}");
+    let settled = failed.reconciled().await;
+    assert!(matches!(&settled, Err(DbError::Write(w)) if w == why), "{settled:?}");
+}
+
 /// On the production lanes (not the inline test backend): the open returns while the
-/// reconcile of a crash-cut session still waits to start, and reads and writes wait for it,
-/// then see the rows it projected.
+/// reconcile of a crash-cut session still waits to start, and every way into the index waits
+/// for it (a read, a write, and a read from inside a read-lane job, which the open's callers
+/// make while the store is fresh), then sees the rows it projected. Each access is seen
+/// waiting at the gate before the test releases the reconcile, and answers only after.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_store_opens_before_its_reconcile_and_reads_wait_for_it() {
+    const BOUND: std::time::Duration = std::time::Duration::from_secs(60);
     let (_exec, tokens) = mixdog_rt::exec::boot(mixdog_rt::exec::RtConfig::for_cores(4)).expect("production lanes");
     let tmp = tempfile::tempdir().unwrap();
     let data = tmp.path().to_path_buf();
@@ -868,18 +902,61 @@ async fn the_store_opens_before_its_reconcile_and_reads_wait_for_it() {
     store.project(first).await.unwrap();
     drop(store);
     let release = crate::sqlite::reconcile_seam::hold(&data);
-    let reopened = tokio::time::timeout(std::time::Duration::from_secs(60), open(data.clone()))
+    let reopened = tokio::time::timeout(BOUND, open(data.clone()))
         .await
         .expect("the open returned within 60 s while its reconcile was held")
         .unwrap();
-    let (reader, writer) = (reopened.clone(), reopened.clone());
-    let read = tokio::spawn(async move { reader.history_page(lineage(&[("s1", None)]), None, None, 10).await });
-    let write = tokio::spawn(async move { writer.mark_dirty("s1").await });
-    assert!(!read.is_finished() && !write.is_finished());
+    let events = Arc::new(Mutex::new(Vec::<&str>::new()));
+    let note = |event: &'static str| {
+        let events = events.clone();
+        move || events.lock().unwrap().push(event)
+    };
+    let (reader, writer, laned) = (reopened.clone(), reopened.clone(), reopened.clone());
+    let read = tokio::spawn({
+        let noted = note("read");
+        async move {
+            let page = reader.history_page(lineage(&[("s1", None)]), None, None, 10).await;
+            noted();
+            page
+        }
+    });
+    let write = tokio::spawn({
+        let noted = note("write");
+        async move {
+            let written = writer.mark_dirty("s1").await;
+            noted();
+            written
+        }
+    });
+    let on_lane = tokens
+        .interactive_io
+        .submit(&CancellationToken::new(), {
+            let noted = note("read on the lane");
+            move |lane| {
+                let page = laned.history_page_on_lane(lane, &lineage(&[("s1", None)]), None, None, 10);
+                noted();
+                page
+            }
+        })
+        .expect("lane");
+    let mut waiters = reopened.reconcile_waiters();
+    tokio::time::timeout(BOUND, waiters.wait_for(|n| *n == 3))
+        .await
+        .expect("the read, the write and the lane read waited at the gate within 60 s")
+        .unwrap();
+    note("released")();
     release.send(()).unwrap();
-    let (rows, _) = read.await.unwrap().unwrap();
+    let ((rows, _), (laned_rows, _)) = tokio::time::timeout(BOUND, async {
+        let read = read.await.unwrap().unwrap();
+        write.await.unwrap().unwrap();
+        (read, on_lane.await.expect("job ran").unwrap())
+    })
+    .await
+    .expect("the read, the write and the lane read answered within 60 s of the release");
     assert_eq!(iids(&rows), ["c", "b", "a"]);
-    write.await.unwrap().unwrap();
+    assert_eq!(iids(&laned_rows), ["c", "b", "a"]);
+    let events = events.lock().unwrap().clone();
+    assert_eq!((events.len(), events[0]), (4, "released"), "{events:?}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

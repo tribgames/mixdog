@@ -16,6 +16,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::mpsc;
 
+mod gate;
 pub mod lead;
 #[cfg(test)]
 mod model_tests;
@@ -35,6 +36,7 @@ use rusqlite::OptionalExtension;
 use rusqlite::Transaction;
 use rusqlite::params;
 use tokio::sync::oneshot;
+#[cfg(test)]
 use tokio::sync::watch;
 
 use crate::fold::LineageIndex;
@@ -579,14 +581,6 @@ struct Writer {
     sink: RowSinkCell,
 }
 
-/// Where the reconcile of the sessions found dirty at open stands (`SqliteStore::reconciled`).
-#[derive(Debug, Clone)]
-enum Settle {
-    Reconciling,
-    Done,
-    Failed(String),
-}
-
 const LABELS_KEY: &str = "ui:placeholder_labels";
 const REFOLD_JOB: &str = "job:refold_titles";
 
@@ -599,6 +593,7 @@ pub(crate) mod reconcile_seam {
     use std::sync::Mutex;
 
     static ARMED: Mutex<Option<PathBuf>> = Mutex::new(None);
+    static FAILING: Mutex<Option<PathBuf>> = Mutex::new(None);
     static HELD: Mutex<Option<(PathBuf, std::sync::mpsc::Receiver<()>)>> = Mutex::new(None);
 
     pub(crate) fn arm(data: &Path) {
@@ -619,6 +614,20 @@ pub(crate) mod reconcile_seam {
             drop(slot);
             let _ = held.recv();
         }
+    }
+
+    /// The next reconcile in `data` fails its first index write.
+    pub(crate) fn fail(data: &Path) {
+        *FAILING.lock().expect("seam") = Some(data.to_path_buf());
+    }
+
+    pub(super) fn fails_here(data: &Path) -> bool {
+        let mut failing = FAILING.lock().expect("seam");
+        let hit = failing.as_deref() == Some(data);
+        if hit {
+            *failing = None;
+        }
+        hit
     }
 
     pub(super) fn ends_here(data: &Path) -> bool {
@@ -1318,12 +1327,12 @@ fn refresh_prompt(tx: &Transaction<'_>, session: &str, key: &str) -> rusqlite::R
 
 struct Shared {
     path: PathBuf,
-    pool: Arc<ReadPool>,
+    /// The read pool and the writer channel, behind the boot reconcile.
+    gate: gate::Gate,
     rows: RowSinkCell,
     /// The writer thread, joined by [`SqliteStore::close`].
     #[cfg(any(test, feature = "test-support"))]
     writer: Mutex<Option<std::thread::JoinHandle<()>>>,
-    settled: watch::Receiver<Settle>,
 }
 
 /// Cloneable handle on `index/store.sqlite`. The writer thread finishes the queued
@@ -1331,7 +1340,6 @@ struct Shared {
 #[derive(Clone)]
 pub struct SqliteStore {
     shared: Arc<Shared>,
-    sender: mpsc::Sender<Command>,
 }
 
 impl std::fmt::Debug for SqliteStore {
@@ -1455,7 +1463,6 @@ impl SqliteStore {
             .prepare_cached("SELECT id FROM sessions WHERE dirty = 1 ORDER BY id")?
             .query_map([], |r| r.get(0))?
             .collect::<Result<_, _>>()?;
-        let (settle, settled) = watch::channel(if dirty.is_empty() { Settle::Done } else { Settle::Reconciling });
         let rows = writer.sink.clone();
         let (sender, rx) = mpsc::channel();
         let handle = thread
@@ -1463,26 +1470,26 @@ impl SqliteStore {
             .map_err(|e| DbError::Write(e.to_string()))?;
         #[cfg(not(any(test, feature = "test-support")))]
         drop(handle);
+        let (gate, reconciler) = gate::Gate::new(ReadPool::new(path, read_lane), sender, !dirty.is_empty());
         let store = SqliteStore {
             shared: Arc::new(Shared {
                 path: path.to_path_buf(),
-                pool: ReadPool::new(path, read_lane),
+                gate,
                 rows,
                 #[cfg(any(test, feature = "test-support"))]
                 writer: Mutex::new(Some(handle)),
-                settled,
             }),
-            sender,
         };
-        if !dirty.is_empty() {
-            let (pool, sender, data) = (store.shared.pool.clone(), store.sender.clone(), data.to_path_buf());
+        // The read lane's first job: every lane job that reads the index after this one waits for it, never the other way round.
+        if let Some(reconciler) = reconciler {
+            let data = data.to_path_buf();
             let _job = read_lane
                 .submit(&CancellationToken::new(), move |lane| {
-                    match reconcile(lane, &pool, &sender, &data, dirty) {
-                        Ok(true) => drop(settle.send_replace(Settle::Done)),
-                        // The test seam: the process ended mid-reconcile; `settle` is dropped.
+                    match reconcile(lane, &reconciler.pool, &reconciler.sender, &data, dirty) {
+                        Ok(true) => reconciler.finish(Ok(())),
+                        // The test seam: the process ended mid-reconcile; dropping the reconciler fails every access.
                         Ok(false) => {}
-                        Err(why) => drop(settle.send_replace(Settle::Failed(why))),
+                        Err(why) => reconciler.finish(Err(why)),
                     }
                 })
                 .map_err(|_| DbError::LaneFull)?;
@@ -1494,14 +1501,13 @@ impl SqliteStore {
     /// and every acknowledged write waits for it, so none sees or changes a row the reconcile
     /// has yet to write. A reconcile that failed to write the index fails it.
     pub fn reconciled(&self) -> impl Future<Output = Result<(), DbError>> + Send + 'static {
-        let mut settled = self.shared.settled.clone();
-        async move {
-            let settle = settled.wait_for(|s| !matches!(s, Settle::Reconciling)).await.map_err(|_| DbError::Stopped)?.clone();
-            match settle {
-                Settle::Failed(why) => Err(DbError::Write(why)),
-                Settle::Done | Settle::Reconciling => Ok(()),
-            }
-        }
+        self.shared.gate.reconciled()
+    }
+
+    /// The number of reads and writes that waited for the reconcile so far.
+    #[cfg(test)]
+    pub(crate) fn reconcile_waiters(&self) -> watch::Receiver<usize> {
+        self.shared.gate.waiters()
     }
 
     /// Test teardown: the writer stops at once (what is queued behind the close is dropped, its waiters answered `Stopped`) and
@@ -1509,12 +1515,12 @@ impl SqliteStore {
     /// handles still exist. Returns once the writer thread has ended.
     #[cfg(any(test, feature = "test-support"))]
     pub fn close(&self) {
-        let _ = self.sender.send(Command::Close);
-        let handle = self.shared.writer.lock().expect("writer handle").take();
-        if let Some(handle) = handle {
-            let _ = handle.join();
-        }
-        self.shared.pool.close();
+        self.shared.gate.close(|| {
+            let handle = self.shared.writer.lock().expect("writer handle").take();
+            if let Some(handle) = handle {
+                let _ = handle.join();
+            }
+        });
     }
 
     /// Connects the sink of the catalog row writes. Set once; the second call is refused.
@@ -1522,15 +1528,8 @@ impl SqliteStore {
         self.shared.rows.set(sink).map_err(|_| "the row sink is already set")
     }
 
-    fn submit(&self, cmd: Command) -> Result<(), DbError> {
-        self.sender.send(cmd).map_err(|_| DbError::Stopped)
-    }
-
     async fn ask(&self, make: impl FnOnce(Ack) -> Command) -> Result<(), DbError> {
-        self.reconciled().await?;
-        let (ack, rx) = oneshot::channel();
-        self.submit(make(ack))?;
-        rx.await.map_err(|_| DbError::Stopped)?
+        self.shared.gate.ask(make).await
     }
 
     /// Catalog row write, coalesced per session; resolves once committed.
@@ -1538,11 +1537,6 @@ impl SqliteStore {
     /// message state when it is written.
     pub async fn upsert(&self, head: CatalogHead, dirty: DirtyMark) -> Result<(), DbError> {
         self.ask(|ack| Command::Upsert { head: Box::new(head), dirty, ack: Some(ack) }).await
-    }
-
-    /// Catalog row write without a waiter (active-session header changes).
-    pub fn upsert_async(&self, head: CatalogHead) -> Result<(), DbError> {
-        self.submit(Command::Upsert { head: Box::new(head), dirty: DirtyMark::Keep, ack: None })
     }
 
     /// RL §9.2 rule 1: committed before the activation's first append.
@@ -1575,11 +1569,7 @@ impl SqliteStore {
         &self,
         f: impl FnOnce(&Connection) -> Result<T, DbError> + Send + 'static,
     ) -> impl Future<Output = Result<T, DbError>> + Send + 'static {
-        let (settled, pool) = (self.reconciled(), self.shared.pool.clone());
-        async move {
-            settled.await?;
-            pool.run(f).await
-        }
+        self.shared.gate.read(f)
     }
 
     /// RL §9.2 rule 5.
@@ -1613,7 +1603,7 @@ impl SqliteStore {
         lineage: &[LineageLevel],
         cut: Option<u64>,
     ) -> Result<Vec<String>, DbError> {
-        self.shared.pool.with(|c| {
+        self.shared.gate.with(|c| {
             let mut seen = std::collections::HashSet::new();
             let mut out = Vec::new();
             let mut own = c.prepare_cached(PROMPTS_SQL)?;
@@ -1648,7 +1638,7 @@ impl SqliteStore {
     /// GC condition 3 (SM §9) for `BlobStore::collect_shard`, which runs on the
     /// maintenance lane: answered on that lane's thread.
     pub fn blob_referenced_on_lane(&self, _lane: &InLane<MaintenanceIo>, digest: &Digest) -> Result<bool, DbError> {
-        self.shared.pool.with(|c| blob_referenced_on(c, digest))
+        self.shared.gate.with(|c| blob_referenced_on(c, digest))
     }
 
     /// P §9.2 thread-scope lookup: the indexed op of `session` (records not yet projected
@@ -1661,7 +1651,7 @@ impl SqliteStore {
     /// `thread_op` inside a job already on the read lane: answered on the job's thread, so the job never waits for a lane slot
     /// behind itself.
     pub fn thread_op_on_lane(&self, _lane: &InLane<InteractiveIo>, session: &str, op_id: &str) -> Result<Option<ThreadOp>, DbError> {
-        self.shared.pool.with(|c| thread_op_on(c, session, op_id))
+        self.shared.gate.with(|c| thread_op_on(c, session, op_id))
     }
 
     /// The ops of `session` that `op/status{fence}` fenced (P §9.4): an actor refuses them at
@@ -1673,7 +1663,7 @@ impl SqliteStore {
 
     /// `fenced_ops` inside a job already on the read lane.
     pub fn fenced_ops_on_lane(&self, _lane: &InLane<InteractiveIo>, session: &str) -> Result<Vec<String>, DbError> {
-        self.shared.pool.with(|c| fenced_ops_on(c, session))
+        self.shared.gate.with(|c| fenced_ops_on(c, session))
     }
 
     /// The compaction dividers of the display history placed before rows of
@@ -1707,7 +1697,7 @@ impl SqliteStore {
         from: u64,
         to: u64,
     ) -> Result<Vec<Divider>, DbError> {
-        self.shared.pool.with(|c| dividers_on(c, lineage, cut, level, from, to))
+        self.shared.gate.with(|c| dividers_on(c, lineage, cut, level, from, to))
     }
 
     /// The JSON list row of a session; `None` for a session whose log has no readable
@@ -1873,7 +1863,7 @@ impl SqliteStore {
         cursor: Option<crate::context::ContextCursor>,
         limit: usize,
     ) -> Result<crate::context::ContextPage, crate::context::ContextError> {
-        let (rows, next) = self.shared.pool.with(|c| crate::context::rows_on(c, lineage, cut, cursor, limit))?;
+        let (rows, next) = self.shared.gate.with(|c| crate::context::rows_on(c, lineage, cut, cursor, limit))?;
         crate::context::read_frames(lane, sessions, rows, next)
     }
 
@@ -1886,7 +1876,7 @@ impl SqliteStore {
         cursor: Option<PageCursor>,
         limit: usize,
     ) -> Result<(Vec<HistoryRow>, Option<PageCursor>), DbError> {
-        self.shared.pool.with(|c| page_on(c, lineage, cut, cursor, limit))
+        self.shared.gate.with(|c| page_on(c, lineage, cut, cursor, limit))
     }
 
     /// The live `compacted` frame whose replacement holds the entry `iid` (such as the
@@ -1911,7 +1901,7 @@ impl SqliteStore {
         cut: Option<u64>,
         iid: &str,
     ) -> Result<Option<CompactionEntry>, DbError> {
-        self.shared.pool.with(|c| compaction_entry_on(c, lineage, cut, iid))
+        self.shared.gate.with(|c| compaction_entry_on(c, lineage, cut, iid))
     }
 }
 
@@ -2081,6 +2071,10 @@ fn reconcile(
         let dir = data.join("sessions").join(&session);
         if !dir.is_dir() {
             continue;
+        }
+        #[cfg(test)]
+        if reconcile_seam::fails_here(data) {
+            return Err(format!("{session}: the test seam failed the index write"));
         }
         let from = pool.with(|c| projected_on(c, &session)).map_err(|e| format!("{session}: {e}"))?;
         let mut fold = None;
@@ -2673,7 +2667,7 @@ impl ReadPool {
 
 impl LineageIndex for SqliteStore {
     fn live_rows(&self, session: &str, from: u64, to: u64) -> Result<(u64, u64), LookupError> {
-        self.shared.pool.with(|c| {
+        self.shared.gate.with(|c| {
             let projected = projected_on(c, session)?.map_or(0, |p| p.ordinal);
             if projected < to {
                 return Ok(Err(LookupError::Behind { projected, needed: to }));
@@ -2685,7 +2679,7 @@ impl LineageIndex for SqliteStore {
     }
 
     fn live_compaction_before(&self, session: &str, before: u64) -> Result<Option<FramePos>, LookupError> {
-        self.shared.pool.with(|c| {
+        self.shared.gate.with(|c| {
             let projected = projected_on(c, session)?.map_or(0, |p| p.ordinal);
             if projected < before {
                 return Ok(Err(LookupError::Behind { projected, needed: before }));

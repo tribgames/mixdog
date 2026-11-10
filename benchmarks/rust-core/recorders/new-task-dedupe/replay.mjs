@@ -236,6 +236,7 @@ async function replayScenario({ exe, scenario, numberFresh }) {
   const survivors = [];
   const got = [];
   let core = null;
+  let failed = null;
   try {
     core = await own({}, true);
     let session = await connect(core);
@@ -275,17 +276,34 @@ async function replayScenario({ exe, scenario, numberFresh }) {
       }
       got.push({ step, reply: answer, receipts: receiptsOf(core.dataDir), sessions: await sessionsOf(session.client, core.dataDir) });
     }
-  } finally {
-    for (const opened of connections) opened.client.close?.();
-    // The next scenario's database takes the first free port; this one's must have let go of its own.
-    if (core && core.child.exitCode === null) await stopCore(exe, core).then((free) => free(), () => {});
-    for (const started of cores) {
+  } catch (error) {
+    failed = error;
+  }
+  // Every owned core, connection and survivor is ended whatever ended before it; each failure is kept and all are reported.
+  const cleanup = [];
+  const end = async (what, step) => {
+    try {
+      await step();
+    } catch (error) {
+      cleanup.push(`${what}: ${error.message}`);
+    }
+  };
+  for (const opened of connections) await end('closing a connection', () => opened.client.close?.());
+  // The next scenario's database takes the first free port; this one's must have let go of its own.
+  if (core && core.child.exitCode === null) await end('stopping the last core', async () => (await stopCore(exe, core))());
+  for (const started of cores) {
+    await end(`ending the core pid ${started.child.pid}`, async () => {
       killTree(started.child);
       await exitWithin(started.child, 60_000, "the core's process tree, ended with taskkill");
-    }
-    // A pid already gone is no error here.
-    for (const pid of survivors) runSync(`taskkill of the crashed core's process ${pid}`, 'taskkill', ['/F', '/PID', String(pid)], 60_000, { stdio: 'ignore' });
+    });
   }
+  // A pid already gone is no error here.
+  for (const pid of survivors) await end(`ending the crashed core's process ${pid}`, () => runSync(`taskkill of the crashed core's process ${pid}`, 'taskkill', ['/F', '/PID', String(pid)], 60_000, { stdio: 'ignore' }));
+  if (failed) {
+    if (cleanup.length) failed.message += `\nand its cleanup failed:\n  ${cleanup.join('\n  ')}`;
+    throw failed;
+  }
+  if (cleanup.length) throw new Error(`the cleanup of ${scenario.name} failed:\n  ${cleanup.join('\n  ')}`);
   return numberFresh(scenario, got);
 }
 
