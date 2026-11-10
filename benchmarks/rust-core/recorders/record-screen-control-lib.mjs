@@ -1,44 +1,128 @@
-// Shared plumbing of the four `record-screen-control-*.mjs` recorders (a library: run one of those, not this).
+// Shared plumbing of the `record-screen-control-*.mjs` recorders (a library: run one of those, not this).
 //
 // They record the phone's screen control on the secure desktop (UAC prompt, lock screen) from Node at b6f10295a:
 // the source switch (secure-desktop-switch.ts), the input router (screen-input-router.ts), the helper lease
-// (secure-desktop-helper.ts) and the install request (secure-desktop/install-request.ts). Every one drives the real
-// TypeScript of an exact export of that commit through fakes of the desktop and the helper: a fake input-desktop
-// name, a fake helper transport and a fake installer port that only records the request. No desktop is switched,
-// nothing is installed, no UAC prompt is raised, nothing is elevated and no input is injected.
+// (secure-desktop-helper.ts), the install request (secure-desktop/install-request.ts), the helper's video runs
+// (screen-webrtc-source.ts), the screen session (screen-source.ts) and the helper adapter (secure-desktop-adapter.ts).
+// Every one drives the real TypeScript of an exact export of that commit through fakes of the desktop and the helper:
+// a fake input-desktop name, a fake helper transport and a fake installer port that only records the request. No
+// desktop is switched, nothing is installed, no UAC prompt is raised, nothing is elevated and no input is injected.
 //
-//   (cd <tree>/apps/desktop && node --import tsx <this repo>/benchmarks/rust-core/recorders/record-screen-control-<switch|router|lease|install>.mjs --tree <tree>)
+//   (cd <tree>/apps/desktop && node --import tsx <this repo>/benchmarks/rust-core/recorders/record-screen-control-<part>.mjs --tree <tree> [--only <scenario>])
 //
-// The four recorders write one fixture set, `native/core/fixtures/screen-control`, each into its own sub-directory.
-import { join } from 'node:path';
-import { FIXTURES_ROOT, commitStage, exactProductIdentity, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
+// The recorders write one fixture set, `native/core/fixtures/screen-control`, each into its own sub-directory with
+// its own MANIFEST.json: the recorder's path and sha256, this library's and common.mjs's sha256, `process.version`,
+// the product identity (exact export of the commit) and the inputs (the scenario names, in order). The set's
+// MANIFEST.json is the index of every file of every sub-directory, sub-manifests included.
+//
+// `--only <scenario>` plays that one scenario and compares it with the committed recording, writing nothing.
+import { readFileSync } from 'node:fs';
+import { join, relative, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import {
+  FIXTURES_ROOT,
+  REPO_ROOT,
+  commitStage,
+  exactProductIdentity,
+  parseArgs,
+  resolveTree,
+  sha256,
+  stageSet,
+  walkFiles,
+  writeCanonicalJson,
+  writeJson,
+  writeSetManifest,
+} from './lib/common.mjs';
 
 export const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
 const SET = 'screen-control';
 const LIB = 'benchmarks/rust-core/recorders/record-screen-control-lib.mjs';
-const RECORDERS = ['switch', 'router', 'lease', 'install'].map((name) => `benchmarks/rust-core/recorders/record-screen-control-${name}.mjs`);
+const COMMON = 'benchmarks/rust-core/recorders/lib/common.mjs';
+const ARGS = new Set(['tree', 'only']);
 
-/** The export of `NODE_COMMIT` named by `--tree`, refused unless it is exactly that commit. */
+const repoPath = (absolute) => relative(REPO_ROOT, absolute).split(sep).join('/');
+const fileSha = (rel) => sha256(readFileSync(join(REPO_ROOT, rel)));
+
+/** The export of `NODE_COMMIT` named by `--tree`, refused unless it is exactly that commit, and `--only`. */
 export function openTree() {
-  const tree = resolveTree(parseArgs());
-  return { tree, identity: exactProductIdentity(tree, NODE_COMMIT) };
+  const args = parseArgs();
+  for (const name of args.keys()) if (!ARGS.has(name)) throw new Error(`unknown option --${name} (known: --tree, --only)`);
+  const tree = resolveTree(args);
+  return { tree, identity: exactProductIdentity(tree, NODE_COMMIT), only: args.get('only') ?? null };
 }
 
 export const importTs = (tree, rel) => import(new URL(`file:///${join(tree, rel).replaceAll('\\', '/')}`).href);
 
-/** Writes `files` (name → JSON value) into `screen-control/<sub>`; the other recorders' sub-directories stay. */
-export function writeSub(sub, files, identity) {
+/** `--only`: the committed recording of `name` in `committed` (a list of named entries) against what was played now. */
+function compareOnly(sub, name, played, committed) {
+  const want = committed.find((entry) => entry.name === name);
+  if (!want) throw new Error(`${sub}: the committed recording has no scenario named ${JSON.stringify(name)}`);
+  const got = JSON.stringify(played, null, 2);
+  const expected = JSON.stringify(want, null, 2);
+  if (got === expected) {
+    console.log(`${sub}: ${name}: same as the committed recording`);
+    return;
+  }
+  let at = 0;
+  while (at < got.length && got[at] === expected[at]) at += 1;
+  console.log(`${sub}: ${name}: differs from the committed recording at character ${at}`);
+  console.log(`  committed: ${expected.slice(Math.max(0, at - 200), at + 200)}`);
+  console.log(`  now:       ${got.slice(Math.max(0, at - 200), at + 200)}`);
+  process.exitCode = 1;
+}
+
+/**
+ * Records `sub`: `entries` are the named inputs (scenarios, or the parts of a table) in order; `play(entry)` gives
+ * what Node did for one; `files(results)` turns the results, in order, into the sub-directory's files (name → JSON).
+ * With `--only <name>` only that entry is played and compared with the committed one (`committed(files)` reads the
+ * committed list back from the sub-directory's files); nothing is written.
+ */
+export async function record({ sub, recorderUrl, identity, only, entries, play, files, committed }) {
+  const names = entries.map((entry) => entry.name);
+  if (new Set(names).size !== names.length) throw new Error(`${sub}: two entries share a name`);
+  if (only !== null) {
+    const entry = entries.find((candidate) => candidate.name === only);
+    if (!entry) throw new Error(`${sub}: no scenario named ${JSON.stringify(only)}; the names are:\n  ${names.join('\n  ')}`);
+    const dir = join(FIXTURES_ROOT, SET, sub);
+    const read = (name) => JSON.parse(readFileSync(join(dir, name), 'utf8'));
+    compareOnly(sub, only, await play(entry), committed(read));
+    return;
+  }
+  const results = [];
+  for (const entry of entries) results.push(await play(entry));
   const finalDir = join(FIXTURES_ROOT, SET);
   const stage = stageSet(finalDir, [sub]);
-  for (const [name, value] of Object.entries(files)) writeJson(join(stage, sub, name), value);
+  for (const [name, value] of Object.entries(files(results))) writeJson(join(stage, sub, name), value);
+  const recorder = repoPath(fileURLToPath(recorderUrl));
+  const subDir = join(stage, sub);
+  const listed = walkFiles(subDir).map((file) => {
+    const data = readFileSync(file);
+    return { path: relative(subDir, file).split(sep).join('/'), bytes: data.length, sha256: sha256(data) };
+  });
+  writeCanonicalJson(join(subDir, 'MANIFEST.json'), {
+    set: `${SET}/${sub}`,
+    recorder,
+    recorderSha256: fileSha(recorder),
+    lib: LIB,
+    libSha256: fileSha(LIB),
+    common: COMMON,
+    commonSha256: fileSha(COMMON),
+    node: process.version,
+    command: `(cd <tree>/apps/desktop && node --import tsx ${recorder} --tree <tree>)`,
+    product: identity,
+    inputs: { tree: `exact export of ${NODE_COMMIT}`, scenarios: names },
+    fileCount: listed.length,
+    totalBytes: listed.reduce((sum, file) => sum + file.bytes, 0),
+    files: listed,
+  });
   writeSetManifest(stage, {
     set: SET,
     recorder: LIB,
-    command: '(cd <tree>/apps/desktop && node --import tsx benchmarks/rust-core/recorders/record-screen-control-<switch|router|lease|install>.mjs --tree <tree>)',
-    extra: { recorders: RECORDERS },
+    command: 'index of the sub-directories: each one has its own MANIFEST.json naming its recorder',
     identity,
   });
   commitStage(stage, finalDir);
+  console.log(`${sub}: ${names.length} recorded`);
 }
 
 const realSetImmediate = globalThis.setImmediate;

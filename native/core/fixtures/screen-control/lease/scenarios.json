@@ -2799,6 +2799,379 @@
       }
     },
     {
+      "name": "a lease reads the current adapter’s connection, desktop, session and lock state, also after a rebuild",
+      "world": {
+        "installed": false,
+        "state": "not-installed"
+      },
+      "steps": [
+        {
+          "op": "lease",
+          "as": "A"
+        },
+        {
+          "op": "view",
+          "lease": "A"
+        },
+        {
+          "op": "adapterView",
+          "view": {
+            "connected": true,
+            "desktop": "Winlogon",
+            "session": 2,
+            "locked": true
+          }
+        },
+        {
+          "op": "view",
+          "lease": "A"
+        },
+        {
+          "op": "adapterView",
+          "view": {
+            "connected": true,
+            "desktop": "Default",
+            "session": 1,
+            "locked": false
+          }
+        },
+        {
+          "op": "view",
+          "lease": "A"
+        },
+        {
+          "op": "installerState",
+          "value": "installed"
+        },
+        {
+          "op": "installState",
+          "as": "check",
+          "lease": "A"
+        },
+        {
+          "op": "await",
+          "call": "check"
+        },
+        {
+          "op": "view",
+          "lease": "A"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "view",
+          "lease": "A",
+          "view": {
+            "installed": false,
+            "connected": false,
+            "desktop": null,
+            "session": null,
+            "locked": null
+          }
+        },
+        {
+          "ev": "view",
+          "lease": "A",
+          "view": {
+            "installed": false,
+            "connected": true,
+            "desktop": "Winlogon",
+            "session": 2,
+            "locked": true
+          }
+        },
+        {
+          "ev": "view",
+          "lease": "A",
+          "view": {
+            "installed": false,
+            "connected": true,
+            "desktop": "Default",
+            "session": 1,
+            "locked": false
+          }
+        },
+        {
+          "ev": "installer",
+          "call": "state",
+          "key": null
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "dispose"
+          ]
+        },
+        {
+          "ev": "done",
+          "call": "check",
+          "ok": true,
+          "value": "installed"
+        },
+        {
+          "ev": "view",
+          "lease": "A",
+          "view": {
+            "installed": true,
+            "connected": false,
+            "desktop": null,
+            "session": null,
+            "locked": null
+          }
+        }
+      ],
+      "final": {
+        "built": 2,
+        "attached": [
+          0,
+          4
+        ],
+        "ownedElsewhere": {
+          "A": false
+        }
+      }
+    },
+    {
+      "name": "a grant the helper refuses opens no input; the next challenge’s grant does",
+      "world": {
+        "installed": true,
+        "state": "installed"
+      },
+      "steps": [
+        {
+          "op": "lease",
+          "as": "A"
+        },
+        {
+          "op": "listen",
+          "lease": "A",
+          "hold": {
+            "declare": 1
+          }
+        },
+        {
+          "op": "setActive",
+          "as": "on",
+          "lease": "A",
+          "active": true
+        },
+        {
+          "op": "await",
+          "call": "on"
+        },
+        {
+          "op": "adapterChallenge",
+          "nonce": "n",
+          "challenge": "c1"
+        },
+        {
+          "op": "adapterGrantFails",
+          "message": "not connected"
+        },
+        {
+          "op": "sendGrant",
+          "as": "refused",
+          "lease": "A",
+          "grant": {
+            "challenge": "c1",
+            "epoch": 1,
+            "signature": "s"
+          }
+        },
+        {
+          "op": "await",
+          "call": "refused"
+        },
+        {
+          "op": "sendInput",
+          "as": "input-after-refusal",
+          "lease": "A",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "input-after-refusal"
+        },
+        {
+          "op": "sendGrant",
+          "as": "used-up",
+          "lease": "A",
+          "grant": {
+            "challenge": "c1",
+            "epoch": 1,
+            "signature": "s"
+          }
+        },
+        {
+          "op": "await",
+          "call": "used-up"
+        },
+        {
+          "op": "adapterChallenge",
+          "nonce": "n",
+          "challenge": "c2"
+        },
+        {
+          "op": "adapterGrantFails",
+          "message": null
+        },
+        {
+          "op": "sendGrant",
+          "as": "accepted",
+          "lease": "A",
+          "grant": {
+            "challenge": "c2",
+            "epoch": 1,
+            "signature": "s"
+          }
+        },
+        {
+          "op": "await",
+          "call": "accepted"
+        },
+        {
+          "op": "sendInput",
+          "as": "input-after-grant",
+          "lease": "A",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "input-after-grant"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "hold",
+          "lease": "A",
+          "epoch": 1
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "run",
+            1
+          ]
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "active",
+            true
+          ]
+        },
+        {
+          "ev": "heard",
+          "lease": "A",
+          "kind": "change",
+          "ownedElsewhere": false,
+          "installed": true
+        },
+        {
+          "ev": "done",
+          "call": "on",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "heard",
+          "lease": "A",
+          "kind": "challenge",
+          "challenge": {
+            "nonce": "n",
+            "challenge": "c1"
+          }
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "grant",
+            1
+          ]
+        },
+        {
+          "ev": "done",
+          "call": "refused",
+          "ok": false,
+          "error": "not connected"
+        },
+        {
+          "ev": "done",
+          "call": "input-after-refusal",
+          "ok": false,
+          "error": "no grant for this hold and run was relayed"
+        },
+        {
+          "ev": "done",
+          "call": "used-up",
+          "ok": false,
+          "error": "the grant names no challenge of this hold and run"
+        },
+        {
+          "ev": "heard",
+          "lease": "A",
+          "kind": "challenge",
+          "challenge": {
+            "nonce": "n",
+            "challenge": "c2"
+          }
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "grant",
+            1
+          ]
+        },
+        {
+          "ev": "done",
+          "call": "accepted",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "input",
+            "key"
+          ]
+        },
+        {
+          "ev": "done",
+          "call": "input-after-grant",
+          "ok": true,
+          "value": null
+        }
+      ],
+      "final": {
+        "built": 1,
+        "attached": [
+          4
+        ],
+        "ownedElsewhere": {
+          "A": false
+        }
+      }
+    },
+    {
       "name": "a lease taken after the helper was disposed is inert",
       "world": {
         "installed": true,

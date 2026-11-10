@@ -22,10 +22,12 @@ use super::switch::helper_video_stall_ms;
 use super::switch::screen_helper_issue;
 use super::switch::screen_status_for;
 use super::switch::secure_desktop_identity;
+use super::testing::manifest_names;
 
 const DECISIONS: &str = include_str!("../../../../../fixtures/screen-control/switch/decisions.json");
 const STATUSES: &str = include_str!("../../../../../fixtures/screen-control/switch/statuses.json");
 const MISC: &str = include_str!("../../../../../fixtures/screen-control/switch/misc.json");
+const MANIFEST: &str = include_str!("../../../../../fixtures/screen-control/switch/MANIFEST.json");
 
 fn parse(text: &str) -> Value {
     serde_json::from_str(text).expect("the recording parses")
@@ -60,8 +62,8 @@ fn every_recorded_input_of_the_decision_gets_nodes_whole_output() {
     let order: Vec<String> = recording["order"].as_array().expect("order").iter().map(|name| name.as_str().expect("a name").to_string()).collect();
     let table = recording["table"].as_array().expect("table");
     let rows = product(&recording["axes"], &order);
+    manifest_names(MANIFEST, &[json!({"name": "decisions"}), json!({"name": "statuses"}), json!({"name": "misc"})]);
     assert_eq!(rows.len(), table.len(), "one recorded output per input");
-    assert!(rows.len() > 3000, "{} inputs recorded", rows.len());
     for (row, index) in rows.into_iter().zip(table) {
         let shown = Value::Object(row.clone());
         let inputs: SwitchInputs = serde_json::from_value(Value::Object(row)).expect("the inputs parse");
@@ -76,7 +78,9 @@ fn every_recorded_status_is_nodes_whole_status() {
     let statuses = parse(STATUSES);
     let facts: Vec<ScreenHelperFacts> = serde_json::from_value(statuses["facts"].clone()).expect("facts parse");
     let cases = statuses["cases"].as_array().expect("cases");
-    assert!(cases.len() > 200, "{} statuses recorded", cases.len());
+    // The recorder's loop: every distinct decision × control granted × helper video × each facts block.
+    let palette = decisions["palette"].as_array().expect("palette");
+    assert_eq!(cases.len(), palette.len() * 2 * 2 * facts.len(), "one recorded status per case");
     for case in cases {
         let decision: SourceDecision = serde_json::from_value(decisions["palette"][case["decision"].as_u64().expect("a decision") as usize].clone()).expect("a decision parses");
         let status = screen_status_for(&decision, case["controlGranted"].as_bool().expect("flag"), case["helperVideo"].as_bool().expect("flag"), &facts[case["facts"].as_u64().expect("facts") as usize]);

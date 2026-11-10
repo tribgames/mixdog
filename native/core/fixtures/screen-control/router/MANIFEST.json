@@ -1,0 +1,75 @@
+{
+  "command": "(cd <tree>/apps/desktop && node --import tsx benchmarks/rust-core/recorders/record-screen-control-router.mjs --tree <tree>)",
+  "common": "benchmarks/rust-core/recorders/lib/common.mjs",
+  "commonSha256": "d4d0064b5b40d5fcb833a69fb3d68a69b1c1317606b5fe341c3445d5d0bbefd4",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 143546,
+      "path": "scenarios.json",
+      "sha256": "97bdea2a97b10048ca44d383a3d476a1efc6f7a1d3ce232f3309180775c5fba9"
+    }
+  ],
+  "inputs": {
+    "scenarios": [
+      "a key combo is pressed in order and released in reverse, as one step",
+      "a combo leaves a modifier the phone holds held",
+      "control lost mid-combo presses nothing more, and what it pressed is released",
+      "a combo whose desktop changes mid-way sends nothing to the new one: its presses are dropped",
+      "a cancel during a combo still releases what it pressed",
+      "releaseAll lifts every held press once and is idempotent",
+      "an up for a press this backend does not own is skipped",
+      "a button up without a position lifts the button pressed at one",
+      "a backend switch releases the old backend’s presses through it, before the switch",
+      "a press its backend can’t release at the switch is dropped and counted, never carried",
+      "cancel drops queued input but the final release runs after the in-flight command",
+      "the gate is re-read between the commands of one plan",
+      "text is refused while a shortcut modifier is held, allowed with Shift",
+      "AltGr text: the session-held AltGr keys are lifted around the text and pressed again",
+      "Right Alt alone counts as AltGr",
+      "Ctrl+Left Alt stays a shortcut: its text is refused and sends nothing",
+      "AltGr with the Windows key stays a shortcut",
+      "AltGr keys are pressed again even when the text itself fails",
+      "abandon cuts an in-flight send and every later one; the releases are dropped and counted",
+      "a cancel during the AltGr lift: no text, no re-press, nothing left held",
+      "the backend moves to another session during the AltGr lift: no further lift, text or re-press there",
+      "a revoke after the text, before the re-press: AltGr is never pressed again",
+      "a revoke before the text: the lifted keys stay up and the text is not sent",
+      "no key-up reaches another session: it is dropped, not sent later",
+      "no key-up reaches another desktop: it is dropped, not sent later",
+      "each origin’s press of the same key is released only on its own desktop",
+      "no press is made where the landing desktop is unknown",
+      "abandon also cuts a switch hook that never settles",
+      "a failing switch hook does not stop the switch",
+      "a switch to no backend releases first, then input is rejected",
+      "input before any backend is chosen is rejected",
+      "the desktop’s presses are lifted through it when the secure desktop takes over, and the secure backend gets only its own",
+      "a plan that fails on the backend is rejected and keeps the press it made held for the release"
+    ],
+    "tree": "exact export of b6f10295a2f698afc85332467192de28500bd146"
+  },
+  "lib": "benchmarks/rust-core/recorders/record-screen-control-lib.mjs",
+  "libSha256": "df30cfea6d1ec4218b1670d673285f8eb2738556726665ab0df78d21a56c46b1",
+  "node": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-screen-control-router.mjs",
+  "recorderSha256": "d7566f8d6bff0bdc8acb4188fb08ff9cf9df76d20baa8cf535a73d25eb1b9c1f",
+  "set": "screen-control/router",
+  "totalBytes": 143546
+}

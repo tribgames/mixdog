@@ -11,9 +11,9 @@
 // The fakes never reach a desktop: a backend is a list the commands are pushed on.
 //
 //   (cd <tree>/apps/desktop && node --import tsx <repo>/benchmarks/rust-core/recorders/record-screen-control-router.mjs --tree <tree>)
-import { checkpoint, importTs, openTree, writeSub } from './record-screen-control-lib.mjs';
+import { checkpoint, importTs, openTree, record } from './record-screen-control-lib.mjs';
 
-const { tree, identity } = openTree();
+const { tree, identity, only } = openTree();
 const { ScreenInputRouter } = await importTs(tree, 'apps/desktop/src/main/remote-screen/screen-input-router.ts');
 
 const keyDown = (vk, scan = 0x1e, extended = false) => ({ op: 'key', vk, scan, extended, down: true });
@@ -422,8 +422,14 @@ async function play(scenario) {
   };
 }
 
-const scenarios = [];
-for (const scenario of SCENARIOS) scenarios.push(await play(scenario));
-writeSub('router', { 'scenarios.json': { scenarios } }, identity);
-console.log(`router: ${scenarios.length} scenarios, ${scenarios.reduce((n, s) => n + s.trace.length, 0)} trace events`);
-process.exit(0);
+await record({
+  sub: 'router',
+  recorderUrl: import.meta.url,
+  identity,
+  only,
+  entries: SCENARIOS,
+  play,
+  files: (scenarios) => ({ 'scenarios.json': { scenarios } }),
+  committed: (read) => read('scenarios.json').scenarios,
+});
+process.exit(process.exitCode ?? 0);
