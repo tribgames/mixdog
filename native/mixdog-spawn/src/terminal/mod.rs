@@ -1784,7 +1784,7 @@ mod lock_order {
         }
     }
 
-    fn pump(manager: &LocalProcessManager, tab: &Arc<Tab>, logged: &Arc<Logged>) {
+    fn pump(manager: &LocalProcessManager, tab: &Arc<Tab>, logged: &Arc<Logged>) -> Arc<crate::service::ProcessFeeds> {
         let feeds = crate::service::ProcessFeeds::new(
             manager.clone(),
             Arc::new(mixdog_core_api::mock::MockScopedFeeds::new(mixdog_core_api::mock::MockLimits::default())),
@@ -1799,6 +1799,82 @@ mod lock_order {
             }) as Arc<dyn Fn(PumpPoint) + Send + Sync>)
         });
         drop(held);
+        feeds
+    }
+
+    /// C3 (a): the pump subscribed on an empty ring (`evicted` false) or after the ring dropped the start (true); then a paused producer
+    /// holds a chunk at the gate, a claim's hold goes in, and the producer resumes while the hold stands. The chunk enters the feed but
+    /// the pump stops for the hold: its change does not go. Once the hold ends the pump takes the chunk at its absolute offset (the
+    /// feed's own count, the tab's `emitted`), and the change goes then.
+    async fn a_claim_holds_a_resumed_producers_chunk(evicted: bool) {
+        let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, ProcessConfig::default());
+        let handle = ProcessHandle::from(format!("term_resumed_{evicted}_{}", std::process::id()));
+        let logged = Logged::new();
+        let tab = relay_tab(Arc::clone(&logged) as Arc<dyn TerminalEvents>, manager.clone(), handle.as_str());
+        manager
+            .spawn_with(
+                piped(
+                    &handle,
+                    "$null = [Console]::In.ReadLine(); [Console]::Out.Write(('x' * 70000) + [char]27 + ']697;P' + [char]7); \
+                     $null = [Console]::In.ReadLine(); [Console]::Out.Write('z' + [char]27 + ']697;C' + [char]7); $null = [Console]::In.ReadLine()",
+                    "read a; printf '%070000d\\033]697;P\\007' 0; read b; printf 'z\\033]697;C\\007'; read c",
+                ),
+                SpawnOptions { ring_bytes: Some(1024), filter: Some(Box::new(TabFilter::new(Arc::clone(&tab)))), ..SpawnOptions::default() },
+            )
+            .await
+            .unwrap();
+        let feeds = if evicted {
+            let mut watch = manager.subscribe(&handle, None).unwrap();
+            manager.write_input(&handle, b"1\n".to_vec()).unwrap();
+            let mut read = 0;
+            while read < 70000 {
+                match tokio::time::timeout(Duration::from_secs(60), watch.next()).await.expect("the first write arrives within 60 s") {
+                    Some(ProcessEvent::Output { bytes, .. }) => read += bytes.len(),
+                    other => panic!("the first write, not {other:?}"),
+                }
+            }
+            drop(watch);
+            assert!(matches!(manager.subscribe(&handle, Some(0)), Err(ProcessError::ReplayUnavailable { .. })), "the ring dropped the start");
+            let feeds = pump(&manager, &tab, &logged);
+            logged.until("the first write's change", |log| log.contains(&Seen::Change(Some(ActivityState::Idle))));
+            feeds
+        } else {
+            assert_eq!(manager.output_pushed(&handle).unwrap(), 0, "the ring is empty when the pump subscribes");
+            let feeds = pump(&manager, &tab, &logged);
+            // The first write goes unread here: its marker's change is not what this checks.
+            manager.write_input(&handle, b"1\n".to_vec()).unwrap();
+            logged.until("the first write's change", |log| log.contains(&Seen::Change(Some(ActivityState::Idle))));
+            feeds
+        };
+        let before = manager.output_pushed(&handle).unwrap();
+        manager.set_output_paused(&handle, true).unwrap();
+        manager.write_input(&handle, b"2\n".to_vec()).unwrap();
+        tokio::time::timeout(Duration::from_secs(60), manager.output_blocked(&handle)).await.expect("the producer parked the chunk at the gate").unwrap();
+        let held = feeds.hold_new_output(handle.as_str()).expect("the feed exists");
+        let mut stops = feeds.stops_of(handle.as_str());
+        let stopped = *stops.borrow_and_update();
+        manager.set_output_paused(&handle, false).unwrap();
+        tokio::time::timeout(Duration::from_secs(60), stops.wait_for(|stops| *stops > stopped)).await.expect("the pump stopped for the hold").unwrap();
+        let total = manager.output_pushed(&handle).unwrap();
+        assert!(total > before, "the resumed chunk entered the feed");
+        let log = logged.log.lock().unwrap().clone();
+        assert!(!log.contains(&Seen::Change(Some(ActivityState::Running))), "the held chunk's change went: {log:?}");
+        assert!(log.iter().all(|seen| !matches!(seen, Seen::Taken(taken) if *taken > before)), "the pump took held output: {log:?}");
+        drop(held);
+        let log = logged.until("the resumed chunk's change", |log| log.contains(&Seen::Change(Some(ActivityState::Running))));
+        let at = log.iter().position(|seen| *seen == Seen::Change(Some(ActivityState::Running))).unwrap();
+        assert_eq!(log[..at].last(), Some(&Seen::Taken(total)), "the change goes when the pump takes the chunk, at the feed's offset: {log:?}");
+        let _ = manager.kill(&handle);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_claim_holds_a_resumed_producers_chunk_after_an_empty_ring() {
+        a_claim_holds_a_resumed_producers_chunk(false).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_claim_holds_a_resumed_producers_chunk_after_an_eviction() {
+        a_claim_holds_a_resumed_producers_chunk(true).await;
     }
 
     /// The pump starts after the ring dropped the start of the output (more than one event's worth went by before anyone read): it
