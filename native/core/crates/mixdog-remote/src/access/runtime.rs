@@ -18,6 +18,7 @@ use tokio::sync::mpsc;
 
 use super::settings::{AccessSettings, SettingsView};
 use crate::bridge::{Bridge, Dialer, Frame, PhoneSink, ToPhone};
+use crate::transport::coordinator::WriteGate;
 use crate::clients::{ClaimBindings, ClaimRequest, ClaimStep, ClientTable, Received, ReadyContext, challenge_flags, parse_client_list, revoke_payload};
 use crate::e2ee::{Sealed, ServerIdentity};
 use crate::identity::{
@@ -116,6 +117,13 @@ impl LegLink {
     pub fn sender(&self) -> LegSend {
         let link = self.clone();
         Box::new(move |envelope| link.send(&envelope))
+    }
+
+    /// Room for one message in the leg's queue, held until it is used: what is written with it enters the leg in the step it is
+    /// written.
+    async fn reserve(&self) -> Option<mpsc::OwnedPermit<Outgoing>> {
+        let tx = self.slot().clone()?;
+        tx.reserve_owned().await.ok()
     }
 
     async fn send_wait(&self, out: Outgoing) -> bool {
@@ -982,6 +990,11 @@ impl RemoteRuntime {
         let peers = self.inner.state().table.revoke(credential_id);
         for peer in &peers {
             self.inner.cfg.registry.revoke_screen(peer);
+            // A live-view message half in the peer's transport stream cannot be finished: that session ends now.
+            let session = self.inner.state().table.transport(peer);
+            if let Some(session) = session {
+                session.view_revoked();
+            }
         }
         self.inner.cfg.events.device_unpaired(credential_id);
     }
@@ -1679,8 +1692,27 @@ impl Inner {
     /// Seals one frame for a phone and writes it to the leg: binary relay frames when the relay
     /// takes them, otherwise JSON text frames.
     async fn write_sealed(&self, client_id: &str, sealed: Sealed) {
+        let out = self.outgoing(client_id, sealed);
+        self.cfg.link.send_wait(out).await;
+    }
+
+    /// A write of the live view to a phone on the relay path: it is sealed and enters the leg in one step with the check that the
+    /// phone may still view (`DeviceRegistry::write_view`), the room in the leg's queue taken first. A refused write seals nothing.
+    async fn write_view(&self, client_id: &str, bytes: &[u8], binary: bool) {
+        let Some(permit) = self.cfg.link.reserve().await else { return };
+        let mut permit = Some(permit);
+        self.cfg.registry.write_view(client_id, &mut || {
+            let sealed = self.state().table.seal(client_id, bytes, binary);
+            if let (Ok(sealed), Some(permit)) = (sealed, permit.take()) {
+                permit.send(self.outgoing(client_id, sealed));
+            }
+        });
+    }
+
+    /// The leg's form of a sealed frame: binary relay frames when the relay takes them, otherwise JSON text frames.
+    fn outgoing(&self, client_id: &str, sealed: Sealed) -> Outgoing {
         let binary_frames = self.state().caps.binary_frames();
-        let out = match sealed {
+        match sealed {
             Sealed::Text(text) => Outgoing::Text(json_frame(client_id, &text).to_string()),
             Sealed::Binary(bytes) => match binary_frames.then(|| encode_binary_frame(client_id, &bytes, false, false)).flatten() {
                 Some(frame) => Outgoing::Binary(frame),
@@ -1690,9 +1722,20 @@ impl Inner {
                     Outgoing::Text(json!({ "type": "frame", "clientId": client_id, "data": data }).to_string())
                 }
             },
-        };
-        self.cfg.link.send_wait(out).await;
+        }
     }
+
+    /// The write gate of the live view's writes to `peer_id` on its transport session.
+    fn view_gate(&self, peer_id: &str) -> WriteGate {
+        let (registry, peer_id) = (self.cfg.registry.clone(), peer_id.to_owned());
+        WriteGate(Arc::new(move |write: &mut dyn FnMut()| registry.write_view(&peer_id, write)))
+    }
+}
+
+/// Whether a frame from the core is one of the live view's two writes to a phone, `browser/frame` or `browser/webrtcSignal`: a
+/// connection-scoped notification, which the core serializes with `method` first (`JsonRpcNotification`).
+fn live_view_write(frame: &[u8]) -> bool {
+    [&br#"{"method":"browser/frame","#[..], &br#"{"method":"browser/webrtcSignal","#[..]].iter().any(|head| frame.starts_with(head))
 }
 
 struct WeakSink {
@@ -1713,6 +1756,12 @@ impl PhoneSink for RuntimeSink {
     async fn deliver(&self, message: ToPhone) {
         match message {
             ToPhone::Frame { peer_id, frame } => {
+                // The live view's writes are asked about again where they enter the phone's stream: the core queued them before a
+                // revocation that may have come since.
+                let gated = match &frame {
+                    Frame::Text(text) => live_view_write(text.as_bytes()),
+                    Frame::Binary(bytes) => live_view_write(bytes),
+                };
                 let session = self.inner.state().table.transport(&peer_id);
                 if let Some(session) = session {
                     let text = match frame {
@@ -1720,7 +1769,7 @@ impl PhoneSink for RuntimeSink {
                         Frame::Binary(bytes) => String::from_utf8(bytes).ok(),
                     };
                     if let Some(text) = text {
-                        let _ = session.send(&text, false).await;
+                        let _ = session.send_gated(&text, false, gated.then(|| self.inner.view_gate(&peer_id))).await;
                     }
                     return;
                 }
@@ -1728,6 +1777,10 @@ impl PhoneSink for RuntimeSink {
                     Frame::Text(text) => (text.into_bytes(), false),
                     Frame::Binary(bytes) => (bytes, true),
                 };
+                if gated {
+                    self.inner.write_view(&peer_id, &bytes, binary).await;
+                    return;
+                }
                 let sealed = self.inner.state().table.seal(&peer_id, &bytes, binary);
                 if let Ok(sealed) = sealed {
                     self.inner.write_sealed(&peer_id, sealed).await;

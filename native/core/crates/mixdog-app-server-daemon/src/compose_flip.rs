@@ -2441,7 +2441,9 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         .map_err(|()| ComposeError::AlreadyBound("thread deletions"))?;
     workspace.set_host(b.host.clone());
     workspace.set_phone_grants(phone_grants.clone(), crate::domain_seams::remote::phone_credential(built_remote.registry.clone()));
-    // An unpair ends the device's grants and transfers at once and, once the relay confirmed it, its notification preferences.
+    // An unpair ends the device's grants, transfers and browser streams at once and, once the relay confirmed it, its notification
+    // preferences. The live view is composed below and fills its slot then.
+    let live_view_slot: Arc<std::sync::OnceLock<std::sync::Weak<crate::live_view::LiveViewService>>> = Arc::default();
     built_remote
         .events
         .bind(Arc::new(crate::domain_seams::remote::PairedDeviceCleanup {
@@ -2456,6 +2458,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 Arc::new(move || workspace.revoke_all_downloads())
             },
             config: config.clone(),
+            live_view: live_view_slot.clone(),
         }))
         .map_err(|_| ComposeError::AlreadyBound("device cleanup"))?;
     builder.register(workspace.clone() as Arc<dyn mixdog_core_api::service::DomainService>)?;
@@ -2999,8 +3002,10 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     });
     let model_proxy = Arc::new(mixdog_core_domains::domains::ai_admin::model_proxy_service::ModelProxyService::new(proxy_runner, b.host.clone(), b.notifier.clone()));
     builder.register(model_proxy.clone())?;
-    // browser/stream, browser/webrtcSignal, browser/screenDisplays, host/browser/page: the phone's live view of Browser Use (SPEC R36).
-    let live_view = Arc::new(crate::live_view::LiveViewService::new(b.host.clone(), b.notifier.clone(), b.host_media.clone(), built_remote.runtime.clone(), b.tokens.media_thread, Arc::new(crate::live_view::PairedScreenAccess::new(crate::domain_seams::remote::phone_credential(built_remote.registry.clone()), crate::domain_seams::remote::screen_revoked(built_remote.registry.clone())))));
+    // browser/stream, browser/webrtcSignal, browser/screenDisplays, browser/streamAck, host/browser/page, host/browser/frame: the phone's live
+    // view of Browser Use (SPEC R36) and its JPEG view.
+    let live_view = Arc::new(crate::live_view::LiveViewService::new(b.host.clone(), b.notifier.clone(), b.host_media.clone(), built_remote.runtime.clone(), b.tokens.media_thread, Arc::new(crate::live_view::PairedScreenAccess::new(crate::domain_seams::remote::phone_credential(built_remote.registry.clone()), crate::domain_seams::remote::screen_revoked(built_remote.registry.clone()), crate::domain_seams::remote::peer_attached(built_remote.registry.clone())))));
+    let _ = live_view_slot.set(Arc::downgrade(&live_view));
     builder.register(live_view.clone())?;
     // host/claim is answered by the server itself (it owns the connection registry, ClientRequest::HostClaim), so no domain service claims it.
     let mut unclaimed = builder.unclaimed();
