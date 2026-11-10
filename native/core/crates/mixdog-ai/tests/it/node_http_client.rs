@@ -385,3 +385,28 @@ async fn a5_a_dead_h2_connection_is_not_used_again_and_h2_is_what_a_server_that_
     assert_eq!(body(send(&link, request("GET", url, &[], b"")).await.unwrap()).await.unwrap(), b"ok", "on a new connection");
     assert_eq!(accepted.load(Ordering::SeqCst), 2);
 }
+
+// "A drained error response is held": Node's resend of a rejected request (`resendIfEncodingRejected`) runs before the
+// rejected response's socket is free again (undici `pool-base.js:92,135,264`: a client counts as busy until its
+// `drain`), so the resend dials a second connection; once the rejected response is dropped the socket serves requests.
+// The same case is in the OpenAI recording (the two-connection scenarios).
+#[tokio::test]
+async fn a_drained_body_that_is_held_keeps_its_connection_out_of_the_pool_until_dropped() {
+    let (addr, accepted) = listen(move |_, mut stream| async move {
+        while read_request(&mut stream).await.is_some() {
+            stream.write_all(b"HTTP/1.1 400 Bad Request\r\ncontent-length: 2\r\n\r\nno").await.unwrap();
+        }
+    })
+    .await;
+    let url = format!("http://{addr}/");
+    let link = link();
+    let mut rejected = send(&link, request("POST", url.clone(), &[], b"{}")).await.unwrap().body;
+    rejected.hold_connection();
+    while tokio::time::timeout(WITHIN, rejected.next()).await.unwrap().is_some() {}
+    let resent = send(&link, request("POST", url.clone(), &[], b"{}")).await.unwrap();
+    assert_eq!(accepted.load(Ordering::SeqCst), 2, "the resend dialled while the rejected response was held");
+    drop(body(resent).await);
+    drop(rejected);
+    body(send(&link, request("POST", url, &[], b"{}")).await.unwrap()).await.unwrap();
+    assert_eq!(accepted.load(Ordering::SeqCst), 2, "afterwards an idle connection serves the request");
+}
