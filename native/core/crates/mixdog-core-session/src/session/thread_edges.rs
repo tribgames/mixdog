@@ -290,23 +290,58 @@ impl ThreadEdgePublisher {
 /// The sink the index writer calls: the edges go to one task, in write order, so the notifications keep it.
 pub struct ThreadEdges {
     queue: tokio::sync::mpsc::UnboundedSender<RowEdge>,
+    /// The edges sent to the task so far, and those it has published.
+    counts: Arc<(std::sync::atomic::AtomicU64, tokio::sync::watch::Sender<u64>)>,
+    /// The waits in [`Self::settled`] that found an edge not yet published (a test's point where a pass waits for one).
+    #[cfg(any(test, feature = "test-support"))]
+    waited: tokio::sync::watch::Sender<u64>,
 }
 
 impl ThreadEdges {
     /// Starts the task that publishes the edges it is sent.
     pub fn start(publisher: ThreadEdgePublisher) -> Arc<Self> {
         let (queue, mut edges) = tokio::sync::mpsc::unbounded_channel();
+        let counts = Arc::new((std::sync::atomic::AtomicU64::new(0), tokio::sync::watch::Sender::new(0)));
+        let published = counts.clone();
         drop(mixdog_rt::spawn("thread-edges", mixdog_rt::TaskClass::Work, async move {
             while let Some(edge) = edges.recv().await {
                 publisher.publish(edge).await;
+                published.1.send_modify(|done| *done += 1);
             }
         }));
-        Arc::new(Self { queue })
+        Arc::new(Self {
+            queue,
+            counts,
+            #[cfg(any(test, feature = "test-support"))]
+            waited: tokio::sync::watch::Sender::new(0),
+        })
+    }
+
+    /// Waits until every edge the index writer has reported so far has been published (a write's edge is reported before the
+    /// write's own await returns, `mixdog_store::sqlite` `RowSink`). A room pass waits here before it reads, so a row it sends
+    /// never goes out ahead of the write's own notification (`thread/started` before any `thread/summary/updated` of the row).
+    pub async fn settled(&self) {
+        let sent = self.counts.0.load(std::sync::atomic::Ordering::SeqCst);
+        let mut done = self.counts.1.subscribe();
+        #[cfg(any(test, feature = "test-support"))]
+        {
+            if *done.borrow() < sent {
+                self.waited.send_modify(|waits| *waits += 1);
+            }
+        }
+        done.wait_for(|done| *done >= sent).await.expect("the counts are held by the sink");
+    }
+
+    /// The waits so far that found an edge not yet published.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn waits(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.waited.subscribe()
     }
 }
 
 impl RowSink for ThreadEdges {
     fn written(&self, edge: RowEdge) {
+        self.counts.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let _ = self.queue.send(edge);
     }
 }
