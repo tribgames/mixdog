@@ -1,0 +1,67 @@
+{
+  "command": "(cd <tree>/apps/desktop && node --import tsx benchmarks/rust-core/recorders/record-screen-control-video.mjs --tree <tree> --patch node-fix-helper-stale-socket.patch)",
+  "common": "benchmarks/rust-core/recorders/lib/common.mjs",
+  "commonSha256": "d4d0064b5b40d5fcb833a69fb3d68a69b1c1317606b5fe341c3445d5d0bbefd4",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 54750,
+      "path": "scenarios.json",
+      "sha256": "5c7788e6be60ba40a577bf83e7aa37a4470e6a3cc01ca84a3957ce5b66c7f4fa"
+    }
+  ],
+  "inputs": {
+    "scenarios": [
+      "a started capture run declares its epoch and the session geometry; the channel state carries status and video",
+      "a start the session refuses reports no geometry and the error",
+      "the helper path: a new unannounced run, the drawn track, frames at the plan’s rate; a delivery announces it and a seen grants control",
+      "a delivery or seen of another run, off the helper path, or while not running counts for nothing",
+      "the stall watchdog: 216 ms before two deliveries, then max(3 × average, average + 150) of the last 30 intervals",
+      "leaving the helper path ends the run, withdraws control and switches the track back; the watchdog is cleared",
+      "taking the helper hold starts a fresh run on the same path",
+      "the viewer’s channel lost on the helper path starts a new run and releases input; on the capture path it only releases",
+      "a helper challenge goes to the phone with the current run; a malformed one is never forwarded",
+      "a grant signed for the current run is relayed, one for another run dropped",
+      "screen input reaches the session with the geometry’s generation; page input and a rejection are errors",
+      "the session’s status, cursor, geometry and stop reach the sink and the channel",
+      "a frame-seen of a run, then the stall watchdog’s new run, then that run’s first delivery: control is granted for the seen run only",
+      "a delivery of the current run made before its stall watchdog fires clears it: the cleared watchdog starts no run",
+      "a frame-seen, then the session’s stop: control is granted before the stop, never after it",
+      "install and password requests reach the session"
+    ],
+    "tree": "export of b6f10295a2f698afc85332467192de28500bd146 with node-fix-helper-stale-socket.patch (sha256 35d457764abeceaf0b64b5a4e3d7f05b8ff5149ffa8c9eed0e5e4e2e7bafc5b2) applied"
+  },
+  "lib": "benchmarks/rust-core/recorders/record-screen-control-lib.mjs",
+  "libSha256": "2773fb248d6b5f2f60686f18c6fece766ebb8e4de65db58b3f728be860216fb5",
+  "node": "v22.20.0",
+  "product": {
+    "appsSha256": "18993e38af8ff30e2c3db944433187c7c9ab55f9ab560239caddd40ac6dcaf8a",
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "patch": {
+      "file": "node-fix-helper-stale-socket.patch",
+      "paths": [
+        "apps/desktop/src/main/secure-desktop/client.ts",
+        "apps/desktop/src/main/secure-desktop/secure-desktop.test.mjs"
+      ],
+      "sha256": "35d457764abeceaf0b64b5a4e3d7f05b8ff5149ffa8c9eed0e5e4e2e7bafc5b2"
+    },
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 2
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-screen-control-video.mjs",
+  "recorderSha256": "1fb29be8031e72e0925f8c09a67c616d5f120a15b376cc728e988b53812227d6",
+  "set": "screen-control/video",
+  "totalBytes": 54750
+}
