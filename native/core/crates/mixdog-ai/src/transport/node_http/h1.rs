@@ -241,7 +241,7 @@ impl BodyStream for H1Body {
                 None => {
                     self.incoming = None;
                     match self.decoder.as_mut() {
-                        // The stream must end whole: the steps left are taken at the top of the loop.
+                        // The body is over: the steps left, and how the stream finishes, are taken at the top of the loop.
                         Some(decoder) => decoder.end(),
                         None => {
                             self.release();

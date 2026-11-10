@@ -49,7 +49,8 @@ const serverFrame = (opcode, payload) => {
  * Listens on 127.0.0.1 and records into `traffic.sink`; `traffic.script` says what to answer:
  *   dials:   one per upgrade request: { accept: true, headers } or { accept: false, status, headers, body }
  *   ws:      one per data message received: a list of events (sent as text frames), or { events, then: 'close' | 'reset'
- *            | 'hold' } ('hold': nothing more is sent, and `traffic.held()` is called once the events are written)
+ *            | 'hold' | 'mute' } ('hold': nothing more is sent, and `traffic.held()` is called once the events are
+ *            written; 'mute': the client's close frames on this connection are no longer answered)
  *   http:    one per request: a list of events (a 200 event stream), or { status, headers, events | body, then: 'reset' }
  *   awaitClose: a connection number the scenario ends on once it closed
  * A request with nothing left to answer it is recorded, and `traffic.unanswered(kind)` is called.
@@ -72,6 +73,8 @@ export async function startWireServer({ traffic, keepRandom = false }) {
     let buffer = Buffer.alloc(0);
     let mode = 'head';
     let pending = null;
+    // `then: 'mute'`: the client's close frames are recorded, never answered (a close that ends slowly).
+    let muted = false;
     const consume = () => {
       for (;;) {
         if (mode === 'head') {
@@ -135,7 +138,7 @@ export async function startWireServer({ traffic, keepRandom = false }) {
       if (opcode === 1) event.text = payload.toString('utf8');
       else event.hex = payload.toString('hex');
       record(event);
-      if (opcode === 8) socket.write(serverFrame(8, payload));
+      if (opcode === 8 && !muted) socket.write(serverFrame(8, payload));
       if (opcode === 9) socket.write(serverFrame(10, payload));
       if (opcode === 1 || opcode === 2) answerWs();
       return true;
@@ -148,6 +151,7 @@ export async function startWireServer({ traffic, keepRandom = false }) {
       if (then === 'close') socket.end(serverFrame(8, Buffer.from([3, 232])));
       if (then === 'reset') socket.destroy();
       if (then === 'hold') socket.write('', () => traffic.held?.());
+      if (then === 'mute') muted = true;
     };
     const answerHttp = (line) => {
       // A HEAD request is a socket warm-up (Node's `preconnect`), not a turn: it is recorded and answered empty.
@@ -166,6 +170,8 @@ export async function startWireServer({ traffic, keepRandom = false }) {
       buffer = Buffer.concat([buffer, chunk]);
       consume();
     });
+    // A muted connection's end is part of the recording: when the client gave up on the close it asked for.
+    socket.once('close', () => { if (muted) record({ kind: 'closed' }); });
     socket.on('error', () => {});
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));

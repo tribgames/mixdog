@@ -2433,6 +2433,119 @@
       ]
     },
     {
+      "id": "openai-scope-disposed-mid-response",
+      "provider": "openai-oauth",
+      "fresh": true,
+      "turnId": "01a1c1e0-1360-7000-8000-000000000033",
+      "messages": [
+        {
+          "role": "user",
+          "content": "parity probe"
+        }
+      ],
+      "ws": [
+        {
+          "events": [
+            {
+              "type": "response.created",
+              "response": {
+                "id": "resp_parity_33",
+                "model": "gpt-6.1-sol"
+              }
+            }
+          ],
+          "then": "hold"
+        },
+        [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_parity_33",
+              "model": "gpt-6.1-sol"
+            }
+          },
+          {
+            "type": "response.completed",
+            "response": {
+              "id": "resp_parity_33",
+              "model": "gpt-6.1-sol",
+              "status": "completed",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 10,
+                "total_tokens": 110
+              },
+              "output": []
+            }
+          }
+        ]
+      ],
+      "disposeWhenHeld": true,
+      "registryRetry": true
+    },
+    {
+      "id": "openai-turn-state-owner-closing-slowly",
+      "provider": "openai-oauth",
+      "fresh": true,
+      "turnId": "01a1c1e0-1370-7000-8000-000000000034",
+      "messages": [
+        {
+          "role": "user",
+          "content": "parity probe"
+        }
+      ],
+      "ws": [
+        {
+          "events": [
+            {
+              "type": "response.created",
+              "response": {
+                "id": "resp_parity_34a",
+                "model": "gpt-6.1-sol"
+              },
+              "headers": {
+                "x-codex-turn-state": "ts-parity-34"
+              }
+            },
+            {
+              "type": "error",
+              "error": {
+                "type": "server_error",
+                "code": "server_error",
+                "message": "parity server error"
+              }
+            }
+          ],
+          "then": "mute"
+        },
+        [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_parity_34",
+              "model": "gpt-6.1-sol"
+            }
+          },
+          {
+            "type": "response.completed",
+            "response": {
+              "id": "resp_parity_34",
+              "model": "gpt-6.1-sol",
+              "status": "completed",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 10,
+                "total_tokens": 110
+              },
+              "output": []
+            }
+          }
+        ]
+      ],
+      "registryRetry": true,
+      "awaitClose": "first"
+    },
+    {
       "id": "anthropic-oauth-first-turn",
       "provider": "anthropic-oauth",
       "expectError": true,

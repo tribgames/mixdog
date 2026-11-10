@@ -293,28 +293,6 @@ async fn a_small_gzip_body_that_inflates_past_16_mib_is_read_whole() {
     assert!(steps.iter().all(|&n| n <= most), "every step holds at most {most} bytes");
 }
 
-// A7: a gzip body that stops before its trailer is an error at the end of the body.
-#[tokio::test]
-async fn a7_a_truncated_gzip_body_is_an_error() {
-    use std::io::Write;
-    let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
-    encoder.write_all(&b"a body that is cut short ".repeat(100)).unwrap();
-    let whole = encoder.finish().unwrap();
-    let cut = whole[..whole.len() - 6].to_vec();
-    let (addr, _) = listen(move |_, mut stream| {
-        let cut = cut.clone();
-        async move {
-            read_request(&mut stream).await;
-            let head = format!("HTTP/1.1 200 OK\r\ncontent-encoding: gzip\r\ncontent-length: {}\r\n\r\n", cut.len());
-            stream.write_all(head.as_bytes()).await.unwrap();
-            stream.write_all(&cut).await.unwrap();
-        }
-    })
-    .await;
-    let got = body(send(&link(), request("GET", format!("http://{addr}/"), &[], b"")).await.unwrap()).await;
-    assert!(got.is_err(), "a truncated stream is not a short success");
-}
-
 // A4: a pooled connection opened under one route is not used after the route changed.
 struct NoEnv;
 impl EnvLookup for NoEnv {
@@ -524,6 +502,80 @@ async fn h4_methods_are_written_or_refused_as_nodes_fetch_does() {
     }
     assert_eq!(serde_json::Value::Array(rust), node["methods"]);
     assert!(lines.try_recv().is_err(), "no refused method reached the socket");
+}
+
+// Every compressed body of Node's recording (`parity/node-decode-capture.mjs`, the product's `fetch` under the desktop
+// runtime) comes out of the core's body as it comes out of undici's: the same bytes, then the end, or an error (with
+// none of the failing read's bytes); more codings than undici takes fail the fetch with its text. Each case is served
+// as the recording served it: one write of the head and the body, then the end of the connection.
+#[tokio::test]
+async fn every_recorded_compressed_body_is_read_as_undici_reads_it() {
+    use sha2::{Digest, Sha256};
+    const RECORDING: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../benchmarks/terminal-bench-2.1/analysis/parity/fixtures/node-decode.json"));
+    const CAPTURE: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../benchmarks/terminal-bench-2.1/analysis/parity/node-decode-capture.mjs"));
+    let node: serde_json::Value = serde_json::from_str(RECORDING).unwrap();
+    assert_eq!(node["manifest"]["exact"], true);
+    assert!(node["manifest"]["only"].is_null(), "the committed recording is a whole one");
+    assert_eq!((&node["manifest"]["electron"], &node["manifest"]["node"], &node["manifest"]["undici"]), (&"43.8.4".into(), &"v24.22.1".into(), &"7.30.1".into()), "recorded under the desktop's runtime");
+    let sha: String = Sha256::digest(CAPTURE).iter().map(|b| format!("{b:02x}")).collect();
+    assert_eq!(node["manifest"]["harness"]["node-decode-capture.mjs"], sha.as_str(), "node-decode-capture.mjs changed since the recording");
+    let unhex = |s: &str| (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect::<Vec<u8>>();
+    let hex = |b: &[u8]| b.iter().map(|x| format!("{x:02x}")).collect::<String>();
+    let link = link();
+    let mut rust = Vec::new();
+    for case in node["cases"].as_array().unwrap() {
+        let encoding = case["encoding"].as_str().map(str::to_owned);
+        let wire = unhex(case["bodyHex"].as_str().unwrap());
+        let mut head = String::from("HTTP/1.1 200 OK\r\ncontent-type: application/octet-stream\r\n");
+        if let Some(encoding) = &encoding {
+            head.push_str(&format!("content-encoding: {encoding}\r\n"));
+        }
+        head.push_str(&format!("content-length: {}\r\nconnection: close\r\n\r\n", wire.len()));
+        let reply: &'static [u8] = Box::leak([head.as_bytes(), &wire].concat().into_boxed_slice());
+        let (addr, _) = listen(move |_, mut stream| async move {
+            read_request(&mut stream).await;
+            let _ = stream.write_all(reply).await;
+            let _ = stream.shutdown().await;
+        })
+        .await;
+        let mut entry = serde_json::json!({ "name": case["name"], "encoding": case["encoding"], "bodyHex": case["bodyHex"] });
+        let mut received = Vec::new();
+        match send(&link, request("GET", format!("http://{addr}/d"), &[], b"")).await {
+            Ok(mut response) => loop {
+                match tokio::time::timeout(WITHIN, response.body.next()).await.expect("a step within WITHIN") {
+                    None => {
+                        entry["end"] = "end".into();
+                        break;
+                    }
+                    Some(Ok(step)) => received.extend_from_slice(&step),
+                    // A body's error in Rust is a fault; Node's reader gets `TypeError: terminated` with zlib's error as
+                    // its cause.
+                    Some(Err(fault)) => {
+                        entry["end"] = "error".into();
+                        entry["error"] = case["error"].clone();
+                        entry["fault"] = format!("{fault:?}").into();
+                        break;
+                    }
+                }
+            },
+            Err(error) => {
+                entry["end"] = "error".into();
+                entry["error"] = serde_json::json!({ "name": "TypeError", "message": error.message, "cause": case["error"]["cause"] });
+            }
+        }
+        entry["receivedHex"] = hex(&received).into();
+        rust.push(entry);
+    }
+    // The faults are the core's own; everything else must be Node's.
+    let faults: Vec<String> = rust.iter_mut().filter_map(|e| e.as_object_mut().unwrap().remove("fault").map(|f| format!("{}: {}", e["name"], f))).collect();
+    let differences: Vec<String> = rust
+        .iter()
+        .zip(node["cases"].as_array().unwrap())
+        .filter(|(r, n)| r != n)
+        .map(|(r, n)| format!("{}: node {} {} bytes, rust {} {} bytes", n["name"], n["end"], n["receivedHex"].as_str().unwrap().len() / 2, r["end"], r["receivedHex"].as_str().unwrap().len() / 2))
+        .collect();
+    assert!(differences.is_empty(), "{} cases differ from Node's:\n{}\n(faults: {faults:?})", differences.len(), differences.join("\n"));
+    assert_eq!(rust.len(), node["cases"].as_array().unwrap().len());
 }
 
 // H5: a write that fails once bytes may have left is the request's error, not a reason to send it again (undici fails

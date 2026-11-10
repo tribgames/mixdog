@@ -43,6 +43,7 @@ use super::link::BodyStream;
 use super::link::HttpResponse;
 use super::link::Surface;
 use super::tcp;
+use decode::Codings;
 use decode::Decoder;
 use h1::BODY_TIMEOUT;
 use h1::H1Body;
@@ -597,8 +598,7 @@ impl NodeClient {
             .and_then(|v| v.split(',').find_map(|part| part.trim().strip_prefix("timeout=")?.trim().parse::<u64>().ok()))
             .map(Duration::from_secs);
         let ttl = hint.map_or(KEEP_ALIVE, |h| h.saturating_sub(KEEP_ALIVE_THRESHOLD).min(KEEP_ALIVE_MAX));
-        let bodiless = request.method == "HEAD" || matches!(status, 204 | 304);
-        let decoder = if bodiless { None } else { Decoder::of(find("content-encoding")) };
+        let decoder = decoding(&headers, &request.method, status, surface)?;
         let reuse = (!close && !server_closes && written).then(|| Reuse { pool: self.pool.clone(), key: key.to_owned(), ttl });
         Ok(HttpResponse { status, headers, body: Box::new(H1Body::new(incoming, conn, decoder, reuse)) })
     }
@@ -658,9 +658,28 @@ impl NodeClient {
             .iter()
             .map(|(k, v)| (k.as_str().to_owned(), String::from_utf8_lossy(v.as_bytes()).into_owned()))
             .collect();
-        let bodiless = request.method == "HEAD" || matches!(status, 204 | 304);
-        let decoder = if bodiless { None } else { Decoder::of(list.iter().find(|(n, _)| n == "content-encoding").map(|(_, v)| v.as_str())) };
+        let decoder = decoding(&list, &request.method, status, surface)?;
         Ok(HttpResponse { status, headers: list, body: Box::new(H2Body { stream: response.into_body(), decoder, ended: false, _guard: guard }) })
+    }
+}
+
+/// The decoder of a response's body (undici's `onHeaders`): none for a body that cannot have codings (`HEAD`, 204,
+/// 304) or whose codings leave it as it came. More codings than undici takes fail the fetch, as its `controller.abort`.
+fn decoding(headers: &[(String, String)], method: &str, status: u16, surface: Surface) -> Result<Option<Decoder>, Failure> {
+    if method == "HEAD" || matches!(status, 204 | 304) {
+        return Ok(None);
+    }
+    // `headersList.get('content-encoding')`: every line of the header, joined.
+    let lines: Vec<&str> = headers.iter().filter(|(name, _)| name.eq_ignore_ascii_case("content-encoding")).map(|(_, value)| value.as_str()).collect();
+    let joined = (!lines.is_empty()).then(|| lines.join(", "));
+    match Codings::of(joined.as_deref()) {
+        Codings::Plain => Ok(None),
+        Codings::Decode(decoder) => Ok(Some(decoder)),
+        Codings::TooMany(text) => {
+            let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::Accepted);
+            error.message = surface.text(|| text);
+            Err(Failure { error, replay: false })
+        }
     }
 }
 
@@ -700,7 +719,7 @@ impl BodyStream for H2Body {
                 Ok(data) => data,
             };
             let Some(data) = data else {
-                // The stream ended: a decoder that did not reach the end of its stream is a truncated body.
+                // The stream ended: the decoder finishes as undici's flush settings finish it.
                 self.ended = true;
                 match self.decoder.as_mut() {
                     Some(decoder) => {
