@@ -28,6 +28,49 @@ const FIXED = '2026-01-02T03:04:05Z';
 // path, written with forward slashes.
 const notebook = (cells) => JSON.stringify({ cells, metadata: {}, nbformat: 4, nbformat_minor: 5 }, null, 1);
 const SCENARIOS = [
+  // A missing `list` / `grep` path is answered with Node's recovery hints (search-path-diagnostics.mjs buildNotFoundHint):
+  // the same filename or directory name elsewhere, the entries under the nearest existing directory, a conclusive absence.
+  {
+    name: 'not-found-hints',
+    files: {
+      'app/main.ts': 'export const x = 1;\n',
+      'app/README.md': '# app\n',
+      'app/run.log': 'log\n',
+      'app/src/util.ts': 'export const u = 1;\n',
+      'app/src/lib/helpers.ts': 'export const h = 1;\n',
+      'app/docs/guide.md': '# guide\n',
+      'app/build/util.ts': 'export const b = 1;\n',
+      'app/.hidden/util.ts': 'export const h = 1;\n',
+      'app/node_modules/pkg/index.js': 'module.exports = 1;\n',
+      'app/one/assets/a.txt': 'a\n',
+      'app/two/assets/b.txt': 'b\n',
+      'shared/a.ts': 'export const a = 1;\n',
+      'emptydir/.keep': '',
+    },
+    cwd: 'app',
+    warmup: [{ tool: 'grep', input: { pattern: 'warmup-none' } }],
+    calls: [
+      { tool: 'list', input: { path: 'nope' } },
+      { tool: 'list', input: { path: 'nope.txt' } },
+      { tool: 'list', input: { path: 'util.ts' } },
+      { tool: 'list', input: { path: 'lib' } },
+      { tool: 'list', input: { path: 'assets' } },
+      { tool: 'list', input: { path: 'README.md/x' } },
+      { tool: 'list', input: { path: 'a, b' } },
+      { tool: 'list', input: { path: 'src/nope/deeper' } },
+      { tool: 'list', input: { path: 'nope/*.ts' } },
+      { tool: 'list', input: { path: '../nope' } },
+      { tool: 'list', input: { path: '../emptydir/nope' } },
+      { tool: 'list', input: { path: '../nolib/*.ts' } },
+      { tool: 'grep', input: { pattern: 'x', path: 'nope' } },
+      { tool: 'grep', input: { pattern: 'x', path: 'nope.txt' } },
+      { tool: 'grep', input: { pattern: 'x', path: 'util.ts' } },
+      { tool: 'grep', input: { pattern: 'x', path: 'lib' } },
+      { tool: 'grep', input: { pattern: 'x', path: '../nope' } },
+      { tool: 'grep', input: { pattern: 'x', path: 'a, b' } },
+      { tool: 'grep', input: { pattern: ['x', 'y'], path: 'nope' } },
+    ],
+  },
   // gaps-tools item 10: a reference scan past REFERENCE_HIT_CAP says it was cut (code-graph/search.mjs _cheapReferenceSearch),
   // and a symbol miss names a differently-cased spelling the graph's token index holds (search-references.mjs
   // _formatNoSymbolMatches).

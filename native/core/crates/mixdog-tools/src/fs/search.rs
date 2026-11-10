@@ -745,15 +745,9 @@ impl GrepTool {
         let abs = resolve_path(&ctx.cwd, raw)?;
         let stat = match guarded(ctx, "grep", ctx.files.stat(ctx.io.interactive, abs.clone())).await? {
             Ok(s) => s,
-            Err(e) if matches!(e.kind, FsErrorKind::NotFound | FsErrorKind::NotADirectory) => {
-                let hint = ReadTool::not_found(ctx, raw, &abs).await;
-                let hint = hint.trim_start_matches("[path absent] ENOENT: no such file or directory, stat ");
-                return Ok((
-                    Vec::new(),
-                    true,
-                    format!("Error: path does not exist: {} (ENOENT) {hint}", fwd(abs.as_path())),
-                    false,
-                ));
+            Err(e) if super::not_found::missing_code(&e.kind).is_some() => {
+                let code = super::not_found::missing_code(&e.kind).unwrap_or("ENOENT");
+                return Ok((Vec::new(), true, super::not_found::grep_missing(ctx, &abs, raw, code).await, false));
             }
             Err(e) => return Err(fs_failure(&e, raw)),
         };

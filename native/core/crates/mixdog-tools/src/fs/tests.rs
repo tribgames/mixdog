@@ -253,7 +253,10 @@ async fn replay_fs_search(scenario: &str) {
         // The recorder's rule: a text that starts as an error is one.
         let is_error = is_error
             || text.strip_prefix("Error").and_then(|rest| rest.chars().next()).is_some_and(|c| c.is_whitespace() || c == ':' || c == '[');
-        let text = text.replace(&raw, "<ROOT>").replace(&fwd, "<ROOT>");
+        // An error message names the workspace behind the prefix it lies under (home, data dir); the recording's
+        // workspace lay under none, so that spelling is the workspace too.
+        let redacted = super::read_paths::redact(&fwd, None);
+        let text = text.replace(&raw, "<ROOT>").replace(&fwd, "<ROOT>").replace(&redacted, "<ROOT>");
         let want = call["text"].as_str().unwrap_or_else(|| panic!("call {index} threw in Node"));
         if text != want || is_error != (call["isError"] == true) {
             failures.push(format!("#{index} {tool} {}:\n  want ({}) {want:?}\n  got  ({is_error}) {text:?}", call["input"], call["isError"]));
@@ -279,6 +282,12 @@ async fn glob_answers_absolute_patterns_as_node_does() {
 #[tokio::test]
 async fn read_answers_a_notebook_as_node_does() {
     replay_fs_search("read-ipynb").await;
+}
+
+/// A missing `list` / `grep` path carries Node's recovery hints.
+#[tokio::test]
+async fn list_and_grep_answer_a_missing_path_as_node_does() {
+    replay_fs_search("not-found-hints").await;
 }
 
 /// gaps-tools item 6: several content patterns are independent greps, one section each.
