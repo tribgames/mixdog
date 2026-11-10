@@ -263,6 +263,36 @@ async fn a6_a_chunked_body_with_content_length_does_not_keep_the_connection() {
     assert_eq!(accepted.load(Ordering::SeqCst), 2, "the second request is on a new connection");
 }
 
+// A body whose compressed bytes are small and whose decoded size is past 16 MiB is read whole, as undici reads it (no
+// limit on the decoded output); the decoder hands it on in bounded steps.
+#[tokio::test]
+async fn a_small_gzip_body_that_inflates_past_16_mib_is_read_whole() {
+    use std::io::Write;
+    let plain = vec![b'a'; 20 << 20];
+    let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    encoder.write_all(&plain).unwrap();
+    let wire = encoder.finish().unwrap();
+    let head = format!("HTTP/1.1 200 OK\r\ncontent-encoding: gzip\r\ncontent-length: {}\r\n\r\n", wire.len());
+    let reply: &'static [u8] = Box::leak([head.as_bytes(), &wire].concat().into_boxed_slice());
+    let (addr, _) = listen(move |_, mut stream| async move {
+        read_request(&mut stream).await;
+        stream.write_all(reply).await.unwrap();
+    })
+    .await;
+    let mut response = send(&link(), request("GET", format!("http://{addr}/"), &[], b"")).await.unwrap();
+    let mut read = Vec::new();
+    let mut steps = Vec::new();
+    while let Some(step) = tokio::time::timeout(WITHIN, response.body.next()).await.expect("a step within WITHIN") {
+        let step = step.unwrap();
+        steps.push(step.len());
+        read.extend_from_slice(&step);
+    }
+    assert!(read == plain, "the whole decoded body");
+    // One compressed read inflates to far more than a step: it comes out as many bounded steps.
+    let most = mixdog_ai::transport::node_http::DECODED_STEP;
+    assert!(steps.iter().all(|&n| n <= most), "every step holds at most {most} bytes");
+}
+
 // A7: a gzip body that stops before its trailer is an error at the end of the body.
 #[tokio::test]
 async fn a7_a_truncated_gzip_body_is_an_error() {
