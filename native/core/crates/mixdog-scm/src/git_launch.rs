@@ -275,6 +275,13 @@ pub fn launch_for(base: &Env) -> Launch {
     Launch { program: layout.command, env: changed }
 }
 
+/// [launch_for] when this PATH was resolved before: no file system is touched then, so a caller may take it without leaving its turn.
+pub fn launch_if_resolved(base: &Env) -> Option<Launch> {
+    let path = env_value(base, "PATH").unwrap_or_default();
+    let known = resolved().lock().unwrap_or_else(|e| e.into_inner()).contains_key(&path);
+    known.then(|| launch_for(base))
+}
+
 /// `gitCommand()`: the program a git child of this process is started with, and the one a
 /// timeout message names (`run-child.mjs`: `${command} ${args} timed out after ${ms}ms`).
 pub fn git_command() -> String {
