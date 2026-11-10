@@ -1,8 +1,0 @@
-{
-  "tool-failures-writer": {
-    "open": true,
-    "owner": "rs-tool-failures",
-    "what": "mixdogd writes no history/tool-failures.jsonl: AgentTrace::append_tool_failure (native/core/crates/mixdog-trace) is not wired to Node's two call sites, agent-trace-format.mjs:532 and agent-progress-watchdog.mjs:204 (writer _appendToolFailureRow, agent-trace-io.mjs:417)"
-  }
-}
-

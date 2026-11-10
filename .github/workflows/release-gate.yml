@@ -880,7 +880,7 @@ jobs:
       - name: Install
         run: npm ci --prefer-offline --no-audit --no-fund
       - name: Check the lanes still name real tests
-        run: node --test scripts/rust-core/k1-lanes.test.mjs
+        run: node --test scripts/rust-core/k1-lanes.test.mjs scripts/rust-core/process-tree.test.mjs benchmarks/token-lang/measure-exec.test.mjs
       - name: Run the lanes
         env:
           CARGO_BUILD_JOBS: "3"
@@ -890,12 +890,13 @@ jobs:
           CARGO_BUILD_JOBS: "3"
         run: |
           # The shipped profile: boot-smoke's 5000 ms budget is for the build users run, and a debug mixdogd boots in 10-15 s.
+          # Red by design while mixdogd writes no history/tool-failures.jsonl (owner rs-tool-failures): the smoke fails naming it.
           cargo build --release --locked --manifest-path native/core/Cargo.toml -p mixdog-cli --bin mixdogd
           node scripts/rust-core/smoke-mixdogd.mjs --mixdogd native/core/target/release/mixdogd
-      - name: Check that a stop past its deadline ends the core it started
+      - name: Check that a stop past its deadline ends the core it started, and the smoke's verdicts
         env:
           MIXDOGD_BIN: native/core/target/release/mixdogd
-        run: node --test scripts/rust-core/core-session.test.mjs
+        run: node --test scripts/rust-core/core-session.test.mjs scripts/rust-core/smoke-mixdogd.test.mjs
 
   # The Node step "Verify advisory file locks on Windows" (desktop-tests) ran the advisory-lock suites on a Windows
   # runner; Windows file locking is its own implementation, so its Rust replacement runs there too.
