@@ -1095,8 +1095,8 @@
       "list": "operations",
       "name": "browserRemoteFrame",
       "target": {
-        "kind": "mediaFrame",
-        "target": "browserView"
+        "kind": "clientNotification",
+        "target": "host/browser/frame"
       }
     },
     {
@@ -1776,8 +1776,8 @@
       "list": "services",
       "name": "resolveToolApprovalForSession",
       "target": {
-        "kind": "serverRequestResponse",
-        "target": "item/tool/requestApproval"
+        "kind": "method",
+        "target": "thread/approval/answer"
       }
     },
     {
@@ -2242,16 +2242,16 @@
       "list": "remote",
       "name": "resolveToolApprovalForSession",
       "target": {
-        "kind": "serverRequestResponse",
-        "target": "item/tool/requestApproval"
+        "kind": "method",
+        "target": "thread/approval/answer"
       }
     },
     {
       "list": "remote",
       "name": "answerApprovalNotification",
       "target": {
-        "kind": "serverRequestResponse",
-        "target": "item/tool/requestApproval"
+        "kind": "method",
+        "target": "thread/approval/answerNotification"
       }
     },
     {
