@@ -60,6 +60,50 @@ const SCENARIOS = [
       { tool: 'read', input: { path: 'a.txt', mode: 'summary' } },
     ],
   },
+  // A public read's `mode` and `full`, and which read shapes render a notebook's cells (read-single-tool.mjs,
+  // read-single-media.mjs, read-special-files.mjs extractIpynbText) and which refuse it.
+  {
+    name: 'read-shapes',
+    files: {
+      'nb.ipynb': notebook([
+        { cell_type: 'markdown', metadata: {}, source: ['# Title\n', 'Some *text*.'] },
+        { cell_type: 'code', execution_count: 1, metadata: {}, source: ['x = 1\n', 'print(x)'], outputs: [
+          { output_type: 'stream', name: 'stdout', text: ['1\n'] },
+          { output_type: 'execute_result', execution_count: 1, metadata: {}, data: { 'text/plain': ['2'], 'text/html': ['<b>2</b>'] } },
+        ] },
+        { cell_type: 'raw', metadata: {}, source: ['raw text'] },
+        { cell_type: 'code', execution_count: null, metadata: {}, source: 'y = 2', outputs: [] },
+        { cell_type: 'code', execution_count: 2, metadata: {}, source: [], outputs: [{ output_type: 'error', ename: 'E', evalue: 'v', traceback: [] }] },
+        { cell_type: 'markdown', metadata: {}, source: [] },
+      ]),
+      'big.ipynb': notebook([{ cell_type: 'code', execution_count: 1, metadata: {}, source: ['print("x" * 12000)'], outputs: [{ output_type: 'stream', name: 'stdout', text: ['x'.repeat(12000)] }] }]),
+      'empty.ipynb': notebook([]),
+      'blank.ipynb': notebook([{ cell_type: 'markdown', metadata: {}, source: [] }]),
+      'nocells.ipynb': JSON.stringify({ metadata: {} }),
+      'bad.ipynb': '{"cells": [',
+      'UPPER.IPYNB': notebook([{ cell_type: 'markdown', metadata: {}, source: ['upper'] }]),
+      'a.txt': Array.from({ length: 30 }, (_, i) => `line ${i + 1}`).join('\n') + '\n',
+    },
+    calls: [
+      { tool: 'read', input: { path: 'nb.ipynb' } },
+      { tool: 'read', input: { path: 'nb.ipynb', full: true } },
+      { tool: 'read', input: { path: 'nb.ipynb', full: true } },
+      { tool: 'read', input: { file_path: 'nb.ipynb', full: true } },
+      { tool: 'read', input: { path: ['nb.ipynb', 'a.txt'] } },
+      { tool: 'read', input: { path: ['nb.ipynb', 'a.txt'], full: true } },
+      { tool: 'read', input: { file_path: ['nb.ipynb', 'a.txt'], full: true } },
+      { tool: 'read', input: { path: 'n*.ipynb' } },
+      { tool: 'read', input: { path: 'n*.ipynb', full: true } },
+      { tool: 'read', input: { file_path: 'n*.ipynb', full: true } },
+      { tool: 'read', input: { path: 'big.ipynb', full: true } },
+      { tool: 'read', input: { path: 'empty.ipynb', full: true } },
+      { tool: 'read', input: { path: 'blank.ipynb', full: true } },
+      { tool: 'read', input: { path: 'nocells.ipynb', full: true } },
+      { tool: 'read', input: { path: 'bad.ipynb', full: true } },
+      { tool: 'read', input: { path: 'UPPER.IPYNB', full: true } },
+      { tool: 'read', input: { path: 'nb.ipynb', full: true, offset: 2 } },
+    ],
+  },
   // A missing `list` / `grep` path is answered with Node's recovery hints (search-path-diagnostics.mjs buildNotFoundHint):
   // the same filename or directory name elsewhere, the entries under the nearest existing directory, a conclusive absence.
   {
@@ -148,8 +192,9 @@ const SCENARIOS = [
       { tool: 'code_graph', input: { mode: 'callers', symbols: ['target'], file: 'src/use.ts' } },
     ],
   })),
-  // gaps-tools item 8: a `.ipynb` read goes to Node's notebook extractor (read-single-media.mjs), never the raw JSON. Every
-  // public read reaches it with a window (offset/limit), so the extractor refuses it (read-special-files.mjs extractIpynbText).
+  // gaps-tools item 8: a `.ipynb` read goes to Node's notebook extractor (read-single-media.mjs), never the raw JSON. The
+  // extractor refuses a read with a window (offset/limit), which every `file_path` read carries, and renders the cells of
+  // one without (read-special-files.mjs extractIpynbText).
   {
     name: 'read-ipynb',
     files: {

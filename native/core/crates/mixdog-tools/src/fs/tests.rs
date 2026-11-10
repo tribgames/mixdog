@@ -352,6 +352,12 @@ async fn read_honours_mode_as_node_does() {
     replay_fs_search("read-modes").await;
 }
 
+/// The read shapes that render a notebook's cells and the ones that refuse them.
+#[tokio::test]
+async fn read_renders_or_refuses_a_notebook_as_node_does() {
+    replay_fs_search("read-shapes").await;
+}
+
 /// A missing `list` / `grep` path carries Node's recovery hints.
 #[tokio::test]
 async fn list_and_grep_answer_a_missing_path_as_node_does() {
