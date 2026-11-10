@@ -94,6 +94,9 @@ impl LocalMemory {
 
     /// The `memory` tool's reply, with the error flag the text alone does not carry.
     pub async fn memory_reply(&self, args: &Value) -> ToolReply {
+        if args.get("action").and_then(Value::as_str) == Some("status") {
+            return crate::memory::status::status(&self.db).await;
+        }
         let ctx = CoreContext { db: &self.db, data_dir: &self.data_dir, session_cwd: None, snapshot_revision: &self.revision, lane: self.lane };
         run(&ctx, args).await
     }
