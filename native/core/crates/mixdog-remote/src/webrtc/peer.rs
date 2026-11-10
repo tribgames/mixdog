@@ -13,6 +13,7 @@ use std::time::Instant;
 
 use mixdog_rt::Scope;
 use mixdog_rt::Scoped;
+use rtc::ice::mdns::MulticastDnsMode;
 use rtc::peer_connection::configuration::RTCOfferOptions;
 use rtc::peer_connection::transport::RTCIceServerTransportProtocol;
 use tokio::sync::mpsc;
@@ -218,6 +219,65 @@ pub(crate) async fn open(
     media: Option<MediaSetup>,
 ) -> Result<Opened, PeerFault> {
     config.validate()?;
+    let mdns = mdns_mode(config);
+    #[cfg(test)]
+    config.hooks.builds.lock().unwrap().push(mdns);
+    let (tx, rx) = mpsc::unbounded_channel();
+    let pc = build(config, media, mdns, tx)
+        .await
+        .map_err(|e| PeerFault::new(PeerFailure::PeerHostUnavailable, e.to_string()))?;
+    Ok(Opened {
+        events: PeerEvents {
+            rx,
+            pc: Arc::clone(&pc),
+        },
+        pc,
+    })
+}
+
+/// Whether this machine lets a connection resolve a peer's mDNS `.local` candidates.
+///
+/// With mDNS on, the crate's driver opens and joins one multicast socket
+/// (`MulticastSocket::new().into_std()`: bind `0.0.0.0:5353`, join 224.0.0.251 on the interface
+/// the system routes multicast to, rtc-mdns `socket.rs:171-209`) and fails the whole build when
+/// the machine refuses it: a Windows whose multicast route leads to an adapter without a usable
+/// address answers the join with `WSAEHOSTUNREACH` (os error 10065). That refusal reaches
+/// `build` only as `Error::Other(text)` (webrtc `driver.rs:645` `?`, `:741`), the same shape as
+/// any other transport failure, so it cannot be told apart there. The same socket is therefore
+/// opened and joined here first, with the same options, and closed again before the build;
+/// mDNS is left off only when this machine refuses it. Node's peer is Chromium's
+/// `RTCPeerConnection` (`remote-transport-peer.ts:728`, `remote-webrtc-sender/main.ts:173-177`),
+/// which comes up whatever mDNS can do and only leaves such a name unresolved (Node accepts
+/// `.local` candidates, `shared/remote-webrtc.ts:1003-1011`).
+fn mdns_mode(config: &PeerConfig) -> MulticastDnsMode {
+    match open_mdns_socket(config) {
+        // Closed here, before the driver binds the same port.
+        Ok(socket) => {
+            drop(socket);
+            MulticastDnsMode::QueryOnly
+        }
+        Err(error) => {
+            tracing::warn!("mixdog remote: this machine refuses the mDNS socket ({error}); the peer connection runs without resolving .local candidates");
+            MulticastDnsMode::Disabled
+        }
+    }
+}
+
+fn open_mdns_socket(config: &PeerConfig) -> std::io::Result<std::net::UdpSocket> {
+    #[cfg(test)]
+    if let Some(open) = config.hooks.mdns_socket {
+        return open();
+    }
+    let _ = config;
+    rtc::mdns::MulticastSocket::new().into_std()
+}
+
+async fn build(
+    config: &PeerConfig,
+    media: Option<MediaSetup>,
+    mdns: MulticastDnsMode,
+    tx: mpsc::UnboundedSender<Raw>,
+) -> Result<Arc<dyn PeerConnection>, webrtc::error::Error> {
     let ice_servers = config
         .ice_servers
         .iter()
@@ -234,8 +294,8 @@ pub(crate) async fn open(
         .build();
     let settings = SettingEngineBuilder::new()
         .with_include_loopback_candidate(config.include_loopback)
+        .with_multicast_dns_mode(mdns)
         .build();
-    let (tx, rx) = mpsc::unbounded_channel();
     let mut builder = PeerConnectionBuilder::new()
         .with_configuration(rtc_config)
         .with_setting_engine(settings)
@@ -246,19 +306,11 @@ pub(crate) async fn open(
             .with_media_engine(media.engine)
             .with_interceptor_registry(media.registry);
     }
-    let pc: Arc<dyn PeerConnection> = Arc::new(
-        builder
-            .build()
-            .await
-            .map_err(|e| PeerFault::new(PeerFailure::PeerHostUnavailable, e.to_string()))?,
-    );
-    Ok(Opened {
-        events: PeerEvents {
-            rx,
-            pc: Arc::clone(&pc),
-        },
-        pc,
-    })
+    #[cfg(test)]
+    if let Some(runtime) = &config.hooks.runtime {
+        builder = builder.with_runtime(Arc::clone(runtime));
+    }
+    Ok(Arc::new(builder.build().await?))
 }
 
 /// The first offer, or an ICE restart on the same connection. Returns the local SDP.
@@ -362,6 +414,23 @@ pub(crate) async fn selected_pair(pc: &dyn PeerConnection) -> Option<CandidatePa
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The open and join of the mDNS socket on a machine that allows it.
+    fn allowed_mdns_join() -> std::io::Result<std::net::UdpSocket> {
+        std::net::UdpSocket::bind("127.0.0.1:0")
+    }
+
+    /// A machine that allows the mDNS socket builds the connection with `.local` resolution on.
+    /// Only the mode is asserted: whether the driver's own join then succeeds is the machine's
+    /// (this PC refuses it at times), so the build's outcome is not part of this test.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_machine_that_allows_the_mdns_socket_builds_with_mdns_resolution_on() {
+        let mut config = PeerConfig::new(vec![]);
+        config.udp_bind = vec!["127.0.0.1:0".to_owned()];
+        config.hooks.mdns_socket = Some(allowed_mdns_join);
+        let _built = tokio::time::timeout(Duration::from_secs(20), open(&config, None)).await.expect("the open answers within the test bound");
+        assert_eq!(*config.hooks.builds.lock().unwrap(), vec![MulticastDnsMode::QueryOnly], "one build, with mDNS resolution on");
+    }
 
     #[tokio::test(start_paused = true)]
     async fn a_step_that_never_finishes_ends_at_the_budget() {
