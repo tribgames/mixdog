@@ -101,6 +101,12 @@ slow-timeout = { period = "60s", terminate-after = 6 }
 [[profile.default.overrides]]
 filter = 'package(mixdog-workspace) & test(=nothing_runs_while_idle_and_external_writes_are_pushed)'
 threads-required = 'num-test-threads'
+# The real-kill replay runs Node's recorded hung alias under Node's recorded limit (5 s): the real git has to start its shell and the
+# shell create the held file inside that time, which cannot be given a clock. Beside the rest of the workspace run it did not
+# (2026-11-11, "the alias was reached" failed at 8.6 s). It takes every test thread, so it runs alone.
+[[profile.default.overrides]]
+filter = 'package(mixdog-core-review) & test(=turn_review::git_bound_tests::a_real_hung_git_is_killed_at_its_limit_with_its_tree)'
+threads-required = 'num-test-threads'
 # The tag gates run real 1.4.5 daemons and cores against the daemon's lease and fence timings (daemon-owner.mjs): a daemon's event loop stalled 1-5 s while 17 of them ran together,
 # and the simultaneous-start gates start twenty processes per rep. One at a time, they do not load each other.
 [[profile.default.overrides]]
