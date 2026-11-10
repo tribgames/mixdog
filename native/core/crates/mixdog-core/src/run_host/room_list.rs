@@ -4,9 +4,9 @@
 //! name, its last message time and the room summary (`agentRoom`); member sessions and the log
 //! rows of rooms that are gone are left out.
 //!
-//! The listing is paged here (`thread/list`), so a room whose log has no listed row gets no
-//! made-up row of its own (Node's whole-catalog `unlisted` rows): the log session is created
-//! before the room record, so such a room exists only when that create failed.
+//! A room whose log has no catalog row gets the row Node's catalog makes up for it (`unlisted`,
+//! [`unlisted_rows`]); the listing puts those first on its unfiltered first page, as the whole
+//! catalog does.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -52,6 +52,38 @@ pub fn with_rooms(
         .collect()
 }
 
+/// The rows `catalogWithRooms` makes up for rooms whose log has no catalog row (`unlisted`): the room's name, its last message time
+/// (else its creation) and its summary, as a task thread with nothing in it.
+pub fn unlisted_rows(
+    rooms: &[RoomRecord],
+    logs: &[ThreadId],
+    summary_of: impl Fn(&RoomRecord) -> Value,
+) -> Vec<ThreadSummary> {
+    rooms
+        .iter()
+        .filter_map(|room| {
+            let log = room_session_id(&room.id)?;
+            if !logs.iter().any(|id| id.as_str() == log) {
+                return None;
+            }
+            let at = room.last_at.unwrap_or(room.created_at);
+            let row = serde_json::json!({
+                "id": log,
+                "preview": "",
+                "title": room.config.name,
+                "updatedAt": at,
+                "activityAt": at,
+                "messageCount": 0,
+                "cwd": "",
+                "classification": "task",
+                "projectPath": null,
+                "agentRoom": summary_of(room),
+            });
+            Some(serde_json::from_value(row).expect("a made-up room row is a thread summary"))
+        })
+        .collect()
+}
+
 pub struct RoomListRows<S: RoomStore> {
     rooms: Arc<Rooms<S>>,
     runner: Arc<dyn RoomRunner>,
@@ -81,6 +113,12 @@ impl<S: RoomStore + 'static> ListRooms for RoomListRows<S> {
         let rooms = self.rooms.list().await.map_err(|error| error.to_string())?;
         Ok(rooms.iter().filter_map(|room| room_session_id(&room.id)).map(ThreadId::from).collect())
     }
+
+    async fn unlisted(&self, logs: &[ThreadId]) -> Result<Vec<ThreadSummary>, String> {
+        let rooms = self.rooms.list().await.map_err(|error| error.to_string())?;
+        let names = self.names.names().await;
+        Ok(unlisted_rows(&rooms, logs, |room| room_summary(room, &names, self.runner.is_running(&room.id))))
+    }
 }
 
 #[cfg(test)]
@@ -108,8 +146,7 @@ mod tests {
                 .collect();
             let running: HashSet<String> = serde_json::from_value(case["running"].clone()).unwrap();
             let out = with_rooms(rows, &rooms, |room| room_summary(room, &names, running.contains(&room.id)));
-            let want: Vec<ThreadSummary> = serde_json::from_value(case["out"].clone()).unwrap();
-            assert_eq!(serde_json::to_value(&out).unwrap(), serde_json::to_value(&want).unwrap(), "{}", case["name"]);
+            assert_eq!(serde_json::to_value(&out).unwrap(), case["out"], "{}", case["name"]);
         }
     }
 }

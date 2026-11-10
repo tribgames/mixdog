@@ -148,6 +148,11 @@ impl SessionSearchDb {
         Ok(Self { db })
     }
 
+    /// Over a handle whose schema was created by whoever opened it (a deferred handle creates it when it opens).
+    pub fn over(db: Db) -> Self {
+        Self { db }
+    }
+
     /// Idempotent append of a transcript's searchable messages; returns the
     /// count of newly stored rows. Re-sending a stored message is a no-op.
     pub async fn append(&self, session_id: &str, messages: &[Value]) -> Result<u64> {

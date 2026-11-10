@@ -179,37 +179,47 @@ async fn shared_http_link_returns_status_headers_and_a_streaming_body() {
     assert_eq!(all.body, b"hi");
 }
 
-#[tokio::test]
+// Driven by the paused clock with explicit advances: hyper's HTTP/2 keep-alive takes its timers from tokio, so virtual time
+// is moved by this test, a step at a time, once the peer has the client's preface; the instants asserted are the
+// schedule's own, whatever the machine's load.
+#[tokio::test(start_paused = true)]
 async fn silent_http2_peer_fails_the_request_within_the_schedule() {
     // A cleartext peer that accepts and swallows bytes: it never sends its
-    // SETTINGS or a PING ack.
+    // SETTINGS or a PING ack. It says when it has the client's preface.
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
+    let (has_preface, preface) = tokio::sync::oneshot::channel::<()>();
     let server = tokio::spawn(async move {
         let (mut stream, _) = listener.accept().await.unwrap();
         let mut sink = [0u8; 4096];
-        while stream.read(&mut sink).await.map_or(false, |n| n > 0) {}
+        let mut has_preface = Some(has_preface);
+        while stream.read(&mut sink).await.map_or(false, |n| n > 0) {
+            if let Some(tx) = has_preface.take() {
+                let _ = tx.send(());
+            }
+        }
     });
     let schedule = fast();
     let client = http::client_builder(&schedule)
         .http2_prior_knowledge()
         .build()
         .unwrap();
-    let started = Instant::now();
-    let err = client
-        .get(format!("http://{addr}/"))
-        .send()
-        .await
-        .expect_err("the request ends as a socket error");
+    let url = format!("http://{addr}/");
+    let request = tokio::spawn(async move { client.get(url).send().await });
+    // Real I/O first (connect, preface); no virtual time has to pass for it.
+    tokio::time::timeout(Duration::from_secs(10), preface).await.expect("the peer receives the preface within 10 s").unwrap();
+    let started = tokio::time::Instant::now();
+    let bound = (schedule.h2.interval + schedule.h2.timeout) * 3;
+    let step = Duration::from_millis(10);
+    while !request.is_finished() {
+        assert!(started.elapsed() < bound, "the request is still open {:?} into the schedule", started.elapsed());
+        tokio::time::advance(step).await;
+    }
+    let err = request.await.unwrap().expect_err("the request ends as a socket error");
     let (fault, _) = fault_from_reqwest(&err);
-    assert!(
-        started.elapsed() < (schedule.h2.interval + schedule.h2.timeout) * 3,
-        "within the schedule, took {:?} ({fault:?})",
-        started.elapsed()
-    );
+    assert!(started.elapsed() < bound, "within the schedule, took {:?} ({fault:?})", started.elapsed());
     server.abort();
 }
-
 /// A server whose `/final` answers 200 `land` and whose every other path answers a 302 to it.
 async fn redirecting_server() -> std::net::SocketAddr {
     use tokio::io::AsyncWriteExt;

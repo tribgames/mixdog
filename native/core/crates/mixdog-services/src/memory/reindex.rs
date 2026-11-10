@@ -166,7 +166,18 @@ impl Reindex {
         let running = self.state.lock().expect("reindex state").running.take();
         if let Some(Running { cancel, task, .. }) = running {
             cancel.cancel();
+            // A stop abandoned while it waits ends the run it took.
+            let _abandoned = crate::memory::AbortOnDrop(task.abort_handle());
             let _ = task.await;
+        }
+    }
+
+    /// The stop's bound passed before [`Self::stop`] took the run: it is cancelled and aborted.
+    pub fn abandon(&self) {
+        let running = self.state.lock().expect("reindex state").running.take();
+        if let Some(Running { cancel, task, .. }) = running {
+            cancel.cancel();
+            task.abort();
         }
     }
 

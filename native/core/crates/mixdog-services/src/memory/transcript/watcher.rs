@@ -253,6 +253,8 @@ impl TranscriptWatcher {
         // The first failure is kept and returned only after every task has been joined.
         let mut first: Option<MemoryError> = None;
         let tasks: Vec<_> = self.tasks.lock().expect("tasks").drain(..).collect();
+        // A wait abandoned at the stop's bound ends what it took; what it had not taken yet is [`Self::abandon`]'s.
+        let _abandoned: Vec<_> = tasks.iter().map(|task| crate::memory::AbortOnDrop(task.abort_handle())).collect();
         for task in tasks {
             if let Err(error) = task.await {
                 first.get_or_insert_with(|| MemoryError::Runtime(error.to_string()));
@@ -260,6 +262,7 @@ impl TranscriptWatcher {
         }
         self.close_timers();
         let ingests: Vec<_> = self.shared.ingests.lock().expect("ingests").drain(..).collect();
+        let _abandoned_ingests: Vec<_> = ingests.iter().map(|task| crate::memory::AbortOnDrop(task.abort_handle())).collect();
         for task in ingests {
             // A timer cut short by `stop` is cancelled, not failed.
             if let Err(error) = task.await
@@ -269,6 +272,17 @@ impl TranscriptWatcher {
             }
         }
         first.map_or(Ok(()), Err)
+    }
+
+    /// The stop's bound passed: everything the watcher started and [`Self::finished`] had not taken yet (its tasks, the ingestions running) is aborted.
+    pub fn abandon(&self) {
+        self.stop();
+        for task in self.tasks.lock().expect("tasks").drain(..) {
+            task.abort();
+        }
+        for task in self.shared.ingests.lock().expect("ingests").drain(..) {
+            task.abort();
+        }
     }
 }
 

@@ -339,6 +339,42 @@ pub enum RunEvent {
     /// instant it does and in completion order, before its result commits in call order: the UI's live row and the
     /// interruption (which keeps what the stop left uncommitted) both read it. `Error` kind only for a thrown call.
     EarlyResult(AgentMessage),
+    /// The audit of one assistant turn's tool batch (`recordToolBatch`, `tools/tool-batch-trace.mjs:16`, called from
+    /// `loop/tool-phase.mjs:46` before `onToolCall`): what runs, so a bridged `call_tool` is recorded as its target. The host writes
+    /// the `batch` trace row from it (`mixdog_trace::batch_record`) with a fresh batch id, and tags the batch's tool rows with it.
+    ToolBatch(ToolBatch),
+    /// A cut stream that ended after complete tool calls goes on as a tool-call turn (`recoverPartialToolCalls`,
+    /// `session/send-with-recovery.mjs:767`): Node's `partial_tool_recovery` trace row.
+    PartialToolRecovery(PartialToolRecovery),
+}
+
+/// What `recoverPartialToolCalls` traces (`traceLoop(state, 'partial_tool_recovery', ...)`).
+#[derive(Clone, PartialEq, Debug)]
+pub struct PartialToolRecovery {
+    /// The round's iteration (`nextIteration`).
+    pub iteration: u32,
+    /// `toolCalls`: the complete calls the turn goes on with.
+    pub tool_calls: usize,
+    /// `droppedIncompleteInput`: a call's arguments were still streaming at the cut.
+    pub dropped_incomplete_input: bool,
+    /// `partialContentLen`: the cut response's text, in UTF-16 units.
+    pub partial_content_len: usize,
+}
+
+/// One tool batch of the audit: the turn's iteration and the execution view of its calls, in call order.
+#[derive(Clone, PartialEq, Debug)]
+pub struct ToolBatch {
+    pub iteration: u32,
+    pub calls: Vec<ToolBatchCall>,
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub struct ToolBatchCall {
+    pub tool_call_id: String,
+    pub tool_name: String,
+    /// For the tools that take several targets in one call (read, grep, glob, git, code_graph): the length of each array
+    /// input the call gave, in the tool's field order; `None` for every other tool.
+    pub array_lengths: Option<Vec<(String, usize)>>,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -616,6 +652,13 @@ pub trait ToolGate: Send + Sync {
     /// surface, disabled feature), judged before any dedup stub or cached
     /// result can answer the call: they must not bypass the current surface.
     fn pre_dispatch_deny(&self, call: &GateCall) -> Option<String> {
+        let _ = call;
+        None
+    }
+
+    /// The last refusal a call meets, after its hooks and approval and before the tool runs
+    /// (`prepareDeferredToolCallThrough`): a deferred tool the session may not run in its tool mode.
+    fn deferred_call_denial(&self, call: &GateCall) -> Option<String> {
         let _ = call;
         None
     }
@@ -970,6 +1013,12 @@ impl ToolGate for PolicyGate {
         self.surface_for(schema)
             .refusal_for_call(&call.name, call.schema_name.as_deref(), &call.args)
             .map(|error| error.message_for_model)
+    }
+
+    fn deferred_call_denial(&self, call: &GateCall) -> Option<String> {
+        let surface = self.session.surface();
+        let annotations = self.tools.resolve(surface.mcp_scope.as_deref(), &call.name).map(|tool| tool.spec().annotations.clone()).unwrap_or_default();
+        surface.deferred_call_refusal(&call.name, &annotations)
     }
 }
 

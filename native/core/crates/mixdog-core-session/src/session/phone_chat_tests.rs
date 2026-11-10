@@ -218,7 +218,7 @@ async fn a_blank_prompt_and_a_deleted_bots_home_refuse_the_submit() {
     handle
         .request(CoreRequest {
             method: Method("thread/header/patch"),
-            params: json!({ "threadId": handle.id, "set": { "retired": true }, "unset": [] }),
+            params: json!({ "threadId": handle.id, "set": { "retiredAt": 1 }, "unset": [] }),
             op: None,
             ctx: CallContext::internal("test"),
         })
