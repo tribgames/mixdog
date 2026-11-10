@@ -14,7 +14,8 @@
 //
 // Output: native/core/fixtures/call-tool/golden.json (+ MANIFEST.json). The `script` of each scenario is the recorder's input.
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -133,7 +134,7 @@ let fileStep = async () => {};
 const { createSession } = await imp(`${S}session/manager/session-lifecycle.mjs`);
 const { askSession } = await imp(`${S}session/manager/ask-session.mjs`);
 const { loadSession, deleteSession, drainSessionStore } = await imp(`${S}session/store.mjs`);
-const { drainPathSync } = await imp('src/runtime/shared/buffered-appender.mjs');
+const { drainAgentTrace } = await imp(`${S}agent-trace-io.mjs`);
 const { humanGateStore } = await imp(`${S}session/human-gate/store.mjs`);
 const { _withRegisteredProviderForTestAsync } = await imp(`${S}providers/registry.mjs`);
 const { setInternalToolsProvider } = await imp(`${S}internal-tools.mjs`);
@@ -285,7 +286,7 @@ const CONCURRENT = [
   {
     name: 'edits of two files run together and the second edit of a file waits for the first',
     internal: ['edit'],
-    gates: [{ stage: 'tool', args: { file_path: 'x.txt', old_string: 'a' }, until: at('post', { args: { file_path: 'y.txt', old_string: 'a', new_string: 'b' } }) }],
+    gates: [{ stage: 'tool', args: { file_path: 'x.txt', old_string: 'a', new_string: 'b' }, until: at('post', { args: { file_path: 'y.txt', old_string: 'a', new_string: 'b' } }) }],
     script: [round(call('c1', 'edit', { file_path: 'x.txt', old_string: 'a', new_string: 'b' }), call('c2', 'edit', { file_path: 'y.txt', old_string: 'a', new_string: 'b' }), call('c3', 'edit', { file_path: 'x.txt', old_string: 'b', new_string: 'c' })), FINAL],
   },
   {
@@ -376,6 +377,8 @@ for (const name of STREAMED) {
 }
 
 // ---- one scenario --------------------------------------------------------------------------------------------------------------
+const AUDIT_PATH = join(process.env.MIXDOG_DATA_DIR, 'human-gate', 'audit.jsonl');
+let auditOffset = 0;
 let serial = 0;
 let twins = 0;
 // `twin`: the same scenario with a provider that streams nothing, run only to learn which calls of each round the loop dispatches
@@ -461,7 +464,7 @@ async function runScenario(scenario, twin = false) {
     contextWindow: 128000,
     async send(messages, _model, _tools, sendOpts) {
       const i = sends.length;
-      sends.push(clone(messages.filter((m) => m.role !== 'system')));
+      sends.push(clone(messages));
       note({ ev: 'sent', n: i + 1 });
       const reply = scenario.script[i];
       if (!reply) throw new Error(`${scenario.name}: the script ran out at request ${i + 1}`);
@@ -485,6 +488,8 @@ async function runScenario(scenario, twin = false) {
   };
   const answers = [...(scenario.answers ?? [])];
   let result = null;
+  let traceRows = [];
+  let auditRecords = [];
   await _withRegisteredProviderForTestAsync(providerName, provider, async () => {
     const session = createSession({ id: sessionId, provider: providerName, model: 'fake-model', cwd: workdir, skipSkills: true, mcpScopeId: scopeId, ...(scenario.session ?? {}) });
     sessionRef = session;
@@ -533,20 +538,29 @@ async function runScenario(scenario, twin = false) {
           return { ...answer, device: 'Pixel' };
         },
         onToolResult: (message) => {
-          events.push({ ev: 'toolResult', message: stripTiming(message) });
+          events.push({ ev: 'toolResult', message: clone(message) });
           note({ ev: 'toolResult', id: message.toolCallId, early: message.__earlyNotify === true });
         },
       }
     );
-    // The tails Node leaves after a turn: the debounced session save (session/store.mjs:305 `drainSessionStore`) and the buffered trace append (shared/buffered-appender.mjs:223 `drainPathSync`).
+    // The tails Node leaves after a turn: the debounced session save (session/store.mjs:305 `drainSessionStore`) and the local trace spool's timed append (orchestrator/agent-trace-io.mjs:344 `drainAgentTrace`, which awaits the append in flight).
     drainSessionStore();
-    drainPathSync(process.env.MIXDOG_AGENT_TRACE_PATH, { exiting: true });
+    await withDeadline(drainAgentTrace(), 'the agent trace drain', 10_000);
+    // Every row the loop wrote for this session (batch rows, tool rows, ...), whole, and the human gate's audit records of its decisions.
+    traceRows = (existsSync(process.env.MIXDOG_AGENT_TRACE_PATH) ? readFileSync(process.env.MIXDOG_AGENT_TRACE_PATH, 'utf8') : '').split('\n').filter(Boolean).map((line) => JSON.parse(line)).filter((row) => row.session_id === sessionId);
+    const audit = existsSync(AUDIT_PATH) ? readFileSync(AUDIT_PATH) : Buffer.alloc(0);
+    auditRecords = audit.subarray(auditOffset).toString('utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line));
+    auditOffset = audit.length;
     const stored = loadSession(session.id);
-    result = { surface, answer: turn.content, stored: stored.messages.filter((m) => m.role !== 'system').map(stripTiming) };
+    result = { surface, answer: turn.content, stored: clone(stored.messages) };
     deleteSession(session.id);
   });
   restoreInternal();
   if (scenario.mcp) await disconnectAll({ scopeId });
+  // Every gate the scenario holds must have been reached its n-th time: a gate nobody reaches would silently record an unheld order.
+  for (const gate of scenario.gates ?? []) {
+    if ((gateSeen.get(gate) ?? 0) < (gate.nth ?? 1)) throw new Error(`${scenario.name}: the gate ${JSON.stringify(gate)} was never reached`);
+  }
   if (answers.length) throw new Error(`${scenario.name}: ${answers.length} scripted answer(s) never used`);
   return {
     name: scenario.name,
@@ -569,12 +583,9 @@ async function runScenario(scenario, twin = false) {
     hooks,
     executed,
     timeline,
+    audit: auditRecords,
+    trace: traceRows,
   };
-}
-
-function stripTiming(message) {
-  const { toolTiming: _timing, ...rest } = clone(message);
-  return rest;
 }
 
 // The first approval of a process builds the human gate's store (human-gate/store.mjs:186 `humanGateStore`, a dynamic import): once, before any scenario.
@@ -594,27 +605,71 @@ for (const scenario of SCENARIOS) {
   scenarios.push(await runScenario(scenario));
 }
 
-// The audit: the batch rows the loop wrote (`recordToolBatch`), in order, by scenario session.
-const trace = readFileSync(process.env.MIXDOG_AGENT_TRACE_PATH, 'utf8')
-  .split('\n')
-  .filter(Boolean)
-  .map((line) => JSON.parse(line))
-  .filter((row) => row.kind === 'batch');
-for (const [index, scenario] of scenarios.entries()) {
-  const id = `sess_call_tool_${String(index + 1).padStart(2, '0')}`;
-  scenario.batches = trace
-    .filter((row) => row.session_id === id)
-    .map((row) => ({ iteration: row.payload.iteration, toolCallCount: row.payload.tool_call_count, calls: row.payload.calls }));
-}
-
 const finalDir = join(FIXTURES_ROOT, 'call-tool');
 const stage = stageSet(finalDir);
-writeJson(join(stage, 'golden.json'), {
+// What differs between two recordings of the same turns is the run itself, never behaviour; each such value is replaced by a fixed
+// placeholder, and every rule is declared in the manifest (`normalisations`) so a reader and the replay know exactly what is not kept.
+const SANDBOX_PLACEHOLDER = '<SANDBOX>';
+const CLOCK_KEYS = new Set([
+  'createdAt', 'ts', 'at', 'elapsedMs', 'duration', 'tool_ms', 'started_at_ms', 'completed_at_ms',
+  'dispatchStartedAt', 'executionStartedAt', 'executionCompletedAt', 'postprocessStartedAt', 'resultCompletedAt',
+  'dispatch_wait_ms', 'execution_ms', 'result_collection_wait_ms', 'postprocess_ms', 'total_ms',
+]);
+const BATCH_ID_KEYS = new Set(['batch_id']);
+function normalised(golden) {
+  const pathForms = [sandbox, sandbox.replaceAll('\\', '/')];
+  let batchIds = new Map();
+  const walk = (value, key) => {
+    if (typeof value === 'string') {
+      if (BATCH_ID_KEYS.has(key)) {
+        if (!batchIds.has(value)) batchIds.set(value, `<BATCH-${batchIds.size + 1}>`);
+        return batchIds.get(value);
+      }
+      return pathForms.reduce((text, form) => text.replaceAll(form, SANDBOX_PLACEHOLDER), value);
+    }
+    if (typeof value === 'number' && CLOCK_KEYS.has(key)) return 0;
+    if (Array.isArray(value)) return value.map((item) => walk(item, key));
+    if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, walk(v, k)]));
+    return value;
+  };
+  // A batch id is unique to its turn: the numbering restarts with each scenario (a row and the tool rows of its calls share one).
+  return { ...golden, scenarios: golden.scenarios.map((scenario) => ((batchIds = new Map()), walk(scenario, ''))) };
+}
+const recorderText = readFileSync(fileURLToPath(import.meta.url));
+writeJson(join(stage, 'golden.json'), normalised({
   note: 'a real askSession turn over a bridge session (call_tool / load_tool, deferred probe tools, one connected MCP server) at b6f10295a',
   tools: PROBE_TOOLS,
   scenarios,
+}));
+writeSetManifest(stage, {
+  set: 'call-tool',
+  recorder,
+  command: `node ${recorder} --tree <exact export of ${NODE_COMMIT}>`,
+  identity,
+  extra: {
+    scenarios: scenarios.length,
+    recorderSha256: createHash('sha256').update(recorderText).digest('hex'),
+    nodeRuntime: process.version,
+    // Everything in the recording that is the recorder's own and not the product's.
+    syntheticInputs: [
+      'the provider: a scripted `send` that returns each scenario\'s replies in order; for a streamed scenario it hands every call to `onToolCall` one macrotask apart and ends the response once the calls the twin run saw settle early (`settles`)',
+      'the session\'s tools: internal tools registered with `setInternalToolsProvider` (load_tool, the probe_* tools, and edit / apply_patch / shell / computer when a scenario names them) whose executors only record their arguments and answer `ran <name> <args>`, or fail when `fail` is set',
+      'the connected MCP server: `_registerMcpServerForTest` with one listed tool (`send`) whose callTool answers `ran <tool> <args>`; the catalog entries `gone` and `nope` are never listed or never live',
+      'the approvals: `onToolApproval` answers each card from the scenario\'s `answers`, in order, as the device `Pixel`',
+      'the hooks: `beforeToolHook` asks / denies / rewrites per the scenario (`ask`, `hookDeny`, `hookRewrite`), `afterToolHook` only records',
+      'the gates (`gates`): a step of one call (`pre`, `tool`, `post`, `card`, `grants`, `audit`) held until an entry of the timeline appears; each step also takes one macrotask',
+      'synchronous file work: `fs/promises` readFile / appendFile / mkdir of the human gate\'s grants.json and audit.jsonl are replaced by the same operation done synchronously after one macrotask (the recorder\'s `fileStep`), so the order of two concurrent approvals is the scenario\'s',
+      'the session: createSession with the sandbox profile (MIXDOG_DATA_DIR and the home variables under the sandbox), a fixed id per scenario, a work directory holding x.txt',
+    ],
+    normalisations: {
+      sandboxPath: `the recorder's sandbox folder (and its forward-slash form), in every string, becomes ${SANDBOX_PLACEHOLDER}`,
+      clockValues: `numbers under these keys become 0: ${[...CLOCK_KEYS].join(', ')}`,
+      batchIds: 'the batch_id of a trace row (and the batch_id inside a tool row\'s payload.batch) becomes <BATCH-n>, n by first appearance within the scenario',
+      keptWhole: 'system messages, tool timings\' keys, stored and requested messages, events, cards, hooks, executed calls, the timeline, the human gate\'s audit records and every trace row of the session (context, batch, tool, usage) are recorded whole apart from the values above',
+    },
+    twoRunIdentity: 'two recordings in a row produce byte-identical golden.json and MANIFEST.json (compare their sha256 entries)',
+  },
 });
-writeSetManifest(stage, { set: 'call-tool', recorder, command: `node ${recorder} --tree <exact export of ${NODE_COMMIT}>`, identity, extra: { scenarios: scenarios.length } });
 commitStage(stage, finalDir);
 console.log(`scenarios=${scenarios.length}`);
 } catch (error) {
