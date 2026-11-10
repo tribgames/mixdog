@@ -18,6 +18,8 @@ mod lease;
 #[cfg(any(windows, test))]
 mod router;
 #[cfg(any(windows, test))]
+mod session;
+#[cfg(any(windows, test))]
 mod switch;
 #[cfg(any(windows, test))]
 mod video;
@@ -27,6 +29,8 @@ mod installer_tests;
 mod lease_tests;
 #[cfg(test)]
 mod router_tests;
+#[cfg(test)]
+mod session_tests;
 #[cfg(test)]
 mod switch_tests;
 #[cfg(test)]

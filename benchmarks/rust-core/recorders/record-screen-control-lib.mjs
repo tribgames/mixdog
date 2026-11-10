@@ -140,25 +140,40 @@ export class VirtualTime {
     this.start = start;
     this.seq = 0;
     this.queue = [];
-    this.real = { setTimeout: globalThis.setTimeout, clearTimeout: globalThis.clearTimeout, now: Date.now };
+    this.real = {
+      setTimeout: globalThis.setTimeout,
+      clearTimeout: globalThis.clearTimeout,
+      setInterval: globalThis.setInterval,
+      clearInterval: globalThis.clearInterval,
+      now: Date.now,
+    };
   }
 
   install() {
-    const arm = (callback, ms, ...args) => {
-      const timer = { due: this.now + Math.max(0, Number(ms) || 0), seq: ++this.seq, callback, args, cleared: false };
+    const arm = (callback, ms, args, every) => {
+      const timer = { due: this.now + Math.max(0, Number(ms) || 0), seq: ++this.seq, callback, args, cleared: false, every };
       Object.assign(timer, { ref: () => timer, unref: () => timer, hasRef: () => true });
       this.queue.push(timer);
       return timer;
     };
-    globalThis.setTimeout = arm;
-    globalThis.clearTimeout = (timer) => {
+    const clear = (timer) => {
       if (timer) timer.cleared = true;
     };
+    globalThis.setTimeout = (callback, ms, ...args) => arm(callback, ms, args, null);
+    // An interval runs again `ms` after each run, with a new place in the registration order.
+    globalThis.setInterval = (callback, ms, ...args) => arm(callback, ms, args, Math.max(0, Number(ms) || 0));
+    globalThis.clearTimeout = clear;
+    globalThis.clearInterval = clear;
     Date.now = () => this.now;
   }
 
   restore() {
-    Object.assign(globalThis, { setTimeout: this.real.setTimeout, clearTimeout: this.real.clearTimeout });
+    Object.assign(globalThis, {
+      setTimeout: this.real.setTimeout,
+      clearTimeout: this.real.clearTimeout,
+      setInterval: this.real.setInterval,
+      clearInterval: this.real.clearInterval,
+    });
     Date.now = this.real.now;
   }
 
@@ -176,6 +191,10 @@ export class VirtualTime {
       this.queue = this.queue.filter((entry) => entry !== timer);
       this.now = Math.max(this.now, timer.due);
       timer.callback(...timer.args);
+      if (timer.every !== null && !timer.cleared) {
+        Object.assign(timer, { due: this.now + timer.every, seq: ++this.seq });
+        this.queue.push(timer);
+      }
       await checkpoint();
       ran += 1;
     }
