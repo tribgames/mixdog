@@ -30,7 +30,7 @@ import { createWsConnector } from '../main/protocol/ws-connector.ts';
 import { ABORT_CASES, ASKED_PROJECT_FILE, DEVICES, HOOK_RULES, PROJECT_FILE } from './remote-protocol-chat-abort-cases.mjs';
 import { builtFrom } from './remote-protocol-chat-abort-live.mjs';
 import { endLeftovers } from './remote-protocol-chat-abort-procs.mjs';
-import { startAbortProvider } from './remote-protocol-chat-abort-provider.mjs';
+import { kindOf, startAbortProvider } from './remote-protocol-chat-abort-provider.mjs';
 
 const NODE_DIR = new URL('./remote-protocol-chat-history.node/', import.meta.url);
 /** Node's recording of `name`. */
@@ -89,7 +89,7 @@ export function nodeSide(recording) {
   };
   const norm = normalizer({ instant, own: new Map([[recording.id, '<session>']]) });
   const history = recording.history.map((h, at) => (h.kind === 'reply' ? { at, kind: 'reply', input: h.input, value: norm(h.error !== undefined ? { error: h.error } : { reply: h.reply }) } : { at, kind: 'state', value: norm(h.snapshot) }));
-  return { history, inputs: recording.inputs.filter(isPhone) };
+  return { history, inputs: recording.inputs };
 }
 
 /** The first difference between two normalized values: path, Node's, the core's. */
@@ -201,7 +201,7 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
     writeFileSync(join(project, PROJECT_FILE.name), PROJECT_FILE.text);
     writeFileSync(join(project, ASKED_PROJECT_FILE.name), ASKED_PROJECT_FILE.text);
     writeFileSync(join(paths.dataDir, 'hooks.json'), JSON.stringify(HOOK_RULES));
-    provider = await deadline.race(startAbortProvider(), 'the model endpoint to listen');
+    provider = await deadline.race(startAbortProvider({ gated: true }), 'the model endpoint to listen');
     writeFileSync(join(paths.dataDir, 'mixdog-config.json'), JSON.stringify({ agent: { providers: { 'custom-harness': { type: 'custom', schemaVersion: 2, name: 'harness', protocol: 'openai-chat', baseURL: provider.baseURL, auth: 'none', enabled: true, modelOverrides: { 'harness-model': { manual: true } } } } } }));
     seedPgRuntime(paths.dataDir);
     hasSeeded = true;
@@ -248,6 +248,7 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
 
     const waiters = new Set();
     const wake = () => { for (const check of [...waiters]) check(); };
+    provider.onQueued(wake);
     const until = (ready, what) => {
       const done = latch();
       // A difference found while waiting ends the wait with it (thrown out of the client's emit it would be lost).
@@ -324,6 +325,11 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
       // The barrier: every entry Node had published before this input is the core's.
       const owed = compared.filter((h) => h.at < input.at).length;
       await until(() => advance().matched >= owed, `the core to publish Node's ${owed} entries before ${input.input}`);
+      // The model endpoint's next write, of the kind Node released here, once the core has asked for it.
+      if (!isPhone(input)) {
+        await until(() => provider.release(kindOf(input.key)), `the core to ask the model endpoint for ${kindOf(input.key)} (Node's write ${input.step})`);
+        continue;
+      }
       released.push({ clock: input.clock, real: Date.now(), input: input.input });
       if (input.input === 'host.startProject') continue;
       const [phone, method, args] = argsOf(input.input);
