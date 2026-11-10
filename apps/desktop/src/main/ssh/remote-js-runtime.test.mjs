@@ -57,6 +57,10 @@ test('the bundle installs under a real sh and its js-runtime.json starts an ext-
     cacheDir: join(work, 'cache'),
     fetchNode: async () => ({ node: process.execPath, license: join(repoRoot, 'LICENSE'), version: process.version }),
     installModules: async (pkgDir) => mkdirSync(join(pkgDir, 'node_modules'), { recursive: true }),
+    // No npm install ran, so no package of the closure is there to record; the two entries started below
+    // load none at startup.
+    recordClosure: (modulesDir) =>
+      writeFileSync(join(modulesDir, 'mixdog-core-closure.json'), `${JSON.stringify({ skippedOptional: [] }, null, 2)}\n`),
     // Only what the two entries started below can load: `npm pack` over the whole package is a real npm run
     // and some 3000 files copied one at a time, which a loaded machine cannot finish within the lane's budget.
     listPackageFiles: async () => [
