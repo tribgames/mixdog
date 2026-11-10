@@ -153,7 +153,7 @@ Object.assign(process.env, {
 });
 writeFileSync(join(paths.dataDir, 'mixdog-config.json'), JSON.stringify({ agent: { providers: { 'custom-harness': { type: 'custom', schemaVersion: 2, name: 'harness', protocol: 'openai-chat', baseURL, auth: 'none', enabled: true, modelOverrides: { 'harness-model': { manual: true } } } } } }));
 // The task's project: a git repository with one commit (made with the real git, before any daemon runs).
-const git = (...args) => execFileSync(REAL_GIT, args, { cwd: project, env: { ...process.env, GIT_AUTHOR_NAME: 'rec', GIT_AUTHOR_EMAIL: 'rec@example.invalid', GIT_COMMITTER_NAME: 'rec', GIT_COMMITTER_EMAIL: 'rec@example.invalid', GIT_AUTHOR_DATE: '2026-01-01T00:00:00Z', GIT_COMMITTER_DATE: '2026-01-01T00:00:00Z' }, stdio: 'pipe' });
+const git = (...args) => execFileSync(REAL_GIT, args, { cwd: project, env: { ...process.env, GIT_AUTHOR_NAME: 'rec', GIT_AUTHOR_EMAIL: 'rec@example.invalid', GIT_COMMITTER_NAME: 'rec', GIT_COMMITTER_EMAIL: 'rec@example.invalid', GIT_AUTHOR_DATE: '2026-01-01T00:00:00Z', GIT_COMMITTER_DATE: '2026-01-01T00:00:00Z' }, stdio: 'pipe', windowsHide: true, timeout: 60_000 });
 git('init', '-q', '-b', 'main');
 writeFileSync(join(project, 'README.md'), 'project\n');
 git('add', 'README.md');

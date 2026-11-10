@@ -32,6 +32,7 @@
       "sha256": "097eb67960809551712a3f95addccd919910949241c9b2d2b7070031dd3613d7"
     }
   ],
+  "processes": "each case runs in a Windows job of its own (lib/process-job.mjs): every process it starts is ended with it, and a case that leaves one running fails; the daemon's memory runtime is not started (MIXDOG_DAEMON_SKIP_MEMORY=1, daemon.mjs:215-218): no recorded step reaches memory",
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -63,6 +64,63 @@
     "fresh session address": "a session address after a refusal reset is `sess_desktop_` + 32 random bytes in hex (freshSessionId, new-task-requests.ts:85); numbered `<fresh:N>` by first appearance in a case"
   },
   "recorder": "benchmarks/rust-core/recorders/record-new-task-quit.mjs",
+  "recording": {
+    "node": "v22.20.0",
+    "scripts": [
+      {
+        "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+        "sha256": "9d85c23ce17a8eb56ca50b848fd8f7e39dadc23c258277510b0bfd67885739f5"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/lib/phone-files-replay.mjs",
+        "sha256": "bd6ee0cdc164ed875474cb2a112c6da86a272d7776b55f5669f7044a2f69625b"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/lib/phone-files-script.mjs",
+        "sha256": "a21b148d3a3a470fd272151149aa40ffc9805641d802bd66c54b0e02d4fd2cf8"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/lib/phone-relay-core.mjs",
+        "sha256": "9b5e2b8d2d54770720acd87534d60f623472f2060b88cab56c8543dfbe0f457c"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/lib/process-job.mjs",
+        "sha256": "1b0c21755d30bd69db15d51fb4fb593bb301a55eff009900ad9318a8665acd24"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/lib/recording-scripts.mjs",
+        "sha256": "93cdc7eb433a476fd68a231b37ed9b138d9c87923cacb125bd6161fba6fa682d"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/new-task-dedupe/replay.mjs",
+        "sha256": "5c0f4b09eead381d3a959b4c4f357daa58f7cd78c2d313f20400d72172a2c029"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/new-task-dedupe/scenarios.mjs",
+        "sha256": "1f016f7f06e363cb56090adb234223128e67d40aa23bdeec9fa32d663e43f618"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/new-task-quit/cases.mjs",
+        "sha256": "58ad6d881343cc79df431d6840631bbab1634510f86abe912e072f763b18c54e"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/new-task-quit/git-shim.cs",
+        "sha256": "b4d68635c304a5116091b8e16996b01a3baa3c677fa394de8103a9ebcc1b49f6"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/new-task-quit/replay.mjs",
+        "sha256": "43a43f99c34af4e39bf823091ec45fca19c451e52b9ca5e8e1775d6f341bc834"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/new-task-quit/world.mjs",
+        "sha256": "1481863050449c57ff3aa46f4f92e61c21fe2898b9f349e0bf8c33649b8487c5"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/record-new-task-quit.mjs",
+        "sha256": "f8b3aea4bae79bae4dd69d8667efbd2846798d421e39610a64f79474ed989068"
+      }
+    ]
+  },
   "set": "new-task-quit",
   "totalBytes": 7227
 }
