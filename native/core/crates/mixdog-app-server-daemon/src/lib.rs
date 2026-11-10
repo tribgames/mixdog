@@ -58,6 +58,7 @@ pub mod setup_status;
 pub mod lifecycle;
 pub mod mcp_surface;
 pub mod live_view;
+pub mod live_view_streams;
 pub mod media;
 pub mod exec;
 pub mod exec_events;
