@@ -65,7 +65,7 @@
       "tool": "glob",
       "input": {
         "pattern": "<ROOT>/lib/**/*.ts",
-        "head_limit": 1
+        "limit": 1
       },
       "text": "<ROOT>/lib/a.ts\n[entries 1-1 of 2; offset:1 for more]",
       "isError": false
@@ -115,7 +115,7 @@
       "tool": "glob",
       "input": {
         "pattern": "<ROOT>/lib/*.ts",
-        "head_limit": 1,
+        "limit": 1,
         "offset": 5
       },
       "text": "(no entries after offset=5; total=1) pattern=\"<ROOT>/lib/*.ts\" path=.",
