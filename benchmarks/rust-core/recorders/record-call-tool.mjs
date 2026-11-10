@@ -133,6 +133,7 @@ let fileStep = async () => {};
 }
 const { createSession } = await imp(`${S}session/manager/session-lifecycle.mjs`);
 const { askSession } = await imp(`${S}session/manager/ask-session.mjs`);
+const { abortSessionTurn } = await imp(`${S}session/manager/session-close.mjs`);
 const { loadSession, deleteSession, drainSessionStore } = await imp(`${S}session/store.mjs`);
 const { drainAgentTrace } = await imp(`${S}agent-trace-io.mjs`);
 const { humanGateStore } = await imp(`${S}session/human-gate/store.mjs`);
@@ -367,6 +368,36 @@ SCENARIOS.push({
   session: { toolSpec: 'full', deferredSurfaceMode: 'readonly' },
   script: [round(bridged('c1', 'probe_write', { q: 'x' }), bridged('c2', 'probe_read', { q: 'r' }), call('c3', 'probe_write', { q: 'x' })), FINAL],
 });
+// ---- a turn cancelled while its calls are in flight, and a stream cut with a call still streaming --------------------------------------
+// The turn is cancelled (`abortSessionTurn`, session/manager/session-close.mjs:306, the abort a client's interrupt reaches) once every entry of
+// `abortWhen` has happened: the edit and the read behind it in the batch are running (held in their tools), the second edit of the same file
+// waits behind the first (eager-dispatch/barriers.mjs `precedingFor`) and the write waits for its approval (its card is held). Every held step
+// is released by the cancellation itself (`aborted`); the scenario then waits until each call of `settled` has told the host it settled.
+const ABORTED = at('aborted');
+const ABORT_REASON = 'cancelled by the scenario';
+SCENARIOS.push({
+  name: 'a turn cancelled while an edit and a read run, a second edit waits behind the first and a write waits for its approval',
+  internal: ['edit'],
+  ask: ['probe_write'],
+  answers: [{ approved: true }],
+  abortWhen: [at('ran', { name: 'probe_read' }), at('ran', { name: 'edit' }), at('card', { name: 'probe_write' })],
+  settled: ['c1', 'c2', 'c3', 'c4'],
+  gates: [
+    { stage: 'tool', name: 'probe_read', until: ABORTED },
+    { stage: 'tool', name: 'edit', until: ABORTED },
+    { stage: 'card', until: ABORTED },
+  ],
+  script: [round(call('c1', 'edit', { file_path: 'x.txt', old_string: 'a', new_string: 'b' }), bridged('c2', 'probe_read', { q: 'r' }), call('c3', 'edit', { file_path: 'x.txt', old_string: 'b', new_string: 'c' }), bridged('c4', 'probe_write', { q: 'w' })), FINAL],
+});
+// A streaming provider whose stream is cut (`TRUNCATED_STREAM`) after two complete calls, while a third call's arguments were still streaming
+// (`pendingToolUse`): the turn goes on with the complete calls, the partial one is dropped unrun and the model is told to split it
+// (send-with-recovery.mjs:720 `recoverableToolCalls`, :767 `recoverPartialToolCalls`, :737 the notice). One complete call names no tool.
+SCENARIOS.push({
+  name: 'a stream cut while a third call was still streaming: the complete calls go on, the partial one is dropped',
+  stream: true,
+  script: [{ ...round(bridged('c1', 'probe_read', { q: 'r' }), bridged('c2', 'no_such_tool', {})), cut: true }, FINAL],
+});
+
 // The same turns with a provider that streams its tool calls: each call reaches the loop (and starts its eager dispatch) before the response ends.
 const STREAMED = [
   'calls whose arguments were not JSON: a tool, call_tool and a tool of the session',
@@ -442,18 +473,30 @@ async function runScenario(scenario, twin = false) {
     await macrotask();
   };
   fileStep = (kind) => step(kind);
+  // Every script step in progress (an executor, a hook, a card): a cancelled turn ends before the calls it started, which the scenario
+  // then waits for, each by its own settlement.
+  const inflight = new Set();
+  const track = (promise) => {
+    inflight.add(promise);
+    const done = () => inflight.delete(promise);
+    promise.then(done, done);
+    return promise;
+  };
   let sessionRef = null;
   const restoreInternal = setInternalToolsProvider({
     scopeId,
     tools: [{ name: 'load_tool', description: 'Describes tools.', inputSchema: { type: 'object', properties: { names: {} } }, annotations: { readOnlyHint: true } }, ...PROBE_TOOLS, ...(scenario.internal ?? []).map((name) => ({ name, description: `${name} probe`, inputSchema: { type: 'object', properties: {} } }))],
-    executor: async (name, args) => {
-      if (name === 'load_tool') return renderToolSearch(args, sessionRef, 'lead', {});
-      executed.push({ name, args: clone(args) });
-      note({ ev: 'ran', name, args: clone(args) });
-      await step('tool', name, args);
-      if (args?.fail) throw new Error(`${name} failed`);
-      return `ran ${name} ${JSON.stringify(args)}`;
-    },
+    executor: (name, args) =>
+      track(
+        (async () => {
+          if (name === 'load_tool') return renderToolSearch(args, sessionRef, 'lead', {});
+          executed.push({ name, args: clone(args) });
+          note({ ev: 'ran', name, args: clone(args) });
+          await step('tool', name, args);
+          if (args?.fail) throw new Error(`${name} failed`);
+          return `ran ${name} ${JSON.stringify(args)}`;
+        })()
+      ),
   });
   if (scenario.mcp) {
     _registerMcpServerForTest(
@@ -489,6 +532,17 @@ async function runScenario(scenario, twin = false) {
           }
           // The response ends once every call the loop dispatches has settled and told the host (`notifyEarlyResult`, eager-dispatch/entry.mjs:98).
           for (const id of reply.settles) await until({ ev: 'toolResult', id, early: true }, `the settlement of ${id}`);
+          // A cut stream: what an adapter throws when the connection ends without the terminal frame while the next call's arguments
+          // are still arriving (the complete calls so far, `pendingToolUse`).
+          if (reply.cut) {
+            note({ ev: 'cut', n: i + 1 });
+            throw Object.assign(new Error('the stream ended without its terminal frame'), {
+              code: 'TRUNCATED_STREAM',
+              truncatedStream: true,
+              partialToolCalls: clone(reply.calls),
+              pendingToolUse: true,
+            });
+          }
         }
         note({ ev: 'answered', n: i + 1 });
         return { content: '', toolCalls: clone(reply.calls), stopReason: 'tool_use', usage: { inputTokens: 1, outputTokens: 1 } };
@@ -512,23 +566,29 @@ async function runScenario(scenario, twin = false) {
     if (!scenario.nonBridge) applyDeferredToolSurface(session, 'lead', [], { provider: providerName });
     // Not createSession options: the session runtime sets them on the session after it is built.
     for (const key of ['toolSpec', 'featureDeniedTools', 'deferredSurfaceMode']) if (scenario.session && key in scenario.session) session[key] = scenario.session[key];
-    session.beforeToolHook = async (hookCall) => {
-      hooks.before.push({ name: hookCall.name, args: clone(hookCall.args) });
-      note({ ev: 'pre', name: hookCall.name, args: clone(hookCall.args) });
-      await step('pre', hookCall.name, hookCall.args);
-      const rewrite = scenario.hookRewrite?.[hookCall.name];
-      if (rewrite) return { action: 'modify', ...rewrite };
-      if (scenario.hookDeny?.includes(hookCall.name)) return { action: 'deny', reason: 'hook says no' };
-      if (scenario.ask?.includes(hookCall.name)) return { action: 'ask', reason: HOOK_ASK };
-      return null;
-    };
-    session.afterToolHook = async (hookCall) => {
-      hooks.after.push({ name: hookCall.name, args: clone(hookCall.args), result: hookCall.result });
-      note({ ev: 'post', name: hookCall.name, args: clone(hookCall.args) });
-      await step('post', hookCall.name, hookCall.args);
-    };
+    session.beforeToolHook = (hookCall) =>
+      track(
+        (async () => {
+          hooks.before.push({ name: hookCall.name, args: clone(hookCall.args) });
+          note({ ev: 'pre', name: hookCall.name, args: clone(hookCall.args) });
+          await step('pre', hookCall.name, hookCall.args);
+          const rewrite = scenario.hookRewrite?.[hookCall.name];
+          if (rewrite) return { action: 'modify', ...rewrite };
+          if (scenario.hookDeny?.includes(hookCall.name)) return { action: 'deny', reason: 'hook says no' };
+          if (scenario.ask?.includes(hookCall.name)) return { action: 'ask', reason: HOOK_ASK };
+          return null;
+        })()
+      );
+    session.afterToolHook = (hookCall) =>
+      track(
+        (async () => {
+          hooks.after.push({ name: hookCall.name, args: clone(hookCall.args), result: hookCall.result });
+          note({ ev: 'post', name: hookCall.name, args: clone(hookCall.args) });
+          await step('post', hookCall.name, hookCall.args);
+        })()
+      );
     const surface = { exposure: session.toolExposureMode ?? null, toolSpec: session.toolSpec ?? null, deferredSurfaceMode: session.deferredSurfaceMode ?? null, tools: session.tools.map((t) => t.name), catalog: [...(session.deferredToolCatalog ?? []), ...(session.deferredLateToolCatalog ?? [])].map((t) => t.name), mcpNames: session.deferredMcpToolNames ?? null };
-    const turn = await withDeadline(askSession(
+    const asked = askSession(
       session.id,
       'go',
       null,
@@ -539,21 +599,47 @@ async function runScenario(scenario, twin = false) {
       null,
       null,
       {
-        onToolApproval: async (card) => {
-          cards.push(clone(card));
-          note({ ev: 'card', name: card.name, args: clone(card.args) });
-          // A person answers later: every call that needs no answer runs first.
-          await step('card', card.name, card.args);
-          const answer = answers.shift();
-          if (!answer) throw new Error(`${scenario.name}: an approval card nobody scripted`);
-          return { ...answer, device: 'Pixel' };
-        },
+        onToolApproval: (card) =>
+          track(
+            (async () => {
+              cards.push(clone(card));
+              note({ ev: 'card', name: card.name, args: clone(card.args) });
+              // A person answers later: every call that needs no answer runs first.
+              await step('card', card.name, card.args);
+              const answer = answers.shift();
+              if (!answer) throw new Error(`${scenario.name}: an approval card nobody scripted`);
+              return { ...answer, device: 'Pixel' };
+            })()
+          ),
         onToolResult: (message) => {
           events.push({ ev: 'toolResult', message: clone(message) });
           note({ ev: 'toolResult', id: message.toolCallId, early: message.__earlyNotify === true });
         },
       }
-    ), `the turn of ${scenario.name}`, 120_000);
+    );
+    // The client's interrupt, the moment every entry of `abortWhen` has happened.
+    const cancelled = scenario.abortWhen
+      ? Promise.all(scenario.abortWhen.map((match) => until(match, 'the moment to cancel'))).then(() => {
+          abortSessionTurn(session.id, ABORT_REASON);
+          note({ ev: 'aborted' });
+        })
+      : null;
+    let turn = null;
+    let turnError = null;
+    try {
+      turn = await withDeadline(asked, `the turn of ${scenario.name}`, 120_000);
+    } catch (error) {
+      if (!cancelled) throw error;
+      turnError = { name: error?.name ?? null, message: error?.message ?? String(error) };
+    }
+    if (cancelled) {
+      await cancelled;
+      if (!turnError) throw new Error(`${scenario.name}: the cancelled turn ended without an error`);
+      // A cancelled turn ends before the calls it started: each one is waited for until it has told the host it settled, and then every
+      // script step still in progress.
+      for (const id of scenario.settled ?? []) await until({ ev: 'toolResult', id, early: true }, `the settlement of ${id} after the cancellation`);
+      while (inflight.size) await withDeadline(Promise.allSettled([...inflight]), 'the script steps still running after the cancellation', 10_000);
+    }
     // The tails Node leaves after a turn: the debounced session save (session/store.mjs:305 `drainSessionStore`) and the local trace spool's timed append (orchestrator/agent-trace-io.mjs:344 `drainAgentTrace`, which awaits the append in flight).
     drainSessionStore();
     await withDeadline(drainAgentTrace(), 'the agent trace drain', 10_000);
@@ -563,7 +649,7 @@ async function runScenario(scenario, twin = false) {
     auditRecords = audit.subarray(auditOffset).toString('utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line));
     auditOffset = audit.length;
     const stored = loadSession(session.id);
-    result = { surface, answer: turn.content, stored: clone(stored.messages) };
+    result = { surface, answer: turn?.content ?? null, turnError, stored: clone(stored.messages) };
     deleteSession(session.id);
   });
   restoreInternal();
@@ -575,6 +661,7 @@ async function runScenario(scenario, twin = false) {
   if (answers.length) throw new Error(`${scenario.name}: ${answers.length} scripted answer(s) never used`);
   return {
     name: scenario.name,
+    sessionId,
     session: scenario.session ?? {},
     mcp: scenario.mcp === true,
     nonBridge: scenario.nonBridge === true,
@@ -586,6 +673,9 @@ async function runScenario(scenario, twin = false) {
     hookRewrite: scenario.hookRewrite ?? null,
     hookDeny: scenario.hookDeny ?? [],
     gates: scenario.gates ?? [],
+    abortWhen: scenario.abortWhen ?? null,
+    abortReason: scenario.abortWhen ? ABORT_REASON : null,
+    settled: scenario.settled ?? [],
     script: scenario.script,
     ...result,
     requests: sends,
@@ -669,6 +759,8 @@ writeSetManifest(stage, {
       'the approvals: `onToolApproval` answers each card from the scenario\'s `answers`, in order, as the device `Pixel`',
       'the hooks: `beforeToolHook` asks / denies / rewrites per the scenario (`ask`, `hookDeny`, `hookRewrite`), `afterToolHook` only records',
       'the gates (`gates`): a step of one call (`pre`, `tool`, `post`, `card`, `grants`, `audit`) held until an entry of the timeline appears; each step also takes one macrotask',
+      'the cancellation (`abortWhen`): once every listed timeline entry has happened the recorder calls `abortSessionTurn(<session>, \'cancelled by the scenario\')` and notes `aborted`; the turn\'s rejection is recorded as `turnError`, and the recorder then waits until each call of `settled` has told the host it settled and every script step still in progress has ended',
+      'the cut stream (`cut` on a reply): after handing its calls to `onToolCall` and waiting for their settlement, the streaming provider throws `{ code: TRUNCATED_STREAM, truncatedStream: true, partialToolCalls: <the calls>, pendingToolUse: true }` and notes `cut`',
       'synchronous file work: `fs/promises` readFile / appendFile / mkdir of the human gate\'s grants.json and audit.jsonl are replaced by the same operation done synchronously after one macrotask (the recorder\'s `fileStep`), so the order of two concurrent approvals is the scenario\'s',
       'the session: createSession with the sandbox profile (MIXDOG_DATA_DIR and the home variables under the sandbox), a fixed id per scenario, a work directory holding x.txt',
     ],

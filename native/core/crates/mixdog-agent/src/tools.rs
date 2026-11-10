@@ -57,6 +57,7 @@ use crate::env::ToolBatch;
 use crate::env::ToolBatchCall;
 use crate::env::ToolGate;
 use crate::env::TurnGuards;
+use crate::env::or_cancelled;
 use crate::limits;
 use crate::message::AgentMessage;
 use crate::message::Source;
@@ -565,6 +566,8 @@ pub(crate) struct CallEnv {
     pub(crate) guards: Arc<dyn TurnGuards>,
     pub(crate) tool_env: ToolEnv,
     pub(crate) cancel: CancellationToken,
+    /// The run's abort signal over `cancel`: a call its abort ends reads its reason.
+    pub(crate) signal: crate::cancel::Cancel,
     /// The run's clock, for a call's `toolTiming`.
     pub(crate) clock: Arc<dyn crate::env::Clock>,
     /// The session's MCP catalog, refreshed around the call (`prepareToolCall`, `executeTool`).
@@ -810,7 +813,7 @@ pub async fn run_nested(
         .await;
     let outcome = match waited {
         Scoped::Done(outcome) => outcome,
-        ended => Err(ended_error(&spec.name, &ended, timeout)),
+        ended => Err(ended_error(&spec.name, &ended, timeout, "Error: tool call cancelled".to_owned())),
     };
     match outcome {
         Ok(mut output) => {
@@ -842,8 +845,8 @@ async fn hooked<T>(cancel: &CancellationToken, hook: impl Future<Output = T>) ->
 }
 
 /// The failure of a call that gave nothing back after the dispatcher ended the wait: its run was
-/// cancelled, or the tool's deadline passed (Node `runReadOnlyIoWithDeadline`'s timeout text).
-fn ended_error<T>(name: &str, ended: &Scoped<T>, timeout: Option<Duration>) -> ToolError {
+/// cancelled (`cancelled` is that text), or the tool's deadline passed (Node `runReadOnlyIoWithDeadline`'s timeout text).
+fn ended_error<T>(name: &str, ended: &Scoped<T>, timeout: Option<Duration>, cancelled: String) -> ToolError {
     match (ended, timeout) {
         (Scoped::DeadlineExceeded, timeout) => ToolError::new(
             ToolErrorCode::DeadlineExceeded { partial: false },
@@ -852,8 +855,14 @@ fn ended_error<T>(name: &str, ended: &Scoped<T>, timeout: Option<Duration>) -> T
                 timeout.map_or(0, |t| t.as_millis())
             ),
         ),
-        _ => ToolError::new(ToolErrorCode::Cancelled, "Error: tool call cancelled"),
+        _ => ToolError::new(ToolErrorCode::Cancelled, cancelled),
     }
+}
+
+/// What a call the turn's abort ended reads: the eager entry's `Error: <message>` of the abort (`eager-dispatch/entry.mjs:44`), whose
+/// message is the signal's reason (`SessionClosedError`'s text for a session's turn).
+fn cancelled_text(signal: &crate::cancel::Cancel) -> String {
+    format!("Error: {}", signal.reason())
 }
 
 /// Aborts the spawned tool task when the dispatcher stops waiting for it, whether it ended the
@@ -870,17 +879,22 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
     let dispatch_started_at = env.clock.now_ms();
     let call = call.clone();
     let name = call.name.clone();
+    // A call the turn's abort ends settles with the abort's text.
+    let cancelled = || Executed::error(&call.id, cancelled_text(&env.signal));
     // `prepareToolCall` (`tool-exec/call-prep.mjs:70`): every call starts from the live registry.
     // The preparation is under the run's cancellation like the tool task: a call nobody waits for any more (an
     // eager run the batch left to finish) must not hold the run's environment through a gate or a catalog that never
     // answers once the turn is cancelled.
-    let cancelled = || Executed::error(&call.id, ended_error::<()>(&name, &Scoped::Cancelled, None).message_for_model);
     if let Some(mcp) = &env.mcp
         && hooked(&env.cancel, mcp.refresh()).await.is_none()
     {
         return cancelled();
     }
-    let Some(authorized) = hooked(
+    // The PreToolUse hook and the approval wait end the moment the turn is cancelled, and a decision that comes later is never
+    // used (`applyBeforeToolHook` and the approval race, then `tool-exec.mjs:105` `throwIfAborted`). The wait checks the cancel
+    // first, so a call that reaches it once the turn is cancelled (one that waited behind a barrier) never meets its hook
+    // (`executeToolOwned`, `tool-exec.mjs:45`).
+    let authorized = or_cancelled(
         &env.cancel,
         authorize(
             &call.id,
@@ -892,13 +906,11 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
             env.guards.as_ref(),
         ),
     )
-    .await
-    else {
-        return cancelled();
-    };
+    .await;
     let target = match authorized {
-        Ok(target) => target,
-        Err(text) => return Executed::returned(&call.id, text),
+        None => return cancelled(),
+        Some(Ok(target)) => target,
+        Some(Err(text)) => return Executed::returned(&call.id, text),
     };
     // `tool-exec.mjs:114`: an MCP call, once its hooks, approval and denial are behind it (the wait for an
     // approval can outlast a server's connect), is judged against the registry as it stands now.
@@ -975,7 +987,7 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
             },
             "Error: tool task failed",
         )),
-        ended => Err(ended_error(&name, &ended, timeout)),
+        ended => Err(ended_error(&name, &ended, timeout, cancelled_text(&env.signal))),
     };
     match outcome {
         Ok(mut output) => {
@@ -1290,6 +1302,7 @@ mod tests {
             dropped: std::sync::Mutex::new(Some(tx)),
         });
         let tokens = mixdog_rt::testing::tokens();
+        let cancel = CancellationToken::new();
         let env = CallEnv {
             tools: ToolSet::new(vec![tool]),
             gate: Arc::new(crate::env::AllowAll),
@@ -1316,7 +1329,8 @@ mod tests {
                 notify: None,
                 review: None,
             },
-            cancel: CancellationToken::new(),
+            signal: crate::cancel::Cancel::from_token(&cancel),
+            cancel,
         };
         (Arc::new(env), started, dropped)
     }
@@ -1334,7 +1348,8 @@ mod tests {
         cancel.cancel();
         let executed = call.await.unwrap();
         assert!(executed.failed);
-        assert_eq!(executed.message.text(), "Error: tool call cancelled");
+        // A bare abort's reason (no session close named one): Node's `AbortError` message.
+        assert_eq!(executed.message.text(), format!("Error: {}", crate::cancel::ABORTED));
         dropped.await.expect("the tool task was aborted, not left running");
     }
 

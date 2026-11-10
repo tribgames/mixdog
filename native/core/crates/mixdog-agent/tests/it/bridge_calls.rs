@@ -22,7 +22,9 @@
 //! - a request message's `toolKind`, `toolTiming` and `createdAt`: the request holds wire `Message`s,
 //!   which have no such fields; the recording shows them to be the stored row's own (checked below).
 //! - the `sessionId` of an approval card: the approval actor adds the thread id to the request, the
-//!   gate's ask does not carry it; the card compares with the run's thread id in its place.
+//!   gate's ask does not carry it; the card compares with the run's thread id (the recorded session's) in its place.
+//! - the stored transcript of a cancelled turn: the host's interruption closes it (`finalize_interrupted_turn`, see
+//!   `observed`); the replay compares that over the loop's transcript at the stop.
 
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -33,9 +35,16 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use mixdog_agent::AgentError;
 use mixdog_agent::Run;
 use mixdog_agent::RunCarry;
 use mixdog_agent::RunConfig;
+use mixdog_agent::cancel::Abort;
+use mixdog_agent::cancel::Cancel;
+use mixdog_agent::interrupt::AbortReason;
+use mixdog_agent::interrupt::Interrupted;
+use mixdog_agent::interrupt::Phase;
+use mixdog_agent::interrupt::finalize_interrupted_turn;
 use mixdog_agent::env::BoundAccount;
 use mixdog_agent::env::Clock;
 use mixdog_agent::env::CommitError;
@@ -85,6 +94,7 @@ use mixdog_core_api::domain::provider::Role;
 use mixdog_core_api::domain::provider::StopReason;
 use mixdog_core_api::domain::provider::StreamEvent;
 use mixdog_core_api::domain::provider::ToolCall;
+use mixdog_core_api::domain::provider::TransportFault;
 use mixdog_core_api::domain::provider::WireCodec;
 use mixdog_core_api::domain::retry::RetryPolicy;
 use mixdog_core_api::domain::tool::SurfaceKind;
@@ -136,36 +146,52 @@ struct Timeline(Arc<TimelineInner>);
 
 #[derive(Default)]
 struct TimelineInner {
-    entries: Mutex<Vec<Value>>,
-    changed: tokio::sync::Notify,
+    state: Mutex<TimelineState>,
+}
+
+/// The entries, and the waits not met yet in the order they were asked: an entry releases the waits it meets in that order, as the
+/// recorder's `note` does (its `waiters`).
+#[derive(Default)]
+struct TimelineState {
+    entries: Vec<Value>,
+    waiters: Vec<(Value, tokio::sync::oneshot::Sender<()>)>,
+}
+
+fn meets(entry: &Value, matching: &Value) -> bool {
+    matching.as_object().expect("match").iter().all(|(key, value)| entry[key] == *value)
 }
 
 impl Timeline {
     fn note(&self, entry: Value) {
-        self.0.entries.lock().expect("timeline").push(entry);
-        self.0.changed.notify_waiters();
+        let mut state = self.0.state.lock().expect("timeline");
+        let waiting = std::mem::take(&mut state.waiters);
+        for (matching, met) in waiting {
+            if meets(&entry, &matching) {
+                let _ = met.send(());
+            } else {
+                state.waiters.push((matching, met));
+            }
+        }
+        state.entries.push(entry);
     }
 
     fn all(&self) -> Vec<Value> {
-        self.0.entries.lock().expect("timeline").clone()
+        self.0.state.lock().expect("timeline").entries.clone()
     }
 
     /// Resolves once an entry has every field of `matching`, or fails naming what never happened (by the machine's clock: see
     /// [`awaiting_for`]).
     async fn until(&self, matching: &Value, label: &str) {
-        let wait = async {
-            loop {
-                let changed = self.0.changed.notified();
-                tokio::pin!(changed);
-                changed.as_mut().enable();
-                let hit = self.0.entries.lock().expect("timeline").iter().any(|entry| matching.as_object().expect("match").iter().all(|(key, value)| entry[key] == *value));
-                if hit {
-                    return;
-                }
-                changed.await;
+        let met = {
+            let mut state = self.0.state.lock().expect("timeline");
+            if state.entries.iter().any(|entry| meets(entry, matching)) {
+                return;
             }
+            let (met, wait) = tokio::sync::oneshot::channel();
+            state.waiters.push((matching.clone(), met));
+            wait
         };
-        awaiting_for(DEADLINE, || format!("{label} (waiting for {matching})"), wait).await;
+        awaiting_for(DEADLINE, || format!("{label} (waiting for {matching})"), met).await.expect("the timeline outlives its waits");
     }
 }
 
@@ -534,6 +560,9 @@ struct Steps {
     /// settled and told the host (the recording's `settles`).
     streamed: bool,
     settles: Vec<String>,
+    /// The stream is cut after its calls (the recording's `cut`): a truncated stream while the next call's arguments were still
+    /// arriving.
+    cut: bool,
     timeline: Timeline,
     request: usize,
 }
@@ -543,11 +572,21 @@ impl ModelStream for Steps {
     async fn next(&mut self) -> Option<Result<StreamEvent, ProviderError>> {
         if self.streamed {
             self.stages.turns.turn().await;
-            if matches!(self.events.front(), Some(StreamEvent::Completed { .. })) {
+            let ending = matches!(self.events.front(), Some(StreamEvent::Completed { .. })) || (self.cut && self.events.is_empty());
+            if ending {
                 for id in &self.settles {
                     self.timeline.until(&json!({ "ev": "toolResult", "id": id, "early": true }), &format!("the settlement of {id}")).await;
                 }
             }
+        }
+        if self.cut && self.events.is_empty() {
+            self.cut = false;
+            self.timeline.note(json!({ "ev": "cut", "n": self.request }));
+            // What an adapter reports for a connection that ended without its terminal frame while a call's input was streaming.
+            let mut error = ProviderError::transport(TransportFault::TruncatedStream, DeliveryState::Accepted);
+            error.exposure.tool_input_cut = true;
+            error.exposure.tool_dispatched = true;
+            return Some(Err(error));
         }
         let event = self.events.pop_front()?;
         if matches!(event, StreamEvent::Completed { .. }) {
@@ -566,7 +605,7 @@ struct Replies {
     policy: RetryPolicy,
     keepalive: KeepaliveSchedule,
     codec: MockCodec,
-    script: Mutex<VecDeque<(Vec<StreamEvent>, Vec<String>)>>,
+    script: Mutex<VecDeque<Reply>>,
     requests: Mutex<Vec<Arc<ModelRequest>>>,
     streamed: bool,
     timeline: Timeline,
@@ -594,14 +633,22 @@ impl ProviderAdapter for Replies {
             requests.len()
         };
         self.timeline.note(json!({ "ev": "sent", "n": number }));
-        let (reply, settles) = self.script.lock().expect("script").pop_front().expect("the script ran out of replies");
-        Ok(Box::new(Steps { stages: self.stages.clone(), events: reply.into(), streamed: self.streamed, settles, timeline: self.timeline.clone(), request: number }))
+        let Reply { events, settles, cut } = self.script.lock().expect("script").pop_front().expect("the script ran out of replies");
+        Ok(Box::new(Steps { stages: self.stages.clone(), events: events.into(), streamed: self.streamed, settles, cut, timeline: self.timeline.clone(), request: number }))
     }
 }
 
+/// One scripted reply: its stream events, the calls whose settlement ends a streamed response, and whether the stream is cut.
+struct Reply {
+    events: Vec<StreamEvent>,
+    settles: Vec<String>,
+    cut: bool,
+}
+
 /// The scripted replies. A whole-response provider returns its calls with the response (`ReturnedCalls`: no call is
-/// dispatched before the response ends); a streaming one hands each call over as it completes (`ToolCallDone`).
-fn replies(script: &Value, streamed: bool) -> Vec<(Vec<StreamEvent>, Vec<String>)> {
+/// dispatched before the response ends); a streaming one hands each call over as it completes (`ToolCallDone`), and a cut
+/// one ends after its calls without the terminal event.
+fn replies(script: &Value, streamed: bool) -> Vec<Reply> {
     script
         .as_array()
         .expect("script")
@@ -613,13 +660,16 @@ fn replies(script: &Value, streamed: bool) -> Vec<(Vec<StreamEvent>, Vec<String>
                     .map(|call| ToolCall { id: call["id"].as_str().expect("id").into(), name: call["name"].as_str().expect("name").into(), arguments: call["arguments"].clone(), native_type: None })
                     .collect();
                 let done = StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None };
+                let cut = step["cut"] == true;
+                assert!(!cut || streamed, "a cut reply streams");
                 if streamed {
-                    (calls.into_iter().map(StreamEvent::ToolCallDone).chain([done]).collect(), strings(&step["settles"]))
+                    let ending = if cut { None } else { Some(done) };
+                    Reply { events: calls.into_iter().map(StreamEvent::ToolCallDone).chain(ending).collect(), settles: strings(&step["settles"]), cut }
                 } else {
-                    (vec![StreamEvent::ReturnedCalls(calls), done], Vec::new())
+                    Reply { events: vec![StreamEvent::ReturnedCalls(calls), done], settles: Vec::new(), cut }
                 }
             }
-            None => (vec![StreamEvent::TextDelta(step["text"].as_str().expect("text").into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }], Vec::new()),
+            None => Reply { events: vec![StreamEvent::TextDelta(step["text"].as_str().expect("text").into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }], settles: Vec::new(), cut: false },
         })
         .collect()
 }
@@ -885,7 +935,12 @@ async fn observed(scenario: &Value, defined: &[Value]) -> Value {
     }
     let grant_store = Arc::new(MemoryGrantStore::default());
     let policy = ToolPolicy::new(grant_store.clone(), Arc::new(Connectors)).with_hook(Arc::new(SharedHook(hook.clone())));
-    let thread = ThreadId::from("t");
+    // The thread is the recorded session: the texts that name it (a card, an abort) name the same one.
+    let thread = ThreadId::from(scenario["sessionId"].as_str().expect("sessionId"));
+    // The run's token and the abort signal over it, as the host builds them (`run_host/factory.rs`: `config.signal`, the gate's
+    // `cancel`).
+    let token = CancellationToken::new();
+    let signal = Cancel::from_token(&token);
     let gate = PolicyGate::new(PolicyGateParts {
         policy: Arc::new(policy),
         connectors: Arc::new(Connectors),
@@ -897,7 +952,7 @@ async fn observed(scenario: &Value, defined: &[Value]) -> Value {
         guards: Arc::new(NoGuards),
         thread_id: thread.clone(),
         cwd: std::env::temp_dir(),
-        cancel: CancellationToken::new(),
+        cancel: token.clone(),
     });
     let post = Arc::new(PostHooks(Mutex::default(), timeline.clone(), stages.clone()));
     let provider = Arc::new(Replies {
@@ -951,20 +1006,33 @@ async fn observed(scenario: &Value, defined: &[Value]) -> Value {
     };
     let run = Run::new(
         env,
-        CancellationToken::new(),
+        token.clone(),
         provider.clone(),
         set,
         tool_env,
-        RunConfig::new(thread, TurnId::from("r"), "m"),
+        {
+            let mut config = RunConfig::new(thread.clone(), TurnId::from("r"), "m");
+            config.signal = Some(signal.clone());
+            config
+        },
         // The transcript the run is given is the recording's first request, whole: the host's system messages (the prompt is
         // assembled outside the loop, which must pass it on untouched) and the user's turn.
         scenario["requests"][0].as_array().expect("first request").iter().map(input_message).collect(),
         RunCarry::default(),
     );
-    let output = match awaiting_for(DEADLINE, || format!("the run of {}", scenario["name"]), run.run()).await {
-        Ok(output) => output,
-        Err(failure) => panic!("{}: the run failed: {}", scenario["name"], failure.error),
-    };
+    // The client's interrupt (`abortSessionTurn(<session>, <reason>)`) the moment every entry of `abortWhen` has happened.
+    let abort_reason = scenario["abortReason"].as_str().map(str::to_owned);
+    let canceller = scenario["abortWhen"].as_array().map(|wanted| {
+        let (wanted, timeline, signal, thread, reason) = (wanted.clone(), timeline.clone(), signal.clone(), thread.clone(), abort_reason.clone().expect("abortReason"));
+        tokio::spawn(async move {
+            for entry in &wanted {
+                timeline.until(entry, "the moment to cancel").await;
+            }
+            signal.abort_with(&Abort::abort_session_turn(thread.as_str(), &reason));
+            timeline.note(json!({ "ev": "aborted" }));
+        })
+    });
+    let ran = awaiting_for(DEADLINE, || format!("the run of {}", scenario["name"]), run.run()).await;
 
     let requests: Vec<Value> = provider
         .requests
@@ -973,12 +1041,47 @@ async fn observed(scenario: &Value, defined: &[Value]) -> Value {
         .iter()
         .map(|request| json!(request.messages.iter().map(wire_view).collect::<Vec<_>>()))
         .collect();
-    // The answer is the transcript's last message, which the run returns apart from it, with the run's own counters.
-    let mut transcript: Vec<Value> = output.transcript.iter().map(stored_view).collect();
-    let mut answer = view("assistant", json!(output.response.content), &[], None);
-    answer["iterations"] = json!(output.iterations);
-    answer["toolCallsTotal"] = json!(output.tool_calls_total);
-    transcript.push(answer);
+    let (answer, turn_error, transcript) = match (ran, &canceller) {
+        (Ok(output), None) => {
+            // The answer is the transcript's last message, which the run returns apart from it, with the run's own counters.
+            let mut transcript: Vec<Value> = output.transcript.iter().map(stored_view).collect();
+            let mut answer = view("assistant", json!(output.response.content), &[], None);
+            answer["iterations"] = json!(output.iterations);
+            answer["toolCallsTotal"] = json!(output.tool_calls_total);
+            transcript.push(answer);
+            (json!(output.response.content), Value::Null, transcript)
+        }
+        (Err(failure), Some(_)) => {
+            assert!(matches!(failure.error, AgentError::Aborted), "{}: the cancelled run failed otherwise: {}", scenario["name"], failure.error);
+            // The calls the cancel did not stop settle after the run ended: each tells the host as it does.
+            for id in scenario["settled"].as_array().expect("settled") {
+                timeline.until(&json!({ "ev": "toolResult", "id": id, "early": true }), &format!("the settlement of {id} after the cancellation")).await;
+            }
+            // What the stored transcript of a cancelled turn is: the host's interruption (`finalizeTurnInterruptionSnapshot`, replayed
+            // against `fixtures/interrupt/golden.json` by `interrupt::tests`) over the loop's transcript at the stop, in the tool phase,
+            // with the reason the turn was aborted with. Node's snapshot held no settled result (every call is closed `Cancelled`), and none
+            // had settled before the abort here either (the timeline is compared below).
+            let finalized = finalize_interrupted_turn(Interrupted {
+                transcript: failure.transcript,
+                current_user_text: "go".to_owned(),
+                response_started: true,
+                partial_assistant: String::new(),
+                partial_reasoning: String::new(),
+                observed_tool_calls: Vec::new(),
+                observed_tool_results: Vec::new(),
+                phase: Phase::Tools,
+                reason: AbortReason::from_name(abort_reason.as_deref().expect("abortReason")),
+            });
+            // A cancelled turn is Node's `SessionClosedError`, with the text of the abort that ended it.
+            let turn_error = json!({ "name": "SessionClosedError", "message": signal.reason() });
+            (Value::Null, turn_error, finalized.transcript.iter().map(stored_view).collect())
+        }
+        (Ok(_), Some(_)) => panic!("{}: the cancelled run ended without an error", scenario["name"]),
+        (Err(failure), None) => panic!("{}: the run failed: {}", scenario["name"], failure.error),
+    };
+    if let Some(canceller) = canceller {
+        canceller.await.expect("the canceller");
+    }
     let events = observer.0.lock().expect("events").clone();
     let tool_calls: Vec<Value> = events
         .iter()
@@ -1014,7 +1117,19 @@ async fn observed(scenario: &Value, defined: &[Value]) -> Value {
         .lock()
         .expect("asks")
         .iter()
-        .map(|ask| card_view(ask))
+        .map(|ask| card_view(ask, thread.as_str()))
+        .collect();
+    let recoveries: Vec<Value> = events
+        .iter()
+        .filter_map(|event| match event {
+            RunEvent::PartialToolRecovery(recovery) => Some(json!({
+                "iteration": recovery.iteration,
+                "toolCalls": recovery.tool_calls,
+                "droppedIncompleteInput": recovery.dropped_incomplete_input,
+                "partialContentLen": recovery.partial_content_len,
+            })),
+            _ => None,
+        })
         .collect();
     let audit: Vec<Value> = grant_store
         .audit()
@@ -1025,7 +1140,9 @@ async fn observed(scenario: &Value, defined: &[Value]) -> Value {
     let before = hook.seen.lock().expect("seen").clone();
     let after = post.0.lock().expect("after").clone();
     let mut seen = json!({
-        "answer": output.response.content,
+        "answer": answer,
+        "turnError": turn_error,
+        "recoveries": recoveries,
         "requests": requests,
         "transcript": transcript,
         "toolCalls": tool_calls,
@@ -1114,7 +1231,7 @@ fn early_view(message: &AgentMessage) -> Value {
 }
 
 /// The approval card as the human is shown it: the ask's own fields, and the thread (the card's `sessionId`).
-fn card_view(ask: &ApprovalAsk) -> Value {
+fn card_view(ask: &ApprovalAsk, thread: &str) -> Value {
     let payload = &ask.payload;
     json!({
         "kind": payload["kind"],
@@ -1124,7 +1241,7 @@ fn card_view(ask: &ApprovalAsk) -> Value {
         "name": ask.tool,
         "args": payload["args"],
         "cwd": payload["cwd"],
-        "sessionId": "t",
+        "sessionId": thread,
         "toolCallId": ask.call_id.as_ref().map(|id| id.as_str()),
         "reason": ask.reason,
     })
@@ -1168,11 +1285,16 @@ fn recorded(scenario: &Value) -> Value {
             shown
         })
         .collect();
-    // The trace: only these kinds exist, and the loop's own is the `batch` row.
+    // The trace: only these kinds exist, and the loop's own are the `batch` row and the stream-cut recovery.
     let trace = scenario["trace"].as_array().expect("trace");
     for row in trace {
-        assert!(matches!(row["kind"].as_str(), Some("context" | "batch" | "tool" | "usage")), "{}: a trace row of a kind the replay does not know: {}", scenario["name"], row["kind"]);
+        assert!(matches!(row["kind"].as_str(), Some("context" | "batch" | "tool" | "usage" | "partial_tool_recovery")), "{}: a trace row of a kind the replay does not know: {}", scenario["name"], row["kind"]);
     }
+    let recoveries: Vec<Value> = trace
+        .iter()
+        .filter(|row| row["kind"] == "partial_tool_recovery")
+        .map(|row| json!({ "iteration": row["iteration"], "toolCalls": row["toolCalls"], "droppedIncompleteInput": row["droppedIncompleteInput"], "partialContentLen": row["partialContentLen"] }))
+        .collect();
     let batches: Vec<Value> = trace
         .iter()
         .filter(|row| row["kind"] == "batch")
@@ -1192,26 +1314,17 @@ fn recorded(scenario: &Value) -> Value {
         .filter(|e| e["ev"] == "toolResult" && e["message"]["__earlyNotify"] != true)
         .map(|e| json!([e["message"]["toolCallId"], e["message"]["toolKind"]]))
         .collect();
-    let cards: Vec<Value> = scenario["cards"]
-        .as_array()
-        .expect("cards")
-        .iter()
-        .map(|card| {
-            let mut shown = card.clone();
-            // The thread stands where the recorder's generated session id was (see the header).
-            shown["sessionId"] = json!("t");
-            shown
-        })
-        .collect();
     json!({
         "answer": scenario["answer"],
+        "turnError": scenario["turnError"],
+        "recoveries": recoveries,
         "requests": requests,
         "transcript": transcript,
         "toolCalls": tool_calls,
         "batches": batches,
         "early": early,
         "results": results,
-        "cards": cards,
+        "cards": scenario["cards"],
         "audit": audit,
         "hooks": scenario["hooks"],
         "executed": scenario["executed"],
