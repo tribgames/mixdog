@@ -4,12 +4,17 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { adapter } from './remote-protocol-terminal.ts';
+import { bounded } from './remote-protocol-terminal-deadlines.mjs';
 
 /** A protocol client as far as the adapter reads it: its notifications and its (empty) held sections. */
 function client() {
   const listeners = new Set();
+  let heard;
+  // Resolves when the adapter starts reading this client's notifications.
+  const read = new Promise((resolve) => (heard = resolve));
   return {
-    on: (listener) => (listeners.add(listener), () => listeners.delete(listener)),
+    read,
+    on: (listener) => (listeners.add(listener), heard(), () => listeners.delete(listener)),
     store: { section: () => null, subscribe: () => () => undefined },
     server: { platformOs: 'windows' },
     output: (id, text) => {
@@ -48,11 +53,11 @@ test('after a re-pairing the terminal output of the new client reaches the page 
   const stop = adapter.install(host);
   const revoked = client();
   up(revoked);
-  // Everything the first dial's completion runs has run (the start promise and its continuations).
-  await new Promise((done) => setImmediate(done));
+  await bounded(revoked.read, 'the adapter to read the first client');
   revoked.output('term_a', 'before');
   const approved = client();
   up(approved);
+  await bounded(approved.read, 'the adapter to read the client of the new pairing');
   revoked.output('term_a', 'from the revoked client');
   approved.output('term_b', 'after');
   assert.deepEqual(heard, [
