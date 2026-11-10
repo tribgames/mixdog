@@ -705,6 +705,12 @@ impl PgCluster {
         &self.data_dir
     }
 
+    /// The cluster of `<profile>/pgdata` on `port` as a start would hand it over, without starting anything.
+    #[cfg(test)]
+    pub(crate) fn over(runtime: PgRuntime, profile: &Path, port: u16, lane: DurabilityIo, processes: Processes) -> Self {
+        Self { runtime, data_dir: profile.join("pgdata"), port, lane, processes }
+    }
+
     /// `stopPg`: bounded fast shutdown, open transactions roll back and clients disconnect.
     /// `pg_ctl -t` is `timeout` in whole seconds (rounded up, at least one); the child is
     /// ended one second after that.

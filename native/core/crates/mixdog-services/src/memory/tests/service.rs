@@ -15,7 +15,7 @@ use super::recall::{CASES, Provider, SEED, load_seed};
 use crate::memory::embed::engine::EmbedConfig;
 use crate::memory::embed::provider::EmbeddingProvider;
 use crate::memory::ingest::embed_flush::RawEmbedFlush;
-use crate::memory::ingest::{SessionIngest, system_now};
+use crate::memory::ingest::SessionIngest;
 use crate::memory::pg::db::Schema;
 use crate::memory::recall::period::Clock;
 use crate::memory::recall::{Recall, RecallDeps};
@@ -130,7 +130,9 @@ async fn over_the_pg_module_a_session_less_recall_equals_the_recorded_recall_gol
         estimate_tokens: Arc::new(mixdog_js::token_estimate::estimate_tokens),
         trace: None,
     });
-    let ingest = SessionIngest::new(db.clone(), Arc::new(RawEmbedFlush::new(db.clone(), None)), None, system_now(), mixdog_rt::testing::tokens().durability_io);
+    // The seed's clock is the store's clock too: what the service ingests is stamped at the recall's `now`.
+    let seed_now: crate::memory::ingest::NowMs = Arc::new(move || now_ms);
+    let ingest = SessionIngest::new(db.clone(), Arc::new(RawEmbedFlush::new(db.clone(), None)), None, seed_now.clone(), mixdog_rt::testing::tokens().durability_io);
     let memory = Arc::new(LocalMemory::new(db, pg.dir.path().join("data"), recall.clone(), ingest, mixdog_rt::testing::tokens().durability_io));
     let service = MemoryService::new(memory, Arc::new(Sessions { session: None, cwd: None, title: String::new() }));
 
@@ -147,8 +149,9 @@ async fn over_the_pg_module_a_session_less_recall_equals_the_recorded_recall_gol
     }
     assert!(compared >= 10, "{compared}");
 
-    // With a live session whose own messages do not match, the scoped recall runs first; its
-    // answer is the recall of the arguments the Node product sent.
+    // With a live session whose own messages do not match, the service ingests the session and then runs the scoped recall, in the order of the Node
+    // product's calls (`calls[0]` the `ingest_session`, `calls[1]` the recall): its answer is the recall of the arguments Node sent, over the store as that
+    // ingest left it.
     let scenarios: Vec<Value> = serde_json::from_str(COMPOSITION).expect("golden");
     let scoped = scenarios.iter().find(|s| s["name"] == "no-own-match-ingests-then-scoped").expect("scenario");
     let session_id = seed["entries"][0]["session_id"].as_str().expect("seeded session").to_owned();
@@ -158,7 +161,7 @@ async fn over_the_pg_module_a_session_less_recall_equals_the_recorded_recall_gol
         title: String::new(),
     };
     let scoped_db = service_db(&pg).await;
-    let ingest = SessionIngest::new(scoped_db.clone(), Arc::new(RawEmbedFlush::new(scoped_db.clone(), None)), None, system_now(), mixdog_rt::testing::tokens().durability_io);
+    let ingest = SessionIngest::new(scoped_db.clone(), Arc::new(RawEmbedFlush::new(scoped_db.clone(), None)), None, seed_now, mixdog_rt::testing::tokens().durability_io);
     let service = MemoryService::new(
         Arc::new(LocalMemory::new(scoped_db, pg.dir.path().join("data"), recall.clone(), ingest, mixdog_rt::testing::tokens().durability_io)),
         Arc::new(sessions),
@@ -167,8 +170,9 @@ async fn over_the_pg_module_a_session_less_recall_equals_the_recorded_recall_gol
     expected_args["query"] = json!("zzz unrelated");
     expected_args["sessionId"] = json!(session_id);
     expected_args["currentSessionId"] = json!(session_id);
+    let answer = ask(&service, json!({ "query": "zzz unrelated", "args": {} })).await;
     let expected = recall.recall(&expected_args).await.text;
-    assert_eq!(ask(&service, json!({ "query": "zzz unrelated", "args": {} })).await, expected);
+    assert_eq!(answer, expected);
 }
 
 /// The first recall on a fresh profile whose runtime is installed (the stack opens the database at that call: `initdb`, the postmaster, the schema) from a new,

@@ -193,6 +193,12 @@ impl Db {
         Ok(Self { pool: PoolSource::Open(pool), schema })
     }
 
+    /// An open handle whose pool has not connected (a pool connects at its first use).
+    #[cfg(test)]
+    pub(crate) fn unconnected(port: u16, schema: Schema) -> Self {
+        Self { pool: PoolSource::Open(build_pool(config(port, DATABASE, None), POOL_SIZE).expect("pool")), schema }
+    }
+
     /// A handle whose pool `opener` hands over at each use; `since` tells when the opening a use waits on was launched.
     pub fn deferred(schema: Schema, opener: PoolOpener, since: OpeningSince) -> Self {
         Self { pool: PoolSource::Deferred(opener, since), schema }
