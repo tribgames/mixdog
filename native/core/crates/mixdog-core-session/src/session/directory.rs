@@ -692,6 +692,11 @@ impl SessionDirectory {
         self.inner.deps.store.session_meta(id).await
     }
 
+    /// Resolves once the catalog index holds every write acked so far.
+    pub async fn indexed(&self) {
+        self.inner.deps.store.indexed().await;
+    }
+
     /// Binds what a runtime's teardown does for the agents its session owns; once.
     pub fn set_owner_teardown(&self, hook: Arc<dyn OwnerTeardown>) -> Result<(), &'static str> {
         self.inner.owner_teardown.set(hook).map_err(|_| "the owner teardown is already bound")

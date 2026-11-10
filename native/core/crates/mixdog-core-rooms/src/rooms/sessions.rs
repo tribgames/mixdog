@@ -155,7 +155,7 @@ impl<S: RoomStore + 'static> HomePorts for SessionHomePorts<S> {
         for gone in &left {
             self.runner.cancel_owed_to(&gone.room_id, std::slice::from_ref(&gone.agent_id));
         }
-        self.room_host.republish_catalog();
+        self.room_host.republish_catalog().await;
         let sessions: Vec<String> = left.iter().filter_map(|l| l.session_id()).collect();
         let failed = self.room_host.delete_sessions(&sessions).await;
         if failed > 0 {
@@ -185,11 +185,14 @@ impl<S: RoomStore + 'static> HomePorts for SessionHomePorts<S> {
 pub struct SessionRoomHost {
     catalog: Arc<dyn AgentCatalog>,
     sessions: Arc<dyn SessionOps>,
-    republish: Arc<dyn Fn() + Send + Sync>,
+    republish: Republish,
 }
 
+/// A catalog publish that ends when the catalog is published.
+pub type Republish = Arc<dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> + Send + Sync>;
+
 impl SessionRoomHost {
-    pub fn new(catalog: Arc<dyn AgentCatalog>, sessions: Arc<dyn SessionOps>, republish: Arc<dyn Fn() + Send + Sync>) -> Self {
+    pub fn new(catalog: Arc<dyn AgentCatalog>, sessions: Arc<dyn SessionOps>, republish: Republish) -> Self {
         Self { catalog, sessions, republish }
     }
 }
@@ -234,8 +237,8 @@ impl RoomHost for SessionRoomHost {
         failed
     }
 
-    fn republish_catalog(&self) {
-        (self.republish)();
+    async fn republish_catalog(&self) {
+        (self.republish)().await;
     }
 
     /// As an agent home's reset: the archive mark is written before the copy exists, so the copy never lists as a live chat.
@@ -328,7 +331,7 @@ mod tests {
         async fn delete_sessions(&self, _: &[String]) -> usize {
             0
         }
-        fn republish_catalog(&self) {}
+        async fn republish_catalog(&self) {}
         async fn start_over(&self, _: &str) -> Result<Option<String>, RoomError> {
             Ok(None)
         }
@@ -509,7 +512,7 @@ mod tests {
 
     #[tokio::test]
     async fn deleting_sessions_counts_the_failures() {
-        let host = SessionRoomHost::new(Arc::new(Catalog), Arc::new(Spy::default()), Arc::new(|| {}));
+        let host = SessionRoomHost::new(Arc::new(Catalog), Arc::new(Spy::default()), Arc::new(|| Box::pin(async {})));
         assert_eq!(host.delete_sessions(&["a".into(), "bad".into(), "b".into()]).await, 1);
     }
 }

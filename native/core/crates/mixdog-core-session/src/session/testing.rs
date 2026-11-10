@@ -428,6 +428,10 @@ impl ThreadStore for MemStore {
         Box::pin(async move { Ok(listed.then(super::seams::SessionMeta::default)) })
     }
 
+    fn indexed(&self) -> futures::future::BoxFuture<'static, ()> {
+        Box::pin(async {})
+    }
+
     fn purge_deleted(&self) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>> {
         Box::pin(async { Ok(Vec::new()) })
     }

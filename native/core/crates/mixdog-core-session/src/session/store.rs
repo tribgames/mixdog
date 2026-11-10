@@ -867,6 +867,11 @@ impl ThreadStore for StoreThreads {
         })
     }
 
+    fn indexed(&self) -> futures::future::BoxFuture<'static, ()> {
+        let projector = self.projector.clone();
+        Box::pin(async move { projector.flush().await })
+    }
+
     fn purge_deleted(&self) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>> {
         let (projector, index, lane, data) = (self.projector.clone(), self.index.clone(), self.maintenance, self.data.clone());
         Box::pin(async move {

@@ -195,3 +195,43 @@ fn the_roster_gate_keeps_the_rows_node_kept() {
         assert_eq!(super::thread_edges::roster_row(row, name, workspace), case["kept"], "{}", row["id"]);
     }
 }
+
+/// A room call waits for `settled`: the edges written before it are published when it returns (Node publishes the catalog before
+/// `createAgentRoom` answers). The recorded first write of the `schedule` trigger announces its row as `thread/started`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn settled_returns_after_the_written_rows_are_announced() {
+    let golden = golden();
+    let step = &golden["triggers"].as_array().unwrap().iter().find(|t| t["name"] == "schedule").expect("trigger")["steps"][0];
+    assert!(step["published"] == true && step["lookup"]["ok"] == true);
+    let data = tempfile::tempdir().expect("data dir");
+    let tokens = mixdog_rt::testing::tokens();
+    let root = data.path().to_path_buf();
+    let store = Arc::new(
+        mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
+            SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root)
+        })
+        .expect("lane")
+        .await
+        .expect("job ran")
+        .expect("index"),
+    );
+    let limits = MockLimits::default();
+    let feed = Arc::new(MockFeed::new("app".into(), mixdog_core_api::mock::epoch(1), Arc::new(mixdog_core_api::mock::EchoView), limits));
+    let app = MockConnection::new(ConnectionId(1), limits);
+    let source: Arc<dyn FeedSource> = feed.clone();
+    let attached = mixdog_core_api::feed::subscribe(&source, "app".into(), mixdog_core_api::feed::Window::Fixed, None, &app).unwrap();
+    mixdog_core_api::sink::ConnectionSink::send_control_release(&app, bytes::Bytes::from_static(b"{}"), attached.release).unwrap();
+    let workspace = Arc::new(Workspace(Mutex::new(Some(step["lookup"]["path"].as_str().expect("path").to_owned()))));
+    let list = Arc::new(ThreadListService::new(store.clone(), Arc::new(Idle), Arc::new(NoRooms), workspace.clone()));
+    let edges = super::thread_edges::ThreadEdges::start(ThreadEdgePublisher::new(list, Arc::new(mixdog_core_base::state::SectionFeedState::new(feed)), workspace));
+    store.observe_rows(edges.clone()).expect("sink");
+
+    let mut header = step["record"].as_object().expect("record").clone();
+    header.shift_remove("messages");
+    let id = header["id"].as_str().expect("id").to_owned();
+    store.upsert(CatalogHead { session: id.clone(), log_id: "L".into(), base_session: None, header }, DirtyMark::Clear).await.expect("upsert");
+    edges.settled().await;
+    let started: Vec<String> = app.drain_text().into_iter().filter(|text| text.contains("thread/started")).collect();
+    assert_eq!(started.len(), 1, "{started:?}");
+    assert!(started[0].contains(&format!(r#""id":"{id}""#)), "{}", started[0]);
+}
