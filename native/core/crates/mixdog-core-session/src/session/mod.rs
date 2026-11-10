@@ -297,6 +297,9 @@ pub struct SessionDeps {
     pub search: Arc<dyn TurnIngest>,
     /// The memory ingest when a thread unloads or the core shuts down.
     pub memory: Arc<dyn CloseIngest>,
+    /// The memory ingest of a settled turn once it is durable: today's transcript JSONL that
+    /// the memory watcher tails as the turn runs, fed from the log instead.
+    pub live_memory: Arc<dyn CloseIngest>,
     /// The sensitive values a running turn's session gains (its search rows are replaced).
     pub sensitive: Arc<dyn SensitiveMarks>,
     /// The cwd files under the data dir (`user-cwd.mjs`).

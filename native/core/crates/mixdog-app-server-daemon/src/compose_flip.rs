@@ -2040,6 +2040,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 )),
                 search: session_search,
                 memory: Arc::new(mixdog_core_session::session::MemoryCloseIngest::new(Some(memory_module.clone()))),
+                live_memory: Arc::new(mixdog_core_session::session::MemoryCloseIngest::new(Some(memory_module.clone()))),
                 sensitive: Arc::new(mixdog_core_session::session::store::SensitiveMarksOf(sensitive.clone())),
                 user_cwd: mixdog_core_session::session::UserCwd::new(data_dir.to_path_buf(), tokens.interactive_io),
                 attachments: mixdog_core_session::session::user_facts::AttachmentStore(blobs.root().to_path_buf()),

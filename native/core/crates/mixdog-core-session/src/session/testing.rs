@@ -1264,6 +1264,8 @@ pub struct Rig {
     pub builtin_skills: Arc<TestBuiltinSkills>,
     pub ingests: Arc<Ingests>,
     pub closes: Arc<Closes>,
+    /// The memory ingests of settled turns.
+    pub live_memory: Arc<Closes>,
     pub sensitive: Arc<mixdog_services::memory::sensitive::SensitiveStore>,
     /// What deletes did outside the session, in order.
     pub deletes: Arc<Deletes>,
@@ -1690,6 +1692,7 @@ impl Rig {
             builtin_skills: Arc::default(),
             ingests: Arc::default(),
             closes: Arc::default(),
+            live_memory: Arc::default(),
             sensitive: Arc::default(),
             deletes: Arc::default(),
             snapshots: Arc::default(),
@@ -1734,6 +1737,7 @@ impl Rig {
             effort: self.prewarms.clone(),
             search: self.ingests.clone(),
             memory: self.closes.clone(),
+            live_memory: self.live_memory.clone(),
             sensitive: Arc::new(super::store::SensitiveMarksOf(self.sensitive.clone())),
             user_cwd: super::UserCwd::new(self._data.path(), tokens.interactive_io),
             attachments: super::user_facts::AttachmentStore(self._data.path().to_path_buf()),
