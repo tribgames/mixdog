@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 67491,
+      "bytes": 120036,
       "path": "node-catalog-refresh-start.json",
-      "sha256": "efc1e03cd1afa1d4a79a05694220e33c290cbbfded6bb4cc638967c1b3456a00"
+      "sha256": "c9fe3e838136f41249fa3edff61f5cf16f7bd1ff7a37f27ac6c6c6ff16958021"
     }
   ],
   "inputs": [
@@ -15,7 +15,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "1f65dbb615d53376c103b20d0df7a53b7ba1bfed8100be99716da900dfc58c66"
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -37,7 +37,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-catalog-refresh-start.mjs",
-  "recorderSha256": "8330bcf2b21d05a9bdea806cd9e75888f53475240d31925b9cd93fbde053f488",
+  "recorderSha256": "5de232e38fb6c5ae3c03cabb5325f9ad875949ea4827c7ebe22c2ce33d8fd254",
   "set": "catalog-refresh-start",
-  "totalBytes": 67491
+  "totalBytes": 120036
 }
