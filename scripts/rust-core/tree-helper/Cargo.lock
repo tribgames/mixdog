@@ -116,6 +116,7 @@ dependencies = [
 name = "treerun"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "rustix",
  "signal-hook",
  "win32job",

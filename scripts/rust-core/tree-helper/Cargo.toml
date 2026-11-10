@@ -17,6 +17,10 @@ windows = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Thre
 rustix = { version = "1.1", default-features = false, features = ["std", "process", "event", "fs"] }
 signal-hook = { version = "0.3", default-features = false, features = ["iterator"] }
 
+# macOS lists a process group's members only through libproc (proc_listpgrppids), which rustix does not wrap.
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+
 [profile.release]
 opt-level = "s"
 lto = true
