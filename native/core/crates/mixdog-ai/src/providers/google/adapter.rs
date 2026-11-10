@@ -304,6 +304,15 @@ impl ModelListing for GoogleAdapter {
     }
 }
 
+/// `announcedRedirects` (`gemini.mjs:90`): the requested ids already announced in this process.
+static ANNOUNCED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// No redirect announced yet, as in a new process.
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) fn reset_announced() {
+    ANNOUNCED.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clear();
+}
+
 /// A model id the Gemini API serves as another one (`announcedRedirects` in `gemini.mjs`).
 struct Redirect {
     requested: String,
@@ -315,7 +324,6 @@ impl Redirect {
     /// send's `onStageChange` (tone `warn`) and to stderr. The claim is made here, before the request is built, as
     /// in Node: the notice rides the stream when the request has one and the error when it fails.
     fn announce(&self) -> Option<StreamEvent> {
-        static ANNOUNCED: Mutex<Vec<String>> = Mutex::new(Vec::new());
         let mut announced = ANNOUNCED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if announced.contains(&self.requested) {
             return None;
@@ -391,12 +399,21 @@ impl ProviderAdapter for GoogleAdapter {
 }
 
 /// `isGeminiCachedContentError` (gemini.mjs:222-231) over the error `geminiRestError` makes of `body`: its message
-/// (`<label> <status>: ` and the first 300 characters of the body) and its parsed payload, lower-cased, name the cached
-/// content or the attached cache.
+/// (`<label> <status>: ` and the first 300 characters of the body) and its `data`, lower-cased, name the cached
+/// content or the attached cache. `data` is the parsed payload whenever `payload?.error || payload` is truthy
+/// (gemini.mjs:199), which is whenever the payload itself is: an object or array whatever its `error`, a non-empty
+/// string, a number other than 0, `true`.
 fn names_cached_content(body: &[u8], cache_name: &str) -> bool {
     let text = String::from_utf8_lossy(body);
     let head = String::from_utf16_lossy(&text.encode_utf16().take(300).collect::<Vec<u16>>());
-    let payload = serde_json::from_slice::<Value>(body).ok().filter(|p| !p.get("error").unwrap_or(p).is_null());
+    let truthy = |payload: &Value| match payload {
+        Value::Null => false,
+        Value::Bool(b) => *b,
+        Value::Number(n) => n.as_f64().is_some_and(|n| n != 0.0),
+        Value::String(s) => !s.is_empty(),
+        Value::Array(_) | Value::Object(_) => true,
+    };
+    let payload = serde_json::from_slice::<Value>(body).ok().filter(truthy);
     let data = payload.map_or_else(|| "\"\"".to_owned(), |p| p.to_string());
     let text = format!("{head} {data}").to_lowercase();
     text.contains("cachedcontent") || text.contains("cached content") || (!cache_name.is_empty() && text.contains(&cache_name.to_lowercase()))

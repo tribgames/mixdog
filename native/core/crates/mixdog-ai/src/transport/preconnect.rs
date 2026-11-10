@@ -18,6 +18,12 @@ use super::deadlines::PRECONNECT;
 /// `_preconnectedAt`: when each origin was last warmed, for the whole process.
 static PRECONNECTED_AT: Mutex<Option<HashMap<&'static str, u64>>> = Mutex::new(None);
 
+/// No origin warmed yet, as in a new process.
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) fn reset() {
+    *PRECONNECTED_AT.lock().unwrap_or_else(PoisonError::into_inner) = None;
+}
+
 /// What a warm-up reads: its clock and the process setting of the keep-alive window.
 pub type Clock = Arc<dyn Fn() -> u64 + Send + Sync>;
 pub type Setting = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;

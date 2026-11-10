@@ -47,9 +47,10 @@ pub trait BodyStream: Send {
     /// transport fact that ended the body.
     async fn next(&mut self) -> Option<Result<Bytes, TransportFault>>;
 
-    /// Keeps the connection of a body read to its end out of the pool until this body is dropped: Node's response
-    /// returns its socket only after the code that drained it has run on (`resendIfEncodingRejected` resends before
-    /// the socket is free, so the resend dials a new one). The default does nothing.
+    /// Keeps the connection of a body read to its end out of the pool until the next request to its origin has its
+    /// connection, or this body is dropped: Node's response returns its socket a turn of the event loop after the
+    /// code that drained it ran on (`resendIfEncodingRejected` resends before the socket is free, so the resend takes
+    /// another; a request after the resend finds it free). The default does nothing.
     fn hold_connection(&mut self) {}
 }
 
@@ -75,9 +76,9 @@ impl HttpResponse {
         })
     }
 
-    /// [`Self::read_all`] with the connection kept out of the pool until the returned body is dropped
-    /// ([`BodyStream::hold_connection`]): a Node caller that reads an answer and sends its next request on the same
-    /// turn of the event loop finds the answer's socket still busy.
+    /// [`Self::read_all`] with the connection kept out of the pool until the next request to the origin has its
+    /// connection, or the returned body is dropped ([`BodyStream::hold_connection`]): a Node caller that reads an
+    /// answer and sends its next request on the same turn of the event loop finds the answer's socket still busy.
     pub async fn read_all_held(mut self) -> Result<(ErrorResponse, Box<dyn BodyStream>), ProviderError> {
         self.body.hold_connection();
         let body = drain(&mut self.body).await?;

@@ -30,3 +30,15 @@ pub mod transport;
 pub mod warmer;
 #[cfg(feature = "count-work")]
 pub mod work;
+
+/// The process-wide state a provider send leaves behind, put back as a new process has it: the Anthropic gzip and
+/// OpenAI zstd latches, the Anthropic message threads, the warmed origins, the Gemini cache registry and its announced
+/// redirects. A test that replays a recording Node made in a fresh process starts here.
+#[cfg(any(test, feature = "test-support"))]
+pub fn reset_process_state() {
+    providers::anthropic::reset_process_state();
+    providers::openai::adapter::reset_zstd_latch();
+    providers::google::adapter::reset_announced();
+    providers::google::cache::registry::Registry::reset_shared();
+    transport::preconnect::reset();
+}

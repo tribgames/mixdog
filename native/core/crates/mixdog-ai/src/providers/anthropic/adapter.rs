@@ -91,6 +91,12 @@ const GZIP_MIN_BYTES: usize = 8 * 1024;
 /// plain; from then on no Anthropic body of this process is compressed.
 static GZIP_LATCHED: AtomicBool = AtomicBool::new(false);
 
+/// `anthropicGzipLatch.reset()` (`request-compression.mjs:23-25`), which only Node's tests call.
+#[cfg(any(test, feature = "test-support"))]
+pub fn reset_gzip_latch() {
+    GZIP_LATCHED.store(false, Ordering::SeqCst);
+}
+
 // ---------------------------------------------------------------------------
 // Credentials
 // ---------------------------------------------------------------------------

@@ -60,3 +60,10 @@ pub use models::Tier;
 pub use oauth::AnthropicLogin;
 pub use oauth::OAuthSession;
 pub use oauth::StoredOAuth;
+
+/// The Anthropic module state a send leaves in the process (the gzip latch, the message threads), as a new process has it.
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) fn reset_process_state() {
+    adapter::reset_gzip_latch();
+    threads::reset_process();
+}

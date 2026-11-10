@@ -24,7 +24,8 @@ use tokio_rustls::TlsAcceptor;
 pub const RANDOM: &str = "<random>";
 
 /// What the server answers: a dial is accepted or refused, each data message sent is answered with the next entry of
-/// `replies`, each http request with the next entry of `http`.
+/// `replies`, each http request with the next entry of `http` (`then: 'withhold'` keeps it back until
+/// [`Loopback::release`]).
 #[derive(Default)]
 pub struct Script {
     pub dials: VecDeque<Value>,
@@ -41,8 +42,10 @@ struct Inner {
     ended: Mutex<HashMap<usize, watch::Receiver<bool>>>,
     upgraded: Mutex<Vec<usize>>,
     unanswered: Mutex<Option<String>>,
-    /// A reply that holds (`then: 'hold'`) has been written.
+    /// A reply that holds (`then: 'hold'`) has been written, or an http answer is withheld (`then: 'withhold'`).
     held: tokio::sync::Notify,
+    /// The connections waiting to write a withheld http answer, in the order they were withheld.
+    withheld: Mutex<Vec<tokio::sync::oneshot::Sender<()>>>,
 }
 
 pub struct Loopback {
@@ -129,6 +132,13 @@ impl Loopback {
     /// Resolves once a reply that holds has been written; the caller puts the deadline on it.
     pub async fn held(&self) {
         self.inner.held.notified().await;
+    }
+
+    /// Writes the withheld http answers (`then: 'withhold'`), in the order they were withheld.
+    pub fn release(&self) {
+        for waiting in self.inner.withheld.lock().unwrap().drain(..) {
+            waiting.send(()).ok();
+        }
     }
 
     /// The numbers of the connections that upgraded to a WebSocket.
@@ -289,6 +299,15 @@ async fn serve(inner: Arc<Inner>, acceptor: TlsAcceptor, tcp: TcpStream) {
                     fields.push(("content-length".into(), text.len().to_string()));
                     let status = plan["status"].as_u64().unwrap_or(200);
                     let head: String = fields.iter().map(|(n, v)| format!("{n}: {v}\r\n")).collect();
+                    if plan["then"] == "withhold" {
+                        // Written when the caller releases it ([`Loopback::release`]); the caller puts the deadline on that.
+                        let (release, released) = tokio::sync::oneshot::channel();
+                        inner.withheld.lock().unwrap().push(release);
+                        inner.held.notify_one();
+                        if released.await.is_err() {
+                            break 'serving;
+                        }
+                    }
                     io.write_all(format!("HTTP/1.1 {status} X\r\n{head}\r\n").as_bytes()).await.ok();
                     io.write_all(text.as_bytes()).await.ok();
                     if plan["then"] == "reset" {

@@ -287,6 +287,12 @@ pub fn process() -> &'static Arc<Threads> {
     &PROCESS
 }
 
+/// The process store as a new process has it.
+#[cfg(any(test, feature = "test-support"))]
+pub fn reset_process() {
+    *PROCESS.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Inner::default();
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Mode {
     None,
