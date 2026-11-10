@@ -831,11 +831,7 @@ impl ShellTool {
         // The hoisted file goes when the command has settled (a promoted or killed tree may still
         // be running from it until then).
         if let Some(path) = hoist_path {
-            let (lane, cancel, settled) = (runtime.config.lanes.maintenance, ctx.cancel.clone(), job.clone());
-            mixdog_rt::spawn("shell-hoist-cleanup", mixdog_rt::TaskClass::Work, async move {
-                settled.settled().await;
-                spill::remove_file(lane, &cancel, &path).await;
-            });
+            runtime.remove_when_settled(&job, path, ctx.cancel.clone());
         }
 
         let reason: PromotionReason;
@@ -895,11 +891,7 @@ impl ShellTool {
             runtime.promote(&job.id);
             // A promoted command's tee file is consumed (deleted) when it settles.
             if let Some(tee) = tee_path.clone() {
-                let (lane, cancel, settled) = (runtime.config.lanes.maintenance, ctx.cancel.clone(), job.clone());
-                mixdog_rt::spawn("shell-tee-cleanup", mixdog_rt::TaskClass::Work, async move {
-                    settled.settled().await;
-                    spill::remove_file(lane, &cancel, &tee).await;
-                });
+                runtime.remove_when_settled(&job, tee, ctx.cancel.clone());
             }
             backgrounded(&job, &command, &guard_note, &background_message(reason, runtime.now_ms().saturating_sub(job.started_ms)))
         } else {

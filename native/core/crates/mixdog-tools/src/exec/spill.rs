@@ -184,11 +184,16 @@ pub async fn ensure_launcher_dir(
     let _ = job.await;
 }
 
-/// Removes a file; best effort (an unconfirmed kill may keep it locked).
-pub async fn remove_file(lane: MaintenanceIo, cancel: &CancellationToken, path: &Path) {
+/// Removes a file; best effort (an unconfirmed kill may keep it locked). Whether it is gone.
+pub async fn remove_file(lane: MaintenanceIo, cancel: &CancellationToken, path: &Path) -> bool {
     let path = path.to_owned();
-    if let Ok(job) = lane.submit(cancel, move |_| std::fs::remove_file(&path)) {
-        let _ = job.await;
+    let Ok(job) = lane.submit(cancel, move |_| std::fs::remove_file(&path)) else {
+        return false;
+    };
+    match job.await {
+        Ok(Ok(())) => true,
+        Ok(Err(error)) => error.kind() == std::io::ErrorKind::NotFound,
+        Err(_) => false,
     }
 }
 
