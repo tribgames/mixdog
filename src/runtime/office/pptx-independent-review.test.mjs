@@ -101,16 +101,12 @@ test('runner uses fresh headless execution with the existing readonly policy and
   const result = await runReview(
     { input, output, provider: 'test-provider', model: 'test-model' },
     {
-      createRuntime: async (options) => {
-        assert.equal(options.toolMode, 'readonly');
-        assert.equal(options.toolProfile, 'headless');
-        return {};
-      },
       execute: async (options) => {
         called++;
         assert.equal(options.webSearch, false);
         assert.notEqual(options.cwd, path);
-        await options.runtimeFactory({ toolProfile: 'headless', toolMode: 'full' });
+        // `mixdogd exec --tool-mode readonly` (lib/mixdogd-exec.mjs), Node's readonly runtimeFactory.
+        assert.equal(options.toolMode, 'readonly');
         options.write(JSON.stringify(response()));
         return 0;
       },
