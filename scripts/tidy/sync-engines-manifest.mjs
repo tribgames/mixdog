@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Resolve, download, hash, and write src/runtime/tidy/engines-manifest.json.
+ * Resolve, download, hash, and write native/core/crates/mixdog-services/data/tidy-engines-manifest.json.
  *
  *   node scripts/tidy/sync-engines-manifest.mjs
  *   node scripts/tidy/sync-engines-manifest.mjs --check
@@ -22,7 +22,7 @@ import { fileURLToPath } from 'node:url';
 import { gunzipSync } from 'node:zlib';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const MANIFEST_PATH = join(ROOT, 'src/runtime/tidy/engines-manifest.json');
+const MANIFEST_PATH = join(ROOT, 'native/core/crates/mixdog-services/data/tidy-engines-manifest.json');
 const TMP_DIR = join(ROOT, '.tmp-tidy-engines');
 const MANIFEST_VERSION = 1;
 const MAX_ASSET_BYTES = 200 * 1024 * 1024;

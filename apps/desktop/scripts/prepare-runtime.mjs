@@ -827,10 +827,8 @@ async function prepareRuntime(manifest, fingerprint) {
       await assertTreeTargetArchitecture(await desktopPtyNativeRoot(), 'Desktop node-pty');
     });
     // The staging install only needs the production dependency tree. The repo's
-    // postinstall (embedding prune + native asset fetch) is driven explicitly by
-    // this script, and prepare-native-assets.mjs imports from src/, which is not
-    // staged until the runtime package copy below — so letting `npm ci` run it
-    // fails the install. Stripping scripts leaves the lockfile tree unchanged.
+    // postinstall (embedding prune) is driven explicitly by this script.
+    // Stripping scripts leaves the lockfile tree unchanged.
     await mkdir(stagingDir, { recursive: true });
     const stagingPackage = JSON.parse(await readFile(join(rootDir, 'package.json'), 'utf8'));
     delete stagingPackage.scripts;
@@ -1001,7 +999,6 @@ async function prepareRuntime(manifest, fingerprint) {
     for (const required of [
       '/package.json',
       '/node_modules/mixdog/package.json',
-      '/node_modules/mixdog/src/tui/session.mjs',
       '/node_modules/mixdog/src/runtime/office/core/journal.mjs',
       '/node_modules/mixdog/src/runtime/office/quality/visual-diff.mjs',
       '/node_modules/mixdog/src/runtime/local-provider/data/manifest.json',

@@ -1,0 +1,164 @@
+// Session message/preview text helpers. Pure, no runtime-closure deps.
+import { clean } from '../../../../../../../../../src/runtime/shared/clean.mjs';
+import { stripInjectedBlocks } from '../../../shared/injected-display-text.mjs';
+import { CONTROL_MARKER_RE } from '../../../../../../../../../src/runtime/shared/tool-execution-contract.mjs';
+import { isRoutineQuietReply } from '../../../shared/routine-trigger.mjs';
+
+export function sessionMessageText(content) {
+  if (content == null) return '';
+  if (typeof content === 'string') return content;
+  let parts = null;
+  if (Array.isArray(content)) parts = content;
+  else if (content && typeof content === 'object' && Array.isArray(content.content)) parts = content.content;
+  if (parts) {
+    return parts
+      .map((part) => {
+        if (typeof part === 'string') return part;
+        return part?.text ?? '';
+      })
+      .filter(Boolean)
+      .join('\n');
+  }
+  if (typeof content === 'object' && typeof content.text === 'string') return content.text;
+  try {
+    return JSON.stringify(content);
+  } catch {
+    return String(content);
+  }
+}
+
+function messageContextText(message) {
+  if (!message || typeof message !== 'object') return '';
+  let text = sessionMessageText(message.content);
+  if (message.role === 'assistant' && Array.isArray(message.toolCalls) && message.toolCalls.length) {
+    try {
+      text += `\n${JSON.stringify(message.toolCalls)}`;
+    } catch {
+      text += `\n[${message.toolCalls.length} tool calls]`;
+    }
+  }
+  if (message.role === 'tool' && message.toolCallId) text += `\n${message.toolCallId}`;
+  return text;
+}
+
+const SYNTHETIC_SESSION_TEXT_PATTERNS = Object.freeze([
+  /^\[mixdog-runtime\]/i,
+  // User-cancel + process-restart control rows must never title/preview a session.
+  CONTROL_MARKER_RE,
+  /^a previous model worked on this task and produced the compacted handoff summary below\b/i,
+  // Compact/auto-clear re-seed handoff variants: these lead the FIRST user
+  // message of every post-compaction session, so titling from them painted
+  // "Re-attached after compaction…" rows in Recent (user report). Skipping
+  // them titles the session from its first REAL user message instead.
+  /^re-attached after compaction\b/i,
+  /^the async (?:agent|shell) task\b/i,
+]);
+
+function stripSessionDisplayEnvelope(value) {
+  return String(value ?? '')
+    .replace(/^# Session\r?\n(?:(?:Cwd|Model|Workflow):[^\r\n]*(?:\r?\n|$))+(?:\r?\n)?/i, '')
+    .replace(/^#\s*Session\s+Cwd:\s+.*?\s+Model:\s+.*?\s+Workflow:\s+\S+\s*/i, '')
+    .replace(/^#\s*Session\s+Cwd:\s+\S+(?:\s+Model:\s+\S*)?(?:\s+Workflow:\s+\S*)?\s*/i, '');
+}
+
+function isSyntheticSessionText(text) {
+  const value = String(text || '').trim();
+  return SYNTHETIC_SESSION_TEXT_PATTERNS.some((pattern) => pattern.test(value));
+}
+
+export function isSessionPreviewNoise(text) {
+  const value = String(text || '').trim();
+  return (
+    !value ||
+    isRoutineQuietReply(value) ||
+    isSyntheticSessionText(value) ||
+    !cleanSessionPreview(value) ||
+    isLateToolAnnouncement(value) ||
+    /^#\s*permission\b/i.test(value) ||
+    /^permission:\s*/i.test(value) ||
+    /^cwd:\s*/i.test(value)
+  );
+}
+
+export function cleanSessionPreview(text, max = 160) {
+  const limit = Math.max(16, Number(max) || 160);
+  // Previews run on truncated source: an injected block that lost its closing
+  // tag still must not become the preview.
+  const cleaned = stripInjectedBlocks(stripSessionDisplayEnvelope(text), { dropUnterminated: true })
+    .replace(/\[(?:Pasted text|Image)\s*#?\d+(?:\s*(?::[^\]\r\n]*|\+\d+\s+lines))?\]/gi, ' ')
+    .replace(/^Reference files:\s*/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (cleaned.length <= limit) return cleaned;
+  // A slice of a longer string keeps that whole string alive in V8. Previews
+  // outlive their message (summary rows, catalog caches, the preview memo), so
+  // the cut is copied out: a 160-char preview must not pin the whole reply.
+  return JSON.parse(JSON.stringify(cleaned.slice(0, limit)));
+}
+
+// Stable sentinel carried in late-tool (deferred MCP) announcement reminders.
+// Nothing in this repository emits it any more (late tools now travel as a
+// deferred_tools_delta), but stored transcripts may still hold such blocks.
+// Detection keys on this exact string (never fuzzy matching) so the raw
+// announcement block stays hidden from user-facing surfaces while the model
+// context stays untouched.
+const LATE_TOOL_ANNOUNCEMENT_SENTINEL = 'connected after this session started';
+
+export function isLateToolAnnouncement(text) {
+  const value = String(text || '');
+  return value.includes(LATE_TOOL_ANNOUNCEMENT_SENTINEL) && /<available-deferred-tools>/i.test(value);
+}
+
+export { hasOwn } from '../../../../../../../../../src/runtime/shared/object.mjs';
+
+export { clean };
+
+export function toolResponseText(result) {
+  if (result && typeof result === 'object' && Array.isArray(result.content)) {
+    return result.content.map((part) => (part?.type === 'text' ? part.text || '' : JSON.stringify(part))).join('\n');
+  }
+  if (typeof result === 'string') return result;
+  return JSON.stringify(result, null, 2);
+}
+
+export function isEmptyRecallText(value) {
+  const text = String(value || '').trim();
+  return !text || /^\(?no results\)?$/i.test(text) || /^\(?empty memory result\)?$/i.test(text);
+}
+
+export function currentSessionRecallRows(session, query, { limit = 10 } = {}) {
+  const messages = Array.isArray(session?.messages) ? session.messages : [];
+  if (!messages.length) return '(no results)';
+  const terms = [
+    ...new Set(
+      String(query || '')
+        .toLowerCase()
+        .match(/[\p{L}\p{N}_./:-]{2,}/gu) || []
+    ),
+  ]
+    .filter(Boolean)
+    .slice(0, 16);
+  const max = Math.max(1, Math.min(100, Number(limit) || 10));
+  const rows = [];
+  for (let i = messages.length - 1; i >= 0 && rows.length < max; i -= 1) {
+    const m = messages[i];
+    if (!m || (m.role !== 'user' && m.role !== 'assistant' && m.role !== 'tool')) continue;
+    const text = messageContextText(m).replace(/\s+/g, ' ').trim();
+    if (!text) continue;
+    if (terms.length && !terms.some((term) => text.toLowerCase().includes(term))) continue;
+    rows.push(`[session:${i + 1}] ${m.role}: ${text.slice(0, 1000)}`);
+  }
+  return rows.length ? rows.join('\n') : '(no results)';
+}
+
+export function sessionHasConversationMessages(activeSession) {
+  const messages = Array.isArray(activeSession?.messages) ? activeSession.messages : [];
+  return messages.some((message) => {
+    const role = message?.role;
+    if (role !== 'user' && role !== 'assistant' && role !== 'tool') return false;
+    const text = sessionMessageText(message.content).trim();
+    if (!text && role !== 'assistant') return false;
+    if (role === 'user' && isSessionPreviewNoise(text)) return false;
+    return true;
+  });
+}
