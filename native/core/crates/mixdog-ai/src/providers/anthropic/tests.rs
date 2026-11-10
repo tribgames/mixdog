@@ -1067,7 +1067,17 @@ async fn an_error_keeps_the_events_decoded_before_it_whatever_the_chunking() {
     assert!(events.iter().any(|e| matches!(e, StreamEvent::Usage(_))), "usage delivered");
     assert!(events.iter().any(|e| matches!(e, StreamEvent::ToolCallDone(_))), "tool call delivered");
     assert!(err.exposure.tool_dispatched, "the error reports the dispatch");
-    assert_eq!(err.partial_usage.as_ref().expect("partial usage").input_tokens, 11);
+    // An error frame carries no partial usage in Node (`_anthropicSseError`, anthropic-sse.mjs:138; only a cut stream
+    // gets the turn's partial fields): as Node's recorded in-stream error after output shows.
+    let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/claude-floors/golden.json")).expect("fixture");
+    let after_output = golden["fallback"]
+        .as_array()
+        .expect("fallback")
+        .iter()
+        .find(|s| s["name"] == "a_rejection_after_output_reached_the_caller_is_not_replayed_and_switches_nothing_off_on_anthropic")
+        .expect("the recorded error after output");
+    let recorded = &after_output["sends"][0]["outcome"]["error"]["partialUsage"];
+    assert_eq!(err.partial_usage.as_deref().map(floor_fallback::node_usage).unwrap_or(Value::Null), *recorded);
 
     // The same stream cut at every byte boundary, and one byte at a time.
     for cut in 1..body.len() {

@@ -432,6 +432,65 @@
       "sha256": "1d057bd5a0227b03800b1218c3d38565872ad50af298279ba641c194952750c8"
     }
   ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/record-anthropic-effort.mjs",
+      "sha256": "53467e1b8676ee0c5347bed68f55a0850ffcd3fa975d073373daddb66910bc0b"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/record-anthropic-shared-prefix.mjs",
+      "sha256": "6c7c04546d51781b287bfa624b54c5e977c441f4c209b0cf585814017db798fc"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/record-anthropic-models.mjs",
+      "sha256": "a2cbcdddc027f918dfc82297a91979508f91c84dc01f27e277ace2a2f4d0d60a"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/record-xai-responses-continuation.mjs",
+      "sha256": "dfc301fb96df0890d6b0ebb03cb02db425292dd2466168dbe2806d0be08ca637"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/record-xai-cache-routing.mjs",
+      "sha256": "6cdd38c2d12290fa062fcd472ea639893c8e297029b64f8bd2193133253b8006"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/record-wire-route.mjs",
+      "sha256": "bf8f984acdc3a499f030cae5e7b75f55ce13d071009b45841e6965eef8d263cf"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/record-compat-listing.mjs",
+      "sha256": "00d54a9ed124ee4d93fed945173300f1bf0a9632f521e45df15df53804818729"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/record-custom-listing.mjs",
+      "sha256": "14a8f65950f7adbbac6f807c501ba793588a4bf2769b2873664277c6473e0930"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/record-chat-parts.mjs",
+      "sha256": "0be91e105358ff957deb2992a7ad8938aba53b8d4172db328d44d50e4da4b914"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/record-listing-misc.mjs",
+      "sha256": "3a2ad558ce030a77b32b14a43b02f87596ca1ed348252f5035b898b2d4abb34f"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "9d85c23ce17a8eb56ca50b848fd8f7e39dadc23c258277510b0bfd67885739f5"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/determinism.mjs",
+      "sha256": "8f974af9f70f86e55bfba0850a7a19197ac0bec15fc13fa0fdfe3de29c9fa725"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/headers.mjs",
+      "sha256": "8efe01ce40d054e05bd788bf4256fb0a3e21f709dc5f41ce774fa70ec3ef645e"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/tool-definitions.mjs",
+      "sha256": "5e533f7ce0b9fb9750ea998cbe7399e4790a86dcb982cd93c711744c3a9236a7"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
   "notFromThisRun": [
     "action-input-union/cases.json",
     "compat-tool-exclusion/cases.json",
@@ -473,6 +532,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-providers.mjs",
+  "recorderSha256": "aeb34dbcc18b10e38be143b94e05cacf5b93ce297849ba1a19a725b583e07722",
   "scenarios": [
     "anthropic/cache-write-1h",
     "anthropic/error-400",

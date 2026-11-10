@@ -61,8 +61,8 @@ impl UnsupportedEfforts {
 fn anthropic_version_supported(provider: &str, id: &str) -> bool {
     let Some((family, major, minor)) = crate::claude_floors::family_version(id) else { return false };
     match ANTHROPIC_MIN_VERSION.iter().find(|(f, _)| *f == family) {
-        Some((_, (min_major, min_minor))) => (major, minor) >= (u64::from(*min_major), u64::from(*min_minor)),
-        None => provider == "anthropic-oauth" && major >= u64::from(ANTHROPIC_FIRST_MAJOR),
+        Some((_, (min_major, min_minor))) => crate::claude_floors::version_at_least((major, minor), (*min_major, *min_minor)),
+        None => provider == "anthropic-oauth" && major >= f64::from(ANTHROPIC_FIRST_MAJOR),
     }
 }
 

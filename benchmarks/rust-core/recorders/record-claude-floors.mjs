@@ -14,7 +14,7 @@
 // unknown families, dated, dotted and other spellings.
 //
 //   node benchmarks/rust-core/recorders/record-claude-floors.mjs --tree <git archive export of the commit> --commit <full commit>
-//     [--only predicates|rejections|fallback|<fallback scenario name>]
+//     [--only predicates|rejections|fallback|offline|<fallback scenario name>]
 //
 // The tree must be exactly `--commit` (`exactProductIdentity`). Output: native/core/fixtures/claude-floors/golden.json
 // (+ MANIFEST.json). With --only, that part is printed and nothing is written.
@@ -32,6 +32,7 @@ import {
   importFrom,
   orderedStringify,
   parseArgs,
+  recordingProvenance,
   resolveTree,
   stageSet,
   writeJson,
@@ -55,8 +56,11 @@ Object.assign(process.env, {
   // `warmCliVersion` takes the named version instead of asking the npm registry.
   MIXDOG_CLI_VERSION: '2.1.400',
 });
-// The machine's display override must not reach the requests; Node reads it per request.
-delete process.env.MIXDOG_ANTHROPIC_THINKING_DISPLAY;
+// The machine's display override must not reach the requests, nor its family id overrides the offline listings; Node
+// reads both per call.
+for (const name of ['MIXDOG_ANTHROPIC_THINKING_DISPLAY', 'ANTHROPIC_DEFAULT_OPUS_MODEL', 'ANTHROPIC_DEFAULT_SONNET_MODEL', 'ANTHROPIC_DEFAULT_FABLE_MODEL']) {
+  delete process.env[name];
+}
 // The OAuth route's signed-in credential (a fixed far expiry: no refresh is ever due).
 writeFileSync(
   join(dirs.data, 'anthropic-oauth-credentials.json'),
@@ -108,8 +112,10 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(404, { 'content-type': 'application/json' }).end('{"error":"not scripted"}');
     return;
   }
-  const text = (req.headers['content-encoding'] === 'gzip' ? gunzipSync(raw) : raw).toString('utf8');
-  script.requests.push({ path: req.url, betaHeader: req.headers['anthropic-beta'] ?? null, body: JSON.parse(text) });
+  const encoding = req.headers['content-encoding'] ?? null;
+  const text = (encoding === 'gzip' ? gunzipSync(raw) : raw).toString('utf8');
+  // `bodyText` is the body's bytes as Node sent them (decoded when gzipped), `body` the same parsed.
+  script.requests.push({ path: req.url, betaHeader: req.headers['anthropic-beta'] ?? null, contentEncoding: encoding, bodyText: text, body: JSON.parse(text) });
   const reply = script.replies[script.requests.length - 1] ?? NO_REPLY;
   res.writeHead(reply.status, { 'content-type': reply.contentType });
   res.end(reply.body);
@@ -168,11 +174,43 @@ const SHAPES = [
 ];
 
 const table = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'claude-floors', 'ids.json'), 'utf8'));
+// The boundaries of every floor Node has, generated from its own tables (`ANTHROPIC_PROGRESS_UPDATES`,
+// `ANTHROPIC_TURN_SCOPED_SYSTEM`, `ANTHROPIC_MESSAGE_THREADS`): per family, one below, at and one above the floor in
+// the minor and in the major, the bare major, a padded and a two-digit minor; and majors at and past 2^53 and 2^64,
+// at 1e20 / 1e21 and past Number's range (Node reads the version with `Number`). Digits the version pattern does not
+// take (`\d` is ASCII) go with them.
+const FLOOR_TABLES = [contract.ANTHROPIC_PROGRESS_UPDATES, contract.ANTHROPIC_TURN_SCOPED_SYSTEM, threads.ANTHROPIC_MESSAGE_THREADS];
+const BIG_MAJORS = [
+  '9007199254740991', '9007199254740992', '9007199254740993', '18446744073709551615', '18446744073709551616',
+  '18446744073709551617', '100000000000000000000', '1000000000000000000000', '9'.repeat(400),
+];
+const boundaries = FLOOR_TABLES.flatMap(({ floors }) =>
+  Object.entries(floors).flatMap(([family, [major, minor]]) => {
+    const id = (...version) => `claude-${family}-${version.join('-')}`;
+    return [
+      ...(minor > 0 ? [id(major, minor - 1)] : []),
+      id(major - 1, 99),
+      id(major, minor),
+      id(major, minor + 1),
+      id(major - 1, minor),
+      id(major + 1, minor),
+      id(major - 1),
+      id(major),
+      id(major + 1),
+      id(major, String(minor).padStart(2, '0')),
+      id(major, 10),
+      id(major, '\uff15'),
+      id('\u0665', minor),
+      ...BIG_MAJORS.flatMap((big) => [id(big), id(big, minor)]),
+    ];
+  })
+);
 const ids = [
   ...new Set([
     ...[...OLD_PROGRESS_UPDATES, ...OLD_TURN_SCOPED, ...OLD_THREADS, ...LATER].flatMap(spellings),
     ...UNKNOWN,
     ...SHAPES,
+    ...boundaries,
     ...table.catalog,
     ...table.seeds,
     ...table.tails,
@@ -334,8 +372,8 @@ const FALLBACK_SCENARIOS = {
     ],
   },
 };
-if (only && !['predicates', 'rejections', 'fallback'].includes(only) && !FALLBACK_SCENARIOS[only]) {
-  throw new Error(`--only predicates|rejections|fallback|${Object.keys(FALLBACK_SCENARIOS).join('|')}, got ${only}`);
+if (only && !['predicates', 'rejections', 'fallback', 'offline'].includes(only) && !FALLBACK_SCENARIOS[only]) {
+  throw new Error(`--only predicates|rejections|fallback|offline|${Object.keys(FALLBACK_SCENARIOS).join('|')}, got ${only}`);
 }
 
 async function runSend(label, providers, send) {
@@ -349,10 +387,13 @@ async function runSend(label, providers, send) {
     const result = await within(60_000, `${label}: the send`, providers[send.route].send(HISTORIES[send.history], send.model, [], {
       onTextDelta: (...a) => emitted.push(a.findLast((v) => typeof v === 'string') ?? null),
     }));
-    outcome = { ok: { content: result.content } };
+    // The usage the send answers: the attempt that answered, whatever a rejected attempt before it reported.
+    outcome = { ok: { content: result.content, usage: result.usage } };
   } catch (error) {
     if (error instanceof Deadline) throw error;
-    outcome = { error: { status: error.status ?? error.httpStatus ?? null } };
+    // The usage a failed stream reported (`partialUsage`, anthropic-sse-turn/turn-outcome.mjs), which the ledger
+    // records for a failure the caller gets; a rejected attempt that is replayed is swallowed with it.
+    outcome = { error: { status: error.status ?? error.httpStatus ?? null, partialUsage: error.partialUsage ?? null } };
   } finally {
     script = null;
   }
@@ -375,16 +416,52 @@ async function fallbackScenarios(names = Object.keys(FALLBACK_SCENARIOS)) {
   return out;
 }
 
+// The offline floor each route's real `listModels` answers when its roster fetch fails (`MODELS`,
+// lib/anthropic-models.mjs; the fixture server answers the GET /v1/models with a 404), and on the OAuth route with a
+// family variable naming its id (`ANTHROPIC_DEFAULT_<FAMILY>_MODEL`, read per call).
+const OFFLINE_LISTINGS = [
+  { route: 'anthropic', env: {} },
+  { route: 'anthropic-oauth', env: {} },
+  { route: 'anthropic-oauth', env: { ANTHROPIC_DEFAULT_SONNET_MODEL: 'claude-sonnet-custom' } },
+];
+async function offlineListings() {
+  const out = [];
+  for (const { route, env } of OFFLINE_LISTINGS) {
+    const provider =
+      route === 'anthropic-oauth' ? new AnthropicOAuthProvider({}) : new AnthropicProvider({ apiKey: 'fixture-key-not-a-credential', maxRetries: 0 });
+    Object.assign(process.env, env);
+    try {
+      out.push({ route, env, rows: await within(60_000, `the ${route} offline listing`, provider.listModels()) });
+    } finally {
+      for (const name of Object.keys(env)) delete process.env[name];
+    }
+  }
+  return out;
+}
+
 try {
   if (only === 'predicates') process.stdout.write(orderedStringify(predicates()));
   else if (only === 'rejections') process.stdout.write(orderedStringify(rejections()));
   else if (only === 'fallback') process.stdout.write(orderedStringify(await fallbackScenarios()));
+  else if (only === 'offline') process.stdout.write(orderedStringify(await offlineListings()));
   else if (only) process.stdout.write(orderedStringify(await fallbackScenarios([only])));
   else {
     const finalDir = join(FIXTURES_ROOT, 'claude-floors');
     const stage = stageSet(finalDir);
-    writeJson(join(stage, 'golden.json'), { predicates: predicates(), rejections: rejections(), fallback: await fallbackScenarios() });
-    writeSetManifest(stage, { set: 'claude-floors', recorder, command: `node ${recorder} --tree <tree> --commit ${commit}`, identity });
+    const fallbackRecorded = await fallbackScenarios();
+    writeJson(join(stage, 'golden.json'), {
+      predicates: predicates(),
+      rejections: rejections(),
+      fallback: fallbackRecorded,
+      offlineListings: await offlineListings(),
+    });
+    writeSetManifest(stage, {
+      set: 'claude-floors',
+      recorder,
+      command: `node ${recorder} --tree <tree> --commit ${commit}`,
+      identity,
+      extra: recordingProvenance(recorder, ['benchmarks/rust-core/recorders/claude-floors/ids.json', 'benchmarks/rust-core/recorders/lib/common.mjs']),
+    });
     commitStage(stage, finalDir);
   }
 } finally {

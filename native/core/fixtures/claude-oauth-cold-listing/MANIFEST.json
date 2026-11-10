@@ -8,6 +8,13 @@
       "sha256": "96033fe9131fd4c8af389fcede3f262ba823c19d759e2a0a07053840542ac021"
     }
   ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "9d85c23ce17a8eb56ca50b848fd8f7e39dadc23c258277510b0bfd67885739f5"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "7f633e7305166c5fc8ee66464859ab7de7b60b4d",
@@ -26,6 +33,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-claude-oauth-cold-listing.mjs",
+  "recorderSha256": "09f105a7e28c69d7d9b39a5118b173ae84b3d072cd2c4730fc46551b26c4bfd6",
   "set": "claude-oauth-cold-listing",
   "totalBytes": 3614
 }

@@ -8,6 +8,37 @@
       "sha256": "fe07cce151458878f1e5837d69483636fce2d38753c7c1ec5d1670c3d05a46a5"
     }
   ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/model-lists/scenarios-statusline.json",
+      "sha256": "849e1c52bd922b518ba1018cdde426a32525257fe7be8d378a79f838ed057663"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/model-lists/seeds.json",
+      "sha256": "d891bf6e01768d2fa51b564ab8bc7c15e82392da14c440497f7606e5ac193093"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/model-lists/child.mjs",
+      "sha256": "1068dd5096d9c1a10e79fa3957dd2f304fd95648d6bc23db376b57601e5cb3e9"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/model-lists/offline.mjs",
+      "sha256": "a6ded042fb37015f5961463c82cdd5def017cdbdf3de66d9f0478b61c05585aa"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/model-lists/hold.mjs",
+      "sha256": "82bc9f2646aa71e5339d622258a07ebc48bd4c3cf713cd9afaad70b151823bd2"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/model-lists/hold-hooks.mjs",
+      "sha256": "3ee4598e171c7cfc5b9f65c9320dd503cdeacdced365da75bf3d72ae0fc2e688"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "9d85c23ce17a8eb56ca50b848fd8f7e39dadc23c258277510b0bfd67885739f5"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "7f633e7305166c5fc8ee66464859ab7de7b60b4d",
@@ -26,6 +57,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/model-lists/record.mjs",
+  "recorderSha256": "8c79e11211eef1a88225b8e7544e123df688856cfeba35bd4c790c619c87fcda",
   "set": "model-lists-statusline",
   "totalBytes": 41202
 }

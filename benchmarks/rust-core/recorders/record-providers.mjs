@@ -16,7 +16,7 @@ import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { installDeterminism } from './lib/determinism.mjs';
 import { cleanHeaders } from './lib/headers.mjs';
-import { FIXTURES_ROOT, commitStage, exactProductIdentity, stageSet, walkFiles, importFrom, parseArgs, resolveTree, stableStringify, writeJson, writeSetManifest, writeText } from './lib/common.mjs';
+import { FIXTURES_ROOT, commitStage, exactProductIdentity, recordingProvenance, stageSet, walkFiles, importFrom, parseArgs, resolveTree, stableStringify, writeJson, writeSetManifest, writeText } from './lib/common.mjs';
 
 const args = parseArgs();
 const tree = resolveTree(args);
@@ -250,7 +250,9 @@ if (!existsSync(join(setDir, 'oracles', 'native-request-bytes.head.json'))) cpSy
 // Each runs in its own process: they install process-wide state (data dir, fetch, cached product modules), and in
 // this process the scenarios above and the earlier recorders leak into the later ones (the anthropic-oauth listing
 // came out as the offline list instead of the served one).
+const ISOLATED = [];
 function isolated(file, name, ...callArgs) {
+  ISOLATED.push(file);
   const url = pathToFileURL(join(dirname(fileURLToPath(import.meta.url)), file)).href;
   execFileSync(process.execPath, ['--input-type=module', '-e', `const m = await import(${JSON.stringify(url)}); await m[${JSON.stringify(name)}](...${JSON.stringify(callArgs)});`, 'record-providers:isolated'], { stdio: 'inherit', timeout: 600_000 });
 }
@@ -268,12 +270,17 @@ isolated('record-listing-misc.mjs', 'recordListingMisc', tree, setDir);
 
 // `--commit <full id>`: the tree is a `git archive` export that must be exactly that commit, and the manifest says so.
 const commit = args.get('commit');
+const RECORDERS = 'benchmarks/rust-core/recorders';
 writeSetManifest(setDir, {
   set: 'providers',
-  recorder: 'benchmarks/rust-core/recorders/record-providers.mjs',
-  command: `node benchmarks/rust-core/recorders/record-providers.mjs --tree <tree with node_modules>${commit ? ` --commit ${commit}` : ''}`,
+  recorder: `${RECORDERS}/record-providers.mjs`,
+  command: `node ${RECORDERS}/record-providers.mjs --tree <tree with node_modules>${commit ? ` --commit ${commit}` : ''}`,
   ...(commit ? { identity: exactProductIdentity(tree, commit) } : {}),
   extra: {
+    ...recordingProvenance(`${RECORDERS}/record-providers.mjs`, [
+      ...ISOLATED.map((file) => `${RECORDERS}/${file}`),
+      ...['common.mjs', 'determinism.mjs', 'headers.mjs', 'tool-definitions.mjs'].map((file) => `${RECORDERS}/lib/${file}`),
+    ]),
     scenarios: recorded.sort(),
     notFromThisRun: [...copiedAt]
       .filter(([f, at]) => f !== join(setDir, 'MANIFEST.json') && existsSync(f) && statSync(f).mtimeMs === at)

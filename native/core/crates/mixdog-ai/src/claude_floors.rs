@@ -19,7 +19,7 @@ use regex::Regex;
 /// Family → first `(major, minor)` with the capability; `exceptions` fix the answer of an id (as
 /// [`model_key`] gives it) the floors cannot express. A family without a floor stays off.
 pub struct Floors {
-    pub floors: &'static [(&'static str, (u64, u64))],
+    pub floors: &'static [(&'static str, (u32, u32))],
     pub exceptions: &'static [(&'static str, bool)],
 }
 
@@ -61,9 +61,10 @@ pub fn model_key(model: &str) -> String {
     key
 }
 
-/// `claudeFamilyVersion`: family and `(major, minor)` of `claude-<family>-<major>[-<minor>]` (minor one or
-/// two digits) after [`model_key`]; `None` for every other shape.
-pub fn family_version(model: &str) -> Option<(String, u64, u64)> {
+/// `claudeFamilyVersion`: family and `(major, minor)` of `claude-<family>-<major>[-<minor>]` (ASCII digits, minor one or
+/// two) after [`model_key`]; `None` for every other shape. The digits are read as JavaScript's `Number` reads them: the
+/// nearest double, a major past its range infinite.
+pub fn family_version(model: &str) -> Option<(String, f64, f64)> {
     let key = model_key(model);
     let rest = key.strip_prefix("claude-")?;
     let (family, version) = rest.split_once('-')?;
@@ -78,8 +79,15 @@ pub fn family_version(model: &str) -> Option<(String, u64, u64)> {
     if !digits(major) || minor.is_some_and(|m| !digits(m) || m.len() > 2) {
         return None;
     }
-    let number = |s: &str| s.parse::<u64>().unwrap_or(u64::MAX);
-    Some((family.to_owned(), number(major), minor.map_or(0, number)))
+    // Rust's decimal reading rounds to the nearest double as `Number` does and is infinite past the range.
+    let number = |s: &str| s.parse::<f64>().unwrap_or(f64::INFINITY);
+    Some((family.to_owned(), number(major), minor.map_or(0.0, number)))
+}
+
+/// `claudeVersionAtLeast`: `(major, minor)` at or after `(min_major, min_minor)`.
+pub fn version_at_least((major, minor): (f64, f64), (min_major, min_minor): (u32, u32)) -> bool {
+    let (min_major, min_minor) = (f64::from(min_major), f64::from(min_minor));
+    major > min_major || (major == min_major && minor >= min_minor)
 }
 
 /// `claudeCapabilityByFloor`.
@@ -89,7 +97,7 @@ pub fn by_floor(model: &str, table: &Floors) -> bool {
         return *answer;
     }
     let Some((family, major, minor)) = family_version(&key) else { return false };
-    table.floors.iter().find(|(f, _)| *f == family).is_some_and(|(_, floor)| (major, minor) >= *floor)
+    table.floors.iter().find(|(f, _)| *f == family).is_some_and(|(_, floor)| version_at_least((major, minor), *floor))
 }
 
 /// `emitsAnthropicProgressUpdates`.
@@ -159,6 +167,12 @@ pub fn mark_unsupported(feature: Feature, provider: &str, model: &str) {
     UNSUPPORTED.lock().unwrap_or_else(PoisonError::into_inner).insert(unsupported_key(feature, provider, model));
 }
 
+/// The switch-offs as a new process has them (none): a replay of a recording Node made in a fresh process starts here.
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) fn reset_process() {
+    UNSUPPORTED.lock().unwrap_or_else(PoisonError::into_inner).clear();
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::Value;
@@ -168,6 +182,15 @@ mod tests {
 
     fn golden() -> Value {
         serde_json::from_str(include_str!("../../../fixtures/claude-floors/golden.json")).expect("fixture")
+    }
+
+    /// A version number as the recording holds it: the text `JSON.stringify` writes for it (an integer's digits, `null`
+    /// for an infinite one) read back by serde_json, which is what the golden's number was read as.
+    fn as_recorded(number: f64) -> Value {
+        if number.is_infinite() {
+            return Value::Null;
+        }
+        serde_json::from_str(&format!("{number}")).expect("a finite number's digits")
     }
 
     /// Every predicate, the key and the family version they read, for the whole recorded id table.
@@ -182,7 +205,7 @@ mod tests {
                 json!({
                     "model": model,
                     "key": model_key(model),
-                    "familyVersion": family_version(model).map(|(family, major, minor)| json!([family, major, minor])),
+                    "familyVersion": family_version(model).map(|(family, major, minor)| json!([family, as_recorded(major), as_recorded(minor)])),
                     "progressUpdates": emits_progress_updates(model),
                     "turnScopedSystem": supports_turn_scoped_system_messages(model),
                     "messageThreads": threads_support_model(model),

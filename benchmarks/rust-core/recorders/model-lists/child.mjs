@@ -24,6 +24,20 @@ function untilLogged(text, timeoutMs) {
     if (logged()) finish();
   });
 }
+// Resolves when `dir` holds the file `name`: a directory watch and one deadline timer.
+function untilFile(dir, name, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const there = () => existsSync(join(dir, name));
+    const finish = (error) => {
+      clearTimeout(timer);
+      watcher.close();
+      error ? reject(error) : resolve();
+    };
+    const watcher = watch(dir, () => there() && finish());
+    const timer = setTimeout(() => finish(new Error(`${name} never appeared in ${dir}`)), timeoutMs);
+    if (there()) finish();
+  });
+}
 let discovery = null;
 let attached = null;
 let failure = null;
@@ -42,8 +56,22 @@ try {
     if (!rows.some((row) => row.provider === scenario.waitListed)) throw new Error(`provider ${scenario.waitListed} not listed after the warm-up`);
     out.waited = { rows };
   }
+  // The daemon's boot load of the provider models (provider-warmups.mjs `warmProviderModels`, no delay in a daemon) races
+  // the first read; `afterBootLoad` reads once Node has marked its end (`provider-models:warm-ready`, provider-models.mjs:202).
+  if (scenario.afterBootLoad) await untilLogged('provider-models:warm-ready', 60_000);
   for (const call of scenario.calls) {
     let entry;
+    // Not a call to Node: the held statusline-usage warm-up (hold.mjs) is released here. Its preparation enables the route's
+    // OAuth provider; the registry applies that config and moves the catalog revision (registry.mjs:312), then the readiness
+    // starts the new provider set's catalog refresh (provider-readiness.mjs:149), whose first request the endpoint holds
+    // (record.mjs). The reads go on once that request arrived: after the move, before the refresh answered.
+    if (call.action === 'statuslineUsageWarmup') {
+      writeFileSync(join(scenario.holdDir, 'hold-endpoint'), '');
+      writeFileSync(join(scenario.holdDir, 'release'), '');
+      await untilFile(scenario.holdDir, 'endpoint-held', 60_000);
+      out.calls.push({ action: call.action, ok: true });
+      continue;
+    }
     // Not a call to Node: the endpoint answers `call.stub` from here on (a provider's catalog moving on its own).
     if (call.stub) {
       writeFileSync(scenario.stubFile, JSON.stringify(call.stub));
@@ -65,6 +93,10 @@ try {
   }
 } catch (error) {
   failure = error;
+}
+// A warm-up or a request still held after the reads goes on now, so the daemon closes as it would have.
+if (scenario.holdDir) {
+  for (const name of ['release', 'release-endpoint']) if (!existsSync(join(scenario.holdDir, name))) writeFileSync(join(scenario.holdDir, name), '');
 }
 try {
   await attached?.close();

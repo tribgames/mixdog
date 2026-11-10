@@ -3,11 +3,22 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 386447,
+      "bytes": 491111,
       "path": "golden.json",
-      "sha256": "a7a07a9366ad3d3cb02648f7f37c95f5d7e258d299b0d200573f4e184f7ac906"
+      "sha256": "4d89b59be677465c73fa156fe5358bf11206bf72abd76db2dd91059a81cb7392"
     }
   ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/claude-floors/ids.json",
+      "sha256": "ceb38cdcc6d2a08e6e26691958dbed30204b08aa4abb50312f5a3e9e9e415539"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "9d85c23ce17a8eb56ca50b848fd8f7e39dadc23c258277510b0bfd67885739f5"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "7f633e7305166c5fc8ee66464859ab7de7b60b4d",
@@ -26,6 +37,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-claude-floors.mjs",
+  "recorderSha256": "563cfc529e7134e4d61394f61c859a916a89c238558689483e477e22aa44d58d",
   "set": "claude-floors",
-  "totalBytes": 386447
+  "totalBytes": 491111
 }
