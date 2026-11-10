@@ -257,20 +257,25 @@ async fn the_setting_is_read_from_the_config_as_node_reads_it() {
     }
 }
 
-#[tokio::test]
+// The timers are tokio's, so the test moves the paused clock itself: 60 ms is before the 150 ms delay, 460 ms after it.
+#[tokio::test(start_paused = true)]
 async fn a_timer_runs_after_its_delay_and_a_cancelled_one_never_does() {
     // TokioTimers spawns through mixdog-rt, which needs its (test) backend installed.
     mixdog_rt::testing::tokens();
-    let fired = Arc::new(Mutex::new(Vec::<&'static str>::new()));
+    // Each timer that runs says so. The test keeps no sender, so a wait for one that will never run ends with `None`.
+    let (fired, mut ran) = tokio::sync::mpsc::unbounded_channel::<&'static str>();
     for (name, delay, cancel) in [("late", 150.0, false), ("cancelled", 150.0, true), ("negative", -5.0, false)] {
-        let fired = Arc::clone(&fired);
-        let handle = TokioTimers.schedule(delay, Box::pin(async move { fired.lock().unwrap().push(name) }));
+        let fired = fired.clone();
+        let handle = TokioTimers.schedule(delay, Box::pin(async move { drop(fired.send(name)) }));
         if cancel {
             handle.cancel();
         }
     }
-    tokio::time::sleep(std::time::Duration::from_millis(60)).await;
-    assert_eq!(*fired.lock().unwrap(), vec!["negative"]);
-    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
-    assert_eq!(*fired.lock().unwrap(), vec!["negative", "late"]);
+    drop(fired);
+    tokio::time::advance(std::time::Duration::from_millis(60)).await;
+    assert_eq!(ran.recv().await, Some("negative"), "a negative delay runs at once");
+    assert!(ran.try_recv().is_err(), "nothing else has run 60 ms in");
+    tokio::time::advance(std::time::Duration::from_millis(400)).await;
+    assert_eq!(ran.recv().await, Some("late"), "the 150 ms timer has run 460 ms in");
+    assert_eq!(ran.recv().await, None, "the cancelled timer never runs");
 }

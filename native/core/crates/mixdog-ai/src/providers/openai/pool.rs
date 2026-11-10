@@ -264,8 +264,11 @@ impl WsPool {
     /// `socket.close(1000, reason)`, for every pooled entry, busy or not, and every unpooled one). A socket in use goes
     /// on delivering what arrives until the server's close; its checkout never parks it.
     pub fn release_scope(self: &Arc<Self>, key: &str, reason: &str) {
-        let (gone, in_use, owner) = {
+        let (gone, in_use, released) = {
             let mut state = self.state();
+            // `_clearPoolOwnerScope` first, and in the same hold as the scan below: a checkout still dialing has no lease
+            // to revoke, and finds the session's ownership gone when its socket arrives (`attach`).
+            let released = state.owners.remove(key).is_some();
             state.fresh.remove(key);
             state.http.remove(key);
             state.failures.remove(key);
@@ -273,10 +276,10 @@ impl WsPool {
                 lease.revoked = true;
                 lease.closer.clone()
             }).collect();
-            (state.idle.remove(key), in_use, state.owners.get(key).copied())
+            (state.idle.remove(key), in_use, released)
         };
-        if let Some(owner) = owner {
-            self.release_owner(key, owner);
+        if released {
+            self.owner_released.notify_waiters();
         }
         for parked in gone.into_iter().flatten() {
             self.retire(key, parked.owner, None, parked.socket, Some((1000, reason)));
