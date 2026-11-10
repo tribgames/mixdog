@@ -1,5 +1,5 @@
 {
-  "note": "The relay frame Node (b6f10295a with node-patches/node-fix-relay-optional-args.patch) sent the phone for each source-control call, with the desktop operations it invoked and what they returned. gh, winget, soffice.com and `git --version` are the scripted rules of gh-script.json (`world` is the state when the call ran).",
+  "note": "The relay frame Node (b6f10295a2f698afc85332467192de28500bd146 with benchmarks/rust-core/recorders/node-patches/node-fix-relay-optional-args.patch applied) sent the phone for each source-control call, with the desktop operations it invoked and what they returned. gh, winget, soffice.com and `git --version` are the scripted rules of gh-script.json (`world` is the state when the call ran).",
   "platform": "win32",
   "git": "git version 2.51.0.windows.1",
   "realGit": "git version 2.51.0.windows.1",
@@ -29839,7 +29839,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-ML2bV9\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-Wacep3\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -29863,7 +29863,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-ML2bV9\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-Wacep3\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -29886,7 +29886,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-ML2bV9\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-Wacep3\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -29912,7 +29912,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-ML2bV9\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-Wacep3\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -29937,7 +29937,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-ML2bV9\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-Wacep3\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -29997,7 +29997,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-ML2bV9\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-Wacep3\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -30069,7 +30069,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-ML2bV9\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-Wacep3\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -30116,7 +30116,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-ML2bV9\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-Wacep3\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -30161,7 +30161,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-ML2bV9\\refresh.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-Wacep3\\refresh.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -30600,7 +30600,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-Kz8J7I\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-2jZfza\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -30624,7 +30624,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-Kz8J7I\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-2jZfza\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -30647,7 +30647,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-Kz8J7I\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-2jZfza\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -30673,7 +30673,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-Kz8J7I\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-2jZfza\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -30698,7 +30698,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-Kz8J7I\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-2jZfza\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -30758,7 +30758,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-Kz8J7I\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-2jZfza\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -31096,7 +31096,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-MQfbAu\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-Pax1Uh\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -31120,7 +31120,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-MQfbAu\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-Pax1Uh\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -31143,7 +31143,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-MQfbAu\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-Pax1Uh\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -31169,7 +31169,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-MQfbAu\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-Pax1Uh\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -31194,7 +31194,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-MQfbAu\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-Pax1Uh\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -31254,7 +31254,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-MQfbAu\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-Pax1Uh\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -31326,7 +31326,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-MQfbAu\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-Pax1Uh\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -31373,7 +31373,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-MQfbAu\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-Pax1Uh\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -31418,7 +31418,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-MQfbAu\\refresh.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-Pax1Uh\\refresh.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [

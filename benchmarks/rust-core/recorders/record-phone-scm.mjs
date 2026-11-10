@@ -10,7 +10,8 @@
 // the repositories is a bare repository next to them.
 //
 //   node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs \
-//        benchmarks/rust-core/recorders/record-phone-scm.mjs --tree <git archive of b6f10295a with node_modules>
+//        benchmarks/rust-core/recorders/record-phone-scm.mjs --tree <git archive of b6f10295a with the patch applied, with node_modules> \
+//        --patch benchmarks/rust-core/recorders/node-patches/node-fix-relay-optional-args.patch
 //
 // Scratch repositories live under D:\mixdog-build\tmp\phone-ph2-scm-rec (the input group's under its sibling phone-ph2-scm-r00) and
 // are deleted when the run ends.
@@ -33,7 +34,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join, posix, resolve, win32 } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
-import { commitStage, exactPatchedIdentity, importFrom, parseArgs, REPO_ROOT, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
+import { commitStage, importFrom, nodeTreeIdentity, parseArgs, REPO_ROOT, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 import { envDelta, installScriptedProcesses, scriptedPty, serveShims } from './lib/phone-scm-world.mjs';
 
 const REAL_HOME = process.env.USERPROFILE;
@@ -64,10 +65,10 @@ if (ONLY !== null && !GROUPS[ONLY]) throw new Error(`--only takes one of ${Objec
 const ONLY_OUT = args.get('out') ?? null;
 if (ONLY !== null && !REPLAY && !ONLY_OUT) throw new Error('--only records into --out <file>, never into the fixture');
 const tree = resolveTree(args);
-// b6f10295a with the Node fixes this recording is made with (AGENT-RULES: a clear Node bug is fixed on both sides): the relay's methods
-// take an optional argument the page left out (`null` after the relay's JSON) as omitted.
-const NODE_PATCHES = ['benchmarks/rust-core/recorders/node-patches/node-fix-relay-optional-args.patch'];
-const identity = exactPatchedIdentity(tree, REF, NODE_PATCHES);
+// `--patch <file>`: the tree is the export of REF with that fix of a Node bug applied (the recording is made with
+// node-patches/node-fix-relay-optional-args.patch: the relay's methods take an optional argument the page left out as omitted).
+const identity = nodeTreeIdentity(args, tree, REF);
+const product = `${REF}${identity.patch ? ` with ${identity.patch.file} applied` : ''}`;
 // The recorder and every file of lib/ it runs, each by the hash of its committed (LF) text: the manifest names them, and a replay
 // compares them with the files of the running recorder before it compares anything else.
 const RECORDER_FILES = ['record-phone-scm.mjs', 'lib/common.mjs', 'lib/phone-scm-world.mjs', 'lib/scripted-tool.rs', 'lib/spawn-log.cjs'].map((file) => `benchmarks/rust-core/recorders/${file}`);
@@ -219,7 +220,7 @@ if (ONLY === null) {
   if (missing.length || PH2_SCM_CALLS.length !== 62) throw new Error(`calls not recorded: ${missing.join(', ')} (${PH2_SCM_CALLS.length} listed)`);
   const stage = stageSet(FIXTURES, ['golden.json']);
   writeJson(join(stage, 'golden.json'), {
-    note: 'The relay frame Node (b6f10295a with node-patches/node-fix-relay-optional-args.patch) sent the phone for each source-control call, with the desktop operations it invoked and what they returned. gh, winget, soffice.com and `git --version` are the scripted rules of gh-script.json (`world` is the state when the call ran).',
+    note: `The relay frame Node (${product}) sent the phone for each source-control call, with the desktop operations it invoked and what they returned. gh, winget, soffice.com and \`git --version\` are the scripted rules of gh-script.json (\`world\` is the state when the call ran).`,
     platform: process.platform,
     git: script.rules.find((rule) => rule.tool === 'git' && !rule.when).reply.stdout.trim(),
     realGit: realGits[0],
@@ -236,7 +237,7 @@ if (ONLY === null) {
   writeSetManifest(stage, {
     set: 'phone-scm',
     recorder: 'benchmarks/rust-core/recorders/record-phone-scm.mjs',
-    command: `node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-phone-scm.mjs --tree <git archive of ${REF} with ${NODE_PATCHES.join(', ')} applied, with node_modules>`,
+    command: `node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-phone-scm.mjs --tree <git archive of ${product}, with node_modules>${identity.patch ? ` --patch ${identity.patch.file}` : ''}`,
     identity,
     extra: {
       // The Node that ran the recorder and the code under test.
