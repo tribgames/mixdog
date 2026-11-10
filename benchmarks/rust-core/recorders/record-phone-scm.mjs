@@ -19,7 +19,7 @@
 // request and result, every program the core tried to start (started or not, and how it ended), the settings events, the virtual
 // clock's steps, and the ordering scenario.
 import assert from 'node:assert/strict';
-import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs, { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import net from 'node:net';
@@ -73,17 +73,6 @@ Object.assign(process.env, {
 });
 delete process.env.MIXDOG_FEATURE_GIT;
 
-// Git resolves through PATH (git-launch.mjs gitCommand: the first absolute entry holding git.exe), and a deadline or an overflow
-// names that resolved path in Node's message. Both products start with this world's bin first on PATH, and its git.exe is the
-// scripted-tool executable (lib/scripted-tool.rs), which runs the real git: both name the same path, on any machine.
-const shimExe = join(WORK, 'shim', 'scripted-tool.exe');
-mkdirSync(join(WORK, 'shim'), { recursive: true });
-const built = spawnSync('rustc', ['-O', '--edition', '2021', join(REPO_ROOT, 'benchmarks', 'rust-core', 'recorders', 'lib', 'scripted-tool.rs'), '-o', shimExe], { cwd: REPO_ROOT, encoding: 'utf8', env: { ...process.env, PATH: MACHINE_PATH, RUSTUP_HOME: join(REAL_HOME, '.rustup'), CARGO_HOME: join(REAL_HOME, '.cargo') } });
-assert.equal(built.status, 0, built.stderr);
-const realGit = MACHINE_PATH.split(';').filter((dir) => dir !== join(WORK, 'bin')).map((dir) => join(dir, 'git.exe')).find((file) => existsSync(file));
-process.env.PHONE_SCM_REAL_GIT = realGit;
-if (!REPLAY) fs.copyFileSync(shimExe, join(WORK, 'bin', 'git.exe'));
-
 // A wait that never ends is a defect to name, not a hang: every wait of this recorder is raced with a bound that only ever fails it.
 // It is the real timer, taken before the virtual clock below replaces `setTimeout`.
 const realSetTimeout = globalThis.setTimeout;
@@ -94,6 +83,51 @@ function withDeadline(promise, message) {
   const stalled = new Promise((_, reject) => (timer = realSetTimeout(() => reject(new Error(message)), WAIT_BOUND_MS)));
   return Promise.race([promise, stalled]).finally(() => realClearTimeout(timer));
 }
+
+// A child of this recorder gets a bound, and a failure ends its whole process tree (taskkill /T), so nothing it started outlives it.
+const CHILD_BOUND_MS = 120_000;
+function endTree(pid) {
+  if (pid) spawnSync('taskkill', ['/T', '/F', '/PID', String(pid)], { stdio: 'ignore', timeout: 30_000 });
+}
+/** `spawnSync` with the bound; a child that failed or ran out of time is ended with everything it started, and the failure is thrown. */
+function boundedSync(file, args, options) {
+  const result = spawnSync(file, args, { ...options, timeout: CHILD_BOUND_MS, killSignal: 'SIGKILL' });
+  if (result.error || result.status !== 0) {
+    endTree(result.pid);
+    throw new Error(`${basename(file)} ${args.join(' ')} failed: ${result.error?.message ?? `exit ${result.status}`}\n${result.stderr ?? ''}`);
+  }
+  return result;
+}
+/** The same child run asynchronously under the recorder's deadline: when the wait fails the tree is still alive and is ended.
+ *  The list `accept` names the exit statuses that are an answer rather than a failure. */
+async function boundedTree(file, args, options, accept = [0]) {
+  const child = spawn(file, args, { ...options, stdio: ['ignore', 'pipe', 'pipe'] });
+  let stdout = '';
+  let stderr = '';
+  child.stdout.setEncoding('utf8').on('data', (chunk) => (stdout += chunk));
+  child.stderr.setEncoding('utf8').on('data', (chunk) => (stderr += chunk));
+  const closed = new Promise((resolve, reject) => {
+    child.once('error', reject);
+    child.once('close', resolve);
+  });
+  try {
+    const status = await withDeadline(closed, `${basename(file)} ${args.join(' ')} did not finish`);
+    if (!accept.includes(status)) throw new Error(`${basename(file)} ${args.join(' ')} failed: exit ${status}\n${stderr}`);
+    return { stdout, stderr };
+  } catch (error) {
+    endTree(child.pid);
+    throw error;
+  }
+}
+// Git resolves through PATH (git-launch.mjs gitCommand: the first absolute entry holding git.exe), and a deadline or an overflow
+// names that resolved path in Node's message. Both products start with this world's bin first on PATH, and its git.exe is the
+// scripted-tool executable (lib/scripted-tool.rs), which runs the real git: both name the same path, on any machine.
+const shimExe = join(WORK, 'shim', 'scripted-tool.exe');
+mkdirSync(join(WORK, 'shim'), { recursive: true });
+await boundedTree('rustc', ['-O', '--edition', '2021', join(REPO_ROOT, 'benchmarks', 'rust-core', 'recorders', 'lib', 'scripted-tool.rs'), '-o', shimExe], { cwd: REPO_ROOT, env: { ...process.env, PATH: MACHINE_PATH, RUSTUP_HOME: join(REAL_HOME, '.rustup'), CARGO_HOME: join(REAL_HOME, '.cargo') } });
+const realGit = MACHINE_PATH.split(';').filter((dir) => dir !== join(WORK, 'bin')).map((dir) => join(dir, 'git.exe')).find((file) => existsSync(file));
+process.env.PHONE_SCM_REAL_GIT = realGit;
+if (!REPLAY) fs.copyFileSync(shimExe, join(WORK, 'bin', 'git.exe'));
 
 // Node's clock is virtual: `Date.now` stays where it is until `advance` moves it, and so does Node's 60 s run limit of a git read
 // (run-child.mjs arms it with `setTimeout(kill, 60000)`). While `limit` is set, a timer of exactly that many ms is on this
@@ -277,7 +311,7 @@ const host = {
 const methods = createRemoteMethods({ host });
 
 // ── scratch repositories ──
-const git = (cwd, ...gitArgs) => execFileSync(realGit, ['-c', 'core.autocrlf=false', '-c', 'commit.gpgsign=false', ...gitArgs], { cwd, encoding: 'utf8', stdio: 'pipe' });
+const git = (cwd, ...gitArgs) => boundedSync(realGit, ['-c', 'core.autocrlf=false', '-c', 'commit.gpgsign=false', ...gitArgs], { cwd, encoding: 'utf8', stdio: 'pipe' }).stdout;
 const write = (root, rel, text) => {
   mkdirSync(join(root, rel, '..'), { recursive: true });
   writeFileSync(join(root, rel), text);
@@ -332,7 +366,7 @@ async function listenWire() {
     });
     connect();
   });
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  await withDeadline(new Promise((resolve, reject) => (server.once('error', reject), server.listen(0, '127.0.0.1', resolve))), 'the clock-seam server did not start listening');
   const until = (find, message) =>
     withDeadline(
       new Promise((resolve) => {
@@ -438,7 +472,7 @@ if (REPLAY) {
   for (const key of ['LOCALAPPDATA', 'APPDATA', 'ProgramFiles', 'ProgramW6432', 'ProgramFiles(x86)']) assert.ok(inside(coreEnv[key]), `${key} is outside this world: ${coreEnv[key]}`);
   for (const tool of ['gh', 'winget', 'soffice', 'soffice.com', 'git']) {
     // The product's lookup is the child's own: where.exe resolves a name against the very environment the core will get.
-    const found = spawnSync(join(systemRoot, 'System32', 'where.exe'), [tool], { cwd: WORK, env: coreEnv, encoding: 'utf8' });
+    const found = await boundedTree(join(systemRoot, 'System32', 'where.exe'), [tool], { cwd: WORK, env: coreEnv }, [0, 1]); // where.exe answers 1 for a name it does not find
     assert.deepEqual(found.stdout.split(/\r?\n/).filter((line) => line && !inside(line)), [], `${tool} resolves outside this world`);
   }
   const core = spawn(REPLAY, ['serve'], {
@@ -542,7 +576,7 @@ function replayCall(call, params) {
 async function finishReplay() {
   replay.client.close?.();
   const exited = new Promise((resolve) => replay.core.once('exit', resolve));
-  execFileSync('taskkill', ['/T', '/F', '/PID', String(replay.core.pid)], { stdio: 'ignore' });
+  endTree(replay.core.pid);
   await withDeadline(exited, 'the core did not exit after taskkill');
   rmSync(WORK, { recursive: true, force: true });
   const cases = replay.compared.filter((name) => name !== 'ordering');
@@ -712,8 +746,7 @@ const timeline = {
  */
 async function replayOrdering(scenario, heldWrite) {
   const { ordering } = replay.golden;
-  const WRITES = new Set(['gitStage', 'gitUnstage']);
-  const known = ordering.ops.map((op) => ({ name: op.name, ...clone(replay.routes[op.name](op.args)) }));
+  const known =ordering.ops.map((op) => ({ name: op.name, ...clone(replay.routes[op.name](op.args)) }));
   const nameOf = (entry) => known.find((wire) => wire.method === entry.method && JSON.stringify(wire.params) === JSON.stringify(entry.params))?.name;
   const order = [];
   const ended = [];
@@ -725,7 +758,7 @@ async function replayOrdering(scenario, heldWrite) {
   replay.holder.hold = async (entry) => {
     const name = nameOf(entry);
     assert.ok(name, `the adapter requested ${entry.method} ${JSON.stringify(entry.params)}, which no operation of the ordering recording stands for`);
-    order.push({ started: name, endedBefore: WRITES.has(name) ? [...ended].sort() : ended.filter((done) => WRITES.has(done)).sort() });
+    order.push({ started: name, endedBefore: [...ended] });
     if (name === heldWrite) {
       held();
       await gate;
@@ -752,7 +785,10 @@ async function replayOrdering(scenario, heldWrite) {
   replay.holder.hold = null;
   replay.holder.ended = null;
   replay.callQueueFor(ctx).close();
-  if (!isDeepStrictEqual(order, ordering.order)) replay.differences.push({ name: 'ordering (order of starts and ends)', node: ordering.order, core: order });
+  // Both recorded runs of Node saw the same order, so the core's order is compared with each as recorded.
+  for (const [run, nodeOrder] of ordering.orders.entries()) {
+    if (!isDeepStrictEqual(order, nodeOrder)) replay.differences.push({ name: `ordering (order of starts and ends, Node run ${run + 1})`, node: nodeOrder, core: order });
+  }
   if (!isDeepStrictEqual(answers, ordering.answers)) replay.differences.push({ name: 'ordering (frames)', node: ordering.answers, core: answers });
   const operations = opsDifference(ordering.ops, replay.wires);
   if (operations) replay.differences.push({ name: 'ordering (operations)', node: operations.node, core: operations.core });
@@ -854,6 +890,9 @@ await rec('gitStatus-skipLineStats', 'gitStatus', [R, { skipLineStats: true }]);
 await rec('gitStatus-reuseLineStats', 'gitStatus', [R, { reuseLineStats: true, skipLineStats: false }]);
 await rec('gitStatus-options-not-object', 'gitStatus', [R, 'x']);
 await rec('gitStatus-not-a-repository', 'gitStatus', [PLAIN]);
+// A destructive step in a folder that is no repository stops at its first git command; the clean-tree guard is never reached.
+await rec('gitResetToCommit-not-a-repository', 'gitResetToCommit', [PLAIN, '0123456789abcdef', 'hard', false]);
+await rec('gitCherryPickCommit-not-a-repository', 'gitCherryPickCommit', [PLAIN, '0123456789abcdef']);
 await rec('gitStatus-relative-cwd', 'gitStatus', ['repo']);
 await rec('gitStatus-no-params', 'gitStatus', []);
 await rec('gitDiff-unstaged', 'gitDiff', [R, 'a.txt', false]);
@@ -888,6 +927,8 @@ await rec('gitReviewDiff-untracked', 'gitReviewDiff', [R, 'new.txt', true, 'unco
 await rec('gitReviewDiff-branch', 'gitReviewDiff', [R, 'a.txt', false]);
 await rec('gitReviewDiffs', 'gitReviewDiffs', [R, [{ path: 'a.txt' }, { path: 'new.txt', untracked: true }], 'uncommitted']);
 await rec('gitReviewDiffs-bad-files', 'gitReviewDiffs', [R, 'a.txt']);
+// Names no patch can be served for (a quote and a backslash in a file name) among a file that has one.
+await rec('gitReviewDiffs-odd-names', 'gitReviewDiffs', [R, [{ path: 'we"ird.txt' }, { path: 'a.txt' }, { path: 'back\\slash.txt' }], 'uncommitted']);
 await rec('gitRequestContext', 'gitRequestContext', [R, { paths: ['a.txt', 'src/b.mjs'], base: 'feature' }]);
 await rec('gitRequestContext-no-base', 'gitRequestContext', [R, { paths: [] }]);
 await rec('gitRequestContext-bad-input', 'gitRequestContext', [R, ['a.txt']]);
@@ -920,6 +961,8 @@ await rec('gitCommit', 'gitCommit', [R, 'Commit the staged b']);
 await rec('gitCommit-nothing-staged', 'gitCommit', [R, 'Nothing to commit']);
 await rec('gitCommitPaths', 'gitCommitPaths', [R, 'Edit a through paths', ['a.txt']]);
 await rec('gitCommitPaths-no-paths', 'gitCommitPaths', [R, 'No paths', []]);
+// The repository named in its verbatim (`\\?\`) spelling: Node compares the paths as strings after resolve().
+await rec('gitCommitPaths-verbatim-cwd', 'gitCommitPaths', ['\\\\?\\' + R, 'Verbatim cwd', ['a.txt']]);
 write(R, 'a.txt', 'one\nTWO\nthree\nfour\nfive\nsix\n');
 git(R, 'add', 'a.txt');
 await rec('gitAmend-message', 'gitAmend', [R, 'Edit a through paths (amended)']);
@@ -1175,6 +1218,14 @@ thirdFlow.exit(1);
 await settled(third.value.flowId, (state) => !['pending', 'code'].includes(state?.state));
 await rec('githubCliLoginStatus-error', 'githubCliLoginStatus', [third.value.flowId]);
 await rec('githubCliLoginCancel-failed-flow', 'githubCliLoginCancel', [third.value.flowId]);
+// A sign-in that showed its code and then failed: what the phone reads afterwards.
+const fourth = await rec('githubCliLoginStart-fourth', 'githubCliLoginStart', []);
+await watchFlow(fourth.value.flowId);
+const fourthFlow = await flowOf(3);
+fourthFlow.print('First copy your one-time code: QRST-5678\nhttps://github.com/login/device\n');
+fourthFlow.exit(1);
+await settled(fourth.value.flowId, (state) => !['pending', 'code'].includes(state?.state));
+await rec('githubCliLoginStatus-error-after-code', 'githubCliLoginStatus', [fourth.value.flowId]);
 
 await rec('githubCliStatus-signed-in', 'githubCliStatus', []);
 await rec('githubCliAccount', 'githubCliAccount', []);
@@ -1310,50 +1361,60 @@ if (replay) {
 // gate until every later call was submitted and the write signalled that it is inside the operation; the recording keeps which calls had started while it was
 // held, and for each operation what had ended before it started (reads: only the writes among them, readers overlap).
 const { createRemoteCallQueue } = await main('remote-call-queue');
-const queue = createRemoteCallQueue();
-const WRITES = new Set(['gitStage', 'gitUnstage']);
-const orderLog = [];
-const ended = [];
 const tracing = host.invokeDesktopOperation;
-host.invokeDesktopOperation = async (name, operationArgs) => {
-  const priors = WRITES.has(name) ? [...ended].sort() : ended.filter((done) => WRITES.has(done)).sort();
-  orderLog.push({ started: name, endedBefore: priors });
-  try {
-    return await tracing(name, operationArgs);
-  } finally {
-    ended.push(name);
-  }
-};
-trace.length = 0;
-let release;
-let held;
-const reached = new Promise((resolve) => (held = resolve));
-hold = { name: HELD_WRITE, gate: new Promise((resolve) => (release = resolve)), reached: held };
-const answers = [];
-const running = scenario.map(([call, params], index) => queue.run(call, async () => {
-  const frame = await executeRemoteFrame(methods, JSON.stringify({ id: 1, method: call, params }));
-  const { id: _id, ...answer } = JSON.parse(JSON.stringify(frame));
-  answers[index] = answer;
-}));
-// Every call is submitted: the write is the one the queue ran. It signals when it is inside the operation and held. A write that
-// never started leaves nothing to signal: then every call finishes without reaching it, or the queue stalls and the bound fails the wait.
-const outcome = await withDeadline(
-  Promise.race([reached.then(() => 'held'), Promise.allSettled(running).then(() => 'every call finished')]),
-  `the write ${HELD_WRITE} did not start: the queue stalled before reaching it`,
-);
-if (outcome !== 'held') throw new Error(`the write ${HELD_WRITE} never started: every call finished without reaching it`);
-const heldStarts = orderLog.map((entry) => entry.started);
-if (heldStarts.join() !== HELD_WRITE) throw new Error(`calls started while the write was held: ${heldStarts}`);
-release();
-await withDeadline(Promise.all(running), `the calls behind the held write ${HELD_WRITE} never finished`);
-queue.close();
+// The scenario runs twice in this recording, each time on a queue of its own. `orders` keeps what each run saw, in the order it
+// happened (for every start: every operation that had ended before it, in the order they ended), so a reader of the recording can
+// see which of Node's orders are the same in both runs and which are not.
+async function recordOrderingRun() {
+  const queue = createRemoteCallQueue();
+  const orderLog = [];
+  const ended = [];
+  host.invokeDesktopOperation = async (name, operationArgs) => {
+    orderLog.push({ started: name, endedBefore: [...ended] });
+    try {
+      return await tracing(name, operationArgs);
+    } finally {
+      ended.push(name);
+    }
+  };
+  trace.length = 0;
+  let release;
+  let held;
+  const reached = new Promise((resolve) => (held = resolve));
+  hold = { name: HELD_WRITE, gate: new Promise((resolve) => (release = resolve)), reached: held };
+  const answers = [];
+  const running = scenario.map(([call, params], index) => queue.run(call, async () => {
+    const frame = await executeRemoteFrame(methods, JSON.stringify({ id: 1, method: call, params }));
+    const { id: _id, ...answer } = JSON.parse(JSON.stringify(frame));
+    answers[index] = answer;
+  }));
+  // Every call is submitted: the write is the one the queue ran. It signals when it is inside the operation and held. A write that
+  // never started leaves nothing to signal: then every call finishes without reaching it, or the queue stalls and the bound fails the wait.
+  const outcome = await withDeadline(
+    Promise.race([reached.then(() => 'held'), Promise.allSettled(running).then(() => 'every call finished')]),
+    `the write ${HELD_WRITE} did not start: the queue stalled before reaching it`,
+  );
+  if (outcome !== 'held') throw new Error(`the write ${HELD_WRITE} never started: every call finished without reaching it`);
+  const heldStarts = orderLog.map((entry) => entry.started);
+  if (heldStarts.join() !== HELD_WRITE) throw new Error(`calls started while the write was held: ${heldStarts}`);
+  release();
+  await withDeadline(Promise.all(running), `the calls behind the held write ${HELD_WRITE} never finished`);
+  queue.close();
+  host.invokeDesktopOperation = tracing;
+  return { heldStarts, order: clone(orderLog), answers, ops: clone(trace) };
+}
+const firstRun = await recordOrderingRun();
+const secondRun = await recordOrderingRun();
+for (const key of ['heldStarts', 'answers', 'ops']) {
+  if (JSON.stringify(firstRun[key]) !== JSON.stringify(secondRun[key])) throw new Error(`the two runs of the ordering scenario differ in ${key}`);
+}
 const ordering = {
   name: 'read-behind-a-slow-write',
   calls: scenario.map(([call, params]) => ({ call, params: clone(params) })),
-  heldStarts,
-  order: clone(orderLog),
-  answers,
-  ops: clone(trace),
+  heldStarts: firstRun.heldStarts,
+  orders: [firstRun.order, secondRun.order],
+  answers: firstRun.answers,
+  ops: firstRun.ops,
 };
 // ── every one of the 62 calls was recorded ──
 const PH2_SCM_CALLS = readFileSync(join(FIXTURES, 'calls.txt'), 'utf8').split(/\s+/).filter(Boolean);

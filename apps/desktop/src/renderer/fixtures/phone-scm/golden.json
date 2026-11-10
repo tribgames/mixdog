@@ -893,6 +893,164 @@
       }
     },
     {
+      "name": "gitResetToCommit-not-a-repository",
+      "call": "gitResetToCommit",
+      "params": [
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\plain",
+        "0123456789abcdef",
+        "hard",
+        false
+      ],
+      "frame": {
+        "ok": false,
+        "error": "No commit named 0123456789abcdef in this repository."
+      },
+      "ops": [
+        {
+          "name": "gitResetToCommit",
+          "args": [
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\plain",
+            "0123456789abcdef",
+            "hard",
+            false
+          ],
+          "error": {
+            "message": "No commit named 0123456789abcdef in this repository."
+          }
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "--symbolic-full-name",
+            "0123456789abcdef"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\plain",
+          "reply": {
+            "code": 128
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "0123456789abcdef^{commit}"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\plain",
+          "reply": {
+            "code": 128
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--disambiguate=0123456789abcdef"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\plain",
+          "reply": {
+            "code": 128
+          }
+        }
+      ],
+      "world": {
+        "ghInstalled": false,
+        "ghAuth": false,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": false,
+        "wingetInstallsSoffice": true,
+        "starred": false,
+        "ghApiDown": false
+      }
+    },
+    {
+      "name": "gitCherryPickCommit-not-a-repository",
+      "call": "gitCherryPickCommit",
+      "params": [
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\plain",
+        "0123456789abcdef"
+      ],
+      "frame": {
+        "ok": false,
+        "error": "No commit named 0123456789abcdef in this repository."
+      },
+      "ops": [
+        {
+          "name": "gitCherryPickCommit",
+          "args": [
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\plain",
+            "0123456789abcdef"
+          ],
+          "error": {
+            "message": "No commit named 0123456789abcdef in this repository."
+          }
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "--symbolic-full-name",
+            "0123456789abcdef"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\plain",
+          "reply": {
+            "code": 128
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "0123456789abcdef^{commit}"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\plain",
+          "reply": {
+            "code": 128
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--disambiguate=0123456789abcdef"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\plain",
+          "reply": {
+            "code": 128
+          }
+        }
+      ],
+      "world": {
+        "ghInstalled": false,
+        "ghAuth": false,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": false,
+        "wingetInstallsSoffice": true,
+        "starred": false,
+        "ghApiDown": false
+      }
+    },
+    {
       "name": "gitStatus-relative-cwd",
       "call": "gitStatus",
       "params": [
@@ -3078,6 +3236,125 @@
       }
     },
     {
+      "name": "gitReviewDiffs-odd-names",
+      "call": "gitReviewDiffs",
+      "params": [
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+        [
+          {
+            "path": "we\"ird.txt"
+          },
+          {
+            "path": "a.txt"
+          },
+          {
+            "path": "back\\slash.txt"
+          }
+        ],
+        "uncommitted"
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "patches": [
+            {
+              "path": "a.txt",
+              "patch": "diff --git a/a.txt b/a.txt\nindex 6addb9b..02b5054 100644\n--- a/a.txt\n+++ b/a.txt\n@@ -2,3 +2,4 @@ one\n TWO\n three\n four\n+five\n"
+            }
+          ],
+          "omitted": [
+            "we\"ird.txt",
+            "back\\slash.txt"
+          ]
+        }
+      },
+      "ops": [
+        {
+          "name": "gitReviewDiffs",
+          "args": [
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+            [
+              {
+                "path": "we\"ird.txt",
+                "untracked": false
+              },
+              {
+                "path": "a.txt",
+                "untracked": false
+              },
+              {
+                "path": "back\\slash.txt",
+                "untracked": false
+              }
+            ],
+            "uncommitted"
+          ],
+          "result": {
+            "patches": [
+              {
+                "path": "a.txt",
+                "patch": "diff --git a/a.txt b/a.txt\nindex 6addb9b..02b5054 100644\n--- a/a.txt\n+++ b/a.txt\n@@ -2,3 +2,4 @@ one\n TWO\n three\n four\n+five\n"
+              }
+            ],
+            "omitted": [
+              "we\"ird.txt",
+              "back\\slash.txt"
+            ]
+          }
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--verify",
+            "HEAD"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "-c",
+            "core.quotePath=false",
+            "--no-optional-locks",
+            "--literal-pathspecs",
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-color",
+            "--src-prefix=a/",
+            "--dst-prefix=b/",
+            "--no-renames",
+            "HEAD",
+            "--",
+            "a.txt"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
+      "world": {
+        "ghInstalled": false,
+        "ghAuth": false,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": false,
+        "wingetInstallsSoffice": true,
+        "starred": false,
+        "ghApiDown": false
+      }
+    },
+    {
       "name": "gitRequestContext",
       "call": "gitRequestContext",
       "params": [
@@ -5156,6 +5433,295 @@
         "error": "git paths are invalid."
       },
       "ops": [],
+      "world": {
+        "ghInstalled": false,
+        "ghAuth": false,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": false,
+        "wingetInstallsSoffice": true,
+        "starred": false,
+        "ghApiDown": false
+      }
+    },
+    {
+      "name": "gitCommitPaths-verbatim-cwd",
+      "call": "gitCommitPaths",
+      "params": [
+        "\\\\?\\D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+        "Verbatim cwd",
+        [
+          "a.txt"
+        ]
+      ],
+      "frame": {
+        "ok": false,
+        "error": "Nothing to commit: the selected files already match the last commit. Refresh Source Control and try again."
+      },
+      "ops": [
+        {
+          "name": "gitCommitPaths",
+          "args": [
+            "\\\\?\\D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+            "Verbatim cwd",
+            [
+              "a.txt"
+            ]
+          ],
+          "error": {
+            "message": "Nothing to commit: the selected files already match the last commit. Refresh Source Control and try again."
+          }
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--absolute-git-dir",
+            "--show-toplevel"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "status",
+            "--porcelain=v2",
+            "-z",
+            "--branch",
+            "--untracked-files=all"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--cached",
+            "--numstat",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--numstat",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "ls-files",
+            "--error-unmatch",
+            "--",
+            ":(literal)a.txt"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--show-toplevel"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "config",
+            "--get",
+            "commit.cleanup"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 1
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--git-path",
+            "hooks"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "HEAD^{commit}"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "ls-files",
+            "--stage",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "read-tree",
+            "00dab6403d3acfabf5f3c2a154eee203217f5d6b"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "add",
+            "--all",
+            "--force",
+            "--",
+            ":(literal)a.txt"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "hook",
+            "run",
+            "--ignore-missing",
+            "pre-commit"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "hook",
+            "run",
+            "--ignore-missing",
+            "prepare-commit-msg",
+            "--",
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo\\.git\\COMMIT_EDITMSG",
+            "message"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "hook",
+            "run",
+            "--ignore-missing",
+            "commit-msg",
+            "--",
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo\\.git\\COMMIT_EDITMSG"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "stripspace"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "ls-files",
+            "--stage",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "write-tree"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "diff-tree",
+            "-r",
+            "--name-only",
+            "-z",
+            "--no-commit-id",
+            "00dab6403d3acfabf5f3c2a154eee203217f5d6b^{tree}",
+            "0b2fa82c898d1f50b40704fcee21b16502b8f6ad"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -11950,6 +12516,108 @@
       }
     },
     {
+      "name": "githubCliLoginStart-fourth",
+      "call": "githubCliLoginStart",
+      "params": [],
+      "frame": {
+        "ok": true,
+        "value": {
+          "flowId": "ghlogin_4242_4",
+          "state": "pending"
+        }
+      },
+      "ops": [
+        {
+          "name": "githubCliLoginStart",
+          "args": [
+            {
+              "openBrowser": false
+            }
+          ],
+          "result": {
+            "flowId": "ghlogin_4242_4",
+            "state": "pending"
+          }
+        }
+      ],
+      "processes": [
+        {
+          "tool": "pty",
+          "argv": [
+            "auth",
+            "login",
+            "--hostname",
+            "github.com",
+            "--web"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\home",
+          "env": {
+            "GH_PROMPT_DISABLED": "1",
+            "BROWSER": "cmd /c exit 0",
+            "GH_BROWSER": "cmd /c exit 0"
+          }
+        }
+      ],
+      "world": {
+        "ghInstalled": true,
+        "ghAuth": true,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": false,
+        "wingetInstallsSoffice": true,
+        "starred": true,
+        "ghApiDown": false
+      }
+    },
+    {
+      "name": "githubCliLoginStatus-error-after-code",
+      "call": "githubCliLoginStatus",
+      "params": [
+        "ghlogin_4242_4"
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "flowId": "ghlogin_4242_4",
+          "state": "error",
+          "code": "QRST-5678",
+          "url": "https://github.com/login/device",
+          "message": "First copy your one-time code: QRST-5678 https://github.com/login/device"
+        }
+      },
+      "ops": [
+        {
+          "name": "githubCliLoginStatus",
+          "args": [
+            "ghlogin_4242_4"
+          ],
+          "result": {
+            "flowId": "ghlogin_4242_4",
+            "state": "error",
+            "code": "QRST-5678",
+            "url": "https://github.com/login/device",
+            "message": "First copy your one-time code: QRST-5678 https://github.com/login/device"
+          }
+        }
+      ],
+      "world": {
+        "ghInstalled": true,
+        "ghAuth": true,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": false,
+        "wingetInstallsSoffice": true,
+        "starred": true,
+        "ghApiDown": false
+      }
+    },
+    {
       "name": "githubCliStatus-signed-in",
       "call": "githubCliStatus",
       "params": [],
@@ -15193,38 +15861,77 @@
     "heldStarts": [
       "gitStage"
     ],
-    "order": [
-      {
-        "started": "gitStage",
-        "endedBefore": []
-      },
-      {
-        "started": "gitStatus",
-        "endedBefore": [
-          "gitStage"
-        ]
-      },
-      {
-        "started": "gitLog",
-        "endedBefore": [
-          "gitStage"
-        ]
-      },
-      {
-        "started": "gitUnstage",
-        "endedBefore": [
-          "gitLog",
-          "gitStage",
-          "gitStatus"
-        ]
-      },
-      {
-        "started": "gitDiff",
-        "endedBefore": [
-          "gitStage",
-          "gitUnstage"
-        ]
-      }
+    "orders": [
+      [
+        {
+          "started": "gitStage",
+          "endedBefore": []
+        },
+        {
+          "started": "gitStatus",
+          "endedBefore": [
+            "gitStage"
+          ]
+        },
+        {
+          "started": "gitLog",
+          "endedBefore": [
+            "gitStage"
+          ]
+        },
+        {
+          "started": "gitUnstage",
+          "endedBefore": [
+            "gitStage",
+            "gitStatus",
+            "gitLog"
+          ]
+        },
+        {
+          "started": "gitDiff",
+          "endedBefore": [
+            "gitStage",
+            "gitStatus",
+            "gitLog",
+            "gitUnstage"
+          ]
+        }
+      ],
+      [
+        {
+          "started": "gitStage",
+          "endedBefore": []
+        },
+        {
+          "started": "gitStatus",
+          "endedBefore": [
+            "gitStage"
+          ]
+        },
+        {
+          "started": "gitLog",
+          "endedBefore": [
+            "gitStage"
+          ]
+        },
+        {
+          "started": "gitUnstage",
+          "endedBefore": [
+            "gitStage",
+            "gitStatus",
+            "gitLog"
+          ]
+        },
+        {
+          "started": "gitDiff",
+          "endedBefore": [
+            "gitStage",
+            "gitStatus",
+            "gitLog",
+            "gitUnstage"
+          ]
+        }
+      ]
     ],
     "answers": [
       {
