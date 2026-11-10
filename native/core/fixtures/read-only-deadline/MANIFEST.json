@@ -12,7 +12,29 @@
       "sha256": "c2144b2f43404159f27cb04dcfe3712d4eee0f9bb8cc2a5fa6ad8904c23b2869"
     }
   ],
-  "node": "v22.20.0",
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/job-run.mjs",
+      "sha256": "81706cfb9424070aebc944c20cbdc72c31c84d06bd60119e4ad752af2fc7fc91"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/read-only-deadline-scenarios.mjs",
+      "sha256": "191eb10472b9e18d49f6e230c384143fe087faa095539d8e3aa4c91d5b14fc02"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/tool-failure-rows.mjs",
+      "sha256": "e5748aefeacdd419e2192ec5164c375afc0db5938acea9e6b49d7de0267068ce"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
   "normalised": [
     "session_id (and the session id in a text)",
     "ts",
@@ -41,9 +63,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-read-only-deadline.mjs",
-  "recorderSha256": "0a26d12328c6fa7b8be4a46baf9f403419af508b6e0cf83b5641a1ae09ccc509",
-  "rowsLibSha256": "e5748aefeacdd419e2192ec5164c375afc0db5938acea9e6b49d7de0267068ce",
-  "scenariosSha256": "191eb10472b9e18d49f6e230c384143fe087faa095539d8e3aa4c91d5b14fc02",
+  "recorderSha256": "5d7de99d708507016caeeefb46ae21d0e7bed5d64e02f20df9d8d0abe7904553",
   "set": "read-only-deadline",
   "syntheticInputs": {
     "environment": [

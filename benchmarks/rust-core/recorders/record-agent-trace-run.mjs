@@ -19,9 +19,6 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
 const recorder = 'benchmarks/rust-core/recorders/record-agent-trace-run.mjs';
 const scratch = process.env.MIXDOG_RECORDER_SCRATCH;
-const SCENARIOS_FILE = fileURLToPath(new URL('./lib/agent-trace-run-scenarios.mjs', import.meta.url));
-const TRACE_ROWS_FILE = fileURLToPath(new URL('./lib/agent-trace-run-rows.mjs', import.meta.url));
-const ROWS_FILE = fileURLToPath(new URL('./lib/tool-failure-rows.mjs', import.meta.url));
 const SELF = fileURLToPath(import.meta.url);
 const DEADLINE_MS = 240_000;
 const deadline = (p, ms, what) => {
@@ -100,7 +97,7 @@ const onlyAt = argv.indexOf('--only');
 const only = onlyAt >= 0 ? argv[onlyAt + 1] : null;
 const tree = resolveTree(parseArgs(onlyAt >= 0 ? argv.filter((_, i) => i !== onlyAt && i !== onlyAt + 1) : argv));
 const identity = exactProductIdentity(tree, NODE_COMMIT);
-const sha256 = (path) => createHash('sha256').update(readFileSync(path)).digest('hex');
+const { recorderProvenance } = await import('./lib/provenance.mjs');
 const SCENARIO_COUNT = scenarios().length;
 const selected = only ? only.split(',').map(Number) : [...Array(SCENARIO_COUNT).keys()];
 const fileText = (path) => (existsSync(path) ? readFileSync(path, 'utf8') : '');
@@ -184,11 +181,7 @@ try {
         normalised: ['session_id', 'ts and each execution_intervals mark', 'batch ids (v4 UUIDs, by the order of their batch rows)', 'tool_ms and each payload.timing value', 'workspace', 'data folder (tool-failures rows)'],
         excluded: ['agent-trace rows of kinds other than batch, tool and tool_slow (context: the request\'s context accounting; usage: the usage log): written by other call sites than the tool batch; their count per kind is recorded (others) and not compared'],
         notCompared: ['others: the counts of the excluded kinds', 'results: the scripted turn\'s answer and send count, recorded to show the turn ended as scripted'],
-        node: process.version,
-        recorderSha256: sha256(SELF),
-        scenariosSha256: sha256(SCENARIOS_FILE),
-        traceRowsLibSha256: sha256(TRACE_ROWS_FILE),
-        rowsLibSha256: sha256(ROWS_FILE),
+        ...recorderProvenance(import.meta.url),
         syntheticInputs: {
           provider: `a scripted provider (only its send is scripted; model ${MODEL}): the replies of each scenario in lib/agent-trace-run-scenarios.mjs`,
           session: 'sessionOptions (src/session-runtime/session-create/session-options.mjs) with the headless tool profile, no session profile, skipSkills true and workflow { id: headless, delegatesAgents: false }',
