@@ -1,15 +1,18 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-session-usage-totals.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
   "exclusions": {
-    "deltaAndTerminalCounting": ":31 (usageDeltaEvent / applyAskTerminalUsageTotals) is not this module; not recorded here",
+    "clock": "Date.now is fixed at `now` so the stamps and the pane window are reproducible",
+    "deltaSendTools": ":32 passes no sendTools; the loop always reports the request tools (the core event always carries the list), so the recorder passes an empty list",
+    "liveProgress": ":83 stubs progress with {}; the recorder runs the real session progress over a manager holding no runtime, and the rows pass liveAgentStatusRow as the core publishes them",
+    "storedRows": ":46 calls listStoredAgentWorkers; the core lists through the async reader and the daemon chain (record-agent-pool.mjs), recorded with nothing live; the recorder records both and the replay checks the sync rows equal the async listing",
     "undefinedSession": "the test also passes undefined; JSON has no undefined, and `session?.` reads it exactly as null, which is recorded"
   },
   "fileCount": 1,
   "files": [
     {
-      "bytes": 2004,
+      "bytes": 11379,
       "path": "golden.json",
-      "sha256": "0c1dcf32f4724a69b33def8fcf8cab5d3d871af71a0055425808a6b9022a02cc"
+      "sha256": "8320cc823ed265bfcf477f700108092fa8ea75935d9084743794cf612c9c8c02"
     }
   ],
   "inputs": [
@@ -37,12 +40,10 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-usage-totals.mjs",
-  "recorderSha256": "81cedd6363d1316c77c7d27ac7d1ca116c15f16c2c17cc83f316ecb46a2745ab",
+  "recorderSha256": "acf7afbcc64e562801391991ea256eb0170eee92fde311fa6a0c7c65d354ece6",
   "set": "session-usage-totals",
   "tests": [
-    "src/runtime/shared/session-usage-totals.test.mjs:13",
-    "src/runtime/shared/session-usage-totals.test.mjs:46 (stored rows)",
-    "src/runtime/shared/session-usage-totals.test.mjs:83 (live rows)"
+    "src/runtime/shared/session-usage-totals.test.mjs (:13, :32, :46, :83)"
   ],
-  "totalBytes": 2004
+  "totalBytes": 11379
 }
