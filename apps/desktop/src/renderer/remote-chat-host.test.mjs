@@ -72,6 +72,8 @@ function adapter({ replies = {}, state, remoteSession, device = 'Pixel 9' }) {
     coreErrorForWindow,
     normalizedProviderModels: (rows) => rows,
     sessionStateOf: () => state,
+    whenFolded: (_threadId, resume) => resume().then(() => undefined),
+    whenSettled: async () => undefined,
     remoteToolOutput: () => null,
     foldRows,
   };

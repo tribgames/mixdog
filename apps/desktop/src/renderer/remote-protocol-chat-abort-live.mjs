@@ -1,19 +1,45 @@
-// Drives a RUNNING mixdogd through the Stops of remote-protocol-chat-abort-cases.mjs, case for case as Node's recording
-// (remote-protocol-chat-abort.record.mjs) drove its daemon, and returns what the core answered. The test
-// (remote-protocol-chat-abort-live.test.mjs) runs it each time and compares it with Node's recording. Each case is a fresh thread; the phone's calls are recorded as the core got them (`turn/start`,
-// `turn/interrupt`) with the core's whole reply, then the thread's items and its list row once the turn(s) closed.
+// Drives a RUNNING mixdogd through the cases of remote-protocol-chat-abort-cases.mjs, case for case as Node's recording
+// (remote-protocol-chat-abort.record.mjs) drove its daemon, through the phone's own stack: one protocol client per paired device
+// (packages/protocol-client `connect`, kind phone), the phone's router (remote-shim-protocol.ts) and its chat adapter
+// (remote-protocol-chat.ts `adapter`, the production one). It returns what each phone was told: the reply to each of its calls, each
+// change of the thread's state as the client folds it (`sessionStateOf`), each change of the thread's row in a roster the adapter
+// published, in the order they happened; then the thread's items and its list row once the turn(s) closed.
 //
-// The binary is `MIXDOGD_EXE`, the real-turn harness directory `REAL_TURN_HARNESS`: a missing one fails. Every wait is an event wait under
-// one deadline that names what it waits for; nothing is retried; everything started is ended on every path.
+// The binary is `MIXDOGD_EXE`, the real-turn harness directory `REAL_TURN_HARNESS`: a missing one fails, and so does a binary older than
+// any source cargo built it from (`builtFrom`). Every wait is an event wait under one deadline that names what it waits for; nothing is
+// retried; everything started is ended on every path.
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, watch, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import WebSocket from 'ws';
-import { uuidv7 } from '../../../../packages/protocol-client/src/client.ts';
-import { ABORT_CASES, DEVICES, PROJECT_FILE } from './remote-protocol-chat-abort-cases.mjs';
+import { connect } from '../../../../packages/protocol-client/src/client.ts';
+import { sessionReducer, sessionStateOf } from '../../../../packages/protocol-client/src/session-state.ts';
+import { parseDiscovery } from '../main/protocol/discovery.ts';
+import { createWsConnector } from '../main/protocol/ws-connector.ts';
+import { ABORT_CASES, ASKED_PROJECT_FILE, DEVICES, HOOK_RULES, PROJECT_FILE } from './remote-protocol-chat-abort-cases.mjs';
 import { startAbortProvider } from './remote-protocol-chat-abort-provider.mjs';
+
+const REPO_ROOT = new URL('../../../../', import.meta.url);
+
+/**
+ * The sources the binary was built from, by cargo's own record of them (the dep-info `<binary stem>.d` beside it, every file the compile
+ * read): a binary older than any of them, or one built from another checkout, is not the code under test and is refused.
+ */
+export function builtFrom(bin) {
+  const depInfo = bin.replace(/\.exe$/i, '') + '.d';
+  if (!existsSync(depInfo)) throw new Error(`${bin} has no dep-info ${depInfo}: build it with cargo (cargo-gate build -p mixdog-app-server-daemon --bin mixdogd)`);
+  const text = readFileSync(depInfo, 'utf8');
+  const listed = text.slice(text.indexOf(': ') + 2).split('\n')[0].trim();
+  const sources = listed.split(/(?<!\\) /).map((path) => path.replaceAll('\\ ', ' ')).filter(Boolean);
+  const root = decodeURIComponent(REPO_ROOT.pathname.replace(/^\/([A-Za-z]:)/, '$1')).replaceAll('/', '\\').toLowerCase();
+  const built = statSync(bin).mtimeMs;
+  const foreign = sources.filter((path) => path.toLowerCase().includes('\\native\\core\\crates\\') && !path.toLowerCase().startsWith(root));
+  if (foreign.length) throw new Error(`${bin} was built from another checkout (${foreign[0]}), not ${root}`);
+  const newer = sources.filter((path) => path.toLowerCase().startsWith(root) && (!existsSync(path) || statSync(path).mtimeMs > built));
+  if (newer.length) throw new Error(`${bin} is older than ${newer.length} of its sources (e.g. ${newer.slice(0, 3).join(', ')}): rebuild it`);
+  return { depInfo, sources: sources.filter((path) => path.toLowerCase().startsWith(root)).length };
+}
 
 /**
  * Ends the memory cluster the killed core left running: every postgres.exe run from this env's data folder (its runtime binary lives
@@ -36,6 +62,7 @@ export async function runAbortLive({ only } = {}) {
   const harness = process.env.REAL_TURN_HARNESS;
   if (!bin || !existsSync(bin)) throw new Error(`MIXDOGD_EXE must name the built mixdogd binary (got ${JSON.stringify(bin)})`);
   if (!harness || !existsSync(join(harness, 'lib', 'env.mjs'))) throw new Error(`REAL_TURN_HARNESS must name the real-turn harness directory (got ${JSON.stringify(harness)})`);
+  const built = builtFrom(bin);
   process.env.HARNESS_ENV_ROOT = join(harness, 'run', 'env-ph2-chat-abort-live');
   const load = (name) => import(pathToFileURL(join(harness, 'lib', name)).href);
   const { daemonEnv, isolatedPaths } = await load('env.mjs');
@@ -49,14 +76,17 @@ export async function runAbortLive({ only } = {}) {
   const project = join(paths.workspace, 'a');
   mkdirSync(project, { recursive: true });
   writeFileSync(join(project, PROJECT_FILE.name), PROJECT_FILE.text);
+  writeFileSync(join(project, ASKED_PROJECT_FILE.name), ASKED_PROJECT_FILE.text);
+  writeFileSync(join(paths.dataDir, 'hooks.json'), JSON.stringify(HOOK_RULES));
   seedPgRuntime(paths.dataDir);
 
   const notes = [];
+  const told = [];
   let core;
-  const sockets = [];
+  const clients = [];
   let watcher;
   let provider;
-  let deadline = createDeadline(240_000, () => `${core?.tail() ?? '(core not started)'}\nnotifications: ${notes.slice(-12).map((n) => n.method).join(', ')}`);
+  let deadline = createDeadline(240_000, () => `${core?.tail() ?? '(core not started)'}\nnotifications: ${notes.slice(-12).map((n) => n.method).join(', ')}\nphone was told last: ${JSON.stringify(told.slice(-3)).slice(-4000)}\nlast row told: ${JSON.stringify(told.findLast((event) => event.kind === 'row') ?? null)}`);
   try {
     provider = await deadline.race(startAbortProvider(), 'the model endpoint to listen');
     writeFileSync(join(paths.dataDir, 'mixdog-config.json'), JSON.stringify({ agent: { providers: { 'custom-harness': { type: 'custom', schemaVersion: 2, name: 'harness', protocol: 'openai-chat', baseURL: provider.baseURL, auth: 'none', enabled: true, modelOverrides: { 'harness-model': { manual: true } } } } } }));
@@ -77,35 +107,88 @@ export async function runAbortLive({ only } = {}) {
     if (early) served.resolve(early);
     const doc = await deadline.race(served.promise, 'the core to serve');
 
-    // One connection per paired device: the core stamps a prompt and a Stop with the connection's `clientInfo.title` (server.rs initialize).
+    const plain = (value) => (value === undefined ? null : JSON.parse(JSON.stringify(value)));
+    // The router arms a per-call deadline on the page's window timers; this run has its own deadline, so the page's never fires.
+    globalThis.window ??= { setTimeout: () => 0, clearTimeout() {} };
+    const { adapter } = await import('./remote-protocol-chat.ts');
+    const { createProtocolRouter } = await import('./remote-shim-protocol.ts');
+    const endpoint = parseDiscovery(readFileSync(join(paths.runtimeRoot, 'daemon.json'), 'utf8'));
+    // What each phone was told, in order (the same three kinds Node's recording keeps): a reply to one of its calls, a change of a thread's
+    // state as its client folds it, a change of a thread's row in a roster its adapter published. Equal consecutive values are no change.
     const waiters = new Set();
-    const connect = async (title) => {
-      const ws = new WebSocket(`ws://127.0.0.1:${doc.core.rpc.port}/rpc`, { headers: { Authorization: `Bearer ${doc.endpoints.session.token}` }, perMessageDeflate: false });
-      sockets.push(ws);
-      await deadline.race(new Promise((resolve, reject) => { ws.once('open', resolve); ws.once('error', reject); }), `the app-server socket of ${title} to open`);
-      const pending = new Map();
-      let nextId = 1;
-      ws.on('message', (data) => {
-        const frame = JSON.parse(data.toString('utf8'));
-        if (frame.id !== undefined && pending.has(frame.id)) {
-          const p = pending.get(frame.id);
-          pending.delete(frame.id);
-          if (frame.error) p.reject(Object.assign(new Error(`${p.method}: ${JSON.stringify(frame.error)}`), { rpc: frame.error })); else p.resolve(frame.result);
-        } else if (frame.method) {
-          notes.push({ method: frame.method, params: frame.params, device: title });
-          for (const check of [...waiters]) check();
-        }
+    const wake = () => { for (const check of [...waiters]) check(); };
+    // One phone per paired device: its own client (the core stamps a prompt and a Stop with the connection's `clientInfo.title`), router and adapter.
+    const connectPhone = async (title) => {
+      const client = await deadline.race(connect({
+        target: { id: 'core' },
+        connector: createWsConnector(async () => endpoint),
+        // The device a decision is stamped with is the paired device's name, which the relay's pairing gives a phone connection; this
+        // run connects without the relay, so it names the device as a local client does, by its title (the core stamps that).
+        clientInfo: { name: 'mixdog-phone', title, version: '1.4.5', kind: 'tui' },
+        capabilities: { optOutNotificationMethods: [], experimentalApi: false },
+        threadReducer: sessionReducer,
+        // The client sleeps only on its reconnect ladder after a dropped transport; this run never drops one, and a drop fails it.
+        clock: { sleep: () => Promise.reject(new Error('the phone dropped its connection')) },
+        random: Math.random,
+      }), `the client of ${title} to connect`);
+      clients.push(client);
+      const lastState = new Map();
+      const lastRow = new Map();
+      client.on((event) => {
+        if (event.type === 'notification') notes.push({ method: event.notification.method, params: event.notification.params, device: title });
+        wake();
       });
-      const call = (method, params) => deadline.race(new Promise((resolve, reject) => {
-        const id = nextId++;
-        pending.set(id, { resolve, reject, method });
-        ws.send(JSON.stringify({ id, method, params }));
-      }), `the reply of ${title} to ${method}`);
-      const op = (method, params) => call(method, { ...params, opId: uuidv7(Date.now()) });
-      await call('initialize', { clientInfo: { name: 'ph2-chat-abort', title, version: '1.4.5', kind: 'tui' }, capabilities: {} });
-      ws.send(JSON.stringify({ method: 'initialized' }));
-      await call('app/subscribe', {});
-      return { call, op };
+      client.store.subscribe((change) => {
+        if (change.type === 'thread') {
+          const snapshot = plain(sessionStateOf(client, change.threadId));
+          const key = JSON.stringify(snapshot);
+          if (lastState.get(change.threadId) !== key) {
+            lastState.set(change.threadId, key);
+            told.push({ device: title, sessionId: change.threadId, kind: 'state', snapshot });
+          }
+        }
+        wake();
+      });
+      const ctx = {
+        phone: { start: async () => undefined },
+        sessionsCatalog: {
+          publish: (rows) => {
+            const listed = new Map(rows.map((row) => [row.id, row]));
+            for (const id of new Set([...lastRow.keys(), ...listed.keys()])) {
+              const row = listed.has(id) ? plain(listed.get(id)) : null;
+              if (JSON.stringify(row) === JSON.stringify(lastRow.get(id) ?? null)) continue;
+              lastRow.set(id, row);
+              told.push({ device: title, sessionId: id, kind: 'row', row });
+            }
+            wake();
+          },
+        },
+      };
+      const router = createProtocolRouter([adapter], {
+        host: { ctx, client: () => client, declareLane() {} },
+        started: async () => undefined,
+        synced: async () => undefined,
+        probe() {},
+        silentSince: () => false,
+      });
+      router.install();
+      // The phone's view opens the app feed first (apps/mobile/src/phone-view.ts `attach`): the roster's edges arrive on it.
+      await deadline.race(client.subscribeApp(), `the app feed of ${title}`);
+      // The page's boot read of the list (remote-shim-api.ts listSessions): the roster the adapter publishes edges onto from then on.
+      await deadline.race(router.call('listSessions', []), `the first list read of ${title}`);
+      const phoneCall = async (method, args) => {
+        const sessionId = method === 'submitNewTask' ? undefined : args[0];
+        let reply;
+        try {
+          reply = plain(await deadline.race(router.call(method, args), `the reply of ${title} to ${method}`));
+        } catch (error) {
+          told.push({ device: title, sessionId, kind: 'reply', method, error: String(error?.message ?? error) });
+          throw error;
+        }
+        told.push({ device: title, sessionId: sessionId ?? reply?.sessionId, kind: 'reply', method, reply });
+        return reply;
+      };
+      return { client, call: phoneCall, list: () => router.call('listSessions', []) };
     };
     const until = (ready, what) => {
       const done = latch();
@@ -119,7 +202,7 @@ export async function runAbortLive({ only } = {}) {
     const seen = (id, method, text) => notes.filter((n) => n.device === viewer && n.method === method && n.params?.threadId === id && (text === undefined || JSON.stringify(n.params).includes(text))).length;
     const phones = new Map();
     const phone = async (title) => {
-      if (!phones.has(title)) phones.set(title, await connect(title));
+      if (!phones.has(title)) phones.set(title, await connectPhone(title));
       return phones.get(title);
     };
 
@@ -129,48 +212,56 @@ export async function runAbortLive({ only } = {}) {
       const canceller = await phone(c.canceller ?? c.submitter ?? DEVICES.a);
       const mark = notes.length;
       viewer = c.submitter ?? DEVICES.a;
-      // The phone's submitNewTask: a thread with the draft route, then the first prompt (service-route.ts submitNewTask / turnInput).
-      const id = (await submitter.op('thread/start', { kind: 'project', projectPath: project, draft: { route } })).thread.id;
-      await submitter.call('thread/resume', { threadId: id, window: { lastItems: 200 } });
-      const options = { clientSubmissionId: `sub-${c.name}`, ...(c.pasted ? { pastedTexts: c.pasted } : {}), ...(c.submit ?? {}) };
-      const start = { threadId: id, input: { prompt: c.prompt, options } };
-      await submitter.op('turn/start', start);
-      const completed = (count) => seen(id, 'turn/completed') >= count;
-      if (c.ready === 'completed') await until(() => completed(1), `the turn of ${c.name} to end on its own`);
-      else if (c.ready === 'approval') {
+      const toldFrom = told.length;
+      const since0 = Date.now();
+      // The phone's own calls, with the arguments Node's recording gave its phone table.
+      const submit = { id: `sub-${c.name}`, ...(c.pasted ? { pastedTexts: c.pasted } : {}), ...(c.submit ?? {}) };
+      const accepted = await submitter.call('submitNewTask', [c.prompt, submit, { projectPath: project, route }]);
+      const id = accepted.sessionId;
+      const state = () => sessionStateOf(submitter.client, id);
+      // As Node's recording waits (`closed`): the thread's state counts the case's turns and no turn runs.
+      const turns = c.then ? 2 : 1;
+      const closed = () => state()?.stats?.turns === turns && state()?.busy === false;
+      if (c.ready === 'completed') await until(closed, `the turn of ${c.name} to end on its own`);
+      else if (c.ready === 'approval' || c.ready === 'ask') {
         await deadline.race(provider.asked(c.prompt), `the model endpoint to receive the tool-calling turn of ${c.name}`);
-        // As Node's recording waits: the question is pending and the call's card is shown.
-        const pending = () => notes.some((n) => n.device === viewer && /^item\/tool\/request(Approval|UserInput)$/.test(n.method) && n.params?.threadId === id);
-        const card = () => notes.some((n) => n.device === viewer && /^item\/(started|completed)$/.test(n.method) && n.params?.threadId === id && n.params?.item?.type === 'toolCall');
-        await until(() => pending() && card(), `the tool approval of ${c.name} to be pending with its card shown`);
+        // As Node's recording waits: the approval is pending and the call's card is shown.
+        await until(() => state()?.toolApproval && state()?.items?.some((item) => item?.kind === 'tool'), `the tool approval of ${c.name} to be pending with its card shown`);
       } else await deadline.race(provider.held(c.prompt), `the model endpoint to receive the held turn of ${c.name}`);
-      if (c.output) await until(() => seen(id, 'item/agentMessage/delta', c.output) > 0, `the streamed text of ${c.name} to reach the client`);
-      let second;
+      if (c.output) await until(() => JSON.stringify(state() ?? {}).includes(c.output), `the streamed text of ${c.name} to reach the phone`);
       if (c.then) {
-        second = { threadId: id, input: { prompt: c.then, options: { clientSubmissionId: `sub-${c.name}-2` } } };
-        await submitter.op('turn/start', second);
+        await submitter.call('submitToSession', [id, c.then, { id: `sub-${c.name}-2` }]);
+        await until(() => JSON.stringify(state() ?? {}).includes(c.then), `the queued prompt of ${c.name} to reach the phone`);
       }
-      const stop = { threadId: id, ...c.stop };
-      const reply = await canceller.call('turn/interrupt', stop).catch((error) => ({ error: error.rpc }));
-      // A stopped turn closes with turn/completed; a steering prompt then runs as the next turn.
-      await until(() => completed(c.then ? 2 : 1), `the turn(s) of ${c.name} to complete after its Stop`);
+      const answers = [];
+      let shownId;
+      for (const [n, step] of (c.notify ?? []).entries()) {
+        // 'shown' is the approval the phone was shown when it first answered one: a later answer goes to the same approval.
+        const approvalId = step.id === 'shown' ? (shownId ??= String(state()?.toolApproval?.id ?? '')) : step.id;
+        if (!approvalId) throw new Error(`${c.name}: no approval is shown for notification answer ${n}`);
+        answers.push(await submitter.call('answerApprovalNotification', [id, approvalId, step.action]));
+      }
+      const stopAt = Date.now();
+      let reply = null;
+      if (c.stop) reply = await canceller.call('abortSession', [id, c.stop]);
+      await until(closed, `the turn(s) of ${c.name} to close${c.stop ? ' after its Stop' : ''}`);
       // As Node's recording waits: a runtime's prompt the Stop put back runs again, up to the model's request.
       if (c.requeued) await deadline.race(provider.held(c.prompt, 2), `the model endpoint to receive the second, requeued turn of ${c.name}`);
-      let again;
-      if (c.again) {
-        const request = { threadId: id, ...c.again };
-        again = { request, reply: await canceller.call('turn/interrupt', request).catch((error) => ({ error: error.rpc })) };
-      }
-      // What the stopped turn left, whole, read at the same moment on both surfaces the phone reads: the thread's items and its list row.
-      const read = await submitter.call('thread/read', { threadId: id, window: { lastItems: 200 } });
-      const row = (await submitter.call('thread/list', { limit: 1000 })).data.find((r) => r.id === id) ?? null;
-      // What the composer of the device that sent the prompt is told (`thread/promptRestore`, the session state's `promptRestore`).
-      const restores = notes.slice(mark).filter((n) => n.method === 'thread/promptRestore' && n.params?.threadId === id && n.device === (c.submitter ?? DEVICES.a)).map((n) => n.params);
-      cases.push({ name: c.name, start, ...(second ? { second } : {}), stop, core: { reply, ...(again ? { again } : {}), items: read.items, row, promptRestores: restores } });
+      const second = c.again ? await canceller.call('abortSession', [id, c.again]) : undefined;
+      // As Node's recording reads the row: once the phone holds the one the turn's close stamped.
+      const stampedAfter = c.ready === 'completed' || !c.stop ? since0 : stopAt;
+      const rowOf = () => told.findLast((event) => event.device === viewer && event.kind === 'row' && event.sessionId === id)?.row;
+      await until(() => (rowOf()?.updatedAt ?? 0) >= stampedAfter, `the thread row of ${c.name} stamped by its close to be published`);
+      // What the turn left, whole, read at the same moment on both surfaces the phone reads: the thread's items and its list row.
+      const read = await deadline.race(submitter.client.call('thread/read', { threadId: id, window: { lastItems: 200 } }), `thread/read after ${c.name}`);
+      const row = (await deadline.race(submitter.list(), `listSessions after ${c.name}`)).find((r) => r.id === id) ?? null;
+      const promptRestore = plain(state()?.promptRestore ?? null);
+      const stream = told.slice(toldFrom).filter((event) => event.sessionId === id && event.device === viewer || (event.kind === 'reply' && event.sessionId === id)).map(({ sessionId: _s, device, ...event }) => (event.kind === 'reply' ? { ...event, device } : event));
+      cases.push({ name: c.name, id, core: { reply, ...(second ? { second } : {}), ...(c.notify ? { answers } : {}), items: read.items, row, promptRestore, stream } });
     }    return {
       manifest: {
-        binary: bin, binarySha256: createHash('sha256').update(readFileSync(bin)).digest('hex'), binaryBuilt: statSync(bin).mtime.toISOString(),
-        source: 'running mixdogd serve, isolated env (real-turn harness env.mjs / stage.mjs / proc.mjs), model endpoint remote-protocol-chat-abort-provider.mjs, driven over the WebSocket JSON-RPC protocol',
+        binary: bin, binarySha256: createHash('sha256').update(readFileSync(bin)).digest('hex'), binaryBuilt: statSync(bin).mtime.toISOString(), builtFrom: built,
+        source: 'running mixdogd serve, isolated env (real-turn harness env.mjs / stage.mjs / proc.mjs), model endpoint remote-protocol-chat-abort-provider.mjs, driven through the phone\'s router and chat adapter over the protocol client',
       },
       cases,
     };
@@ -179,7 +270,7 @@ export async function runAbortLive({ only } = {}) {
     const ended = createDeadline(60_000, () => `ending the abort run; core: ${core?.tail()}`);
     try {
       watcher?.close();
-      for (const ws of sockets) ws.close();
+      for (const client of clients) client.close?.();
       try {
         if (core) {
           core.kill();

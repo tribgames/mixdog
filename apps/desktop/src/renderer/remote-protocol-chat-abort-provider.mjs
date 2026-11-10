@@ -4,11 +4,15 @@
 //   HOLD-TEXT   streams one text delta, then stays open (a turn that produced output);
 //   HOLD-FINAL  streams the whole answer and its finish, then stays open before the stream ends (the answer is committed, the turn is not settled);
 //   HOLD-TOOL / HOLD-APPROVAL  answer with a call of the read tool / of a tool that needs an approval, and the request carrying the call's result is held;
+//   HOLD-ASK    answers with a call of the read tool on ASKED_FILE (a hook rule asks the person first: remote-protocol-chat-abort-cases.mjs
+//               HOOK_RULES), and the request carrying the call's result is answered and finished (the turn ends on its own);
 // anything else (and every request without tools: titles, warm-ups) is answered with a short text and finished.
 import http from 'node:http';
 
 export const PARTIAL = 'HOLD-PARTIAL-STREAM';
 export const FINAL = 'HOLD-FINAL-ANSWER';
+/** The file a HOLD-ASK turn reads: the hook rule that asks before the read names it. */
+export const ASKED_FILE = 'ask-me.json';
 const textOf = (content) => (typeof content === 'string' ? content : Array.isArray(content) ? content.map((p) => p?.text ?? '').join('\n') : '');
 
 export async function startAbortProvider() {
@@ -28,7 +32,7 @@ export async function startAbortProvider() {
       const prompt = textOf(lastUser?.content);
       const afterTool = (body.messages ?? []).some((m) => m?.role === 'tool');
       // HOLD-TOOL: the first request answers with a call of the read tool, the request that carries its result is held with no further output.
-      const asksTool = (body.tools ?? []).length > 0 && /HOLD-TOOL|HOLD-APPROVAL/.test(prompt) && !afterTool;
+      const asksTool = (body.tools ?? []).length > 0 && /HOLD-TOOL|HOLD-APPROVAL|HOLD-ASK/.test(prompt) && !afterTool;
       const held = asksTool ? null : (body.tools ?? []).length > 0 ? (/HOLD-TEXT/.test(prompt) ? 'text' : /HOLD-FINAL/.test(prompt) ? 'final' : /HOLD-EMPTY|HOLD-TOOL|HOLD-APPROVAL/.test(prompt) ? 'empty' : null) : null;
       const entry = { prompt, held, afterTool, asked: asksTool };
       requests.push(entry);
@@ -52,7 +56,9 @@ export async function startAbortProvider() {
           res.end();
           return;
         }
-        const args = approval ? { questions: [{ question: 'Add the file?', header: 'Add file', options: [{ label: 'Yes', description: 'Add it' }, { label: 'No', description: 'Leave it out' }] }] } : { path: 'package.json' };
+        const args = approval
+          ? { questions: [{ question: 'Add the file?', header: 'Add file', options: [{ label: 'Yes', description: 'Add it' }, { label: 'No', description: 'Leave it out' }] }] }
+          : { path: /HOLD-ASK/.test(prompt) ? ASKED_FILE : 'package.json' };
         res.write(chunk({ tool_calls: [{ index: 0, id: 'call_hold_1', type: 'function', function: { name: toolName, arguments: JSON.stringify(args) } }] }));
         res.write(chunk({}, 'tool_calls'));
         res.write(`data: ${JSON.stringify({ id: 'chatcmpl-abort', object: 'chat.completion.chunk', model: 'harness-model', choices: [], usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 } })}\n\n`);
