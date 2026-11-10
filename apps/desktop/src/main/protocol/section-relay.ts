@@ -15,6 +15,8 @@ export interface RelayedStore {
   section(section: string, key?: string | null): DesktopSectionEntry | undefined;
   sections(section: string): readonly DesktopSectionEntry[];
   subscribe(listener: (change: { type: string; section?: string; key?: string | null }) => void): () => void;
+  /** The app feed the store was last folded from (its epoch changes when the core restarts). */
+  appFeed(): { readonly epoch: string } | undefined;
 }
 
 export interface SectionRelayOptions {
@@ -58,6 +60,7 @@ export function createSectionRelay({ store, sectionNames, send, defer = setImmed
     replacing = id;
     dirty.clear();
     const view = all();
+    const epoch = store.appFeed()?.epoch;
     send({ kind: 'replace', stage: 'begin' });
     let at = 0;
     const step = (): void => {
@@ -68,7 +71,7 @@ export function createSectionRelay({ store, sectionNames, send, defer = setImmed
         defer(step);
         return;
       }
-      send({ kind: 'replace', stage: 'commit' });
+      send({ kind: 'replace', stage: 'commit', epoch });
       replacing = 0;
       if (dirty.size > 0) schedule();
     };
@@ -106,7 +109,7 @@ export function createSectionRelay({ store, sectionNames, send, defer = setImmed
   });
 
   return {
-    snapshot: (status) => ({ status, entries: all() }),
+    snapshot: (status) => ({ status, entries: all(), epoch: store.appFeed()?.epoch }),
     reconnected() {
       replaceWanted = true;
       schedule();
