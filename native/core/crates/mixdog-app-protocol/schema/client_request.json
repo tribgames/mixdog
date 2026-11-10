@@ -1150,6 +1150,14 @@
       ],
       "type": "string"
     },
+    "ApprovalNotificationAction": {
+      "description": "A phone notification's button on an approval (today's `answerApprovalNotification`).",
+      "enum": [
+        "allow",
+        "deny"
+      ],
+      "type": "string"
+    },
     "ApprovalProvideSecretParams": {
       "description": "Secret answer of a human-gate `provide-secret` request (today's `provideSecretInput`); never part of a decision or a log record.",
       "properties": {
@@ -9404,6 +9412,26 @@
       ],
       "type": "object"
     },
+    "ThreadApprovalAnswerNotificationParams": {
+      "description": "`thread/approval/answerNotification`: the approval the notification was about, in the thread it waits in.",
+      "properties": {
+        "action": {
+          "$ref": "#/definitions/ApprovalNotificationAction"
+        },
+        "approvalId": {
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "approvalId",
+        "threadId"
+      ],
+      "type": "object"
+    },
     "ThreadAskSideParams": {
       "description": "Params of `thread/askSide`.",
       "properties": {
@@ -12959,6 +12987,29 @@
         },
         "params": {
           "$ref": "#/definitions/ThreadQueueDeleteParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Today's `answerApprovalNotification`: a notification's Allow or Deny on the approval the thread shows. Allow is taken only where the PC's card allows once with a bare Enter, and answers with that card's decision; like a server-request response, it is not an op.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "thread/approval/answerNotification"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadApprovalAnswerNotificationParams"
         }
       },
       "required": [

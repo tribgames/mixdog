@@ -1,0 +1,62 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-phone-pushes.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 (src, apps) with node_modules>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 44408,
+      "path": "golden.json",
+      "sha256": "9c1759f774272fb08170fa4c63f2b0ecc4a0515f1b55e373c1b2cda40d426e40"
+    }
+  ],
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "provenance": {
+    "inputs": [
+      {
+        "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+        "sha256": "9d85c23ce17a8eb56ca50b848fd8f7e39dadc23c258277510b0bfd67885739f5"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/lib/phone-pushes-script.mjs",
+        "sha256": "2d491fe265d5e39f9c1c95df3e5590f75d1eed011b21ab081cb6ba231c98a51c"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/lib/phone-world.mjs",
+        "sha256": "47ca57fa49f22e751d86a3db13e1e3b227df3cd74a17cc96a9e13ab8dbb879ca"
+      },
+      {
+        "path": "apps/desktop/src/renderer/test-support/whole-outcome.mjs",
+        "sha256": "dd1b98fa15e293568496fb09f53a4176595f75394b250cde94b658fd68cafdc9"
+      }
+    ],
+    "nodeVersion": "v22.20.0",
+    "recorder": "benchmarks/rust-core/recorders/record-phone-pushes.mjs",
+    "recorderSha256": "9447ed78fe9d3cd54a1e005eea745b18dec918ad8bc50b072595813b23fd4409"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-phone-pushes.mjs",
+  "scenarios": [
+    "flags-native",
+    "flags-plain",
+    "pins",
+    "native-push",
+    "notices",
+    "approval-answers"
+  ],
+  "set": "phone-pushes",
+  "totalBytes": 44408
+}

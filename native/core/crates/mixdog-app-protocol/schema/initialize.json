@@ -330,6 +330,91 @@
         }
       ]
     },
+    "RemoteCapabilities": {
+      "description": "The features Node's relay announced to a phone in its challenge, each true when this core serves it. Node offered every flag but `nativePush` always; `nativePush` only while the relay could deliver a native push (`relayNativePlatforms().length > 0`).",
+      "properties": {
+        "browserDrive": {
+          "description": "The remote browser pane may send the `viewport` control.",
+          "type": "boolean"
+        },
+        "browserFit": {
+          "description": "A take-over's fit is honored and frames are marked.",
+          "type": "boolean"
+        },
+        "browserSessionTabs": {
+          "description": "A conversation browser's tabs ride its frames and its tab controls are accepted.",
+          "type": "boolean"
+        },
+        "browserWebrtc": {
+          "description": "The WebRTC live view's version (Node's `REMOTE_WEBRTC_VERSION`); 0 when it is not served.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "fileDownloads": {
+          "description": "The host file download lane (`transfer/*`).",
+          "type": "boolean"
+        },
+        "hostDirectories": {
+          "description": "The host folder browser (`projectFs/browseDirs`).",
+          "type": "boolean"
+        },
+        "mediaE2ee": {
+          "description": "The encrypted HTTP media lane.",
+          "type": "boolean"
+        },
+        "nativePush": {
+          "description": "`remoteAccess/registerNativePush`: the relay this core's leg is on delivers native pushes.",
+          "type": "boolean"
+        },
+        "projectRecovery": {
+          "description": "Project file recovery (`projectFs/recovery`).",
+          "type": "boolean"
+        },
+        "remoteParity": {
+          "description": "The update, trash, browser-page release, deduplicated submit, preview and pull-request calls (`remoteParity`).",
+          "type": "boolean"
+        },
+        "routeAutoEffort": {
+          "description": "`autoEffort` in model selections.",
+          "type": "boolean"
+        },
+        "secretInput": {
+          "description": "A handoff secret typed on the phone (`approval/provideSecret`).",
+          "type": "boolean"
+        },
+        "termSizeOwner": {
+          "description": "Terminal resizes follow the size-owner claim.",
+          "type": "boolean"
+        },
+        "usageRequests": {
+          "description": "The usage ledger's request list.",
+          "type": "boolean"
+        },
+        "visualize": {
+          "description": "The agent visualize panel.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "browserDrive",
+        "browserFit",
+        "browserSessionTabs",
+        "browserWebrtc",
+        "fileDownloads",
+        "hostDirectories",
+        "mediaE2ee",
+        "nativePush",
+        "projectRecovery",
+        "remoteParity",
+        "routeAutoEffort",
+        "secretInput",
+        "termSizeOwner",
+        "usageRequests",
+        "visualize"
+      ],
+      "type": "object"
+    },
     "ServerCapabilities": {
       "description": "Core capabilities (D6: office and JS skills are unavailable without Node).",
       "properties": {
@@ -344,6 +429,31 @@
         },
         "office": {
           "$ref": "#/definitions/CapabilityState"
+        },
+        "remote": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/RemoteCapabilities"
+            }
+          ],
+          "default": {
+            "browserDrive": false,
+            "browserFit": false,
+            "browserSessionTabs": false,
+            "browserWebrtc": 0,
+            "fileDownloads": false,
+            "hostDirectories": false,
+            "mediaE2ee": false,
+            "nativePush": false,
+            "projectRecovery": false,
+            "remoteParity": false,
+            "routeAutoEffort": false,
+            "secretInput": false,
+            "termSizeOwner": false,
+            "usageRequests": false,
+            "visualize": false
+          },
+          "description": "What a paired phone may use: Node's relay challenge flags (`remote-relay-client-lifecycle.ts:117-151` at b6f10295a). Absent from a core that predates it; read that as every flag off."
         },
         "voice": {
           "$ref": "#/definitions/CapabilityState"

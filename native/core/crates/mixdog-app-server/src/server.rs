@@ -113,7 +113,8 @@ const STORED_READS: [&str; 6] = [
 /// for a session that is not there as Node does (`deleted: false` / `not-archived`), not
 /// `threadNotFound`. `thread/fork` is served there for `inheritFrom`, which creates the heir's session before it looks the source up.
 /// `thread/inheritancePreflight` reads its own thread and the source the directory looks up; no session actor serves it.
-const DIRECTORY_SERVED: [&str; 3] = ["thread/delete", "thread/fork", "thread/inheritancePreflight"];
+/// `thread/approval/answerNotification` answers only an approval a loaded thread shows: it never loads one.
+const DIRECTORY_SERVED: [&str; 4] = ["thread/delete", "thread/fork", "thread/inheritancePreflight", "thread/approval/answerNotification"];
 
 /// What a transport does after handing a message over.
 pub enum Inbound {
@@ -531,7 +532,11 @@ impl Shared {
             server_instance_id: config.server_instance_id.clone(),
             core_state,
             limits: config.limits.clone(),
-            capabilities: config.capabilities.clone(),
+            capabilities: {
+                let mut capabilities = config.capabilities.clone();
+                capabilities.remote.native_push = (config.native_push)();
+                capabilities
+            },
             connection: v1::ConnectionInfo {
                 origin,
                 device,

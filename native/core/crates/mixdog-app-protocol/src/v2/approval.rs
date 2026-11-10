@@ -116,6 +116,43 @@ pub struct ServerRequestResolvedParams {
     pub resolution: ApprovalResolution,
 }
 
+/// A phone notification's button on an approval (today's `answerApprovalNotification`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub enum ApprovalNotificationAction {
+    Allow,
+    Deny,
+}
+
+/// `thread/approval/answerNotification`: the approval the notification was about, in the thread it waits in.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadApprovalAnswerNotificationParams {
+    pub thread_id: ThreadId,
+    pub approval_id: String,
+    pub action: ApprovalNotificationAction,
+}
+
+/// What came of the button: `answered` (this answer resolved the approval), `settled` (it was answered already),
+/// `open` (Allow is not taken from a notification for it: the phone opens the app instead).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub enum ApprovalNotificationOutcome {
+    Answered,
+    Settled,
+    Open,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadApprovalAnswerNotificationResponse {
+    pub outcome: ApprovalNotificationOutcome,
+}
+
 /// Secret answer of a human-gate `provide-secret` request (today's `provideSecretInput`);
 /// never part of a decision or a log record.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]

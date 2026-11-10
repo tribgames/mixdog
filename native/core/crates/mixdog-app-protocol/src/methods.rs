@@ -343,6 +343,17 @@ crate::client_request_definitions! {
         mutation: op(Thread),
         origins: [Local, Ssh, Relay],
     },
+    /// Today's `answerApprovalNotification`: a notification's Allow or Deny on the approval the thread shows. Allow is taken only
+    /// where the PC's card allows once with a bare Enter, and answers with that card's decision; like a server-request response,
+    /// it is not an op.
+    ThreadApprovalAnswerNotification => "thread/approval/answerNotification" {
+        params: v2::approval::ThreadApprovalAnswerNotificationParams,
+        result: v2::approval::ThreadApprovalAnswerNotificationResponse,
+        scope: thread(thread_id),
+        class: C2,
+        mutation: none,
+        origins: [Local, Ssh, Relay],
+    },
     /// Set the goal.
     ThreadGoalSet => "thread/goal/set" {
         params: v2::thread::ThreadGoalSetParams,

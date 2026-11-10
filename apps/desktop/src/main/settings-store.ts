@@ -18,7 +18,7 @@ import {
 import {
   DEFAULT_ACTIVITY_RAIL_PINS,
   normalizeActivityRailPins,
-  readActivityRailPinsState,
+  storedPinsState,
   type ActivityRailPinsState,
 } from '../shared/activity-rail-pins';
 import {
@@ -195,17 +195,7 @@ function sameList(a: readonly unknown[], b: readonly unknown[]): boolean {
   return a.length === b.length && a.every((entry, index) => entry === b[index]);
 }
 
-/** Stored pins: a full state, or a revision alone meaning the default list. */
-export function storedPinsState(value: unknown): ActivityRailPinsState | null {
-  const full = readActivityRailPinsState(value);
-  if (full) return full;
-  const stored = record(value);
-  if (Object.hasOwn(stored, 'pins')) return null;
-  const revision = stored.revision;
-  return typeof revision === 'number' && Number.isSafeInteger(revision) && revision > 0
-    ? { pins: [...DEFAULT_ACTIVITY_RAIL_PINS], revision }
-    : null;
-}
+export { storedPinsState };
 
 /** Write the pre-image to a fresh backup directory; an existing one is never reused. */
 function backupPreImage(dataDir: string, now: Date, preImage: unknown): void {
