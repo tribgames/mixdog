@@ -7,7 +7,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const recorder = fileURLToPath(new URL('../../../../benchmarks/rust-core/recorders/record-phone-settings.mjs', import.meta.url));
-const BIN = process.env.MIXDOGD_BIN || 'C:\\mixdog-build\\pool\\w3-target\\debug\\mixdogd.exe';
+const BIN = process.env.MIXDOGD_BIN || 'D:\\mixdog-build\\pool\\w3-target\\debug\\mixdogd.exe';
 
 // The recorder is a script that ends with `process.exit` inside its top-level evaluation, which the runner's spawn ledger fails as
 // dropped tests; it is not a test file, so it runs without the ledger.
