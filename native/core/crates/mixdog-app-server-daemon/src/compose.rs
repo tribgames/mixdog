@@ -331,11 +331,13 @@ impl ComposedCore {
         &self.ext_host
     }
 
-    /// The one stop procedure of the core, for the daemon and the in-process server alike: closes
-    /// the extension host, then runs each registered step in order. Returns once all of it is
-    /// done; a second call finds nothing left to run.
+    /// The one stop procedure of the core, in the order of the daemon's release (final barriers, the extension host, the stop steps): runs the
+    /// registered final barriers, closes the extension host, then runs each registered step in order. Returns once all of it is
+    /// done; a second call finds nothing left to run. (The release procedure runs the same three on its own threads under budgets, with the
+    /// connections closed between the first two.)
     pub async fn stop(&self, reason: &str) {
         self.set_stop_reason(reason);
+        self.run_final_barriers();
         self.close_ext_host().await;
         self.run_stop_steps().await;
     }

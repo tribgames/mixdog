@@ -6,7 +6,6 @@
 #![allow(clippy::disallowed_methods, reason = "test setup: reads the recorded fixture")]
 
 use std::path::Path;
-use std::path::PathBuf;
 
 use async_trait::async_trait;
 use mixdog_core_api::domain::mock::MockApprovalGate;
@@ -20,28 +19,36 @@ use mixdog_core_api::feed::ScopedFeed;
 use mixdog_core_review::turn_review::TurnReview;
 use mixdog_core_review::turn_review::signal_replay::ReplayHost;
 use mixdog_core_review::turn_review::signal_replay::replay;
+use mixdog_core_session::session::testing::awaiting_for;
+
+/// A composition brings up a Postgres cluster and a stop shuts it down: minutes on a loaded disk, never unbounded.
+const LIMIT: std::time::Duration = std::time::Duration::from_secs(180);
 use serde_json::Value;
 
 use super::*;
 
 /// The daemon's composed core, as the replay's host.
 struct Composed {
-    dir: PathBuf,
+    /// The data directory both compositions share; removed when the host is dropped, on a failed replay as on a passed one.
+    dir: tempfile::TempDir,
     core: Option<ComposedCore>,
     /// The epoch of every app feed this host composed, oldest first.
     epochs: Vec<String>,
 }
 
 impl Composed {
-    async fn start(dir: &Path) -> Self {
-        let mut host = Self { dir: dir.to_owned(), core: None, epochs: Vec::new() };
+    async fn start() -> Self {
+        let mut host = Self { dir: tempfile::tempdir().unwrap(), core: None, epochs: Vec::new() };
         host.compose().await;
         host
     }
 
     async fn compose(&mut self) {
-        let log = crate::daemon_log::DaemonLog::new(self.dir.join("daemon.log"), mixdog_rt::testing::tokens().maintenance_io, mixdog_rt::CancellationToken::new());
-        let core = compose(&mixdog_rt::testing::tokens(), tests::config(&self.dir, log, mixdog_rt::CancellationToken::new())).await.expect("the core composes");
+        let dir = self.dir.path().to_owned();
+        let log = crate::daemon_log::DaemonLog::new(dir.join("daemon.log"), mixdog_rt::testing::tokens().maintenance_io, mixdog_rt::CancellationToken::new());
+        let tokens = mixdog_rt::testing::tokens();
+        let composing = compose(&tokens, tests::config(&dir, log, mixdog_rt::CancellationToken::new()));
+        let core = awaiting_for(LIMIT, || "the core to compose over the data directory".to_owned(), composing).await.expect("the core composes");
         let epoch = core.app_feed_core().position().epoch.to_string();
         assert!(!self.epochs.contains(&epoch), "a core composed again over the same data directory drew the epoch of an earlier one: {epoch}");
         self.epochs.push(epoch);
@@ -50,13 +57,21 @@ impl Composed {
 
     async fn stop(&mut self) {
         let core = self.core.take().expect("a core is running");
-        core.set_stop_reason("test");
-        core.run_final_barriers();
-        core.run_stop_steps().await;
+        awaiting_for(LIMIT, || "the core to stop".to_owned(), core.stop("test")).await;
     }
 
     fn core(&self) -> &ComposedCore {
         self.core.as_ref().expect("a core is running")
+    }
+}
+
+/// A replay that fails leaves its core running: end it, so its cluster does not outlive the test (the data directory goes with the host).
+impl Drop for Composed {
+    fn drop(&mut self) {
+        let Some(core) = self.core.take() else { return };
+        let runtime = tokio::runtime::Handle::current();
+        // Off this thread: it may be a runtime worker unwinding, which cannot block_on.
+        let _ = std::thread::spawn(move || runtime.block_on(awaiting_for(LIMIT, || "the core to stop after a failed replay".to_owned(), core.stop("test failed")))).join();
     }
 }
 
@@ -111,8 +126,7 @@ async fn a_core_composed_again_tells_and_answers_as_node_does() {
         if scenario["platform"] != platform || !scenario["ops"].as_array().unwrap().iter().any(|op| op["coreRestart"] == true) {
             continue;
         }
-        let dir = tempfile::tempdir().unwrap();
-        let mut host = Composed::start(dir.path()).await;
+        let mut host = Composed::start().await;
         replay(scenario, &mut host).await;
         let restarts = scenario["ops"].as_array().unwrap().iter().filter(|op| op["coreRestart"] == true).count();
         assert_eq!(host.epochs.len(), restarts + 1, "a composition per start");

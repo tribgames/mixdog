@@ -306,6 +306,10 @@ pub async fn replay(scenario: &Value, host: &mut dyn ReplayHost) {
     let apart = apart["traces"].as_array().expect("the replay answers a trace per operation");
     assert_eq!(apart.len(), ops, "{name}: a trace per operation");
     for (index, trace) in apart.iter().enumerate() {
+        // Several tells made while the link was down reach the desktop as the one tell of its snapshot, so its pane reads as in a burst.
+        if bursts.contains(&index) && scenario["ops"][index]["coreLinkDown"] == true {
+            continue;
+        }
         whole(index, trace);
     }
 
