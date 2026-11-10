@@ -144,12 +144,7 @@ async fn record_all() -> Vec<Value> {
     let hosts = ["chatgpt.com", "api.anthropic.com", "generativelanguage.googleapis.com", "cli-chat-proxy.grok.com"];
     let server = Loopback::start(&hosts).await;
     let schedule = KeepaliveSchedule::SPEC;
-    let link = Arc::new(
-        ReqwestLink::with_builder(&schedule, false, |builder| {
-            hosts.iter().fold(builder.no_proxy().tls_built_in_root_certs(false).add_root_certificate(server.root.clone()), |b, host| b.resolve(host, server.addr))
-        })
-        .unwrap(),
-    );
+    let link = Arc::new(ReqwestLink::pinned(&schedule, server.addr, server.tls.clone()));
     let mut env = builder_env(&w.services);
     env.http = link.clone();
     env.bidi = link;

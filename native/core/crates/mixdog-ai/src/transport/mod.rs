@@ -13,6 +13,7 @@ pub mod deadlines;
 pub mod fault;
 pub mod http;
 pub mod link;
+pub mod node_http;
 pub mod tcp;
 pub mod ws;
 
