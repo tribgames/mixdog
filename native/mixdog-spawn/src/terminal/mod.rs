@@ -186,6 +186,9 @@ pub struct EnsureRequest {
 pub struct Attached {
     pub id: String,
     pub replay: String,
+    /// The lone low surrogate Node's replay starts with when its window cut a non-BMP character, which `replay` cannot hold: it
+    /// precedes `replay` ([`ReplayBuffer::read_window`]).
+    pub replay_lead: Option<u16>,
     /// The size a connected view owns, which the opening view must follow.
     pub size_owner: Option<SizeOwner>,
 }
@@ -847,10 +850,11 @@ impl TerminalTabs {
     // ----- ensure / attach ------------------------------------------------------------------
 
     fn attached(&self, tab: &Tab) -> Attached {
-        let replay = tab.lock().buffer.read();
+        let (replay_lead, replay) = tab.lock().buffer.read_window();
         Attached {
             id: tab.id.clone(),
             replay,
+            replay_lead,
             size_owner: self.claims.owner_of(&tab.id),
         }
     }

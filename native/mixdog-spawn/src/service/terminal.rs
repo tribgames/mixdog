@@ -45,6 +45,7 @@ use super::invalid_params;
 use super::process_failure;
 use crate::manager::LocalProcessManager;
 use crate::terminal::ActivityState;
+use crate::terminal::Attached;
 use crate::terminal::EnsureRequest;
 use crate::terminal::SizeOwner;
 use crate::terminal::SizeOwnerChange;
@@ -109,6 +110,22 @@ fn client_owner(owner: Option<&SizeOwner>, client: &str) -> Value {
         Some(owner) => json!({ "cols": owner.cols, "rows": owner.rows, "own": !client.is_empty() && owner.owner == client }),
         None => Value::Null,
     }
+}
+
+/// The answer to an ensure or attach: Node's `{id, replay, sizeOwner}` and the asking connection's key. A replay window that starts
+/// inside a non-BMP character carries the lone low surrogate Node's string starts with as `replayLeadUnit`, which the adapter puts back
+/// in front of `replay` (JSON text from the core cannot hold a lone surrogate); the field is absent otherwise.
+pub fn attached_reply(attached: &Attached, client: &str) -> Value {
+    let mut reply = json!({
+        "id": attached.id,
+        "replay": attached.replay,
+        "sizeOwner": client_owner(attached.size_owner.as_ref(), client),
+        "client": client,
+    });
+    if let Some(lead) = attached.replay_lead {
+        reply["replayLeadUnit"] = json!(lead);
+    }
+    reply
 }
 
 /// Applies queued changes to the sections, one at a time and in order, and publishes what changed:
@@ -284,12 +301,7 @@ impl DomainService for TerminalService {
                 // first ensure and pumping, so a `feed/subscribe` of `process:<id>` finds it and reads its output.
                 self.feeds.open_terminal(&attached.id);
                 let _ = self.changes.send(Change::Tabs);
-                Ok(Reply::Value(json!({
-                    "id": attached.id,
-                    "replay": attached.replay,
-                    "sizeOwner": client_owner(attached.size_owner.as_ref(), &client),
-                    "client": client,
-                })))
+                Ok(Reply::Value(attached_reply(&attached, &client)))
             }
             "terminal/attach" => {
                 let params: TerminalAttachParams = decode(&req.params)?;
@@ -299,12 +311,7 @@ impl DomainService for TerminalService {
                     return Ok(Reply::Value(Value::Null));
                 };
                 Ok(Reply::Subscribe(Subscribe {
-                    result: json!({
-                        "id": attached.id,
-                        "replay": attached.replay,
-                        "sizeOwner": client_owner(attached.size_owner.as_ref(), &client),
-                        "client": client,
-                    }),
+                    result: attached_reply(&attached, &client),
                     feed: self.feeds.feed(&attached.id, true),
                     window: Window::Fixed,
                     resume_from,

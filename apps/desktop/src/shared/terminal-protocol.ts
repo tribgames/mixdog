@@ -27,9 +27,11 @@ export function terminalResizeRequest(tabId: unknown, cols: unknown, rows: unkno
 }
 
 /** Node answered `{id, replay, sizeOwner?}` and left `sizeOwner` out when no phone owns the size, where the core writes null.
- *  `client` is the asking connection's key in the core's size-owner events; it is not part of Node's answer. */
+ *  `client` is the asking connection's key in the core's size-owner events; it is not part of Node's answer. `replayLeadUnit` is the lone
+ *  low surrogate Node's replay starts with when its window cut a non-BMP character (the core's JSON cannot hold it): it goes back in front. */
 export function terminalReply(reply: unknown): { id: string; replay: string; sizeOwner?: { cols: number; rows: number; own: boolean } } {
-  const { client: _client, sizeOwner, ...rest } = (reply ?? {}) as Record<string, unknown>;
+  const { client: _client, sizeOwner, replayLeadUnit, ...rest } = (reply ?? {}) as Record<string, unknown>;
+  if (typeof replayLeadUnit === 'number' && typeof rest.replay === 'string') rest.replay = String.fromCharCode(replayLeadUnit) + rest.replay;
   return { ...rest, ...(sizeOwner == null ? {} : { sizeOwner }) } as { id: string; replay: string; sizeOwner?: { cols: number; rows: number; own: boolean } };
 }
 
