@@ -95,6 +95,15 @@ async fn call(env: &Env, method: &'static str, params: Value) -> Result<Value, C
     }
 }
 
+/// A call of the desktop's own window (a local connection).
+async fn call_local(env: &Env, method: &'static str, params: Value) -> Result<Value, CoreError> {
+    let ctx = CallContext::connection(ConnectionId(2), Origin::Local, CancellationToken::new());
+    match env.service.call(CoreRequest { method: Method(method), params, op: None, ctx }).await? {
+        Reply::Value(v) => Ok(v),
+        Reply::Subscribe(_) => panic!("unexpected subscribe"),
+    }
+}
+
 /// Node's `Error` for a folder that is no registered project: code `PROJECT_UNAVAILABLE`, text "Project is not available." (`projectScope`
 /// -> `knownPath`, session-host.ts:556; recorded for the phone in apps/mobile/fixtures/phone-files/golden.json, relay scenario
 /// listProjectDir/readProjectFile on an unregistered folder).
@@ -277,6 +286,120 @@ async fn a_one_file_permission_writes_names_previews_and_leases_that_file_alone(
     range["length"] = json!(2);
     let part = call(&env, "projectFs/previewRange", range).await.unwrap();
     assert_eq!((part["data"].clone(), part["offset"].clone(), part["size"].clone()), (json!("AQI="), json!(4), json!(8)));
+}
+
+/// `FIXED_NOW_MS` of `lib/phone-files-script.mjs`: the clock the Node recording ran on, given to the backups' clock.
+const PHONE_FILES_NOW_MS: &str = "1780819750000";
+
+/// The phone's editor backups and document previews over a relay connection, replayed from the phone-files recording's relay
+/// scenario (apps/mobile/fixtures/phone-files/golden.json): every backup call is sent as a phone that skips the adapter's
+/// `projectFs/entryPath` step would send it, naming the file by its absolute path (the granted file's path for a call with a
+/// token), and answers Node's frame whole; every document preview's file target goes through the same admission
+/// (`relay_file`), refused as Node refused it before any page was rendered. The recording's folders are mapped onto this
+/// world's: its project on the registered project, its outside folder on a folder beside it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_relay_editor_backup_or_preview_names_a_project_file_or_a_granted_one_only() {
+    // SAFETY: nextest runs each test in its own process, and nothing else in this one reads the environment concurrently yet.
+    unsafe { std::env::set_var("MIXDOG_FIXED_NOW_MS", PHONE_FILES_NOW_MS) };
+    let golden: Value = serde_json::from_str(include_str!("../../../../../../apps/mobile/fixtures/phone-files/golden.json")).unwrap();
+    let recorded_root = golden["root"].as_str().unwrap();
+    let env = env();
+    env.service.set_phone_grants(
+        Arc::new(mixdog_workspace::grants::GrantStore::new(Arc::new(mixdog_workspace::transfer::SystemClock), Arc::new(NoneGone))),
+        Arc::new(|connection: ConnectionId| (connection.0 == 1).then(|| "phone-1".to_owned())),
+    );
+    let outside = env.root.parent().unwrap().join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("granted.txt"), "granted edit\n").unwrap();
+    std::fs::write(outside.join("other.txt"), "other\n").unwrap();
+    std::fs::write(env.root.join("src/a.ts"), "export const a = 1;\n").unwrap();
+    let place = |path: &str| -> String {
+        let (project, out) = (format!("{recorded_root}\\proj"), format!("{recorded_root}\\outside"));
+        if let Some(rest) = path.strip_prefix(&project) {
+            format!("{}{rest}", env.root.to_string_lossy())
+        } else if let Some(rest) = path.strip_prefix(&out) {
+            format!("{}{rest}", outside.to_string_lossy())
+        } else {
+            panic!("{path} is outside the recording's world")
+        }
+    };
+    let mut granted = None;
+    let (mut backups, mut previews) = (0, 0);
+    for step in golden["scenarios"]["relay"]["steps"].as_array().unwrap() {
+        // A `grant` step: the phone holds a one-file permission for this path from here on.
+        if step.get("grant").is_some() {
+            let path = place(step["path"].as_str().unwrap());
+            call(&env, "transfer/grant/mint", json!({ "path": path })).await.unwrap();
+            granted = Some(path);
+            continue;
+        }
+        let (Some(name), params, frame) = (step["call"].as_str(), &step["params"], &step["frame"]) else { continue };
+        let tokened = params[2].is_object();
+        let file = || -> String {
+            // The project and the entry as the phone named them, joined as given (`..` kept).
+            if tokened { granted.clone().unwrap() } else { PathBuf::from(place(params[0].as_str().unwrap())).join(params[1].as_str().unwrap()).to_string_lossy().into_owned() }
+        };
+        let answer = match name {
+            "readEditorBackup" => call(&env, "projectFs/backup/read", json!({ "sourcePath": file() })).await,
+            "deleteEditorBackup" => call(&env, "projectFs/backup/delete", json!({ "sourcePath": file() })).await.map(|_| Value::Null),
+            "writeEditorBackup" => call(&env, "projectFs/backup/write", json!({ "sourcePath": file(), "content": params[2], "expectedContent": params[3] })).await,
+            "previewDocumentPages" => {
+                let (root, rel) = if tokened {
+                    let path = PathBuf::from(granted.clone().unwrap());
+                    (path.parent().unwrap().to_string_lossy().into_owned(), path.file_name().unwrap().to_string_lossy().into_owned())
+                } else {
+                    (place(params[0].as_str().unwrap()), params[1].as_str().unwrap().to_owned())
+                };
+                previews += 1;
+                let admitted = env.service.relay_file(&request("document/previewPages", json!({})), &root, &rel).await;
+                // Node's refusals of the target; a target it took went on to the conversion (whose answer is the worker's).
+                if frame["errorCode"] == "PROJECT_UNAVAILABLE" || frame["error"] == "Path is outside the project." {
+                    admitted.map(|_| Value::Null)
+                } else {
+                    assert!(admitted.is_ok(), "{name} {params}: {admitted:?}");
+                    continue;
+                }
+            }
+            _ => continue,
+        };
+        if name != "previewDocumentPages" {
+            backups += 1;
+        }
+        let got = match answer {
+            Ok(value) => json!({ "ok": true, "value": value }),
+            Err(CoreError::DomainError { code, message, .. }) => {
+                let mut node = json!({ "ok": false, "error": message.as_deref() });
+                if let Some(code) = code.as_deref() {
+                    node["errorCode"] = json!(code);
+                }
+                node
+            }
+            Err(other) => panic!("{name} {params}: {other:?}"),
+        };
+        assert_eq!(&got, frame, "{name} {params}");
+    }
+    assert_eq!((backups, previews), (14, 3));
+    // Nothing was planted for a refused file.
+    let names: Vec<_> = std::fs::read_dir(env.root.parent().unwrap().join("userData").join("editor-backups")).map(|dir| dir.count()).into_iter().collect();
+    assert!(names.iter().all(|count| *count == 0), "{names:?}");
+}
+
+/// A folder whose name only trims to a registered project's is not that project (Node trims the phone's `projectPath` and then
+/// acts on the registry's own root). A relay backup named in such a folder is kept under the project's file, which is what the
+/// admission checked, and never reaches the backup the desktop keeps for the other folder's file.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_relay_backup_is_kept_under_the_file_that_was_admitted() {
+    let env = env();
+    let twin = PathBuf::from(format!("{}\u{a0}", env.root.to_string_lossy()));
+    std::fs::create_dir_all(&twin).unwrap();
+    let source = twin.join("secret.txt").to_string_lossy().into_owned();
+    call_local(&env, "projectFs/backup/write", json!({ "sourcePath": source, "content": "private", "expectedContent": "" })).await.unwrap();
+    let kept = call_local(&env, "projectFs/backup/read", json!({ "sourcePath": source })).await.unwrap();
+    assert_ne!(kept, Value::Null, "the desktop's backup of the other folder's file");
+
+    assert_eq!(call(&env, "projectFs/backup/read", json!({ "sourcePath": source })).await.unwrap(), Value::Null, "the phone reads the project's file's backup: none");
+    call(&env, "projectFs/backup/delete", json!({ "sourcePath": source })).await.unwrap();
+    assert_eq!(call_local(&env, "projectFs/backup/read", json!({ "sourcePath": source })).await.unwrap(), kept, "the phone's delete did not reach it");
 }
 
 /// With no desktop window to render or trash, the calls that need one answer the missing capability (the adapter words it as Node's
@@ -1085,7 +1208,7 @@ async fn recorded_editor_files_replay_identically() {
             let now = std::time::SystemTime::now();
             for i in 0..105u64 {
                 let source = work.join(format!("cap/f{i}.txt")).to_string_lossy().into_owned();
-                call(&env, "projectFs/backup/write", json!({ "sourcePath": source, "content": format!("c{i}"), "expectedContent": "e" })).await.unwrap();
+                call_local(&env, "projectFs/backup/write", json!({ "sourcePath": source, "content": format!("c{i}"), "expectedContent": "e" })).await.unwrap();
                 let file = std::fs::OpenOptions::new().write(true).open(backups.path_of(&source).unwrap()).unwrap();
                 file.set_modified(now - Duration::from_secs(105 - i)).unwrap();
             }
@@ -1134,7 +1257,10 @@ async fn recorded_editor_files_replay_identically() {
             "project/taskWorkspace" => ("project/taskWorkspace", json!({})),
             other => panic!("{label}: unmapped recorded method {other}"),
         };
-        match (entry.get("error"), call(&env, method, params).await) {
+        // The corpus is the desktop editor's own backups (any file it edits, `project-files.ts`): a local connection's calls. A paired
+        // phone's backups are held to a project or granted file (`a_relay_editor_backup_or_preview_...`).
+        let answer = if method.starts_with("projectFs/backup/") { call_local(&env, method, params).await } else { call(&env, method, params).await };
+        match (entry.get("error"), answer) {
             (Some(error), Err(got)) => {
                 // Node's TypeErrors are this core's invalid params, with the text; its system errors only need to fail.
                 if error["name"] == "TypeError" {

@@ -210,6 +210,8 @@ tokio-test = "0.4"
 # Each crate names the features it uses (client connect, server handshake, TLS).
 tokio-tungstenite = { version = "0.28.0", default-features = false }
 tokio-util = "0.7.18"
+httparse = "1.10" # the response head of the Node-equal HTTP/1.1 client (`mixdog-ai` `transport::node_http`)
+brotli = { version = "9.1", default-features = false, features = ["std"] } # `content-encoding: br`, which undici's fetch decodes
 toml = "0.9.5"
 tracing = "0.1.44"
 tracing-subscriber = "0.3.22"
