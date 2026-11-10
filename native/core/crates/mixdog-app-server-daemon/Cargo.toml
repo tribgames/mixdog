@@ -95,6 +95,8 @@ mixdog-rt = { workspace = true, features = ["test-support"] }
 mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", "replay-controls"] }
 # The real session directory (`held_runs_tests`: the approval predicate over real threads and connections).
 mixdog-core-session = { workspace = true, features = ["test-support"] }
+# The replay of Node's review-signal recording (`compose::review_restart_tests`).
+mixdog-core-review = { workspace = true, features = ["test-support"] }
 # The op scopes of the remote access service in the composed test (support::testing::scopes).
 mixdog-core-base = { workspace = true, features = ["test-support"] }
 tempfile = { workspace = true }
@@ -104,7 +106,6 @@ tokio-tungstenite = { workspace = true, features = ["handshake"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-app-protocol = { workspace = true, features = ["codegen"] }
-mixdog-core-review = { workspace = true, features = ["test-support"] }
 mixdog-js = { workspace = true, features = ["fixture-tools"] }
 mixdog-mcp = { workspace = true, features = ["test-support"] }
 mixdog-migrate = { workspace = true, features = ["crash-hook"] }
@@ -115,6 +116,8 @@ mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-core-config = { workspace = true, features = ["count-work"] }
 mixdog-protocol = { workspace = true, features = ["codegen"] }
-# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
-# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-core-run = { workspace = true, features = ["test-support"] }
+
+[target.'cfg(windows)'.dev-dependencies]
+# The composed tests' child process and what it starts, in a job object of the test (`compose_test_support::Tree`).
+windows-sys = { workspace = true, features = ["Win32_System_JobObjects"] }
