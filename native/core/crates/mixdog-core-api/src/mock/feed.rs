@@ -278,6 +278,10 @@ impl ScopedFeed for MockFeed {
             subscriber.lane.close();
         }
     }
+
+    fn subscribers(&self) -> usize {
+        MockFeed::subscribers(self)
+    }
 }
 
 /// A [`ScopedFeeds`] creating [`MockFeed`]s with the given limits and epochs drawn from a

@@ -2551,7 +2551,16 @@ export type ProcessInputParams = { processHandle: ProcessHandle, bytesB64: strin
  */
 export type ProcessKillParams = { processHandle: ProcessHandle, };
 
-export type ProcessOutputDeltaParams = { processHandle: ProcessHandle, bytesB64: string, };
+export type ProcessOutputDeltaParams = { processHandle: ProcessHandle, bytesB64: string,
+/**
+ * A terminal relay frame whose cut fell inside a non-BMP character (Node's frames are cut in UTF-16 units): the lone low surrogate
+ * that comes before the bytes' text.
+ */
+leadUnit?: number,
+/**
+ * The lone high surrogate that comes after the bytes' text, for the same cut.
+ */
+tailUnit?: number, };
 
 /**
  * Params of `process/resizePty`.

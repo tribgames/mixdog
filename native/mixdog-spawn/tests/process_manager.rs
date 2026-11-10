@@ -561,6 +561,46 @@ async fn one_processes_exit_never_waits_for_anothers_output() {
     m.kill(&slow).unwrap();
 }
 
+/// A hung-up process's later kill reaches that process only (Node's dispose kills the captured entry's own pty, terminal-manager.ts:543):
+/// once it has exited and a new process runs under the same handle, the kill finds its own process ended and the new one untouched.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_hung_up_process_is_killed_as_itself_never_through_its_handle() {
+    let m = manager();
+    let h = handle("hung-up");
+    m.spawn(pty_request(&h, long_sleep(), PtySize { cols: 80, rows: 24 })).await.unwrap();
+    let hung = m.hang_up(&h).unwrap();
+    m.kill(&h).unwrap();
+    let _ = collect(&m, &h).await;
+    m.spawn(pty_request(&h, long_sleep(), PtySize { cols: 80, rows: 24 })).await.unwrap();
+    assert_eq!(hung.kill(), Err(ProcessError::AlreadyExited), "the kill reached the old process, which had ended");
+    assert_eq!(m.info(&h).unwrap().exit, None, "the process now under the handle was not killed");
+    m.kill(&h).unwrap();
+    let _ = collect(&m, &h).await;
+}
+
+/// While a write larger than the queue is in progress (the process reads nothing, so it stays in progress), the process's write side is
+/// its own: another write is not queued between its pieces (Node's one `pty.write` per string, terminal-manager.ts:419), neither the
+/// immediate one nor a waiting one, which goes after it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_write_in_pieces_is_never_interleaved_with_another_write() {
+    let m = manager_with(ProcessConfig { input_queue_bytes: 16, ..ProcessConfig::default() });
+    let h = handle("one-writer");
+    m.spawn(SpawnRequest { stdin_piped: true, ..request(&h, long_sleep()) }).await.unwrap();
+    // More than the pipe and the queue hold together: the write is still in progress after its first poll.
+    let mut first = Box::pin(m.write_input_wait(&h, "é".repeat(256 * 1024).into_bytes()));
+    assert!(poll_once(&mut first).await.is_pending(), "the large write is in progress");
+    assert_eq!(m.write_input(&h, b"x".to_vec()), Err(ProcessError::Overloaded { queue: ProcessQueue::Input }), "no write lands between its pieces");
+    let mut second = Box::pin(m.write_input_wait(&h, b"x".to_vec()));
+    assert!(poll_once(&mut second).await.is_pending(), "a waiting write goes after the whole of it");
+    m.kill(&h).unwrap();
+    assert_eq!(tokio::time::timeout(WAIT, first).await.expect("the first write ends with the process"), Err(ProcessError::StdinClosed));
+    let _ = collect(&m, &h).await;
+}
+
+async fn poll_once<F: std::future::Future + Unpin>(future: &mut F) -> std::task::Poll<F::Output> {
+    std::future::poll_fn(|cx| std::task::Poll::Ready(std::pin::Pin::new(&mut *future).poll(cx))).await
+}
+
 /// Input larger than the whole input queue is written in pieces, in order, instead of being refused for its size (Node's `pty.write`
 /// takes any length): `sort` reads 64 lines through a queue of 16 bytes and prints them all.
 #[tokio::test(flavor = "multi_thread")]

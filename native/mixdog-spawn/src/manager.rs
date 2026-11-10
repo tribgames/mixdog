@@ -124,6 +124,31 @@ struct InputQueue {
     /// callers waiting for room.
     room: tokio::sync::Notify,
     cap: usize,
+    /// Held by a write for all of its pieces (see `write_input_wait`); fair, so waiting writers go in arrival order.
+    writer: tokio::sync::Mutex<()>,
+}
+
+/// `bytes` in pieces of at most `cap` bytes, each ending at a UTF-8 character boundary (a piece is cut inside a character only when
+/// the character alone is longer than `cap`).
+fn pieces(bytes: &[u8], cap: usize) -> Vec<&[u8]> {
+    let mut out = Vec::new();
+    let mut rest = bytes;
+    while rest.len() > cap {
+        let mut end = cap;
+        while end > 0 && (rest[end] & 0xC0) == 0x80 {
+            end -= 1;
+        }
+        if end == 0 {
+            end = cap;
+        }
+        let (piece, tail) = rest.split_at(end);
+        out.push(piece);
+        rest = tail;
+    }
+    if !rest.is_empty() {
+        out.push(rest);
+    }
+    out
 }
 
 struct InputState {
@@ -145,6 +170,7 @@ impl InputQueue {
             ready: Condvar::new(),
             room: tokio::sync::Notify::new(),
             cap,
+            writer: tokio::sync::Mutex::new(()),
         })
     }
 
@@ -215,6 +241,17 @@ impl InputQueue {
                 return;
             }
         }
+    }
+}
+
+/// A process whose terminal was closed ([`LocalProcessManager::hang_up`]), held by itself, not by its handle (Node's dispose kills the
+/// captured entry's own pty, terminal-manager.ts:543): a tab created again under the same id is a different process this never reaches.
+pub struct HungUp(Arc<Proc>);
+
+impl HungUp {
+    /// Ends this process's tree; `AlreadyExited` once its exit is final.
+    pub fn kill(&self) -> Result<(), ProcessError> {
+        self.0.kill(KillReason::Requested)
     }
 }
 
@@ -921,22 +958,27 @@ impl LocalProcessManager {
 
     /// The non-blocking write behind `write_stdin` and the `process/input` notification: queues
     /// `bytes` for the process's writer thread.
+    /// `Overloaded` while another write is in progress ([`Self::write_input_wait`]): the caller then waits behind it.
     pub fn write_input(&self, handle: &ProcessHandle, bytes: Vec<u8>) -> Result<(), ProcessError> {
         let proc = self.inner.lookup(handle)?;
-        proc.input
-            .as_ref()
-            .ok_or(ProcessError::StdinClosed)?
-            .push(bytes)
+        let input = proc.input.as_ref().ok_or(ProcessError::StdinClosed)?;
+        let Ok(_writing) = input.writer.try_lock() else {
+            return Err(ProcessError::Overloaded { queue: ProcessQueue::Input });
+        };
+        input.push(bytes)
     }
 
     /// Queues `bytes` for the process, waiting for room when its input queue is full: the
     /// `process/input` notification is never dropped, and the connection reader that sent it
     /// stays paused for as long as this waits. Fails only when the process cannot take input. Input larger than the queue goes in
-    /// pieces of at most its capacity, in order (Node's `pty.write` takes any length), so no input is refused for its size.
+    /// pieces of at most its capacity, in order (Node's `pty.write` takes any length), so no input is refused for its size. The pieces are
+    /// cut between UTF-8 characters, and the process's write side is held from the first piece to the last (writers take it in arrival
+    /// order), so no other input lands between them: Node wrote the whole string in one `pty.write` (terminal-manager.ts:419).
     pub async fn write_input_wait(&self, handle: &ProcessHandle, bytes: Vec<u8>) -> Result<(), ProcessError> {
         let proc = self.inner.lookup(handle)?;
         let input = proc.input.as_ref().ok_or(ProcessError::StdinClosed)?;
-        for piece in bytes.chunks(input.cap.max(1)) {
+        let _writing = input.writer.lock().await;
+        for piece in pieces(&bytes, input.cap.max(1)) {
             loop {
                 let mut room = std::pin::pin!(input.room.notified());
                 // Registered before the push is tried, so room made in between is not missed.
@@ -986,20 +1028,22 @@ impl LocalProcessManager {
     /// Closes a PTY process's terminal, as node-pty's `kill` closes the pseudo console: on Windows the console's processes get its close
     /// and end with `STATUS_CONTROL_C_EXIT` themselves (a shell's own answer to a closed terminal). The close runs on a thread of its own
     /// (`ClosePseudoConsole` can wait for its output to be read). A process without a PTY is `NotPty`.
-    pub fn hang_up(&self, handle: &ProcessHandle) -> Result<(), ProcessError> {
+    /// Returns the hung-up process itself: its later kill ends that process's tree, never another process the handle names by then.
+    pub fn hang_up(&self, handle: &ProcessHandle) -> Result<HungUp, ProcessError> {
         let proc = self.inner.lookup(handle)?;
         if proc.pty.is_none() {
             return Err(ProcessError::NotPty);
         }
+        let closing = Arc::clone(&proc);
         thread::Builder::new()
             .name("pty-hangup".to_owned())
             .spawn(move || {
-                if let Some(pty) = &proc.pty {
+                if let Some(pty) = &closing.pty {
                     pty.close();
                 }
             })
-            .map(|_| ())
-            .map_err(|error| ProcessError::Io { os_code: error.raw_os_error() })
+            .map_err(|error| ProcessError::Io { os_code: error.raw_os_error() })?;
+        Ok(HungUp(proc))
     }
 }
 
@@ -1058,5 +1102,20 @@ impl ProcessManager for LocalProcessManager {
                 Slot::Reserved => None,
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pieces;
+
+    /// Pieces end between characters: a two-byte and a four-byte character on a piece's edge go whole into the next piece; a character
+    /// longer than the cap alone is the only cut inside one.
+    #[test]
+    fn input_pieces_end_between_characters() {
+        let text = "aé😀b".as_bytes();
+        assert_eq!(pieces(text, 2), vec![&b"a"[..], "é".as_bytes(), &[0xF0, 0x9F], &[0x98, 0x80], b"b"]);
+        assert_eq!(pieces(text, 4), vec!["aé".as_bytes(), "😀".as_bytes(), b"b"]);
+        assert_eq!(pieces(text, 8), vec![text]);
     }
 }

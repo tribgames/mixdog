@@ -92,6 +92,15 @@ pub struct SearchCompletedParams {
 pub struct ProcessOutputDeltaParams {
     pub process_handle: ProcessHandle,
     pub bytes_b64: String,
+    /// A terminal relay frame whose cut fell inside a non-BMP character (Node's frames are cut in UTF-16 units): the lone low surrogate
+    /// that comes before the bytes' text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional))]
+    pub lead_unit: Option<u16>,
+    /// The lone high surrogate that comes after the bytes' text, for the same cut.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional))]
+    pub tail_unit: Option<u16>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
