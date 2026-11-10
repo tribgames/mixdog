@@ -1,22 +1,10 @@
 import assert from 'node:assert/strict';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { runTree } from './lib/process-tree.mjs';
-import { BACKEND_INSTALLERS, LANES, commandOf, installersIn, isInstalledBy, runChild, selectedTests } from './k1-lanes.mjs';
-
-// Runs `cargo test -- --list`, so it compiles each lane's test binaries (set CARGO_TARGET_DIR to reuse a build).
-test('every lane filter selects at least one test', { timeout: 3_600_000 }, async () => {
-  for (const [name, lane] of Object.entries(LANES)) {
-    for (const filter of lane.filters.length ? lane.filters : [null]) {
-      assert.ok((await selectedTests(name, filter)).length > 0, `${name}: filter ${filter ?? '(all)'} selects no test`);
-    }
-  }
-});
-
-test('a filter that matches nothing selects nothing', { timeout: 3_600_000 }, async () => {
-  assert.deepEqual(await selectedTests('advisory-lock', 'no_such_test_name_anywhere'), []);
-});
+import { BACKEND_INSTALLERS, LANES, commandOf, installersIn, runChild, selectedTests, testBinariesOf, testsOfList } from './k1-lanes.mjs';
 
 test('a lane is one cargo run per filter on its package', () => {
   assert.deepEqual(commandOf('advisory-lock', 'cargo nextest run', 'x'), { program: 'cargo', args: ['nextest', 'run', '-p', 'mixdog-tools', '--locked', 'x'] });
@@ -56,13 +44,6 @@ test('the cargo children skip the user-data backup guard', async () => {
   const done = await runChild('node', ['-e', 'console.log(process.env.MIXDOG_SKIP_USER_DATA_BACKUP)'], { deadlineMs: 30_000 });
   assert.equal(done.stdout.trim(), '1');
 });
-test('lanes are validated before --list runs: an unknown lane fails there too', async () => {
-  const run = (await cli('--list', 'no-such-lane'));
-  assert.notEqual(run.status, 0);
-  assert.match(run.stderr, /unknown lane no-such-lane/);
-  assert.equal((await runCli('--list', 'compact')).status, 0);
-});
-
 test('a lane is a property of the table, not of Object.prototype', async () => {
   for (const name of ['toString', 'constructor', '__proto__', 'hasOwnProperty']) {
     for (const mode of [['--list'], ['--dry-run'], []]) {
@@ -82,14 +63,6 @@ test('BACKEND_INSTALLERS names every test file that installs a backend', async (
   assert.deepEqual(files, [...BACKEND_INSTALLERS].sort());
 });
 
-test('no lane filter selects a backend-installing test', { timeout: 3_600_000 }, async () => {
-  for (const [name, lane] of Object.entries(LANES)) {
-    for (const filter of lane.filters.length ? lane.filters : [null]) {
-      assert.deepEqual(installersIn(await selectedTests(name, filter)), [], `lane ${name} filter ${filter ?? '(all)'}`);
-    }
-  }
-});
-
 const at = (path) => resolve(fileURLToPath(new URL('../..', import.meta.url)), path);
 
 test('an installer is recognised by the binary its test is in, not by a name prefix', () => {
@@ -107,17 +80,27 @@ test('an installer is recognised by the binary its test is in, not by a name pre
   assert.equal(installersIn([{ name: 'tidy::process::map_limit', srcPath: lib }, { name: 'tidy::other::x', srcPath: lib }]).length, 1);
 });
 
-// Every installer file, through a real filter: list the package's tests, take one test of the installer by its binary, select
-// exactly it with a filter, and require the lane check to see an installer. The unit test above cannot see what cargo lists.
-const PACKAGE_OF = (file) => /crates\/([^/]+)\//.exec(file)[1];
-for (const pkg of [...new Set(BACKEND_INSTALLERS.map(PACKAGE_OF))]) {
-  test(`a filter selecting a test of each backend installer in ${pkg} is recognised`, { timeout: 3_600_000 }, async () => {
-    const all = await selectedTests('compact', null, { pkg });
-    for (const file of BACKEND_INSTALLERS.filter((f) => PACKAGE_OF(f) === pkg)) {
-      const mine = all.filter((test) => isInstalledBy(file, test));
-      assert.ok(mine.length > 0, `${file}: none of ${pkg}'s ${all.length} tests is in it`);
-      const filtered = await selectedTests('compact', mine[0].name, { pkg });
-      assert.ok(installersIn(filtered).some((test) => test.name === mine[0].name && test.srcPath === mine[0].srcPath), `${file}: the filter ${mine[0].name} did not select an installer`);
-    }
-  });
-}
+// Recorded from cargo for the mixdog-tools package (`cargo test -p mixdog-tools --no-run --message-format=json`, then the
+// test binary's `--list fs::tests`): the selection logic runs on this without a build. k1-lanes.integration.test.mjs runs
+// the same steps for real.
+const recorded = (name) => readFileSync(new URL(`./recorded/${name}`, import.meta.url), 'utf8');
+
+test('the test binaries are the compiler artifacts that are test targets with an executable', () => {
+  const noise = [JSON.stringify({ reason: 'build-finished', success: true }), JSON.stringify({ reason: 'compiler-artifact', profile: { test: false }, executable: 'x' }), 'warning: not json'];
+  const binaries = testBinariesOf(`${recorded('lanes_build_messages.jsonl')}${noise.join('\n')}\n`);
+  assert.ok(binaries.length > 0);
+  assert.ok(binaries.every((binary) => binary.profile.test && binary.executable && binary.target.src_path));
+});
+
+test('only the lines libtest lists as tests are tests, and each carries its binary', () => {
+  const { mixdog_tools: listed } = JSON.parse(recorded('lanes_list_fs_tests.json'));
+  const tests = testsOfList(`${listed.list}3 tests, 0 benchmarks\n`, 'src/lib.rs');
+  assert.ok(tests.length > 10);
+  assert.ok(tests.every((t) => t.name.startsWith('fs::tests::') && t.srcPath === 'src/lib.rs'));
+  assert.deepEqual(testsOfList('a: test\nb: benchmark\n\n', 'x'), [{ name: 'a', srcPath: 'x' }]);
+});
+
+test('no recorded fs::tests test of the patch-bytes lane is a backend installer', () => {
+  const { mixdog_tools: listed } = JSON.parse(recorded('lanes_list_fs_tests.json'));
+  assert.deepEqual(installersIn(testsOfList(listed.list, at('native/core/crates/mixdog-tools/src/lib.rs'))), []);
+});

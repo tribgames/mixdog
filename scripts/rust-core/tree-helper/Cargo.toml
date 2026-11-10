@@ -1,0 +1,16 @@
+[package]
+name = "treerun"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Runs one program as the root of a tree that is ended whole: scripts/rust-core/lib/process-tree.mjs"
+
+# A package of its own: it joins no workspace and has no dependencies, so building it needs nothing beyond the toolchain.
+[workspace]
+
+[dependencies]
+
+[profile.release]
+opt-level = "s"
+lto = true
+panic = "abort"
