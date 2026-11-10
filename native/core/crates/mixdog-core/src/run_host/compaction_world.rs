@@ -177,7 +177,7 @@ impl CompactionWorld for ProcessCompactionWorld {
             media: media.clone(),
             tool_media: media.clone(),
             native_pdf: s.routes.native_pdf(provider),
-            attachments: Arc::new(ReferencedMedia::new(s.files.clone(), s.attachment_facts.clone(), media)),
+            attachments: Arc::new(ReferencedMedia::new(s.files.clone(), s.attachment_facts.clone(), media).with_reader(s.reader.clone())),
             redactor: Arc::new(SensitiveRedactor::new(s.sensitive.clone(), thread.as_str())),
             cache: Arc::new(RequestCacheTail::new(s.requests.request_tail(thread, header, prior).await)),
             summary: s.summaries.host(thread, header),

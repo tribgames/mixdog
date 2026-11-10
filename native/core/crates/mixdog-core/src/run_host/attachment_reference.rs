@@ -11,6 +11,9 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use mixdog_agent::compact::estimate::MediaMeter;
 use mixdog_agent::compact::fresh::{AttachmentSeam, Preflight};
+use mixdog_agent::compact::text_utils::StoredText;
+use mixdog_ai::service::model_proxy_inline::{AttachmentReader, ReadError};
+use mixdog_protocol::message_class::user_text::attachment_text;
 use mixdog_agent::message::AgentMessage;
 use mixdog_core_api::domain::provider::{BinarySource, Content, ContentPart, DocumentSource, ImageSource, Role};
 
@@ -170,11 +173,17 @@ pub struct ReferencedMedia {
     files: Arc<dyn AttachmentFiles>,
     facts: Arc<dyn AttachmentFacts>,
     meter: Arc<dyn MediaMeter>,
+    /// The store's bytes, for the summarizer's stored text attachments.
+    reader: Option<Arc<dyn AttachmentReader>>,
 }
 
 impl ReferencedMedia {
     pub fn new(files: Arc<dyn AttachmentFiles>, facts: Arc<dyn AttachmentFacts>, meter: Arc<dyn MediaMeter>) -> Self {
-        Self { files, facts, meter }
+        Self { files, facts, meter, reader: None }
+    }
+
+    pub fn with_reader(self, reader: Arc<dyn AttachmentReader>) -> Self {
+        Self { reader: Some(reader), ..self }
     }
 
     /// `mediaPartToReference`: the reference text part standing for one media part, or `None` when
@@ -286,6 +295,18 @@ impl ReferencedMedia {
 
 #[async_trait]
 impl AttachmentSeam for ReferencedMedia {
+    async fn stored_text(&self, part: &ContentPart) -> Result<Option<StoredText>, String> {
+        let ContentPart::File { source: BinarySource::AttachmentRef(reference), filename, text: Some(text), .. } = part else {
+            return Ok(None);
+        };
+        let Some(reader) = &self.reader else { return Ok(None) };
+        match reader.read(reference).await {
+            Ok(bytes) => Ok(Some(StoredText::Text(attachment_text(&String::from_utf8_lossy(&bytes), text.kind.as_deref(), filename.as_deref())))),
+            Err(ReadError::Permanent) => Ok(Some(StoredText::Gone)),
+            Err(ReadError::Other(message)) => Err(message),
+        }
+    }
+
     /// `referenceMessageMedia`: a user message with every referencable media part of its own
     /// content replaced by its reference text (other roles and tool results stay as they are).
     async fn reference_media(&self, message: &AgentMessage) -> AgentMessage {
@@ -672,6 +693,36 @@ mod tests {
         let (text, meta) = referenced(&parts(&outcome.messages[0])[1]).unwrap();
         assert!(text.starts_with("[Image kept on disk, not inlined: \"shot.png\" (image/png, 2 KB)"), "{text}");
         assert_eq!(meta["kind"], "image");
+    }
+
+    /// The summarizer's stored text comes from the store's bytes, worded as a request words it.
+    #[tokio::test]
+    async fn stored_text_reads_the_blob_and_tells_gone_from_transient() {
+        struct Reader;
+        #[async_trait]
+        impl AttachmentReader for Reader {
+            async fn read(&self, reference: &str) -> Result<Vec<u8>, ReadError> {
+                match reference {
+                    "pasted" => Ok(b"the pasted words".to_vec()),
+                    "gone" => Err(ReadError::Permanent),
+                    _ => Err(ReadError::Other("EBUSY".into())),
+                }
+            }
+        }
+        let golden: Value = serde_json::from_str(include_str!("golden/attachment_reference.json")).unwrap();
+        let s = seam(&golden).with_reader(Arc::new(Reader));
+        let part = |r: &str| ContentPart::File {
+            source: BinarySource::AttachmentRef(r.into()),
+            mime_type: "text/plain".into(),
+            filename: None,
+            text: Some(mixdog_core_api::domain::provider::TextAttachment { kind: None }),
+        };
+        let Ok(Some(StoredText::Text(text))) = s.stored_text(&part("pasted")).await else { panic!("text") };
+        assert_eq!(text, attachment_text("the pasted words", None, None));
+        assert!(matches!(s.stored_text(&part("gone")).await, Ok(Some(StoredText::Gone))));
+        assert_eq!(s.stored_text(&part("busy")).await.err().as_deref(), Some("EBUSY"));
+        let pdf = ContentPart::File { source: BinarySource::AttachmentRef("pasted".into()), mime_type: "application/pdf".into(), filename: None, text: None };
+        assert!(matches!(s.stored_text(&pdf).await, Ok(None)));
     }
 
     #[tokio::test]
