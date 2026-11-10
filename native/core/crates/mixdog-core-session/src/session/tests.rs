@@ -400,6 +400,7 @@ async fn the_first_valid_decision_wins_and_an_invalid_one_is_rejected() {
         connection: ConnectionId(connection),
         device: format!("desktop-{connection}"),
         connection_kind: ConnectionKind::Desktop,
+        origin: mixdog_protocol::Origin::Local,
         result,
     };
     handle.decide(decide(7, json!({ "approved": "yes" }))).expect("routed");

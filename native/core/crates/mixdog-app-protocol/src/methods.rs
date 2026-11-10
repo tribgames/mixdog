@@ -343,6 +343,27 @@ crate::client_request_definitions! {
         mutation: op(Thread),
         origins: [Local, Ssh, Relay],
     },
+    /// Today's `answerApprovalNotification`: a notification's Allow or Deny on the approval the thread shows. Allow is taken only
+    /// where the PC's card allows once with a bare Enter, and answers with that card's decision; like a server-request response,
+    /// it is not an op.
+    ThreadApprovalAnswerNotification => "thread/approval/answerNotification" {
+        params: v2::approval::ThreadApprovalAnswerNotificationParams,
+        result: v2::approval::ThreadApprovalAnswerNotificationResponse,
+        scope: thread(thread_id),
+        class: C2,
+        mutation: none,
+        origins: [Local, Ssh, Relay],
+    },
+    /// Today's `resolveToolApprovalForSession`: a card's decision on the approval request it shows, answered once the thread took
+    /// it or another decision had (`accepted`), as Node's serialized answer was; like a server-request response, it is not an op.
+    ThreadApprovalAnswer => "thread/approval/answer" {
+        params: v2::approval::ThreadApprovalAnswerParams,
+        result: v2::approval::ThreadApprovalAnswerResponse,
+        scope: thread(thread_id),
+        class: C2,
+        mutation: none,
+        origins: [Local, Ssh, Relay],
+    },
     /// Set the goal.
     ThreadGoalSet => "thread/goal/set" {
         params: v2::thread::ThreadGoalSetParams,

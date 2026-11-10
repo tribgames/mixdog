@@ -305,6 +305,7 @@ async fn approval_answers_and_materializations_pass_the_turn_gate() {
         connection: ConnectionId(1),
         device: "desktop-1".into(),
         connection_kind: ConnectionKind::Desktop,
+        origin: mixdog_protocol::Origin::Local,
         result: json!({ "approved": true }),
     };
     let ctx = CallContext::internal("test");

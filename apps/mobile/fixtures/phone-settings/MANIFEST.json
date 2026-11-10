@@ -47,7 +47,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/phone-relay-core.mjs",
-      "sha256": "eec41958569e2413fba9721c3e6241758b0ea4dc65c9da84c5a9fa752bfb4ddc"
+      "sha256": "ad55b52b40440cade7f33e14632f5eac8d4cc64313726ed42ddc96826d7b28b0"
     }
   ],
   "set": "phone-settings",

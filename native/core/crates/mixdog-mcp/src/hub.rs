@@ -7,6 +7,7 @@
 //! that names no scope is the default one.
 
 use std::collections::HashMap;
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -33,6 +34,7 @@ use crate::sign_in_notice::SignInNotices;
 use crate::transport::Authorizer;
 use crate::result::OutputPolicy;
 use crate::result::Spiller;
+use crate::scopes::ExtensionScopes;
 use crate::server::McpIo;
 use crate::server::McpServer;
 use crate::server::ServerState;
@@ -370,8 +372,18 @@ impl McpHub {
 
     /// The tools of every ready server of `scope` (`getMcpTools(scopeId)`).
     pub fn tools_in(&self, scope: &str) -> Vec<Arc<dyn Tool>> {
+        self.ready_tools(scope, |_| true)
+    }
+
+    /// [`tools_in`](Self::tools_in) without the servers whose extension scope excludes `cwd`
+    /// (`filterMcpToolsForCwd`): the server's own scope and the scope of the plugin that declared it.
+    pub fn tools_for_cwd(&self, scope: &str, scopes: &ExtensionScopes, cwd: &Path) -> Vec<Arc<dyn Tool>> {
+        self.ready_tools(scope, |server| scopes.mcp_server_allowed_for_cwd(server.name(), server.config().plugin_id.as_deref(), cwd))
+    }
+
+    fn ready_tools(&self, scope: &str, keep: impl Fn(&McpServer) -> bool) -> Vec<Arc<dyn Tool>> {
         let mut out: Vec<Arc<dyn Tool>> = Vec::new();
-        for server in self.in_scope(scope).iter() {
+        for server in self.in_scope(scope).iter().filter(|server| keep(server)) {
             if let ServerState::Ready(ready) = &*server.state() {
                 out.extend(
                     ready
