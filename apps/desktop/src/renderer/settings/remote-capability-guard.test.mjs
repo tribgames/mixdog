@@ -1,0 +1,54 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { capabilityBlockedRemotely, friendlyCapabilityError } from './remote-capability-guard.ts';
+import { setRemoteHostOpenAccess } from '../remote-host-access.ts';
+
+test('blocked capabilities are flagged only on a remote surface', () => {
+  const saved = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  try {
+    globalThis.window = { dispatchEvent() {} };
+    assert.equal(capabilityBlockedRemotely('saveMcpServer'), false);
+    globalThis.window = { mixdogRemoteServer: 'https://relay.test', dispatchEvent() {} };
+    assert.equal(capabilityBlockedRemotely('saveMcpServer'), true, 'an older host still refuses it');
+    assert.equal(capabilityBlockedRemotely('getSnapshot'), false);
+  } finally {
+    if (saved) Object.defineProperty(globalThis, 'window', saved);
+    else delete globalThis.window;
+  }
+});
+
+test('a host announcing open access unblocks everything but the media resolver', () => {
+  const saved = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  try {
+    globalThis.window = { mixdogRemoteServer: 'https://relay.test', dispatchEvent() {} };
+    setRemoteHostOpenAccess(true);
+    assert.equal(capabilityBlockedRemotely('saveMcpServer'), false);
+    assert.equal(capabilityBlockedRemotely('saveProviderApiKey'), false);
+    assert.equal(capabilityBlockedRemotely('loginOAuthProvider'), false);
+    assert.equal(capabilityBlockedRemotely('resolveMediaFile'), true);
+    setRemoteHostOpenAccess(false);
+    assert.equal(capabilityBlockedRemotely('saveMcpServer'), true);
+  } finally {
+    setRemoteHostOpenAccess(false);
+    if (saved) Object.defineProperty(globalThis, 'window', saved);
+    else delete globalThis.window;
+  }
+});
+
+// The refusal itself was raised by the Node relay's assertRemoteCapabilityCall (remote-methods.ts, gone with the relay); the core
+// raises it now with this message (mixdog-core-config config/service.rs settings_call).  What stays here is the renderer's reading of the code.
+test('the coded Allow-all remote refusal becomes desktop-only guidance, by code not text', () => {
+  const refusal = Object.assign(new Error('setDeveloperOption cannot turn on Allow all actions over remote access; use the desktop.'), { code: 'REMOTE_DESKTOP_ONLY' });
+  assert.equal(friendlyCapabilityError(refusal).message, 'Turn this on in the desktop app.');
+  const rebuilt = Object.assign(new Error('some other wording'), { code: 'REMOTE_DESKTOP_ONLY' });
+  assert.equal(friendlyCapabilityError(rebuilt).message, 'Turn this on in the desktop app.');
+});
+
+test('the raw remote-access rejection becomes a friendly message', () => {
+  const raw = new TypeError('capability saveMcpServer is not available over remote access.');
+  const friendly = friendlyCapabilityError(raw);
+  assert.ok(friendly instanceof Error);
+  assert.doesNotMatch(friendly.message, /capability/);
+  const other = new Error('boom');
+  assert.equal(friendlyCapabilityError(other), other);
+});
