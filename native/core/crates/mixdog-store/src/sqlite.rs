@@ -2384,9 +2384,12 @@ pub(crate) struct ReadPool {
     path: PathBuf,
     lane: InteractiveIo,
     conns: Mutex<Vec<Connection>>,
-    /// Set by [`close`](Self::close): no connection opens or returns to the pool after it.
+    /// Test support only: `true` once [`close`](Self::close) has run. Every read holds it shared from before it takes or opens a
+    /// connection until that connection is back or closed, and `close` takes it exclusively, so `close` waits for the reads in
+    /// flight and no read opens a connection after it returned. A release build has no close: its pool keeps its connections until
+    /// the last owner of the store drops it.
     #[cfg(any(test, feature = "test-support"))]
-    closed: std::sync::atomic::AtomicBool,
+    closed: std::sync::RwLock<bool>,
 }
 
 impl ReadPool {
@@ -2396,38 +2399,34 @@ impl ReadPool {
             lane,
             conns: Mutex::new(Vec::new()),
             #[cfg(any(test, feature = "test-support"))]
-            closed: std::sync::atomic::AtomicBool::new(false),
+            closed: std::sync::RwLock::new(false),
         })
     }
 
-    /// Closes the idle connections, and a read still running closes its own when it ends; a read after it fails as the stopped
-    /// writer does (test teardown, with the store's close).
+    /// Test support only (a test's data folder closes its databases before it is removed): waits for the reads in flight, closes
+    /// every pooled connection, and makes every later read fail as the stopped writer does.
     #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn close(&self) {
-        self.closed.store(true, std::sync::atomic::Ordering::SeqCst);
+        let mut closed = self.closed.write().unwrap_or_else(std::sync::PoisonError::into_inner);
+        *closed = true;
         self.conns.lock().expect("pool lock").clear();
     }
 
-    #[cfg(any(test, feature = "test-support"))]
-    fn is_closed(&self) -> bool {
-        self.closed.load(std::sync::atomic::Ordering::SeqCst)
-    }
-
-    #[cfg(not(any(test, feature = "test-support")))]
-    fn is_closed(&self) -> bool {
-        false
-    }
-
     pub(crate) fn with<T>(&self, f: impl FnOnce(&Connection) -> Result<T, DbError>) -> Result<T, DbError> {
+        #[cfg(any(test, feature = "test-support"))]
+        let closed = self.closed.read().unwrap_or_else(std::sync::PoisonError::into_inner);
+        #[cfg(any(test, feature = "test-support"))]
+        if *closed {
+            return Err(DbError::Stopped);
+        }
         let conn = self.conns.lock().expect("pool lock").pop();
         let conn = match conn {
             Some(c) => c,
-            None if self.is_closed() => return Err(DbError::Stopped),
             None => open_connection(&self.path)?,
         };
         let out = f(&conn);
         let mut pool = self.conns.lock().expect("pool lock");
-        if pool.len() < READ_POOL && !self.is_closed() {
+        if pool.len() < READ_POOL {
             pool.push(conn);
         }
         out

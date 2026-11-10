@@ -112,6 +112,8 @@ pub struct Projector {
     pending: Arc<std::sync::atomic::AtomicUsize>,
     /// Set when the forwarding task has ended (a panic included): nothing waits on it any more.
     stopped: Arc<std::sync::atomic::AtomicBool>,
+    /// How long an exact read waits ([`FENCE_BOUND`](super::thread_list::FENCE_BOUND); a test sets its own).
+    bound: std::time::Duration,
 }
 
 enum Projecting {
@@ -164,7 +166,7 @@ impl Projector {
                 }
             }
         });
-        Self { queue, pending, stopped }
+        Self { queue, pending, stopped, bound: super::thread_list::FENCE_BOUND }
     }
 
     fn send(&self, projection: Projection) {
@@ -175,24 +177,38 @@ impl Projector {
         }
     }
 
-    /// `None` when no projection is queued or running, or the projector has stopped (atomic loads); otherwise the wait for those
-    /// already sent.
+    /// The display class (D-reads-5: `thread/list` and the summary only). `None` when no projection is queued or running, or the
+    /// projector has stopped (atomic loads); otherwise the wait for those already sent, with no bound of its own: the list bounds it
+    /// ([`FENCE_BOUND`](super::thread_list::FENCE_BOUND)) and answers what the index holds past it.
     fn settle(&self) -> Option<futures::future::BoxFuture<'static, ()>> {
         if self.stopped.load(std::sync::atomic::Ordering::SeqCst) || self.pending.load(std::sync::atomic::Ordering::SeqCst) == 0 {
             return None;
         }
         let projector = self.clone();
-        Some(Box::pin(async move { projector.flush().await }))
+        Some(Box::pin(async move { projector.drained().await }))
     }
 
-    /// Waits until every barrier acked so far has been through the index writer, or the projector is gone, or
-    /// [`FENCE_BOUND`](super::thread_list::FENCE_BOUND) has passed (D-reads-5): past it the caller reads what the index holds, and
-    /// the read says so once. A projection that failed stays dirty for reconcile, which these callers do not wait on.
-    async fn flush(&self) {
-        let bound = super::thread_list::FENCE_BOUND;
+    /// The exact class: every other store read that depends on the index (an operation's dedupe, fences, activation's window,
+    /// prompts, history, the context, the purge). `Ok` once every barrier acked so far has been through the index writer; an error
+    /// that says the index is behind when it has not within [`FENCE_BOUND`](super::thread_list::FENCE_BOUND), or when the projector
+    /// stopped with projections it never finished: such a read never answers from an index older than the write it depends on.
+    async fn caught_up(&self) -> Result<(), CoreError> {
+        let bound = self.bound;
+        if tokio::time::timeout(bound, self.drained()).await.is_err() {
+            return Err(internal("index-behind", &format_args!("the index has not taken the writes acknowledged before this read within {bound:?}")));
+        }
+        if self.stopped.load(std::sync::atomic::Ordering::SeqCst) && self.pending.load(std::sync::atomic::Ordering::SeqCst) != 0 {
+            return Err(internal("index-behind", &"the index projector stopped before it took the writes acknowledged before this read"));
+        }
+        Ok(())
+    }
+
+    /// Until every projection sent so far has been through the index writer, or the projector is gone. Unbounded: only
+    /// [`settle`](Self::settle) and [`caught_up`](Self::caught_up) use it, each with its class's rule at the bound.
+    async fn drained(&self) {
         let (done, wait) = tokio::sync::oneshot::channel();
-        if self.queue.send(Projecting::Flush(done)).is_ok() && tokio::time::timeout(bound, wait).await.is_err() {
-            tracing::warn!("a store read: the index has not taken the writes acknowledged before it within {bound:?}; reading what it holds");
+        if self.queue.send(Projecting::Flush(done)).is_ok() {
+            drop(wait.await);
         }
     }
 }
@@ -322,7 +338,7 @@ impl StoreThreads {
     /// Returns once the index holds every write acked so far (the projection runs behind the ack).
     #[cfg(test)]
     pub(crate) async fn projected(&self) {
-        self.projector.flush().await;
+        self.projector.drained().await;
     }
 
     fn not_found(id: &ThreadId) -> CoreError {
@@ -692,7 +708,7 @@ impl ThreadStore for StoreThreads {
     ) -> Result<WindowRead, CoreError> {
         // The window comes from the index: it must hold every barrier acked so far (a thread
         // unloaded and reopened in this process).
-        self.wait(lane, self.projector.flush());
+        self.wait(lane, self.projector.caught_up())?;
         let opened = head
             .0
             .downcast_ref::<log::OpenedLog>()
@@ -799,7 +815,7 @@ impl ThreadStore for StoreThreads {
         lane: &InLane<InteractiveIo>,
         id: &ThreadId,
     ) -> Result<Vec<ItemRecord>, CoreError> {
-        self.wait(lane, self.projector.flush());
+        self.wait(lane, self.projector.caught_up())?;
         let opened = self.open(lane, id)?;
         let lineage = self.lineage(lane, &opened.fold)?;
         let prompts = self
@@ -817,7 +833,7 @@ impl ThreadStore for StoreThreads {
         lane: &InLane<InteractiveIo>,
         id: &ThreadId,
     ) -> Result<(u64, Vec<ItemRecord>), CoreError> {
-        self.wait(lane, self.projector.flush());
+        self.wait(lane, self.projector.caught_up())?;
         'read: loop {
             let opened = self.open(lane, id)?;
             let lineage = self.lineage(lane, &opened.fold)?;
@@ -843,7 +859,7 @@ impl ThreadStore for StoreThreads {
     }
 
     fn thread_op(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, op: &str) -> Result<Option<StoredOp>, CoreError> {
-        self.wait(lane, self.projector.flush());
+        self.wait(lane, self.projector.caught_up())?;
         let Some(row) = self.index.thread_op_on_lane(lane, id.as_str(), op).map_err(|e| internal("thread-op", &e))? else {
             return Ok(None);
         };
@@ -864,7 +880,7 @@ impl ThreadStore for StoreThreads {
     }
 
     fn fenced_ops(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Vec<String>, CoreError> {
-        self.wait(lane, self.projector.flush());
+        self.wait(lane, self.projector.caught_up())?;
         self.index.fenced_ops_on_lane(lane, id.as_str()).map_err(|e| internal("fenced-ops", &e))
     }
 
@@ -875,7 +891,7 @@ impl ThreadStore for StoreThreads {
         id: &ThreadId,
         iid: &str,
     ) -> Result<Option<(u64, ItemRecord)>, CoreError> {
-        self.wait(lane, self.projector.flush());
+        self.wait(lane, self.projector.caught_up())?;
         'read: loop {
             let opened = self.open(lane, id)?;
             let lineage = self.lineage(lane, &opened.fold)?;
@@ -903,7 +919,7 @@ impl ThreadStore for StoreThreads {
         id: &ThreadId,
         iid: &str,
     ) -> Result<Option<mixdog_store::sqlite::CompactionEntry>, CoreError> {
-        self.wait(lane, self.projector.flush());
+        self.wait(lane, self.projector.caught_up())?;
         let opened = self.open(lane, id)?;
         let lineage = self.lineage(lane, &opened.fold)?;
         self.index
@@ -928,7 +944,7 @@ impl ThreadStore for StoreThreads {
     fn purge_deleted(&self) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>> {
         let (projector, index, lane, data) = (self.projector.clone(), self.index.clone(), self.maintenance, self.data.clone());
         Box::pin(async move {
-            projector.flush().await;
+            projector.caught_up().await?;
             index.purge_deleted(lane, data).await.map_err(|e| internal("purge", &e))
         })
     }
@@ -943,7 +959,7 @@ impl ThreadStore for StoreThreads {
     ) -> Result<ContextRead, CoreError> {
         let Some(read) = read else {
             // The read must see every row acked so far.
-            self.wait(lane, self.projector.flush());
+            self.wait(lane, self.projector.caught_up())?;
             return Ok(ContextRead(Box::new(self.context_start(lane, id)?)));
         };
         let mut state = *read.0.downcast::<ContextState>().expect("StoreThreads context");
@@ -1177,23 +1193,74 @@ mod projector_tests {
         assert!(projector.settle().is_none(), "a dead projector is waited on");
     }
 
-    /// What every store read that follows the projector waits (the window, prompt rows, history, op and fence lookups, the
-    /// history row, the compaction entry, the purge: each calls `flush`): behind a projection that never ends it still waits one
-    /// tick before [`FENCE_BOUND`](super::super::thread_list::FENCE_BOUND), and at the bound it goes on to read what the index holds.
+    /// The exact class's wait: behind a projection that never ends it still waits one tick before
+    /// [`FENCE_BOUND`](super::super::thread_list::FENCE_BOUND), and at the bound it fails, saying the index is behind; it never goes
+    /// on to read.
     #[tokio::test(start_paused = true)]
-    async fn a_store_read_behind_a_stuck_projection_reads_the_index_at_the_bound() {
+    async fn an_exact_read_behind_a_stuck_projection_fails_at_the_bound() {
         let bound = super::super::thread_list::FENCE_BOUND;
         let _clock = crate::session::testing::HeldClock::hold();
         let projector = Projector::spawn_with(|_| std::future::pending::<()>());
         projector.send(empty_projection("sess_stuck"));
-        let read = projector.flush();
+        let read = projector.caught_up();
         tokio::pin!(read);
         let mut polled = || read.as_mut().poll(&mut std::task::Context::from_waker(std::task::Waker::noop()));
         assert!(polled().is_pending(), "the read did not wait for the queued projection");
         tokio::time::advance(bound - std::time::Duration::from_millis(1)).await;
         assert!(polled().is_pending(), "the read stopped waiting before the bound");
         tokio::time::advance(std::time::Duration::from_millis(1)).await;
-        assert!(polled().is_ready(), "the read still waits at the bound");
+        match polled() {
+            std::task::Poll::Ready(Err(CoreError::Internal { incident_id })) => assert!(incident_id.contains("index-behind"), "{incident_id}"),
+            other => panic!("at the bound the exact read answered {other:?}, not that the index is behind"),
+        }
+    }
+
+    /// Every exact read of the store (an operation's dedupe, the fences an activation restores, activation's window, prompt rows,
+    /// the whole history, the switch anchor's row, the compaction entry, the model's context, the purge) fails, saying the index is
+    /// behind, while an acknowledged write is still queued for the index past the bound: none answers absent, empty or stale. The
+    /// operation gate's read (`ThreadOpStore::get`) passes `thread_op`'s error on, so an acknowledged operation is never taken as
+    /// unseen. (The bound is zero here: the projection is stuck before any read starts.)
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn every_exact_read_fails_while_an_acknowledged_write_is_behind_the_bound() {
+        let data = crate::session::testing::DataDir::default();
+        let index = data.index(index_in(data.path()).await);
+        let tokens = mixdog_rt::testing::tokens();
+        let store = StoreThreads::over_data_dir(data.path(), index, Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()), tokens.maintenance_io)
+            .await
+            .expect("store");
+        let mut stuck = Projector::spawn_with(|_| std::future::pending::<()>());
+        stuck.bound = std::time::Duration::ZERO;
+        stuck.send(empty_projection("sess_a"));
+        let store = Arc::new(StoreThreads { projector: stuck, ..store });
+        let id = ThreadId::from("sess_a");
+        let reads = mixdog_rt::LaneToken::submit(tokens.interactive_io, &mixdog_rt::CancellationToken::new(), {
+            let store = store.clone();
+            move |lane| {
+                let failed = |result: Result<(), CoreError>| match result {
+                    Err(CoreError::Internal { incident_id }) if incident_id.contains("index-behind") => None,
+                    other => Some(format!("{other:?}")),
+                };
+                vec![
+                    ("thread_op", failed(ThreadStore::thread_op(&*store, lane, &id, "op-1").map(drop))),
+                    ("fenced_ops", failed(ThreadStore::fenced_ops(&*store, lane, &id).map(drop))),
+                    ("read_window", failed(ThreadStore::read_window(&*store, lane, &id, &HeadRead(Box::new(()))).map(drop))),
+                    ("user_rows", failed(ThreadStore::user_rows(&*store, lane, &id).map(drop))),
+                    ("history_rows", failed(ThreadStore::history_rows(&*store, lane, &id).map(drop))),
+                    ("history_row", failed(ThreadStore::history_row(&*store, lane, &id, "i-1").map(drop))),
+                    ("compaction_entry", failed(ThreadStore::compaction_entry(&*store, lane, &id, "i-1").map(drop))),
+                    ("context_io", failed(ThreadStore::context_io(&*store, lane, &id, None).map(drop))),
+                ]
+            }
+        })
+        .expect("lane")
+        .await
+        .expect("job ran");
+        let purge = ThreadStore::purge_deleted(&*store).await;
+        let mut answered: Vec<String> = reads.into_iter().filter_map(|(read, other)| other.map(|other| format!("{read}: {other}"))).collect();
+        if !matches!(&purge, Err(CoreError::Internal { incident_id }) if incident_id.contains("index-behind")) {
+            answered.push(format!("purge_deleted: {purge:?}"));
+        }
+        assert!(answered.is_empty(), "exact reads that did not fail as behind: {answered:?}");
     }
 
     /// The index reads a store job makes on the read lane run on the job's own thread: a job never waits for a lane slot behind
