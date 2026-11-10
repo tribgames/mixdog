@@ -14,13 +14,15 @@ import { normalizedProviderModels } from '../main/desktop-support.ts';
 import { remoteToolOutput } from '../main/remote-transcript.ts';
 import { createProtocolRouter } from './remote-shim-protocol.ts';
 import { assertParity, createParity } from './remote-protocol-chat-parity.mjs';
+import { verifiedFixture } from './remote-protocol-chat-fixtures.mjs';
 
 // The router's call deadline reads the page's timers (remote-shim-call-watch.ts); a Node test has no window.
 globalThis.window ??= globalThis;
 
 const read = (name) => JSON.parse(readFileSync(new URL(name, import.meta.url), 'utf8'));
-const node = read('./remote-protocol-chat-roster.recorded.json');
-const live = read('./remote-protocol-chat-live.recorded.json');
+// The fixtures verified against their manifests (remote-protocol-chat-fixtures.mjs); Node's first recording is the one paired here.
+const node = verifiedFixture('roster').recordings[0];
+const live = verifiedFixture('live').recordings[0];
 const plain = (value) => JSON.parse(JSON.stringify(value));
 const parity = createParity({ live, node, project: (rows) => summariesOfThreadRows(plain(rows)) });
 const nodeStep = (name) => node.steps.find((s) => s.name === name);

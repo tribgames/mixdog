@@ -64,6 +64,113 @@ export function canonical(value, runOwn, names = new Map(), path = '$') {
 /** The order of a stream: the kind (and the call, for a reply) of each thing told. */
 export const streamOrder = (stream) => (stream ?? []).map((e) => (e.kind === 'reply' ? `reply:${e.method}` : e.kind)).join(',');
 
+// ---------------------------------------------------------------------------------------------------------------------------------
+// The rule over N recordings of Node (the decision of the phone-chat-live review: "only what Node's recordings show").
+//
+// Free points (declared in the recordings' manifest): which session snapshots a phone receives depends on when its fanout's mailbox
+// drains, and that is when the previous frame's send settles (remote-relay-session-state.ts:170-175 `.finally(() => mailbox.acknowledge)`,
+// desktop-service-protocol.ts:61-81 `createLatestStateMailbox`), not on a clock; which rows the roster publishes depends on when the
+// daemon's summaries reach the host (session-host-catalog.ts:228-240). So snapshots and rows are COALESCED messages; everything else
+// (the replies to the phone's calls, with their errors) is EXACT.
+//
+//  - Run-own paths are computed from the N recordings: a leaf path (per message kind) is run-own when two recordings each show a
+//    value there the other never shows (a time, an id, a pid). A value one recording shows and another lacks only because a message
+//    was coalesced away makes one side a superset, not both: that path stays exact. At a run-own path a string is renamed by first
+//    occurrence within the case (relationships kept), a number keeps its type (`canonical`).
+//  - A coalesced message the core's phone receives must have a content some Node recording's host published, in that kind.
+//  - For any two distinct coalesced contents A, B: the core shows A before B only if some Node recording (host or phone) does.
+//  - The last snapshot and the last row equal Node's (the same in every recording, or the case is reported).
+//  - The exact messages: the same in every Node recording, and the core's equal to them, in order.
+//  - An exact message and a coalesced content: their relative order only as some Node recording shows it.
+
+export const COALESCED = new Set(['state', 'row']);
+const kindOf = (e) => (e.kind === 'reply' ? `reply:${e.method}` : e.kind);
+const bodyOf = (e) => (e.kind === 'state' ? e.snapshot : e.kind === 'row' ? e.row : e);
+
+/** The run-own paths of N recordings of one case (each `{ stream, hostStream, rest }`). */
+export function runOwnOf(recordings) {
+  const valueSets = recordings.map((r) => {
+    const sets = new Map();
+    const add = (path, value) => { if (!sets.has(path)) sets.set(path, new Set()); sets.get(path).add(JSON.stringify(value)); };
+    for (const e of [...r.stream, ...r.hostStream]) leaves(bodyOf(e), `$${kindOf(e)}`).forEach(([p, v]) => add(p, v));
+    leaves(r.rest, '$rest').forEach(([p, v]) => add(p, v));
+    return sets;
+  });
+  const out = new Set();
+  for (let i = 0; i < valueSets.length; i++) {
+    for (let j = i + 1; j < valueSets.length; j++) {
+      for (const path of new Set([...valueSets[i].keys(), ...valueSets[j].keys()])) {
+        const a = valueSets[i].get(path) ?? new Set();
+        const b = valueSets[j].get(path) ?? new Set();
+        if ([...a].some((v) => !b.has(v)) && [...b].some((v) => !a.has(v))) out.add(path);
+      }
+    }
+  }
+  return out;
+}
+
+/** One side of a case in comparable form: every message's content key under the run-own paths. Each message has its own renaming
+ *  table: which messages a phone sees is free, so an id's first appearance across messages is not a fact of the run; within one
+ *  message every relationship between ids is kept. */
+export function normalized(side, runOwn) {
+  const one = (e) => {
+    const kind = kindOf(e);
+    return { kind, coalesced: COALESCED.has(e.kind), key: JSON.stringify(canonical(bodyOf(e), runOwn, new Map(), `$${kind}`)) };
+  };
+  return { stream: side.stream.map(one), hostStream: (side.hostStream ?? []).map(one), rest: JSON.stringify(canonical(side.rest, runOwn, new Map(), '$rest')) };
+}
+
+/** The order relations a stream shows: `a<b` for every a before b (coalesced contents and exact messages by their index). */
+function relations(stream) {
+  const labels = [];
+  let exact = 0;
+  for (const m of stream) labels.push(m.coalesced ? `c:${m.key}` : `x:${exact++}:${m.key}`);
+  const out = new Set();
+  for (let i = 0; i < labels.length; i++) for (let j = i + 1; j < labels.length; j++) if (labels[i] !== labels[j]) out.add(`${labels[i]}\u0000${labels[j]}`);
+  return out;
+}
+
+/** Where Node's own recordings of a case disagree on what the rule would otherwise hold exact: the case is reported with these. */
+export function nodeVariants(nodes) {
+  const out = [];
+  const count = (f) => new Set(nodes.map(f)).size;
+  if (count((n) => JSON.stringify(n.stream.filter((m) => !m.coalesced).map((m) => m.key))) > 1) out.push('exact messages');
+  if (count((n) => n.rest) > 1) out.push('reply, transcript, row or prompt handed back');
+  for (const kind of COALESCED) if (count((n) => n.stream.filter((m) => m.kind === kind).at(-1)?.key ?? null) > 1) out.push(`last ${kind}`);
+  return out;
+}
+
+/** The differences of `core` (one normalized side) from the normalized Node recordings `nodes` of the same case, as messages. */
+export function judge(core, nodes) {
+  const problems = [];
+  const exactOf = (s) => s.stream.filter((m) => !m.coalesced).map((m) => m.key);
+  // Where Node's recordings disagree among themselves (`nodeVariants` reports it), the core's must be one of Node's.
+  const nodeExact = new Set(nodes.map((n) => JSON.stringify(exactOf(n))));
+  if (!nodeExact.has(JSON.stringify(exactOf(core)))) problems.push(`the exact messages differ: core ${JSON.stringify(exactOf(core))} Node ${[...nodeExact].join(' | ')}`);
+  const nodeRest = new Set(nodes.map((n) => n.rest));
+  if (!nodeRest.has(core.rest)) problems.push(`the replies, transcript, list row or prompt handed back differ: core ${core.rest} Node ${[...nodeRest].join(' | ')}`);
+  const published = new Set(nodes.flatMap((n) => [...n.hostStream, ...n.stream].filter((m) => m.coalesced).map((m) => `${m.kind}\u0000${m.key}`)));
+  for (const m of core.stream.filter((x) => x.coalesced)) if (!published.has(`${m.kind}\u0000${m.key}`)) problems.push(`a ${m.kind} Node never published: ${m.key}`);
+  // The last snapshot and row: Node's own when they are the same in every recording. Where Node's recordings end on different ones (a
+  // race in Node itself, `lastVariants` reports the cases), the core's must be one of them.
+  for (const kind of COALESCED) {
+    const lastOf = (s) => s.stream.filter((m) => m.kind === kind).at(-1)?.key ?? null;
+    const nodeLast = new Set(nodes.map(lastOf));
+    if (!nodeLast.has(lastOf(core))) problems.push(`the last ${kind} is none of Node's: core ${lastOf(core)} Node ${[...nodeLast].join(' | ')}`);
+  }
+  const seen = new Set(nodes.flatMap((n) => [...relations(n.hostStream), ...relations(n.stream)]));
+  for (const r of relations(core.stream)) {
+    if (!seen.has(r)) {
+      const [a, b] = r.split('\u0000');
+      // A content Node never published is already a difference of its own; its order is not reported again.
+      const unpublished = (label) => label.startsWith('c:') && ![...COALESCED].some((kind) => published.has(`${kind}\u0000${label.slice(2)}`));
+      if (unpublished(a) || unpublished(b)) continue;
+      problems.push(`an order Node never showed: ${a.slice(0, 300)} BEFORE ${b.slice(0, 300)}`);
+    }
+  }
+  return problems;
+}
+
 /** The run-own paths of a case: those any two of Node's recordings of it differ at. Two streams are aligned position by position only
  *  when they are in the same order; recordings whose streams are in different orders give their run-own paths outside the stream only. */
 export function runOwnPaths(recordings) {

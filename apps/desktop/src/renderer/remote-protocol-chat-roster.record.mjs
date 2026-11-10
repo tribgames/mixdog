@@ -99,6 +99,10 @@ const { createDesktopRuntime } = await import(pathToFileURL(join(exportDir, 'src
 }
 const deadline = createDeadline(300_000, () => 'node roster recording');
 const discovery = await deadline.race(sessionClient.ensureDaemon({ cwd: envPaths.workspace, attempts: 2, readyTimeoutMs: 60_000 }), 'the Node daemon');
+// Everything after the daemon started is torn down on every path (the `finally` at the end): the host, the daemon, the model endpoint.
+let host;
+const originalWarn = console.warn;
+try {
 const turnsDone = new Map();
 const waiters = new Set();
 const wake = () => waiters.forEach((check) => check());
@@ -120,7 +124,7 @@ const runtime = {
   },
 };
 const userData = envPaths.appData;
-const host = await SessionHost.create({ userDataPath: userData, resourcesPath: envPaths.workspace, appPath: envPaths.workspace, packaged: false }, runtime);
+host = await SessionHost.create({ userDataPath: userData, resourcesPath: envPaths.workspace, appPath: envPaths.workspace, packaged: false }, runtime);
 /** Resolves when `ready()` holds, checked again at each frame and each catalog publication. */
 const until = (ready, what) => {
   const done = latch();
@@ -136,7 +140,13 @@ const nextEvent = (what) => {
   waiters.add(check);
   return deadline.race(done.promise, what);
 };
-host.subscribeSessions(() => wake());
+// Every catalog publication of Node's host (session-host-catalog.ts:228-240 `publishCatalogs`) goes to the connected phone as it
+// happens, so the phone's roster sequence is the one Node's phone gets, not one publication per action.
+let relayPublication = null;
+host.subscribeSessions((rows) => {
+  relayPublication?.(plain(rows));
+  wake();
+});
 const listed = async () => plain(await host.listSessions());
 /** The rows are settled when `ok(rows)` holds; a catalog publication re-checks. */
 async function settled(ok, what) {
@@ -148,7 +158,6 @@ async function settled(ok, what) {
 }
 const made = {};
 const notes = [];
-const originalWarn = console.warn;
 const retireWarned = latch();
 console.warn = (...args) => {
   const text = args.map((a) => String(a?.stack ?? a)).join(' ');
@@ -313,19 +322,26 @@ const kind = (frames) => frames.filter((f) => f.event === 'sessions').map((f) =>
 const steps = [];
 const note = (name, p, frames, extra = {}) => steps.push({ name, ...extra, frames: frames ? kind(frames) : undefined, published: p.published.splice(0), roster: plain(p.rows) });
 
-// The desktop and phone that stay connected through every action: each action ends with the host publishing its roster, as Node's catalog did.
+// The desktop and phone that stay connected through every action: every publication of Node's host reaches the phone as it happens
+// (`relayPublication`); an action ends when the host's last publication is the roster its store lists.
 let live = desktop([]);
 let livePhone = phone();
 await live.connect(livePhone)(await livePhone.claim());
 livePhone.published.splice(0);
+let lastPublished = JSON.stringify([]);
+relayPublication = (rows) => {
+  lastPublished = JSON.stringify(rows);
+  live.publish(rows);
+};
 const rosters = [{ name: 'start', roster: [] }];
 for (const [name, act] of ACTIONS) {
   await act();
   const next = await roster();
   rosters.push({ name, roster: next });
-  live.publish(next);
+  await until(() => lastPublished === JSON.stringify(next), `Node's host to publish the roster after ${name}`);
   note(`action:${name}`, livePhone, undefined);
 }
+relayPublication = null;
 
 // Per state: a fresh phone's baseline, a phone that restarts into it holding the previous state's persisted roster, and a change that
 // arrives while the baseline's read is still held.
@@ -380,12 +396,27 @@ for (const prompt of ['', '   ']) {
   refusals[`submitNewTask ${JSON.stringify(prompt)}`] = await deadline.race(host.submitNewTask(prompt, { id: `sub-new-blank-${prompt.length}` }, { projectPath: projects.a, route }), `Node's host to answer a blank submitNewTask (${prompt.length} chars)`);
 }
 
-console.warn = originalWarn;
-await host.dispose().catch(() => {});
-await sessionClient.shutdownDaemon(discovery, { waitForExit: true, timeoutMs: 30_000 }).catch(() => {});
-await provider.close();
 const sha256 = (file) => sha('sha256').update(readFileSync(file)).digest('hex');
 const manifest = { exact: true, commit: COMMIT, tree: execFileSync('git', ['-C', NODE_CHECKOUT, 'rev-parse', `${COMMIT}^{tree}`]).toString().trim(), filesCompared: checked, crlfOnlyDifferences: eolOnly, source: 'git archive of the whole tree, every file compared with its git blob id; the Node daemon (session-client.mjs ensureDaemon) and session-host.ts run unchanged for the actions; remote-view-sync.ts, remote-relay-catalog.ts, view-synchronizer.ts, list-delta.ts, remote-roster-cache.ts run unchanged for the phone side', harness: Object.fromEntries(PINNED.map((name) => [`lib/${name}`, sha256(join(harness, 'lib', name))])), hostNotes: notes, actions: ACTIONS.map(([name]) => name) };
 writeFileSync(outFile, `${JSON.stringify({ manifest, made, projects, refusals, states: rosters, steps }, null, 2)}\n`);
 console.log(`recorded ${steps.length} steps over ${checked} verified files`);
-process.exit(0);
+} finally {
+  deadline.clear();
+  console.warn = originalWarn;
+  // Each step of the teardown runs whatever the one before it did, under a deadline of its own; a failure is reported, not swallowed.
+  const ended = createDeadline(90_000, () => `tearing down the roster recording (Node daemon pid ${discovery?.pid})`);
+  const failures = [];
+  const step = async (what, run) => { try { await ended.race(run(), what); } catch (error) { failures.push(`${what}: ${error?.stack ?? error}`); } };
+  try {
+    if (host) await step('the session host to dispose', () => host.dispose());
+    await step('the Node daemon to exit', () => sessionClient.shutdownDaemon(discovery, { waitForExit: true, timeoutMs: 30_000 }));
+    await step('the model endpoint to close', () => provider.close());
+  } finally {
+    ended.clear();
+  }
+  if (failures.length) {
+    process.stderr.write(`teardown failed:\n${failures.join('\n')}\n`);
+    process.exitCode = 1;
+  }
+}
+process.exit(process.exitCode ?? 0);

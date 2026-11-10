@@ -1,14 +1,12 @@
 // The comparison of remote-protocol-chat-parity.mjs sees every kind of difference: a changed time, a changed or extra field, a missing row, a reorder.
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { summariesOfThreadRows } from '../main/protocol/thread-rows.ts';
 import { createParity } from './remote-protocol-chat-parity.mjs';
+import { verifiedFixture } from './remote-protocol-chat-fixtures.mjs';
 
-const read = (name) => JSON.parse(readFileSync(new URL(name, import.meta.url), 'utf8'));
-
-const live = read('./remote-protocol-chat-live.recorded.json');
-const node = read('./remote-protocol-chat-roster.recorded.json');
+const live = verifiedFixture('live').recordings[0];
+const node = verifiedFixture('roster').recordings[0];
 const plain = (value) => JSON.parse(JSON.stringify(value));
 const project = (rows) => summariesOfThreadRows(plain(rows));
 const parity = createParity({ live, node, project });
@@ -18,7 +16,8 @@ const after = (action) => ({
   phone: project(live.steps.find((s) => s.name === action).listed.data),
 });
 const edit = (rows, title, change) => rows.map((row) => (row.title === title ? change(row) : row));
-const seen = (differences, path) => differences.some((d) => d === path || d.startsWith(`${path}:`));
+// A difference is `<index>:<title>.<field>`; `path` names it by title and field.
+const seen = (differences, path) => differences.some((d) => { const bare = d.slice(d.indexOf(':') + 1); return bare === path || bare.startsWith(`${path}:`); });
 
 test('a changed time on any row is a difference', () => {
   const { nodeRoster, phone } = after('turns');
@@ -41,9 +40,22 @@ test('a favorite, read cursor or other field that differs from Node is a differe
 
 test('a missing row and a reorder are differences', () => {
   const { nodeRoster, phone } = after('turns');
-  assert.ok(parity.classify(nodeRoster, phone.slice(1)).includes(`${phone[0].title}.row`));
+  assert.ok(seen(parity.classify(nodeRoster, phone.slice(0, -1)), `${phone.at(-1).title}.row`));
   const at = (title) => phone.findIndex((row) => row.title === title);
   const swapped = [...phone];
   [swapped[at('Title 3')], swapped[at('Title 4')]] = [swapped[at('Title 4')], swapped[at('Title 3')]];
-  assert.ok(parity.classify(nodeRoster, swapped).includes('order'));
+  assert.ok(seen(parity.classify(nodeRoster, swapped), 'Title 3.id'), 'the rows at swapped positions differ by identity');
+});
+
+test('rows are compared by position: two rows of one title are not merged', () => {
+  const { nodeRoster, phone } = after('turns');
+  const titled = (rows) => rows.map((row) => ({ ...row, title: 'same' }));
+  const node = titled(nodeRoster);
+  const base = parity.classify(node, titled(phone));
+  const changed = titled(phone).map((row, index) => (index === 0 ? { ...row, id: 'sess_other', classification: row.classification === 'task' ? 'project' : 'task', cwd: 'D:\\elsewhere' } : row));
+  const got = parity.classify(node, changed);
+  for (const field of ['id', 'classification', 'cwd']) {
+    const at = (differences) => differences.some((d) => d.startsWith(`0:same.${field}:`));
+    assert.ok(at(got) && !at(base), `${field}: ${got.join()}`);
+  }
 });

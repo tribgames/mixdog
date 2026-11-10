@@ -449,9 +449,17 @@ export function createChatAdapter(options: {
   remoteSession(client: ChatClient): unknown;
   roster: { summaries(rows: ThreadRow[]): unknown[] };
 }): PhoneProtocolAdapter {
-  let feed: ReturnType<typeof createRosterFeed> | undefined;
-  const feedFor = (host: PhoneProtocolHost) =>
-    (feed ??= createRosterFeed({ summaries: options.roster.summaries, publish: (rows) => host.ctx.sessionsCatalog.publish(rows as never) }));
+  // One roster feed per page context: a feed publishes into the catalog of the page it was made for, so a second page served by this
+  // adapter (another phone, or a page made again after a core restarted) gets its own and not the first page's.
+  const feeds = new WeakMap<object, ReturnType<typeof createRosterFeed>>();
+  const feedFor = (host: PhoneProtocolHost) => {
+    let feed = feeds.get(host.ctx);
+    if (!feed) {
+      feed = createRosterFeed({ summaries: options.roster.summaries, publish: (rows) => host.ctx.sessionsCatalog.publish(rows as never) });
+      feeds.set(host.ctx, feed);
+    }
+    return feed;
+  };
   const api = (host: PhoneProtocolHost) => {
     const client = host.client() as unknown as ChatClient;
     const shared = options.sharedFor(client);

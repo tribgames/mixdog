@@ -33,6 +33,9 @@ export interface SessionFold {
   readonly live: Live | null;
   /** How many times the rows changed structure (`structureRevision`: an item entered, was replaced, or the log was cut back). */
   readonly structureRevision: number;
+  /** A live row has shown an unfinished line (`streamingPartial`) since the fold began: from then on the field is held, `null`
+   *  between lines, as Node's store holds it (turn-stream.mjs:197 sets it, :214 clears it to null; the first draft has none). */
+  readonly partialShown?: boolean;
 }
 
 // ───────────────────────────── sections ─────────────────────────────
@@ -69,6 +72,9 @@ const SECTIONS: Readonly<Record<string, SectionDef>> = {
   // `decorateRoomSnapshot`): not a field of its own, laid over the log's fields by `desktopSessionState`.
   'thread/roomView/updated': { stateKey: 'roomView', field: 'roomView' },
 };
+
+/** The shell-job status with no job (shell-jobs-poller.ts's empty status). */
+const emptyShellJobs = (): Json => ({ count: 0, elapsedLabel: '', jobs: [], finished: [] });
 
 /** Up-arrow recall holds at most this many prompts (`PROMPT_HISTORY_LIMIT`). */
 const PROMPT_HISTORY_LIMIT = 50;
@@ -142,7 +148,11 @@ function fieldsOfState(state: Obj, hasOlder: boolean): Obj {
   return fields;
 }
 
-const withLive = (s: SessionFold, live: Live | null): SessionFold => ({ ...s, live });
+const withLive = (s: SessionFold, live: Live | null): SessionFold => ({
+  ...s,
+  live,
+  ...(!s.partialShown && live && liveFields(live).streamingPartial !== undefined ? { partialShown: true } : {}),
+});
 const withField = (s: SessionFold, key: string, value: Json | undefined): SessionFold => {
   const fields: Obj = { ...s.fields };
   if (value === undefined) delete fields[key];
@@ -273,7 +283,7 @@ export function desktopSessionState(fold: SessionFold, requests: readonly Server
     items: transcriptOf(fold.items),
     structureRevision: fold.structureRevision,
     streamingTail: null,
-    streamingPartial: null,
+    ...(fold.partialShown ? { streamingPartial: null } : {}),
     promptHistoryList: [],
     transcriptViewItems: null,
     transcriptViewRevision: 0,
@@ -283,6 +293,19 @@ export function desktopSessionState(fold: SessionFold, requests: readonly Server
     transcriptSpilled: { epoch: 0, rows: 0 },
     lastTurn: null,
     themeEpoch: 0,
+    // Fields Node's session state always carries, `null` (or its empty value) while it has none; a section the core removed
+    // (`withSection`: JSON null removes) reads as that value, not as an absent key: the store's first draft (initial-state.mjs:37
+    // `promptRestore`), the route state's (context-state.mjs:75,92,95,97 `workspace`, `goal`, `quotaResume`, `todo`), the host's
+    // remote fields (session-host-publication.ts:281-288) and shell-job status (session-host.ts:485-495, the poller's empty status).
+    promptRestore: null,
+    workspace: null,
+    goal: null,
+    quotaResume: null,
+    todo: null,
+    remoteEnabled: false,
+    remoteSessionId: null,
+    shellJobs: emptyShellJobs(),
+    hostShellJobs: emptyShellJobs(),
     ...fold.fields,
     toolApproval: null,
     toolApprovalsWaiting: 0,

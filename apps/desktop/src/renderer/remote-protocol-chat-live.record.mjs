@@ -3,19 +3,19 @@
 // name, favorite, read cursor, fork, answered turns), then archives, unarchives, re-archives and deletes, and after each action saves the core's
 // `thread/list` and every app-feed edge it pushed for it.
 //
-// Usage: node remote-protocol-chat-live.record.mjs <mixdogd.exe> <real-turn-harness dir>
-// The harness files this imports are pinned by sha256 in the recording's manifest. Nothing here waits for time: each step ends when the app
+// Usage: node remote-protocol-chat-live.record.mjs <mixdogd.exe> <real-turn-harness dir> <out file>
+// The out file is installed as the fixture by remote-protocol-chat-fixtures.mjs (`live`). The harness files this imports are pinned by sha256 in the recording's manifest. Nothing here waits for time: each step ends when the app
 // feed has delivered edges that fold to the core's own list (an event wait), and a hang ends the run through the harness deadline.
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { mkdirSync, readFileSync, rmSync, statSync, watch, existsSync, writeFileSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import WebSocket from 'ws';
 import { uuidv7 } from '../../../../packages/protocol-client/src/client.ts';
 
-const [bin, harness] = process.argv.slice(2);
-const here = dirname(fileURLToPath(import.meta.url));
+const [bin, harness, outFile] = process.argv.slice(2);
+if (!outFile) throw new Error('usage: <mixdogd.exe> <real-turn-harness dir> <out file>');
 const lib = (name) => join(harness, 'lib', name);
 const PINNED = ['env.mjs', 'scenarios.mjs', 'stage.mjs', 'fake-provider.mjs', 'proc.mjs', 'deadline.mjs', 'pg-version.json'];
 const sha256 = (file) => createHash('sha256').update(readFileSync(file)).digest('hex');
@@ -211,13 +211,19 @@ try {
     },
     made, projects, steps,
   };
-  writeFileSync(join(here, 'remote-protocol-chat-live.recorded.json'), JSON.stringify(out, null, 2));
+  writeFileSync(outFile, JSON.stringify(out, null, 2));
   console.log(`recorded ${steps.length} steps, ${edges.length} app-feed edges, ${steps.at(-1).listed.data.length} rows listed at the end`);
 } finally {
   deadline.clear();
   socket.close();
   core.kill();
-  await core.exited;
-  killStrayPostgres(paths.dataDir);
+  // The exit is waited for under a deadline of its own; a core that does not end is reported with its pid.
+  const ended = createDeadline(60_000, () => `the core (pid ${core.pid}) did not exit after its kill: ${core.tail()}`);
+  try {
+    await ended.race(core.exited, `the core (pid ${core.pid}) to exit`);
+  } finally {
+    ended.clear();
+    killStrayPostgres(paths.dataDir);
+  }
 }
 process.exit(0);

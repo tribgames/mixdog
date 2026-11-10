@@ -3,11 +3,54 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { canonical, runOwnPaths, varyingPaths } from './remote-protocol-chat-abort-compare.mjs';
+import { differences, variantsOf, verifiedRecordings } from './remote-protocol-chat-abort-fixture.mjs';
 
-const read = (name) => JSON.parse(readFileSync(new URL(name, import.meta.url), 'utf8'));
+const { manifest, recordings } = verifiedRecordings();
+const names = recordings[0].cases.map((c) => c.name);
+const sidesOf = (name) => recordings.map((r) => r.cases.find((c) => c.name === name).node);
 
-test('the two recordings of Node hold the same cases', () => {
-  assert.deepEqual(read('./remote-protocol-chat-abort.rerecorded.json').cases.map((c) => c.name), read('./remote-protocol-chat-abort.recorded.json').cases.map((c) => c.name));
+test('every recording holds the same cases, and the manifest declares the free points', () => {
+  for (const r of recordings) assert.deepEqual(r.cases.map((c) => c.name), names);
+  assert.deepEqual(Object.keys(manifest.freePoints).sort(), ['rows', 'snapshots']);
+});
+
+// The cases where Node's own recordings disagree on what the rule holds exact or last are reported: the manifest names them, and
+// names exactly those.
+test('the cases where Node disagrees with itself are the ones the manifest reports', () => {
+  const found = Object.fromEntries(names.map((name) => [name, variantsOf(sidesOf(name))]).filter(([, v]) => v.length));
+  assert.deepEqual(found, manifest.nodeVariants);
+});
+
+// Leave-one-out: each of Node's recordings, held out, passes against the others. A rule that rejects one of Node's own runs is too
+// strict (or N too small); the measured count is held here.
+test(`leave-one-out: each of the ${manifest.count} recordings passes against the other ${manifest.count - 1}, in every case`, () => {
+  const failing = [];
+  for (const name of names) {
+    const sides = sidesOf(name);
+    sides.forEach((side, i) => {
+      const found = differences(side, sides.filter((_, j) => j !== i));
+      if (found.length) failing.push(`${name} #${i + 1}: ${found[0].slice(0, 400)}`);
+    });
+  }
+  assert.deepEqual(failing, []);
+});
+
+// Mutations of a Node recording that the rule must reject (it is not too loose).
+const name = 'running-with-output';
+const [held, ...rest] = sidesOf(name);
+const mutate = (fn) => { const side = structuredClone(held); fn(side); return differences(side, rest); };
+test('a mutated recording is rejected: a row with another case\'s content', () => {
+  const other = sidesOf('running-keep-prompt')[0].stream.find((e) => e.kind === 'row');
+  assert.notDeepEqual(mutate((s) => { s.stream.splice(s.stream.findIndex((e) => e.kind === 'row'), 0, structuredClone(other)); }), []);
+});
+test('a mutated recording is rejected: a snapshot Node never published', () => {
+  assert.notDeepEqual(mutate((s) => { const at = s.stream.findIndex((e) => e.kind === 'state'); s.stream.splice(at + 1, 0, { ...structuredClone(s.stream[at]), snapshot: { ...s.stream[at].snapshot, busy: !s.stream[at].snapshot.busy, model: 'half-applied' } }); }), []);
+});
+test('a mutated recording is rejected: the Stop\'s reply moved before the snapshot that carries its cause', () => {
+  assert.notDeepEqual(mutate((s) => { const at = s.stream.findIndex((e) => e.kind === 'reply' && e.method === 'abortSession'); const [reply] = s.stream.splice(at, 1); s.stream.splice(s.stream.findIndex((e) => e.kind === 'reply') + 1, 0, reply); }), []);
+});
+test('a mutated recording is rejected: the last snapshot dropped', () => {
+  assert.notDeepEqual(mutate((s) => { s.stream.splice(s.stream.findLastIndex((e) => e.kind === 'state'), 1); }), []);
 });
 
 test('a run-own value is exempted at its path only, not wherever its key name recurs', () => {

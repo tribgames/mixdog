@@ -125,14 +125,14 @@ async fn context_after_turn(interrupted: bool) -> ThreadContext {
     handle.cell.view.load_full().state.context.clone().expect("context")
 }
 
-/// Node's `syncContextDisplayFields` runs with the measurement of a turn that was not cancelled: a cancelled turn leaves the display
-/// fields at their initial 0, a completed one publishes them.
+/// Node's `syncContextDisplayFields` runs when the turn settles (turn.mjs:530): a stopped turn publishes the display fields as a
+/// completed one does (the phone's Stop recordings, remote-protocol-chat-abort.node/, end every Stop case with them set).
 #[tokio::test(start_paused = true)]
-async fn a_cancelled_turn_leaves_the_context_display_fields_and_a_completed_one_publishes_them() {
+async fn a_stopped_turn_and_a_completed_one_both_publish_the_context_display_fields() {
     let cancelled = context_after_turn(true).await;
     assert_eq!(
         (cancelled.display_context_window, cancelled.auto_compact_token_limit, cancelled.compact_boundary_tokens),
-        (Some(0), Some(0), Some(0))
+        (Some(9_000), Some(7_000), Some(8_000))
     );
     let completed = context_after_turn(false).await;
     assert_eq!(
