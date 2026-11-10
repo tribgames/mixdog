@@ -511,6 +511,21 @@ async fn interrupted_batch_is_listed_inspected_and_restored_to_the_pre_image() {
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "one\n");
 }
 
+/// An unwatch whose request was cancelled before it ran still ends the OS watch: its record never goes without it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_cancelled_unwatch_still_ends_the_os_watch() {
+    let env = env();
+    env.service
+        .call(request("fs/watch", json!({ "watchId": "w", "path": env.root.to_string_lossy(), "recursive": false })))
+        .await
+        .unwrap();
+    assert_eq!(env.service.open_os_watches(), 1);
+    let unwatch = request("fs/unwatch", json!({ "watchId": "w" }));
+    unwatch.ctx.cancel.cancel();
+    let _ = env.service.call(unwatch).await;
+    assert_eq!(env.service.open_os_watches(), 0, "the record went and the OS watch with it");
+}
+
 /// Node's `folderWatch` took any absolute path (`absoluteLocalPath`, then `fs.watch`): a folder outside every project is watched, and a
 /// missing one fails with the text `fs.watch` gives.
 #[tokio::test(flavor = "multi_thread")]
