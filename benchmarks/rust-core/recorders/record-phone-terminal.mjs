@@ -5,7 +5,8 @@
 // events. The script is lib/phone-terminal-script.mjs; apps/mobile replays it through the protocol adapter against a built mixdogd.
 //
 //   node benchmarks/rust-core/recorders/record-phone-terminal.mjs --tree <git archive of b6f10295a with node_modules>
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -26,6 +27,9 @@ const WAIT_MS = 60_000;
 // A touched file's content changes with every touch (what the watcher reports is the change, not the time).
 let touches = 0;
 const RECORDING_MS = 15 * 60_000;
+// Why the comparison takes the PowerShell disposal pair out on every allow-listed tab and not only where the five kept runs differ.
+const DISPOSAL_PAIR_EVIDENCE =
+  'A 20-run recording with this recorder (the script before 17658be467: 116 entries, runs.json sha256 fe8fe7060db1b780fc67c4507b06f97a91911e6a7db3253b2f830d153dea03fb, not kept in the repository) had a running/null pair after the dispose answer on term_ph2a in 25 of 60 disposals, term_ph2_l1 2/20, term_ph2_l2 5/20, term_ph2_l4 2/20, term_ph2_l5 6/20, term_ph2_l6 3/20, term_ph2_i1 3/20, term_ph2_i2 0/20, and never on a non-PowerShell tab; the mechanism (PSConsoleHostReadLine C marker against the console close) is the same on every PowerShell tab at its prompt.';
 /** The recording's ConPTY shells are children of the child: the whole tree ends. A pid that no longer exists is fine (taskkill answers 128 for it);
  *  any other status, or a killer that does not finish in 30 s, is a tree left running. */
 function endTree(child) {
@@ -143,6 +147,9 @@ if (!args.has('child')) {
       entries: trace.order.length,
       settled:
         'Output no answered call causes (a resize re-render, a prompt after idle, a closing output against the next dispose) is waited for before the next call: its place among later calls is call latency, 0 ms in this in-process recorder and a socket round trip for a phone. The immediate part keeps the answer-ordered sequences (ensure then first output, dispose then closing output) unsettled.',
+      // The script the runs were played from, as read by this recording (a later edit of the script shows as a different hash).
+      scriptSha256: createHash('sha256').update(readFileSync(new URL('./lib/phone-terminal-script.mjs', import.meta.url))).digest('hex'),
+      disposalPairEvidence: DISPOSAL_PAIR_EVIDENCE,
     },
   });
   commitStage(out, finalOut);
