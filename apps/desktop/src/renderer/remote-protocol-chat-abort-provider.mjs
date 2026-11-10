@@ -23,8 +23,11 @@ export async function startAbortProvider() {
       const body = JSON.parse(raw || '{}');
       const lastUser = [...(body.messages ?? [])].reverse().find((m) => m?.role === 'user');
       const prompt = textOf(lastUser?.content);
-      const held = (body.tools ?? []).length > 0 ? (/HOLD-TEXT/.test(prompt) ? 'text' : /HOLD-EMPTY/.test(prompt) ? 'empty' : null) : null;
-      const entry = { prompt, held };
+      const afterTool = (body.messages ?? []).some((m) => m?.role === 'tool');
+      // HOLD-TOOL: the first request answers with a call of the read tool, the request that carries its result is held with no further output.
+      const asksTool = (body.tools ?? []).length > 0 && /HOLD-TOOL/.test(prompt) && !afterTool;
+      const held = asksTool ? null : (body.tools ?? []).length > 0 ? (/HOLD-TEXT/.test(prompt) ? 'text' : /HOLD-EMPTY|HOLD-TOOL/.test(prompt) ? 'empty' : null) : null;
+      const entry = { prompt, held, afterTool };
       requests.push(entry);
       const chunk = (delta, finish = null) => `data: ${JSON.stringify({ id: 'chatcmpl-abort', object: 'chat.completion.chunk', created: 1700000000, model: 'harness-model', choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`;
       if (body.stream !== true) {
@@ -35,6 +38,16 @@ export async function startAbortProvider() {
       }
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
       res.write(chunk({ role: 'assistant', content: '' }));
+      if (asksTool) {
+        const readTool = (body.tools ?? []).map((t) => t?.function?.name).find((n) => /^read$/i.test(n ?? ''));
+        if (!readTool) throw new Error(`HOLD-TOOL: the turn offers no read tool (offered: ${(body.tools ?? []).map((t) => t?.function?.name).join(', ')})`);
+        res.write(chunk({ tool_calls: [{ index: 0, id: 'call_hold_1', type: 'function', function: { name: readTool, arguments: JSON.stringify({ path: 'package.json' }) } }] }));
+        res.write(chunk({}, 'tool_calls'));
+        res.write(`data: ${JSON.stringify({ id: 'chatcmpl-abort', object: 'chat.completion.chunk', model: 'harness-model', choices: [], usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 } })}\n\n`);
+        res.end('data: [DONE]\n\n');
+        for (const listener of listeners) listener(entry);
+        return;
+      }
       if (held === 'text') res.write(chunk({ content: `${PARTIAL} once upon a time ` }));
       if (held) {
         // Open until the client hangs up (the Stop).

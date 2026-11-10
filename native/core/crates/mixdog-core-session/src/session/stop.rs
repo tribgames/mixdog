@@ -26,7 +26,12 @@ pub(crate) struct Reclaim {
 
 /// The prompt that started a run.
 #[derive(Debug)]
-pub(crate) struct PromptState(Mutex<Facts>);
+pub(crate) struct PromptState {
+    facts: Mutex<Facts>,
+    /// A test's stop stands here, between its reads and its decision, until the test lets it go.
+    #[cfg(test)]
+    pub(crate) pause: Mutex<Option<(std::sync::Arc<tokio::sync::Notify>, std::sync::Arc<tokio::sync::Notify>)>>,
+}
 
 /// What [`decide`] reads of the prompt.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -58,11 +63,25 @@ impl Facts {
 
 impl PromptState {
     pub fn new(facts: Facts) -> Self {
-        Self(Mutex::new(facts))
+        Self {
+            facts: Mutex::new(facts),
+            #[cfg(test)]
+            pause: Mutex::new(None),
+        }
+    }
+
+    /// `(reached, go)`: the stop signals `reached` when it stands between its reads and its decision, and waits for `go`.
+    #[cfg(test)]
+    pub(crate) async fn paused(&self) {
+        let held = self.pause.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take();
+        if let Some((reached, go)) = held {
+            reached.notify_one();
+            go.notified().await;
+        }
     }
 
     fn facts(&self) -> std::sync::MutexGuard<'_, Facts> {
-        self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.facts.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     pub fn snapshot(&self) -> Facts {

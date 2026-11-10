@@ -22,7 +22,7 @@ const live = await runAbortLive();
 
 const plain = (value) => JSON.parse(JSON.stringify(value));
 /** Values that are a run's own: ids the daemon minted, wall-clock times, the machine/client name. Their kind must match; nothing else is skipped. */
-const RUN_FIELDS = new Set(['at', 'elapsedMs', 'thinkingElapsedMs', 'messageId', 'attemptId', 'device', 'createdAt', 'updatedAt', 'activityAt']);
+const RUN_FIELDS = new Set(['at', 'elapsedMs', 'thinkingElapsedMs', 'messageId', 'attemptId', 'device', 'createdAt', 'updatedAt', 'activityAt', 'startedAt', 'completedAt']);
 const folders = (value) => (typeof value === 'string' ? value.replace(/^.*[\\/]env-ph2-chat-abort-(node|live)[\\/]/, '<env>/') : value);
 const shape = (value, key = '') => {
   if (Array.isArray(value)) return value.map((v) => shape(v));

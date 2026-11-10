@@ -750,6 +750,8 @@ impl ThreadHandle for SessionHandle {
                 Ok(Err(error)) | Err(error) => unreadable = Some(error.to_string()),
             }
         }
+        #[cfg(test)]
+        run.prompt.paused().await;
         // Decided against the prompt's facts as they are now and recorded in the same hold, so an output commit cannot land between
         // the two; the actor reads the hand-back when the turn ends, which this abort may bring at once.
         let decision = run.prompt.decide_and_record(restore_prompt, &canceller, steering, unreadable.is_some());
