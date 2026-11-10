@@ -528,7 +528,7 @@ async function runScenario(scenario, twin = false) {
       await step('post', hookCall.name, hookCall.args);
     };
     const surface = { exposure: session.toolExposureMode ?? null, toolSpec: session.toolSpec ?? null, deferredSurfaceMode: session.deferredSurfaceMode ?? null, tools: session.tools.map((t) => t.name), catalog: [...(session.deferredToolCatalog ?? []), ...(session.deferredLateToolCatalog ?? [])].map((t) => t.name), mcpNames: session.deferredMcpToolNames ?? null };
-    const turn = await askSession(
+    const turn = await withDeadline(askSession(
       session.id,
       'go',
       null,
@@ -553,7 +553,7 @@ async function runScenario(scenario, twin = false) {
           note({ ev: 'toolResult', id: message.toolCallId, early: message.__earlyNotify === true });
         },
       }
-    );
+    ), `the turn of ${scenario.name}`, 120_000);
     // The tails Node leaves after a turn: the debounced session save (session/store.mjs:305 `drainSessionStore`) and the local trace spool's timed append (orchestrator/agent-trace-io.mjs:344 `drainAgentTrace`, which awaits the append in flight).
     drainSessionStore();
     await withDeadline(drainAgentTrace(), 'the agent trace drain', 10_000);
