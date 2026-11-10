@@ -557,6 +557,9 @@ struct PortObserver {
     /// The turn's live messages, which an early tool notice joins until its result commits.
     live: LiveTurnPublisher,
     rows: Arc<StoredRows>,
+    /// The run's token: once it is cancelled the interruption's record is closed (Node finalizes the interrupted turn in the
+    /// abort's own step, so a call that settles after the abort is closed as cancelled).
+    cancel: tokio_util::sync::CancellationToken,
 }
 
 impl PortObserver {
@@ -717,9 +720,11 @@ impl RunObserver for PortObserver {
                 if let Some(id) = message.tool_call_id() {
                     self.live.early(id, mixdog_agent::compact::execution_tail::MessageRows::row(&*self.rows, &message));
                 }
-                let mut observed = lock(&self.observed);
-                observed.started = true;
-                observed.results.push(message);
+                if !self.cancel.is_cancelled() {
+                    let mut observed = lock(&self.observed);
+                    observed.started = true;
+                    observed.results.push(message);
+                }
             }
             _ => {}
         }
@@ -1109,7 +1114,7 @@ async fn drive(
     let hears_search = search_usage.register(thread.as_str(), Arc::new(move |delta| {
         let _ = search_tx.send(Shown::SearchUsage(delta));
     }));
-    let observer = Arc::new(PortObserver { observed: observed.clone(), progress: progress.clone(), out: shown_tx, streaming, reasoning: Mutex::new(None), last_send_tools: Mutex::new(Vec::new()), chunked: std::sync::atomic::AtomicBool::new(false), live: live.clone(), rows: rows.clone() });
+    let observer = Arc::new(PortObserver { observed: observed.clone(), progress: progress.clone(), out: shown_tx, streaming, reasoning: Mutex::new(None), last_send_tools: Mutex::new(Vec::new()), chunked: std::sync::atomic::AtomicBool::new(false), live: live.clone(), rows: rows.clone(), cancel: cancel.clone() });
     let closing = observer.clone();
 
     config.thread_id = thread.clone();

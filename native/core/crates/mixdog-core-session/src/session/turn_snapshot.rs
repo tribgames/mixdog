@@ -121,6 +121,10 @@ impl ToolGate for ReviewGate {
         self.inner.pre_dispatch_deny(call)
     }
 
+    fn deferred_call_denial(&self, call: &GateCall) -> Option<String> {
+        self.inner.deferred_call_denial(call)
+    }
+
     fn apply_approval(&self, call: &GateCall, decision: &mixdog_protocol::ToolApprovalDecision) -> GateCall {
         self.inner.apply_approval(call, decision)
     }
