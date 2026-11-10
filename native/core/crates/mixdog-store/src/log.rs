@@ -935,6 +935,10 @@ impl LogWriter {
             lens.push(e.frame_len() as u64);
         }
 
+        #[cfg(feature = "crash-hook")]
+        let records: Vec<Record> = batch.iter().map(|e| e.record.clone()).collect();
+        #[cfg(feature = "crash-hook")]
+        fsio::append_step(fsio::AppendStep::Write, &records);
         if rotate {
             revalidate(&deps)?;
             let path = self.path(file_no);
@@ -964,6 +968,8 @@ impl LogWriter {
             }
             self.state = WriterState::Clean { end: written };
         }
+        #[cfg(feature = "crash-hook")]
+        fsio::append_step(fsio::AppendStep::Synced, &records);
 
         // Durable: phase 2 of the fold, then the projection.
         let mut frames = Vec::with_capacity(positions.len());

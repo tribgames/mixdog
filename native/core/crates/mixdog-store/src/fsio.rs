@@ -217,6 +217,35 @@ pub fn set_publish_hook(hook: PublishHook) {
     assert!(PUBLISH_HOOK.set(hook).is_ok(), "the publish hook is installed once");
 }
 
+/// The boundaries of a session log's barrier (`LogWriter::append_barrier`), each reported with the batch's records:
+/// `Write` before its frames are written, `Synced` once they are durable. A test installs it in a child process that
+/// exits at the boundary it chooses.
+#[cfg(feature = "crash-hook")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AppendStep {
+    Write,
+    Synced,
+}
+
+#[cfg(feature = "crash-hook")]
+pub type AppendHook = fn(AppendStep, &[crate::schema::record::Record]);
+
+#[cfg(feature = "crash-hook")]
+static APPEND_HOOK: std::sync::OnceLock<AppendHook> = std::sync::OnceLock::new();
+
+/// Installs the append hook for the life of the process; a second installation is a bug of the caller.
+#[cfg(feature = "crash-hook")]
+pub fn set_append_hook(hook: AppendHook) {
+    assert!(APPEND_HOOK.set(hook).is_ok(), "the append hook is installed once");
+}
+
+#[cfg(feature = "crash-hook")]
+pub(crate) fn append_step(step: AppendStep, records: &[crate::schema::record::Record]) {
+    if let Some(hook) = APPEND_HOOK.get() {
+        hook(step, records);
+    }
+}
+
 #[cfg(feature = "crash-hook")]
 fn publish_step(step: PublishStep, path: &Path, bytes: &[u8]) {
     if let Some(hook) = PUBLISH_HOOK.get() {

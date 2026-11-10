@@ -209,6 +209,12 @@ pub(crate) enum ProducerMsg {
         item: ItemCommit,
         ack: oneshot::Sender<Result<(), RunError>>,
     },
+    /// One step of the run's draft (the `draft` record's body).
+    Draft {
+        turn: TurnId,
+        body: Value,
+        ack: oneshot::Sender<Result<(), RunError>>,
+    },
     TakeSteers {
         turn: TurnId,
         request: DrainRequest,
@@ -588,6 +594,14 @@ impl RunPort {
             ack,
         })
         .await?;
+        rx.await.map_err(|_| RunError::Closed)?
+    }
+
+    /// Records what the run produced that no row holds yet (a `draft` record, see `RunDraft`), in order with its rows;
+    /// resolves once it is durable (or failed). Recovery at open commits it if the process dies before the run ends.
+    pub async fn draft(&self, body: Value) -> Result<(), RunError> {
+        let (ack, rx) = oneshot::channel();
+        self.send(ProducerMsg::Draft { turn: self.turn.clone(), body, ack }).await?;
         rx.await.map_err(|_| RunError::Closed)?
     }
 

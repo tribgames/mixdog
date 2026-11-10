@@ -302,6 +302,8 @@ pub struct UsageDelta {
 #[derive(Clone, PartialEq, Debug)]
 pub enum RunEvent {
     Stage(Stage),
+    /// A request's send began (`onProviderSendStarted`, `loop/send-phase.mjs`): the turn leaves its tool phase.
+    SendStarted,
     TextDelta(String),
     ReasoningDelta(String),
     /// Mid-turn assistant text surfaced before a tool card, or a kept answer.

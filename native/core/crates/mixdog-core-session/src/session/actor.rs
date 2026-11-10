@@ -66,6 +66,7 @@ use mixdog_store::schema::record::CompactedDropped;
 use mixdog_store::schema::record::CompactedRecord;
 use mixdog_store::schema::record::ReplacementEntry;
 use mixdog_store::schema::record::DequeueReason;
+use mixdog_store::schema::record::DraftRecord;
 use mixdog_store::schema::record::Form;
 use mixdog_store::schema::record::Header;
 use mixdog_store::schema::record::HeaderChange;
@@ -268,6 +269,8 @@ pub(crate) enum UnwindAt {
 
 /// Results of lane jobs the actor submitted.
 pub(crate) enum JobDone {
+    /// What the runs the process died in leave, by run id ([`SessionActor::recover`]).
+    Recovered(Vec<(String, super::seams::CrashedRows)>),
     Encoded {
         id: u64,
         generation: u64,
@@ -467,6 +470,14 @@ struct Submitter {
     restorable: bool,
 }
 
+/// A turn start waiting for the records a failed barrier left unsaved.
+struct DeferredStart {
+    input: TurnInput,
+    op_ref: Option<OpRef>,
+    reply: Option<Effect>,
+    prompt: Option<String>,
+}
+
 struct RunSlot {
     turn: TurnId,
     /// The prompt the run started on: what a stop may hand back.
@@ -584,6 +595,15 @@ pub(crate) struct SessionActor {
     acked: SessionState,
     projected: SessionState,
     outbox: Outbox,
+    /// Records released unsaved (a failed barrier) are handed again with the next records (`retry_due`).
+    retry_due: bool,
+    /// The cause of the last failed barrier, which the next turn's refusal names.
+    save_failure: Arc<str>,
+    /// A turn asked while records are unsaved (`awaitPreviousTurnDurable`): it starts once they land, and is refused
+    /// if their retry fails.
+    deferred_start: Option<DeferredStart>,
+    /// The runs the process died in are being finalized (`recover`): a turn waits for them as for unsaved records.
+    recovering: bool,
     book: ApprovalBook,
     ops: OpTable,
     run: Option<RunSlot>,
@@ -721,6 +741,17 @@ fn id(value: &str) -> Text<{ mixdog_store::schema::bounded::ID_MAX }> {
 /// The code of a `turn/start` the core refuses without a turn or a queue entry (the empty prompt Node's `submitAsync` answers
 /// `false`). A client reads it as "not accepted".
 pub const SUBMIT_REFUSED: &str = "SUBMIT_REFUSED";
+
+/// The code of a turn refused because the previous turn is not saved to disk (`TurnPersistenceError`,
+/// `turn-durability.mjs:21`).
+pub const TURN_NOT_DURABLE: &str = "ETURNNOTDURABLE";
+
+/// An outbox entry whose failure a client hears: a request's own record, or a queued prompt (refused, so a retry is a
+/// new submission).
+fn answers_a_client(entry: &Entry) -> bool {
+    entry.effects.iter().any(|effect| matches!(effect, Effect::Reply { op, tx, .. } if op.is_some() || tx.is_some()))
+        || matches!(&entry.change, Change::Record { record, .. } if matches!(&**record, Record::Queue(queue) if queue.action == QueueAction::Enqueue))
+}
 
 /// `promptDisplayText` (`queue-helpers.mjs:89`), trimmed: the display text the options give when it is not blank, else the
 /// prompt's text parts.
@@ -925,6 +956,10 @@ impl SessionActor {
             acked_end,
             projected: state.clone(),
             acked: state,
+            retry_due: false,
+            save_failure: Arc::from(""),
+            deferred_start: None,
+            recovering: false,
             book: ApprovalBook::default(),
             ops: OpTable::default(),
             run: None,
@@ -1059,6 +1094,7 @@ impl SessionActor {
             #[cfg(any(test, feature = "test-support"))]
             {
                 self.cell.busy.store(self.turn_busy(), SeqCst);
+                self.cell.recovered.store(!self.recovering && self.outbox.is_empty(), SeqCst);
                 self.cell.stepped.notify_waiters();
             }
             // An unloaded thread stops once its accepted records are handed off; a deleted one
@@ -1334,6 +1370,10 @@ impl SessionActor {
         let entry = self
             .outbox
             .push(Some((record.clone(), class)), change, notes, effects);
+        // Node's next save writes the whole session: the unsaved records go again before this one.
+        if self.outbox.has_unsaved() {
+            self.retry_due = true;
+        }
         self.submit_encode(entry, record, shown);
         if route_moved {
             // The route's own values (`autoClear` is the provider's) are read under the new provider; the frame carries the whole route.
@@ -1379,6 +1419,8 @@ impl SessionActor {
         let thread = self.id.clone();
         // The open turn's `completionVerb`, which its live rows carry.
         let verb = self.run.as_ref().map(|slot| slot.verb);
+        // What recovery commits of a crashed turn shows as a reopened history shows it, not as a live turn.
+        let live = !self.recovering;
         let turn = self.run.as_ref().map(|slot| slot.transcript.clone());
         let at = self.deps.clock.now_ms();
         let submitted = self.deps.lanes.cpu.submit(&CancellationToken::new(), move |lane| {
@@ -1397,6 +1439,9 @@ impl SessionActor {
                     .into_iter()
                     .filter(|shown| !matches!(shown, Shown::Item(ThreadItem::TurnEnd { status: mixdog_protocol::TurnEndStatus::Done, .. })))
                     .map(|shown| {
+                        if !live {
+                            return shown;
+                        }
                         let (attempt, raw) = match &row.body {
                             mixdog_store::schema::blob::Slot::Inline(body) => (body.pointer("/meta/transcript/attemptId").and_then(Value::as_str), body.get("content").and_then(Value::as_str)),
                             _ => (None, None),
@@ -1434,6 +1479,7 @@ impl SessionActor {
 
     fn on_job(&mut self, done: JobDone) {
         match done {
+            JobDone::Recovered(ended) => self.recovered(ended),
             JobDone::Encoded {
                 id,
                 generation,
@@ -1831,7 +1877,11 @@ impl SessionActor {
     /// Hands encoded records to the durability task in order, releases what is ready, and
     /// publishes the released frames and the storage state.
     fn pump(&mut self) {
-        for (id, record, bytes) in self.outbox.handoff() {
+        // A closing thread gives its unsaved records one more barrier before it stops.
+        if self.cell.closed.load(SeqCst) && self.outbox.awaits_retry() {
+            self.retry_due = true;
+        }
+        for (id, record, bytes) in self.outbox.handoff(std::mem::take(&mut self.retry_due)) {
             let msg = ToDurability::Append {
                 id,
                 generation: self.generation,
@@ -1848,7 +1898,11 @@ impl SessionActor {
         }
         let mut notes = Vec::new();
         while let Some((entry, ordinal)) = self.outbox.pop_ready() {
-            self.release(entry, ordinal, &mut notes);
+            if entry.held {
+                self.saved(&entry, ordinal);
+            } else {
+                self.release(entry, ordinal, &mut notes);
+            }
         }
         let storage = self.storage();
         if storage != self.published_storage {
@@ -1862,6 +1916,31 @@ impl SessionActor {
             let _ = released.send(Ok(()));
         }
         self.publish_cell();
+        // The unsaved records landed (and the crashed runs ended): the turn that waited for them starts.
+        if !self.outbox.has_unsaved()
+            && !self.recovering
+            && let Some(start) = self.deferred_start.take()
+        {
+            self.start_run(start.input, start.op_ref, start.reply, start.prompt);
+        }
+    }
+
+    /// A record released unsaved is durable now: its rows get the ordinal it was written at.
+    fn saved(&mut self, entry: &Entry, ordinal: Option<u64>) {
+        let Some(ordinal) = ordinal else { return };
+        self.acked_end = self.acked_end.max(ordinal + 1);
+        if let Change::Record { display: Display::Items(shown), .. } = &entry.change {
+            for item in shown.iter().filter_map(|shown| match shown {
+                Shown::Item(item) => Some(item),
+                Shown::Update(_) => None,
+            }) {
+                for state in [&mut self.acked, &mut self.projected] {
+                    if let Some(row) = state.window.iter_mut().find(|row| row.item.id() == item.id()) {
+                        row.ordinal = Some(ordinal);
+                    }
+                }
+            }
+        }
     }
 
     fn storage(&self) -> StorageState {
@@ -2177,6 +2256,50 @@ impl SessionActor {
         }
     }
 
+    /// A barrier failed. Node keeps the session in memory and saves it whole again (`turn-durability.mjs`): here a
+    /// change a client asked for answers the failure and is not applied (RL §6.1), and every other record the barrier
+    /// carried is released unsaved: its rows stay shown and the run goes on, and it is written again, before any
+    /// later record, with the next record or turn. A turn that waited for it is refused.
+    fn hold_failed(&mut self, error: &CoreError, cause: Arc<str>) {
+        self.generation += 1;
+        self.save_failure = cause;
+        let mut notes = Vec::new();
+        for id in self.outbox.handed() {
+            let asked = self.outbox.get_mut(id).is_some_and(|entry| !entry.held && answers_a_client(entry));
+            if asked {
+                let gone = self.outbox.remove(id).into_iter().chain(self.outbox.remove_needing(id));
+                for entry in gone.collect::<Vec<_>>() {
+                    self.fail_entry(entry, error);
+                }
+                continue;
+            }
+            if let Some((change, kept, effects)) = self.outbox.hold(id) {
+                let entry = Entry { id, durable: None, change, notes: kept, effects, needs: None, held: false };
+                self.release(entry, None, &mut notes);
+            }
+        }
+        self.rebuild_projected();
+        if !notes.is_empty() {
+            self.publish(notes);
+        }
+        if let Some(start) = self.deferred_start.take() {
+            self.submitter = None;
+            let refusal = coded(
+                "session",
+                TURN_NOT_DURABLE,
+                &format!("Session {}: the previous turn is not saved to disk, so the next turn cannot start ({})", self.id.as_str(), self.save_failure),
+            );
+            if let Some(Effect::Reply { op, tx, .. }) = start.reply {
+                if let Some(op) = &op {
+                    self.ops.failed(op, &refusal);
+                }
+                if let Some(tx) = tx {
+                    let _ = tx.send(Err(refusal));
+                }
+            }
+        }
+    }
+
     /// A barrier failed: nothing after the acked state is applied (RL §6.1).
     fn fail_all(&mut self, error: CoreError) {
         for entry in self.outbox.fail_all() {
@@ -2282,19 +2405,31 @@ impl SessionActor {
                     return;
                 }
                 self.deps.notices.save_failed();
-                let error = match error {
-                    super::seams::BarrierError::Failed { io_kind } => CoreError::BarrierFailed {
-                        scope: "thread".into(),
-                        io_kind,
-                    },
-                    super::seams::BarrierError::Indeterminate { .. } => {
-                        self.indeterminate = true;
-                        CoreError::StorageIndeterminate {
+                let (error, cause) = match error {
+                    super::seams::BarrierError::Failed { io_kind } => (
+                        CoreError::BarrierFailed {
                             scope: "thread".into(),
-                        }
+                            io_kind: io_kind.clone(),
+                        },
+                        io_kind,
+                    ),
+                    super::seams::BarrierError::Indeterminate { io_kind } => {
+                        self.indeterminate = true;
+                        (
+                            CoreError::StorageIndeterminate {
+                                scope: "thread".into(),
+                            },
+                            io_kind,
+                        )
                     }
                 };
-                self.fail_all(error);
+                // A closing thread had its retry: what is still unsaved is lost with it.
+                if self.cell.closed.load(SeqCst) {
+                    tracing::error!("session {}: records not saved to disk are dropped as the session closes: {error:?}", self.id.as_str());
+                    self.fail_all(error);
+                    return;
+                }
+                self.hold_failed(&error, cause);
             }
             FromDurability::Pending(pending) => self.pending = pending,
             FromDurability::Retried(result) => self.indeterminate = result.is_err(),
@@ -3030,7 +3165,7 @@ impl SessionActor {
 
     /// A turn runs, is starting or is settling: what Node's ask lock is held for.
     fn turn_held(&self) -> bool {
-        self.run.is_some() || self.starting || self.settling
+        self.run.is_some() || self.starting || self.settling || self.deferred_start.is_some()
     }
 
     /// What Node's ask lock is held for: [`Self::turn_held`] but for a completion wake, which Node
@@ -3301,6 +3436,14 @@ impl SessionActor {
                 // The row's facts read the prompt-attachment store first (an io-lane job).
                 let body = std::mem::take(&mut item.body);
                 self.with_facts(body, move |body, facts| JobDone::CommitFacts { turn, item: ItemCommit { body, ..item }, facts, ack });
+            }
+            ProducerMsg::Draft { turn, body, ack } => {
+                if !self.active(&turn) {
+                    let _ = ack.send(Err(RunError::NotApplied));
+                    return;
+                }
+                let record = Record::Draft(DraftRecord { rid: id(turn.as_str()), body: Slot::Inline(body) });
+                self.accept_record(record, Class::Normal, Display::None, Vec::new(), vec![Effect::ItemAck(ack)]);
             }
             ProducerMsg::ProviderState { turn, state, ack } => {
                 if !self.active(&turn) {
@@ -4848,6 +4991,13 @@ impl SessionActor {
         reply: Option<Effect>,
         prompt: Option<String>,
     ) {
+        // `awaitPreviousTurnDurable`: records a failed barrier left unsaved are written again first; the turn starts
+        // once they land and is refused if they do not.
+        if self.outbox.has_unsaved() || self.recovering {
+            self.retry_due = self.outbox.has_unsaved();
+            self.deferred_start = Some(DeferredStart { input, op_ref, reply, prompt });
+            return;
+        }
         let body = self.deps.transcript.user_message(&input);
         self.start_run_with(input, body, op_ref, reply, prompt, false);
     }
@@ -5289,18 +5439,71 @@ impl SessionActor {
                 );
             }
         }
-        let runs: Vec<String> = self.acked.runs.keys().cloned().collect();
-        // Recovering an interrupted turn drops the provider continuation
-        // (`turn-checkpoint.mjs:554`).
-        if !runs.is_empty()
-            && let Some(reset) = self.provider_state_change(None)
-        {
+        let runs: Vec<(String, super::turn_draft::RunDraft)> = self.acked.runs.iter().map(|(rid, draft)| (rid.clone(), draft.clone())).collect();
+        if runs.is_empty() {
+            return;
+        }
+        // What each run leaves is read from the model context (`replayCheckpoint`); no turn starts before it is
+        // committed.
+        self.recovering = true;
+        let (store, lanes, thread, runs_host, jobs) = (self.deps.store.clone(), self.deps.lanes, self.id.clone(), self.deps.runs.clone(), self.jobs_tx.clone());
+        drop(mixdog_rt::spawn("session-recover", TaskClass::Work, async move {
+            let context = super::run::read_context(&store, &lanes, &thread).await;
+            let mut ended = Vec::new();
+            for (rid, draft) in runs {
+                let crashed = match &context {
+                    Ok(context) => {
+                        let run = super::seams::CrashedRun { context: context.clone(), input: draft.input.clone().map(mixdog_core_api::ids::ItemId::from), draft };
+                        let host = runs_host.clone();
+                        lanes.cpu.submit(&CancellationToken::new(), move |_| host.crashed(run)).ok()
+                    }
+                    Err(error) => {
+                        tracing::error!("session {}: the crashed turn {rid} was not finalized, its model context is unreadable: {error:?}", thread.as_str());
+                        None
+                    }
+                };
+                let rows = match crashed {
+                    Some(job) => job.await.unwrap_or_default(),
+                    None => super::seams::CrashedRows::default(),
+                };
+                ended.push((rid, rows));
+            }
+            let _ = jobs.send(JobDone::Recovered(ended));
+        }));
+    }
+
+    /// The crashed runs end: what each left is committed, then its end (`recoverTurnCheckpoint`: the record names
+    /// the turn it covers, is stamped as used, and drops the provider continuation, `turn-checkpoint.mjs:545-554`).
+    fn recovered(&mut self, ended: Vec<(String, super::seams::CrashedRows)>) {
+        let at = self.deps.clock.now_ms();
+        if let Some(reset) = self.provider_state_change(None) {
             self.accept_record(reset, Class::Control, Display::None, Vec::new(), Vec::new());
         }
-        for rid in runs {
+        for (rid, left) in ended {
+            let turn = TurnId::from(rid.clone());
+            for item in left.rows {
+                let display = self.row_display(item.role.as_deref(), &item.body);
+                match self.item_record(&turn, item, RowFacts { visible: true, prompt: None }, None) {
+                    Ok(record) => self.accept_record(record, Class::Normal, display, Vec::new(), Vec::new()),
+                    Err(error) => tracing::error!("session {}: a row of the crashed turn {rid} was not committed: {error:?}", self.id.as_str()),
+                }
+            }
+            if let Some(replacement) = left.context {
+                let record = Record::Compacted(CompactedRecord {
+                    cid: id(&new_id()),
+                    summary_iid: None,
+                    op: None,
+                    at: Some(at),
+                    dropped_count: Some(0),
+                    dropped: None,
+                    silent: Some(true),
+                    replacement: Slot::Inline(replacement.into_iter().map(|(iid, body)| ReplacementEntry { iid: iid.as_str().to_owned(), body }).collect()),
+                });
+                self.accept_record(record, Class::Normal, Display::None, Vec::new(), Vec::new());
+            }
             let record = Record::Run(RunRecord {
                 rid: id(&rid),
-                phase: RunPhase::Interrupted,
+                phase: if left.sealed { RunPhase::Completed } else { RunPhase::Interrupted },
                 attribution: None,
                 attempt: None,
                 at: Some(at),
@@ -5308,7 +5511,14 @@ impl SessionActor {
                 detail: None,
             });
             self.accept_record(record, Class::Control, Display::None, Vec::new(), Vec::new());
+            let mut set = serde_json::Map::new();
+            set.insert("turnCoverage".into(), json!(rid));
+            set.insert("updatedAt".into(), json!(at));
+            set.insert("lastUsedAt".into(), json!(at));
+            let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new() }) });
+            self.accept_record(meta, Class::Control, Display::None, Vec::new(), Vec::new());
         }
+        self.recovering = false;
     }
 
     // ───────────── prompt history ─────────────

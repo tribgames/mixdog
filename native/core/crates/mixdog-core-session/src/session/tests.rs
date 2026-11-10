@@ -56,7 +56,7 @@ async fn give_conversation(handle: &SessionHandle) {
     handle.request(append).await.expect("the conversation is appended");
 }
 
-fn request(method: &'static str, params: Value, op: &str) -> CoreRequest {
+pub(crate) fn request(method: &'static str, params: Value, op: &str) -> CoreRequest {
     CoreRequest {
         method: Method(method),
         params,

@@ -1147,7 +1147,8 @@ async fn observed(scenario: &Value, defined: &[Value]) -> Value {
                 "droppedIncompleteInput": recovery.dropped_incomplete_input,
                 "partialContentLen": recovery.partial_content_len,
             })),
-            RunEvent::Usage { .. } => {}
+            // Compared as their callbacks (`callback_of`).
+            RunEvent::Usage { .. } | RunEvent::SendStarted => {}
             other if uncompared(other) => {}
             other => panic!("{}: the loop raised an event the recording has no counterpart of: {other:?}", scenario["name"]),
         }
@@ -1284,6 +1285,7 @@ fn committed_view(message: &AgentMessage) -> Value {
 /// clock, which the callback does not carry). `sessionId` is the run's thread, which the host's callback names.
 fn callback_of(event: &RunEvent, thread: &str) -> Option<Value> {
     match event {
+        RunEvent::SendStarted => Some(json!({ "ev": "onProviderSendStarted", "args": [] })),
         RunEvent::Usage { iteration, usage, delta } => Some(json!({ "ev": "onUsageDelta", "args": [{
             "sessionId": thread,
             "iterationIndex": iteration,
@@ -1411,7 +1413,6 @@ const NOT_COMPARED: &[Uncompared] = &[
     Uncompared { path: "callbacks[ev=onAssistantMessageCommitted].args[].createdAt", why: HOST_ROW, compared_in: NOT_YET },
     Uncompared { path: "callbacks[ev=onAssistantMessageCommitted].args[].meta.transcript.messageId", why: HOST_ROW, compared_in: NOT_YET },
     Uncompared { path: "callbacks[ev=onAssistantMessageCommitted].args[].meta.transcript.at", why: HOST_ROW, compared_in: NOT_YET },
-    Uncompared { path: "callbacks[ev=onProviderSendStarted]", why: NO_LOOP_EVENT, compared_in: NOT_YET },
     Uncompared { path: "callbacks[ev=onToolPhaseStarted]", why: NO_LOOP_EVENT, compared_in: NOT_YET },
     Uncompared { path: "callbacks[ev=onToolPhaseCompleted]", why: NO_LOOP_EVENT, compared_in: NOT_YET },
     Uncompared { path: "callbacks[ev=onAssistantToolCallObserved]", why: NO_LOOP_EVENT, compared_in: NOT_YET },
