@@ -4,7 +4,6 @@
 //! leaves the holder's file), and so is the directory flush, which Node's Windows build never
 //! reaches.
 
-use std::fs;
 use std::time::Duration;
 
 use base64::Engine as _;
@@ -86,11 +85,11 @@ fn run(scenario: &Value) -> Value {
             Value::String(text) => text.clone().into_bytes(),
             other => base64::engine::general_purpose::STANDARD.decode(other["b64"].as_str().unwrap()).unwrap(),
         };
-        fs::write(dir.path().join(name), bytes).unwrap();
+        mixdog_testkit::write(dir.path().join(name), bytes);
     }
     if scenario.get("lockHeld").and_then(Value::as_bool).unwrap_or(false) {
         // The record the recorder wrote: a live process other than the taker holds the lock.
-        fs::write(dir.path().join("f.json.lock"), format!("{} 1 other-token\n", std::process::id())).unwrap();
+        mixdog_testkit::write(dir.path().join("f.json.lock"), format!("{} 1 other-token\n", std::process::id()));
     }
     let file = dir.path().join("f.json");
     let call = &scenario["call"];
@@ -140,11 +139,10 @@ fn run(scenario: &Value) -> Value {
         .map(|entry| mask(&entry))
         .collect();
     let mut files = Map::new();
-    for entry in fs::read_dir(dir.path()).unwrap() {
-        let entry = entry.unwrap();
-        let name = entry.file_name().to_string_lossy().into_owned();
+    for entry in mixdog_testkit::entry_names(dir.path()) {
+        let name = entry.to_string_lossy().into_owned();
         if !name.ends_with(".lock") {
-            files.insert(mask(&name), render(fs::read(entry.path()).unwrap()));
+            files.insert(mask(&name), render(mixdog_testkit::read(dir.path().join(&entry))));
         }
     }
     json!({ "returned": returned, "threw": threw, "files": files, "trace": trace })

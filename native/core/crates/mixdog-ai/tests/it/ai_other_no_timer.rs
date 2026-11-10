@@ -26,8 +26,12 @@ fn sources(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// The text before the file's unit tests: tests may pace themselves.
+/// The text before the file's unit tests, none in a file built only for tests (`#![cfg(test)]`): tests may pace
+/// themselves.
 fn product_code(text: &str) -> &str {
+    if text.lines().any(|l| l.trim() == "#![cfg(test)]") {
+        return "";
+    }
     text.split("#[cfg(test)]").next().unwrap_or(text)
 }
 

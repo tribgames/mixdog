@@ -12,14 +12,14 @@
         "localPageUrl": { "method": "projectFs/localPageUrl" },
         "previewProjectFile": { "method": "projectFs/previewFile" },
         "previewProjectFileRange": { "method": "projectFs/previewRange" },
-        "githubCliLoginOpenBrowser": { "owner": "PH-2 Source control group: no branch yet" },
-        "ghPrList": { "owner": "PH-2 Source control group: no branch yet" },
-        "ghPrDefaultBranch": { "owner": "PH-2 Source control group: no branch yet" },
-        "ghPrCreate": { "owner": "PH-2 Source control group: no branch yet" },
-        "ghPrView": { "owner": "PH-2 Source control group: no branch yet" },
-        "ghPrCheckout": { "owner": "PH-2 Source control group: no branch yet" },
-        "ghPrMerge": { "owner": "PH-2 Source control group: no branch yet" },
-        "ghPrDiff": { "owner": "PH-2 Source control group: no branch yet" }
+        "githubCliLoginOpenBrowser": { "method": "github/login/openBrowser" },
+        "ghPrList": { "method": "github/pr/list" },
+        "ghPrDefaultBranch": { "method": "github/pr/defaultBranch" },
+        "ghPrCreate": { "method": "github/pr/create" },
+        "ghPrView": { "method": "github/pr/view" },
+        "ghPrCheckout": { "method": "github/pr/checkout" },
+        "ghPrMerge": { "method": "github/pr/merge" },
+        "ghPrDiff": { "method": "github/pr/diff" }
       }
     },
     "nativePush": {

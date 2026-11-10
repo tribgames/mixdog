@@ -127,6 +127,9 @@ mod tests {
         fn cancel_running(&self, running: &[Running]) {
             self.inner.cancel_running(running);
         }
+        fn cut_new_tasks(&self) {
+            self.inner.cut_new_tasks();
+        }
         fn release_decision(&self, pid: u32) {
             self.inner.release_decision(pid);
         }

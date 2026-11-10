@@ -1,0 +1,2688 @@
+{
+  "scenarios": [
+    {
+      "name": "not installed: reports nothing, activation and input do nothing, a grant is refused",
+      "world": {
+        "available": false
+      },
+      "steps": [
+        {
+          "op": "read"
+        },
+        {
+          "op": "setActive",
+          "active": true,
+          "as": "active-true"
+        },
+        {
+          "op": "await",
+          "call": "active-true"
+        },
+        {
+          "op": "input",
+          "as": "key",
+          "command": {
+            "op": "key",
+            "vk": 17,
+            "scan": 29,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "key"
+        },
+        {
+          "op": "grant",
+          "as": "grant",
+          "grant": {
+            "challenge": "c",
+            "epoch": 1,
+            "signature": "s"
+          }
+        },
+        {
+          "op": "await",
+          "call": "grant"
+        },
+        {
+          "op": "videoRun",
+          "epoch": 2
+        },
+        {
+          "op": "dispose"
+        },
+        {
+          "op": "read"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "read",
+          "installed": false,
+          "connected": false,
+          "desktop": null,
+          "session": null,
+          "locked": null,
+          "latestFrame": null
+        },
+        {
+          "ev": "done",
+          "call": "active-true",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "done",
+          "call": "key",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "done",
+          "call": "grant",
+          "ok": false,
+          "error": "secure desktop helper is not installed"
+        },
+        {
+          "ev": "read",
+          "installed": false,
+          "connected": false,
+          "desktop": null,
+          "session": null,
+          "locked": null,
+          "latestFrame": null
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0,
+        "connectsRunning": 0
+      }
+    },
+    {
+      "name": "the first activation dials; the connect re-declares the run, activates and reports the change",
+      "world": {},
+      "steps": [
+        {
+          "op": "read"
+        },
+        {
+          "op": "videoRun",
+          "epoch": 3
+        },
+        {
+          "op": "setActive",
+          "active": true,
+          "as": "active-true"
+        },
+        {
+          "op": "await",
+          "call": "active-true"
+        },
+        {
+          "op": "setActive",
+          "active": true,
+          "as": "again"
+        },
+        {
+          "op": "await",
+          "call": "again"
+        },
+        {
+          "op": "connect",
+          "ok": true
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "read"
+        },
+        {
+          "op": "setActive",
+          "active": true,
+          "as": "connected"
+        },
+        {
+          "op": "await",
+          "call": "connected"
+        },
+        {
+          "op": "setActive",
+          "active": false,
+          "as": "active-false"
+        },
+        {
+          "op": "await",
+          "call": "active-false"
+        },
+        {
+          "op": "read"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "read",
+          "installed": true,
+          "connected": false,
+          "desktop": null,
+          "session": null,
+          "locked": null,
+          "latestFrame": null
+        },
+        {
+          "ev": "service",
+          "call": "connect"
+        },
+        {
+          "ev": "done",
+          "call": "active-true",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "done",
+          "call": "again",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "setVideoRun",
+          "epoch": 3
+        },
+        {
+          "ev": "service",
+          "call": "setActive",
+          "active": true
+        },
+        {
+          "ev": "read",
+          "installed": true,
+          "connected": true,
+          "desktop": "Winlogon",
+          "session": 1,
+          "locked": false,
+          "latestFrame": null
+        },
+        {
+          "ev": "service",
+          "call": "setActive",
+          "active": true
+        },
+        {
+          "ev": "done",
+          "call": "connected",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "setActive",
+          "active": false
+        },
+        {
+          "ev": "done",
+          "call": "active-false",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "read",
+          "installed": true,
+          "connected": true,
+          "desktop": "Winlogon",
+          "session": 1,
+          "locked": false,
+          "latestFrame": null
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0,
+        "connectsRunning": 0
+      }
+    },
+    {
+      "name": "a failed connect is dialled again after 1 s, doubling to 30 s; a connect resets the backoff",
+      "world": {},
+      "steps": [
+        {
+          "op": "setActive",
+          "active": true,
+          "as": "active-true"
+        },
+        {
+          "op": "await",
+          "call": "active-true"
+        },
+        {
+          "op": "connect",
+          "ok": false
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "advance",
+          "ms": 999
+        },
+        {
+          "op": "advance",
+          "ms": 1
+        },
+        {
+          "op": "connect",
+          "ok": false
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "advance",
+          "ms": 2000
+        },
+        {
+          "op": "connect",
+          "ok": false
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "advance",
+          "ms": 4000
+        },
+        {
+          "op": "connect",
+          "ok": false
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "advance",
+          "ms": 8000
+        },
+        {
+          "op": "connect",
+          "ok": false
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "advance",
+          "ms": 16000
+        },
+        {
+          "op": "connect",
+          "ok": false
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "advance",
+          "ms": 30000
+        },
+        {
+          "op": "connect",
+          "ok": false
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "advance",
+          "ms": 30000
+        },
+        {
+          "op": "connect",
+          "ok": true
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "advance",
+          "ms": 1000
+        },
+        {
+          "op": "connect",
+          "ok": false
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "advance",
+          "ms": 1999
+        },
+        {
+          "op": "advance",
+          "ms": 1
+        }
+      ],
+      "trace": [
+        {
+          "ev": "service",
+          "call": "connect"
+        },
+        {
+          "ev": "done",
+          "call": "active-true",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "advance",
+          "ms": 999,
+          "ran": 0
+        },
+        {
+          "ev": "service",
+          "call": "connect"
+        },
+        {
+          "ev": "advance",
+          "ms": 1,
+          "ran": 1
+        },
+        {
+          "ev": "service",
+          "call": "connect"
+        },
+        {
+          "ev": "advance",
+          "ms": 2000,
+          "ran": 1
+        },
+        {
+          "ev": "service",
+          "call": "connect"
+        },
+        {
+          "ev": "advance",
+          "ms": 4000,
+          "ran": 1
+        },
+        {
+          "ev": "service",
+          "call": "connect"
+        },
+        {
+          "ev": "advance",
+          "ms": 8000,
+          "ran": 1
+        },
+        {
+          "ev": "service",
+          "call": "connect"
+        },
+        {
+          "ev": "advance",
+          "ms": 16000,
+          "ran": 1
+        },
+        {
+          "ev": "service",
+          "call": "connect"
+        },
+        {
+          "ev": "advance",
+          "ms": 30000,
+          "ran": 1
+        },
+        {
+          "ev": "service",
+          "call": "connect"
+        },
+        {
+          "ev": "advance",
+          "ms": 30000,
+          "ran": 1
+        },
+        {
+          "ev": "service",
+          "call": "setActive",
+          "active": true
+        },
+        {
+          "ev": "service",
+          "call": "connect"
+        },
+        {
+          "ev": "advance",
+          "ms": 1000,
+          "ran": 1
+        },
+        {
+          "ev": "advance",
+          "ms": 1999,
+          "ran": 0
+        },
+        {
+          "ev": "service",
+          "call": "connect"
+        },
+        {
+          "ev": "advance",
+          "ms": 1,
+          "ran": 1
+        }
+      ],
+      "final": {
+        "elapsedMs": 94000,
+        "pendingTimers": 0,
+        "connectsRunning": 1
+      }
+    },
+    {
+      "name": "a deactivation cancels the redial; a close without wanted activation does not dial",
+      "world": {},
+      "steps": [
+        {
+          "op": "setActive",
+          "active": true,
+          "as": "active-true"
+        },
+        {
+          "op": "await",
+          "call": "active-true"
+        },
+        {
+          "op": "connect",
+          "ok": false
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "setActive",
+          "active": false,
+          "as": "active-false"
+        },
+        {
+          "op": "await",
+          "call": "active-false"
+        },
+        {
+          "op": "advance",
+          "ms": 5000
+        },
+        {
+          "op": "setActive",
+          "active": true,
+          "as": "again"
+        },
+        {
+          "op": "await",
+          "call": "again"
+        },
+        {
+          "op": "connect",
+          "ok": true
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "setActive",
+          "active": false,
+          "as": "off"
+        },
+        {
+          "op": "await",
+          "call": "off"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "advance",
+          "ms": 60000
+        }
+      ],
+      "trace": [
+        {
+          "ev": "service",
+          "call": "connect"
+        },
+        {
+          "ev": "done",
+          "call": "active-true",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "done",
+          "call": "active-false",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "advance",
+          "ms": 5000,
+          "ran": 0
+        },
+        {
+          "ev": "service",
+          "call": "connect"
+        },
+        {
+          "ev": "done",
+          "call": "again",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "setActive",
+          "active": true
+        },
+        {
+          "ev": "service",
+          "call": "setActive",
+          "active": false
+        },
+        {
+          "ev": "done",
+          "call": "off",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "advance",
+          "ms": 60000,
+          "ran": 0
+        }
+      ],
+      "final": {
+        "elapsedMs": 65000,
+        "pendingTimers": 0,
+        "connectsRunning": 0
+      }
+    },
+    {
+      "name": "a close while activation is wanted clears the frame and is dialled again",
+      "world": {},
+      "steps": [
+        {
+          "op": "setActive",
+          "active": true,
+          "as": "active-true"
+        },
+        {
+          "op": "await",
+          "call": "active-true"
+        },
+        {
+          "op": "connect",
+          "ok": true
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "frame",
+          "frame": {
+            "width": 2,
+            "height": 2,
+            "stride": 8,
+            "originX": -1,
+            "originY": 0
+          }
+        },
+        {
+          "op": "read"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "read"
+        },
+        {
+          "op": "advance",
+          "ms": 1000
+        },
+        {
+          "op": "connect",
+          "ok": true
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "read"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "service",
+          "call": "connect"
+        },
+        {
+          "ev": "done",
+          "call": "active-true",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "setActive",
+          "active": true
+        },
+        {
+          "ev": "read",
+          "installed": true,
+          "connected": true,
+          "desktop": "Winlogon",
+          "session": 1,
+          "locked": false,
+          "latestFrame": {
+            "width": 2,
+            "originX": -1
+          }
+        },
+        {
+          "ev": "read",
+          "installed": true,
+          "connected": false,
+          "desktop": null,
+          "session": null,
+          "locked": null,
+          "latestFrame": null
+        },
+        {
+          "ev": "service",
+          "call": "connect"
+        },
+        {
+          "ev": "advance",
+          "ms": 1000,
+          "ran": 1
+        },
+        {
+          "ev": "service",
+          "call": "setActive",
+          "active": true
+        },
+        {
+          "ev": "read",
+          "installed": true,
+          "connected": true,
+          "desktop": "Winlogon",
+          "session": 1,
+          "locked": false,
+          "latestFrame": null
+        }
+      ],
+      "final": {
+        "elapsedMs": 1000,
+        "pendingTimers": 0,
+        "connectsRunning": 0
+      }
+    },
+    {
+      "name": "input becomes the protocol events; a button without a position goes to the last pointer",
+      "world": {},
+      "steps": [
+        {
+          "op": "setActive",
+          "active": true,
+          "as": "active-true"
+        },
+        {
+          "op": "await",
+          "call": "active-true"
+        },
+        {
+          "op": "connect",
+          "ok": true
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "input",
+          "as": "button-before",
+          "command": {
+            "op": "button",
+            "button": "left",
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "button-before"
+        },
+        {
+          "op": "input",
+          "as": "move",
+          "command": {
+            "op": "move",
+            "x": -5,
+            "y": 7
+          }
+        },
+        {
+          "op": "await",
+          "call": "move"
+        },
+        {
+          "op": "input",
+          "as": "button-at",
+          "command": {
+            "op": "button",
+            "button": "right",
+            "down": true,
+            "at": {
+              "x": 10,
+              "y": 20
+            }
+          }
+        },
+        {
+          "op": "await",
+          "call": "button-at"
+        },
+        {
+          "op": "input",
+          "as": "button-last",
+          "command": {
+            "op": "button",
+            "button": "right",
+            "down": false
+          }
+        },
+        {
+          "op": "await",
+          "call": "button-last"
+        },
+        {
+          "op": "input",
+          "as": "wheel",
+          "command": {
+            "op": "wheel",
+            "x": 3,
+            "y": 4,
+            "dx": 0,
+            "dy": -120
+          }
+        },
+        {
+          "op": "await",
+          "call": "wheel"
+        },
+        {
+          "op": "input",
+          "as": "button-wheel",
+          "command": {
+            "op": "button",
+            "button": "middle",
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "button-wheel"
+        },
+        {
+          "op": "input",
+          "as": "key",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "key"
+        },
+        {
+          "op": "input",
+          "as": "text",
+          "command": {
+            "op": "text",
+            "text": "hé"
+          }
+        },
+        {
+          "op": "await",
+          "call": "text"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "service",
+          "call": "connect"
+        },
+        {
+          "ev": "done",
+          "call": "active-true",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "setActive",
+          "active": true
+        },
+        {
+          "ev": "service",
+          "call": "sendInput",
+          "event": {
+            "kind": "pointer-button",
+            "button": "left",
+            "down": true,
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "ev": "done",
+          "call": "button-before",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "sendInput",
+          "event": {
+            "kind": "pointer-move",
+            "x": -5,
+            "y": 7
+          }
+        },
+        {
+          "ev": "done",
+          "call": "move",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "sendInput",
+          "event": {
+            "kind": "pointer-button",
+            "button": "right",
+            "down": true,
+            "x": 10,
+            "y": 20
+          }
+        },
+        {
+          "ev": "done",
+          "call": "button-at",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "sendInput",
+          "event": {
+            "kind": "pointer-button",
+            "button": "right",
+            "down": false,
+            "x": 10,
+            "y": 20
+          }
+        },
+        {
+          "ev": "done",
+          "call": "button-last",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "sendInput",
+          "event": {
+            "kind": "pointer-wheel",
+            "x": 3,
+            "y": 4,
+            "dx": 0,
+            "dy": -120
+          }
+        },
+        {
+          "ev": "done",
+          "call": "wheel",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "sendInput",
+          "event": {
+            "kind": "pointer-button",
+            "button": "middle",
+            "down": true,
+            "x": 3,
+            "y": 4
+          }
+        },
+        {
+          "ev": "done",
+          "call": "button-wheel",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "sendInput",
+          "event": {
+            "kind": "key",
+            "down": true,
+            "vk": 65,
+            "scan": 30,
+            "extended": false
+          }
+        },
+        {
+          "ev": "done",
+          "call": "key",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "sendInput",
+          "event": {
+            "kind": "text",
+            "text": "hé"
+          }
+        },
+        {
+          "ev": "done",
+          "call": "text",
+          "ok": true,
+          "value": null
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0,
+        "connectsRunning": 0
+      }
+    },
+    {
+      "name": "a refused send rejects with the client’s error",
+      "world": {
+        "sendFails": "input not taken by the helper within 10000 ms",
+        "grantFails": "not connected"
+      },
+      "steps": [
+        {
+          "op": "setActive",
+          "active": true,
+          "as": "active-true"
+        },
+        {
+          "op": "await",
+          "call": "active-true"
+        },
+        {
+          "op": "connect",
+          "ok": true
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "input",
+          "as": "key",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "key"
+        },
+        {
+          "op": "grant",
+          "as": "grant",
+          "grant": {
+            "challenge": "c",
+            "epoch": 1,
+            "signature": "s"
+          }
+        },
+        {
+          "op": "await",
+          "call": "grant"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "service",
+          "call": "connect"
+        },
+        {
+          "ev": "done",
+          "call": "active-true",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "setActive",
+          "active": true
+        },
+        {
+          "ev": "service",
+          "call": "sendInput",
+          "event": {
+            "kind": "key",
+            "down": true,
+            "vk": 65,
+            "scan": 30,
+            "extended": false
+          }
+        },
+        {
+          "ev": "done",
+          "call": "key",
+          "ok": false,
+          "error": "input not taken by the helper within 10000 ms"
+        },
+        {
+          "ev": "service",
+          "call": "sendGrant",
+          "grant": {
+            "challenge": "c",
+            "epoch": 1,
+            "signature": "s"
+          }
+        },
+        {
+          "ev": "done",
+          "call": "grant",
+          "ok": false,
+          "error": "not connected"
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0,
+        "connectsRunning": 0
+      }
+    },
+    {
+      "name": "Ctrl+Alt+Delete becomes sas while the helper holds Ctrl and Alt; any release point clears the record",
+      "world": {},
+      "steps": [
+        {
+          "op": "setActive",
+          "active": true,
+          "as": "active-true"
+        },
+        {
+          "op": "await",
+          "call": "active-true"
+        },
+        {
+          "op": "connect",
+          "ok": true
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "input",
+          "as": "combo-0",
+          "command": {
+            "op": "key",
+            "vk": 17,
+            "scan": 29,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "combo-0"
+        },
+        {
+          "op": "input",
+          "as": "combo-1",
+          "command": {
+            "op": "key",
+            "vk": 18,
+            "scan": 56,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "combo-1"
+        },
+        {
+          "op": "input",
+          "as": "combo-2",
+          "command": {
+            "op": "key",
+            "vk": 46,
+            "scan": 83,
+            "extended": true,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "combo-2"
+        },
+        {
+          "op": "input",
+          "as": "after-sas-0",
+          "command": {
+            "op": "key",
+            "vk": 46,
+            "scan": 83,
+            "extended": true,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "after-sas-0"
+        },
+        {
+          "op": "input",
+          "as": "right-side-0",
+          "command": {
+            "op": "key",
+            "vk": 163,
+            "scan": 29,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "right-side-0"
+        },
+        {
+          "op": "input",
+          "as": "right-side-1",
+          "command": {
+            "op": "key",
+            "vk": 164,
+            "scan": 56,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "right-side-1"
+        },
+        {
+          "op": "input",
+          "as": "right-side-2",
+          "command": {
+            "op": "key",
+            "vk": 46,
+            "scan": 83,
+            "extended": true,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "right-side-2"
+        },
+        {
+          "op": "input",
+          "as": "lifted-0",
+          "command": {
+            "op": "key",
+            "vk": 17,
+            "scan": 29,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "lifted-0"
+        },
+        {
+          "op": "input",
+          "as": "lifted-1",
+          "command": {
+            "op": "key",
+            "vk": 18,
+            "scan": 56,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "lifted-1"
+        },
+        {
+          "op": "input",
+          "as": "lifted-2",
+          "command": {
+            "op": "key",
+            "vk": 18,
+            "scan": 56,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "op": "await",
+          "call": "lifted-2"
+        },
+        {
+          "op": "input",
+          "as": "lifted-3",
+          "command": {
+            "op": "key",
+            "vk": 46,
+            "scan": 83,
+            "extended": true,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "lifted-3"
+        },
+        {
+          "op": "input",
+          "as": "run-0",
+          "command": {
+            "op": "key",
+            "vk": 17,
+            "scan": 29,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "run-0"
+        },
+        {
+          "op": "input",
+          "as": "run-1",
+          "command": {
+            "op": "key",
+            "vk": 18,
+            "scan": 56,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "run-1"
+        },
+        {
+          "op": "videoRun",
+          "epoch": 5
+        },
+        {
+          "op": "input",
+          "as": "after-run-0",
+          "command": {
+            "op": "key",
+            "vk": 46,
+            "scan": 83,
+            "extended": true,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "after-run-0"
+        },
+        {
+          "op": "input",
+          "as": "same-run-0",
+          "command": {
+            "op": "key",
+            "vk": 17,
+            "scan": 29,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "same-run-0"
+        },
+        {
+          "op": "input",
+          "as": "same-run-1",
+          "command": {
+            "op": "key",
+            "vk": 18,
+            "scan": 56,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "same-run-1"
+        },
+        {
+          "op": "videoRun",
+          "epoch": 5
+        },
+        {
+          "op": "input",
+          "as": "after-same-run-0",
+          "command": {
+            "op": "key",
+            "vk": 46,
+            "scan": 83,
+            "extended": true,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "after-same-run-0"
+        },
+        {
+          "op": "input",
+          "as": "changed-0",
+          "command": {
+            "op": "key",
+            "vk": 17,
+            "scan": 29,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "changed-0"
+        },
+        {
+          "op": "input",
+          "as": "changed-1",
+          "command": {
+            "op": "key",
+            "vk": 18,
+            "scan": 56,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "changed-1"
+        },
+        {
+          "op": "desktopChanged",
+          "desktop": "Default",
+          "session": 1,
+          "locked": false
+        },
+        {
+          "op": "input",
+          "as": "after-change-0",
+          "command": {
+            "op": "key",
+            "vk": 46,
+            "scan": 83,
+            "extended": true,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "after-change-0"
+        },
+        {
+          "op": "input",
+          "as": "expired-0",
+          "command": {
+            "op": "key",
+            "vk": 17,
+            "scan": 29,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "expired-0"
+        },
+        {
+          "op": "input",
+          "as": "expired-1",
+          "command": {
+            "op": "key",
+            "vk": 18,
+            "scan": 56,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "expired-1"
+        },
+        {
+          "op": "error",
+          "code": "grant_expired"
+        },
+        {
+          "op": "input",
+          "as": "after-expired-0",
+          "command": {
+            "op": "key",
+            "vk": 46,
+            "scan": 83,
+            "extended": true,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "after-expired-0"
+        },
+        {
+          "op": "input",
+          "as": "unavailable-0",
+          "command": {
+            "op": "key",
+            "vk": 17,
+            "scan": 29,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "unavailable-0"
+        },
+        {
+          "op": "input",
+          "as": "unavailable-1",
+          "command": {
+            "op": "key",
+            "vk": 18,
+            "scan": 56,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "unavailable-1"
+        },
+        {
+          "op": "error",
+          "code": "desktop_unavailable"
+        },
+        {
+          "op": "input",
+          "as": "after-unavailable-0",
+          "command": {
+            "op": "key",
+            "vk": 46,
+            "scan": 83,
+            "extended": true,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "after-unavailable-0"
+        },
+        {
+          "op": "input",
+          "as": "other-code-0",
+          "command": {
+            "op": "key",
+            "vk": 17,
+            "scan": 29,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "other-code-0"
+        },
+        {
+          "op": "input",
+          "as": "other-code-1",
+          "command": {
+            "op": "key",
+            "vk": 18,
+            "scan": 56,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "other-code-1"
+        },
+        {
+          "op": "error",
+          "code": "input_failed"
+        },
+        {
+          "op": "input",
+          "as": "after-other-code-0",
+          "command": {
+            "op": "key",
+            "vk": 46,
+            "scan": 83,
+            "extended": true,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "after-other-code-0"
+        },
+        {
+          "op": "setActive",
+          "active": false,
+          "as": "active-false"
+        },
+        {
+          "op": "await",
+          "call": "active-false"
+        },
+        {
+          "op": "input",
+          "as": "after-off-0",
+          "command": {
+            "op": "key",
+            "vk": 46,
+            "scan": 83,
+            "extended": true,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "after-off-0"
+        },
+        {
+          "op": "setActive",
+          "active": true,
+          "as": "on-again"
+        },
+        {
+          "op": "await",
+          "call": "on-again"
+        },
+        {
+          "op": "input",
+          "as": "closed-0",
+          "command": {
+            "op": "key",
+            "vk": 17,
+            "scan": 29,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "closed-0"
+        },
+        {
+          "op": "input",
+          "as": "closed-1",
+          "command": {
+            "op": "key",
+            "vk": 18,
+            "scan": 56,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "closed-1"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "input",
+          "as": "after-close-0",
+          "command": {
+            "op": "key",
+            "vk": 46,
+            "scan": 83,
+            "extended": true,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "after-close-0"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "service",
+          "call": "connect"
+        },
+        {
+          "ev": "done",
+          "call": "active-true",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "setActive",
+          "active": true
+        },
+        {
+          "ev": "service",
+          "call": "sendInput",
+          "event": {
+            "kind": "key",
+            "down": true,
+            "vk": 17,
+            "scan": 29,
+            "extended": false
+          }
+        },
+        {
+          "ev": "done",
+          "call": "combo-0",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "sendInput",
+          "event": {
+            "kind": "key",
+            "down": true,
+            "vk": 18,
+            "scan": 56,
+            "extended": false
+          }
+        },
+        {
+          "ev": "done",
+          "call": "combo-1",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "sas"
+        },
+        {
+          "ev": "done",
+          "call": "combo-2",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "sendInput",
+          "event": {
+            "kind": "key",
+            "down": true,
+            "vk": 46,
+            "scan": 83,
+            "extended": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "after-sas-0",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "sendInput",
+          "event": {
+            "kind": "key",
+            "down": true,
+            "vk": 163,
+            "scan": 29,
+            "extended": false
+          }
+        },
+        {
+          "ev": "done",
+          "call": "right-side-0",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "sendInput",
+          "event": {
+            "kind": "key",
+            "down": true,
+            "vk": 164,
+            "scan": 56,
+            "extended": false
+          }
+        },
+        {
+          "ev": "done",
+          "call": "right-side-1",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "sas"
+        },
+        {
+          "ev": "done",
+          "call": "right-side-2",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "sendInput",
+          "event": {
+            "kind": "key",
+            "down": true,
+            "vk": 17,
+            "scan": 29,
+            "extended": false
+          }
+        },
+        {
+          "ev": "done",
+          "call": "lifted-0",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "sendInput",
+          "event": {
+            "kind": "key",
+            "down": true,
+            "vk": 18,
+            "scan": 56,
+            "extended": false
+          }
+        },
+        {
+          "ev": "done",
+          "call": "lifted-1",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "sendInput",
+          "event": {
+            "kind": "key",
+            "down": false,
+            "vk": 18,
+            "scan": 56,
+            "extended": false
+          }
+        },
+        {
+          "ev": "done",
+          "call": "lifted-2",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "sendInput",
+          "event": {
+            "kind": "key",
+            "down": true,
+            "vk": 46,
+            "scan": 83,
+            "extended": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "lifted-3",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "sendInput",
+          "event": {
+            "kind": "key",
+            "down": true,
+            "vk": 17,
+            "scan": 29,
+            "extended": false
+          }
+        },
+        {
+          "ev": "done",
+          "call": "run-0",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "sendInput",
+          "event": {
+            "kind": "key",
+            "down": true,
+            "vk": 18,
+            "scan": 56,
+            "extended": false
+          }
+        },
+        {
+          "ev": "done",
+          "call": "run-1",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "setVideoRun",
+          "epoch": 5
+        },
+        {
+          "ev": "service",
+          "call": "sendInput",
+          "event": {
+            "kind": "key",
+            "down": true,
+            "vk": 46,
+            "scan": 83,
+            "extended": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "after-run-0",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "sendInput",
+          "event": {
+            "kind": "key",
+            "down": true,
+            "vk": 17,
+            "scan": 29,
+            "extended": false
+          }
+        },
+        {
+          "ev": "done",
+          "call": "same-run-0",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "sendInput",
+          "event": {
+            "kind": "key",
+            "down": true,
+            "vk": 18,
+            "scan": 56,
+            "extended": false
+          }
+        },
+        {
+          "ev": "done",
+          "call": "same-run-1",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "setVideoRun",
+          "epoch": 5
+        },
+        {
+          "ev": "service",
+          "call": "sas"
+        },
+        {
+          "ev": "done",
+          "call": "after-same-run-0",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "sendInput",
+          "event": {
+            "kind": "key",
+            "down": true,
+            "vk": 17,
+            "scan": 29,
+            "extended": false
+          }
+        },
+        {
+          "ev": "done",
+          "call": "changed-0",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "sendInput",
+          "event": {
+            "kind": "key",
+            "down": true,
+            "vk": 18,
+            "scan": 56,
+            "extended": false
+          }
+        },
+        {
+          "ev": "done",
+          "call": "changed-1",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "sendInput",
+          "event": {
+            "kind": "key",
+            "down": true,
+            "vk": 46,
+            "scan": 83,
+            "extended": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "after-change-0",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "sendInput",
+          "event": {
+            "kind": "key",
+            "down": true,
+            "vk": 17,
+            "scan": 29,
+            "extended": false
+          }
+        },
+        {
+          "ev": "done",
+          "call": "expired-0",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "sendInput",
+          "event": {
+            "kind": "key",
+            "down": true,
+            "vk": 18,
+            "scan": 56,
+            "extended": false
+          }
+        },
+        {
+          "ev": "done",
+          "call": "expired-1",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "sendInput",
+          "event": {
+            "kind": "key",
+            "down": true,
+            "vk": 46,
+            "scan": 83,
+            "extended": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "after-expired-0",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "sendInput",
+          "event": {
+            "kind": "key",
+            "down": true,
+            "vk": 17,
+            "scan": 29,
+            "extended": false
+          }
+        },
+        {
+          "ev": "done",
+          "call": "unavailable-0",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "sendInput",
+          "event": {
+            "kind": "key",
+            "down": true,
+            "vk": 18,
+            "scan": 56,
+            "extended": false
+          }
+        },
+        {
+          "ev": "done",
+          "call": "unavailable-1",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "sendInput",
+          "event": {
+            "kind": "key",
+            "down": true,
+            "vk": 46,
+            "scan": 83,
+            "extended": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "after-unavailable-0",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "sendInput",
+          "event": {
+            "kind": "key",
+            "down": true,
+            "vk": 17,
+            "scan": 29,
+            "extended": false
+          }
+        },
+        {
+          "ev": "done",
+          "call": "other-code-0",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "sendInput",
+          "event": {
+            "kind": "key",
+            "down": true,
+            "vk": 18,
+            "scan": 56,
+            "extended": false
+          }
+        },
+        {
+          "ev": "done",
+          "call": "other-code-1",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "sas"
+        },
+        {
+          "ev": "done",
+          "call": "after-other-code-0",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "setActive",
+          "active": false
+        },
+        {
+          "ev": "done",
+          "call": "active-false",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "sendInput",
+          "event": {
+            "kind": "key",
+            "down": true,
+            "vk": 46,
+            "scan": 83,
+            "extended": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "after-off-0",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "setActive",
+          "active": true
+        },
+        {
+          "ev": "done",
+          "call": "on-again",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "sendInput",
+          "event": {
+            "kind": "key",
+            "down": true,
+            "vk": 17,
+            "scan": 29,
+            "extended": false
+          }
+        },
+        {
+          "ev": "done",
+          "call": "closed-0",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "sendInput",
+          "event": {
+            "kind": "key",
+            "down": true,
+            "vk": 18,
+            "scan": 56,
+            "extended": false
+          }
+        },
+        {
+          "ev": "done",
+          "call": "closed-1",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "sendInput",
+          "event": {
+            "kind": "key",
+            "down": true,
+            "vk": 46,
+            "scan": 83,
+            "extended": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "after-close-0",
+          "ok": true,
+          "value": null
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 1,
+        "connectsRunning": 0
+      }
+    },
+    {
+      "name": "the client’s events: desktop changes, challenges, issues and frames reach the listeners",
+      "world": {},
+      "steps": [
+        {
+          "op": "listen"
+        },
+        {
+          "op": "setActive",
+          "active": true,
+          "as": "active-true"
+        },
+        {
+          "op": "await",
+          "call": "active-true"
+        },
+        {
+          "op": "connect",
+          "ok": true
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "desktopChanged",
+          "desktop": "Default",
+          "session": 2,
+          "locked": true
+        },
+        {
+          "op": "read"
+        },
+        {
+          "op": "challenge",
+          "challenge": {
+            "nonce": "n",
+            "challenge": "c"
+          }
+        },
+        {
+          "op": "error",
+          "code": "grant_required"
+        },
+        {
+          "op": "frame",
+          "frame": {
+            "width": 1,
+            "height": 1,
+            "stride": 4,
+            "originX": 0,
+            "originY": 0
+          }
+        },
+        {
+          "op": "unlisten"
+        },
+        {
+          "op": "challenge",
+          "challenge": {
+            "nonce": "n2",
+            "challenge": "c2"
+          }
+        },
+        {
+          "op": "frame",
+          "frame": {
+            "width": 1,
+            "height": 1,
+            "stride": 4,
+            "originX": 5,
+            "originY": 5
+          }
+        },
+        {
+          "op": "read"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "service",
+          "call": "connect"
+        },
+        {
+          "ev": "done",
+          "call": "active-true",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "setActive",
+          "active": true
+        },
+        {
+          "ev": "changed"
+        },
+        {
+          "ev": "changed"
+        },
+        {
+          "ev": "read",
+          "installed": true,
+          "connected": true,
+          "desktop": "Default",
+          "session": 2,
+          "locked": true,
+          "latestFrame": null
+        },
+        {
+          "ev": "challenge",
+          "challenge": {
+            "nonce": "n",
+            "challenge": "c"
+          }
+        },
+        {
+          "ev": "issue",
+          "code": "grant_required"
+        },
+        {
+          "ev": "frame",
+          "width": 1,
+          "height": 1,
+          "stride": 4,
+          "originX": 0,
+          "originY": 0,
+          "bytes": 4
+        },
+        {
+          "ev": "read",
+          "installed": true,
+          "connected": true,
+          "desktop": "Default",
+          "session": 2,
+          "locked": true,
+          "latestFrame": {
+            "width": 1,
+            "originX": 5
+          }
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0,
+        "connectsRunning": 0
+      }
+    },
+    {
+      "name": "the video run is sent while connected; a grant goes to the client",
+      "world": {},
+      "steps": [
+        {
+          "op": "videoRun",
+          "epoch": 1
+        },
+        {
+          "op": "setActive",
+          "active": true,
+          "as": "active-true"
+        },
+        {
+          "op": "await",
+          "call": "active-true"
+        },
+        {
+          "op": "connect",
+          "ok": true
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "videoRun",
+          "epoch": 2
+        },
+        {
+          "op": "grant",
+          "as": "grant",
+          "grant": {
+            "challenge": "c",
+            "epoch": 2,
+            "signature": "s"
+          }
+        },
+        {
+          "op": "await",
+          "call": "grant"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "service",
+          "call": "connect"
+        },
+        {
+          "ev": "done",
+          "call": "active-true",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "setVideoRun",
+          "epoch": 1
+        },
+        {
+          "ev": "service",
+          "call": "setActive",
+          "active": true
+        },
+        {
+          "ev": "service",
+          "call": "setVideoRun",
+          "epoch": 2
+        },
+        {
+          "ev": "service",
+          "call": "sendGrant",
+          "grant": {
+            "challenge": "c",
+            "epoch": 2,
+            "signature": "s"
+          }
+        },
+        {
+          "ev": "done",
+          "call": "grant",
+          "ok": true,
+          "value": null
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0,
+        "connectsRunning": 0
+      }
+    },
+    {
+      "name": "dispose: the redial is cancelled, listeners dropped, the connection closed; a late connect is closed",
+      "world": {},
+      "steps": [
+        {
+          "op": "listen"
+        },
+        {
+          "op": "setActive",
+          "active": true,
+          "as": "active-true"
+        },
+        {
+          "op": "await",
+          "call": "active-true"
+        },
+        {
+          "op": "connect",
+          "ok": false
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "dispose"
+        },
+        {
+          "op": "advance",
+          "ms": 60000
+        },
+        {
+          "op": "setActive",
+          "active": true,
+          "as": "after"
+        },
+        {
+          "op": "await",
+          "call": "after"
+        },
+        {
+          "op": "videoRun",
+          "epoch": 9
+        },
+        {
+          "op": "challenge",
+          "challenge": {
+            "nonce": "n",
+            "challenge": "c"
+          }
+        },
+        {
+          "op": "dispose"
+        },
+        {
+          "op": "read"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "service",
+          "call": "connect"
+        },
+        {
+          "ev": "done",
+          "call": "active-true",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "close"
+        },
+        {
+          "ev": "advance",
+          "ms": 60000,
+          "ran": 0
+        },
+        {
+          "ev": "done",
+          "call": "after",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "read",
+          "installed": true,
+          "connected": false,
+          "desktop": null,
+          "session": null,
+          "locked": null,
+          "latestFrame": null
+        }
+      ],
+      "final": {
+        "elapsedMs": 60000,
+        "pendingTimers": 0,
+        "connectsRunning": 0
+      }
+    },
+    {
+      "name": "a connect still running at dispose is closed when it succeeds",
+      "world": {},
+      "steps": [
+        {
+          "op": "setActive",
+          "active": true,
+          "as": "active-true"
+        },
+        {
+          "op": "await",
+          "call": "active-true"
+        },
+        {
+          "op": "dispose"
+        },
+        {
+          "op": "connect",
+          "ok": true
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "read"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "service",
+          "call": "connect"
+        },
+        {
+          "ev": "done",
+          "call": "active-true",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "service",
+          "call": "close"
+        },
+        {
+          "ev": "service",
+          "call": "close"
+        },
+        {
+          "ev": "read",
+          "installed": true,
+          "connected": false,
+          "desktop": null,
+          "session": null,
+          "locked": null,
+          "latestFrame": null
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0,
+        "connectsRunning": 0
+      }
+    }
+  ]
+}

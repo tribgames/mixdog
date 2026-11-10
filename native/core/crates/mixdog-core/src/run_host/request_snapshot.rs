@@ -4,7 +4,7 @@
 //! tools, and the body the route's own codec encodes). It replaces the contract digest that
 //! `benchmarks/terminal-bench-2.1/analysis/contract-hash.mjs` took from Node's request builders.
 
-use mixdog_core_api::domain::provider::{Content, ContentPart, Message, ModelRequest, ProviderAdapter, Role, ToolDefinition};
+use mixdog_core_api::domain::provider::{Content, ContentPart, ModelRequest, ProviderAdapter, Role, ToolDefinition};
 use mixdog_store::schema::record::Header;
 use serde_json::{json, Map, Value};
 
@@ -39,19 +39,9 @@ fn docs(header: &Header, key: &str) -> Value {
 
 /// The snapshot of `request` as `provider`'s codec encodes it, with the session documents of `header`.
 /// The headers are the codec's own; the adapter adds the credential header at send time, so none is here.
-/// `user_message` is the turn the next send would add (a thread has no user turn before its first send, and a
-/// codec such as Gemini's refuses a request with nothing to send; Node's builder throws "No messages to send" there too).
-pub fn snapshot(header: &Header, provider: &dyn ProviderAdapter, request: &ModelRequest, user_message: Option<&str>) -> Result<Value, String> {
-    let with_message;
-    let request = match user_message {
-        Some(text) => {
-            let mut messages = request.messages.clone();
-            messages.push(Message::new(Role::User, Content::Text(text.into())));
-            with_message = ModelRequest { messages, ..request.clone() };
-            &with_message
-        }
-        None => request,
-    };
+/// The turn the next send answers is part of `request` already (a codec such as Gemini's refuses a request with nothing
+/// to send; Node's builder throws "No messages to send" there too): it is placed before the tail reminder, as a send does.
+pub fn snapshot(header: &Header, provider: &dyn ProviderAdapter, request: &ModelRequest) -> Result<Value, String> {
     let wire = provider.codec().encode(request).map_err(|error| format!("the {} request could not be encoded: {}", provider.id().as_str(), error.message))?;
     let body = serde_json::from_slice::<Value>(&wire.body).unwrap_or_else(|_| Value::String(String::from_utf8_lossy(&wire.body).into_owned()));
     Ok(json!({
@@ -151,7 +141,7 @@ mod tests {
             tools: vec![read],
             options: RequestOptions::default(),
         };
-        let got = snapshot(&header, &adapter(), &request, None).unwrap();
+        let got = snapshot(&header, &adapter(), &request).unwrap();
         assert_eq!(got["provider"], "openai-oauth");
         assert_eq!(got["model"], "gpt-5.6-sol");
         assert_eq!(got["providerMode"], "native");
@@ -167,16 +157,9 @@ mod tests {
     }
 
     #[test]
-    fn a_user_message_is_the_last_turn_of_the_snapshot_and_none_adds_nothing() {
-        let bare = ModelRequest { model: "m".into(), messages: vec![Message::new(Role::System, Content::Text("rules".into()))], tools: Vec::new(), options: RequestOptions::default() };
-        assert_eq!(snapshot(&Header::new(), &adapter(), &bare, None).unwrap()["body"]["input"], json!([]));
-        assert_eq!(snapshot(&Header::new(), &adapter(), &bare, Some("hi")).unwrap()["body"]["input"], json!(["hi"]));
-    }
-
-    #[test]
     fn a_session_without_deferred_documents_snapshots_empty_lists() {
         let request = ModelRequest { model: "m".into(), messages: Vec::new(), tools: Vec::new(), options: RequestOptions::default() };
-        let got = snapshot(&Header::new(), &adapter(), &request, None).unwrap();
+        let got = snapshot(&Header::new(), &adapter(), &request).unwrap();
         assert_eq!(got["catalog"], json!([]));
         assert_eq!(got["active"], json!([]));
         assert_eq!(got["disallowedTools"], json!([]));

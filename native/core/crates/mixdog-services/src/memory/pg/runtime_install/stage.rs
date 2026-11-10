@@ -202,7 +202,7 @@ pub fn lock_is_live(lock: &Path, now_ms: i64) -> bool {
 
 /// A staging lock this process holds: its file stays open until [`release_lock`].
 pub struct StagingLock {
-    file: fs::File,
+    file: mixdog_fsio::File,
     path: PathBuf,
 }
 

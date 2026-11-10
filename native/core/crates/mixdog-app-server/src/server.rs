@@ -344,7 +344,9 @@ impl Shared {
             return Inbound::Continue;
         }
         let cap = self.config.limits.inflight.cap(spec.class);
-        let Ok(slot) = conn.admit(spec.class, cap, || self.core.request_started()) else {
+        let no_params = serde_json::Value::Null;
+        let params = request.params.as_ref().unwrap_or(&no_params);
+        let Ok(slot) = conn.admit(spec.class, cap, || self.core.request_started(&request.method, params)) else {
             let limit = ErrorData::InflightLimit {
                 class: spec.class,
                 limit: cap,

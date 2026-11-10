@@ -261,14 +261,14 @@ pub fn fold_log(id: &str, log: &mut durable::OpenFile, replaced: &mut u64) -> R<
             unreachable!("decode_record admits only objects");
         };
         // `length` is the validated length of `messages`, so every index below is in range.
-        let take_messages = |r: &mut Map<String, Value>| match r.remove("messages") {
+        let take_messages = |r: &mut Map<String, Value>| match r.shift_remove("messages") {
             Some(Value::Array(m)) => m,
             _ => Vec::new(),
         };
         match t.as_str() {
             "session" => {
                 base_id = record["id"].as_str().unwrap_or("").to_owned();
-                header = match record.remove("header") {
+                header = match record.shift_remove("header") {
                     Some(Value::Object(h)) => h,
                     _ => Header::default(),
                 };

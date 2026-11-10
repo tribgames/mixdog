@@ -1,7 +1,7 @@
-//! The clock and the wait between two polls of a device grant. This is
-//! protocol pacing (the server sets the interval, RFC 8628 §3.5), not a wait
-//! on provider content, so [`SystemPace`] is the one place of the login code
-//! that sleeps.
+//! The clock and the wait between two polls of a device grant, or between two
+//! attempts of a token refresh. This is protocol pacing (the server sets the
+//! interval, RFC 8628 §3.5; Node's refresh backoff), not a wait on provider
+//! content, so [`SystemPace`] is the one place of the login code that sleeps.
 
 use std::time::Duration;
 use std::time::SystemTime;
@@ -14,6 +14,10 @@ pub trait Pace: Send + Sync {
     /// Unix milliseconds.
     fn now_ms(&self) -> u64;
     async fn wait(&self, duration: Duration);
+    /// A uniform draw in `[0, 1)` (`Math.random()`) for a jittered wait.
+    fn draw(&self) -> f64 {
+        rand::random()
+    }
 }
 
 pub struct SystemPace;
