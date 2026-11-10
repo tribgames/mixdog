@@ -5706,6 +5706,12 @@
           "minimum": 0.0,
           "type": "integer"
         },
+        "orderedQueueBytes": {
+          "description": "The ordered class's event room (events never dropped, P §6.5), apart from `queueBytes`: one event of any size enters an empty room; behind it, events queue while the queued bytes stay within this bound, and the connection closes 4000 when the peer has not drained them.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
         "queueBytes": {
           "format": "uint64",
           "minimum": 0.0,
@@ -5744,6 +5750,7 @@
         "maxMediaFrameBytes",
         "maxProcesses",
         "maxSnapshotBytes",
+        "orderedQueueBytes",
         "queueBytes",
         "ringBytes",
         "terminalInputBufferBytes",

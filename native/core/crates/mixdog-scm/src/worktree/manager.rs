@@ -392,9 +392,16 @@ impl Worktrees {
         // A retried call (same transaction) returns the worktree it made.
         let tx = request.tx_id.clone();
         let session = request.session_id.clone();
-        let existing = self
-            .all(cancel)
-            .await?
+        let all = self.all(cancel).await?;
+        // The transaction's ready worktree retained by another session (`settleSessionAttempts`, manager.mjs:1387-1391: the record
+        // with this `txId`, whatever its repository): a new task that was refused at another address after its worktree was made.
+        if let Some(prior) = all.iter().find(|r| r.extra.get("txId").and_then(Value::as_str) == Some(tx.as_str()))
+            && prior.state == "ready"
+            && prior.owner_session_id.as_deref() != Some(session.as_str())
+        {
+            return Err(errors::transaction_of_another_session(tx));
+        }
+        let existing = all
             .into_iter()
             .find(|r| {
                 r.repo_common_dir == common

@@ -129,8 +129,9 @@ struct State {
     /// `_lastAppliedSig`: the signature of the config the last successful `init_providers` applied; `None` once a
     /// provider has been removed since.
     last_applied: Option<String>,
-    /// name -> signature whose catalog was fetched (or is being fetched).
-    catalog_refreshed: HashMap<String, Option<String>>,
+    /// The catalog epoch: moves whenever the provider set changes (an instance registered, rebuilt or removed), which is
+    /// when Node drops its memoized startup catalog refresh (`_startupCatalogRefreshPromise = null`, registry.mjs:440,458,479).
+    refresh_epoch: u64,
 }
 
 /// What an apply does with the config it is given.
@@ -436,14 +437,15 @@ impl ProviderRegistry {
         state.explicitly_disabled.remove(name);
         state.init_errors.remove(name);
         state.catalog_revision += 1;
+        state.refresh_epoch += 1;
     }
 
     fn remove(state: &mut State, name: &str) -> bool {
         state.init_errors.remove(name);
-        state.catalog_refreshed.remove(name);
         let had = state.providers.remove(name).is_some();
         if had {
             state.catalog_revision += 1;
+            state.refresh_epoch += 1;
             // `disableProvider`: the live registry no longer reflects the last applied config.
             state.last_applied = None;
         }
@@ -583,16 +585,10 @@ impl ProviderRegistry {
         self.state().catalog_revision += 1;
     }
 
-    /// Whether `name`'s catalog was already fetched for its current config;
-    /// records that it is now (the caller fetches it).
-    pub fn claim_catalog_refresh(&self, name: &str) -> bool {
-        let mut state = self.state();
-        let sig = state.providers.get(name).and_then(|e| e.signature.clone());
-        if state.catalog_refreshed.get(name) == Some(&sig) {
-            return false;
-        }
-        state.catalog_refreshed.insert(name.to_owned(), sig);
-        true
+    /// The catalog epoch: a startup catalog refresh belongs to the epoch it began in, and a new one is due once the
+    /// provider set has changed since.
+    pub fn catalog_refresh_epoch(&self) -> u64 {
+        self.state().refresh_epoch
     }
 
     /// Names of the registered providers, sorted.

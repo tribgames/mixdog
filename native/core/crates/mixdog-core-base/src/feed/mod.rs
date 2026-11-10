@@ -72,6 +72,8 @@ pub struct CoreFeed {
 struct Shared {
     id: FeedId,
     epoch: FeedEpoch,
+    /// The ordered class ([`FeedSource::ordered`]).
+    ordered: bool,
     max_snapshot_bytes: usize,
     cpu: CpuInteractive,
     state: Mutex<State>,
@@ -116,10 +118,33 @@ impl CoreFeed {
         limits: FeedLimits,
         cpu: CpuInteractive,
     ) -> Self {
+        Self::with_class(id, epoch, view, limits, cpu, false)
+    }
+
+    /// [`Self::new`] for a feed of the ordered class: its subscribers' lanes never drop an event.
+    pub fn new_ordered(
+        id: FeedId,
+        epoch: FeedEpoch,
+        view: Arc<dyn FeedView>,
+        limits: FeedLimits,
+        cpu: CpuInteractive,
+    ) -> Self {
+        Self::with_class(id, epoch, view, limits, cpu, true)
+    }
+
+    fn with_class(
+        id: FeedId,
+        epoch: FeedEpoch,
+        view: Arc<dyn FeedView>,
+        limits: FeedLimits,
+        cpu: CpuInteractive,
+        ordered: bool,
+    ) -> Self {
         Self {
             shared: Arc::new(Shared {
                 id,
                 epoch,
+                ordered,
                 max_snapshot_bytes: limits.max_snapshot_bytes,
                 cpu,
                 state: Mutex::new(State {
@@ -243,7 +268,7 @@ impl FeedSource for CoreFeed {
         let mut pending = None;
         if decision.mode == AttachMode::Snapshot {
             let reservation =
-                reservation.or_else(|| lane.try_reserve(shared.max_snapshot_bytes).ok());
+                reservation.or_else(|| lane.try_reserve_snapshot(shared.max_snapshot_bytes).ok());
             match reservation {
                 Some(reservation) => {
                     let slot = lane.push_slot(reservation);
@@ -289,6 +314,10 @@ impl FeedSource for CoreFeed {
         if let Some(subscriber) = removed {
             subscriber.lane.close();
         }
+    }
+
+    fn ordered(&self) -> bool {
+        self.shared.ordered
     }
 }
 

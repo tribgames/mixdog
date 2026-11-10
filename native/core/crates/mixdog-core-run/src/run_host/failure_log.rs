@@ -35,6 +35,60 @@ const FLUSH_AFTER: Duration = Duration::from_millis(1000);
 
 static WRITERS: OnceLock<Mutex<HashMap<PathBuf, Arc<FailureWriter>>>> = OnceLock::new();
 
+#[derive(Default)]
+struct Turn {
+    running: bool,
+    /// A lane job of the running flush is queued or writing.
+    job_live: bool,
+    /// The running flush's task was cancelled while its lane job lived: the job's end gives the turn up.
+    orphaned: bool,
+    /// The flushes asked for while one runs: one more flush, started after they asked, writes what they queued.
+    waiting: Vec<tokio::sync::oneshot::Sender<()>>,
+}
+
+impl Turn {
+    /// Gives the turn up and lets go of the flushes that waited on it, which then take the turn themselves.
+    fn give_up(&mut self) {
+        self.running = false;
+        self.orphaned = false;
+        self.waiting.clear();
+    }
+}
+
+/// The running flush's hold on the turn. Dropped before it finished (its task was cancelled), it gives the turn up, but not
+/// before its lane job ended: a job the lane already has still writes its chunk, and the next flush must not overtake it.
+struct Running<'a> {
+    writer: &'a FailureWriter,
+    served: Vec<tokio::sync::oneshot::Sender<()>>,
+    finished: bool,
+}
+
+impl Drop for Running<'_> {
+    fn drop(&mut self) {
+        if !self.finished {
+            let mut turn = self.writer.turn.lock().unwrap_or_else(PoisonError::into_inner);
+            if turn.job_live {
+                turn.orphaned = true;
+            } else {
+                turn.give_up();
+            }
+        }
+    }
+}
+
+/// The end of a flush's lane job, whether the lane ran it or dropped it unrun.
+struct JobEnd(Arc<Mutex<Turn>>);
+
+impl Drop for JobEnd {
+    fn drop(&mut self) {
+        let mut turn = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        turn.job_live = false;
+        if turn.orphaned {
+            turn.give_up();
+        }
+    }
+}
+
 /// The failures file of one data directory.
 pub struct FailureWriter {
     trace: Arc<AgentTrace>,
@@ -42,8 +96,14 @@ pub struct FailureWriter {
     clock: Arc<dyn Clock>,
     /// The 1000 ms timer is armed (the first row of a batch arms it; a flush does not need it).
     armed: AtomicBool,
-    /// One flush at a time, in the order they were asked for: the rows of a later chunk never overtake an earlier one.
-    turn: tokio::sync::Mutex<()>,
+    /// One flush on the lane at a time, in the order they were asked for: the rows of a later chunk never overtake an earlier one,
+    /// and a flush asked for meanwhile waits here, never on a lane worker.
+    turn: Arc<Mutex<Turn>>,
+    /// Test-only: lane jobs submitted, and what a test does on the lane right after a job wrote its chunk.
+    #[cfg(test)]
+    submitted: std::sync::atomic::AtomicUsize,
+    #[cfg(test)]
+    on_lane: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     /// `warnAgentOnce`: each warning key is written to stderr once.
     warned: Mutex<HashSet<String>>,
     /// Test-only: told the kind of each record once its rows are in the queue (`with_appended`).
@@ -92,7 +152,11 @@ impl FailureWriter {
             io,
             clock,
             armed: AtomicBool::new(false),
-            turn: tokio::sync::Mutex::new(()),
+            turn: Arc::default(),
+            #[cfg(test)]
+            submitted: std::sync::atomic::AtomicUsize::new(0),
+            #[cfg(test)]
+            on_lane: Mutex::new(None),
             warned: Mutex::new(HashSet::new()),
             #[cfg(feature = "test-support")]
             appended: None,
@@ -185,9 +249,80 @@ impl FailureWriter {
 
     /// Writes what is queued (the timer, a full batch, and the exit hook all come here).
     pub async fn flush(&self) {
-        let _turn = self.turn.lock().await;
+        loop {
+            let waited = {
+                let mut turn = self.turn.lock().unwrap_or_else(PoisonError::into_inner);
+                if turn.running {
+                    let (asked, served) = tokio::sync::oneshot::channel();
+                    turn.waiting.push(asked);
+                    Some(served)
+                } else {
+                    turn.running = true;
+                    None
+                }
+            };
+            match waited {
+                // Served by the flush that started after this one asked. A sender that is gone means the running flush was
+                // cancelled: take the turn.
+                Some(served) => {
+                    if served.await.is_ok() {
+                        return;
+                    }
+                }
+                None => break,
+            }
+        }
+        let mut running = Running { writer: self, served: Vec::new(), finished: false };
+        loop {
+            self.flush_once().await;
+            for served in running.served.drain(..) {
+                let _ = served.send(());
+            }
+            let asked_meanwhile = {
+                let mut turn = self.turn.lock().unwrap_or_else(PoisonError::into_inner);
+                if turn.waiting.is_empty() {
+                    turn.running = false;
+                    None
+                } else {
+                    Some(std::mem::take(&mut turn.waiting))
+                }
+            };
+            match asked_meanwhile {
+                Some(asked) => running.served = asked,
+                None => {
+                    running.finished = true;
+                    return;
+                }
+            }
+        }
+    }
+
+    /// One lane job that writes what is queued.
+    async fn flush_once(&self) {
         let (trace, now) = (Arc::clone(&self.trace), self.clock.now_ms());
-        let Ok(job) = self.io.durability.submit_wait(&CancellationToken::new(), move |_lane| trace.flush(now)).await else {
+        #[cfg(test)]
+        let on_lane = {
+            self.submitted.fetch_add(1, Ordering::AcqRel);
+            self.on_lane.lock().unwrap_or_else(PoisonError::into_inner).clone()
+        };
+        let end = {
+            self.turn.lock().unwrap_or_else(PoisonError::into_inner).job_live = true;
+            JobEnd(Arc::clone(&self.turn))
+        };
+        let Ok(job) = self
+            .io
+            .durability
+            .submit_wait(&CancellationToken::new(), move |_lane| {
+                let _end = end;
+                let warnings = trace.flush(now);
+                #[cfg(test)]
+                if let Some(on_lane) = on_lane {
+                    on_lane();
+                }
+                warnings
+            })
+            .await
+        else {
             return;
         };
         let Ok(warnings) = job.await else {
@@ -200,6 +335,10 @@ impl FailureWriter {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "failure_log_tests.rs"]
+mod tests;
 
 /// Flushes every writer of the process (the exit hook: `process.on('exit', _flushToolFailuresSync)`).
 pub async fn flush_all() {

@@ -224,6 +224,13 @@ pub trait FeedSource: Send + Sync {
 
     /// Removes the subscription and closes its lane. Unknown ids are ignored.
     fn detach(&self, sub: SubscriptionId);
+
+    /// Whether this feed's events are the ordered class ([`ConnectionSink::open_ordered_lane`]):
+    /// events Node's phone path never drops (`remote-relay-push-lanes.ts:103-176`,
+    /// `remote-relay-catalog.ts:79-90`). Merged, droppable state feeds answer `false`.
+    fn ordered(&self) -> bool {
+        false
+    }
 }
 
 /// Subscribes `sub` to `feed` over `sink`: opens a gated lane whose lag recovery re-enters
@@ -239,9 +246,12 @@ pub fn subscribe(
     let recovery = Arc::new(FeedRecovery {
         feed: Arc::downgrade(feed),
     });
-    let (lane, release) = sink
-        .open_lane(sub.clone(), recovery)
-        .map_err(|_| CoreError::ConnectionClosed)?;
+    let opened = if feed.ordered() {
+        sink.open_ordered_lane(sub.clone(), recovery)
+    } else {
+        sink.open_lane(sub.clone(), recovery)
+    };
+    let (lane, release) = opened.map_err(|_| CoreError::ConnectionClosed)?;
     let start = AttachStart::Open {
         lane: lane.clone(),
         window,
@@ -314,6 +324,12 @@ pub trait ScopedFeeds: Send + Sync {
     /// An empty feed `id` (`<kind>:<key>`, seq 0) whose initial view is `view`, under a freshly
     /// drawn epoch, so a position in an earlier feed with the same id never replays.
     fn create(&self, id: FeedId, view: Arc<dyn FeedView>) -> Arc<dyn ScopedFeed>;
+
+    /// [`Self::create`] for a feed of the ordered class ([`FeedSource::ordered`]). A factory
+    /// without the class creates a plain feed.
+    fn create_ordered(&self, id: FeedId, view: Arc<dyn FeedView>) -> Arc<dyn ScopedFeed> {
+        self.create(id, view)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

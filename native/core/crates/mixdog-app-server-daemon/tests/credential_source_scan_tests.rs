@@ -72,6 +72,11 @@ const ALLOWED: &[(&str, &str, &str)] = &[
     ("mixdog-ai/src/providers/openai/config.rs", "std::env::var(name).ok()", "WireContext::var: the wire's settings reader (keep-alive, request compression, cache-key switches)"),
     ("mixdog-ai/src/providers/openai/adapter.rs", "var: Box::new(|name| std::env::var(name).ok())", "Sources::var: the adapter's WireContext::var over the process environment"),
     ("mixdog-ai/src/providers/openai/adapter.rs", "MIXDOG_LLM_KEEPALIVE_MS", "the keep-alive time the preconnect's TTL comes from"),
+    ("mixdog-ai/src/providers/grok/auth.rs", "MIXDOG_LLM_KEEPALIVE_MS", "the keep-alive time the preconnect's TTL comes from"),
+    // The refresh-lease replay's own harness (two real processes): where the reference Node and its tree are, and the mark of a child.
+    ("mixdog-ai/src/providers/grok/refresh_lease/processes.rs", "MIXDOG_REFERENCE_NODE", "test harness: the reference Node binary, not a credential"),
+    ("mixdog-ai/src/providers/grok/refresh_lease/processes.rs", "MIXDOG_REFERENCE_TREE", "test harness: the reference Node tree, not a credential"),
+    ("mixdog-ai/src/providers/grok/refresh_lease/processes.rs", "MIXDOG_LEASE_CHILD", "test harness: marks the child process of the replay, not a credential"),
     ("mixdog-ai/src/providers/openai/adapter.rs", "MIXDOG_OPENAI_REQ_ZSTD", "the request-compression switch"),
     ("mixdog-ai/src/providers/openai/body.rs", "&|name| config.context.var(name)", "the cache-key switches (MIXDOG_OAI_CACHE_KEY_SHARED, MIXDOG_OAI_CODEX_THREAD_CACHE_KEY)"),
     ("mixdog-ai/src/providers/openai/cache_key.rs", "std::env::var(name).ok()", "process_var: the cache-key switches for a caller with no injected environment"),

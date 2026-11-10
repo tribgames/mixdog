@@ -127,7 +127,8 @@ async function attached(connect, options) {
 async function withCore(exe, name, caps, run) {
   const relay = await startRelay({ repoRoot: REPO_ROOT, clients: [], capabilities: caps });
   const coreRoot = join(WORLDS, name);
-  const core = await startCore(exe, coreRoot, relay, true, FIXED_NOW_MS);
+  // The instant this script's core reads as now (not the files replay's).
+  const core = await startCore(exe, coreRoot, relay, true, { MIXDOG_FIXED_NOW_MS: String(FIXED_NOW_MS) });
   const clients = [];
   try {
     const { connect, sessionReducer } = await here('packages/protocol-client/src/index.ts');
@@ -168,11 +169,12 @@ async function withCore(exe, name, caps, run) {
     return await run(world);
   } finally {
     for (const client of clients) client.close?.();
-    // Its files are removed afterwards: the scenario ends once the process has exited and let go of them.
-    const exited = core.child.exitCode === null ? new Promise((resolve) => core.child.once('exit', resolve)) : null;
-    killTree(core.child);
-    await exited;
-    relay.close();
+    // Its files are removed afterwards: the scenario ends once the process has exited and let go of them (killTree waits for it).
+    try {
+      await killTree(core.child);
+    } finally {
+      relay.close();
+    }
   }
 }
 

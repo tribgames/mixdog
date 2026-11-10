@@ -35,6 +35,7 @@ pub mod response;
 pub mod result_kind;
 pub mod run;
 mod send;
+pub use send::assemble_request;
 pub use send::wire_request;
 pub use send::with_tail_reminder;
 pub use send::without_tail_reminder;

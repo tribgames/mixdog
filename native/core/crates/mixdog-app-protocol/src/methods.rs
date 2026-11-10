@@ -3825,7 +3825,7 @@ crate::client_request_definitions! {
     GithubLoginOpenBrowser => "github/login/openBrowser" {
         params: GithubLoginOpenBrowserParams,
         result: JsonValue,
-        scope: keyed("githubLogin", flow_id),
+        scope: keyed_text("githubLogin", flow_id, 200),
         class: C2,
         mutation: op(Github),
         origins: [Local, Ssh, Relay],
@@ -3834,7 +3834,7 @@ crate::client_request_definitions! {
     GithubLoginCancel => "github/login/cancel" {
         params: GithubLoginCancelParams,
         result: JsonValue,
-        scope: keyed("githubLogin", flow_id),
+        scope: keyed_text("githubLogin", flow_id, 200),
         class: C2,
         mutation: op(Github),
         origins: [Local, Ssh, Relay],
