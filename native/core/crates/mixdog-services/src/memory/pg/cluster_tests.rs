@@ -198,6 +198,30 @@ async fn a_second_starter_is_refused_while_the_spawn_lock_is_held() {
     assert!(!lock_file.exists(), "a start releases the lock when it ends");
 }
 
+/// `rotateLogIfNeeded` before a fresh start (`supervisor.mjs:92-108`, `:359`): a log of more than 10 MB becomes `pg.log.1`, replacing the older archive, and a
+/// log of exactly 10 MB stays where it is.
+#[tokio::test]
+async fn a_fresh_start_rotates_a_log_over_ten_megabytes_into_the_one_archive() {
+    const LIMIT: usize = 10 * 1024 * 1024;
+    for (size, rotated) in [(LIMIT + 1, true), (LIMIT, false)] {
+        let dir = tempfile::tempdir().unwrap();
+        let (log, archive) = (dir.path().join("pg.log"), dir.path().join("pg.log.1"));
+        let content = vec![b'x'; size];
+        std::fs::write(&log, &content).unwrap();
+        std::fs::write(&archive, b"the older archive").unwrap();
+        let (probe, _seen) = Probe::new();
+        let failed = awaiting("the start to fail at pg_ctl", start_in(dir.path(), &probe, RECOVERY_WAIT, SPAWN_LOCK_WAIT, &CancellationToken::new())).await.unwrap().err().expect("no runtime to start");
+        assert!(failed.message().contains("pg_ctl"), "{}", failed.message());
+        if rotated {
+            assert!(!log.exists(), "a log over 10 MB is moved aside");
+            assert_eq!(std::fs::read(&archive).unwrap(), content, "it is the one archive");
+        } else {
+            assert_eq!(std::fs::read(&log).unwrap(), content, "a log of 10 MB stays");
+            assert_eq!(std::fs::read(&archive).unwrap(), b"the older archive");
+        }
+    }
+}
+
 #[tokio::test]
 async fn a_postmaster_still_starting_up_is_not_ready() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

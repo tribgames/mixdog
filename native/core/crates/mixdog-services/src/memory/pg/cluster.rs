@@ -330,6 +330,26 @@ async fn settle_leftover_postmaster(lane: DurabilityIo, processes: &Processes, d
     Ok(None)
 }
 
+/// `PG_LOG_MAX_BYTES` (`supervisor.mjs:67`).
+const LOG_MAX_BYTES: u64 = 10 * 1024 * 1024;
+
+/// `rotateLogIfNeeded` (`supervisor.mjs:92-108`), which `_startFresh` runs before every fresh start (`:359`), never on an attach: a log larger than
+/// 10 MB is renamed to `<log>.1`, the one archive kept (an older archive is removed first); a missing log, or any failure, leaves things as they are.
+#[allow(clippy::disallowed_methods, reason = "the call is a lane job")]
+async fn rotate_log_if_needed(lane: DurabilityIo, log: &Path) {
+    let log = log.to_owned();
+    let _ = crate::lane::io_on_lane(lane, move || {
+        if std::fs::metadata(&log)?.len() > LOG_MAX_BYTES {
+            let mut archive = log.clone().into_os_string();
+            archive.push(".1");
+            let _ = std::fs::remove_file(&archive);
+            std::fs::rename(&log, archive)?;
+        }
+        Ok(())
+    })
+    .await;
+}
+
 async fn free_port(preferred: u16) -> Result<u16> {
     let last = preferred.saturating_add(PORT_SPAN);
     for port in preferred..=last {
@@ -516,6 +536,8 @@ impl PgCluster {
         if let Some(port) = settle_leftover_postmaster(lane, &processes, &data_dir, start, cancel).await? {
             return Ok(Self { runtime, data_dir, port, lane, processes });
         }
+        let log = profile.join("pg.log");
+        rotate_log_if_needed(lane, &log).await;
         if !fsio::exists(lane, &data_dir.join("PG_VERSION")).await? {
             Self::init(lane, &processes, &runtime, &data_dir, cancel).await?;
         }
@@ -529,7 +551,6 @@ impl PgCluster {
         if let Some(gate) = &start.before_spawn {
             gate().await;
         }
-        let log = profile.join("pg.log");
         let args: Vec<String> = [
             "start".to_owned(),
             "-D".to_owned(),
