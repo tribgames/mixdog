@@ -63,7 +63,9 @@ count-work = ["mixdog-ai/count-work", "mixdog-core-config/count-work", "mixdog-c
 
 [dev-dependencies]
 mixdog-core = { path = ".", features = ["count-work"] }
+bytes = { workspace = true }
 mixdog-js = { workspace = true, features = ["fixture-tools"] }
+mixdog-migrate = { workspace = true }
 mixdog-core-review = { workspace = true, features = ["test-support"] }
 mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core"] }
 tempfile = { workspace = true }
@@ -73,3 +75,4 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"
 mixdog-core-session = { workspace = true, features = ["test-support"] }
 mixdog-core-base = { workspace = true, features = ["test-support"] }
 mixdog-trace = { workspace = true }
+mixdog-store = { workspace = true, features = ["test-support"] }

@@ -4015,6 +4015,7 @@ version = "1.4.5"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
+ "bytes",
  "chrono",
  "futures",
  "libc",
@@ -4038,6 +4039,7 @@ dependencies = [
  "mixdog-js",
  "mixdog-ledger",
  "mixdog-mcp",
+ "mixdog-migrate",
  "mixdog-protocol",
  "mixdog-rt",
  "mixdog-secrets",
