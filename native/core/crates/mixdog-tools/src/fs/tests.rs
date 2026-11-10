@@ -1610,6 +1610,28 @@ async fn glob_puts_files_whose_stat_failed_last_in_walk_order() {
     assert_eq!(text.lines().collect::<Vec<_>>(), ["d.txt", "b.txt", "C.txt", "a.txt"]);
 }
 
+/// A glob or find rooted at a POSIX filesystem root walks neither `/proc`, `/sys` nor `/dev`;
+/// rooted inside one of them it lists that tree (Node `rootScanIgnoreGlobs`). The filesystem
+/// root here is the in-memory service's, the drive root on Windows.
+#[tokio::test]
+async fn a_scan_of_the_filesystem_root_skips_the_kernel_trees() {
+    let root = AbsPath::new(if cfg!(windows) { "C:\\" } else { "/" }).unwrap();
+    let seeds = ["proc/1/status", "sys/block/sda/size", "dev/null-ish", "home/u/a.txt", "procfs.txt"]
+        .iter()
+        .map(|rel| (rel.to_string(), b"x\n".to_vec()))
+        .collect();
+    let ctx = context_seeded(&root, Arc::new(MockFileService::default()), seeds).await;
+    let listed = |entries: Vec<mixdog_core_api::domain::fs::DirEntry>| {
+        entries.into_iter().map(|e| super::common::display_under(e.path.as_path(), root.as_path())).collect::<Vec<_>>()
+    };
+    let (entries, complete) = super::search::walk_entries_pruned(&ctx, &root, false, |_| true, super::search::root_scan_prunes(&root, true)).await.unwrap();
+    assert!(complete);
+    assert_eq!(listed(entries), ["home/u/a.txt", "procfs.txt"]);
+    let proc_root = AbsPath::new(root.as_path().join("proc")).unwrap();
+    let (entries, _) = super::search::walk_entries_pruned(&ctx, &proc_root, false, |_| true, super::search::root_scan_prunes(&proc_root, true)).await.unwrap();
+    assert_eq!(entries.len(), 1);
+}
+
 /// A recorded sequence without a test, or a test without a recorded sequence, fails here.
 #[test]
 fn every_recorded_sequence_has_its_session_memory_test() {

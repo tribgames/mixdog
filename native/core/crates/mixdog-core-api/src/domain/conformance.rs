@@ -1097,6 +1097,7 @@ pub async fn check_file_service(fs: &dyn FileService, lanes: FsLanes, root: AbsP
                 include_hidden: false,
                 respect_ignore: false,
                 include_dirs: false,
+                prune: Vec::new(),
             },
         )
         .as_mut(),

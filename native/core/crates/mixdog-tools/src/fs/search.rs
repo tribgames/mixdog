@@ -51,6 +51,16 @@ const GREP_MAX_COLUMNS: usize = 500;
 // ---------------------------------------------------------------------------
 // shared walk helpers
 
+/// Node `rootScanIgnoreGlobs`: a scan rooted at a POSIX filesystem root never enters the
+/// kernel-virtual trees mounted there (procfs re-enumerates every pid, `/proc/kcore` reads as a
+/// huge file). A scan rooted at or inside one of them, or anywhere else, keeps them.
+pub(super) fn root_scan_prunes(root: &AbsPath, posix: bool) -> Vec<AbsPath> {
+    if !posix || root.as_path().parent().is_some() {
+        return Vec::new();
+    }
+    ["proc", "sys", "dev"].iter().filter_map(|name| AbsPath::new(root.as_path().join(name))).collect()
+}
+
 /// Pulls a recursive walk of `root` into a list; `complete` is false when the
 /// deadline passed first.
 async fn walk_entries(
@@ -58,6 +68,16 @@ async fn walk_entries(
     root: &AbsPath,
     respect_ignore: bool,
     keep: impl Fn(&DirEntry) -> bool,
+) -> Result<(Vec<DirEntry>, bool), ToolError> {
+    walk_entries_pruned(ctx, root, respect_ignore, keep, root_scan_prunes(root, cfg!(not(windows)))).await
+}
+
+pub(super) async fn walk_entries_pruned(
+    ctx: &ToolContext,
+    root: &AbsPath,
+    respect_ignore: bool,
+    keep: impl Fn(&DirEntry) -> bool,
+    prune: Vec<AbsPath>,
 ) -> Result<(Vec<DirEntry>, bool), ToolError> {
     let mut walk = ctx.files.walk(
         ctx.io.maintenance,
@@ -67,6 +87,7 @@ async fn walk_entries(
             include_hidden: true,
             respect_ignore,
             include_dirs: false,
+            prune,
         },
     );
     let mut out = Vec::new();
