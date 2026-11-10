@@ -2,8 +2,8 @@
 // unchanged from an exact export), and replays the same scenarios against a built `mixdogd`.
 //
 //   record:  node benchmarks/rust-core/recorders/record-new-task-dedupe.mjs --tree <exact export of b6f10295a with node_modules>
-//   replay:  node benchmarks/rust-core/recorders/record-new-task-dedupe.mjs --tree <same> --replay <mixdogd.exe built with --features crash-gates>
-//            [--only <scenario name>]
+//   replay:  node --import tsx ../../benchmarks/rust-core/recorders/record-new-task-dedupe.mjs --tree <same> --replay <mixdogd.exe built with --features crash-gates>
+//            [--only <scenario name>]      (cwd: apps/desktop, whose node_modules holds tsx: the replay loads the desktop's TypeScript client)
 //
 // Every scenario runs in a folder of its own under D:\mixdog-build\tmp\new-task-dedupe (removed when the scenario is done). A step list is
 // run in legs: a crash step ends its leg's process at the gate it names and the next step starts a new process over the same data
@@ -72,11 +72,15 @@ function recordScenario(scenario) {
   const dir = join(WORK, 'node', scenario.name);
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
+  const profile = Object.fromEntries(['HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'MIXDOG_HOME', 'MIXDOG_CONFIG_DIR'].map((name) => [name, join(dir, 'profile', name)]));
+  for (const folder of Object.values(profile)) mkdirSync(folder, { recursive: true });
   const steps = [];
   try {
     for (const leg of legs(scenario.steps)) {
       const child = spawnSync(process.execPath, ['--import', 'tsx', join(here, 'new-task-dedupe', 'leg.mjs'), tree, dir, JSON.stringify(leg)], {
         cwd: join(tree, 'apps', 'desktop'),
+        // The profile folders the product may read (the provider registry's config and credentials included) are the scenario's own.
+        env: { ...process.env, ...profile },
         encoding: 'utf8',
         timeout: 120_000,
         windowsHide: true,

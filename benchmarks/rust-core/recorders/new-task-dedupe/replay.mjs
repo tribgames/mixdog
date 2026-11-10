@@ -9,7 +9,7 @@
 // sessions are those holding a prompt, with the number of prompts. Fresh addresses are numbered `<fresh:N>` by first appearance.
 import { spawnSync } from 'node:child_process';
 import net from 'node:net';
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, watch, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
@@ -66,15 +66,12 @@ const databasePort = (dataDir) => {
 
 /** Other runs on this PC start databases on the ports above the ones held for the replay; while a core is down its database port is held here, so the next start finds it free. */
 async function holdPort(port) {
-  for (;;) {
-    const server = net.createServer();
-    const bound = await new Promise((resolve) => {
-      server.once('error', () => resolve(false));
-      server.listen(port, '127.0.0.1', () => resolve(true));
-    });
-    if (bound) return () => server.close();
-    await new Promise((resolve) => setTimeout(resolve, 200));
-  }
+  const server = net.createServer();
+  await new Promise((resolve, reject) => {
+    server.once('error', (error) => reject(new Error(`the stopped core's database port ${port} is not free: ${error.message}`)));
+    server.listen(port, '127.0.0.1', resolve);
+  });
+  return () => server.close();
 }
 
 /** The core is stopped as its own quit stops it, and ended with its database; the returned function frees the database's port for the next start. */
@@ -113,43 +110,52 @@ async function connectLane(core) {
   return { client, lane };
 }
 
-/** The two wordings of a failure that belong to code outside the receipt gate, put as Node words them and counted in the run's report: the route layer's refusal of an unknown provider, and the operating system's refusal to read a directory as a file (Windows gives `Access denied`, in the user's language, where Node's libuv gives EISDIR). */
-const named = { 'route refusal wording': 0, 'directory read wording': 0 };
-function namedDifference(answer) {
-  if (/^\[provider\] Failed to init "([^"]+)": unknown enabled provider: \1$/.test(answer.error)) {
-    named['route refusal wording'] += 1;
-    return { ...answer, error: `route refused: unknown provider ${/"([^"]+)"/.exec(answer.error)[1]}` };
-  }
-  if (/\(os error 5\)$/.test(answer.error) && !answer.code) {
-    named['directory read wording'] += 1;
-    return { ...answer, error: 'EISDIR: illegal operation on a directory, read', code: 'EISDIR' };
-  }
-  return answer;
-}
 const reply = async (lane, { id, content }) => {
   const { prompt, options, draft } = CONTENTS[content];
   try {
     const result = await lane.call('submitNewTask', [prompt, { ...options, id }, structuredClone(draft)]);
     return { ok: true, accepted: true, sessionId: result.thread.id };
   } catch (error) {
-    return namedDifference({ ok: false, error: error.message, ...(typeof error.code === 'string' && error.code ? { code: error.code } : {}) });
+    return { ok: false, error: error.message, ...(typeof error.code === 'string' && error.code ? { code: error.code } : {}) };
   }
 };
 
-/** The sessions the core holds that carry a prompt, with how many prompts. The thread list is the index, which is projected after the log and, after a core that was ended
- *  at a gate, is brought up to date a moment after the start; the sessions the receipts name are read from their own log, so a session the list does not show yet is still seen. */
-async function prompted(client, dataDir) {
+/** The sessions the core lists that carry a prompt, with how many prompts, read as a client reads them (`thread/list`, `thread/items/list`). */
+async function prompted(client) {
   const listed = await client.call('thread/list', {});
-  const named = Object.values(receiptsOf(dataDir) ?? {}).map((text) => { try { return JSON.parse(text)?.sessionId; } catch { return null; } }).filter((id) => typeof id === 'string');
-  const ids = [...new Set([...(listed.data ?? []).map((thread) => thread.id), ...named])];
   const out = {};
-  for (const id of ids) {
-    const items = await client.call('thread/items/list', { threadId: id }).catch((error) => {      if (process.env.REPLAY_DEBUG) console.log('ITEMS-ERROR', id, error.message);      return { data: [] };    });
-    if (process.env.REPLAY_DEBUG) console.log('LISTED', JSON.stringify(listed).slice(0, 300), 'ITEMS', id, JSON.stringify(items).slice(0, 400));
-    const users = (items.data ?? []).filter((item) => item.type === 'userMessage').length;
+  for (const { id } of listed.data) {
+    const items = await client.call('thread/items/list', { threadId: id });
+    const users = items.data.filter((item) => item.type === 'userMessage').length;
     if (users > 0) out[id] = users;
   }
   return out;
+}
+
+/** Resolves once `file` exists: a watch on the receipts' user-data folder, registered before the first look, wakes the look; the wait fails with a message after `ms`. */
+async function untilExists(root, file, ms) {
+  mkdirSync(root, { recursive: true });
+  let stirred = false;
+  let failure = null;
+  let wake = null;
+  const stir = (error) => {
+    failure ??= error ?? null;
+    stirred = true;
+    wake?.();
+  };
+  const watcher = watch(root, { recursive: true }, () => stir());
+  const deadline = setTimeout(() => stir(new Error(`${file} was not written within ${ms} ms: the first request of the step never held its id`)), ms);
+  try {
+    for (;;) {
+      stirred = false;
+      if (existsSync(file)) return;
+      if (failure) throw failure;
+      if (!stirred) await new Promise((resolve) => (wake = resolve));
+    }
+  } finally {
+    clearTimeout(deadline);
+    watcher.close();
+  }
 }
 const receiptsOf = (dataDir) => {
   const dir = join(dataDir, 'userdata', 'new-task-receipts');
@@ -160,7 +166,7 @@ const receiptsOf = (dataDir) => {
   }
 };
 
-async function replayScenario({ exe, scenario, numberFresh, expected }) {
+async function replayScenario({ exe, scenario, numberFresh }) {
   const coreRoot = join(WORLDS, scenario.name);
   rmSync(coreRoot, { recursive: true, force: true });
   let core = await startCore(exe, coreRoot, null, true);
@@ -176,8 +182,7 @@ async function replayScenario({ exe, scenario, numberFresh, expected }) {
         const calls = [];
         for (const call of step.calls) {
           if (calls.length && call.content !== step.calls[0].content) {
-            const file = join(core.dataDir, 'userdata', 'new-task-receipts', `${await sha(call.id)}.json`);
-            while (!existsSync(file)) await new Promise((resolve) => setImmediate(resolve));
+            await untilExists(join(core.dataDir, 'userdata'), join(core.dataDir, 'userdata', 'new-task-receipts', `${await sha(call.id)}.json`), 30_000);
           }
           calls.push(reply(session.lane, call));
         }
@@ -202,15 +207,7 @@ async function replayScenario({ exe, scenario, numberFresh, expected }) {
         core = await startCore(exe, coreRoot, null, false);
         session = await connectLane(core);
       }
-      let seen = await prompted(session.client, core.dataDir);
-      // A core that was ended at a gate brings its catalog up to date from its log a moment after it starts: what it holds is read again until it is what Node's recording says or the wait ends, and then compared as it is.
-      if (step.op === 'crash') {
-        for (let tries = 0; tries < 100 && !isDeepStrictEqual(seen, expected[index].prompted); tries += 1) {
-          await new Promise((resolve) => setTimeout(resolve, 200));
-          seen = await prompted(session.client, core.dataDir);
-        }
-      }
-      got.push({ reply: answer, receipts: receiptsOf(core.dataDir), prompted: seen });
+      got.push({ reply: answer, receipts: receiptsOf(core.dataDir), prompted: await prompted(session.client) });
     }
   } finally {
     session.client.close?.();
@@ -230,13 +227,23 @@ async function endAndRestart({ exe, coreRoot, session, core, at }, step, adopt, 
   const gated = await startCore(exe, coreRoot, null, false, { MIXDOG_NEW_TASK_CRASH_AT: at });
   const connection = await connectLane(gated);
   const tree = descendants(gated.child.pid);
-  const exited = new Promise((resolve) => gated.child.once('exit', resolve));
-  // The call of a core that ends never settles (the client's ladder gives up unawaited): the core's exit is the answer.
-  const lost = await Promise.race([reply(connection.lane, step), exited.then(() => ({ ok: false }))]);
-  await exited;
-  if (lost.ok) throw new Error(`the core answered a request that was to end it at ${at}`);
-  databaseEnded(core.dataDir);
   survivors.push(...tree);
+  const exited = new Promise((resolve) => gated.child.once('exit', resolve));
+  try {
+    // The call of a core that ends never settles (the client's ladder gives up unawaited): the core's exit is the answer.
+    const lost = await Promise.race([reply(connection.lane, step), exited.then(() => ({ exited: true }))]);
+    if (lost.ok) throw new Error(`the core answered a request that was to end it at ${at}`);
+    // The call fails as the connection drops, which can come before the exit is seen.
+    let timer;
+    await Promise.race([
+      exited,
+      new Promise((_, reject) => (timer = setTimeout(() => reject(new Error(`the core did not end at its ${at} gate within 60 s; the call ended with ${JSON.stringify(lost)}`)), 60_000))),
+    ]).finally(() => clearTimeout(timer));
+  } catch (error) {
+    killTree(gated.child);
+    throw error;
+  }
+  databaseEnded(core.dataDir);
   const core2 = await startCore(exe, coreRoot, null, false);
   adopt({ core: core2, session: await connectLane(core2) });
 }
@@ -269,7 +276,7 @@ export async function replayNewTaskDedupe({ exe, scenarios, golden, numberFresh 
   try {
     for (const scenario of scenarios) {
       const expected = nodeSide(golden[scenario.name].recorded);
-      const got = await replayScenario({ exe, scenario, numberFresh, expected });
+      const got = await replayScenario({ exe, scenario, numberFresh });
       const unexpected = [];
       expected.forEach((node, index) => {
         const paths = differences(node, got[index]);
@@ -291,6 +298,5 @@ export async function replayNewTaskDedupe({ exe, scenarios, golden, numberFresh 
     release();
     if (existsSync(WORLDS)) rmSync(WORLDS, { recursive: true, force: true });
   }
-  console.log('named wording differences applied to the core side: '+JSON.stringify(named));
   return failed ? 1 : 0;
 }

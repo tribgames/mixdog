@@ -7,7 +7,8 @@
 //              reservation (session-calls/session-turns.mjs:177, `reservedOnly = false`)
 //   unsubscribe  an unclaimed reservation is released (session-views.mjs:173-179)
 //   read       a session the daemon does not hold is `session <id> is not available`
-//   configure  the draft's route, workflow and mode: a route that names an unknown provider is refused
+//   configure  the draft's route, workflow and mode: the route's provider is readied in the real provider registry, which
+//              refuses one it does not know with its own error
 //
 //   node --import tsx leg.mjs <export dir> <scenario dir> <leg json>      (cwd: <export dir>/apps/desktop)
 //
@@ -48,6 +49,7 @@ syncBuiltinESMExports();
 
 const load = (path) => import(pathToFileURL(join(exportDir, path)).href);
 const { SessionHost } = await load('apps/desktop/src/main/session-host.ts');
+const { initProviders } = await load('src/runtime/agent/orchestrator/providers/registry.mjs');
 
 const model = (() => {
   try {
@@ -87,10 +89,12 @@ const daemon = {
     if (!model.sessions[args.sessionId]) throw new Error(`session ${args.sessionId} is not available`);
     return full(args.sessionId);
   },
-  configure: (args) => {
-    if (args.action === 'setRoute' && args.args?.[0]?.provider === 'no-such-provider') {
-      throw new Error(`route refused: unknown provider ${args.args[0].provider}`);
-    }
+  configure: async (args) => {
+    // The daemon's `setRoute` readies the route's provider in the provider registry before anything else
+    // (set-route.mjs:50 `ensureProvidersReady(ensureProviderEnabled(config, provider))`, provider-readiness.mjs:116 `initProviders`):
+    // a provider the registry does not know is refused there, with the registry's own error (registry.mjs:223, wrapped at :366,
+    // thrown at :380), which reaches the host unchanged (daemon-local-session-bridge.mjs:24-40 passes the rejection on).
+    if (args.action === 'setRoute') await initProviders({ [args.args[0].provider]: { enabled: true } });
     return { ...full(args.sessionId), value: args.action === 'setRoute' ? { provider: args.args[0].provider, model: args.args[0].model } : null };
   },
   list: () => ({ sessions: [] }),
@@ -102,7 +106,7 @@ const client = new Proxy({}, {
     if (name !== 'list') calls.push({ method: name, ...(args.sessionId ? { sessionId: args.sessionId } : {}), ...(args.action ? { action: args.action } : {}), ...(args.options?.id ? { submission: args.options.id } : {}) });
     const reply = daemon[name];
     if (!reply) throw new Error(`unscripted daemon call ${String(name)}`);
-    const answer = reply(args);
+    const answer = await reply(args);
     persist();
     return answer;
   }),

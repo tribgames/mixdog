@@ -694,6 +694,50 @@ impl Writer {
         }
     }
 
+    /// RL §9.2 rule 5, run by `SqliteStore::open` after the boot purge and before the writer
+    /// thread starts: a session still marked dirty was active when the process last ended,
+    /// and the frames its log acked after the index's projected cursor were never projected
+    /// (the projection runs behind the ack, so a process that ends right after an ack loses
+    /// it). Those frames are projected now and its catalog row is written from its log, so a
+    /// read after a crash sees every acked row (a prompt whose turn the crash interrupted
+    /// included). A session whose log ends at the cursor costs one read at the cursor.
+    #[allow(clippy::disallowed_methods, reason = "runs on the maintenance lane job (lane proof argument)")]
+    fn boot_reconcile(&mut self, data: &Path) -> Result<(), DbError> {
+        let dirty: Vec<String> = self
+            .conn
+            .prepare_cached("SELECT id FROM sessions WHERE dirty = 1 ORDER BY id")?
+            .query_map([], |r| r.get(0))?
+            .collect::<Result<_, _>>()?;
+        let blobs = crate::blobs::BlobStore::new(data);
+        for session in dirty {
+            let dir = data.join("sessions").join(&session);
+            if !dir.is_dir() {
+                continue;
+            }
+            let from = projected_on(&self.conn, &session)?;
+            if let Some(from) = from
+                && crate::log::read_forward_unlaned(&dir, from, 1).is_ok_and(|read| read.frames.is_empty())
+            {
+                continue;
+            }
+            let mut fold = None;
+            let damage = project_session(&mut self.conn, &dir, &blobs, &mut fold, from)
+                .map_err(|e| DbError::Write(format!("{session}: {e}")))?
+                .err()
+                .map(|(error, at)| damage_text(&dir, at, &error));
+            let head = fold.as_ref().map_or_else(|| unreadable_head(&session), CatalogHead::of);
+            let tx = self.conn.transaction()?;
+            upsert(&tx, &head, DirtyMark::Keep, &self.labels)?;
+            if let Some(damage) = damage {
+                set_status_on(&tx, &session, SessionStatus::Damaged, Some(&damage))?;
+            }
+            tx.commit()?;
+            // A fork whose base gained rows may now have a view to finish.
+            self.views = true;
+        }
+        Ok(())
+    }
+
     /// One bounded step of the oldest purge (`purge_rows`).
     fn purge_step(&mut self) {
         let Some((session, _)) = self.purges.front() else { return };
@@ -1366,6 +1410,7 @@ impl SqliteStore {
             }
         };
         writer.boot_purge(lane, data, &incomplete)?;
+        writer.boot_reconcile(data)?;
         let rows = writer.sink.clone();
         let (sender, rx) = mpsc::channel();
         let handle = thread
@@ -1849,7 +1894,7 @@ pub fn project_index(
     for id in sessions {
         let dir = data.join("sessions").join(id);
         let mut fold = None;
-        let damage = project_session(&mut conn, &dir, &blobs, &mut fold)
+        let damage = project_session(&mut conn, &dir, &blobs, &mut fold, None)
             .map_err(|e| format!("{id}: {e}"))?
             .err()
             .map(|(error, at)| damage_text(&dir, at, &error));
@@ -1885,12 +1930,14 @@ type LogFailure = (String, Option<crate::log::Damage>);
 
 /// Projects the log in `dir` forward into `conn`, folding into `fold`. The outer error is
 /// an index write failure; the inner one is the log's own failure, after which the frames
-/// before it stay projected.
+/// before it stay projected. `from`: the index already holds every frame before this one
+/// (the boot reconcile), so those are folded only.
 fn project_session(
     conn: &mut Connection,
     dir: &Path,
     blobs: &crate::blobs::BlobStore,
     fold: &mut Option<crate::fold::Fold>,
+    from: Option<FramePos>,
 ) -> Result<Result<(), LogFailure>, String> {
     use crate::fold::Fold;
     use crate::fold::NoIndex;
@@ -1935,10 +1982,13 @@ fn project_session(
                 }
             };
             let f = fold.as_ref().expect("folded");
-            if started {
+            if started && from.is_none() {
                 let tx = conn.transaction().map_err(|e| e.to_string())?;
                 upsert(&tx, &CatalogHead::of(f), DirtyMark::Clear, &labels).map_err(|e| e.to_string())?;
                 tx.commit().map_err(|e| e.to_string())?;
+            }
+            if from.is_some_and(|from| at.ordinal < from.ordinal) {
+                continue;
             }
             let (kind, op) = match crate::projection::project(record, &mut resolve) {
                 Ok(projected) => projected,

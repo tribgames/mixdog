@@ -1595,7 +1595,7 @@
             "bf61bc057cb4ee9e32fe2c4d5c0484aca7e6833f7634f139b2509fc89d64178f.json": "{\"signature\":\"8e577a3af7f3c47b01cffde2b183af1da16d0a00a33d28c1b0db06d6f3024747\",\"sessionId\":\"<fresh:1>\",\"phase\":\"reserved\",\"refused\":true}"
           },
           "reply": {
-            "error": "route refused: unknown provider no-such-provider",
+            "error": "[provider] Failed to init \"no-such-provider\": unknown enabled provider: no-such-provider",
             "ok": false
           },
           "sessions": {},
@@ -1710,7 +1710,7 @@
             "48f524c3a7ae5505ae1deb2c1b4493e79d8fbb18b79be3de8fc8b970a7c2ae00.json": "{\"signature\":\"a26a151f0f3345d96e8f0cbc7982b368812059d045f46a1ca0fa494663c32396\",\"sessionId\":\"<fresh:1>\",\"phase\":\"reserved\",\"refused\":true}"
           },
           "reply": {
-            "error": "route refused: unknown provider no-such-provider",
+            "error": "[provider] Failed to init \"no-such-provider\": unknown enabled provider: no-such-provider",
             "ok": false
           },
           "sessions": {},
@@ -1740,7 +1740,7 @@
             "48f524c3a7ae5505ae1deb2c1b4493e79d8fbb18b79be3de8fc8b970a7c2ae00.json": "{\"signature\":\"a26a151f0f3345d96e8f0cbc7982b368812059d045f46a1ca0fa494663c32396\",\"sessionId\":\"<fresh:2>\",\"phase\":\"reserved\",\"refused\":true}"
           },
           "reply": {
-            "error": "route refused: unknown provider no-such-provider",
+            "error": "[provider] Failed to init \"no-such-provider\": unknown enabled provider: no-such-provider",
             "ok": false
           },
           "sessions": {},
@@ -1786,7 +1786,7 @@
             "955fd68836d196a222373e070df5488373ee70d431a2e6bc436f29d9309a89f7.json": "{\"signature\":\"4a6f1c509061d4661b44a5d97f02ff60023bbc5221bba543e28c5b5886432926\",\"sessionId\":\"<fresh:1>\",\"phase\":\"reserved\",\"refused\":true}"
           },
           "reply": {
-            "error": "route refused: unknown provider no-such-provider",
+            "error": "[provider] Failed to init \"no-such-provider\": unknown enabled provider: no-such-provider",
             "ok": false
           },
           "sessions": {},
@@ -1816,7 +1816,7 @@
             "955fd68836d196a222373e070df5488373ee70d431a2e6bc436f29d9309a89f7.json": "{\"signature\":\"4a6f1c509061d4661b44a5d97f02ff60023bbc5221bba543e28c5b5886432926\",\"sessionId\":\"<fresh:2>\",\"phase\":\"reserved\",\"refused\":true}"
           },
           "reply": {
-            "error": "route refused: unknown provider no-such-provider",
+            "error": "[provider] Failed to init \"no-such-provider\": unknown enabled provider: no-such-provider",
             "ok": false
           },
           "sessions": {},
