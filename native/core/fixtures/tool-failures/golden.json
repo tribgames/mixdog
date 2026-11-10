@@ -615,7 +615,7 @@
       {
         "name": "conhost",
         "parent": "#0",
-        "commandLine": "\\??\\C:\\WINDOWS\\system32\\conhost.exe <console host arguments>"
+        "commandLine": "\\??\\C:\\WINDOWS\\system32\\conhost.exe <server handle>"
       }
     ],
     [
@@ -627,7 +627,7 @@
       {
         "name": "conhost",
         "parent": "#0",
-        "commandLine": "\\??\\C:\\WINDOWS\\system32\\conhost.exe <console host arguments>"
+        "commandLine": "\\??\\C:\\WINDOWS\\system32\\conhost.exe <server handle>"
       }
     ],
     [],
@@ -641,7 +641,7 @@
       {
         "name": "conhost",
         "parent": "#0",
-        "commandLine": "\\??\\C:\\WINDOWS\\system32\\conhost.exe <console host arguments>"
+        "commandLine": "\\??\\C:\\WINDOWS\\system32\\conhost.exe <server handle>"
       }
     ],
     [
@@ -653,7 +653,7 @@
       {
         "name": "conhost",
         "parent": "#0",
-        "commandLine": "\\??\\C:\\WINDOWS\\system32\\conhost.exe <console host arguments>"
+        "commandLine": "\\??\\C:\\WINDOWS\\system32\\conhost.exe <server handle>"
       }
     ],
     []

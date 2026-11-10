@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 36587,
+      "bytes": 36551,
       "path": "golden.json",
-      "sha256": "164c5be499cbdc2948839e4330dd97c44b5fae09a505cfa1366b62cee4a67565"
+      "sha256": "a72a9279ec6fd0a01cad028462d58ade9a14b5fd8ee68d077fdeb8b70a73dbeb"
     }
   ],
   "node": "v22.20.0",
@@ -15,7 +15,7 @@
     "tool_ms",
     "workspace",
     "data folder (with result_bytes_est counted on the masked text)",
-    "leftAtExit: process ids dropped (a parent named by its place in the list), the workspace and the data folder in a command line as in the rows, a console host's arguments after its image path (chosen by Windows' console driver: one mixdogd build gave `0x4` and `0xffffffff -ForceV1` on two replays of scenario 9) as `<console host arguments>`"
+    "leftAtExit: process ids dropped (a parent named by its place in the list), the workspace and the data folder in a command line as in the rows, a console host's server handle value as `<server handle>`, only in a command line that is wholly `\\??\\<drive>:\\WINDOWS\\system32\\conhost.exe` SP `0x` HEXDIGIT+ [ SP `-ForceV1` ] (lib/tool-failure-rows.mjs CONSOLE_HOST; any other argument text is compared as it is). The value is chosen by Windows' console driver, which starts the console host, not by the launcher: one mixdogd build gave `0x4` and `0xffffffff -ForceV1` on two replays of scenario 9"
   ],
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
@@ -35,10 +35,10 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-tool-failures.mjs",
-  "recorderSha256": "0fe99c468733c3056e196665b2880e496b27f8ebffaafe5056c0e144d294b208",
+  "recorderSha256": "596a295808594d836671e69cf83197762a4f4e802b7280990486821784f33e05",
   "rows": 20,
-  "rowsLibSha256": "2fa148908ccfdcf099648f072663378e44f7888b29d6dc8acff9abed536c75ac",
-  "scenariosSha256": "08cc29de5bfa19b5bffe75ceeb8dc5c012e102c0cb0a96fe1b469e0ba9a6b9e2",
+  "rowsLibSha256": "e5748aefeacdd419e2192ec5164c375afc0db5938acea9e6b49d7de0267068ce",
+  "scenariosSha256": "3d996c83ee2148655d7af603ebf6410ae6e0fb01a3f13f757bf7459d5d9e5edc",
   "set": "tool-failures",
   "syntheticInputs": {
     "approvalAnswers": [
@@ -209,5 +209,5 @@
       "fx-mcp.mjs": "9e696362b216516f7ddcd1517bb67cb04870e48a98c7f5fc6bb4652fc23baaf9"
     }
   },
-  "totalBytes": 36587
+  "totalBytes": 36551
 }
