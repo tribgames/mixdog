@@ -218,6 +218,8 @@ impl OpenAiAdapter {
     /// `codec.transport()` (`Http1` or `WebSocket`) selects the wire; moving
     /// between them is a decision above the adapter.
     pub fn new(id: ProviderId, codec: OpenAiCodec, links: AdapterLinks) -> Self {
+        #[cfg(feature = "count-work")]
+        crate::work::provider_built();
         let http_codec = (codec.transport() == TransportKind::WebSocket).then(|| codec.with_transport(TransportKind::Http1));
         let models = OpenAiModels::new(
             codec.with_transport(TransportKind::Http1),

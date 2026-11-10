@@ -248,14 +248,6 @@ type Log = Arc<Mutex<Vec<(u64, Record)>>>;
 pub struct MemStore {
     logs: Mutex<HashMap<ThreadId, Log>>,
     pub head_reads: AtomicU64,
-    /// Every stored header read (`read_header`).
-    pub header_reads: AtomicU64,
-    /// Every access to a session's stored record, whichever route took it. The routes that copy the log do it through
-    /// `records`; the others (`read_window`, `thread_op`, `fenced_ops`, `session_meta`, `open_log`) have nothing to copy
-    /// here but read the index or the log's frames in the real store (`StoreThreads`), so each counts itself. Of the
-    /// `ThreadStore` methods only `decode` and `context_cpu` (they work on what a read returned), `purge_deleted` (index
-    /// maintenance, no session) and `create_log` (a write) are left out.
-    pub record_reads: AtomicU64,
     /// The next barrier fails (rolled back).
     pub fail_next: Arc<AtomicBool>,
     /// The next read of a thread's model context fails.
@@ -275,7 +267,6 @@ pub struct MemStore {
 
 impl MemStore {
     pub fn records(&self, id: &ThreadId) -> Vec<(u64, Record)> {
-        self.record_reads.fetch_add(1, Ordering::SeqCst);
         lock(&self.logs)
             .get(id)
             .map(|log| lock(log).clone())
@@ -352,7 +343,6 @@ impl ThreadStore for MemStore {
 
     /// The header of the session record, as `decode` takes it.
     fn read_header(&self, _lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Header, CoreError> {
-        self.header_reads.fetch_add(1, Ordering::SeqCst);
         let records = self.records(id);
         let Some((_, Record::Session(session))) = records.first() else {
             return Err(CoreError::ThreadNotFound { thread_id: id.clone() });
@@ -388,7 +378,6 @@ impl ThreadStore for MemStore {
         _id: &ThreadId,
         _head: &HeadRead,
     ) -> Result<WindowRead, CoreError> {
-        self.record_reads.fetch_add(1, Ordering::SeqCst);
         Ok(WindowRead(Box::new(())))
     }
 
@@ -435,7 +424,6 @@ impl ThreadStore for MemStore {
         &self,
         _id: &ThreadId,
     ) -> futures::future::BoxFuture<'static, Result<Option<super::seams::SessionMeta>, CoreError>> {
-        self.record_reads.fetch_add(1, Ordering::SeqCst);
         let listed = self.listed.load(Ordering::SeqCst);
         Box::pin(async move { Ok(listed.then(super::seams::SessionMeta::default)) })
     }
@@ -498,7 +486,6 @@ impl ThreadStore for MemStore {
         id: &ThreadId,
         _at: AppendPosition,
     ) -> Result<Box<dyn SessionLog>, BarrierError> {
-        self.record_reads.fetch_add(1, Ordering::SeqCst);
         Ok(Box::new(MemLog {
             log: self.log(id),
             fail_next: self.fail_next.clone(),
@@ -550,13 +537,11 @@ impl ThreadStore for MemStore {
     }
 
     fn fenced_ops(&self, _lane: &InLane<InteractiveIo>, _id: &ThreadId) -> Result<Vec<String>, CoreError> {
-        self.record_reads.fetch_add(1, Ordering::SeqCst);
         Ok(Vec::new())
     }
 
     /// The in-memory store keeps no op index.
     fn thread_op(&self, _lane: &InLane<InteractiveIo>, _id: &ThreadId, _op: &str) -> Result<Option<super::seams::StoredOp>, CoreError> {
-        self.record_reads.fetch_add(1, Ordering::SeqCst);
         Ok(None)
     }
 
@@ -614,6 +599,59 @@ impl ThreadStore for MemStore {
             }
         }
         Ok(frames.pop())
+    }
+}
+
+/// A [`ThreadStore`] that records the name of every call made through it, and forwards the call. The recording is the
+/// body of the one macro that forwards the methods, so a method added to the trait does not compile here until it is
+/// listed, and a listed one is recorded: a test that asserts the store was not called, or lists the calls, cannot miss
+/// a route to the store whatever the store behind it counts.
+pub struct CallCounted {
+    inner: Arc<dyn ThreadStore>,
+    calls: Mutex<Vec<&'static str>>,
+}
+
+impl CallCounted {
+    pub fn new(inner: Arc<dyn ThreadStore>) -> Arc<Self> {
+        Arc::new(Self { inner, calls: Mutex::default() })
+    }
+
+    /// The name of each call so far, in order.
+    pub fn calls(&self) -> Vec<&'static str> {
+        lock(&self.calls).clone()
+    }
+}
+
+macro_rules! forwarded {
+    ($(fn $name:ident(&self $(, $arg:ident: $ty:ty)*) -> $ret:ty;)*) => {
+        $(
+            fn $name(&self $(, $arg: $ty)*) -> $ret {
+                lock(&self.calls).push(stringify!($name));
+                self.inner.$name($($arg),*)
+            }
+        )*
+    };
+}
+
+impl ThreadStore for CallCounted {
+    forwarded! {
+        fn read_head(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<HeadRead, CoreError>;
+        fn read_header(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Header, CoreError>;
+        fn read_log_id(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<String, CoreError>;
+        fn read_window(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, head: &HeadRead) -> Result<WindowRead, CoreError>;
+        fn decode(&self, lane: &InLane<CpuInteractive>, id: &ThreadId, head: HeadRead, window: WindowRead) -> Result<OpenedLog, CoreError>;
+        fn user_rows(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Vec<ItemRecord>, CoreError>;
+        fn history_rows(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<(u64, Vec<ItemRecord>), CoreError>;
+        fn thread_op(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, op: &str) -> Result<Option<super::seams::StoredOp>, CoreError>;
+        fn fenced_ops(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Vec<String>, CoreError>;
+        fn history_row(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, iid: &str) -> Result<Option<(u64, ItemRecord)>, CoreError>;
+        fn compaction_entry(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, iid: &str) -> Result<Option<mixdog_store::sqlite::CompactionEntry>, CoreError>;
+        fn context_io(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, read: Option<ContextRead>) -> Result<ContextRead, CoreError>;
+        fn session_meta(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<Option<super::seams::SessionMeta>, CoreError>>;
+        fn purge_deleted(&self) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>>;
+        fn context_cpu(&self, lane: &InLane<CpuInteractive>, read: ContextRead) -> Result<ContextStep, CoreError>;
+        fn open_log(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, at: AppendPosition) -> Result<Box<dyn SessionLog>, BarrierError>;
+        fn create_log(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, session: &CommitRecord) -> Result<(Box<dyn SessionLog>, u64), BarrierError>;
     }
 }
 

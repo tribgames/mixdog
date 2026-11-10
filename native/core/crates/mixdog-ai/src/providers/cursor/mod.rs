@@ -367,6 +367,8 @@ impl CursorAdapter {
         bidi: Arc<dyn BidiOpen>,
         tokens: Arc<dyn AccessToken>,
     ) -> Self {
+        #[cfg(feature = "count-work")]
+        crate::work::provider_built();
         Self {
             id: ProviderId::from(provider),
             api_url: api_url.unwrap_or_else(|| API_URL.to_owned()),

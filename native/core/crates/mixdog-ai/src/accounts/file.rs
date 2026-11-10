@@ -104,6 +104,8 @@ pub(crate) fn update_roster(
     path: &Path,
     mutate: impl FnOnce(&mut Value) -> Result<(), AccountError>,
 ) -> io::Result<Result<Value, AccountError>> {
+    #[cfg(feature = "count-work")]
+    crate::work::credential_read();
     mixdog_statefile::read_json(lane, path, Some(&validate), &Opts { secret: true, ..Opts::default() })?;
     let updated = mixdog_statefile::update_json(
         lane,

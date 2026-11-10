@@ -60,6 +60,8 @@ impl MultiWireAdapter {
         protocol_wire: Wire,
         model_wires: HashMap<String, Wire>,
     ) -> Self {
+        #[cfg(feature = "count-work")]
+        crate::work::provider_built();
         let served: Vec<Wire> = engines.iter().map(|(w, _)| *w).collect();
         let mut profile = CompatProfile::plain("custom", "http://127.0.0.1/v1", CredentialKind::Keyless);
         profile.default_wire = protocol_wire;

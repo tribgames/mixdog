@@ -213,17 +213,18 @@ mod tests {
     }
 
     /// The counters of the test above are live on every route the forbidden work can take, including the ones that do not
-    /// pass through the instance under test: another `Config` opening or reloading the file, the provider builder's own
-    /// `build` and `custom_key_ids`, a credential file, the keychain and the key variables.
+    /// pass through the instance under test: another `Config` opening or reloading the file, each provider adapter's
+    /// constructor (`build`, `build_custom_parts`), `custom_key_ids`, a credential file, the gcloud login, the keychain and
+    /// the key variables.
     #[tokio::test]
     async fn every_route_to_the_forbidden_work_moves_its_counter() {
         use mixdog_ai::registry::builder::DefaultProviderBuilder;
         use mixdog_ai::registry::effective::EffectiveProviders;
-        use mixdog_ai::registry::keys::ApiKeyStore;
+        use mixdog_ai::registry::keys::{ApiKeyStore, KeyConfig};
         use mixdog_ai::registry::providers::ProviderBuilder;
         use mixdog_core_config::config::ConfigLanes;
 
-        let world = crate::run_host::process_tests::world(&[("OPENAI_API_KEY", "k")], json!({}), Vec::new()).await;
+        let world = crate::run_host::process_tests::world(&[("OPENAI_API_KEY", "k"), ("CUSTOM_KEY", "v")], json!({}), Vec::new()).await;
         let services = &world.services;
         let builder = Arc::new(DefaultProviderBuilder::new(crate::run_host::builder_env::builder_env(services)));
         let keys = ApiKeyStore::new(services.vault.clone(), services.env.clone(), false);
@@ -248,9 +249,50 @@ mod tests {
         let before = forbidden_work();
         effective.load(&agent, false).await.expect("loaded");
         moved("EffectiveProviders::load", before, 2);
+        // Each adapter's constructor counts, whichever function reaches it: the setup probes call `build_custom_parts` itself,
+        // and a keyless provider reads no credential.
+        for (name, cfg) in [
+            ("openai", json!({ "apiKey": "k" })),
+            ("openai-oauth", json!({})),
+            ("anthropic", json!({ "apiKey": "k" })),
+            ("xai", json!({ "apiKey": "k" })),
+            ("gemini", json!({ "apiKey": "k" })),
+            ("grok-oauth", json!({})),
+            ("cursor-api", json!({ "apiKey": "k" })),
+            ("devin-oauth", json!({})),
+        ] {
+            let before = forbidden_work();
+            builder.build(name, &cfg).await.unwrap_or_else(|error| panic!("{name}: {error}"));
+            moved(&format!("DefaultProviderBuilder::build {name}"), before, 3);
+        }
+        for (name, cfg) in [
+            ("custom-one-wire", json!({ "type": "custom", "protocol": "openai-chat", "baseURL": "http://127.0.0.1:1/v1", "auth": "none" })),
+            ("custom-anthropic", json!({ "type": "custom", "protocol": "anthropic", "baseURL": "http://127.0.0.1:1", "auth": "none" })),
+            ("custom-two-wires", json!({ "type": "custom", "protocol": "openai-chat", "wires": ["chat", "responses"], "baseURL": "http://127.0.0.1:1/v1", "auth": "none" })),
+        ] {
+            let (before, credentials) = (forbidden_work(), mixdog_ai::work::credential_reads());
+            builder.build_custom_parts(name, &cfg).unwrap_or_else(|error| panic!("{name}: {error}"));
+            moved(&format!("DefaultProviderBuilder::build_custom_parts {name}"), before, 3);
+            assert_eq!(mixdog_ai::work::credential_reads(), credentials, "{name} is keyless: nothing reads a credential");
+        }
+        // The gcloud login file is read by the settings view alone: no provider is built, no provider map loaded.
+        for read in 1..=2 {
+            let before = forbidden_work();
+            builder.adc_describe("", false).await;
+            moved(&format!("DefaultProviderBuilder::adc_describe, read {read}"), before, 4);
+            assert_eq!(forbidden_work()[1..4], before[1..4], "adc_describe built or loaded nothing");
+        }
         let before = forbidden_work();
-        builder.build("openai", &json!({ "enabled": true, "apiKey": "k" })).await.expect("built");
-        moved("DefaultProviderBuilder::build", before, 3);
+        let configured = KeyConfig { api_key: None, api_key_env: Some("CUSTOM_KEY".into()) };
+        assert_eq!(keys.resolve("custom-one", &configured).await.expect("env key"), "v");
+        moved("ApiKeyStore::resolve of a key variable", before, 4);
+        let before = forbidden_work();
+        assert_eq!(keys.reload("custom-one", &configured).await.expect("env key"), "v");
+        moved("ApiKeyStore::reload of a key variable", before, 4);
+        let before = forbidden_work();
+        let vault = crate::run_host::vault::KeychainVault::new(Arc::new(mixdog_secrets::MemoryStore::default()));
+        mixdog_ai::registry::keys::SecretVault::get(&vault, "agent.openai.apiKey").await.expect("keychain");
+        moved("KeychainVault::get", before, 4);
         let before = forbidden_work();
         builder.custom_key_ids("custom-acme").await.expect("roster");
         moved("DefaultProviderBuilder::custom_key_ids", before, 4);

@@ -130,10 +130,15 @@ impl ApiKeyStore {
         Self { vault, env, remote_client }
     }
 
-    fn set_env(&self, name: &str) -> Option<String> {
+    /// A key variable's value, as the environment holds it.
+    fn read_env(&self, name: &str) -> Option<String> {
         #[cfg(feature = "count-work")]
         crate::work::credential_read();
-        self.env.var(name).filter(|v| !v.is_empty())
+        self.env.var(name)
+    }
+
+    fn set_env(&self, name: &str) -> Option<String> {
+        self.read_env(name).filter(|v| !v.is_empty())
     }
 
     /// The environment variable `get` would return for `provider`, in the
@@ -201,7 +206,7 @@ impl ApiKeyStore {
     /// `Err` when the keychain read never ran: an empty key would read as "not configured".
     pub async fn resolve(&self, provider: &str, config: &KeyConfig) -> Result<String, VaultError> {
         if let Some(env) = config.api_key_env.as_deref().filter(|e| !e.is_empty()) {
-            return Ok(self.env.var(env).unwrap_or_default());
+            return Ok(self.read_env(env).unwrap_or_default());
         }
         if let Some(key) = config.api_key.as_deref().filter(|k| !k.is_empty()) {
             return Ok(key.to_owned());
@@ -224,7 +229,7 @@ impl ApiKeyStore {
     /// environment key is read first, so a rotated key beats the stale one in config.
     pub async fn reload(&self, provider: &str, config: &KeyConfig) -> Result<String, VaultError> {
         if let Some(env) = config.api_key_env.as_deref().filter(|e| !e.is_empty()) {
-            return Ok(self.env.var(env).unwrap_or_default());
+            return Ok(self.read_env(env).unwrap_or_default());
         }
         if let Some(key) = self.get(provider).await? {
             return Ok(key);
