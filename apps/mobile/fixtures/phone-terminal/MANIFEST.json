@@ -296,5 +296,6 @@
   "scriptSha256": "bbd2a80901dc8444f034726c36a433523a7e43f617ba5c98dee77c61c3add389",
   "set": "phone-terminal",
   "settled": "Output no answered call causes (a resize re-render, a prompt after idle, a closing output against the next dispose) is waited for before the next call: its place among later calls is call latency, 0 ms in this in-process recorder and a socket round trip for a phone. The immediate part keeps the answer-ordered sequences (ensure then first output, dispose then closing output) unsettled.",
-  "totalBytes": 9998036
+  "totalBytes": 9998036,
+  "comparisonEvidence": "The comparison's stated level of evidence (remote-protocol-terminal-compare.mjs, consistentPlaces). Where Node's runs differ at a place (a state, an entry, a sequence of states, an order of tabs, an exit code, a disposal pair's presence and place, or a change's order against its own frame), the replay's trace is held to two things: (1) at every such place its alternative is one that some Node run shows, whole; (2) for every two such places, its two alternatives are shown together by at least one Node run. Combinations of three or more places are not checked: fifty runs cannot show three or more places varying jointly, and no finite number of runs could for all of them. A trace can therefore pass with a combination of three or more alternatives that no single run shows, provided every two of them occur together in some run."
 }

@@ -3,12 +3,13 @@
 // The scenario runs in its own process (remote-protocol-terminal.scenario.mjs); the core binary is MIXDOGD_BIN.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { compareTraces } from './remote-protocol-terminal-compare.mjs';
+import { compareTraces, loadRuns } from './remote-protocol-terminal-compare.mjs';
 
-const runs = JSON.parse(readFileSync(new URL('../../../mobile/fixtures/phone-terminal/runs.json', import.meta.url), 'utf8'));
+// Refused before the scenario runs unless runs.json is exactly what MANIFEST.json's runList lists.
+const runs = loadRuns();
 const runner = fileURLToPath(new URL('./remote-protocol-terminal.scenario.mjs', import.meta.url));
 
 test('phone terminal adapter replays the Node recording over a real core', async () => {

@@ -1,11 +1,11 @@
 // The comparison accepts what Node's runs vary and nothing more: each mutation below is a trace no run recorded, and fails.
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import test from 'node:test';
 import { isDeepStrictEqual } from 'node:util';
-import { comparedList, compareTraces, nodeView, stateAt, stretchesOf } from './remote-protocol-terminal-compare.mjs';
+import { checkedRuns, comparedList, compareTraces, loadRuns, nodeView, stateAt, stretchesOf } from './remote-protocol-terminal-compare.mjs';
 
-const runs = JSON.parse(readFileSync(new URL('../../../mobile/fixtures/phone-terminal/runs.json', import.meta.url), 'utf8'));
+const runs = loadRuns();
 const copy = (run = runs[0]) => JSON.parse(JSON.stringify(run));
 const isData = (entry) => entry.push === 'termData';
 const PARTS = ['order', 'claims.order', 'immediate.order'];
@@ -393,13 +393,17 @@ test("a disposal pair is taken out only where Node's runs vary on it", async () 
   const without = [ensure, D('PS> ', tab), dispose, exit];
   const withPair = [ensure, D('PS> ', tab), dispose, ...pair, exit];
   // Every run without it: a pair is not taken out.
-  await assert.rejects(compareTraces(traceOf(withPair), recorded(without, without)), /pair after term_ph2a dispose 1's answer: got at entry \d+ and \d+, every Node run absent/);
+  await assert.rejects(compareTraces(traceOf(withPair), recorded(without, without)), /pair after term_ph2a dispose 1's answer: got entry \d+, its tab's state \d+ and entry \d+, its tab's state \d+, every Node run absent/);
   // Every run with it: it must be there.
-  await assert.rejects(compareTraces(traceOf(without), recorded(withPair, withPair)), /pair after term_ph2a dispose 1's answer: got absent, every Node run at entry/);
+  await assert.rejects(compareTraces(traceOf(without), recorded(withPair, withPair)), /pair after term_ph2a dispose 1's answer: got absent, every Node run entry/);
   // Every run with it in one place: it must be there, not after the next entry.
   const placed = [ensure, D('PS> ', tab), dispose, ...pair, STEP, exit];
   const moved = [ensure, D('PS> ', tab), dispose, STEP, ...pair, exit];
-  await assert.rejects(compareTraces(traceOf(moved), recorded(placed, placed)), /pair after term_ph2a dispose 1's answer: got at entry 3 and 3, every Node run at entry 2 and 2/);
+  await assert.rejects(compareTraces(traceOf(moved), recorded(placed, placed)), /pair after term_ph2a dispose 1's answer: got entry 3, [^,]+ and entry 3, .*, every Node run entry 2, /);
+  // Every run with it before the tab's output: not after that output, though no other entry lies between (its place counts output).
+  const beforeOutput = [ensure, D('PS> ', tab), dispose, ...pair, D('bye', tab), STEP, exit];
+  const afterOutput = [ensure, D('PS> ', tab), dispose, D('bye', tab), ...pair, STEP, exit];
+  await assert.rejects(compareTraces(traceOf(afterOutput), recorded(beforeOutput, beforeOutput)), /pair after term_ph2a dispose 1's answer: got entry 2, its tab's state/);
   // The runs vary: either passes, named.
   const varied = recorded(without, withPair);
   for (const order of [without, withPair]) {
@@ -413,18 +417,49 @@ test('a screen a frame draws is compared even when the frame ends inside a seque
   await assert.rejects(compareTraces(traceOf([D('EVIL\x1b['), D('2K\rZ'), STEP]), node), /states within the stretch before the first entry/);
 });
 
-test("where Node's runs differ at two places that no run shows varying apart, the trace has one run's values at both", async () => {
+test("where Node's runs differ at two places, the trace's two alternatives must be shown together by some run", async () => {
   // A tab whose `A` comes before or after the step: shown twice or never is no run's.
   const twice = recorded([D('Z'), D('\rA'), D('\rZ'), STEP], [D('Z'), STEP, D('\rA'), D('\rZ')]);
   await compareTraces(traceOf([D('Z'), STEP, D('\rA'), D('\rZ')]), twice);
-  await assert.rejects(compareTraces(traceOf([D('Z'), D('\rA'), D('\rZ'), STEP, D('\rA'), D('\rZ')]), twice), /no one Node run has the trace's values at these places together/);
-  await assert.rejects(compareTraces(traceOf([D('Z'), STEP]), twice), /no one Node run|no Node run/);
+  await assert.rejects(compareTraces(traceOf([D('Z'), D('\rA'), D('\rZ'), STEP, D('\rA'), D('\rZ')]), twice), /no Node run has the trace's alternatives at these two places together/);
+  await assert.rejects(compareTraces(traceOf([D('Z'), STEP]), twice), /no Node run/);
   // Two tabs at one place.
   const tabs = recorded([D('A', 'a'), D('X', 'b'), STEP], [D('B', 'a'), D('Y', 'b'), STEP]);
-  await assert.rejects(compareTraces(traceOf([D('A', 'a'), D('Y', 'b'), STEP]), tabs), /no one Node run has the trace's values at these places together/);
-  // Shown varying apart (every pair of values in some run): either mix passes.
+  await assert.rejects(compareTraces(traceOf([D('A', 'a'), D('Y', 'b'), STEP]), tabs), /no Node run has the trace's alternatives at these two places together/);
+  // Every combination of the two shown by some run: either mix passes.
   const apart = recorded([D('A', 'a'), D('X', 'b'), STEP], [D('B', 'a'), D('Y', 'b'), STEP], [D('A', 'a'), D('Y', 'b'), STEP], [D('B', 'a'), D('X', 'b'), STEP]);
   await compareTraces(traceOf([D('A', 'a'), D('Y', 'b'), STEP]), apart);
+});
+
+test('the co-occurrence rule is pairwise: three places whose every two alternatives some run shows pass (stated, R1)', async () => {
+  // Runs 000, 011, 101, 110 over three stretches; the trace's 001 has each pair shown by some run, the triple by none.
+  // Each place a tab of its own, so a place's alternative shows in no other place.
+  const at = (bit, tab) => [D(bit ? 'B' : 'A', tab)];
+  const of = (bits) => [STEP, ...at(bits[0], 'a'), STEP, ...at(bits[1], 'b'), STEP, ...at(bits[2], 'c'), STEP];
+  const node = recorded(of([0, 0, 0]), of([0, 1, 1]), of([1, 0, 1]), of([1, 1, 0]));
+  await compareTraces(traceOf(of([0, 0, 1])), node);
+});
+
+test("a change's order against its own frame is held to the other places (F1)", async () => {
+  const running = (tab) => ({ push: 'activity', event: { id: tab, state: 'running' } });
+  const one = [STEP, D('A', 'a'), running('a'), STEP, D('B', 'b'), running('b'), STEP];
+  const two = [STEP, running('a'), D('A', 'a'), STEP, running('b'), D('B', 'b'), STEP];
+  const node = recorded(one, two);
+  await compareTraces(traceOf(one), node);
+  await assert.rejects(
+    compareTraces(traceOf([STEP, D('A', 'a'), running('a'), STEP, running('b'), D('B', 'b'), STEP]), node),
+    /no Node run has the trace's alternatives at these two places together[\s\S]*activity change against its own frame[\s\S]*activity change against its own frame/,
+  );
+});
+
+test("runs.json is checked against the manifest's runList before any comparison (F3)", () => {
+  const listed = runs.map((run, index) => ({ run: index, sha256: createHash('sha256').update(JSON.stringify(run)).digest('hex') }));
+  assert.equal(checkedRuns(runs, listed), runs);
+  assert.throws(() => checkedRuns(runs.slice(1), listed), /runs\.json has 49 runs; MANIFEST\.json's runList lists 50/);
+  const changed = copy();
+  changed.order.pop();
+  assert.throws(() => checkedRuns([changed, ...runs.slice(1)], listed), /runs\.json run 0 is not the run MANIFEST\.json's runList lists/);
+  assert.throws(() => checkedRuns([runs[1], runs[0], ...runs.slice(2)], listed), /runs\.json run 0 is not the run/);
 });
 
 test('an absent answer where Node answered null is a different trace', async () => {
