@@ -853,7 +853,10 @@ pub struct UiTerminalRunClaimedParams {
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct UiScreenSessionsChangedParams {
-    pub session_ids: Vec<String>,
+    /// Absent only from a paired phone stating one of the other fields alone (Node's `setForeground` or `setVisualizePanels`):
+    /// its last set stays. A UI's notification without it changes nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_ids: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub browser_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
