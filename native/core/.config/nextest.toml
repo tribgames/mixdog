@@ -13,6 +13,13 @@ default-filter = '''not (
   | (package(mixdog-app-server-daemon) & test(/^verdict::tag_gates::/))
 )'''
 
+# `--profile pg --run-ignored only`: the #[ignore]d tests that compose the real core and prove a Node recording against it. They need a Postgres
+# runtime (`MIXDOG_PG_RUNTIME` names an unpacked runtime directory; with it unset or broken the test fails, it does not skip). They are in the
+# `pg-cluster` group below, so they run one at a time. The review restart replay runs a child process of its own for up to ten minutes.
+[profile.pg]
+default-filter = 'package(mixdog-app-server-daemon) & test(/^compose::review_restart_tests::/)'
+slow-timeout = { period = "120s", terminate-after = 6 }
+
 # Each of the two migration crash matrices spreads its fault points over eight work dirs of its own;
 # they run one after the other, so at most eight sync-bound migrations of the pair are in flight.
 [test-groups]
