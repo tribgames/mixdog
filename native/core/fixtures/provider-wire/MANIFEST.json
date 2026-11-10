@@ -8,7 +8,7 @@
     "ledger ttftMs: no Rust adapter reports where generation starts in its stream yet (Completed.generation_ms is unset)",
     "HTTP status of a scripted refusal: the script (vertex-maas group) states it; records keep the body served"
   ],
-  "fileCount": 135,
+  "fileCount": 168,
   "files": [
     {
       "bytes": 5943,
@@ -21,9 +21,9 @@
       "sha256": "e4d29ef6f123e539eeff1aa2a82340327df94767985b55d1b46e9e650d424082"
     },
     {
-      "bytes": 2482,
+      "bytes": 3032,
       "path": "anthropic-fallback/before-output/result.json",
-      "sha256": "fa66e79bbab0ca66e81f92ab7d2637acdfcdaa3538ed24243e7d766ee2bb0914"
+      "sha256": "8b0edb2ffbe8e0a23771cf7145cadce9a5627b344d71062a6c1ffe66bbef84e9"
     },
     {
       "bytes": 6306,
@@ -36,9 +36,24 @@
       "sha256": "e4d29ef6f123e539eeff1aa2a82340327df94767985b55d1b46e9e650d424082"
     },
     {
-      "bytes": 2598,
+      "bytes": 3208,
       "path": "anthropic-fallback/mid-output/result.json",
-      "sha256": "eff06f71ca6f7e7694b2edca29e76b6902c2b8a762340ef23482eb3b7a281485"
+      "sha256": "7011e304a0637cd2349cf09c8135aaa40b92175ac96c5784a4c51f1e1f1c9b63"
+    },
+    {
+      "bytes": 5590,
+      "path": "anthropic-fallback/snapshot-target/exchange.json",
+      "sha256": "931c47f85fcfd3c3cb1695680647cdfffe430885addb52ad338b99163b91faae"
+    },
+    {
+      "bytes": 325,
+      "path": "anthropic-fallback/snapshot-target/input.json",
+      "sha256": "e4d29ef6f123e539eeff1aa2a82340327df94767985b55d1b46e9e650d424082"
+    },
+    {
+      "bytes": 2474,
+      "path": "anthropic-fallback/snapshot-target/result.json",
+      "sha256": "cf6939a84ac8abb36a8fae28ec453d16911608ea850e2e92a48cff43ef43d035"
     },
     {
       "bytes": 4092,
@@ -536,9 +551,9 @@
       "sha256": "5c09bc3996af5755138c8ca78f987b7a931d1354332f4e6f83bb6eb7da74f8b0"
     },
     {
-      "bytes": 5951,
+      "bytes": 7135,
       "path": "hosted-search/anthropic-oauth/exchange.json",
-      "sha256": "60f2da8b9c732e70a8acb40f320bec9547198d4bda72dfaa37e6e8a036b6a0e8"
+      "sha256": "aa5730c652e4f7b15deec9934459b18bfb1ab10eab415ca2214b4f1a5806a6c5"
     },
     {
       "bytes": 882,
@@ -546,14 +561,14 @@
       "sha256": "52b967f8fd1f6e28ae9c6d5ed318ce542e4688b7cb8bcb930e724419d344d953"
     },
     {
-      "bytes": 784,
+      "bytes": 2537,
       "path": "hosted-search/anthropic-oauth/result.json",
-      "sha256": "19fdf91a14ff37d72bbab71ab54f7ce5710bf6ccd367c04688b795de10bc8aa1"
+      "sha256": "dd314c8fa57d706343d49f35343335ae02edd8b02ee4ca436bf31be58d49aae5"
     },
     {
-      "bytes": 4537,
+      "bytes": 5721,
       "path": "hosted-search/anthropic/exchange.json",
-      "sha256": "dfeab757710466aa946d4d60f0696a330d677361bd2d23ecedac6b9df14fef33"
+      "sha256": "674af288b0a3b37d806ca57a470fceee1af6eba37e20170f2d0a4ce164558e22"
     },
     {
       "bytes": 876,
@@ -561,14 +576,14 @@
       "sha256": "2e673b5f58fa209e44ddb7b5f1f8d4a2e8dbce650b50886b16ac6de9b5d37ac3"
     },
     {
-      "bytes": 784,
+      "bytes": 2537,
       "path": "hosted-search/anthropic/result.json",
-      "sha256": "2d0b66d22923fbfa190caa6b03a17123706493c6b92be79fe57cf57ea95b9101"
+      "sha256": "e737fd647e90aa3be4e9e38ade55af360079a281293b4afa8205814fd49e23ce"
     },
     {
-      "bytes": 4422,
+      "bytes": 4756,
       "path": "hosted-search/antigravity-oauth/exchange.json",
-      "sha256": "e1941f86c72128eaa8fae9262a8710bbc52a19122f57484102e8190eb9f57f46"
+      "sha256": "662e444e8041db80352d19b9deb3e5ea7cec610a0c45923ce224c201c94c8452"
     },
     {
       "bytes": 739,
@@ -576,14 +591,14 @@
       "sha256": "54d46143a7b888e5f950ed9d5ed3bdc8a711155d718954351dc5763d31861f2f"
     },
     {
-      "bytes": 655,
+      "bytes": 1014,
       "path": "hosted-search/antigravity-oauth/result.json",
-      "sha256": "1bd99894dc5741d37dc0a87649265ffb671b5898eff8421a506a98cd1f53ab34"
+      "sha256": "f8e249a26cc0b60a995fedcea965a66a482a34486bf40c01e021256fb8e245c4"
     },
     {
-      "bytes": 2953,
+      "bytes": 3287,
       "path": "hosted-search/gemini/exchange.json",
-      "sha256": "d31ac9b330e499104ebdaeb02dca99fac442791cdbd1588bdd1aa497a457e176"
+      "sha256": "07ef11179b4a78632ed0ae33ead757620de745c4b5a4d64bfa82cfa39d24f219"
     },
     {
       "bytes": 730,
@@ -591,14 +606,14 @@
       "sha256": "64e483f64dcdbd512b0e2edbf502bf7cc85ebf2ea81c47c2d5427c464af1f245"
     },
     {
-      "bytes": 629,
+      "bytes": 988,
       "path": "hosted-search/gemini/result.json",
-      "sha256": "db26ba56b7878a93e54fec266a18662d4f12dd9352e8ebfafac42c151d6a8f9c"
+      "sha256": "55bdb0e512a6abd27f302af17e09bac4a1869202a4eb899d7d790e2b0302882f"
     },
     {
-      "bytes": 5852,
+      "bytes": 7696,
       "path": "hosted-search/grok-oauth/exchange.json",
-      "sha256": "4491ecb5377b9bd9bcde66caad3cb3c6e54d2db72237aee8e70b5bf76b498163"
+      "sha256": "2bf1549955d351bd6edeb9af70591c4848297d090d8654d85d216f807d7774e0"
     },
     {
       "bytes": 843,
@@ -606,14 +621,14 @@
       "sha256": "eb46bd39a90bbd67c9202db5225d840c9d03aaa69fb3444f1d505f7791a6c18a"
     },
     {
-      "bytes": 1070,
+      "bytes": 2606,
       "path": "hosted-search/grok-oauth/result.json",
-      "sha256": "c834696b83b6e8a14f2ba1995809059716598084bc703bd11c7505794aa9b8be"
+      "sha256": "a0c8774f96172337aa8b726ee0c28f7bc43b879efc2b8191dde779b3ea6e5868"
     },
     {
-      "bytes": 7714,
+      "bytes": 9558,
       "path": "hosted-search/openai-oauth/exchange.json",
-      "sha256": "34aea56bdc23c36beb4edd2e7ecc899faf8d500f91c293cffb0c1ee5d68d89c4"
+      "sha256": "a3cfa5a8118896abd430f7b0fe29ad639b9af29eb2bae7688b77fe65dbdef4b5"
     },
     {
       "bytes": 931,
@@ -621,14 +636,14 @@
       "sha256": "81aff5be54d4ad22f15bbb05292d41aee0132cf17d88d16ab7f9405a89c8da26"
     },
     {
-      "bytes": 773,
+      "bytes": 2115,
       "path": "hosted-search/openai-oauth/result.json",
-      "sha256": "ae89fd6898da574a311168fd2d95bf11583c9d2c9ddda359965054e50338881d"
+      "sha256": "c93d509881228dce016961e61dc57c7221545455b8fae421f85ed4ec1b1a96e2"
     },
     {
-      "bytes": 4832,
+      "bytes": 6676,
       "path": "hosted-search/openai/exchange.json",
-      "sha256": "c3ce91b658370d4ee54149393fc2b7014fa6a8c81ccde6e535616a0e5da8d113"
+      "sha256": "2daaffb2adaabbf8711dfae30f6ae69267cd7dba54528cc5b1beed4b79d1fc73"
     },
     {
       "bytes": 925,
@@ -636,9 +651,159 @@
       "sha256": "29c701a0834d71ecea20f7be244f090b815c0c7d97bb19e89e7a1f991638465e"
     },
     {
-      "bytes": 773,
+      "bytes": 2115,
       "path": "hosted-search/openai/result.json",
-      "sha256": "ae89fd6898da574a311168fd2d95bf11583c9d2c9ddda359965054e50338881d"
+      "sha256": "c93d509881228dce016961e61dc57c7221545455b8fae421f85ed4ec1b1a96e2"
+    },
+    {
+      "bytes": 5245,
+      "path": "served-model/command-code-oauth/exchange.json",
+      "sha256": "8834dbb8ea67da67694311a24241fbd0248f5c868b6fc4a9e6922f5b8ed82f34"
+    },
+    {
+      "bytes": 260,
+      "path": "served-model/command-code-oauth/input.json",
+      "sha256": "93e82ea69643ee00b04d0545ff6c253294c7517eb2383486114b55907c230361"
+    },
+    {
+      "bytes": 428,
+      "path": "served-model/command-code-oauth/result.json",
+      "sha256": "8bc5b14231373f68cf53e6a0efa6aaa0d3b90cf08cc1ff8e5fd4af91cee39d46"
+    },
+    {
+      "bytes": 3432,
+      "path": "served-model/deepseek/exchange.json",
+      "sha256": "44366b4d3fc45afa19d9763291174909b7c8d011b194659ab11764307c2248bc"
+    },
+    {
+      "bytes": 253,
+      "path": "served-model/deepseek/input.json",
+      "sha256": "ac5476bad1bf9df5fd4c12a63e0415105f94eb319896d353473cb3bd4374ddf2"
+    },
+    {
+      "bytes": 431,
+      "path": "served-model/deepseek/result.json",
+      "sha256": "4eadbe76db1481112a7e5ae315a4d8230d5489de5ee925e7a149df2d181458bd"
+    },
+    {
+      "bytes": 3588,
+      "path": "served-model/mimo-oauth/exchange.json",
+      "sha256": "092aa03ecc10ba502e7449d62397637b17800c528c6b7da90ca8939d5a2fd77e"
+    },
+    {
+      "bytes": 254,
+      "path": "served-model/mimo-oauth/input.json",
+      "sha256": "1c90d8a062cc592d9157507c559fd11555d047130a31fdf3d311b60cd3d17935"
+    },
+    {
+      "bytes": 430,
+      "path": "served-model/mimo-oauth/result.json",
+      "sha256": "80f1c8a0742b48b3ecc6b903a25a5eefac1f19cf2c5cc4886bc7a66eb0a84423"
+    },
+    {
+      "bytes": 4193,
+      "path": "served-model/muse-code-oauth/exchange.json",
+      "sha256": "931ce986347cd28c3f8274fec5402cd05d412c2b910385042ecd56b2a55dbb74"
+    },
+    {
+      "bytes": 259,
+      "path": "served-model/muse-code-oauth/input.json",
+      "sha256": "364c6210db284b2dcc4be6ed2f2aa5a9592748ce010308848ce17d56f2065465"
+    },
+    {
+      "bytes": 1163,
+      "path": "served-model/muse-code-oauth/result.json",
+      "sha256": "4dba843e304bcf1824504230bc9bf7d56aeea29781b4e6ade19082f248956415"
+    },
+    {
+      "bytes": 4722,
+      "path": "served-model/opencode-go-oauth/exchange.json",
+      "sha256": "293cf7ff81d45d3b7feea456cdb2ad99f7f88ce5ced6ae9fc1540c18920efd62"
+    },
+    {
+      "bytes": 259,
+      "path": "served-model/opencode-go-oauth/input.json",
+      "sha256": "c8e16e070e5f320180ef7336886eb37d3d5cc9b1c04a54e7c88ab83cc784c32a"
+    },
+    {
+      "bytes": 428,
+      "path": "served-model/opencode-go-oauth/result.json",
+      "sha256": "ca9d52b5269ea99ef7b061a73a5c17fc3ce3319371e5cc573f866f8ef1e12529"
+    },
+    {
+      "bytes": 3588,
+      "path": "served-model/openrouter/exchange.json",
+      "sha256": "8e203cf1088a9d1cdd67a781f30474a127efcd63ebc54266ccbfb8d965e547ba"
+    },
+    {
+      "bytes": 254,
+      "path": "served-model/openrouter/input.json",
+      "sha256": "70e2633135928ffa8934740376f0ed1c3f30f0421253db776a4f95ec80648ac5"
+    },
+    {
+      "bytes": 430,
+      "path": "served-model/openrouter/result.json",
+      "sha256": "bdf6f525adb26fddc74cdf1c6ca93565e055089fadab3123dd79418ab89ade3c"
+    },
+    {
+      "bytes": 3482,
+      "path": "served-model/xai/exchange.json",
+      "sha256": "76e5bf601d68ab87bb3f9728b63eb935a608aefb248f74b1b6994324c35eff0e"
+    },
+    {
+      "bytes": 279,
+      "path": "served-model/xai/input.json",
+      "sha256": "1218906c73e05fc7ecbddfd4685dc6f6fcfbf8721d72e791b9f4f502e4559afe"
+    },
+    {
+      "bytes": 424,
+      "path": "served-model/xai/result.json",
+      "sha256": "e256e968fad53e4788fb9f84ddeba645c3af8520c75dc2f0bad4d90df0700ca3"
+    },
+    {
+      "bytes": 6253,
+      "path": "vertex-claude/retry-529/exchange.json",
+      "sha256": "d0cd25c519b4d8e2090105ca9d9a507c1973e3c447713e226d24197237bbc7df"
+    },
+    {
+      "bytes": 262,
+      "path": "vertex-claude/retry-529/input.json",
+      "sha256": "270891d3a3b2fc47a0afc5ced7b16deff9fdf7d6681dc279de5e432388b69a00"
+    },
+    {
+      "bytes": 825,
+      "path": "vertex-claude/retry-529/result.json",
+      "sha256": "3ede9f25977862bb602523266e25358534bbe843cd65f02b04765a17c00d1c7a"
+    },
+    {
+      "bytes": 4263,
+      "path": "vertex-claude/text/exchange.json",
+      "sha256": "135734b34ad0f383cfef318ca5a84ae8949163d6f36807caa34b4a8df4dbb2a4"
+    },
+    {
+      "bytes": 262,
+      "path": "vertex-claude/text/input.json",
+      "sha256": "270891d3a3b2fc47a0afc5ced7b16deff9fdf7d6681dc279de5e432388b69a00"
+    },
+    {
+      "bytes": 825,
+      "path": "vertex-claude/text/result.json",
+      "sha256": "3ede9f25977862bb602523266e25358534bbe843cd65f02b04765a17c00d1c7a"
+    },
+    {
+      "bytes": 4492,
+      "path": "vertex-claude/tools-effort/exchange.json",
+      "sha256": "0ff1b37e8971b7732a0bf6119712f1c99d32dc2ac3d7f9fc252773c1a3fc8dca"
+    },
+    {
+      "bytes": 564,
+      "path": "vertex-claude/tools-effort/input.json",
+      "sha256": "a4d14dc1f05d27d2d2b254a353024edbdc51b7176e9c1479038fe5dd859d3a8e"
+    },
+    {
+      "bytes": 825,
+      "path": "vertex-claude/tools-effort/result.json",
+      "sha256": "3ede9f25977862bb602523266e25358534bbe843cd65f02b04765a17c00d1c7a"
     },
     {
       "bytes": 7247,
@@ -735,7 +900,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-provider-wire.mjs",
-  "recorderSha256": "6402a881c6b84733d8bd8349b15b7ef10e93a203d9807ddc46cb374394e5bb67",
+  "recorderSha256": "52402b3e464870d7f4f5fc02c84e7c562b776558abe80817ac099dcc90d6b284",
   "set": "provider-wire",
-  "totalBytes": 258118
+  "totalBytes": 337052
 }

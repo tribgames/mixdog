@@ -1,10 +1,14 @@
 #!/usr/bin/env node
 // What Node puts on the wire and reads back for five provider paths the Rust core replays against its real codecs
 // (fixtures/provider-wire/<group>/<scenario>/):
-//   hosted-search      a provider's own web search: the send `sendCandidate` makes (native-web-search.mjs:63-77) per provider;
+//   hosted-search      a provider's own web search: the send `sendCandidate` makes (native-web-search.mjs:63-77) per provider,
+//                      answered with the search call, its sources and a citation as each wire reports them;
 //   vertex-maas        a Vertex AI open model over the OpenAI-compatible endpoint: token refresh after a 401, a 429 and a 529 retry;
+//   vertex-claude      Claude on Vertex AI through streamRawPredict (`_sendClaude`): plain, with tools and effort, a 529 retried;
 //   antigravity-claude the Claude replay normalisation of antigravity-request.mjs:54-176 (the ten cases of antigravity-request.test.mjs:402-795);
-//   anthropic-fallback a turn served by Anthropic's server-side fallback model, with the ledger row accountProviderSend writes;
+//   anthropic-fallback a turn served by Anthropic's server-side fallback model, with the ledger row accountProviderSend writes
+//                      and the assistant turn the loop commits;
+//   served-model       each compatible Chat Completions provider answering as another model than the one asked for;
 //   gemini-usage       Gemini and Vertex usage with each usageMetadata field missing in turn (gemini-cache.mjs:245-285).
 // Every send runs the real provider class through lib/intercept.mjs (global fetch -> loopback hub); the hub records the bytes
 // sent and answers from the scenario's script.
@@ -54,6 +58,7 @@ const P = (file) => at(`src/runtime/agent/orchestrator/providers/${file}`);
 process.env.MIXDOG_USAGE_LEDGER_PATH = join(dataDir, 'ledger.sqlite');
 const { UsageLedger, closeUsageLedgers } = await at('src/runtime/shared/llm/usage-ledger.mjs');
 const { accountProviderSend } = await at('src/runtime/shared/llm/usage-accounting.mjs');
+const { buildIntermediateAssistantMessage } = await at('src/runtime/agent/orchestrator/session/loop/assistant-commit.mjs');
 const { nativeWebSearchMessages, nativeWebSearchTool, nativeWebSearchToolTypes } = await at('src/session-runtime/native-web-search/tool-shape.mjs');
 const { webSearchProviderFamily } = await at('src/runtime/agent/orchestrator/runtime-core/workflow.mjs');
 let rows = [];
@@ -69,14 +74,14 @@ const oauthDoc = { access_token: 'fixture-access-token', refresh_token: 'fixture
 // ---- served bytes ------------------------------------------------------------------
 const j = JSON.stringify;
 const sse = (events, named = false) => events.map((e) => `${named ? `event: ${e.type}\n` : ''}data: ${j(e)}\n\n`).join('');
-const responsesText = () =>
+const responsesText = (model) =>
   sse(
     [
-      { type: 'response.created', response: { id: 'resp_x', model: 'fixture' } },
+      { type: 'response.created', response: { id: 'resp_x', model } },
       { type: 'response.output_item.added', output_index: 0, item: { type: 'message', id: 'm1', role: 'assistant', content: [] } },
       { type: 'response.output_text.delta', output_index: 0, item_id: 'm1', delta: 'The answer is 42.' },
       { type: 'response.output_item.done', output_index: 0, item: { type: 'message', id: 'm1', role: 'assistant', content: [{ type: 'output_text', text: 'The answer is 42.' }] } },
-      { type: 'response.completed', response: { id: 'resp_x', model: 'fixture', status: 'completed', usage: { input_tokens: 20, output_tokens: 8, total_tokens: 28 }, output: [{ type: 'message', id: 'm1', role: 'assistant', content: [{ type: 'output_text', text: 'The answer is 42.' }] }] } },
+      { type: 'response.completed', response: { id: 'resp_x', model, status: 'completed', usage: { input_tokens: 20, output_tokens: 8, total_tokens: 28 }, output: [{ type: 'message', id: 'm1', role: 'assistant', content: [{ type: 'output_text', text: 'The answer is 42.' }] }] } },
     ],
     true
   );
@@ -91,32 +96,86 @@ const anthropicText = (model) =>
     { type: 'message_stop' },
   ]);
 const geminiChunks = (chunks) => chunks.map((c) => `data: ${j(c)}\n\n`).join('');
-const geminiText = (usageMetadata = { promptTokenCount: 20, candidatesTokenCount: 8, totalTokenCount: 28 }, envelope = false) => {
+const geminiText = (usageMetadata = { promptTokenCount: 20, candidatesTokenCount: 8, totalTokenCount: 28 }, envelope = false, last = {}) => {
   const wrap = (c) => (envelope ? { response: c } : c);
   return geminiChunks([
     wrap({ candidates: [{ content: { role: 'model', parts: [{ text: 'The answer ' }] } }], modelVersion: 'fixture' }),
-    wrap({ candidates: [{ content: { role: 'model', parts: [{ text: 'is 42.' }] }, finishReason: 'STOP' }], usageMetadata, modelVersion: 'fixture' }),
+    wrap({ candidates: [{ content: { role: 'model', parts: [{ text: 'is 42.' }] }, finishReason: 'STOP', ...last }], usageMetadata, modelVersion: 'fixture' }),
   ]);
 };
-const chatText = (usage = { prompt_tokens: 1000, completion_tokens: 5, total_tokens: 1005, prompt_tokens_details: { cached_tokens: 800 } }) =>
+const chatText = (usage = { prompt_tokens: 1000, completion_tokens: 5, total_tokens: 1005, prompt_tokens_details: { cached_tokens: 800 } }, model = 'm') =>
   [
-    { id: 'r1', object: 'chat.completion.chunk', model: 'm', choices: [{ index: 0, delta: { content: 'The answer is 42.' } }] },
-    { id: 'r1', object: 'chat.completion.chunk', model: 'm', choices: [{ index: 0, delta: { role: 'assistant', content: '' }, finish_reason: 'stop' }], usage },
+    { id: 'r1', object: 'chat.completion.chunk', model, choices: [{ index: 0, delta: { content: 'The answer is 42.' } }] },
+    { id: 'r1', object: 'chat.completion.chunk', model, choices: [{ index: 0, delta: { role: 'assistant', content: '' }, finish_reason: 'stop' }], usage },
   ]
     .map((c) => `data: ${j(c)}\n\n`)
     .join('') + 'data: [DONE]\n\n';
+
+// A hosted search as each wire reports it: the search call with its sources and an answer citing one of them.
+const SOURCE_A = { url: 'https://a.com/x', title: 'A page' };
+const SOURCE_B = { url: 'https://b.com/y', title: 'B page' };
+const webSearchCall = { type: 'web_search_call', id: 'ws_1', status: 'completed', action: { type: 'search', query: 'find x', sources: [{ type: 'url', url: SOURCE_A.url }, { type: 'url', url: SOURCE_B.url }] } };
+const urlCitation = { type: 'url_citation', start_index: 0, end_index: 17, url: SOURCE_A.url, title: SOURCE_A.title };
+const citedMessage = { type: 'message', id: 'm1', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'The answer is 42.', annotations: [urlCitation] }] };
+const responsesSearch = () =>
+  sse(
+    [
+      { type: 'response.created', response: { id: 'resp_x', model: 'fixture' } },
+      { type: 'response.output_item.added', output_index: 0, item: { type: 'web_search_call', id: 'ws_1', status: 'in_progress' } },
+      { type: 'response.web_search_call.in_progress', output_index: 0, item_id: 'ws_1' },
+      { type: 'response.web_search_call.searching', output_index: 0, item_id: 'ws_1' },
+      { type: 'response.web_search_call.completed', output_index: 0, item_id: 'ws_1' },
+      { type: 'response.output_item.done', output_index: 0, item: webSearchCall },
+      { type: 'response.output_item.added', output_index: 1, item: { type: 'message', id: 'm1', role: 'assistant', content: [] } },
+      { type: 'response.output_text.delta', output_index: 1, item_id: 'm1', content_index: 0, delta: 'The answer is 42.' },
+      { type: 'response.output_text.annotation.added', output_index: 1, item_id: 'm1', content_index: 0, annotation_index: 0, annotation: urlCitation },
+      { type: 'response.output_item.done', output_index: 1, item: citedMessage },
+      { type: 'response.completed', response: { id: 'resp_x', model: 'fixture', status: 'completed', usage: { input_tokens: 20, output_tokens: 8, total_tokens: 28 }, output: [webSearchCall, citedMessage] } },
+    ],
+    true
+  );
+const anthropicSearch = (model) =>
+  sse(
+    [
+      { type: 'message_start', message: { id: 'msg_x', type: 'message', role: 'assistant', model, content: [], usage: { input_tokens: 20, output_tokens: 1 } } },
+      { type: 'content_block_start', index: 0, content_block: { type: 'server_tool_use', id: 'srvtoolu_1', name: 'web_search', input: {} } },
+      { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: '{"query":"find x"}' } },
+      { type: 'content_block_stop', index: 0 },
+      { type: 'content_block_start', index: 1, content_block: { type: 'web_search_tool_result', tool_use_id: 'srvtoolu_1', content: [{ type: 'web_search_result', url: SOURCE_A.url, title: SOURCE_A.title, encrypted_content: 'enc-a', page_age: null }] } },
+      { type: 'content_block_stop', index: 1 },
+      { type: 'content_block_start', index: 2, content_block: { type: 'text', text: '' } },
+      { type: 'content_block_delta', index: 2, delta: { type: 'citations_delta', citation: { type: 'web_search_result_location', cited_text: 'x is 42', url: SOURCE_A.url, title: SOURCE_A.title, encrypted_index: 'ei-a' } } },
+      { type: 'content_block_delta', index: 2, delta: { type: 'text_delta', text: 'The answer is 42.' } },
+      { type: 'content_block_stop', index: 2 },
+      { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 8, server_tool_use: { web_search_requests: 1 } } },
+      { type: 'message_stop' },
+    ],
+    true
+  );
+const grounding = {
+  groundingMetadata: {
+    webSearchQueries: ['find x'],
+    groundingChunks: [{ web: { uri: SOURCE_A.url, title: 'a.com' } }, { web: { uri: SOURCE_B.url, title: 'b.com' } }],
+    groundingSupports: [{ segment: { startIndex: 0, endIndex: 17, text: 'The answer is 42.' }, groundingChunkIndices: [0] }],
+  },
+};
 const ok = (body, contentType = 'text/event-stream') => ({ status: 200, contentType, body });
 
 // Auxiliary requests (catalog lookups, updater manifests, token grants) get fixed answers; token grants are numbered so a
 // refreshed token differs from the one it replaces.
-const router = (reply) => {
+// `models`: the ids a catalog read lists (a gateway sends only a model it lists).
+const router = (reply, models = []) => {
   let tokens = 0;
   return (rec, n) => {
     if (/oauth2?\/token|\/token$|oauth2\.googleapis/.test(rec.path) || /oauth2\.googleapis/.test(rec.origin ?? '')) {
       tokens += 1;
       return ok(j({ access_token: `fixture-token-${tokens}`, expires_in: 3600, token_type: 'Bearer' }), 'application/json');
     }
-    if (rec.method === 'GET') return ok(j({ object: 'list', data: [], models: [] }), 'application/json');
+    // OpenCode Go's gateway configuration (record-providers-intercepted.mjs answers it the same way).
+    if (/\/api\/v2\/config/.test(rec.path)) {
+      return ok(j({ providers: { 'opencode-go': { settings: { baseURL: 'https://opencode.ai/inference/go/openai/v1' }, models: Object.fromEntries(models.map((id) => [id, { name: id, limit: { context: 128000, output: 8192 } }])) } } }), 'application/json');
+    }
+    if (rec.method === 'GET') return ok(j({ object: 'list', data: models.map((id) => ({ id, object: 'model' })), models: models.map((id) => ({ name: id, id })) }), 'application/json');
     return reply(rec, n);
   };
 };
@@ -132,6 +191,11 @@ cred('openai-oauth.json', oauthDoc);
 cred('anthropic-oauth-credentials.json', { claudeAiOauth: { accessToken: 'fixture-access-token', refreshToken: 'fixture-refresh-token', expiresAt: FAR, scopes: ['user:inference', 'user:profile'], subscriptionType: 'max' } });
 cred('antigravity-oauth.json', { ...oauthDoc, project_id: 'fixture-project' });
 cred('grok-oauth.json', oauthDoc);
+cred('mimo-oauth.json', { apiKey: 'fixture-key', uid: 'u1' });
+cred('command-code-oauth.json', { apiKey: 'fixture-key', userId: 'u1', userName: 'fixture' });
+cred('muse-code-oauth.json', { accessToken: 'fixture-access-token', apiKey: 'fixture-key', accountId: 'acct-fixture', email: 'fixture@example.invalid' });
+cred('opencode-go-oauth.json', oauthDoc);
+const compat = async (name, config = {}) => new (await P('openai-compat.mjs')).OpenAICompatProvider(name, { apiKey: 'fixture-key', preconnect: false, ...config });
 const PROVIDERS = {
   openai: async () => new (await P('openai-ws.mjs')).OpenAIDirectProvider({ apiKey: 'fixture-key' }),
   'openai-oauth': async () => new (await P('openai-oauth.mjs')).OpenAIOAuthProvider({}),
@@ -147,6 +211,14 @@ const PROVIDERS = {
   },
   'antigravity-oauth': async () => new (await P('antigravity-oauth.mjs')).AntigravityOAuthProvider({}),
   'grok-oauth': async () => new (await P('grok-oauth.mjs')).GrokOAuthProvider({}),
+  // xAI's Chat Completions mode (its default is Responses).
+  xai: () => compat('xai', { apiMode: 'chat' }),
+  deepseek: () => compat('deepseek'),
+  openrouter: () => compat('openrouter'),
+  'mimo-oauth': async () => new (await P('mimo-oauth.mjs')).MimoOAuthProvider({ preconnect: false }),
+  'command-code-oauth': async () => new (await P('command-code-oauth.mjs')).CommandCodeOAuthProvider({ preconnect: false }),
+  'muse-code-oauth': async () => new (await P('muse-code-oauth.mjs')).MuseCodeOAuthProvider({ preconnect: false }),
+  'opencode-go-oauth': async () => new (await P('opencode-go-oauth.mjs')).OpenCodeGoOAuthProvider({ preconnect: false }),
 };
 
 // ---- scenarios ------------------------------------------------------------------------
@@ -156,13 +228,13 @@ const scenarios = [];
 // `sendCandidate` sends with (native-web-search.mjs:63-77), under the session id it derives at START.
 const searchArgs = { query: 'q', prompt: 'find x', site: 'a.com OR b.com', contextSize: 'medium', maxResults: 3 };
 const SEARCH = [
-  ['openai', 'gpt-5.2', responsesText],
-  ['openai-oauth', 'gpt-5.2', responsesText],
-  ['anthropic', 'claude-sonnet-4-6', () => anthropicText('claude-sonnet-4-6')],
-  ['anthropic-oauth', 'claude-sonnet-4-6', () => anthropicText('claude-sonnet-4-6')],
-  ['gemini', 'gemini-2.5-pro', () => geminiText()],
-  ['antigravity-oauth', 'gemini-3-pro', () => geminiText(undefined, true)],
-  ['grok-oauth', 'grok-4', responsesText],
+  ['openai', 'gpt-5.2', responsesSearch],
+  ['openai-oauth', 'gpt-5.2', responsesSearch],
+  ['anthropic', 'claude-sonnet-4-6', () => anthropicSearch('claude-sonnet-4-6')],
+  ['anthropic-oauth', 'claude-sonnet-4-6', () => anthropicSearch('claude-sonnet-4-6')],
+  ['gemini', 'gemini-2.5-pro', () => geminiText(undefined, false, grounding)],
+  ['antigravity-oauth', 'gemini-3-pro', () => geminiText(undefined, true, grounding)],
+  ['grok-oauth', 'grok-4', responsesSearch],
 ];
 for (const [provider, model, reply] of SEARCH) {
   const family = webSearchProviderFamily(provider);
@@ -207,6 +279,42 @@ for (const [name, failure, status] of MAAS) {
     tools: null,
     opts: {},
     script: () => router(sequence({ ...failure, status, headers: status === 401 ? {} : advice }, ok(chatText()))),
+  });
+}
+
+// Claude on Vertex AI (`_sendClaude`, vertex-ai.mjs:449-552): an Anthropic request through streamRawPredict, plain, with
+// tools and effort, and a 529 retried on the Anthropic backoff.
+const claudeTurn = [{ role: 'system', content: 'You are a fixture assistant.' }, { role: 'user', content: 'Hello' }];
+const VERTEX_CLAUDE = [
+  ['text', null, {}, () => router(sequence(ok(anthropicText('claude-sonnet-4-6'))))],
+  ['tools-effort', 'GLOB', { effort: 'high' }, () => router(sequence(ok(anthropicText('claude-sonnet-4-6'))))],
+  ['retry-529', null, {}, () => router(sequence({ ...ok(j({ type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } }), 'application/json'), status: 529, headers: advice }, ok(anthropicText('claude-sonnet-4-6'))))],
+];
+
+// The model a compatible provider reports (`response.model || useModel`, openai-compat-chat-send.mjs:321 and
+// chunk-events.mjs:56; Muse Code always sends Responses, muse-code-oauth.mjs:390-394): each provider's answer names
+// another model than the one asked for.
+const SERVED = [
+  ['xai', 'grok-4', chatText],
+  ['deepseek', 'deepseek-chat', chatText],
+  ['openrouter', 'openai/gpt-5', chatText],
+  ['mimo-oauth', 'mimo-fixture', chatText],
+  ['command-code-oauth', 'cc-fixture', chatText],
+  ['muse-code-oauth', 'muse-fixture', (_usage, served) => responsesText(served)],
+  ['opencode-go-oauth', 'go-fixture', chatText],
+];
+for (const [provider, model, reply] of SERVED) {
+  scenarios.push({
+    group: 'served-model',
+    name: provider,
+    provider,
+    model,
+    messages: claudeTurn,
+    tools: null,
+    // xAI's x-grok-conv-id falls back to the process id without a session (openai-compat-xai.mjs:59): a fixed session
+    // keeps it the same from run to run.
+    opts: provider === 'xai' ? { sessionId: 'fixture-session' } : {},
+    script: () => router(sequence(ok(reply({ prompt_tokens: 20, completion_tokens: 8, total_tokens: 28 }, `${model}-served`))), [model]),
   });
 }
 
@@ -335,6 +443,9 @@ for (const [name, [model, messages, opts = {}]] of Object.entries(CLAUDE_CASES))
     script: () => router(sequence(ok(geminiText(undefined, true)))),
   });
 }
+for (const [name, tools, opts, script] of VERTEX_CLAUDE) {
+  scenarios.push({ group: 'vertex-claude', name, provider: 'vertex-ai-adc', model: 'claude-sonnet-4-6', messages: claudeTurn, tools: tools ? GLOB : null, opts, script });
+}
 
 // Anthropic server-side fallback (anthropic-server-fallback.mjs), as the stream carries it: before any output (message_start
 // already names the fallback model) and mid-output (message_start names the requested model).
@@ -365,6 +476,18 @@ const FALLBACK = {
     { type: 'content_block_delta', index: 2, delta: { type: 'text_delta', text: 'answer.' } },
     { type: 'content_block_stop', index: 2 },
     { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { input_tokens: 412, output_tokens: 9, iterations } },
+    { type: 'message_stop' },
+  ],
+  // The fallback names a dated snapshot of the requested model: only the fallback record marks the answer substituted
+  // (`servedModelSubstituted`, usage-request-status.mjs:33-42).
+  'snapshot-target': [
+    { type: 'message_start', message: { id: 'msg_f', type: 'message', role: 'assistant', model: 'claude-opus-5', content: [], usage: { input_tokens: 412, output_tokens: 1 } } },
+    { type: 'content_block_start', index: 0, content_block: { ...fallbackBlock, to: { model: 'claude-opus-5-20260301' }, trigger: { type: 'overloaded' } } },
+    { type: 'content_block_stop', index: 0 },
+    { type: 'content_block_start', index: 1, content_block: { type: 'text', text: '' } },
+    { type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: 'Hi! How can I help?' } },
+    { type: 'content_block_stop', index: 1 },
+    { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 9 } },
     { type: 'message_stop' },
   ],
 };
@@ -450,6 +573,8 @@ for (const s of selected) {
     try {
       const value = s.accounted ? await accountProviderSend(s.provider, provider, send, s.model, opts) : await send(opts);
       result = { ok: plainResult(value) };
+      // The assistant turn the loop commits from an accounted answer (assistant-commit.mjs:72-104).
+      if (s.accounted) result.committed = plainResult(buildIntermediateAssistantMessage(value));
     } catch (e) {
       result = { error: { name: e?.name ?? null, message: String(e?.message ?? e), status: e?.status ?? e?.httpStatus ?? null, code: e?.code ?? null } };
     }

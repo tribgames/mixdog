@@ -2,7 +2,8 @@
 //! (`fixtures/provider-wire/antigravity-claude`, recorded by `benchmarks/rust-core/recorders/record-provider-wire.mjs`
 //! from the cases of `antigravity-request.test.mjs:402-795` sent through `AntigravityOAuthProvider`): empty parts,
 //! rejoined and unsigned or foreign thinking, and the closing of an unthought tool loop. The real codec encodes each
-//! history (compared with the bytes Node sent, the per-send `requestId` aside) and decodes the recorded answer.
+//! history (compared with the bytes Node sent, the per-send `requestId` aside) and decodes the recorded answer, compared
+//! whole with Node's result (the replay envelope the next turn sends back included).
 
 use std::sync::Arc;
 
@@ -14,10 +15,11 @@ use serde_json::Value;
 use super::auth::antigravity::ENDPOINT;
 use super::codec::GoogleCodec;
 use super::traits::CatalogGoogleTraits;
+use crate::providers::wire_fixtures::assert_same_result;
+use crate::providers::wire_fixtures::core_result;
 use crate::providers::wire_fixtures::load;
 use crate::providers::wire_fixtures::message;
-use crate::providers::wire_fixtures::node_answer;
-use crate::providers::wire_fixtures::rust_answer;
+use crate::providers::wire_fixtures::node_result;
 use crate::providers::wire_fixtures::scenarios;
 use crate::providers::wire_fixtures::tools;
 
@@ -53,6 +55,6 @@ fn every_claude_history_is_replayed_as_node_replays_it() {
         let mut decoder = codec.decoder(&request);
         let mut events = decoder.feed(post["served"].as_str().unwrap().as_bytes()).unwrap_or_else(|e| panic!("{name}: {e:?}"));
         events.extend(decoder.finish().unwrap_or_else(|e| panic!("{name}: {e:?}")));
-        assert_eq!(rust_answer(&events, model), node_answer(&recorded.result), "{name}: answer");
+        assert_same_result(&core_result(&events, model), &node_result(&recorded.result), &format!("{name}: result"));
     }
 }

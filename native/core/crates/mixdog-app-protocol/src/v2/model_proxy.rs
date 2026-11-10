@@ -632,6 +632,8 @@ pub enum ProxyEvent {
     Notice { message: String, warn: bool },
     /// The model that answered when it is not the one the request named (`StreamEvent::ServedModel`).
     ServedModel { model: String },
+    /// Provider facts the committed assistant turn keeps, Anthropic's fallback record (`StreamEvent::ProviderMetadata`).
+    ProviderMetadata { value: JsonValue },
     /// `pricing_model`: the catalog model the send bills as when it differs from the one sent.
     /// `request_ms`: the request's wall time as the usage ledger measured it (Node `usageDurationMs`).
     Completed {

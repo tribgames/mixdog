@@ -816,7 +816,7 @@ impl DefaultProviderBuilder {
         let auth = vertex::VertexAuth::new(http.clone(), credential, Box::new(now_ms_u64));
         let identity = auth.identity().to_owned();
         let auth: Arc<dyn RequestAuth> = Arc::new(auth);
-        Ok(adapter(google::vertex(place, auth, identity, http, traits)))
+        Ok(adapter(google::vertex(place, auth, identity, http, traits, self.env.anthropic_caps.clone())))
     }
 
     /// No gcloud login: the metadata server's default service account, when a
@@ -846,7 +846,7 @@ impl DefaultProviderBuilder {
         let auth = vertex_metadata::MetadataAuth::new(http.clone(), &served, Box::new(now_ms_u64));
         let identity = auth.identity().to_owned();
         let auth: Arc<dyn RequestAuth> = Arc::new(auth);
-        Ok(adapter(google::vertex(place, auth, identity, http, self.env.google_traits.clone())))
+        Ok(adapter(google::vertex(place, auth, identity, http, self.env.google_traits.clone(), self.env.anthropic_caps.clone())))
     }
 
     async fn build_antigravity(&self, name: &str) -> Result<Arc<dyn ProviderAdapter>, String> {

@@ -66,6 +66,31 @@
     "generationMs": 0,
     "requestServiceTier": ""
   },
+  "committed": {
+    "role": "assistant",
+    "content": "Hi! How can I help?",
+    "providerReplay": {
+      "version": 1,
+      "provider": "anthropic",
+      "items": [
+        {
+          "type": "text",
+          "text": "Hi! How can I help?"
+        }
+      ]
+    },
+    "providerMetadata": {
+      "anthropicFallbacks": [
+        {
+          "trigger": "refusal",
+          "originalModel": "claude-opus-5",
+          "fallbackModel": "claude-opus-4-8",
+          "category": "cyber"
+        }
+      ]
+    },
+    "stopReason": "end_turn"
+  },
   "dispatchedToolCalls": [],
   "rows": [
     {

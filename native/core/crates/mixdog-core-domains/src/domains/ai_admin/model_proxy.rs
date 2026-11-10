@@ -404,6 +404,7 @@ pub fn event_out(e: &p::StreamEvent) -> w::ProxyEvent {
         E::ProviderState(state) => w::ProxyEvent::ProviderState { state: state.to_json() },
         E::Notice { message, warn } => w::ProxyEvent::Notice { message: message.clone(), warn: *warn },
         E::ServedModel(model) => w::ProxyEvent::ServedModel { model: model.clone() },
+        E::ProviderMetadata(value) => w::ProxyEvent::ProviderMetadata { value: value.clone() },
         E::Completed { stop, pricing_model, request_ms } => w::ProxyEvent::Completed {
             pricing_model: pricing_model.clone(),
             request_ms: *request_ms,
@@ -462,6 +463,7 @@ pub fn event_in(e: w::ProxyEvent) -> Result<Incoming, String> {
         w::ProxyEvent::ProviderState { state } => E::ProviderState(serde_json::from_value(state).map_err(|e| format!("invalid providerState: {e}"))?),
         w::ProxyEvent::Notice { message, warn } => E::Notice { message, warn },
         w::ProxyEvent::ServedModel { model } => E::ServedModel(model),
+        w::ProxyEvent::ProviderMetadata { value } => E::ProviderMetadata(value),
         w::ProxyEvent::Completed { stop, pricing_model, request_ms } => E::Completed {
             pricing_model,
             request_ms,

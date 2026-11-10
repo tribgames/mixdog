@@ -41,6 +41,9 @@ pub struct ModelResponse {
     /// `opts.providerState` back); `None` when the request did not change it.
     /// The run stores it as the pending state for the next request.
     pub provider_state: Option<ProviderState>,
+    /// Node's result `providerMetadata` (Anthropic's `anthropicFallbacks`), from `StreamEvent::ProviderMetadata`: the
+    /// committed assistant turn keeps it (`assistantEchoFields`).
+    pub provider_metadata: Option<JsonValue>,
     /// The request's wall time as the usage ledger measured it (Node
     /// `result.response.usageDurationMs`), from `Completed.request_ms`; `None`
     /// when the send was not accounted, and the loop's own clock stands in.
@@ -111,6 +114,7 @@ impl ResponseBuilder {
             StreamEvent::Usage(usage) => response.usage = usage,
             StreamEvent::ProviderState(state) => response.provider_state = Some(state),
             StreamEvent::ServedModel(model) => response.model = model,
+            StreamEvent::ProviderMetadata(metadata) => response.provider_metadata = Some(metadata),
             StreamEvent::ServerToolBlock(block) => response.server_blocks.push(block),
             StreamEvent::Completed { stop, request_ms, .. } => {
                 response.stop = stop;
@@ -244,6 +248,7 @@ fn echo(message: &mut AgentMessage, response: &ModelResponse, keep_blocks: bool)
     if !response.reasoning.is_empty() {
         message.reasoning = Some(response.reasoning.clone());
     }
+    message.provider_metadata = response.provider_metadata.clone().filter(JsonValue::is_object);
 }
 
 /// The intermediate (no client tool call) assistant turn: max-output partials,
@@ -333,6 +338,49 @@ mod tests {
         let message = tool_call_message(&ModelResponse { tool_calls: vec![call], ..response });
         assert_eq!(message.message.thinking_blocks.as_ref(), Some(&blocks));
     }
+    /// The turn the loop commits from an answer Anthropic's server-side fallback served keeps the fallback record, as
+    /// Node's `buildIntermediateAssistantMessage` keeps `providerMetadata` (recorded by
+    /// `benchmarks/rust-core/recorders/record-provider-wire.mjs`, `fixtures/provider-wire/anthropic-fallback`): the
+    /// recorded stream is decoded by the real Anthropic codec and folded.
+    #[test]
+    fn a_fallback_answer_commits_its_fallback_record() {
+        use mixdog_ai::providers::anthropic::{AnthropicCodec, AnthropicConfig, Flavor};
+        use mixdog_core_api::domain::provider::{Content, Message, ModelRequest, RequestOptions, Role, WireCodec};
+        let recorded = [
+            include_str!("../../../fixtures/provider-wire/anthropic-fallback/before-output/result.json"),
+            include_str!("../../../fixtures/provider-wire/anthropic-fallback/mid-output/result.json"),
+            include_str!("../../../fixtures/provider-wire/anthropic-fallback/snapshot-target/result.json"),
+        ];
+        let exchanges = [
+            include_str!("../../../fixtures/provider-wire/anthropic-fallback/before-output/exchange.json"),
+            include_str!("../../../fixtures/provider-wire/anthropic-fallback/mid-output/exchange.json"),
+            include_str!("../../../fixtures/provider-wire/anthropic-fallback/snapshot-target/exchange.json"),
+        ];
+        let codec = AnthropicCodec::new(Flavor::OAuth, AnthropicConfig::new(std::sync::Arc::new(|_: &str| None)));
+        let request = ModelRequest {
+            model: "claude-opus-5".into(),
+            messages: vec![Message::new(Role::User, Content::Text("Hello".into()))],
+            tools: Vec::new(),
+            options: RequestOptions::default(),
+        };
+        for (result, exchange) in recorded.iter().zip(exchanges) {
+            let result: serde_json::Value = serde_json::from_str(result).unwrap();
+            let exchange: serde_json::Value = serde_json::from_str(exchange).unwrap();
+            let served = exchange["records"].as_array().unwrap().iter().find(|r| r["method"] == "POST").unwrap()["served"].as_str().unwrap().to_owned();
+            let mut decoder = codec.decoder(&request);
+            let mut builder = ResponseBuilder::new(&request.model, ToolCallIds::new(&[]));
+            for event in decoder.feed(served.as_bytes()).unwrap().into_iter().chain(decoder.finish().unwrap()) {
+                builder.push(event);
+            }
+            let message = intermediate_message(&builder.finish()).expect("a committed turn");
+            let committed = &result["committed"];
+            assert_eq!(message.provider_metadata.as_ref(), Some(&committed["providerMetadata"]));
+            assert_eq!(message.message.content, Content::Text(committed["content"].as_str().unwrap().to_owned()));
+            assert_eq!(message.stop_reason.as_ref().map(stop_text).as_deref(), committed["stopReason"].as_str());
+            assert_eq!(message.message.provider_replay()[0].items, committed["providerReplay"]["items"]);
+        }
+    }
+
     #[test]
     fn termination_follows_content_and_stop() {
         let empty = ModelResponse::default();

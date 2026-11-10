@@ -184,8 +184,9 @@ pub struct ChatDecoder {
     listed_finish: bool,
     /// One dispatch per call across the recovered and the streamed path.
     dedupe: Dedupe,
-    /// `Some` when the turn reports the model the chunks name (`chunk-events.mjs:56`, the last non-empty one wins).
-    served: Option<String>,
+    /// The model the chunks name (`chunk-events.mjs:56`, the last non-empty one wins), which the turn reports as the one
+    /// that answered (Node's result `model: response.model || useModel`, openai-compat-chat-send.mjs:321).
+    served: String,
 }
 
 impl ChatDecoder {
@@ -215,15 +216,8 @@ impl ChatDecoder {
             normal_finish: false,
             listed_finish: false,
             dedupe: Dedupe::default(),
-            served: None,
+            served: String::new(),
         }
-    }
-
-    /// Reports the model the chunks name as the one that answered (`StreamEvent::ServedModel`), as Node's result
-    /// `model: response.model || useModel` does.
-    pub fn reporting_served_model(mut self) -> Self {
-        self.served = Some(String::new());
-        self
     }
 
     /// Recover tool calls leaked into the text, naming only these tools (the request body's).
@@ -433,8 +427,8 @@ impl ChatDecoder {
         if let Some(usage) = chunk.get("usage").filter(|u| u.is_object()) {
             self.usage = Some(usage.clone());
         }
-        if let (Some(served), Some(model)) = (self.served.as_mut(), chunk.get("model").and_then(JsonValue::as_str).filter(|m| !m.is_empty())) {
-            model.clone_into(served);
+        if let Some(model) = chunk.get("model").and_then(JsonValue::as_str).filter(|m| !m.is_empty()) {
+            model.clone_into(&mut self.served);
         }
     }
 
@@ -559,8 +553,8 @@ impl ChatDecoder {
                 details,
             )));
         }
-        if let Some(served) = self.served.as_ref().filter(|m| !m.is_empty()) {
-            out.push(StreamEvent::ServedModel(served.clone()));
+        if !self.served.is_empty() {
+            out.push(StreamEvent::ServedModel(self.served.clone()));
         }
         out.push(StreamEvent::Completed {
             pricing_model: None,

@@ -684,6 +684,10 @@ pub enum StreamEvent {
     /// `send` result `model`: Gemini's dated redirect). The usage ledger books the send under it and the turn's
     /// response reports it.
     ServedModel(String),
+    /// Provider facts about the turn that the committed assistant message keeps (Node result `providerMetadata`, copied
+    /// onto the turn by `assistantEchoFields`): Anthropic's `anthropicFallbacks`, which the usage ledger also reads to
+    /// book the answer as substituted. The last one stands.
+    ProviderMetadata(JsonValue),
     /// The wire's terminal event. Exactly one per completed attempt, last.
     /// `stop` is `None` when the wire named no stop reason (Node
     /// `stopReason: null`: a plain Responses or Gemini completion); a decoder

@@ -56,6 +56,8 @@ pub struct GoogleAdapter {
     policy: RetryPolicy,
     /// The policy of Vertex AI's open models ([`ProviderAdapter::retry_policy_for`]).
     maas_policy: RetryPolicy,
+    /// The policy of Claude on Vertex AI.
+    claude_policy: RetryPolicy,
     keepalive: KeepaliveSchedule,
     http: Arc<dyn HttpSend>,
     auth: Arc<dyn RequestAuth>,
@@ -88,6 +90,7 @@ impl GoogleAdapter {
             codec,
             policy,
             maas_policy: crate::providers::compat::retry::unprofiled(),
+            claude_policy: crate::providers::anthropic::retry_policy(true),
             keepalive: KeepaliveSchedule::SPEC,
             http,
             auth,
@@ -365,9 +368,16 @@ impl ProviderAdapter for GoogleAdapter {
     }
 
     /// An open model on Vertex AI retries as its OpenAI-compatible engine does (`withCompatRetryProfile('vertex-ai')`:
-    /// no profile, the shared default).
+    /// no profile, the shared default); Claude as the first-party Anthropic route does (`_sendClaude`'s `withRetry`:
+    /// Anthropic's backoff and attempts, 429 and 529 retried, `Retry-After` honoured).
     fn retry_policy_for(&self, model: &str) -> &RetryPolicy {
-        if self.codec.maas_model(model).is_some() { &self.maas_policy } else { &self.policy }
+        if self.codec.maas_model(model).is_some() {
+            &self.maas_policy
+        } else if self.codec.claude_model(model).is_some() {
+            &self.claude_policy
+        } else {
+            &self.policy
+        }
     }
 
     fn keepalive(&self) -> &KeepaliveSchedule {
@@ -457,6 +467,15 @@ impl GoogleAdapter {
             }
             return Ok(Exchanged { response, queue, global });
         }
+        // Claude (`_sendClaude`): an Anthropic request through streamRawPredict, no explicit cache.
+        if let Some(model) = self.codec.claude_model(&request.model) {
+            let mut response = self.dispatch(&self.codec.claude_wire(request, &model, false)?).await?;
+            let global = response.status == 404 && self.codec.falls_back_to_global(request);
+            if global {
+                response = self.dispatch(&self.codec.claude_wire(request, &model, true)?).await?;
+            }
+            return Ok(Exchanged { response, queue, global });
+        }
         // State changes reach the session only as stream events: Node persists
         // `providerState` from a delivered result alone (`ask-turn-settle.mjs:147`),
         // never from a failed send, so no error carries one.
@@ -541,10 +560,9 @@ impl GoogleAdapter {
         }
         Ok(GoogleStream {
             body: response.body,
-            decoder: self.codec.decoder(&request),
+            decoder: self.codec.decoder_at(&request, global),
             queue,
             ended: false,
-            model: request.model.clone(),
             // An empty answer right after a tool result is the model's answer.
             after_tool_result: request
                 .messages
@@ -562,7 +580,6 @@ struct GoogleStream {
     decoder: Box<dyn WireDecoder>,
     queue: VecDeque<Result<StreamEvent, ProviderError>>,
     ended: bool,
-    model: String,
     after_tool_result: bool,
     produced_output: bool,
 }
@@ -577,12 +594,6 @@ impl GoogleStream {
         for mut event in events {
             match &mut event {
                 StreamEvent::TextDelta(_) | StreamEvent::ToolCallDone(_) => self.produced_output = true,
-                StreamEvent::ReasoningReplay(replay) => {
-                    // A replay is bound to the model that produced it.
-                    if let Some(items) = replay.items.as_object_mut() {
-                        items.insert("model".into(), self.model.clone().into());
-                    }
-                }
                 StreamEvent::Completed { stop: None, .. }
                     if !self.produced_output && !self.after_tool_result =>
                 {

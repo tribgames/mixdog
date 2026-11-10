@@ -30,7 +30,7 @@
         "content-length"
       ],
       "bodyText": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"find x\"}]}],\"systemInstruction\":{\"role\":\"system\",\"parts\":[{\"text\":\"You are Mixdog native web search.\\nUse the hosted web_search tool for current or external facts.\\nAnswer concisely, cite source URLs, and do not request local tools or file edits.\"}]},\"tools\":[{\"googleSearch\":{}}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
-      "served": "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"The answer \"}]}}],\"modelVersion\":\"fixture\"}\n\ndata: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"is 42.\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":20,\"candidatesTokenCount\":8,\"totalTokenCount\":28},\"modelVersion\":\"fixture\"}\n\n"
+      "served": "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"The answer \"}]}}],\"modelVersion\":\"fixture\"}\n\ndata: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"is 42.\"}]},\"finishReason\":\"STOP\",\"groundingMetadata\":{\"webSearchQueries\":[\"find x\"],\"groundingChunks\":[{\"web\":{\"uri\":\"https://a.com/x\",\"title\":\"a.com\"}},{\"web\":{\"uri\":\"https://b.com/y\",\"title\":\"b.com\"}}],\"groundingSupports\":[{\"segment\":{\"startIndex\":0,\"endIndex\":17,\"text\":\"The answer is 42.\"},\"groundingChunkIndices\":[0]}]}}],\"usageMetadata\":{\"promptTokenCount\":20,\"candidatesTokenCount\":8,\"totalTokenCount\":28},\"modelVersion\":\"fixture\"}\n\n"
     }
   ],
   "determinism": {

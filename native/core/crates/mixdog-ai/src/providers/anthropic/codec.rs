@@ -186,6 +186,32 @@ impl WireCodec for AnthropicCodec {
     }
 }
 
+/// The Messages body of Claude on Vertex AI (`_sendClaude`, vertex-ai.mjs:449-466): the request as the API-key route
+/// builds it for the provider `vertex-ai` with beta headers off (no fast mode, no server-side fallback), and whether the
+/// body defers a tool (the one request feature whose beta Vertex takes under its own name). `model` is the Vertex model
+/// id, which the catalog is asked about.
+pub(crate) fn vertex_body(caps: &super::caps::CapsLookup, request: &ModelRequest, model: &str) -> Result<(serde_json::Map<String, Value>, bool), ProviderError> {
+    let mut sent = request.clone();
+    model.clone_into(&mut sent.model);
+    sent.options.fast = false;
+    let caps = caps(model);
+    let cfg = BodyConfig {
+        flavor: Flavor::ApiKey,
+        provider_name: "vertex-ai",
+        owner: &ProviderId::from("anthropic"),
+        caps: caps.as_ref(),
+        cache: CacheStrategy::default(),
+        max_output_tokens: None,
+        first_party: false,
+        official_url: false,
+        beta_headers: false,
+        fast_mode: fast_mode::process(),
+    };
+    let built = build_body(&cfg, &sent)?;
+    let body = serde_json::from_slice(&built.bytes).expect("a built body is a JSON object");
+    Ok((body, built.betas.tool_search))
+}
+
 /// The wire request with its body and beta names replaced by a thread plan's.
 pub(super) fn threaded(wire: &WireRequest, body: &Value, betas: &[String]) -> WireRequest {
     let mut request = wire.clone();

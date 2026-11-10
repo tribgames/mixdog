@@ -1,0 +1,18 @@
+{
+  "provider": "xai",
+  "model": "grok-4",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a fixture assistant."
+    },
+    {
+      "role": "user",
+      "content": "Hello"
+    }
+  ],
+  "tools": null,
+  "opts": {
+    "sessionId": "fixture-session"
+  }
+}

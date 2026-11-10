@@ -32,8 +32,12 @@ use super::error::classify;
 use super::request::Dialect;
 use super::request::build_request;
 use super::request::invalid;
+use super::claude;
 use super::maas;
 use super::maas::VertexModel;
+use crate::providers::anthropic::CapsLookup;
+use crate::providers::leak::ToolNames;
+use crate::providers::leak::body_tool_names;
 use super::maas::vertex_model;
 use super::serving::Route;
 use super::serving::Tier;
@@ -68,6 +72,8 @@ pub struct GoogleCodec {
     target: Target,
     traits: Arc<dyn ModelTraits>,
     provider: ProviderId,
+    /// The Anthropic catalog's model capabilities, for Claude on Vertex AI ([`Self::with_claude_caps`]).
+    claude_caps: CapsLookup,
 }
 
 /// `encodeURIComponent` with `@` kept: a version suffix (`claude-…@default`)
@@ -127,6 +133,7 @@ impl GoogleCodec {
             target: Target::Gemini { origin: origin.into() },
             traits,
             provider: ProviderId::from("gemini"),
+            claude_caps: Arc::new(|_| None),
         }
     }
 
@@ -135,6 +142,7 @@ impl GoogleCodec {
             target: Target::Vertex { place },
             traits,
             provider: ProviderId::from("vertex-ai"),
+            claude_caps: Arc::new(|_| None),
         }
     }
 
@@ -152,7 +160,15 @@ impl GoogleCodec {
             },
             traits,
             provider: ProviderId::from("antigravity-oauth"),
+            claude_caps: Arc::new(|_| None),
         }
+    }
+
+    /// The Anthropic catalog's capabilities, which a Claude request on Vertex AI is built from
+    /// (`buildAnthropicApiRequest({ capabilityModel })`).
+    pub fn with_claude_caps(mut self, caps: CapsLookup) -> Self {
+        self.claude_caps = caps;
+        self
     }
 
     pub fn target(&self) -> &Target {
@@ -163,13 +179,22 @@ impl GoogleCodec {
         &self.provider
     }
 
+    /// The owner of this wire's replay envelopes: Vertex AI's Gemini turns are tagged `gemini` as the Gemini API's are
+    /// (`geminiSendResult` names no other provider), so either replays the other's.
+    fn replay_owner(&self) -> ProviderId {
+        match self.target {
+            Target::Vertex { .. } => ProviderId::from("gemini"),
+            _ => self.provider.clone(),
+        }
+    }
+
     pub fn traits(&self) -> &dyn ModelTraits {
         self.traits.as_ref()
     }
 
     fn dialect(&self) -> Dialect {
         let base = Dialect {
-            owner: self.provider.clone(),
+            owner: self.replay_owner(),
             system_role: Some("system"),
             function_ids: true,
             family_gated: false,
@@ -199,11 +224,13 @@ impl GoogleCodec {
     /// `global` is true when the request was resent there after a 404.
     pub fn classify_for(&self, response: &ErrorResponse, request: &ModelRequest, global: bool) -> ProviderError {
         let maas = self.maas_model(&request.model);
-        let mut error = match maas {
-            Some(_) => maas::classify(response),
-            None => classify(response, self.error_dialect()),
+        let claude = self.claude_model(&request.model);
+        let mut error = match (&maas, &claude) {
+            (Some(_), _) => maas::classify(response),
+            (_, Some(_)) => claude::classify(response),
+            _ => classify(response, self.error_dialect()),
         };
-        let vertex = match maas {
+        let vertex = match maas.or(claude) {
             Some(model) => Some(model),
             None => self.model_id(&request.model).ok().map(|id| VertexModel { publisher: "google".into(), id: id.to_owned(), wire: Wire::Gemini }),
         };
@@ -226,8 +253,16 @@ impl GoogleCodec {
         vertex_model(model).ok().filter(|m| m.wire == Wire::Maas)
     }
 
-    /// The HTTP request of an open-model send (`_sendMaas`); `global` sends it to `global`.
-    pub fn maas_wire(&self, request: &ModelRequest, model: &VertexModel, global: bool) -> Result<WireRequest, ProviderError> {
+    /// The Claude model `model` names on Vertex AI, when it names one (`vertexRoute(model).wire === 'claude'`).
+    pub fn claude_model(&self, model: &str) -> Option<VertexModel> {
+        if !matches!(self.target, Target::Vertex { .. }) {
+            return None;
+        }
+        vertex_model(model).ok().filter(|m| m.wire == Wire::Claude)
+    }
+
+    /// The location a send of a model that is not Google's Gemini goes to: an express key serves Gemini models only.
+    fn partner_location(&self, request: &ModelRequest, model: &VertexModel, global: bool) -> Result<(String, String), ProviderError> {
         let Target::Vertex { place } = &self.target else {
             return Err(invalid(format!("{} is not a Google-published Vertex AI model", model.qualified())));
         };
@@ -239,7 +274,20 @@ impl GoogleCodec {
         }
         let tier = Tier::requested(request.options.model_parameters.as_ref());
         let location = if global { "global".to_owned() } else { place.choose(&model.route(), tier)? };
-        maas::wire(request, model, &place.base(&location)?)
+        let base = place.base(&location)?;
+        Ok((location, base))
+    }
+
+    /// The HTTP request of an open-model send (`_sendMaas`); `global` sends it to `global`.
+    pub fn maas_wire(&self, request: &ModelRequest, model: &VertexModel, global: bool) -> Result<WireRequest, ProviderError> {
+        let (_, base) = self.partner_location(request, model, global)?;
+        maas::wire(request, model, &base)
+    }
+
+    /// The HTTP request of a Claude send (`_sendClaude`); `global` sends it to `global`.
+    pub fn claude_wire(&self, request: &ModelRequest, model: &VertexModel, global: bool) -> Result<WireRequest, ProviderError> {
+        let (_, base) = self.partner_location(request, model, global)?;
+        claude::wire(&self.claude_caps, request, model, &base)
     }
 
     fn error_dialect(&self) -> ErrorDialect {
@@ -272,12 +320,15 @@ impl WireCodec for GoogleCodec {
         if let Some(model) = self.maas_model(&request.model) {
             return self.maas_wire(request, &model, false);
         }
+        if let Some(model) = self.claude_model(&request.model) {
+            return self.claude_wire(request, &model, false);
+        }
         let inner = self.build_inner(request)?;
         self.wire(request, &inner, None)
     }
 
     fn decoder(&self, request: &ModelRequest) -> Box<dyn WireDecoder> {
-        self.decoder_impl(request)
+        self.decoder_at(request, false)
     }
 
     fn classify(&self, response: &ErrorResponse) -> ProviderError {
@@ -387,12 +438,18 @@ impl GoogleCodec {
         })
     }
 
-    fn decoder_impl(&self, request: &ModelRequest) -> Box<dyn WireDecoder> {
+    /// The decoder of an answer to `request`; `global`: the request was resent to Vertex's `global` location.
+    pub fn decoder_at(&self, request: &ModelRequest, global: bool) -> Box<dyn WireDecoder> {
         if let Some(model) = self.maas_model(&request.model) {
             return Box::new(maas::decoder(request, &model));
         }
+        if let Some(model) = self.claude_model(&request.model) {
+            // The location only prices the answer; a request that cannot be placed was never sent.
+            let location = self.partner_location(request, &model, global).map(|(location, _)| location).unwrap_or_default();
+            return Box::new(claude::decoder(&model, &location, body_tool_names(self, request, ToolNames::Named)));
+        }
         Box::new(GeminiDecoder::new(DecodeDialect {
-            owner: self.provider.clone(),
+            owner: self.replay_owner(),
             envelope: matches!(self.target, Target::Antigravity { .. }),
             usage: match self.target {
                 Target::Gemini { .. } => UsageStyle::Inclusive,
@@ -400,6 +457,8 @@ impl GoogleCodec {
                 Target::Antigravity { .. } => UsageStyle::ToolUseAdded,
             },
             errors: self.error_dialect(),
-        }).with_known_tools(request_tool_names(request)))
+        })
+        .with_known_tools(request_tool_names(request))
+        .for_model(&request.model))
     }
 }

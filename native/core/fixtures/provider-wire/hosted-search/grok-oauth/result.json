@@ -3,18 +3,83 @@
     "content": "The answer is 42.",
     "model": "fixture",
     "stopReason": null,
+    "citations": [
+      {
+        "title": "find x",
+        "url": "https://a.com/x",
+        "snippet": "",
+        "source": "web_search_call",
+        "provider": "xai"
+      },
+      {
+        "title": "find x",
+        "url": "https://b.com/y",
+        "snippet": "",
+        "source": "web_search_call",
+        "provider": "xai"
+      }
+    ],
+    "webSearchCalls": [
+      {
+        "id": "ws_1",
+        "status": "completed",
+        "action": {
+          "type": "search",
+          "query": "find x",
+          "sources": [
+            {
+              "type": "url",
+              "url": "https://a.com/x"
+            },
+            {
+              "type": "url",
+              "url": "https://b.com/y"
+            }
+          ]
+        }
+      }
+    ],
     "providerReplay": {
       "version": 1,
       "provider": "xai-responses",
       "items": [
         {
+          "type": "web_search_call",
+          "id": "ws_1",
+          "status": "completed",
+          "action": {
+            "type": "search",
+            "query": "find x",
+            "sources": [
+              {
+                "type": "url",
+                "url": "https://a.com/x"
+              },
+              {
+                "type": "url",
+                "url": "https://b.com/y"
+              }
+            ]
+          }
+        },
+        {
           "type": "message",
           "id": "m1",
           "role": "assistant",
+          "status": "completed",
           "content": [
             {
               "type": "output_text",
-              "text": "The answer is 42."
+              "text": "The answer is 42.",
+              "annotations": [
+                {
+                  "type": "url_citation",
+                  "start_index": 0,
+                  "end_index": 17,
+                  "url": "https://a.com/x",
+                  "title": "A page"
+                }
+              ]
             }
           ]
         }

@@ -170,6 +170,8 @@ pub(crate) struct AnthropicDecoder {
     leaked_dispatched: usize,
     /// Native tool_use blocks the dedupe dropped: they stay out of the replay.
     skipped: HashSet<u64>,
+    /// The server-side fallbacks the stream reported (`turn.fallbackEvents`), as `parseAnthropicFallbackBlock` records them.
+    fallbacks: Vec<Value>,
     /// The model the turn is attributed to (Node `turn.model`): the requested one until `message_start` names the model
     /// that answers or a `fallback` block hands the turn to the fallback model.
     model: String,
@@ -205,6 +207,7 @@ impl AnthropicDecoder {
             dedupe: Dedupe::default(),
             leaked_dispatched: 0,
             skipped: HashSet::new(),
+            fallbacks: Vec::new(),
         }
     }
 
@@ -330,6 +333,10 @@ impl AnthropicDecoder {
             }));
         }
         out.push(StreamEvent::Usage(self.usage.usage()));
+        // `anthropicFallbackProviderMetadata(turn.fallbackEvents)` (turn-outcome.mjs:158).
+        if !self.fallbacks.is_empty() {
+            out.push(StreamEvent::ProviderMetadata(json!({ "anthropicFallbacks": self.fallbacks })));
+        }
         out.push(StreamEvent::Completed {
             pricing_model: None,
             request_ms: None,
@@ -397,6 +404,15 @@ impl AnthropicDecoder {
             };
             let (from, to) = (model_of("from"), model_of("to"));
             if !from.is_empty() && !to.is_empty() {
+                let trigger = block.get("trigger").filter(|t| t.is_object());
+                let text_of = |key: &str| {
+                    trigger.and_then(|t| t.get(key)).and_then(Value::as_str).map(mixdog_js::js_trim).filter(|s| !s.is_empty())
+                };
+                let mut record = json!({ "trigger": text_of("type").unwrap_or("refusal"), "originalModel": from, "fallbackModel": to });
+                if let Some(category) = text_of("category") {
+                    record["category"] = json!(category);
+                }
+                self.fallbacks.push(record);
                 self.serve(&to, out);
                 out.push(StreamEvent::Progress(ProgressKind::Semantic));
             }
@@ -519,13 +535,14 @@ impl AnthropicDecoder {
                 // Node reports every input_json_delta, whatever block it lands on.
                 out.push(StreamEvent::Progress(ProgressKind::Tool));
             }
+            // A citation belongs to the text block it cites, replayed with it (turn-blocks.mjs:41-51, :79-81); Node's
+            // Anthropic result has no citation list of its own.
             "citations_delta" => {
                 let Some(citation) = delta.get("citation").filter(|c| c.is_object()) else {
                     return;
                 };
                 if let Some(Block::Text { citations, .. }) = self.blocks.get_mut(&index) {
                     citations.push(citation.clone());
-                    out.push(StreamEvent::Citation(citation.clone()));
                 }
             }
             _ => {}

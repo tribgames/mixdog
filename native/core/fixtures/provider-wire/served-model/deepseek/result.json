@@ -1,0 +1,21 @@
+{
+  "ok": {
+    "content": "The answer is 42.",
+    "model": "deepseek-chat-served",
+    "stopReason": "stop",
+    "usage": {
+      "inputTokens": 20,
+      "outputTokens": 8,
+      "cachedTokens": 0,
+      "cacheWriteTokens": 0,
+      "promptTokens": 20,
+      "raw": {
+        "prompt_tokens": 20,
+        "completion_tokens": 8,
+        "total_tokens": 28
+      }
+    },
+    "generationMs": 0
+  },
+  "dispatchedToolCalls": []
+}

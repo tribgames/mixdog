@@ -24,6 +24,7 @@ use mixdog_core_api::domain::provider::{
 };
 use mixdog_core_api::domain::retry::RetryPolicy;
 use mixdog_protocol::ProviderId;
+use serde_json::Value;
 
 use super::accounting::{Completed, Facts, Outcome, SendAccounting, SendIdentity, UsagePricing, UsageSink, random_uuid};
 
@@ -249,7 +250,7 @@ impl ProviderAdapter for AccountedAdapter {
         match self.inner.attempt(request).await {
             Ok(stream) => Ok(Box::new(AccountedStream {
                 inner: stream,
-                open: Some(Open { accounting, usage: None, served: None }),
+                open: Some(Open { accounting, usage: None, served: None, fallback: false }),
                 group,
                 now: Arc::clone(&self.deps.now),
             })),
@@ -299,6 +300,8 @@ struct Open {
     usage: Option<Usage>,
     /// The model the stream named as the one that answered (`StreamEvent::ServedModel`).
     served: Option<String>,
+    /// The stream reported a server-side fallback (`providerMetadata.anthropicFallbacks`, usage-accounting.mjs:121).
+    fallback: bool,
 }
 
 struct AccountedStream {
@@ -324,11 +327,16 @@ impl ModelStream for AccountedStream {
                 open.served = Some(model.clone());
                 Some(Ok(StreamEvent::ServedModel(model)))
             }
+            Some(Ok(StreamEvent::ProviderMetadata(metadata))) => {
+                open.fallback = metadata.get("anthropicFallbacks").and_then(Value::as_array).is_some_and(|f| !f.is_empty());
+                Some(Ok(StreamEvent::ProviderMetadata(metadata)))
+            }
             Some(Ok(StreamEvent::Completed { stop, pricing_model, request_ms })) => {
                 let open = self.open.take()?;
                 let done = Completed {
                     facts: open.usage.as_ref().map(Facts::from),
                     model: open.served.clone(),
+                    fallback: open.fallback,
                     pricing_model: pricing_model.clone(),
                     stream_ended_at: (self.now)(),
                     ..Completed::default()
