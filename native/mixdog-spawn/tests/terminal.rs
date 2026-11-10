@@ -511,7 +511,7 @@ impl TerminalEvents for Events {
         let hold = self.hold_forgotten.lock().unwrap().take();
         if let Some((held, open)) = hold {
             held.send(()).expect("the test waits for the held announcement");
-            open.recv_timeout(Duration::from_secs(10)).expect("the test never opened the gate on the held announcement");
+            open.recv_timeout(EVENT_DEADLINE).expect("the test never opened the gate on the held announcement");
         }
         self.log.lock().unwrap().push(Ev::Forgotten(id.to_owned()));
         self.changed.notify_all();
@@ -610,14 +610,27 @@ impl Rig {
         }
     }
 
-    /// Returns once the tab's replay holds `needle`. The replay has no event of its own to wait on, so it is read again every 25 ms; the
-    /// deadline turns a text that never comes into a failure that names it.
-    fn wait_text(&self, id: &str, needle: &str) {
-        let started = std::time::Instant::now();
-        while !self.tabs.snapshot(id, None).is_some_and(|s| s.text.contains(needle)) {
-            assert!(started.elapsed() < EVENT_DEADLINE, "{id}: {needle:?} never appeared in the replay within {EVENT_DEADLINE:?}");
-            std::thread::sleep(Duration::from_millis(25));
-        }
+    /// Returns once the tab's output feed has carried `needle` (its exit line included: the exit hook's bytes are the feed's last output).
+    /// The replay window is appended before the feed publishes, so the replay then holds it too. The deadline fails a text that never comes.
+    async fn wait_text(&self, id: &str, needle: &str) {
+        use mixdog_core_api::domain::process::ProcessEvent;
+        let mut events = self.manager.subscribe(&mixdog_protocol::ProcessHandle::from(id), Some(0)).expect("subscribe");
+        let mut bytes = Vec::new();
+        let seen = tokio::time::timeout(EVENT_DEADLINE, async {
+            while let Some(event) = events.next().await {
+                if let ProcessEvent::Output { bytes: chunk, .. } = event {
+                    bytes.extend_from_slice(&chunk);
+                    if bytes.windows(needle.len()).any(|w| w == needle.as_bytes()) {
+                        return true;
+                    }
+                }
+            }
+            false
+        })
+        .await
+        .unwrap_or_else(|_| panic!("{id}: {needle:?} never reached the output feed within {EVENT_DEADLINE:?}"));
+        assert!(seen, "{id}: the output feed ended without {needle:?}");
+        assert!(self.tabs.snapshot(id, None).is_some_and(|s| s.text.contains(needle)), "{id}: {needle:?} was fed but is not in the replay");
     }
 }
 
@@ -714,21 +727,19 @@ async fn a_claim_made_while_a_disposal_is_announced_is_not_undone_by_it() {
     let (held, open) = rig.events.hold_next_forgotten();
     let tabs = Arc::clone(&rig.tabs);
     let disposing = std::thread::spawn(move || tabs.dispose("term_gate"));
-    held.recv_timeout(Duration::from_secs(10)).expect("the disposal never announced the forgetting of the claims");
+    held.recv_timeout(EVENT_DEADLINE).expect("the disposal never announced the forgetting of the claims");
     let tabs = Arc::clone(&rig.tabs);
     let (claimed, claim_done) = std::sync::mpsc::channel();
     let claiming = std::thread::spawn(move || {
         tabs.resize("term_gate", 60, 25, "B");
         claimed.send(()).unwrap();
     });
-    // A claim that gets through while the announcement is in hand is not queued behind it. The bounded wait names what it checks.
-    assert!(
-        claim_done.recv_timeout(Duration::from_secs(2)).is_err(),
-        "a claim was applied while the disposal's announcement was held: it is not ordered behind it"
-    );
+    // The claim reaches the gate the held disposal holds and waits there (the product's signal, given just before it blocks).
+    rig.events.wait_gate("term_gate", "the claim made while the disposal's announcement is held");
+    assert!(claim_done.try_recv().is_err(), "a claim was applied while the disposal's announcement was held: it is not ordered behind it");
     open.send(()).unwrap();
     disposing.join().unwrap();
-    claim_done.recv_timeout(Duration::from_secs(10)).expect("the claim was never applied after the announcement was let go");
+    claim_done.recv_timeout(EVENT_DEADLINE).expect("the claim was never applied after the announcement was let go");
     claiming.join().unwrap();
     let ours: Vec<Ev> = rig.events.all().into_iter().filter(|e| matches!(e, Ev::Forgotten(id) if id == "term_gate") || matches!(e, Ev::Owner(c) if c.id == "term_gate")).collect();
     let owner = |owner: &str, cols, rows| Ev::Owner(SizeOwnerChange { id: "term_gate".into(), cols, rows, owner: owner.into() });
@@ -995,7 +1006,7 @@ async fn activity_follows_the_shell_markers_and_focus() {
         let states: Vec<_> = log.iter().filter_map(|e| if let Ev::Activity(_, s) = e { Some(*s) } else { None }).collect();
         states.ends_with(&[Some(ActivityState::Running), Some(ActivityState::Finished)])
     });
-    rig.wait_text(&id, "MIXDOG_DONE_2");
+    rig.wait_text(&id, "MIXDOG_DONE_2").await;
     let snapshot = rig.tabs.snapshot(&id, None).unwrap();
     assert!(!snapshot.text.contains("]697;"), "marker text leaked into the replay: {:?}", snapshot.text);
     // Focusing the finished tab clears it.
@@ -1003,7 +1014,7 @@ async fn activity_follows_the_shell_markers_and_focus() {
     assert_eq!(rig.events.activity(&id).last(), Some(&Some(ActivityState::Idle)));
     // With a view focused, a finished command goes straight back to idle.
     let _ = rig.tabs.write(&id, "Write-Output MIXDOG_SECOND\r");
-    rig.wait_text(&id, "MIXDOG_SECOND");
+    rig.wait_text(&id, "MIXDOG_SECOND").await;
     rig.events.wait_for("second command cycle", |log| log.iter().filter(|e| matches!(e, Ev::Activity(_, Some(ActivityState::Running)))).count() >= 2);
     rig.tabs.connection_closed("view-1");
     rig.tabs.dispose(&id);
@@ -1029,7 +1040,7 @@ async fn tabs_reuse_ids_share_one_spawn_and_report_exit() {
     assert_ne!(generated.id, "not a valid id");
 
     let _ = rig.tabs.write("term_shared", "exit 3\r");
-    rig.wait_text("term_shared", "[process exited with code 3]");
+    rig.wait_text("term_shared", "[process exited with code 3]").await;
     assert_eq!(rig.tabs.attach("term_shared").await, None, "an exited tab is not running");
     let before = rig.tabs.snapshot("term_shared", None).unwrap();
     // Ensuring an exited tab starts a new process whose cursors begin above the old ones.
@@ -1123,7 +1134,7 @@ async fn terminal_corpus_replays_on_a_real_tab() {
                 assert_eq!(expect, &Value::Null);
             }
             "termSnapshot" => {
-                rig.wait_text(&id, "MIXDOG_FIXTURE_MARKER");
+                rig.wait_text(&id, "MIXDOG_FIXTURE_MARKER").await;
                 let snapshot = rig.tabs.snapshot(&id, None).unwrap();
                 // `containsMarker` is when the recorder looked, not behaviour: the Node recorder
                 // snapshots right after the write, and the two recordings of this corpus
@@ -1227,7 +1238,7 @@ async fn terminal_tool_lists_runs_and_reads_in_process() {
     assert!(run.text.contains("The terminal is shown in the desktop window."), "{}", run.text);
     assert_eq!(host.reveals.load(Ordering::SeqCst), 1);
     let cursor: u64 = run.text.split("cursor=").nth(1).unwrap().lines().next().unwrap().parse().unwrap();
-    rig.wait_text("session-terminal:sess8", "bridge line 500");
+    rig.wait_text("session-terminal:sess8", "bridge line 500").await;
     // The shell stays live; this is the barrier after which it is quiet until the next input.
     rig.wait_prompt_frame_after("session-terminal:sess8", "bridge line 500").await;
 
@@ -1472,14 +1483,14 @@ async fn a_held_announcement_does_not_hold_back_another_tabs_claims() {
     let (held, open) = rig.events.hold_next_forgotten();
     let tabs = Arc::clone(&rig.tabs);
     let disposing = std::thread::spawn(move || tabs.dispose("term_held"));
-    held.recv_timeout(Duration::from_secs(10)).expect("the disposal never announced the forgetting of the claims");
+    held.recv_timeout(EVENT_DEADLINE).expect("the disposal never announced the forgetting of the claims");
     let tabs = Arc::clone(&rig.tabs);
     let (claimed, claim_done) = std::sync::mpsc::channel();
     let claiming = std::thread::spawn(move || {
         tabs.resize("term_free", 60, 25, "B");
         claimed.send(()).unwrap();
     });
-    claim_done.recv_timeout(Duration::from_secs(10)).expect("a claim on another tab waited for the announcement held for this one");
+    claim_done.recv_timeout(EVENT_DEADLINE).expect("a claim on another tab waited for the announcement held for this one");
     open.send(()).unwrap();
     disposing.join().unwrap();
     claiming.join().unwrap();
