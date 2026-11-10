@@ -10,6 +10,7 @@ use mixdog_services::bots::delivery::env::{RoomRelay, WakeFollow};
 use mixdog_services::bots::live::{WakeOptions, WakeTurn};
 
 use super::calls::{CallFollow, CallRunner, RoomCall, RoomCalls};
+use super::ready::RoomsReady;
 use super::records::{RoomStore, Rooms};
 
 struct Follow(WakeFollow);
@@ -25,17 +26,20 @@ impl CallFollow for Follow {
 pub struct MemberRelay<S: RoomStore, R: CallRunner> {
     rooms: Arc<Rooms<S>>,
     calls: Arc<RoomCalls<R>>,
+    /// The rooms' first load, which a relay awaits first (`agent-room-messages.ts:221`).
+    ready: Arc<RoomsReady>,
 }
 
 impl<S: RoomStore, R: CallRunner> MemberRelay<S, R> {
-    pub fn new(rooms: Arc<Rooms<S>>, calls: Arc<RoomCalls<R>>) -> Self {
-        Self { rooms, calls }
+    pub fn new(rooms: Arc<Rooms<S>>, calls: Arc<RoomCalls<R>>, ready: Arc<RoomsReady>) -> Self {
+        Self { rooms, calls, ready }
     }
 }
 
 #[async_trait]
 impl<S: RoomStore + 'static, R: CallRunner + 'static> RoomRelay for MemberRelay<S, R> {
     async fn relay(&self, session_id: &str, prompt: &str, options: WakeOptions, follow: WakeFollow) -> Result<Option<WakeTurn>, String> {
+        self.ready.ready().await.map_err(|error| error.to_string())?;
         let member = room_member_of_session(session_id).ok_or("Not a group-room member session.")?;
         let room = self.rooms.get(&member.room_id).await.map_err(|error| error.to_string())?;
         if !room.config.members.contains(&member.agent_id) {

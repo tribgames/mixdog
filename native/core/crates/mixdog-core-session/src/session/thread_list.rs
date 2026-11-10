@@ -378,6 +378,25 @@ pub struct RoomSummaries {
     directory: Arc<super::SessionDirectory>,
     /// One pass at a time, in the order they were asked for.
     pass: Arc<mixdog_rt::SerialChain>,
+    /// The index writes' notifications ([`Self::follow`]): a pass reads only once every write made before it is published.
+    edges: std::sync::OnceLock<Arc<super::thread_edges::ThreadEdges>>,
+    /// The background listings started by [`Self::republish_catalog`] that have not ended (a test's step boundary).
+    #[cfg(any(test, feature = "test-support"))]
+    background: tokio::sync::watch::Sender<usize>,
+    /// Told when a listing has its rows in hand, before it waits to publish them (see [`Self::listing_in_hand`]).
+    #[cfg(any(test, feature = "test-support"))]
+    in_hand: tokio::sync::Notify,
+}
+
+/// One background listing started and not yet ended; counted down when dropped, run or not.
+#[cfg(any(test, feature = "test-support"))]
+struct Background(tokio::sync::watch::Sender<usize>);
+
+#[cfg(any(test, feature = "test-support"))]
+impl Drop for Background {
+    fn drop(&mut self) {
+        self.0.send_modify(|open| *open -= 1);
+    }
 }
 
 impl RoomSummaries {
@@ -386,35 +405,99 @@ impl RoomSummaries {
         app: Arc<mixdog_core_base::state::SectionFeedState>,
         directory: Arc<super::SessionDirectory>,
     ) -> Arc<Self> {
-        Arc::new(Self { list, app, directory, pass: mixdog_rt::SerialChain::new() })
+        Arc::new(Self {
+            list,
+            app,
+            directory,
+            pass: mixdog_rt::SerialChain::new(),
+            edges: std::sync::OnceLock::new(),
+            #[cfg(any(test, feature = "test-support"))]
+            background: tokio::sync::watch::Sender::new(0),
+            #[cfg(any(test, feature = "test-support"))]
+            in_hand: tokio::sync::Notify::new(),
+        })
+    }
+
+    /// The index writes' notifications this publisher's passes follow: the edge task and a pass both send a written row, and a
+    /// pass that read the row before its write's `thread/started` went out would send `thread/summary/updated` for a row the
+    /// client has not been told of. Each pass first waits for the writes made before it (Node sends one catalog for both).
+    pub fn follow(&self, edges: Arc<super::thread_edges::ThreadEdges>) {
+        drop(self.edges.set(edges));
+    }
+
+    /// Every index write made so far, published.
+    async fn written(&self) {
+        if let Some(edges) = self.edges.get() {
+            edges.settled().await;
+        }
+    }
+
+    /// Waits until a listing has had its rows in hand since the last such wait (a test forcing the listing ahead of a reply).
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn listing_in_hand(&self) {
+        self.in_hand.notified().await;
+    }
+
+    /// Waits until every background listing started so far has ended, published or failed (a replay's step boundary, as
+    /// Node's recorder awaits the background listing a call started before the next step: `record-room-catalog-states.mjs`).
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn background_ended(&self) {
+        let mut open = self.background.subscribe();
+        open.wait_for(|open| *open == 0).await.expect("the sender is held by the summaries");
     }
 
     /// `deps.republishCatalog` as a room call makes it (`session-host.ts:353-356`). Once a listing has been answered (Node's
     /// `sessionCatalogLoaded`) the pass runs inside the call, and its error is the call's (`agent-rooms.ts:289` lets the
-    /// synchronous publish throw, the room already saved). Before that a whole listing is started and not awaited, as Node's
-    /// `publishCatalogs` runs `listSessions` (`session-host-catalog.ts:217-238`): a listing that answers marks the catalog loaded
-    /// (`session-host.ts:807`) and its room rows go out; a failed one is dropped (`() => undefined`).
-    pub async fn republish_catalog(self: &Arc<Self>) -> Result<(), CoreError> {
+    /// synchronous publish throw, the room already saved). Before that a whole listing starts here and is not awaited, as Node's
+    /// `void publishCatalogs()` runs `listSessions` (`session-host-catalog.ts:217-238`): it reads at once, and a listing that
+    /// answers marks the catalog loaded (`session-host.ts:807`); its rows go out once `publish` is cancelled, which the call
+    /// decides (Node's rows wait for the daemon's `session.list` reply, `session-host.ts:797`, so they never overtake an answer
+    /// the call makes with no I/O after the start). A failed listing is dropped (`() => undefined`). The answer is the listing's
+    /// end, for a call that joins it as Node's deletion joins the listing in flight (`session-host.ts:790`).
+    pub async fn republish_catalog(
+        self: &Arc<Self>,
+        publish: mixdog_rt::CancellationToken,
+    ) -> Result<Option<futures::future::BoxFuture<'static, ()>>, CoreError> {
         if self.list.catalog_loaded() {
-            return self.publish_rooms().await;
+            return self.publish_rooms().await.map(|()| None);
         }
         let this = self.clone();
-        tokio::spawn(async move { drop(this.publish_listing().await) });
-        Ok(())
+        #[cfg(any(test, feature = "test-support"))]
+        let open = {
+            self.background.send_modify(|open| *open += 1);
+            Background(self.background.clone())
+        };
+        let listing = tokio::spawn(async move {
+            drop(this.publish_listing(publish.cancelled_owned()).await);
+            #[cfg(any(test, feature = "test-support"))]
+            drop(open);
+        });
+        Ok(Some(Box::pin(async move {
+            if let Err(error) = listing.await
+                && error.is_panic()
+            {
+                std::panic::resume_unwind(error.into_panic());
+            }
+        })))
     }
 
     /// Node's `publishCatalogs` awaited, as a room log's rename does (`session-host-lifecycle.ts:225-233` `renameSession`): the whole
     /// listing (which marks the catalog loaded) and its room rows; a failed listing is dropped (`session-host-catalog.ts:231-238`).
     pub async fn publish_catalogs(&self) {
-        drop(self.publish_listing().await);
+        drop(self.publish_listing(std::future::ready(())).await);
     }
 
-    /// The background pass: the whole listing, every row of it published, as Node's `publishCatalogs` publishes the catalog its
-    /// listing returned (`session-host-catalog.ts:231-238`); one pass in the chain, so a call that the listing made loaded publishes
-    /// after it.
-    async fn publish_listing(&self) -> Result<(), CoreError> {
+    /// The listing's pass: the whole listing, every row of it published once `publish` is ready, as Node's `publishCatalogs`
+    /// publishes the catalog its listing returned (`session-host-catalog.ts:231-238`); one pass in the chain, so a call that the
+    /// listing made loaded publishes after it.
+    async fn publish_listing(&self, publish: impl std::future::Future<Output = ()>) -> Result<(), CoreError> {
         let _pass = self.pass.acquire().await;
-        for thread in self.list.whole_listing().await? {
+        self.written().await;
+        let rows = self.list.whole_listing().await?;
+        #[cfg(any(test, feature = "test-support"))]
+        self.in_hand.notify_one();
+        publish.await;
+        for thread in rows {
             self.app.notify(SUMMARY_UPDATED, &ThreadSummaryUpdatedParams { thread });
         }
         Ok(())
@@ -439,6 +522,7 @@ impl RoomSummaries {
     /// [`Self::publish`].
     pub async fn publish_room(&self, room_thread: &ThreadId, view: Option<ThreadRoomView>) {
         let _pass = self.pass.acquire().await;
+        self.written().await;
         let handle = match &view {
             Some(_) => match self.directory.open_handle(room_thread, &mixdog_core_api::call::CallContext::internal("room-view")).await {
                 Ok(handle) => Some(handle),
@@ -473,6 +557,7 @@ impl RoomSummaries {
     /// ([`ThreadListService::room_row`]).
     async fn publish_rooms(&self) -> Result<(), CoreError> {
         let _pass = self.pass.acquire().await;
+        self.written().await;
         let threads = self.list.rooms.room_threads().await.map_err(|error| failed(DOMAIN, error))?;
         let mut first = None;
         for id in threads {
@@ -789,10 +874,13 @@ mod tests {
         let (summaries, app) = room_rig(list.clone());
 
         assert!(!list.catalog_loaded());
-        summaries.republish_catalog().await.expect("the first call answers without the publication");
+        let publish = mixdog_rt::CancellationToken::new();
+        publish.cancel();
+        let ended = summaries.republish_catalog(publish.clone()).await.expect("the first call answers without the publication").expect("a background listing");
         tokio::time::timeout(std::time::Duration::from_secs(10), listed).await.expect("the background publication never listed").expect("told");
+        tokio::time::timeout(std::time::Duration::from_secs(10), ended).await.expect("the background listing never ended");
         assert!(list.catalog_loaded(), "the background publication left the catalog unloaded");
-        summaries.republish_catalog().await.expect("the second call publishes inside the call");
+        assert!(summaries.republish_catalog(publish).await.expect("the second call publishes inside the call").is_none(), "the second call is loaded");
         // Every row of the background listing, then the second call's two room rows, all sent when the second call answers (one
         // pass chain: the second call's pass starts after the background pass has sent its rows).
         let sent = app.drain_text().into_iter().filter(|text| text.contains(SUMMARY_UPDATED)).count();
