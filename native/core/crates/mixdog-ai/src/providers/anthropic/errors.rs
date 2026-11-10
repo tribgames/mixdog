@@ -30,7 +30,9 @@ fn kind_for_code(code: &str) -> Option<ErrorKind> {
         "overloaded_error" => ErrorKind::Overloaded,
         "billing_error" => ErrorKind::Billing,
         "api_error" | "timeout_error" | "conflict_error" => ErrorKind::Transient,
-        _ => return None,
+        // Any other type is read in the shared code vocabulary (`CODE_KINDS`): an endpoint speaking the Messages
+        // wire may name `insufficient_quota`, which Node's pool takes as a quota refusal.
+        other => return crate::retry::classify::kind_from_code(other),
     })
 }
 

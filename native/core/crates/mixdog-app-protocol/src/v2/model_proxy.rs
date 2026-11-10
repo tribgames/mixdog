@@ -632,6 +632,17 @@ pub enum ProxyEvent {
     Notice { message: String, warn: bool },
     /// The model that answered when it is not the one the request named (`StreamEvent::ServedModel`).
     ServedModel { model: String },
+    /// The roster account that served the answer (`StreamEvent::AccountRouting`, Node `providerMetadata.accountRouting`).
+    AccountRouting { provider: String, account_id: String, session_account_id: Option<String> },
+    /// The account pool moves on to the next account (`StreamEvent::AccountStage`, Node `onStageChange('reconnecting')`).
+    AccountSwitching { message: String },
+    /// A fallback account became the selected one (`StreamEvent::AccountStage`, Node `onStageChange('account-changed')`).
+    AccountChanged {
+        provider: String,
+        account_id: String,
+        #[cfg_attr(feature = "codegen", ts(type = "number"))]
+        at: i64,
+    },
     /// `pricing_model`: the catalog model the send bills as when it differs from the one sent.
     /// `request_ms`: the request's wall time as the usage ledger measured it (Node `usageDurationMs`).
     Completed {

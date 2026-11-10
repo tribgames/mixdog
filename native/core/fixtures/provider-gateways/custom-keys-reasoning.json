@@ -1,0 +1,228 @@
+{
+  "id": "custom-keys-reasoning",
+  "provider": "custom-keys-reasoning",
+  "config": {
+    "type": "custom",
+    "name": "Keys",
+    "protocol": "openai-chat",
+    "baseURL": "https://keys.example.com/v1",
+    "enabled": true,
+    "apiKey": "sk-first",
+    "preconnect": false,
+    "schemaVersion": 2,
+    "modelOverrides": {
+      "m1": {
+        "manual": true,
+        "reasoning": {
+          "levels": [
+            "low",
+            "high"
+          ],
+          "replay": true
+        }
+      }
+    },
+    "headers": {
+      "X-Team": "blue"
+    }
+  },
+  "keys": [
+    "sk-first",
+    "sk-second"
+  ],
+  "keyIds": [
+    "default",
+    "22c83518-5023-4564-8fe4-5f71312a432e"
+  ],
+  "pool": {
+    "accounts": [
+      {
+        "id": "default",
+        "blockedUntil": 1794225900000,
+        "blockedModel": "m1",
+        "blockedQuota": true,
+        "label": "Account 1"
+      },
+      {
+        "id": "22c83518-5023-4564-8fe4-5f71312a432e",
+        "label": "Account 2"
+      }
+    ],
+    "selectedId": "22c83518-5023-4564-8fe4-5f71312a432e",
+    "auto": true,
+    "policy": "limit",
+    "useCredits": true
+  },
+  "sends": [
+    {
+      "model": "m1",
+      "tools": [],
+      "history": [
+        {
+          "role": "user",
+          "content": "Before."
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "call_a",
+              "name": "lookup",
+              "arguments": {
+                "key": "a"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "call_a",
+          "content": "1"
+        },
+        {
+          "role": "assistant",
+          "content": "Earlier answer.",
+          "reasoning": "Earlier thought.",
+          "reasoningContent": "Earlier thought."
+        }
+      ],
+      "sessionId": null,
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://keys.example.com",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "host": "keys.example.com",
+            "connection": "keep-alive",
+            "accept": "application/json",
+            "user-agent": "OpenAI/JS 6.49.0",
+            "x-stainless-retry-count": "0",
+            "x-stainless-lang": "js",
+            "x-stainless-package-version": "6.49.0",
+            "x-stainless-os": "Windows",
+            "x-stainless-arch": "x64",
+            "x-stainless-runtime": "node",
+            "x-stainless-runtime-version": "v22.20.0",
+            "authorization": "Bearer sk-first",
+            "x-team": "blue",
+            "content-type": "application/json",
+            "accept-language": "*",
+            "sec-fetch-mode": "cors",
+            "accept-encoding": "gzip, deflate",
+            "content-length": "534"
+          },
+          "body": "{\"model\":\"m1\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a fixture assistant.\"},{\"role\":\"user\",\"content\":\"Before.\"},{\"role\":\"assistant\",\"content\":null,\"tool_calls\":[{\"id\":\"call_a\",\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"arguments\":\"{\\\"key\\\":\\\"a\\\"}\"}}],\"reasoning_content\":\" \"},{\"role\":\"tool\",\"tool_call_id\":\"call_a\",\"content\":\"1\"},{\"role\":\"assistant\",\"content\":\"Earlier answer.\",\"reasoning_content\":\"Earlier thought.\"},{\"role\":\"user\",\"content\":\"Look up the answer.\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+          "answer": {
+            "status": 429,
+            "body": "{\"error\":{\"message\":\"You exceeded your current quota.\",\"type\":\"insufficient_quota\",\"code\":\"insufficient_quota\"}}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://keys.example.com",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "host": "keys.example.com",
+            "connection": "keep-alive",
+            "accept": "application/json",
+            "user-agent": "OpenAI/JS 6.49.0",
+            "x-stainless-retry-count": "0",
+            "x-stainless-lang": "js",
+            "x-stainless-package-version": "6.49.0",
+            "x-stainless-os": "Windows",
+            "x-stainless-arch": "x64",
+            "x-stainless-runtime": "node",
+            "x-stainless-runtime-version": "v22.20.0",
+            "authorization": "Bearer sk-second",
+            "x-team": "blue",
+            "content-type": "application/json",
+            "accept-language": "*",
+            "sec-fetch-mode": "cors",
+            "accept-encoding": "gzip, deflate",
+            "content-length": "534"
+          },
+          "body": "{\"model\":\"m1\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a fixture assistant.\"},{\"role\":\"user\",\"content\":\"Before.\"},{\"role\":\"assistant\",\"content\":null,\"tool_calls\":[{\"id\":\"call_a\",\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"arguments\":\"{\\\"key\\\":\\\"a\\\"}\"}}],\"reasoning_content\":\" \"},{\"role\":\"tool\",\"tool_call_id\":\"call_a\",\"content\":\"1\"},{\"role\":\"assistant\",\"content\":\"Earlier answer.\",\"reasoning_content\":\"Earlier thought.\"},{\"role\":\"user\",\"content\":\"Look up the answer.\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+          "answer": {
+            "status": 200,
+            "body": "data: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"from second\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":8,\"total_tokens\":28}}\n\ndata: [DONE]\n\n"
+          }
+        }
+      ],
+      "events": [
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "request",
+          "n": 1
+        },
+        {
+          "on": "stageChange",
+          "stage": "reconnecting",
+          "payload": {
+            "message": "Quota exhausted — switching to the next account"
+          }
+        },
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "request",
+          "n": 2
+        },
+        {
+          "on": "stageChange",
+          "stage": "streaming",
+          "payload": null
+        },
+        {
+          "on": "textDelta",
+          "text": "from second"
+        },
+        {
+          "on": "stageChange",
+          "stage": "account-changed",
+          "payload": {
+            "provider": "custom-keys-reasoning",
+            "accountId": "22c83518-5023-4564-8fe4-5f71312a432e",
+            "at": 1794225600000
+          }
+        }
+      ],
+      "result": {
+        "content": "from second",
+        "reasoning": null,
+        "toolCalls": [],
+        "reasoningContent": null,
+        "stopReason": "stop",
+        "usage": {
+          "inputTokens": 20,
+          "outputTokens": 8
+        },
+        "providerMetadata": {
+          "accountRouting": {
+            "provider": "custom-keys-reasoning",
+            "accountId": "22c83518-5023-4564-8fe4-5f71312a432e",
+            "sessionAccountId": "22c83518-5023-4564-8fe4-5f71312a432e"
+          }
+        }
+      }
+    }
+  ]
+}

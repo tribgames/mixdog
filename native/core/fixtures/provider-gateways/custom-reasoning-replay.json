@@ -1,0 +1,145 @@
+{
+  "id": "custom-reasoning-replay",
+  "provider": "custom-reasoning-replay",
+  "config": {
+    "type": "custom",
+    "name": "Keys",
+    "protocol": "openai-chat",
+    "baseURL": "https://keys.example.com/v1",
+    "enabled": true,
+    "apiKey": "sk-only",
+    "preconnect": false,
+    "schemaVersion": 2,
+    "modelOverrides": {
+      "m1": {
+        "manual": true,
+        "reasoning": {
+          "levels": [
+            "low",
+            "high"
+          ],
+          "replay": true
+        }
+      }
+    },
+    "headers": {
+      "X-Team": "blue"
+    }
+  },
+  "keys": [
+    "sk-only"
+  ],
+  "keyIds": [],
+  "pool": {
+    "accounts": [],
+    "selectedId": null,
+    "auto": true,
+    "policy": "limit"
+  },
+  "sends": [
+    {
+      "model": "m1",
+      "tools": [],
+      "history": [
+        {
+          "role": "user",
+          "content": "Before."
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "call_a",
+              "name": "lookup",
+              "arguments": {
+                "key": "a"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "call_a",
+          "content": "1"
+        },
+        {
+          "role": "assistant",
+          "content": "Earlier answer.",
+          "reasoning": "Earlier thought.",
+          "reasoningContent": "Earlier thought."
+        }
+      ],
+      "sessionId": null,
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://keys.example.com",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "host": "keys.example.com",
+            "connection": "keep-alive",
+            "accept": "application/json",
+            "user-agent": "OpenAI/JS 6.49.0",
+            "x-stainless-retry-count": "0",
+            "x-stainless-lang": "js",
+            "x-stainless-package-version": "6.49.0",
+            "x-stainless-os": "Windows",
+            "x-stainless-arch": "x64",
+            "x-stainless-runtime": "node",
+            "x-stainless-runtime-version": "v22.20.0",
+            "authorization": "Bearer sk-only",
+            "x-team": "blue",
+            "content-type": "application/json",
+            "accept-language": "*",
+            "sec-fetch-mode": "cors",
+            "accept-encoding": "gzip, deflate",
+            "content-length": "534"
+          },
+          "body": "{\"model\":\"m1\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a fixture assistant.\"},{\"role\":\"user\",\"content\":\"Before.\"},{\"role\":\"assistant\",\"content\":null,\"tool_calls\":[{\"id\":\"call_a\",\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"arguments\":\"{\\\"key\\\":\\\"a\\\"}\"}}],\"reasoning_content\":\" \"},{\"role\":\"tool\",\"tool_call_id\":\"call_a\",\"content\":\"1\"},{\"role\":\"assistant\",\"content\":\"Earlier answer.\",\"reasoning_content\":\"Earlier thought.\"},{\"role\":\"user\",\"content\":\"Look up the answer.\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+          "answer": {
+            "status": 200,
+            "body": "data: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":\"Fresh thought.\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"The result is 42.\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: {\"id\":\"chatcmpl-x\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":8,\"total_tokens\":28}}\n\ndata: [DONE]\n\n"
+          }
+        }
+      ],
+      "events": [
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "request",
+          "n": 1
+        },
+        {
+          "on": "stageChange",
+          "stage": "streaming",
+          "payload": null
+        },
+        {
+          "on": "textDelta",
+          "text": "The result is 42."
+        }
+      ],
+      "result": {
+        "content": "The result is 42.",
+        "reasoning": null,
+        "toolCalls": [],
+        "reasoningContent": "Fresh thought.",
+        "stopReason": "stop",
+        "usage": {
+          "inputTokens": 20,
+          "outputTokens": 8
+        },
+        "providerMetadata": null
+      }
+    }
+  ]
+}

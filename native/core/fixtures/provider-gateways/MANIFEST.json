@@ -1,112 +1,127 @@
 {
   "clockStartMs": 1794225600000,
   "command": "node benchmarks/rust-core/recorders/record-provider-gateways.mjs --tree <b6f tree>",
-  "fileCount": 21,
+  "fileCount": 24,
   "files": [
     {
-      "bytes": 3794,
+      "bytes": 3893,
       "path": "command-code-chat.json",
-      "sha256": "353b871f2f5527ba1e8cc3be6d5c63915b02b452386b00ae03d7d9f396b3528e"
+      "sha256": "d96140f9a11bb48099e456b3c1d8a1fd82bf8fd3b6478dcd650f05bd910e0281"
     },
     {
-      "bytes": 5504,
+      "bytes": 5603,
       "path": "command-code-messages.json",
-      "sha256": "7564d222f2a69d50fed44dcb0c928a895b53540d6df4bd27145640077f20368c"
+      "sha256": "06b6c3e88bcb224d8a7740dd3df13178dda6b966606fea41ab126462f6bbf795"
     },
     {
-      "bytes": 4384,
+      "bytes": 4483,
       "path": "command-code-responses.json",
-      "sha256": "534e74f1ec40e859e13329bf82f625791423ec7aa53c2d3b189f79fac16a358a"
+      "sha256": "c98ac51b5152eb8831df1610230cb2e7ff1661711e2215676b009a379770b873"
     },
     {
-      "bytes": 3494,
+      "bytes": 3559,
       "path": "custom-keys-after-output.json",
-      "sha256": "62da94981e4a280ed35f25926dea6b27f4492f5b87ff8bbf196aaaf771caef66"
+      "sha256": "321adc0cb9379342f1f8d91c001782946f4e315599f948a40b799ee65b3379ed"
     },
     {
-      "bytes": 7645,
+      "bytes": 7757,
+      "path": "custom-keys-anthropic-thinking.json",
+      "sha256": "d6a108db79feb59ad2d865cd75d435293f60b1acac42f56be313e8d3291bee40"
+    },
+    {
+      "bytes": 7840,
       "path": "custom-keys-exhausted.json",
-      "sha256": "5018c5518306eacf170acf6efa6ef02390dc79ed5d0209b1de62825f066b0f72"
+      "sha256": "c8ca129ea598d489551852d62d257d364c424242ee2b102e1655f10ef48da4c6"
     },
     {
-      "bytes": 2788,
+      "bytes": 2853,
       "path": "custom-keys-not-quota.json",
-      "sha256": "68a3cbf33cdb5dd0369d98732dbc420f957748399870f7babb49c231cdcaabf1"
+      "sha256": "7a39fde5702916a941fb30b148e4505c7a6885e3ff441ced2fb0e1b989cf3653"
     },
     {
-      "bytes": 9198,
+      "bytes": 7927,
+      "path": "custom-keys-reasoning.json",
+      "sha256": "cac2c238df24d1cb6d9585c4f72db1a46be16fa4f84dc937aba8712062df2415"
+    },
+    {
+      "bytes": 9461,
       "path": "custom-keys-switch.json",
-      "sha256": "f0b036d4e4118c2b91f4d33f60dc0702dd2e4e90e88eb674fb26c9439f717d6f"
+      "sha256": "d3764c2995d03a6dadeba924c3420fd9d21c2f19649136373ae2478cb36505a0"
     },
     {
-      "bytes": 3014,
+      "bytes": 4950,
+      "path": "custom-reasoning-replay.json",
+      "sha256": "ed11bdf5f91d81ae8792b84b5ea2a0dd9af7efb229b6f09b719aa3fb99c98305"
+    },
+    {
+      "bytes": 3113,
       "path": "deepseek-chat-toolless.json",
-      "sha256": "bfac64217914add4f8065ebfeb61ac63657dfa6ce5639878bd15d2ec8d14d3b7"
+      "sha256": "ec140a27cdcf986ab4ec01173d5fbe4c190cc92871c7cab84844e92dd9a5fa1d"
     },
     {
-      "bytes": 3464,
+      "bytes": 3563,
       "path": "deepseek-messages-tools.json",
-      "sha256": "c7601489a085610179d9d1b9823fd3095bc0a4518e89a5b4100bc2f2c55c4efa"
+      "sha256": "38252f224d62b6b7ebf8245b333bce4217e41604b9ba5d26f2c0ab256098aed9"
     },
     {
-      "bytes": 3458,
+      "bytes": 3557,
       "path": "deepseek-pinned-toolless.json",
-      "sha256": "8d3e2daa137dc8b5e82e4c3b5b148683bf26267863776c56039a2e2dc46fcf76"
+      "sha256": "eb291cbdaef8ca48b70dd9b5722b3682797489ffca5f06c920d50f5a6ff66226"
     },
     {
-      "bytes": 3586,
+      "bytes": 3685,
       "path": "muse-responses.json",
-      "sha256": "4d7cf6f89d05d009cd6c3a59502cf6f76dae91647a4cc5b88f1a261ced3f2c43"
+      "sha256": "8aa102fce1df3a19c246a47f1d02ee86cf1a55782b69bff0fe4e8d4783f24494"
     },
     {
-      "bytes": 3760,
+      "bytes": 3859,
       "path": "opencode-go-chat.json",
-      "sha256": "a2c14a1363331c18da9126a338960656e2e9b5222d01e9a18bf8c048de9f6a07"
+      "sha256": "194bf18b87d6a6fc9b5c4183a81170654e5150beed854a8fe53400542913040d"
     },
     {
-      "bytes": 3353,
+      "bytes": 3452,
       "path": "opencode-go-gemini.json",
-      "sha256": "762081de02f7d237705af4eed353d63c4d41c2748a666d5c7486607632a0190a"
+      "sha256": "2d1a0342293332ea02eef802549f36efec80e15364cae76ae7f74e6168c662e6"
     },
     {
-      "bytes": 4015,
+      "bytes": 4114,
       "path": "opencode-go-messages.json",
-      "sha256": "6053420d9a03f83432794193af9f95abb351470bac794da9cf344156e7003977"
+      "sha256": "e322be50c3455b24b94a1a87fd7f042a5edff5062dc6104243fa61491ca13af0"
     },
     {
-      "bytes": 4396,
+      "bytes": 4495,
       "path": "opencode-go-responses.json",
-      "sha256": "285a4b3ac25d374275f776c5971b5114f753439df787e9f3eef53ef1551e8eda"
+      "sha256": "d4f7c705d858138065dc0284042aa3e1a9682e52f08764999376b025d53074ae"
     },
     {
-      "bytes": 3145,
+      "bytes": 3244,
       "path": "openrouter-chat.json",
-      "sha256": "a5c836104145ddf5bb46c8920e365bc3a2fddc8cd5340616a33d85e7e5a6b0bc"
+      "sha256": "bd824c2af53fe86c90dc18233276869afe6e4db355a7f0e592cf809aa622fdbf"
     },
     {
-      "bytes": 3396,
+      "bytes": 3495,
       "path": "openrouter-messages.json",
-      "sha256": "e8202e177b71e1bf700f98abe5c045cb94c6a847e9b191f24ed1977bc6d3d8c1"
+      "sha256": "cb9a1cce451758f3a2b709d5fdb9f1893daf2592d836e84a80817c38bc73cbe6"
     },
     {
-      "bytes": 7376,
+      "bytes": 7574,
       "path": "openrouter-model-switch.json",
-      "sha256": "4d08a0cb71d5a27a97aa7a995332c202558abeda4c95d1f7b8b213837a6ed211"
+      "sha256": "f9efb5a7d1a3ab28b89c122eabad529482b73c86c65713c9a2a296d49c2f77cc"
     },
     {
-      "bytes": 3743,
+      "bytes": 3842,
       "path": "openrouter-responses.json",
-      "sha256": "163c1254d887b1774cae7bbd5b9a55289b2179dfa823a0c0df09b34d8ffc0a85"
+      "sha256": "727d012ba3c878f85ad86468cd3ce6a0c05e2575e1cefbe94d50d64987b75222"
     },
     {
-      "bytes": 3078,
+      "bytes": 3177,
       "path": "xai-chat-api-mode.json",
-      "sha256": "e5f23bfe6b809747d135ab77e3a6dfce69b36eaf593c0049965c56f31ff0b10f"
+      "sha256": "cada5f0e626a6f739a346f189b341f67d6034f8f9a9c0ccf08f740cb1245b8c3"
     },
     {
-      "bytes": 3598,
+      "bytes": 3697,
       "path": "xai-responses.json",
-      "sha256": "d755e99a6783e2a9b00be9df2afca54e27c1160cff935058c49c609ab420a2da"
+      "sha256": "97e9773d24d4e9cbc32304db170578a4f2dba61293eccbbf830e3176f2496c87"
     }
   ],
   "product": {
@@ -130,7 +145,7 @@
     "inputs": [
       {
         "path": "benchmarks/rust-core/recorders/record-provider-gateways.mjs",
-        "sha256": "6efa2dee0c94607019c3dcfdc033df2962751a12240f6b2ae6dbb15857cc2ab9"
+        "sha256": "a72607c08bfed9f15330c050967ff08c87e4090043fbc9426915661d731edf5f"
       },
       {
         "path": "benchmarks/rust-core/recorders/lib/common.mjs",
@@ -142,17 +157,24 @@
       }
     ],
     "nodeVersion": "v22.20.0",
-    "recorderSha256": "6efa2dee0c94607019c3dcfdc033df2962751a12240f6b2ae6dbb15857cc2ab9"
+    "recorderSha256": "a72607c08bfed9f15330c050967ff08c87e4090043fbc9426915661d731edf5f"
   },
   "recorder": "benchmarks/rust-core/recorders/record-provider-gateways.mjs",
+  "replayExclusions": {
+    "stageChange 'requesting' / 'streaming'": "the engine's spinner phases; in the core the turn loop raises them around the send (agent Stage::Connecting / Streaming), not the provider stream the replay reads",
+    "toolCall": "the folded result's toolCalls are compared instead (the core's stream carries the call as ToolCallDone, which the result holds)"
+  },
   "scenarios": [
     "command-code-chat",
     "command-code-messages",
     "command-code-responses",
     "custom-keys-after-output",
+    "custom-keys-anthropic-thinking",
     "custom-keys-exhausted",
     "custom-keys-not-quota",
+    "custom-keys-reasoning",
     "custom-keys-switch",
+    "custom-reasoning-replay",
     "deepseek-chat-toolless",
     "deepseek-messages-tools",
     "deepseek-pinned-toolless",
@@ -169,5 +191,5 @@
     "xai-responses"
   ],
   "set": "provider-gateways",
-  "totalBytes": 90189
+  "totalBytes": 113193
 }

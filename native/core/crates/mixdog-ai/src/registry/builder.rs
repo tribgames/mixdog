@@ -1115,25 +1115,36 @@ impl DefaultProviderBuilder {
             .retry_policy();
         let request = CustomRequestConfig { base_url: base_url.clone(), headers, request_body, model_body, model_headers };
         let mut engines: Vec<(Wire, Arc<dyn ProviderAdapter>)> = Vec::new();
-        let mut handle: Option<Arc<CustomListing>> = None;
+        if !served.contains(&protocol_wire) {
+            return Err("[custom-provider] the protocol wire is not served".into());
+        }
+        let header = if protocol_wire == Wire::Messages { key("x-api-key", false) } else { key("authorization", true) };
+        let handle = Arc::new(CustomListing::new(
+            name,
+            protocol.clone(),
+            &base_url,
+            request.headers.clone(),
+            self.env.http.clone(),
+            header,
+            keyless,
+            cfg,
+            self.env.listing.clone(),
+        ));
+        // The Chat wire replays a model's reasoning as its own row says (`getCachedModelInfo`), at the turn's
+        // effort, else the provider's `reasoningEffort`.
+        let replay = {
+            let rows = handle.clone();
+            let configured = text(cfg, "reasoningEffort").map(str::to_owned);
+            let base = base_url.clone();
+            crate::providers::compat::chat::CustomReplay(Arc::new(move |request: &mixdog_core_api::domain::provider::ModelRequest| {
+                let row = crate::catalog::CachedModelInfo::cached_row(&*rows, &request.model);
+                let effort = request.options.effort.as_deref().or(configured.as_deref());
+                custom::chat_replays(row.as_deref(), effort, &base)
+            }))
+        };
         for wire in &served {
             // The provider lists its models once, through the engine of its protocol's wire.
-            let listing = (*wire == protocol_wire).then(|| -> Arc<dyn ModelListing> {
-                let header = if *wire == Wire::Messages { key("x-api-key", false) } else { key("authorization", true) };
-                let concrete = Arc::new(CustomListing::new(
-                    name,
-                    protocol.clone(),
-                    &base_url,
-                    request.headers.clone(),
-                    self.env.http.clone(),
-                    header,
-                    keyless,
-                    cfg,
-                    self.env.listing.clone(),
-                ));
-                handle = Some(concrete.clone());
-                concrete
-            });
+            let listing = (*wire == protocol_wire).then(|| -> Arc<dyn ModelListing> { handle.clone() });
             let engine: Arc<dyn ProviderAdapter> = match wire {
                 Wire::Messages => {
                     let engine = self.custom_messages_engine(name, &request, key("x-api-key", false));
@@ -1144,7 +1155,7 @@ impl DefaultProviderBuilder {
                 }
                 other => {
                     let family = if *other == Wire::Chat {
-                        custom::chat_codec(name, &base_url)
+                        custom::chat_codec(name, &base_url, replay.clone())
                     } else {
                         custom::responses_codec(name, &base_url)
                     };
@@ -1163,7 +1174,7 @@ impl DefaultProviderBuilder {
             };
             engines.push((*wire, engine));
         }
-        let listing = handle.ok_or("[custom-provider] the protocol wire is not served")?;
+        let listing = handle;
         // `createCustomProvider` registers a wire profile for every OpenAI-compatible protocol, one wire or
         // several, so such a provider always routes (and pins) its wire; only the anthropic protocol has none.
         if engines.len() == 1 && protocol == Protocol::Anthropic {
@@ -1185,6 +1196,9 @@ impl DefaultProviderBuilder {
             Some(at) if base[at..].eq_ignore_ascii_case("/v1") => base[..at].to_owned(),
             _ => base.to_owned(),
         };
+        config.custom_endpoint = true;
+        // The Anthropic SDK's own `accept`.
+        config.extra_headers = vec![("accept".to_owned(), "application/json".to_owned())];
         // The Anthropic engine's retry rows, read off an adapter built the same way.
         let policy = AnthropicAdapter::api_key(
             config.clone(),

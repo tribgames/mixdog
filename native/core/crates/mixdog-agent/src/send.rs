@@ -499,6 +499,15 @@ impl Run {
                 }
                 // `onStageChange('notice', { tone, message })`: shown in the transcript, nothing else.
                 StreamEvent::Notice { message, warn } => self.show_notice(message, *warn),
+                // The account pool's `onStageChange`, in the order the pool raised it.
+                StreamEvent::AccountStage(stage) => self.emit(RunEvent::Stage(match stage {
+                    mixdog_core_api::domain::provider::AccountStage::Switching { message } => {
+                        Stage::AccountSwitching { message: message.clone() }
+                    }
+                    mixdog_core_api::domain::provider::AccountStage::Changed { provider, account_id, at } => {
+                        Stage::AccountChanged { provider: provider.clone(), account_id: account_id.clone(), at: *at }
+                    }
+                })),
                 _ => {}
             }
             let tool_done = matches!(event, StreamEvent::ToolCallDone(_));

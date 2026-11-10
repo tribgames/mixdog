@@ -118,6 +118,25 @@ pub struct ToolCall {
     pub native_type: Option<String>,
 }
 
+/// `providerMetadata.accountRouting`: the roster account of `provider` that served a message.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct AccountRouting {
+    pub provider: String,
+    pub account_id: String,
+    /// The account the session stays bound to (`sessionAccountId`); `None` on a message read back where the
+    /// stored routing named none.
+    pub session_account_id: Option<String>,
+}
+
+/// The account pool's stages (Node `onStageChange`).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum AccountStage {
+    /// `'reconnecting', { message }`: the pool moves on to the next account.
+    Switching { message: String },
+    /// `'account-changed', { provider, accountId, at }`: a fallback became the selected account.
+    Changed { provider: String, account_id: String, at: i64 },
+}
+
 /// A provider-opaque replay envelope. Only its owner reads it back.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ProviderReplay {
@@ -167,6 +186,9 @@ pub struct Message {
     /// same shape; every other codec ignores it. The `clear_at` messages
     /// themselves are never stored: they derive from this text alone.
     pub turn_reminder: Option<String>,
+    /// Assistant only: the roster account that served this turn, as its stored `providerMetadata.accountRouting`
+    /// names it. An account pool passes this message's replay state to that account alone.
+    pub account_routing: Option<AccountRouting>,
     provider_replay: Vec<ProviderReplay>,
 }
 
@@ -185,12 +207,18 @@ impl Message {
             native_tool_search: None,
             source: None,
             turn_reminder: None,
+            account_routing: None,
             provider_replay: Vec::new(),
         }
     }
 
     pub fn push_replay(&mut self, replay: ProviderReplay) {
         self.provider_replay.push(replay);
+    }
+
+    /// Keeps only the envelopes `keep` accepts.
+    pub fn retain_replay(&mut self, keep: impl FnMut(&ProviderReplay) -> bool) {
+        self.provider_replay.retain(keep);
     }
 
     /// The only read access to replay envelopes: a provider never replays
@@ -696,6 +724,14 @@ pub enum StreamEvent {
     /// `send` result `model`: Gemini's dated redirect). The usage ledger books the send under it and the turn's
     /// response reports it.
     ServedModel(String),
+    /// The roster account that served the answer (Node `recordServingAccount`: the result's
+    /// `providerMetadata.accountRouting`). The turn's assistant message stores it, and a later send of the
+    /// same provider reads it to give each account only its own replay state.
+    AccountRouting(AccountRouting),
+    /// A notice of the account roster's walk (Node's pool `onStageChange('reconnecting' | 'account-changed')`),
+    /// in the order Node raises it: a switch before the next account's request, a committed change after the
+    /// answer. Folds into nothing.
+    AccountStage(AccountStage),
     /// The wire's terminal event. Exactly one per completed attempt, last.
     /// `stop` is `None` when the wire named no stop reason (Node
     /// `stopReason: null`: a plain Responses or Gemini completion); a decoder

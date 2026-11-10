@@ -126,6 +126,10 @@
           "payload": null
         },
         {
+          "on": "request",
+          "n": 1
+        },
+        {
           "on": "stageChange",
           "stage": "reconnecting",
           "payload": {
@@ -141,6 +145,10 @@
           "on": "stageChange",
           "stage": "requesting",
           "payload": null
+        },
+        {
+          "on": "request",
+          "n": 2
         },
         {
           "on": "stageChange",
@@ -165,6 +173,7 @@
         "content": "from second",
         "reasoning": null,
         "toolCalls": [],
+        "reasoningContent": null,
         "stopReason": "stop",
         "usage": {
           "inputTokens": 20,
@@ -228,6 +237,10 @@
           "payload": null
         },
         {
+          "on": "request",
+          "n": 1
+        },
+        {
           "on": "stageChange",
           "stage": "streaming",
           "payload": null
@@ -241,6 +254,7 @@
         "content": "from second",
         "reasoning": null,
         "toolCalls": [],
+        "reasoningContent": null,
         "stopReason": "stop",
         "usage": {
           "inputTokens": 20,

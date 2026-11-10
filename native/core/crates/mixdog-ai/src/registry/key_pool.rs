@@ -3,16 +3,29 @@
 //! of its own (`customKeyEngine`) built on the same configuration. A send walks the roster by the pool's rule
 //! ([`AccountRotation::pool_send`]): an explicit quota refusal blocks the key for the model and moves on to the next
 //! key, a refusal of any other kind ends the send, and a refusal after output started is never re-sent.
+//!
+//! As in Node, a key's attempt is the whole answer, not its first bytes: the pool judges a refusal that ends the
+//! stream after output, stamps the serving key and publishes the committed change only once the answer is complete.
+//! The caller reads the attempt's events as they arrive; the walk pauses after each one until the caller has taken
+//! it, so the pool's notices land between the requests exactly where Node's callbacks run.
 
+use std::collections::VecDeque;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::PoisonError;
+use std::task::Poll;
+use std::task::Waker;
 
 use async_trait::async_trait;
 use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
+use mixdog_core_api::domain::provider::AccountRouting;
+use mixdog_core_api::domain::provider::AccountStage;
 use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::FirstResponseBudget;
+use mixdog_core_api::domain::provider::Message;
 use mixdog_core_api::domain::provider::ModelListing;
 use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::ModelStream;
@@ -47,7 +60,7 @@ impl crate::accounts::rotation::UsageProbe for NoMeter {
     async fn measure(&self, _: &str, _: &str, _: bool) {}
 }
 
-pub struct KeyPoolAdapter {
+struct Pool {
     provider: String,
     primary: Arc<dyn ProviderAdapter>,
     /// `(key id, engine)` of every additional key, in roster order.
@@ -55,11 +68,17 @@ pub struct KeyPoolAdapter {
     rotation: AccountRotation,
 }
 
+pub struct KeyPoolAdapter {
+    pool: Arc<Pool>,
+}
+
 impl KeyPoolAdapter {
     pub fn new(provider: &str, primary: Arc<dyn ProviderAdapter>, keys: Vec<(String, KeyEngine)>, rotation: AccountRotation) -> Self {
-        Self { provider: provider.to_owned(), primary, keys, rotation }
+        Self { pool: Arc::new(Pool { provider: provider.to_owned(), primary, keys, rotation }) }
     }
+}
 
+impl Pool {
     fn engine(&self, account: &str) -> Result<Arc<dyn ProviderAdapter>, ProviderError> {
         if account == "default" {
             return Ok(self.primary.clone());
@@ -73,6 +92,31 @@ impl KeyPoolAdapter {
                 format!("An additional API key of {} is not readable; enter it again in its settings.", self.provider),
             )),
         }
+    }
+
+    /// `customKeyServedBy`: the key a message's stored routing names for this provider, else the primary's.
+    fn served_by<'a>(&self, message: &'a Message) -> &'a str {
+        match &message.account_routing {
+            Some(routing) if routing.provider == self.provider => &routing.account_id,
+            _ => "default",
+        }
+    }
+
+    /// `boundAccountSend`'s history: a message another key served goes without its replay state (Node drops
+    /// `providerReplay`, `reasoning` and `thinkingBlocks`). The Chat wire's `reasoningContent` is a field of its own
+    /// in Node and stays; here it rides the Chat replay envelope, which is kept.
+    fn history_for(&self, request: &Arc<ModelRequest>, account: &str) -> Arc<ModelRequest> {
+        if request.messages.iter().all(|m| self.served_by(m) == account) {
+            return request.clone();
+        }
+        let mut owned = (**request).clone();
+        for message in &mut owned.messages {
+            if self.served_by(message) != account {
+                message.thinking_blocks = None;
+                message.retain_replay(|r| crate::providers::compat::chat::reasoning::replayed(r).is_some());
+            }
+        }
+        Arc::new(owned)
     }
 }
 
@@ -95,127 +139,264 @@ fn pool_error(error: PoolError) -> ProviderError {
             cooling.retry_after = retry_after_ms.and_then(|ms| u64::try_from(ms).ok()).map(std::time::Duration::from_millis);
             cooling
         }
-        Cause::Cancelled => plain(ErrorKind::Unknown, None, message),
-        Cause::Message(_) | Cause::Store(_) => plain(ErrorKind::Unknown, None, message),
+        Cause::Cancelled | Cause::Message(_) | Cause::Store(_) => plain(ErrorKind::Unknown, None, message),
     }
 }
 
+/// The events of the send not yet taken by the caller.
+struct Shared {
+    queue: VecDeque<StreamEvent>,
+    /// The walk waiting for the caller to take an event.
+    waiting: Option<Waker>,
+    /// The serving attempt's `Completed`, released after the pool's own stamp and notices.
+    completed: Option<StreamEvent>,
+    delivery: DeliveryState,
+}
+
+type Queue = Arc<Mutex<Shared>>;
+
+fn lock(queue: &Queue) -> std::sync::MutexGuard<'_, Shared> {
+    queue.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Queues `event` and returns once the caller has taken every queued event.
+async fn hand_over(queue: &Queue, event: StreamEvent) {
+    lock(queue).queue.push_back(event);
+    taken(queue).await;
+}
+
+/// Returns once the caller has taken every queued event.
+async fn taken(queue: &Queue) {
+    std::future::poll_fn(|cx| {
+        let mut shared = lock(queue);
+        if shared.queue.is_empty() {
+            Poll::Ready(())
+        } else {
+            shared.waiting = Some(cx.waker().clone());
+            Poll::Pending
+        }
+    })
+    .await;
+}
+
+/// Output the caller was shown (`boundAccountSend`'s `emitted`: stream, text, tool-call and thinking callbacks).
+fn shows_output(event: &StreamEvent) -> bool {
+    matches!(
+        event,
+        StreamEvent::TextDelta(_)
+            | StreamEvent::ReasoningDelta(_)
+            | StreamEvent::ToolCallStart { .. }
+            | StreamEvent::ToolCallArgsDelta { .. }
+            | StreamEvent::ToolCallDone(_)
+            | StreamEvent::Progress(_)
+    )
+}
+
 /// One key-bound attempt of the send.
-struct KeySend<'a> {
-    pool: &'a KeyPoolAdapter,
+struct KeySend {
+    pool: Arc<Pool>,
     request: Arc<ModelRequest>,
-    served: Mutex<Option<String>>,
+    queue: Queue,
 }
 
 #[async_trait]
-impl AccountSender<Box<dyn ModelStream>> for KeySend<'_> {
+impl AccountSender<()> for KeySend {
     /// A custom provider's engines declare no cooldown policy.
     fn cooldown_policy(&self, _: &str) -> Option<CooldownPolicy> {
         None
     }
 
-    async fn send(&self, account: &str, _scoped: bool) -> Result<Box<dyn ModelStream>, Failed> {
+    async fn send(&self, account: &str, _scoped: bool) -> Result<(), Failed> {
+        // The pool's notice of the previous refusal reaches the caller before this key's request goes out.
+        taken(&self.queue).await;
         let engine = self.pool.engine(account).map_err(Failed::new)?;
-        let stream = engine.attempt(self.request.clone()).await.map_err(|error| {
+        let request = self.pool.history_for(&self.request, account);
+        let mut stream = engine.attempt(request).await.map_err(|error| {
             let unsafe_to_retry = error.unsafe_to_retry;
             Failed { unsafe_to_retry, ..Failed::new(error) }
         })?;
-        *self.served.lock().unwrap_or_else(PoisonError::into_inner) = Some(account.to_owned());
-        Ok(stream)
+        let mut emitted = false;
+        loop {
+            let item = stream.next().await;
+            lock(&self.queue).delivery = stream.delivery();
+            match item {
+                None => return Ok(()),
+                Some(Ok(event @ StreamEvent::Completed { .. })) => {
+                    lock(&self.queue).completed = Some(event);
+                    return Ok(());
+                }
+                Some(Ok(event)) => {
+                    emitted |= shows_output(&event);
+                    hand_over(&self.queue, event).await;
+                }
+                Some(Err(error)) => {
+                    let unsafe_to_retry = error.unsafe_to_retry;
+                    return Err(Failed { emitted, unsafe_to_retry, ..Failed::new(error) });
+                }
+            }
+        }
     }
 
-    fn stamp(&self, _: &mut Box<dyn ModelStream>, _: &str, _: &str) {}
+    /// `recordServingAccount`: the answer names the key that served it and the one the session stays bound to.
+    fn stamp(&self, _: &mut (), account: &str, binding: &str) {
+        let routing = AccountRouting {
+            provider: self.pool.provider.clone(),
+            account_id: account.to_owned(),
+            session_account_id: Some(binding.to_owned()),
+        };
+        lock(&self.queue).queue.push_back(StreamEvent::AccountRouting(routing));
+    }
 
-    // The pool's stages (`reconnecting`, `account-changed`) are Node's stage indicator, which a provider stream has
-    // no event for.
-    fn notify(&self, _: Stage) {}
+    fn notify(&self, stage: Stage) {
+        let stage = match stage {
+            Stage::Reconnecting { message, .. } => AccountStage::Switching { message },
+            Stage::AccountChanged { provider, account_id, at } => AccountStage::Changed { provider, account_id, at },
+        };
+        lock(&self.queue).queue.push_back(StreamEvent::AccountStage(stage));
+    }
 }
 
-/// The served key's stream: a refusal that ends it after output started is judged and recorded on that key as the
-/// pool's send records it (Node's send fails there, inside the pool), and never re-sent.
+type Walk = Pin<Box<dyn Future<Output = Result<(), ProviderError>> + Send>>;
+
+/// The send's events: each attempt's as it arrives, the pool's notices in between, the serving attempt's
+/// `Completed` last.
 struct KeyStream {
-    inner: Box<dyn ModelStream>,
-    refusal: Option<(AccountRotation, String, String, String)>,
+    walk: Option<Walk>,
+    queue: Queue,
+    failure: Option<ProviderError>,
+}
+
+impl KeyStream {
+    /// Runs the walk until an event is queued or the walk ends.
+    async fn advance(&mut self) {
+        let Some(walk) = self.walk.as_mut() else { return };
+        let queue = self.queue.clone();
+        let ended = std::future::poll_fn(|cx| match walk.as_mut().poll(cx) {
+            Poll::Ready(result) => Poll::Ready(Some(result)),
+            Poll::Pending if !lock(&queue).queue.is_empty() => Poll::Ready(None),
+            Poll::Pending => Poll::Pending,
+        })
+        .await;
+        if let Some(result) = ended {
+            self.walk = None;
+            match result {
+                Ok(()) => {
+                    let mut shared = lock(&self.queue);
+                    if let Some(completed) = shared.completed.take() {
+                        shared.queue.push_back(completed);
+                    }
+                }
+                Err(error) => self.failure = Some(error),
+            }
+        }
+    }
 }
 
 #[async_trait]
 impl ModelStream for KeyStream {
     async fn next(&mut self) -> Option<Result<StreamEvent, ProviderError>> {
-        let item = self.inner.next().await;
-        if let Some(Err(error)) = &item
-            && let Some((rotation, provider, account, model)) = self.refusal.take()
-        {
-            let failed = Failed { emitted: true, ..Failed::new(error.clone()) };
-            // A store that cannot be written leaves the key unblocked; the refusal itself is the send's error.
-            let _ = rotation.record_refusal(&provider, &account, &model, &failed, None).await;
+        loop {
+            {
+                let mut shared = lock(&self.queue);
+                if let Some(event) = shared.queue.pop_front() {
+                    if shared.queue.is_empty()
+                        && let Some(waker) = shared.waiting.take()
+                    {
+                        waker.wake();
+                    }
+                    return Some(Ok(event));
+                }
+            }
+            if self.walk.is_none() {
+                return self.failure.take().map(Err);
+            }
+            self.advance().await;
         }
-        item
     }
 
     fn delivery(&self) -> DeliveryState {
-        self.inner.delivery()
+        lock(&self.queue).delivery.clone()
     }
 }
 
 #[async_trait]
 impl ProviderAdapter for KeyPoolAdapter {
     fn id(&self) -> &ProviderId {
-        self.primary.id()
+        self.pool.primary.id()
     }
     fn codec(&self) -> &dyn WireCodec {
-        self.primary.codec()
+        self.pool.primary.codec()
     }
     fn retry_policy(&self) -> &RetryPolicy {
-        self.primary.retry_policy()
+        self.pool.primary.retry_policy()
     }
     fn keepalive(&self) -> &KeepaliveSchedule {
-        self.primary.keepalive()
+        self.pool.primary.keepalive()
     }
     fn models(&self) -> Option<&dyn ModelListing> {
-        self.primary.models()
+        self.pool.primary.models()
     }
     fn wire_routing(&self) -> Option<&dyn WireRouting> {
-        self.primary.wire_routing()
+        self.pool.primary.wire_routing()
     }
     async fn settle_send(&self, group: &str, end: SendEnd) {
-        self.primary.settle_send(group, end).await;
+        self.pool.primary.settle_send(group, end).await;
     }
     fn release_session(&self, session_id: &str) {
-        self.primary.release_session(session_id);
-        for engine in self.keys.iter().filter_map(|(_, engine)| engine.as_ref().ok()) {
+        self.pool.primary.release_session(session_id);
+        for engine in self.pool.keys.iter().filter_map(|(_, engine)| engine.as_ref().ok()) {
             engine.release_session(session_id);
         }
     }
     fn release_transport_scope(&self, scope: &str) {
-        self.primary.release_transport_scope(scope);
-        for engine in self.keys.iter().filter_map(|(_, engine)| engine.as_ref().ok()) {
+        self.pool.primary.release_transport_scope(scope);
+        for engine in self.pool.keys.iter().filter_map(|(_, engine)| engine.as_ref().ok()) {
             engine.release_transport_scope(scope);
         }
     }
     fn native_pdf(&self) -> bool {
-        self.primary.native_pdf()
+        self.pool.primary.native_pdf()
     }
     fn native_documents(&self) -> Option<bool> {
-        self.primary.native_documents()
+        self.pool.primary.native_documents()
     }
     fn first_response_budget(&self, model: &str, parameters: Option<&JsonValue>) -> Option<FirstResponseBudget> {
-        self.primary.first_response_budget(model, parameters)
+        self.pool.primary.first_response_budget(model, parameters)
     }
     fn cache_warm(&self) -> Option<&dyn mixdog_core_api::domain::cache_warm::CacheWarmSend> {
-        self.primary.cache_warm()
+        self.pool.primary.cache_warm()
     }
+    /// A walk that ends before any event is the attempt's own refusal; otherwise the events follow.
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        let queue: Queue = Arc::new(Mutex::new(Shared {
+            queue: VecDeque::new(),
+            waiting: None,
+            completed: None,
+            delivery: DeliveryState::NotSent,
+        }));
         let context = SendContext {
             model: request.model.clone(),
             session_id: request.options.session_id.clone(),
-            bound_hint: None,
+            // `sessionAccountId`'s history read: the newest message this provider's pool routed.
+            bound_hint: request.messages.iter().rev().find_map(|m| {
+                let routing = m.account_routing.as_ref().filter(|r| r.provider == self.pool.provider)?;
+                Some(routing.session_account_id.clone().unwrap_or_else(|| routing.account_id.clone()))
+            }),
             cancel: CancellationToken::new(),
             implicit_plan_usage: None,
         };
-        let sender = KeySend { pool: self, request: request.clone(), served: Mutex::new(None) };
-        let stream = self.rotation.pool_send(&self.provider, &context, &sender).await.map_err(pool_error)?;
-        let served = sender.served.into_inner().unwrap_or_else(PoisonError::into_inner).unwrap_or_else(|| "default".into());
-        let refusal = Some((self.rotation.clone(), self.provider.clone(), served, request.model.clone()));
-        Ok(Box::new(KeyStream { inner: stream, refusal }))
+        let pool = self.pool.clone();
+        let sender = KeySend { pool: pool.clone(), request, queue: queue.clone() };
+        let walk: Walk = Box::pin(async move {
+            pool.rotation.pool_send(&pool.provider, &context, &sender).await.map_err(pool_error)
+        });
+        let mut stream = KeyStream { walk: Some(walk), queue, failure: None };
+        stream.advance().await;
+        if lock(&stream.queue).queue.is_empty()
+            && let Some(error) = stream.failure.take()
+        {
+            return Err(error);
+        }
+        Ok(Box::new(stream))
     }
 }
