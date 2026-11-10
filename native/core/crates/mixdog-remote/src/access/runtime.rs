@@ -1620,9 +1620,9 @@ impl RemoteRuntime {
                 let frame = if binary {
                     Frame::Binary(bytes)
                 } else {
-                    match String::from_utf8(bytes) {
-                        Ok(text) => Frame::Text(text),
-                        Err(_) => return self.close_client(client_id, "invalid encrypted relay frame"),
+                    match phone_text(bytes) {
+                        Some(text) => Frame::Text(text),
+                        None => return self.close_client(client_id, "invalid encrypted relay frame"),
                     }
                 };
                 self.inner.bridge.from_phone(client_id, frame).await;
@@ -1667,6 +1667,38 @@ impl RemoteRuntime {
 
 fn is_credential_id(value: &str) -> bool {
     (8..=64).contains(&value.len()) && value.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase() || b == b'-')
+}
+
+/// The text of a decrypted phone frame as Node reads it (`decryptJson`, remote-e2ee.ts:692): a non-fatal `TextDecoder`
+/// (each invalid UTF-8 sequence U+FFFD, a leading BOM dropped), then `JSON.parse`. `None` when it is not JSON, which
+/// closes the client with 'invalid encrypted relay frame' (remote-relay-client-lifecycle.ts:95-98) before the core sees it.
+fn phone_text(bytes: Vec<u8>) -> Option<String> {
+    let mut text = String::from_utf8(bytes).unwrap_or_else(|error| String::from_utf8_lossy(error.as_bytes()).into_owned());
+    if text.starts_with('\u{feff}') {
+        text.drain(..'\u{feff}'.len_utf8());
+    }
+    serde_json::from_str::<serde::de::IgnoredAny>(&mixdog_js::json_well_formed_str(&text)).ok()?;
+    Some(text)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::phone_text;
+
+    /// The decode of the recorded cases (native/core/fixtures/inbound-lone-surrogate: alias-invalid-byte,
+    /// alias-truncated-sequence, alias-bom-frame, refused-*): invalid bytes read as U+FFFD, a leading BOM dropped, a
+    /// lone surrogate escape kept for the core's decoder, and what is not JSON refused.
+    #[test]
+    fn a_phone_frame_is_read_as_nodes_text_decoder_and_json_parse_read_it() {
+        assert_eq!(phone_text(b"{\"a\":\"ab\xffcd\"}".to_vec()).as_deref(), Some("{\"a\":\"ab\u{fffd}cd\"}"));
+        assert_eq!(phone_text(b"{\"a\":\"ab\xe2\x82cd\"}".to_vec()).as_deref(), Some("{\"a\":\"ab\u{fffd}cd\"}"));
+        assert_eq!(phone_text(b"\xef\xbb\xbf{\"a\":1}".to_vec()).as_deref(), Some("{\"a\":1}"));
+        assert_eq!(phone_text(br#"{"a":"\ud800"}"#.to_vec()).as_deref(), Some(r#"{"a":"\ud800"}"#));
+        let refused: [&[u8]; 4] = [b"{\"a\":", b"{\"a\":\"\\ud800", b"\xff{\"a\":1}", b""];
+        for refused in refused {
+            assert_eq!(phone_text(refused.to_vec()), None);
+        }
+    }
 }
 
 impl Inner {
