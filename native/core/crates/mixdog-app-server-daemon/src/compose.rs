@@ -764,8 +764,13 @@ mod tests {
     /// The config every test composes with: a fresh `Outgoing` (no desktop connected), the mock ownership, the fixture JS runtime, the shared data directory
     /// (`compose_test_support`: the PostgreSQL runtime is installed into it once). The caller holds `compose_test_support::exclusive()`.
     pub(super) fn config(dir: &Path, log: crate::daemon_log::DaemonLog, stop: tokio_util::sync::CancellationToken) -> ComposeConfig {
+        config_in(&crate::compose_test_support::data_dir(), dir, log, stop)
+    }
+
+    /// [`config`] over a data directory of the caller's own (with the runtime installed in it).
+    pub(super) fn config_in(data: &Path, dir: &Path, log: crate::daemon_log::DaemonLog, stop: tokio_util::sync::CancellationToken) -> ComposeConfig {
         ComposeConfig {
-            data_dir: crate::compose_test_support::data_dir().to_path_buf(),
+            data_dir: data.to_path_buf(),
             user_data_dir: dir.join("userdata"),
             js_runtime: crate::js_runtime::fixture(dir),
             ort_library: OrtRuntime::NoBinding,

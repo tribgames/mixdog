@@ -5,27 +5,32 @@
 //! The tests of this binary use ONE data directory and run one at a time (they share its cluster); each ends by stopping its core, which stops the cluster.
 
 use std::path::Path;
-use std::sync::OnceLock;
+use std::path::PathBuf;
 
 use mixdog_services::memory::pg::runtime_install::{Manifest, Platform, install_key, ver_dir};
 
-static DATA: OnceLock<tempfile::TempDir> = OnceLock::new();
+/// The shared data directory while a test holds `exclusive()`; removed when that guard drops (a static's destructor never runs at process exit,
+/// which left a copy of the runtime behind on every run).
+static DATA: std::sync::Mutex<Option<tempfile::TempDir>> = std::sync::Mutex::new(None);
 // Held for a whole test, across awaits, on purpose: it keeps the tests of one process off the cluster's port one at a time (separate processes are ordered by nextest's pg-cluster group).
 #[allow(clippy::disallowed_types, reason = "a test-long guard across awaits")]
 static ONE_AT_A_TIME: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// The data directory of every real-core test, with the runtime of `MIXDOG_PG_RUNTIME` installed in it.
-pub fn data_dir() -> &'static Path {
-    DATA.get_or_init(|| {
-        let dir = tempfile::tempdir().expect("the shared data directory");
-        install(dir.path());
-        dir
-    })
-    .path()
+pub fn data_dir() -> PathBuf {
+    let mut shared = DATA.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    shared
+        .get_or_insert_with(|| {
+            let dir = tempfile::tempdir().expect("the shared data directory");
+            install(dir.path());
+            dir
+        })
+        .path()
+        .to_owned()
 }
 
 #[allow(clippy::disallowed_methods, reason = "test fixture: copies an unpacked runtime into the layout `ensure_runtime` reads")]
-fn install(data: &Path) {
+pub fn install(data: &Path) {
     let source = std::path::PathBuf::from(std::env::var_os("MIXDOG_PG_RUNTIME").expect("MIXDOG_PG_RUNTIME names a bundled postgres runtime dir"));
     let manifest = Manifest::bundled().expect("the bundled manifest");
     let (asset, _) = manifest.select(&Platform::current()).expect("the manifest has a runtime for this platform");
@@ -77,8 +82,29 @@ pub fn seed_default_model(data: &Path) {
 }
 
 /// Held for the whole test: the cluster in `data_dir` is started by one core at a time.
-pub async fn exclusive() -> tokio::sync::MutexGuard<'static, ()> {
-    ONE_AT_A_TIME.lock().await
+pub async fn exclusive() -> Exclusive {
+    Exclusive(ONE_AT_A_TIME.lock().await)
+}
+
+/// The test-long hold on the cluster. A test declares it first, so it drops last: after the test's core has stopped, it removes the shared data directory,
+/// and a directory that cannot be removed (a process still holds it) fails the test.
+pub struct Exclusive(#[allow(dead_code, reason = "held for its drop")] tokio::sync::MutexGuard<'static, ()>);
+
+impl Drop for Exclusive {
+    fn drop(&mut self) {
+        let shared = DATA.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+        if let Some(dir) = shared {
+            let path = dir.path().to_owned();
+            if let Err(error) = dir.close() {
+                let message = format!("the shared data directory {} was not removed: {error}", path.display());
+                if std::thread::panicking() {
+                    eprintln!("{message}");
+                } else {
+                    panic!("{message}");
+                }
+            }
+        }
+    }
 }
 
 /// The catalog's HTTP port in every real-core test: a client that cannot connect, so the boot warm-up (200 ms after

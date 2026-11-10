@@ -47,6 +47,9 @@ pub trait ReplayHost: Send + Sync {
     async fn call_tool(&self, tool: &str, cwd: &Path, session: &str, call: usize, input: Value) -> ToolOutcome;
     /// The running core stops and another starts over the same data directory: nothing the first held in memory carries over.
     async fn restart(&mut self);
+    /// The running core is stopped, and the call returns once the stop has completed: the closing signal after which nothing more is published.
+    /// A host whose core is not stopped by the replay leaves it as is.
+    async fn finish(&mut self) {}
 }
 
 /// Every core a scenario ran against, oldest first (a restarted core is a new one: its own app feed, with an epoch of its own), each
@@ -256,6 +259,9 @@ pub async fn replay(scenario: &Value, host: &mut dyn ReplayHost) {
         made.push((start, before, after_answer));
     }
 
+    // The last core ends before its feed is read, so what it published up to its stop is all there is to look at.
+    eras.end();
+    host.finish().await;
     // What the core published on the app feed, as a client that subscribed first received it: the snapshot, then the frames,
     // split into the deliveries by the feed position each delivery ended at.
     let mut frames_of_era: Vec<Vec<Value>> = Vec::new();
@@ -275,6 +281,12 @@ pub async fn replay(scenario: &Value, host: &mut dyn ReplayHost) {
     for (era, upto) in eras.deliveries.lock().unwrap().iter() {
         delivery_frames.push(frames_of_era[*era][from[*era]..(*upto - eras.feeds[*era].2) as usize].to_vec());
         from[*era] = (*upto - eras.feeds[*era].2) as usize;
+    }
+    // Past the last delivery of a core (up to its stop, for the last one the closing signal) no review tell is published: Node's last
+    // delivery of the scenario is the recording's last, so a tell made after it is one Node did not make.
+    for (era, frames) in frames_of_era.iter().enumerate() {
+        let late: Vec<&Value> = frames[from[era]..].iter().filter(|frame| frame["method"] == "review/diff/updated").collect();
+        assert!(late.is_empty(), "{name}: core {era} published {} review tell(s) after its last recorded delivery: {late:?}", late.len());
     }
     let rust: Vec<Value> = made
         .iter()
