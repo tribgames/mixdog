@@ -12,6 +12,8 @@ import { basename, dirname, extname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 
+import { runMixdogdExec } from './lib/mixdogd-exec.mjs';
+
 export const QC_MAX_PAGES = 20;
 const QC_MAX_ROUNDS = 2;
 
@@ -240,7 +242,7 @@ export async function runPageQc(
     vision = true,
     maxPages = QC_MAX_PAGES,
   },
-  { execute, office, measure, createRuntime } = {}
+  { execute = runMixdogdExec, office, measure } = {}
 ) {
   if (!text(provider) || !text(model)) throw new Error('explicit --provider and --model are required');
   const deck = resolve(deckPath);
@@ -248,8 +250,7 @@ export async function runPageQc(
   const measureDeck = measure || (await defaultMeasure());
   const target = text(output) ? resolve(output) : '';
   if (target) await mkdir(dirname(target), { recursive: true });
-  const { runHeadlessExec } = execute ? {} : await import('../../../../headless-exec.mjs');
-  const run = execute || runHeadlessExec;
+  const run = execute;
   const initial = await measureDeck(deck);
   const total = (initial.document.slides || []).length;
   const requested = parsePages(pageSpec, total);
@@ -279,7 +280,6 @@ export async function runPageQc(
     callOffice,
     measureDeck,
     run,
-    createRuntime,
     report,
   };
   await withChildFeatures(async () => {
@@ -298,10 +298,10 @@ async function renderPageImage({ callOffice, deck }, page, entry) {
   }
 }
 
-// One headless exec turn against the page's working copy; the reply text
+// One `mixdogd exec` turn against the page's working copy; the reply text
 // and stderr lines are captured for the report entry.
 async function runPageFix(ctx, { copy, page, start, defects, imagePath }) {
-  const { run, deck, total, provider, model, effort, target, createRuntime } = ctx;
+  const { run, deck, total, provider, model, effort, target } = ctx;
   let raw = '';
   const errors = [];
   let code = 1;
@@ -322,7 +322,7 @@ async function runPageFix(ctx, { copy, page, start, defects, imagePath }) {
       cwd: dirname(deck),
       webSearch: false,
       ...(target ? { usageLogPath: `${target}.page-${page}.usage.json` } : {}),
-      ...(createRuntime ? { runtimeFactory: async (options) => createRuntime({ ...options, toolMode: 'full' }) } : {}),
+      toolMode: 'full',
       write: (chunk) => {
         raw += chunk;
       },

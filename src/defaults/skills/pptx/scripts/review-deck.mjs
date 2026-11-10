@@ -4,6 +4,8 @@ import { dirname, extname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 
+import { runMixdogdExec } from './lib/mixdogd-exec.mjs';
+
 const LIMITS = { sources: 8, questions: 20, pages: 24, textBytes: 512_000, imageBytes: 12_000_000 };
 const text = (value) => (typeof value === 'string' ? value.trim() : '');
 
@@ -135,18 +137,16 @@ export function validateReview(raw, packet) {
   return report;
 }
 
-export async function runReview({ input, output, provider, model, effort = 'high' }, { execute, createRuntime } = {}) {
+export async function runReview({ input, output, provider, model, effort = 'high' }, { execute = runMixdogdExec } = {}) {
   if (!text(provider) || !text(model)) throw new Error('explicit --provider and --model are required');
   const target = resolve(output);
   await mkdir(dirname(target), { recursive: true });
   const directory = await mkdtemp(join(dirname(target), 'review-input-'));
   let packet;
   let files;
-  let runHeadlessExec;
   let reportFile;
   try {
     ({ packet, files } = await preparePacket(input, directory));
-    ({ runHeadlessExec } = execute ? {} : await import('../../../../headless-exec.mjs'));
     reportFile = await open(target, 'wx');
   } catch (error) {
     await rm(directory, { recursive: true, force: true });
@@ -162,7 +162,7 @@ export async function runReview({ input, output, provider, model, effort = 'high
     errors,
   };
   try {
-    const code = await (execute || runHeadlessExec)({
+    const code = await execute({
       message: reviewPrompt(packet),
       provider,
       model,
@@ -170,12 +170,8 @@ export async function runReview({ input, output, provider, model, effort = 'high
       cwd: directory,
       webSearch: false,
       usageLogPath: `${target}.usage.json`,
-      runtimeFactory: async (options) => {
-        // Import only after the pristine boundary changes the runtime root.
-        const create =
-          createRuntime || (await import('../../../../mixdog-session-runtime.mjs')).createMixdogSessionRuntime;
-        return create({ ...options, toolMode: 'readonly' });
-      },
+      // Node's read-only runtime (its runtimeFactory with toolMode 'readonly') is `mixdogd exec --tool-mode readonly`.
+      toolMode: 'readonly',
       write: (chunk) => {
         raw += chunk;
       },
