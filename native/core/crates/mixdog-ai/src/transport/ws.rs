@@ -235,7 +235,8 @@ pub async fn connect_via(
 
 /// The upgrade of `request` over the TCP connection to `addr` instead of the one its host names, trusting `tls` alone:
 /// the request (url, `Host`, SNI) and everything after the connect are the production path, so a loopback server
-/// receives what the real one would.
+/// receives what the real one would. Compiled for tests and the `test-support` feature only.
+#[cfg(any(test, feature = "test-support"))]
 pub async fn connect_pinned(
     request: tungstenite::handshake::client::Request,
     addr: std::net::SocketAddr,

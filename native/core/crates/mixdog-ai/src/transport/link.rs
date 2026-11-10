@@ -33,6 +33,7 @@ use super::fault::fault_from_reqwest;
 use super::fault::provider_error_from_reqwest;
 use super::http::client_builder;
 use super::node_http::NodeClient;
+#[cfg(any(test, feature = "test-support"))]
 use super::node_http::Pinned;
 use super::node_http::Writer;
 use super::ws;
@@ -283,7 +284,7 @@ impl ReqwestLink {
     /// it, and so do the h2c peers of tests).
     pub fn new(schedule: &KeepaliveSchedule, http2_only: bool) -> Result<Self, reqwest::Error> {
         if !http2_only {
-            return Ok(Self { clients: Clients::Node(NodeClient::new(schedule.tcp, None, None)) });
+            return Ok(Self { clients: Clients::Node(NodeClient::new(schedule.tcp, None)) });
         }
         Ok(Self {
             clients: Clients::Fixed(link_builder(schedule, http2_only).build()?),
@@ -291,12 +292,14 @@ impl ReqwestLink {
     }
 
     /// The Node-equal client with every connect going to `addr` and trusting `tls` alone: what is written is unchanged.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn pinned(schedule: &KeepaliveSchedule, addr: std::net::SocketAddr, tls: Arc<rustls::ClientConfig>) -> Self {
         let mut config = (*tls).clone();
         config.alpn_protocols = super::node_http::ALPN.iter().map(|p| p.to_vec()).collect();
-        Self { clients: Clients::Node(NodeClient::new(schedule.tcp, None, Some(Pinned { addr, tls: Arc::new(config) }))) }
+        Self { clients: Clients::Node(NodeClient::pinned(schedule.tcp, Pinned { addr, tls: Arc::new(config) })) }
     }
 
+    #[cfg(any(test, feature = "test-support"))]
     /// The link with its client built from `tweak(link_builder)`: a test pins hosts to a loopback server and trusts its
     /// certificate there, and everything else about the client is the production one.
     pub fn with_builder(
@@ -313,7 +316,7 @@ impl ReqwestLink {
     /// opened under the old setting is reused.
     pub fn routed(schedule: &KeepaliveSchedule, http2_only: bool, policy: Arc<NetworkProxy>) -> Self {
         if !http2_only {
-            return Self { clients: Clients::Node(NodeClient::new(schedule.tcp, Some(policy), None)) };
+            return Self { clients: Clients::Node(NodeClient::new(schedule.tcp, Some(policy))) };
         }
         let clients = RoutedClients::new(policy, routed_builder(*schedule, http2_only));
         Self { clients: Clients::Routed(clients) }
@@ -668,22 +671,24 @@ pub trait WsDial: Send + Sync {
 pub struct KeepaliveDialer {
     schedule: KeepaliveSchedule,
     policy: Option<Arc<NetworkProxy>>,
+    #[cfg(any(test, feature = "test-support"))]
     pinned: Option<(std::net::SocketAddr, Arc<rustls::ClientConfig>)>,
 }
 
 impl KeepaliveDialer {
     pub fn new(schedule: KeepaliveSchedule) -> Self {
-        Self { schedule, policy: None, pinned: None }
+        Self { schedule, policy: None, #[cfg(any(test, feature = "test-support"))] pinned: None }
     }
 
     /// Every dial goes to `addr` and trusts `tls` alone ([`ws::connect_pinned`]); what is written is unchanged.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn pinned(schedule: KeepaliveSchedule, addr: std::net::SocketAddr, tls: Arc<rustls::ClientConfig>) -> Self {
         Self { schedule, policy: None, pinned: Some((addr, tls)) }
     }
 
     /// Every dial follows the network proxy policy.
     pub fn routed(schedule: KeepaliveSchedule, policy: Arc<NetworkProxy>) -> Self {
-        Self { schedule, policy: Some(policy), pinned: None }
+        Self { schedule, policy: Some(policy), #[cfg(any(test, feature = "test-support"))] pinned: None }
     }
 }
 
@@ -693,10 +698,12 @@ impl WsDial for KeepaliveDialer {
         &self,
         request: Request,
     ) -> Result<(Box<dyn WsSocket>, Response<Option<Vec<u8>>>), ConnectError> {
-        let (connection, response) = match &self.pinned {
-            Some((addr, tls)) => ws::connect_pinned(request, *addr, &self.schedule, tls.clone()).await?,
-            None => ws::connect_via(request, &self.schedule, self.policy.as_deref()).await?,
-        };
+        #[cfg(any(test, feature = "test-support"))]
+        if let Some((addr, tls)) = &self.pinned {
+            let (connection, response) = ws::connect_pinned(request, *addr, &self.schedule, tls.clone()).await?;
+            return Ok((Box::new(connection), response));
+        }
+        let (connection, response) = ws::connect_via(request, &self.schedule, self.policy.as_deref()).await?;
         Ok((Box::new(connection), response))
     }
 }

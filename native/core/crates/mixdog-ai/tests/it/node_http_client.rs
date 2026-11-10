@@ -152,6 +152,10 @@ async fn a2_a_written_post_is_not_replayed_when_the_connection_dies_unanswered()
 
 // A3: an unterminated header, chunk-size line or trailer is cut off at a bound, not read until the peer stops.
 async fn endless(prefix: &'static [u8], filler: u8) -> (SocketAddr, tokio::task::JoinHandle<usize>) {
+    endless_blocks(prefix, vec![filler; 8192]).await
+}
+
+async fn endless_blocks(prefix: &'static [u8], block: Vec<u8>) -> (SocketAddr, tokio::task::JoinHandle<usize>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let written = tokio::spawn(async move {
@@ -159,7 +163,6 @@ async fn endless(prefix: &'static [u8], filler: u8) -> (SocketAddr, tokio::task:
         read_request(&mut stream).await.unwrap();
         stream.write_all(prefix).await.unwrap();
         let mut total = 0;
-        let block = vec![filler; 8192];
         while stream.write_all(&block).await.is_ok() {
             total += block.len();
         }
@@ -409,4 +412,120 @@ async fn a_drained_body_that_is_held_keeps_its_connection_out_of_the_pool_until_
     drop(rejected);
     body(send(&link, request("POST", url, &[], b"{}")).await.unwrap()).await.unwrap();
     assert_eq!(accepted.load(Ordering::SeqCst), 2, "afterwards an idle connection serves the request");
+}
+
+// H5: a long chunk extension, and a trailer made of many short lines, are cut off too (the repeated `f` above fails by
+// overflowing the chunk size, not by a bound on the line).
+async fn bounded_after(prefix: &'static [u8], block: Vec<u8>) {
+    let (addr, written) = endless_blocks(prefix, block).await;
+    let outcome = match send(&link(), request("GET", format!("http://{addr}/"), &[], b"")).await {
+        Ok(response) => body(response).await.map(|_| ()),
+        Err(e) => Err(e),
+    };
+    assert!(outcome.is_err());
+    let total = tokio::time::timeout(WITHIN, written).await.unwrap().unwrap();
+    assert!(total < BOUND, "the client stopped reading after {total} bytes");
+}
+
+#[tokio::test]
+async fn h5_a_long_chunk_extension_is_bounded() {
+    bounded_after(b"HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\n\r\n5;", vec![b'a'; 8192]).await;
+}
+
+#[tokio::test]
+async fn h5_many_trailer_lines_are_bounded() {
+    bounded_after(b"HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\n\r\n0\r\n", b"x-t: a\r\n".repeat(1024)).await;
+}
+
+// H4: the answer to a request hyper did not write is framed by the method it is told: a HEAD answer carries
+// `content-length` and no body; and a CONNECT (framed otherwise) or TRACE is refused before the socket.
+#[tokio::test]
+async fn h4_a_head_answer_with_a_content_length_has_no_body() {
+    let (addr, _) = listen(move |_, mut stream| async move {
+        read_request(&mut stream).await;
+        stream.write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 5\r\n\r\n").await.unwrap();
+        std::future::pending::<()>().await;
+    })
+    .await;
+    let response = send(&link(), request("HEAD", format!("http://{addr}/"), &[], b"")).await.unwrap();
+    assert_eq!(response.status, 200);
+    assert!(body(response).await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn h4_connect_and_trace_never_reach_the_socket() {
+    let (addr, accepted) = listen(move |_, mut stream| async move {
+        read_request(&mut stream).await;
+    })
+    .await;
+    for method in ["CONNECT", "TRACE", "TRACK"] {
+        let outcome = link().send(request(method, format!("http://{addr}/"), &[], b""), deadlines::OPENAI_CATALOG).await;
+        assert!(outcome.is_err(), "{method}");
+    }
+    assert_eq!(accepted.load(Ordering::SeqCst), 0);
+}
+
+// H5: a write that fails once bytes may have left is the request's error, not a reason to send it again (undici fails
+// the request that was running and re-queues only those not yet written).
+#[tokio::test]
+async fn h5_a_write_error_on_a_reused_connection_is_not_replayed() {
+    let (addr, accepted) = listen(move |n, mut stream| async move {
+        if n == 1 {
+            read_request(&mut stream).await;
+            stream.write_all(OK).await.unwrap();
+            // The second request: read its head, then reset the connection while its body is still arriving.
+            let mut byte = [0u8; 1];
+            let mut head = Vec::new();
+            while !head.ends_with(b"\r\n\r\n") {
+                stream.read_exact(&mut byte).await.unwrap();
+                head.push(byte[0]);
+            }
+            #[allow(deprecated, reason = "a zero linger is the reset the test needs")]
+            stream.set_linger(Some(Duration::ZERO)).unwrap();
+            drop(stream);
+        } else {
+            while read_request(&mut stream).await.is_some() {
+                stream.write_all(OK).await.unwrap();
+            }
+        }
+    })
+    .await;
+    let url = format!("http://{addr}/");
+    let link = link();
+    body(send(&link, request("POST", url.clone(), &[], b"{}")).await.unwrap()).await.unwrap();
+    let big = vec![b'x'; 128 << 20];
+    let outcome = link.send(request("POST", url, &[], &big), deadlines::OPENAI_CATALOG).await;
+    assert!(outcome.is_err(), "the reset is the request's error");
+    assert_eq!(accepted.load(Ordering::SeqCst), 1, "and no second connection carried the request again");
+}
+
+// H2: a connection checked out when the route changes is closed when its response ends.
+#[tokio::test]
+async fn h2_a_connection_in_flight_across_a_route_change_is_closed_when_its_response_ends() {
+    let (release, released) = tokio::sync::watch::channel(false);
+    let (closed_tx, mut closed) = tokio::sync::mpsc::unbounded_channel::<()>();
+    let (server, accepted) = listen(move |_, mut stream| {
+        let (mut released, closed_tx) = (released.clone(), closed_tx.clone());
+        async move {
+            read_request(&mut stream).await;
+            stream.write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\n\r\n").await.unwrap();
+            released.wait_for(|go| *go).await.unwrap();
+            stream.write_all(b"ok").await.unwrap();
+            let mut byte = [0u8; 1];
+            // The client's close shows as end of stream; a connection kept in its pool never shows it.
+            if stream.read(&mut byte).await.map_or(true, |n| n == 0) {
+                closed_tx.send(()).unwrap();
+            }
+        }
+    })
+    .await;
+    let policy = NetworkProxy::new(Arc::new(NoEnv), SystemProxy::default());
+    policy.adopt(&serde_json::json!({ "mode": "off" }));
+    let link = ReqwestLink::routed(&KeepaliveSchedule::SPEC, false, policy.clone());
+    let response = send(&link, request("GET", format!("http://{server}/"), &[], b"")).await.unwrap();
+    policy.adopt(&serde_json::json!({ "mode": "manual", "url": "http://127.0.0.1:9" }));
+    release.send(true).unwrap();
+    assert_eq!(body(response).await.unwrap(), b"ok");
+    tokio::time::timeout(WITHIN, closed.recv()).await.expect("the old route's connection was closed").unwrap();
+    assert_eq!(accepted.load(Ordering::SeqCst), 1);
 }

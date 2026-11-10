@@ -72,10 +72,12 @@ pub struct Conn {
     send: http1::SendRequest<Empty<Bytes>>,
     write: WriteHalf<Stream>,
     pub born: u64,
+    /// The pool's route generation when the connection opened ([super::pool::Pool::generation]).
+    pub generation: u64,
 }
 
 impl Conn {
-    pub async fn open(io: Stream, born: u64) -> Result<Self, hyper::Error> {
+    pub async fn open(io: Stream, born: u64, generation: u64) -> Result<Self, hyper::Error> {
         let (read, write) = tokio::io::split(io);
         let (send, connection) = http1::Builder::new()
             .max_buf_size(MAX_HEAD)
@@ -83,9 +85,13 @@ impl Conn {
             .handshake::<_, Empty<Bytes>>(TokioIo::new(ReadOnly(read)))
             .await?;
         tokio::spawn(async move {
-            let _ = connection.await;
+            // An error here reaches the request in flight through hyper (its send_request future fails with it);
+            // one on an idle connection has no request to reach and is logged, as the reqwest client's driver was.
+            if let Err(error) = connection.await {
+                tracing::debug!(%error, "http/1.1 connection ended with an error");
+            }
         });
-        Ok(Self { send, write, born })
+        Ok(Self { send, write, born, generation })
     }
 
     /// The connection has ended (the peer closed it, or hyper found it unusable).
@@ -98,25 +104,57 @@ impl Conn {
         self.send.ready().await
     }
 
-    /// Writes the request bytes. An `Err` means the request did not leave whole.
-    pub async fn write_request(&mut self, head: &[u8], body: &[u8]) -> io::Result<()> {
-        self.write.write_all(head).await?;
-        self.write.write_all(body).await?;
-        self.write.flush().await
-    }
-
-    /// hyper's reading of the response to the request just written. `method` and `close` tell hyper what it needs to know
-    /// to frame the answer (a `HEAD` has no body; `connection: close` ends the connection after it).
-    pub async fn response(&mut self, method: &str, close: bool) -> Result<hyper::Response<Incoming>, hyper::Error> {
+    /// Writes the request and reads the answer, both at once: a server that answers before it has read the whole body
+    /// (a 401, a 413) is heard, as it is by undici, which parses the response while it is still writing.
+    ///
+    /// hyper is told what it needs to frame the answer to a request it did not write: the method (a `HEAD` has no
+    /// body) and `connection: close`. It is never told `Expect` (refused before the socket, `check_headers`) or a
+    /// `CONNECT` (refused in `NodeClient::send`), the two requests whose answers hyper frames differently.
+    pub async fn exchange(&mut self, head: &[u8], body: &[u8], method: &str, close: bool) -> Exchange {
+        let Self { send, write, .. } = self;
         let mut request = hyper::Request::builder().method(method).uri("/");
         if close {
             request = request.header("connection", "close");
         }
         let request = request.body(Empty::<Bytes>::new()).expect("a request hyper reads no more of than its method");
-        self.send.send_request(request).await
+        let response = send.send_request(request);
+        tokio::pin!(response);
+        let written = async {
+            write.write_all(head).await?;
+            write.write_all(body).await?;
+            write.flush().await
+        };
+        tokio::pin!(written);
+        let answer = |result: Result<hyper::Response<Incoming>, hyper::Error>, written: bool| match result {
+            Ok(response) => Exchange::Answered { response, written },
+            Err(error) => Exchange::Unanswered(error),
+        };
+        tokio::select! {
+            biased;
+            outcome = &mut written => match outcome {
+                Ok(()) => answer((&mut response).await, true),
+                // An answer already in hand outranks the failed write: undici has parsed what arrived before the
+                // socket's error is seen. A read error beside it does not: the write's is the request's error.
+                Err(error) => match tokio::time::timeout(Duration::ZERO, &mut response).await {
+                    Ok(result @ Ok(_)) => answer(result, false),
+                    _ => Exchange::NotWritten(error),
+                },
+            },
+            result = &mut response => answer(result, false),
+        }
     }
 }
 
+/// What came of writing a request and reading its answer.
+pub enum Exchange {
+    /// The answer's head. `written` is false when it came before the whole request was out: the connection cannot
+    /// serve another request.
+    Answered { response: hyper::Response<Incoming>, written: bool },
+    /// The write failed and nothing answered.
+    NotWritten(io::Error),
+    /// The request was out and the answer failed or never came whole.
+    Unanswered(hyper::Error),
+}
 pub struct Reuse {
     pub pool: Arc<Pool>,
     pub key: String,
@@ -215,5 +253,77 @@ impl BodyStream for H1Body {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tokio::io::AsyncReadExt;
+
+    use super::*;
+
+    // H4: a server that answers while the body is still being written is heard, and the half-written connection is
+    // reported as such (`written: false`), which keeps it out of the pool. The pipe holds 64 bytes, so the write of the
+    // 1 MiB body cannot finish before the answer.
+    #[tokio::test]
+    async fn an_answer_before_the_whole_body_is_written_is_the_answer_and_not_a_complete_exchange() {
+        let (near, mut far) = tokio::io::duplex(64);
+        let mut conn = Conn::open(Box::new(near), 0, 0).await.unwrap();
+        let server = tokio::spawn(async move {
+            let mut head = Vec::new();
+            let mut byte = [0u8; 1];
+            while !head.ends_with(b"\r\n\r\n") {
+                far.read_exact(&mut byte).await.unwrap();
+                head.push(byte[0]);
+            }
+            far.write_all(b"HTTP/1.1 413 Payload Too Large\r\ncontent-length: 0\r\n\r\n").await.unwrap();
+            far // kept open, unread
+        });
+        let body = vec![b'x'; 1 << 20];
+        let outcome = tokio::time::timeout(Duration::from_secs(20), conn.exchange(b"POST / HTTP/1.1\r\ncontent-length: 1048576\r\n\r\n", &body, "POST", false))
+            .await
+            .expect("the answer arrives while the write is pending");
+        match outcome {
+            Exchange::Answered { response, written } => {
+                assert_eq!(response.status(), 413);
+                assert!(!written, "the request was not whole when the answer came");
+            }
+            _ => panic!("the answer is the outcome"),
+        }
+        drop(server);
+    }
+
+    // H4: hyper cannot write the head Node writes: it lowercases every header name (the provider's `OpenAI-Beta`,
+    // `session_id` keep their case in Node's recording) and writes no `connection` line unless it is given one. This
+    // pins what the difference is, so that the hand-written head stays only as long as hyper cannot do it.
+    #[tokio::test]
+    async fn hyper_writes_the_providers_header_names_in_lower_case_and_the_head_here_does_not() {
+        let (near, mut far) = tokio::io::duplex(1 << 16);
+        let (mut send, connection) = http1::handshake::<_, http_body_util::Full<Bytes>>(TokioIo::new(near)).await.unwrap();
+        tokio::spawn(connection);
+        let request = hyper::Request::builder()
+            .method("POST")
+            .uri("/v1/responses")
+            .header("host", "chatgpt.com")
+            .header("OpenAI-Beta", "responses=v1")
+            .header("session_id", "s")
+            .body(http_body_util::Full::new(Bytes::from_static(b"{}")))
+            .unwrap();
+        tokio::spawn(send.send_request(request));
+        let mut written = vec![0u8; 512];
+        let n = far.read(&mut written).await.unwrap();
+        let hyper_head = String::from_utf8(written[..n].to_vec()).unwrap();
+        let wire = mixdog_core_api::domain::provider::WireRequest {
+            transport: mixdog_core_api::domain::keepalive::TransportKind::Http1,
+            method: "POST".into(),
+            url: "https://chatgpt.com/v1/responses".into(),
+            headers: vec![("OpenAI-Beta".into(), "responses=v1".into()), ("session_id".into(), "s".into())],
+            body: b"{}".to_vec(),
+        };
+        let (ours, _) = super::super::head(&wire, &url::Url::parse(&wire.url).unwrap(), super::super::Writer::Raw);
+        let ours = String::from_utf8(ours).unwrap();
+        assert!(hyper_head.contains("openai-beta: responses=v1\r\n") && !hyper_head.contains("OpenAI-Beta"), "{hyper_head:?}");
+        assert!(ours.contains("OpenAI-Beta: responses=v1\r\n") && ours.contains("session_id: s\r\n"), "{ours:?}");
+        assert!(ours.contains("connection: keep-alive\r\n") && !hyper_head.contains("connection:"), "{hyper_head:?}");
     }
 }
