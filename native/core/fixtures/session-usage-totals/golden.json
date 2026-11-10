@@ -1,5 +1,5 @@
 {
-  "note": "Node's sessionUsageTotals at b6f10295a2f698afc85332467192de28500bd146 over its unit test's sessions",
+  "note": "Node's session usage totals at b6f10295a2f698afc85332467192de28500bd146 over the cases of session-usage-totals.test.mjs",
   "cases": [
     {
       "session": {
@@ -99,5 +99,326 @@
         "toolCalls": 5
       }
     }
-  ]
+  ],
+  "deltas": [
+    {
+      "toolCalls": 3,
+      "event": {
+        "sessionId": "s",
+        "iterationIndex": 1,
+        "source": "provider_send",
+        "requestedModel": "m",
+        "model": "m",
+        "deltaInput": 10,
+        "deltaOutput": 2,
+        "deltaToolCalls": 3,
+        "reasoningTokens": null,
+        "reasoningTokensComplete": false,
+        "deltaPrompt": 0,
+        "requestMs": 0,
+        "promptKnown": true,
+        "deltaCachedRead": 0,
+        "deltaCacheWrite": 0,
+        "contextInputTokens": 10,
+        "contextOutputTokens": 2,
+        "contextPromptTokens": 0,
+        "contextCachedReadTokens": 0,
+        "contextCacheWriteTokens": 0,
+        "contextMeasuredTokens": null,
+        "sendTools": [],
+        "ts": 1800000000000
+      }
+    },
+    {
+      "toolCalls": null,
+      "event": {
+        "sessionId": "s",
+        "iterationIndex": 1,
+        "source": "provider_send",
+        "requestedModel": "m",
+        "model": "m",
+        "deltaInput": 10,
+        "deltaOutput": 2,
+        "deltaToolCalls": 0,
+        "reasoningTokens": null,
+        "reasoningTokensComplete": false,
+        "deltaPrompt": 0,
+        "requestMs": 0,
+        "promptKnown": true,
+        "deltaCachedRead": 0,
+        "deltaCacheWrite": 0,
+        "contextInputTokens": 10,
+        "contextOutputTokens": 2,
+        "contextPromptTokens": 0,
+        "contextCachedReadTokens": 0,
+        "contextCacheWriteTokens": 0,
+        "contextMeasuredTokens": null,
+        "sendTools": [],
+        "ts": 1800000000000
+      }
+    }
+  ],
+  "terminal": [
+    {
+      "header": {
+        "provider": "openai",
+        "totalInputTokens": 0,
+        "totalOutputTokens": 0
+      },
+      "result": {
+        "usage": {
+          "inputTokens": 10,
+          "outputTokens": 2
+        },
+        "toolCallsTotal": 4
+      },
+      "incremental": false,
+      "excludesCache": false,
+      "now": 1800000000000,
+      "after": {
+        "provider": "openai",
+        "totalInputTokens": 10,
+        "totalOutputTokens": 2,
+        "reasoningUsage": {
+          "reasoningTokens": null,
+          "reasoningTokensComplete": false
+        },
+        "totalToolCalls": 4,
+        "tokensCumulative": 12,
+        "totalCachedReadTokens": 0,
+        "totalCacheWriteTokens": 0,
+        "totalUncachedInputTokens": 10,
+        "lastInputTokens": 10,
+        "lastOutputTokens": 2,
+        "lastCachedReadTokens": 0,
+        "lastCacheWriteTokens": 0,
+        "lastUncachedInputTokens": 10,
+        "lastContextTokens": 10,
+        "lastContextTokensUpdatedAt": 1800000000000,
+        "lastContextTokensStaleAfterCompact": false
+      }
+    },
+    {
+      "header": {
+        "provider": "openai",
+        "totalInputTokens": 10,
+        "totalOutputTokens": 2,
+        "reasoningUsage": {
+          "reasoningTokens": null,
+          "reasoningTokensComplete": false
+        },
+        "totalToolCalls": 4,
+        "tokensCumulative": 12,
+        "totalCachedReadTokens": 0,
+        "totalCacheWriteTokens": 0,
+        "totalUncachedInputTokens": 10,
+        "lastInputTokens": 10,
+        "lastOutputTokens": 2,
+        "lastCachedReadTokens": 0,
+        "lastCacheWriteTokens": 0,
+        "lastUncachedInputTokens": 10,
+        "lastContextTokens": 10,
+        "lastContextTokensUpdatedAt": 1800000000000,
+        "lastContextTokensStaleAfterCompact": false
+      },
+      "result": {
+        "usage": {
+          "inputTokens": 10,
+          "outputTokens": 2
+        },
+        "toolCallsTotal": 4
+      },
+      "incremental": true,
+      "excludesCache": false,
+      "now": 1800000000000,
+      "after": {
+        "provider": "openai",
+        "totalInputTokens": 10,
+        "totalOutputTokens": 2,
+        "reasoningUsage": {
+          "reasoningTokens": null,
+          "reasoningTokensComplete": false
+        },
+        "totalToolCalls": 4,
+        "tokensCumulative": 12,
+        "totalCachedReadTokens": 0,
+        "totalCacheWriteTokens": 0,
+        "totalUncachedInputTokens": 10,
+        "lastInputTokens": 10,
+        "lastOutputTokens": 2,
+        "lastCachedReadTokens": 0,
+        "lastCacheWriteTokens": 0,
+        "lastUncachedInputTokens": 10,
+        "lastContextTokens": 10,
+        "lastContextTokensUpdatedAt": 1800000000000,
+        "lastContextTokensStaleAfterCompact": false
+      }
+    }
+  ],
+  "stored": {
+    "now": 1800000000000,
+    "files": {
+      "agentIndex": "{\"workers\":[{\"sessionId\":\"usage-child\",\"tag\":\"a\",\"agent\":\"reviewer\",\"status\":\"completed\",\"updatedAt\":\"2027-01-15T08:00:00.000Z\"},{\"sessionId\":\"usage-legacy\",\"tag\":\"b\",\"agent\":\"reviewer\",\"status\":\"completed\",\"updatedAt\":\"2027-01-15T08:00:00.000Z\"}]}",
+      "leadIndex": null,
+      "headers": {
+        "usage-child": "{\"id\":\"usage-child\",\"owner\":\"agent\",\"agent\":\"reviewer\",\"createdAt\":\"2027-01-15T08:00:00.000Z\",\"updatedAt\":\"2027-01-15T08:00:00.000Z\",\"totalInputTokens\":900,\"totalOutputTokens\":100,\"totalToolCalls\":12}",
+        "usage-legacy": "{\"id\":\"usage-legacy\",\"owner\":\"agent\",\"agent\":\"reviewer\",\"createdAt\":\"2027-01-15T08:00:00.000Z\",\"updatedAt\":\"2027-01-15T08:00:00.000Z\"}"
+      }
+    },
+    "syncRows": [
+      {
+        "tag": "a",
+        "sessionId": "usage-child",
+        "ownerSessionId": null,
+        "parentSessionId": null,
+        "title": null,
+        "agent": "reviewer",
+        "provider": null,
+        "model": null,
+        "effort": null,
+        "fast": false,
+        "status": "completed",
+        "stage": "completed",
+        "startedAt": "2027-01-15T08:00:00.000Z",
+        "turnStartedAt": null,
+        "createdAt": "2027-01-15T08:00:00.000Z",
+        "updatedAt": "2027-01-15T08:00:00.000Z",
+        "idleSince": "2027-01-15T08:00:00.000Z",
+        "reapAt": null,
+        "cwd": null,
+        "clientHostPid": null,
+        "taskId": null,
+        "usage": {
+          "inputTokens": 900,
+          "outputTokens": 100,
+          "totalTokens": 1000
+        },
+        "toolCalls": 12
+      },
+      {
+        "tag": "b",
+        "sessionId": "usage-legacy",
+        "ownerSessionId": null,
+        "parentSessionId": null,
+        "title": null,
+        "agent": "reviewer",
+        "provider": null,
+        "model": null,
+        "effort": null,
+        "fast": false,
+        "status": "completed",
+        "stage": "completed",
+        "startedAt": "2027-01-15T08:00:00.000Z",
+        "turnStartedAt": null,
+        "createdAt": "2027-01-15T08:00:00.000Z",
+        "updatedAt": "2027-01-15T08:00:00.000Z",
+        "idleSince": "2027-01-15T08:00:00.000Z",
+        "reapAt": null,
+        "cwd": null,
+        "clientHostPid": null,
+        "taskId": null,
+        "usage": null,
+        "toolCalls": null
+      }
+    ],
+    "rows": [
+      {
+        "tag": "a",
+        "sessionId": "usage-child",
+        "ownerSessionId": null,
+        "parentSessionId": null,
+        "title": null,
+        "agent": "reviewer",
+        "provider": null,
+        "model": null,
+        "effort": null,
+        "fast": false,
+        "status": "completed",
+        "stage": "completed",
+        "startedAt": "2027-01-15T08:00:00.000Z",
+        "turnStartedAt": null,
+        "createdAt": "2027-01-15T08:00:00.000Z",
+        "updatedAt": "2027-01-15T08:00:00.000Z",
+        "idleSince": "2027-01-15T08:00:00.000Z",
+        "reapAt": null,
+        "cwd": null,
+        "clientHostPid": null,
+        "taskId": null,
+        "usage": {
+          "inputTokens": 900,
+          "outputTokens": 100,
+          "totalTokens": 1000
+        },
+        "toolCalls": 12
+      },
+      {
+        "tag": "b",
+        "sessionId": "usage-legacy",
+        "ownerSessionId": null,
+        "parentSessionId": null,
+        "title": null,
+        "agent": "reviewer",
+        "provider": null,
+        "model": null,
+        "effort": null,
+        "fast": false,
+        "status": "completed",
+        "stage": "completed",
+        "startedAt": "2027-01-15T08:00:00.000Z",
+        "turnStartedAt": null,
+        "createdAt": "2027-01-15T08:00:00.000Z",
+        "updatedAt": "2027-01-15T08:00:00.000Z",
+        "idleSince": "2027-01-15T08:00:00.000Z",
+        "reapAt": null,
+        "cwd": null,
+        "clientHostPid": null,
+        "taskId": null,
+        "usage": null,
+        "toolCalls": null
+      }
+    ]
+  },
+  "live": {
+    "tag": "w",
+    "session": {
+      "id": "live-1",
+      "agent": "worker",
+      "status": "running",
+      "stage": "streaming",
+      "totalInputTokens": 40,
+      "totalOutputTokens": 2,
+      "totalToolCalls": 5
+    },
+    "now": 1800000000000,
+    "rows": [
+      {
+        "tag": "w",
+        "sessionId": "live-1",
+        "agent": "worker",
+        "preset": null,
+        "effort": null,
+        "fast": false,
+        "status": "running",
+        "stage": "streaming",
+        "worker_stage": "running",
+        "watchdog": "not armed (no registered progress watchdog)",
+        "createdAt": null,
+        "updatedAt": null,
+        "lastUsedAt": null,
+        "clientHostPid": null,
+        "usage": {
+          "inputTokens": 40,
+          "outputTokens": 2,
+          "totalTokens": 42
+        },
+        "toolCalls": 5,
+        "windowTokens": 0,
+        "windowCap": null,
+        "permission": null,
+        "toolPermission": null,
+        "messages": 0,
+        "tools": 0
+      }
+    ]
+  }
 }
