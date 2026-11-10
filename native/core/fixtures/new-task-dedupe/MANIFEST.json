@@ -91,7 +91,7 @@
       },
       {
         "path": "benchmarks/rust-core/recorders/lib/process-job.mjs",
-        "sha256": "6f415811f42683dcba41304663da7feaa96568cdcb6834cabb7b73ee04d6ba4e"
+        "sha256": "f9192855951f2752c216c291eb92d67f7e9e08ff3d0ac13ad4596614d989b750"
       },
       {
         "path": "benchmarks/rust-core/recorders/lib/recording-scripts.mjs",
@@ -103,7 +103,7 @@
       },
       {
         "path": "benchmarks/rust-core/recorders/new-task-dedupe/replay.mjs",
-        "sha256": "a4f0d44d5acc8fa26b45f3ad9b0b1b47940ab7a915d6de8e95487e6871d2a765"
+        "sha256": "a9546eccd36290971bdb1825030fdf812ede9a62947671f4d2877aa5c14b4da1"
       },
       {
         "path": "benchmarks/rust-core/recorders/new-task-dedupe/scenarios.mjs",

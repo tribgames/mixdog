@@ -200,9 +200,20 @@ export async function withJob(what, use, { answerMs = GUARD_DEADLINE_MS } = {}) 
           .catch(reject);
       };
       child.once('error', (error) => reject(new Error(`${label}: the gate did not start: ${error.message}`)));
+      // `ms` counts from this call, the guard's assignment included. Until the gate is told to go it runs nothing and is in no
+      // job yet, so a deadline that passes first ends the gate itself.
+      let assigned = false;
+      timer = setTimeout(() => {
+        if (!assigned) child.kill();
+        settle(null, true);
+      }, ms);
       guard.assign(child.pid).then(
         () => {
-          timer = setTimeout(() => settle(null, true), ms);
+          assigned = true;
+          if (settled) {
+            child.kill();
+            return;
+          }
           exited.then((code) => settle(code, false));
           child.stdin.end('go\n');
         },
