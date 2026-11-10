@@ -10,7 +10,9 @@
 //! `screen_revoked`, Node's `revokeCredential`), then the live view's `unpaired` runs for each of them in the order they were admitted
 //! (`PairedDeviceCleanup::unpaired`, Node's `dropClient` of each connection `revokeCredential` names); a missed drop is the revocation
 //! alone. A departed phone is no longer attached (`peer_attached`) and its connection closed. The relay's close is `relay_closed`,
-//! Node's `dispose`. The recording is of b6f10295a with `node-fix-unpair-keeps-stream.patch` (see the manifest).
+//! Node's `dispose`. A `hold` is Node's delivery encrypting every push until the `release`: the core's pushes stop on their way,
+//! before the view gate and its check (`Seams::on_its_way`), until then. The recording is of b6f10295a with
+//! `node-fix-unpair-keeps-stream.patch` (see the manifest).
 //!
 //! What each step sent is compared with what Node sent, as serialized text: every message whole, in order, with its fields in the
 //! order they go out. The names map one to one:
@@ -217,6 +219,15 @@ struct World {
     revoked: Arc<Mutex<HashSet<u64>>>,
     /// Connections whose peer left (no longer `peer_attached`).
     left: Arc<Mutex<HashSet<u64>>>,
+    /// Between a `hold` and its `release`: every push to a phone stops on its way (`Seams::on_its_way`, where Node's delivery
+    /// encrypts it) until the release.
+    holding: Arc<AtomicBool>,
+    /// The pushes stopped on their way, in the order they stopped: each goes on when its sender is sent to.
+    parked: Arc<Mutex<Vec<std::sync::mpsc::Sender<()>>>>,
+    /// Told each time a push stops on its way.
+    parked_events: tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<()>>,
+    /// The steps whose push stopped on its way, still running on their own threads, in the order they stopped.
+    running: Mutex<Vec<tokio::sync::oneshot::Receiver<()>>>,
 }
 
 impl World {
@@ -240,7 +251,75 @@ impl World {
             Arc::new(access),
             clock.clone(),
         ));
-        Arc::new(Self { service, media, clock, log, ids: Default::default(), revoked, left })
+        let (holding, parked): (Arc<AtomicBool>, Arc<Mutex<Vec<std::sync::mpsc::Sender<()>>>>) = Default::default();
+        let (parked_tx, parked_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (on, stopped) = (holding.clone(), parked.clone());
+        lock(&service.inner.seams).on_its_way = Some(Arc::new(move |_connection| {
+            if !on.load(Ordering::SeqCst) {
+                return;
+            }
+            let (go_tx, go_rx) = std::sync::mpsc::channel();
+            lock(&stopped).push(go_tx);
+            let _ = parked_tx.send(());
+            go_rx.recv_timeout(GATE_DEADLINE).expect("the release let the held push go on within 30 s");
+        }));
+        Arc::new(Self {
+            service,
+            media,
+            clock,
+            log,
+            ids: Default::default(),
+            revoked,
+            left,
+            holding,
+            parked,
+            parked_events: tokio::sync::Mutex::new(parked_rx),
+            running: Mutex::default(),
+        })
+    }
+
+    /// A step between a `hold` and its `release`, on its own thread: done when it ends, or once a push of it stopped on its way.
+    async fn held_step(self: &Arc<Self>, step: &Value, what: &str) {
+        let (done_tx, mut done_rx) = tokio::sync::oneshot::channel::<()>();
+        let (runtime, world, step, label) = (tokio::runtime::Handle::current(), self.clone(), step.clone(), what.to_owned());
+        std::thread::Builder::new()
+            .name("held-push-step".to_owned())
+            .spawn(move || {
+                runtime.block_on(world.step(&step, &label));
+                let _ = done_tx.send(());
+            })
+            .unwrap();
+        let mut parked = self.parked_events.lock().await;
+        let stopped = tokio::time::timeout(GATE_DEADLINE, async {
+            tokio::select! {
+                ended = &mut done_rx => {
+                    ended.unwrap_or_else(|_| panic!("{what}: the step failed"));
+                    false
+                }
+                _ = parked.recv() => true,
+            }
+        })
+        .await
+        .unwrap_or_else(|_| panic!("{what}: the step neither ended nor stopped a push on its way within 30 s"));
+        drop(parked);
+        if stopped {
+            lock(&self.running).push(done_rx);
+        }
+    }
+
+    /// The `release`: each push stopped on its way goes on, in the order they stopped, and its step ends before the next goes on.
+    async fn release(&self, what: &str) {
+        self.holding.store(false, Ordering::SeqCst);
+        let parked = std::mem::take(&mut *lock(&self.parked));
+        let running = std::mem::take(&mut *lock(&self.running));
+        assert_eq!(parked.len(), running.len(), "{what}: one stopped push per held step");
+        for (go, done) in parked.into_iter().zip(running) {
+            go.send(()).unwrap();
+            tokio::time::timeout(GATE_DEADLINE, done)
+                .await
+                .unwrap_or_else(|_| panic!("{what}: a released step did not end within 30 s"))
+                .unwrap_or_else(|_| panic!("{what}: a released step failed"));
+        }
     }
 
     /// The connections of a device, in the order they were admitted.
@@ -301,6 +380,8 @@ impl World {
                 }
             }
             "dispose" => service.relay_closed(),
+            "hold" => self.holding.store(true, Ordering::SeqCst),
+            "release" => self.release(what).await,
             "query" => {
                 let (client, session) = (connection_of(step["client"].as_str().unwrap()).to_string(), step["session"].as_str().unwrap());
                 let streams = service.inner.streams();
@@ -346,16 +427,40 @@ fn scenario<'a>(recorded: &'a Value, name: &str) -> (&'a [Value], &'a [Value]) {
     (steps, outcomes)
 }
 
-/// Runs steps one after the other, each compared with its recorded outcome.
-async fn replay_steps(world: &World, name: &str, steps: &[Value], outcomes: &[Value], from: usize) {
+/// Runs steps one after the other, each compared with its recorded outcome. From a `hold` to its `release` the steps run until they
+/// end or a push of theirs stops on its way, and what went out over that span is compared as a whole: one delivery of the streams
+/// runs at a time, so an unpair's own effects leave once the held frame's delivery went on, where Node's left at the unpair.
+async fn replay_steps(world: &Arc<World>, name: &str, steps: &[Value], outcomes: &[Value], from: usize) {
+    let mut held: Option<(usize, Vec<Value>)> = None;
     for (number, (step, want)) in steps.iter().zip(outcomes).enumerate() {
         let what = format!("{name} step {} {step}", from + number);
-        world.step(step, &what).await;
-        same_on_the_wire(world.take(), want.as_array().unwrap(), &what);
+        let op = step["op"].as_str().unwrap();
+        if op == "hold" {
+            held = Some((from + number, Vec::new()));
+        }
+        match &mut held {
+            Some((start, wanted)) => {
+                if matches!(op, "hold" | "release") {
+                    world.step(step, &what).await;
+                } else {
+                    world.held_step(step, &what).await;
+                }
+                wanted.extend(want.as_array().unwrap().iter().cloned());
+                if op == "release" {
+                    same_on_the_wire(world.take(), wanted, &format!("{name} steps {start}..={}, pushes held on their way", from + number));
+                    held = None;
+                }
+            }
+            None => {
+                world.step(step, &what).await;
+                same_on_the_wire(world.take(), want.as_array().unwrap(), &what);
+            }
+        }
     }
+    assert!(held.is_none(), "{name}: a hold without its release");
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn the_live_view_serves_nodes_recorded_browser_streams() {
     mixdog_rt::testing::tokens();
     let (recorded, clock_start) = recording();
@@ -389,17 +494,34 @@ const GATED: [(&str, usize, usize); 6] = [
 const HELD: &str = "held-step";
 const GATE_DEADLINE: Duration = Duration::from_secs(30);
 
+/// Where a held step stops while the others run.
+#[derive(Clone, Copy)]
+enum Point {
+    /// It released the streams' state, its effects queued and not yet delivered.
+    Released,
+    /// A subscribe has begun and not yet taken the streams' state.
+    Subscribing,
+}
+
 async fn gated(name: &str, held: usize, last: usize) {
+    let meanwhile: Vec<usize> = (held + 1..=last).collect();
+    let want: Vec<usize> = (held..=last).collect();
+    forced(name, held, held, &meanwhile, &want, Point::Released).await;
+}
+
+/// Replays the steps before `before`, holds step `held` at `point` on its own thread, runs the `meanwhile` steps, lets the held one go
+/// on, and compares what went out, whole, with Node's outcomes of the `want` steps one after the other.
+async fn forced(name: &str, before: usize, held: usize, meanwhile: &[usize], want: &[usize], point: Point) {
     let (recorded, clock_start) = recording();
     let (steps, outcomes) = scenario(&recorded, name);
     let dir = tempfile::tempdir().unwrap();
     let world = World::new(dir.path(), clock_start);
-    replay_steps(&world, name, &steps[..held], &outcomes[..held], 0).await;
+    replay_steps(&world, name, &steps[..before], &outcomes[..before], 0).await;
 
     let (reached_tx, reached_rx) = tokio::sync::oneshot::channel::<()>();
     let (go_tx, go_rx) = std::sync::mpsc::channel::<()>();
     let (reached_tx, go_rx, fired) = (Mutex::new(Some(reached_tx)), Mutex::new(go_rx), AtomicBool::new(false));
-    *lock(&world.service.inner.streams().released) = Some(Arc::new(move || {
+    let hook: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
         if std::thread::current().name() != Some(HELD) || fired.swap(true, Ordering::SeqCst) {
             return;
         }
@@ -407,7 +529,12 @@ async fn gated(name: &str, held: usize, last: usize) {
             let _ = reached.send(());
         }
         lock(&go_rx).recv_timeout(GATE_DEADLINE).expect("the test let the held step go on within 30 s");
-    }));
+    });
+    let streams = world.service.inner.streams();
+    *lock(match point {
+        Point::Released => &streams.released,
+        Point::Subscribing => &streams.subscribing,
+    }) = Some(hook);
     let (done_tx, done_rx) = tokio::sync::oneshot::channel::<()>();
     let (runtime, held_world, held_step) = (tokio::runtime::Handle::current(), world.clone(), steps[held].clone());
     std::thread::Builder::new()
@@ -419,10 +546,11 @@ async fn gated(name: &str, held: usize, last: usize) {
         .unwrap();
     tokio::time::timeout(GATE_DEADLINE, reached_rx)
         .await
-        .unwrap_or_else(|_| panic!("{name}: the held step {held} did not release the streams' state within 30 s"))
-        .unwrap_or_else(|_| panic!("{name}: the held step {held} ended before it released the streams' state"));
+        .unwrap_or_else(|_| panic!("{name}: the held step {held} did not reach its point within 30 s"))
+        .unwrap_or_else(|_| panic!("{name}: the held step {held} ended before it reached its point"));
     let (meanwhile_tx, meanwhile_rx) = tokio::sync::oneshot::channel::<()>();
-    let (runtime, meanwhile_world, meanwhile) = (tokio::runtime::Handle::current(), world.clone(), steps[held + 1..=last].to_vec());
+    let (runtime, meanwhile_world) = (tokio::runtime::Handle::current(), world.clone());
+    let meanwhile: Vec<Value> = meanwhile.iter().map(|&number| steps[number].clone()).collect();
     let label = name.to_owned();
     std::thread::Builder::new()
         .name("meanwhile-steps".to_owned())
@@ -442,8 +570,8 @@ async fn gated(name: &str, held: usize, last: usize) {
         .await
         .unwrap_or_else(|_| panic!("{name}: the held step {held} did not finish within 30 s of going on"))
         .unwrap_or_else(|_| panic!("{name}: the held step {held} failed"));
-    let want: Vec<Value> = outcomes[held..=last].iter().flat_map(|outcome| outcome.as_array().unwrap().iter().cloned()).collect();
-    same_on_the_wire(world.take(), &want, &format!("{name}: steps {held}..={last}, step {held} held at its release"));
+    let wanted: Vec<Value> = want.iter().flat_map(|&number| outcomes[number].as_array().unwrap().iter().cloned()).collect();
+    same_on_the_wire(world.take(), &wanted, &format!("{name}: steps {want:?} as Node ran them, step {held} held while the others ran"));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -452,4 +580,123 @@ async fn racing_steps_send_in_the_order_their_changes_were_made() {
     for (name, held, last) in GATED {
         gated(name, held, last).await;
     }
+}
+
+const UNPAIRED_LEFT_OPEN: &str = "an unpaired device whose connections stay open is refused and sent nothing";
+
+/// A phone subscribes while its device is unpaired: the unpair (its revocation, then the live view's drop) runs where the subscribe
+/// has begun and not yet taken the streams' state. The subscribe asks with the state taken, so it is refused, as Node refused the
+/// subscribe it ran after the unpair (step 8 after step 5), and the desktop is asked for nothing more.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_subscribe_that_meets_an_unpair_is_refused() {
+    mixdog_rt::testing::tokens();
+    forced(UNPAIRED_LEFT_OPEN, 5, 8, &[5], &[5, 8], Point::Subscribing).await;
+}
+
+const UNPAIR: &str = "unpair-step";
+
+/// A push to a phone (step `held`: a frame, or the host's WebRTC signal) is held where it passed its check, and the device's unpair
+/// (step `unpair`) runs meanwhile. The unpair's cleanup must wait at the view gate until the push is enqueued: what goes out is Node's
+/// push then Node's unpair, and nothing reaches the device once the cleanup returned.
+async fn forced_push(name: &str, before: usize, held: usize, unpair: usize) {
+    let (recorded, clock_start) = recording();
+    let (steps, outcomes) = scenario(&recorded, name);
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::new(dir.path(), clock_start);
+    replay_steps(&world, name, &steps[..before], &outcomes[..before], 0).await;
+    let device: Vec<&str> = World::connections_of(steps[unpair]["credential"].as_str().unwrap()).into_iter().map(client_name).collect();
+
+    let (reached_tx, reached_rx) = tokio::sync::oneshot::channel::<()>();
+    let (go_tx, go_rx) = std::sync::mpsc::channel::<()>();
+    let (reached_tx, go_rx, fired) = (Mutex::new(Some(reached_tx)), Mutex::new(go_rx), AtomicBool::new(false));
+    let (events_tx, mut events) = tokio::sync::mpsc::unbounded_channel::<&'static str>();
+    let waits = events_tx.clone();
+    {
+        let mut seams = lock(&world.service.inner.seams);
+        seams.checked = Some(Arc::new(move |_connection| {
+            if std::thread::current().name() != Some(HELD) || fired.swap(true, Ordering::SeqCst) {
+                return;
+            }
+            if let Some(reached) = lock(&reached_tx).take() {
+                let _ = reached.send(());
+            }
+            lock(&go_rx).recv_timeout(GATE_DEADLINE).expect("the test let the held push go on within 30 s");
+        }));
+        seams.cleanup_waits = Some(Arc::new(move || {
+            let _ = waits.send("waited at the view gate");
+        }));
+    }
+    // The unpair's own effects wait for the held step's end: one delivery order, the held step's effects then the unpair's.
+    let held_done: Arc<(Mutex<bool>, std::sync::Condvar)> = Arc::default();
+    let (passed, ended) = (events_tx.clone(), held_done.clone());
+    *lock(&world.service.inner.streams().released) = Some(Arc::new(move || {
+        if std::thread::current().name() != Some(UNPAIR) {
+            return;
+        }
+        let _ = passed.send("dropped the phone");
+        let (done, signal) = &*ended;
+        let (guard, waited) = signal.wait_timeout_while(lock(done), GATE_DEADLINE, |done| !*done).unwrap_or_else(PoisonError::into_inner);
+        drop(guard);
+        assert!(!waited.timed_out(), "the held step ended within 30 s");
+    }));
+
+    let (done_tx, done_rx) = tokio::sync::oneshot::channel::<()>();
+    let (runtime, held_world, held_step, finished) = (tokio::runtime::Handle::current(), world.clone(), steps[held].clone(), held_done.clone());
+    std::thread::Builder::new()
+        .name(HELD.to_owned())
+        .spawn(move || {
+            runtime.block_on(held_world.step(&held_step, "the held push"));
+            *lock(&finished.0) = true;
+            finished.1.notify_all();
+            let _ = done_tx.send(());
+        })
+        .unwrap();
+    tokio::time::timeout(GATE_DEADLINE, reached_rx)
+        .await
+        .unwrap_or_else(|_| panic!("{name}: the push of step {held} did not pass its check within 30 s"))
+        .unwrap_or_else(|_| panic!("{name}: step {held} ended before its push passed its check"));
+
+    let (returned_tx, returned_rx) = tokio::sync::oneshot::channel::<usize>();
+    let (runtime, unpair_world, unpair_step) = (tokio::runtime::Handle::current(), world.clone(), steps[unpair].clone());
+    std::thread::Builder::new()
+        .name(UNPAIR.to_owned())
+        .spawn(move || {
+            runtime.block_on(unpair_world.step(&unpair_step, "the unpair"));
+            // What had gone out when the unpair's cleanup returned.
+            let _ = returned_tx.send(lock(&unpair_world.log).len());
+            let _ = events_tx.send("returned");
+        })
+        .unwrap();
+    let first = tokio::time::timeout(GATE_DEADLINE, events.recv())
+        .await
+        .unwrap_or_else(|_| panic!("{name}: the unpair of step {unpair} neither waited at the view gate nor went on within 30 s"))
+        .unwrap();
+    assert_eq!(first, "waited at the view gate", "{name}: the unpair's cleanup went on while the push of step {held}, past its check, was not yet enqueued");
+    go_tx.send(()).unwrap();
+    tokio::time::timeout(GATE_DEADLINE, done_rx)
+        .await
+        .unwrap_or_else(|_| panic!("{name}: step {held} did not end within 30 s of going on"))
+        .unwrap_or_else(|_| panic!("{name}: step {held} failed"));
+    let returned_at = tokio::time::timeout(GATE_DEADLINE, returned_rx)
+        .await
+        .unwrap_or_else(|_| panic!("{name}: the unpair of step {unpair} did not end within 30 s"))
+        .unwrap_or_else(|_| panic!("{name}: the unpair of step {unpair} failed"));
+
+    let sent = world.take();
+    let last_to_device = sent.iter().rposition(|entry| entry[0] == "push" && entry[1].as_str().is_some_and(|client| device.contains(&client)));
+    assert!(
+        last_to_device.is_some_and(|at| at < returned_at),
+        "{name}: the held push went out before the unpair's cleanup returned, and nothing after it: {sent:?}, {returned_at} had gone out at its return"
+    );
+    let wanted: Vec<Value> = [held, unpair].iter().flat_map(|&number| outcomes[number].as_array().unwrap().iter().cloned()).collect();
+    same_on_the_wire(sent, &wanted, &format!("{name}: step {held} held past its check while step {unpair} ran, as Node ran them one after the other"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_push_past_its_check_is_enqueued_before_the_unpairs_cleanup_returns() {
+    mixdog_rt::testing::tokens();
+    // A frame, to the phone that alone streams the session.
+    forced_push("an unpaired phone that alone streams a session stops the desktop view", 1, 1, 3).await;
+    // The host's WebRTC offer, to a phone streaming with two others.
+    forced_push(UNPAIRED_LEFT_OPEN, 4, 4, 5).await;
 }

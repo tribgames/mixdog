@@ -6546,6 +6546,137 @@
       ]
     },
     {
+      "name": "an unpair while a frame and a signal for the phone are encrypted: neither is written",
+      "steps": [
+        {
+          "op": "call",
+          "client": "phone_A",
+          "method": "browserRemoteStream",
+          "params": [
+            "sess_1",
+            {
+              "maxWidth": 1200,
+              "maxHeight": 900
+            }
+          ]
+        },
+        {
+          "op": "hold"
+        },
+        {
+          "op": "frame",
+          "frame": {
+            "frameId": "frame-1",
+            "sessionId": "sess_1",
+            "seq": 1,
+            "documentId": "p1:1",
+            "url": "https://example.test/page",
+            "title": "Example page",
+            "loading": false,
+            "canGoBack": false,
+            "canGoForward": true,
+            "width": 800,
+            "height": 600,
+            "viewportWidth": 400,
+            "viewportHeight": 300,
+            "image": {
+              "mimeType": "image/jpeg",
+              "data": "anBlZyBieXRlcyBvZiBzZXNzXzEjMQ=="
+            }
+          }
+        },
+        {
+          "op": "send",
+          "client": "phone_A",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0001",
+            "generation": 1,
+            "type": "offer",
+            "sdp": "v=0\r\no=- 4611731400430051336 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=fingerprint:sha-256 01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n",
+            "fingerprints": [
+              {
+                "algorithm": "sha-256",
+                "value": "01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA"
+              }
+            ],
+            "iceServers": [],
+            "iceTransportPolicy": "all",
+            "geometry": {
+              "generation": 1,
+              "cssWidth": 390,
+              "cssHeight": 844,
+              "deviceScaleFactor": 3,
+              "pixelWidth": 1170,
+              "pixelHeight": 2532
+            },
+            "inputEpoch": 1
+          }
+        },
+        {
+          "op": "unpair",
+          "credential": "cred_1"
+        },
+        {
+          "op": "release"
+        },
+        {
+          "op": "query",
+          "client": "phone_A",
+          "session": "sess_1"
+        }
+      ],
+      "recorded": [
+        [
+          [
+            "request",
+            "sess_1",
+            {
+              "maxWidth": 1200,
+              "maxHeight": 900
+            }
+          ],
+          [
+            "reply",
+            "phone_A",
+            {
+              "id": 1,
+              "ok": true,
+              "value": null
+            }
+          ]
+        ],
+        [],
+        [],
+        [],
+        [
+          [
+            "request",
+            "sess_1",
+            null
+          ]
+        ],
+        [
+          [
+            "sent"
+          ]
+        ],
+        [
+          [
+            "state",
+            {
+              "subscribed": false,
+              "awaitingFit": false
+            }
+          ]
+        ]
+      ]
+    },
+    {
       "name": "a missed drop: an unpaired phone still subscribed is sent no frame and no resend",
       "steps": [
         {

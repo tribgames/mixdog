@@ -15,10 +15,12 @@
 //
 // The product is b6f10295a with `node-fix-unpair-keeps-stream.patch` applied (a clear Node bug fixed on both sides: an unpair named the
 // credential to streams keyed by connection, so it dropped nothing, and an unpaired connection the relay left open could subscribe again
-// and was sent frames and WebRTC signals). The tree must be exactly that (`patchedProductIdentity`); the screen-access publisher is the
-// REAL one (remote-screen/screen-access-publisher.ts), wired as the patched remote-relay.ts wires it: `allowed` of the streams and the
-// guard of the WebRTC relay's `send` are its `viewAllowed`, and an unpair records the unpair, then drops the streams of every connection
-// `revokeCredential` names (`revokeClient`).
+// and was sent frames and WebRTC signals, also ones whose encryption was under way at the unpair). The tree must be exactly that
+// (`patchedProductIdentity`); the screen-access publisher is the REAL one (remote-screen/screen-access-publisher.ts), wired as the
+// patched remote-relay.ts wires it: `allowed` of the streams and the `mayWrite` of both live-view sends are its `viewAllowed`, and an
+// unpair records the unpair, then drops the streams of every connection `revokeCredential` names (`revokeClient`). The delivery
+// (`sendEncryptedFrame`) is a stand-in that runs the patched order: encrypt (at once, or held by a `hold` step until `release`), then
+// ask `mayWrite` in the step that writes.
 //
 // Time is the recorder's own: `Date.now` and every timer the relay arms go to a virtual clock that moves only by an explicit `advance`
 // step and runs due timers in due-time then registration order, one at a time, with the microtasks drained between them.
@@ -134,6 +136,9 @@ const phoneRaw = (client, raw) => ({ op: 'accept', client, raw });
 const ready = (session) => ({ v: 1, source: { kind: 'browser', sessionId: session }, type: 'ready', receiveCodecs: ['video/VP8', 'video/H264'] });
 /** `browserStreams.dispose()`: the relay closing (remote-relay.ts:658, `close`). */
 const dispose = () => ({ op: 'dispose' });
+/** From here on every push's encryption is held (still running) until `release` completes them, in the order they began. */
+const hold = () => ({ op: 'hold' });
+const release = () => ({ op: 'release' });
 const SDP = 'v=0\r\no=- 4611731400430051336 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=fingerprint:sha-256 01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n';
 const FP = { algorithm: 'sha-256', value: '01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA' };
 const GEOMETRY = { generation: 1, cssWidth: 390, cssHeight: 844, deviceScaleFactor: 3, pixelWidth: 1170, pixelHeight: 2532 };
@@ -413,6 +418,17 @@ const SCENARIOS = [
     stream(A, S1, null),
     query(B, S1),
   ]],
+  // The patched delivery asks again at the write, after the encryption: a frame and a window signal for the phone are being encrypted
+  // when its device is unpaired, then their encryption completes. Neither is written; the signal's send still resolves.
+  ['an unpair while a frame and a signal for the phone are encrypted: neither is written', [
+    stream(A, S1, { maxWidth: 1200, maxHeight: 900 }),
+    hold(),
+    publish(frame(S1, 1)),
+    offer(A, S1),
+    unpair('cred_1'),
+    release(),
+    query(A, S1),
+  ]],
   ['a missed drop: an unpaired phone still subscribed is sent no frame and no resend', [
     stream(A, S1, { maxWidth: 1200, maxHeight: 900 }),
     stream(B, S1, { maxWidth: 800, maxHeight: 600 }),
@@ -561,10 +577,29 @@ async function record(name, steps) {
   const registry = new Map([A, B, C].map((client) => [client, { credentialId: CREDENTIALS[client], channel: {} }]));
   // The unpairs in force (desktop-service.ts `unpairPending`): recorded before `revokeClient` runs, never confirmed here.
   const unpaired = new Set();
-  // `sendEncryptedFrame` as it reaches a phone: a client no longer in the registry gets nothing (remote-relay-delivery.ts:90-93).
-  const deliver = async (clientId, payload) => {
-    if (live.has(clientId)) log('push', clientId, payload);
+  // Encryptions held by a `hold` step: each completes, in the order it began, at the `release` step.
+  let held = null;
+  // `sendEncryptedFrame` as the patched delivery runs it (remote-relay-delivery.ts): a client no longer in the registry gets nothing
+  // (:90-93); the payload is encrypted (at once, or held), then `mayWrite` is asked in the same step as the write.
+  const deliver = (clientId, payload, mayWrite) => {
+    if (!live.has(clientId)) return Promise.resolve();
+    const sealed = clone(payload);
+    const write = () => {
+      if (!mayWrite || mayWrite()) log('push', clientId, sealed);
+    };
+    if (!held) {
+      write();
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      held.push(() => {
+        write();
+        resolve();
+      });
+    });
   };
+  // The live view's two sends, as the patched remote-relay.ts passes them: asked again at the write.
+  const mayView = (clientId) => () => access.viewAllowed(clientId);
   const access = createScreenAccessPublisher({
     client: (clientId) => registry.get(clientId),
     clients: () => registry.entries(),
@@ -576,7 +611,7 @@ async function record(name, steps) {
   for (const client of registry.values()) access.admitted(client);
   const streams = createBrowserRemoteStreams({
     isLive: (clientId) => live.has(clientId),
-    send: deliver,
+    send: (clientId, payload) => deliver(clientId, payload, mayView(clientId)),
     request: async (sessionId, options) => log('request', sessionId, options),
     onDrop: (clientId, sessionId) => webrtc.viewerLeft(clientId, sessionId),
     allowed: (clientId) => access.viewAllowed(clientId),
@@ -591,7 +626,7 @@ async function record(name, steps) {
     resolveIceServers: async () => [],
     forward: async () => undefined,
     viewerLeft: async () => undefined,
-    send: (clientId, payload) => (access.viewAllowed(clientId) ? deliver(clientId, payload) : Promise.resolve()),
+    send: (clientId, payload) => deliver(clientId, payload, mayView(clientId)),
   });
   const dispatch = createRelayClientCallDispatch({
     host: {},
@@ -652,14 +687,24 @@ async function record(name, steps) {
           log('refused', error instanceof Error ? error.message : String(error));
         }
         break;
-      case 'send':
-        try {
-          await webrtc.send(step.client, clone(step.raw));
-          log('sent');
-        } catch (error) {
-          log('refused', error instanceof Error ? error.message : String(error));
-        }
+      case 'send': {
+        // Its answer is recorded when the send settles: at once, or at the `release` of an encryption held.
+        const settled = webrtc.send(step.client, clone(step.raw)).then(
+          () => log('sent'),
+          (error) => log('refused', error instanceof Error ? error.message : String(error))
+        );
+        if (!held) await settled;
         break;
+      }
+      case 'hold':
+        held = [];
+        break;
+      case 'release': {
+        const waiting = held;
+        held = null;
+        for (const complete of waiting) complete();
+        break;
+      }
       default:
         throw new Error(`unknown op ${step.op}`);
     }

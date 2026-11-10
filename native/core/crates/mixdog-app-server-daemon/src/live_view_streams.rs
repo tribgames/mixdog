@@ -258,6 +258,9 @@ pub struct BrowserStreams {
     /// one step there while another runs.
     #[cfg(test)]
     pub(crate) released: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// Test-only: runs where a subscribe has begun and has not yet taken the state, so a test can run an unpair there.
+    #[cfg(test)]
+    pub(crate) subscribing: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
 fn largest(subscriptions: &[(String, Subscription)]) -> Value {
@@ -290,6 +293,8 @@ impl BrowserStreams {
             state: Mutex::default(),
             #[cfg(test)]
             released: Mutex::default(),
+            #[cfg(test)]
+            subscribing: Mutex::default(),
         })
     }
 
@@ -470,13 +475,22 @@ impl BrowserStreams {
         effects.push(Effect::Dropped(client.to_owned(), session.to_owned()));
     }
 
-    /// Start or renew a phone's subscription; a phone that may no longer view is refused.
+    /// Start or renew a phone's subscription; a phone that may no longer view is refused. Asked with the state locked: an unpair
+    /// revokes first and then drops the phone under this lock, so a subscription is either refused or in the table when the drop runs.
+    /// (`allowed` reads the access only, never this state, and no holder of the access's locks calls in here.)
     pub fn subscribe(&self, client: &str, session: &str, options: StreamOptions) -> Result<(), String> {
-        if !self.deps.allowed(client) {
-            return Err(VIEW_NOT_ALLOWED.to_owned());
+        #[cfg(test)]
+        {
+            let hook = self.subscribing.lock().unwrap_or_else(PoisonError::into_inner).clone();
+            if let Some(hook) = hook {
+                hook();
+            }
         }
         let mut effects = Vec::new();
         let mut state = self.lock();
+        if !self.deps.allowed(client) {
+            return Err(VIEW_NOT_ALLOWED.to_owned());
+        }
         {
             if state.subscriptions(session).is_none() {
                 state.sessions.push((session.to_owned(), Vec::new()));

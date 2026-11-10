@@ -170,6 +170,25 @@ struct Inner {
     host: OnceLock<LiveHost>,
     streams: OnceLock<Arc<BrowserStreams>>,
     timer_seq: AtomicU64,
+    /// Each push of the view to a phone holds this from its `view_allowed` check through its `notify` (synchronous, nothing awaited),
+    /// and an unpair's cleanup passes through it after the revocation is in force (`LiveViewService::unpaired`): once the cleanup has
+    /// returned, a push that passed its check has been enqueued and every later one is refused. Taken by nothing a push's check or
+    /// enqueue holds a lock for.
+    view_gate: Mutex<()>,
+    #[cfg(test)]
+    pub(crate) seams: Mutex<Seams>,
+}
+
+/// Test-only points of a push to a phone and of an unpair's cleanup, where a test holds one side while the other runs.
+#[cfg(test)]
+#[derive(Default)]
+pub(crate) struct Seams {
+    /// A push on its way, before the view gate (where Node's delivery encrypts it).
+    pub(crate) on_its_way: Option<Arc<dyn Fn(u64) + Send + Sync>>,
+    /// A push that passed its check, before its `notify`, the view gate held.
+    pub(crate) checked: Option<Arc<dyn Fn(u64) + Send + Sync>>,
+    /// An unpair's cleanup that found the view gate held by a push and waits for it.
+    pub(crate) cleanup_waits: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -210,6 +229,40 @@ impl Inner {
 
     fn subscribed(&self, connection: u64, session: &str) -> bool {
         self.streams().subscribed(&connection.to_string(), session)
+    }
+
+    #[cfg(test)]
+    fn seam(&self, pick: impl FnOnce(&Seams) -> Option<Arc<dyn Fn(u64) + Send + Sync>>, connection: u64) {
+        let hook = pick(&lock(&self.seams));
+        if let Some(hook) = hook {
+            hook(connection);
+        }
+    }
+
+    /// One push of the view to a phone (a frame, or a WebRTC signal), refused (`Ok(false)`) unless the phone may still view and, for a
+    /// frame (`open_only`), its connection is open: the check and the enqueue are one step under the view gate.
+    fn push_view(&self, connection: ConnectionId, method: &'static str, params: Value, open_only: bool) -> Result<bool, CoreError> {
+        #[cfg(test)]
+        self.seam(|seams| seams.on_its_way.clone(), connection.0);
+        let _gate = lock(&self.view_gate);
+        if (open_only && lock(&self.state).closed.contains(&connection.0)) || !self.access.view_allowed(connection) {
+            return Ok(false);
+        }
+        #[cfg(test)]
+        self.seam(|seams| seams.checked.clone(), connection.0);
+        self.notifier.notify(connection, Method(method), params).map(|()| true)
+    }
+
+    /// An unpair's cleanup passes the view gate, its revocation already in force: a push past its check finishes its enqueue first.
+    fn pass_view_gate(&self) {
+        #[cfg(test)]
+        if let Err(std::sync::TryLockError::WouldBlock) = self.view_gate.try_lock() {
+            let hook = lock(&self.seams).cleanup_waits.clone();
+            if let Some(hook) = hook {
+                hook();
+            }
+        }
+        drop(lock(&self.view_gate));
     }
 
     /// The streams' request to the desktop (Node's `browserRemote('stream', [sessionId, options])`): the session's stream starts
@@ -384,14 +437,9 @@ impl RelayDeps for RelayAdapter {
         let inner = self.0.upgrade().ok_or("the live view stopped.")?;
         let connection = client_connection(client).ok_or("remote webrtc client id is invalid.")?;
         // A phone that may no longer view gets no signal, also one the host sent before the unpair and that is only now going out (the
-        // patched Node's `send` guard in `remote-relay.ts`); like a push to a phone that left, that is no failure of the host's send.
-        if !inner.access.view_allowed(connection) {
-            return Ok(());
-        }
-        inner
-            .notifier
-            .notify(connection, Method("browser/webrtcSignal"), json!({ "signal": payload["payload"] }))
-            .map_err(|error| format!("{error:?}"))
+        // patched Node's `mayWrite` at the write in `remote-relay.ts`); like a push to a phone that left, that is no failure of the
+        // host's send.
+        inner.push_view(connection, "browser/webrtcSignal", json!({ "signal": payload["payload"] }), false).map(|_| ()).map_err(|error| format!("{error:?}"))
     }
 }
 
@@ -409,12 +457,9 @@ impl StreamsDeps for StreamsAdapter {
     fn send(&self, client: &str, frame: Value) {
         let (Some(inner), Some(connection)) = (self.0.upgrade(), client_connection(client)) else { return };
         // As Node's `sendEncryptedFrame` (`remote-relay-delivery.ts:90-93`) a phone that left gets nothing; and nor does one whose
-        // device was unpaired, even when the unpair's drop of its subscriptions was missed.
-        if lock(&inner.state).closed.contains(&connection.0) || !inner.access.view_allowed(connection) {
-            return;
-        }
-        // Node's push is droppable and its failure ignored.
-        if let Err(error) = inner.notifier.notify(connection, Method("browser/frame"), frame) {
+        // device was unpaired, even when the unpair's drop of its subscriptions was missed. Node's push is droppable and its failure
+        // ignored.
+        if let Err(error) = inner.push_view(connection, "browser/frame", frame, true) {
             tracing::debug!(?error, client, "a browser/frame push was not delivered");
         }
     }
@@ -729,6 +774,9 @@ impl LiveViewService {
             host: OnceLock::new(),
             streams: OnceLock::new(),
             timer_seq: AtomicU64::new(0),
+            view_gate: Mutex::default(),
+            #[cfg(test)]
+            seams: Mutex::default(),
         });
         let weak = Arc::downgrade(&inner);
         let _ = inner.streams.set(BrowserStreams::new(Arc::new(StreamsAdapter(weak.clone())), clock));
@@ -805,7 +853,10 @@ impl DomainService for LiveViewService {
 impl LiveViewService {
     /// The device behind `connection` was unpaired: the connection's browser streams end now, their frames in flight and resends
     /// with them, and so its WebRTC views (`on_drop`). Node's unpair asks this of its streams (`remote-relay.ts:619`, `dropClient`).
+    /// Called once the connection is revoked: it passes the view gate first, so a push that passed its check before the revocation is
+    /// enqueued before this returns and every later one is refused.
     pub fn unpaired(&self, connection: ConnectionId) {
+        self.inner.pass_view_gate();
         self.inner.streams().drop_client(&connection.0.to_string());
     }
 
