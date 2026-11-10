@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 32125,
+      "bytes": 32201,
       "path": "golden.json",
-      "sha256": "cb4eb1786c7fb656ce0941c0ac2a73abbc112dde915bb4f935bee8c511e08138"
+      "sha256": "cb6ff1cc5853690f4b69f40c9e6f84011c4d96e2ce97ae9dca5f5f5082fb0a3f"
     }
   ],
   "node": "v22.20.0",
@@ -34,7 +34,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-tool-failures.mjs",
-  "recorderSha256": "0565a4ce18a6b7e8518b2616e8366df86b5b37c7cb4d9dc44bec41dfd106d570",
+  "recorderSha256": "f25354ef617f6facf0eb141a51c79a70bc899148476712dff215734d9dc0a9ac",
   "rows": 19,
   "rowsLibSha256": "c5ba1f81dafe10cbf0b821bcd04d704d01e891e90c8db366f875808a99774f8f",
   "scenariosSha256": "3ec3d3dac6b3418a8ac429ea80a495e6fcea4195bcca0e5e3e021e04b48f6e01",
@@ -161,10 +161,18 @@
         "replies": 2
       }
     ],
+    "sessionIdentity": {
+      "agent": "lead",
+      "lane": "cli",
+      "owner": "cli",
+      "source": "session-options.mjs:88-103 for a Lead with no session profile",
+      "sourceName": "main",
+      "sourceType": "lead"
+    },
     "workspaceFiles": {
       "a.txt": "e2150a7049a28067b28de40c77c5e632d37fe6bfa5f858830b3abcdf187d20cc",
       "fx-mcp.mjs": "ac70ce5538f80300f0255b1ff6fae8b2c4beb7847cd43df44e8217082a3c3a57"
     }
   },
-  "totalBytes": 32125
+  "totalBytes": 32201
 }
