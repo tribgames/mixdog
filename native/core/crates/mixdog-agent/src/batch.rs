@@ -700,21 +700,27 @@ impl Run {
                 }
             }
         }
-        drop(running);
         self.release_eager();
-
-        if !aborted {
-            self.finalize_results(&calls, &mut staged, &was_executed, &cacheable, &outputs).await;
+        // A cancelled batch commits nothing: Node checks the abort after each call (`processToolBatch`, `tool-batch.mjs:36`) and throws
+        // before `flushBatch`, so the results staged so far never reach the transcript; the host's interruption closes the turn from
+        // what the calls told it as they settled (`EarlyResult`). Node awaits the call it was taking before that check, and that call's
+        // tool goes on; here the turn ends at once (as Node's turn does, the recording's `turnEnded`) and the calls in flight are left
+        // to settle on their own, as the eager runs are (`release_eager`).
+        if aborted {
+            if !running.is_empty() {
+                mixdog_rt::spawn("agent.batch.cancelled", TaskClass::Work, async move { while running.next().await.is_some() {} });
+            }
+            return Err(AgentError::Aborted);
         }
+        drop(running);
+
+        self.finalize_results(&calls, &mut staged, &was_executed, &cacheable, &outputs).await;
         // Results commit in the assistant's call order.
         for message in staged.into_iter().flatten() {
             if let (Some(id), Some(kind)) = (message.tool_call_id(), message.tool_kind) {
                 self.emit(RunEvent::ToolResult { call_id: id.to_owned(), kind });
             }
             self.push(message).await?;
-        }
-        if aborted {
-            return Err(AgentError::Aborted);
         }
         for message in follow_ups {
             self.push(message).await?;

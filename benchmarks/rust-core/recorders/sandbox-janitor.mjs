@@ -3,11 +3,12 @@
 // (a listed process can exit and its pid be reused before a kill; ending a parent first invalidates the entries after it):
 //   1. the PostgreSQL cluster the profile's data directory holds is stopped with the runtime's own `pg_ctl stop -m fast -D <pgdata>`
 //      (the data directory is the cluster's identity; `pg_ctl status` before and after, every exit status checked);
-//   2. a process whose command line still names the profile is NOT ended: the profile is kept and the failure names it;
-//   3. the profile folder is removed once, and a failure names the path.
+//   2. a process whose command line still names the profile is NOT ended: the failure names it;
+//   3. the profile folder is removed once, whatever failed before, and a failure names the path (a folder a process still holds stays
+//      where its owner put it: the recorders keep their sandboxes under one folder that their next run empties first).
 // The recorder runs this itself at the end of a recording (`endSandbox`), and starts this file as a detached process holding a pipe to
 // it: the pipe reaches end-of-file when the recorder dies by any means, which is the cue to run the same steps for a recorder that could
-// run nothing (it was killed). A recorder that fails on purpose writes `keep` first, so that the profile stays for inspection.
+// run nothing (it was killed).
 // The profile folder is passed in the environment (REC_SANDBOX), not on the command line, so that no process names the profile because of this one.
 // Usage: REC_SANDBOX=<profile folder> node sandbox-janitor.mjs   (the pipe is its standard input)
 import { spawnSync } from 'node:child_process';
@@ -99,25 +100,19 @@ export function endSandbox(sandbox, settleMs = 0, dataDir = join(sandbox, 'mixdo
   } catch (error) {
     failures.push(error.message);
   }
-  if (failures.length) return failures;
   try {
     rmSync(sandbox, { recursive: true, force: true });
   } catch (error) {
-    failures.push(`cannot remove ${sandbox}: ${error.message}`);
+    failures.push(`cannot remove ${sandbox} (it stays until its recorder's next run empties the folder above it): ${error.message}`);
   }
   return failures;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const sandbox = process.env.REC_SANDBOX;
-  let keep = false;
-  process.stdin.setEncoding('utf8');
-  process.stdin.on('data', (chunk) => {
-    if (chunk.includes('keep')) keep = true;
-  });
+  process.stdin.resume();
   // End-of-file: the recorder is gone.
   process.stdin.on('end', () => {
-    if (keep) process.exit(0);
     const failures = endSandbox(sandbox, 60_000);
     // Nobody reads this process's output (its recorder is gone): a failure is written next to the profile it kept.
     for (const failure of failures) appendFileSync(`${sandbox}.janitor.log`, `${failure}\n`);

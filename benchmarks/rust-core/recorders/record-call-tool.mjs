@@ -11,11 +11,16 @@
 // wire calls and the results), and the stored transcript at the end.
 //
 //   node benchmarks/rust-core/recorders/record-call-tool.mjs --tree <exact export of b6f10295a with node_modules>
+//   node benchmarks/rust-core/recorders/record-call-tool.mjs --tree <...> --only <name fragment>
 //
 // Output: native/core/fixtures/call-tool/golden.json (+ MANIFEST.json). The `script` of each scenario is the recorder's input.
-import { spawn } from 'node:child_process';
+// A whole recording records every scenario twice, each time in a process and a sandbox of its own (`--raw <file>`, the raw recording),
+// and keeps the first only if the two differ in nothing but what the declared normalisations replace, each normalisation shown needed by
+// a field that differed (`compareRuns`); the manifest lists those fields. `--only` records the scenarios whose name holds the fragment once
+// and puts them into golden.json in their place, leaving the others and the manifest as they were (for working on one scenario).
+import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -24,7 +29,144 @@ import { endSandbox } from './sandbox-janitor.mjs';
 const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
 const recorder = 'benchmarks/rust-core/recorders/record-call-tool.mjs';
 
-const sandbox = mkdtempSync(join(process.env.MIXDOG_RECORDER_SCRATCH ?? tmpdir(), 'rec-call-tool-'));
+const argOf = (name) => {
+  const at = process.argv.indexOf(`--${name}`);
+  return at < 0 ? null : process.argv[at + 1];
+};
+const RAW_OUT = argOf('raw');
+const ONLY = argOf('only');
+// Every sandbox of a recording lives in this one folder. The run a person starts empties it first: a sandbox a failed run could not
+// remove (a process still holding it) stays here until then, and that run's failure names it.
+const SANDBOX_ROOT = join(process.env.MIXDOG_RECORDER_SCRATCH ?? tmpdir(), 'rec-call-tool');
+if (!RAW_OUT) {
+  try {
+    rmSync(SANDBOX_ROOT, { recursive: true, force: true });
+  } catch (error) {
+    throw new Error(`cannot remove ${SANDBOX_ROOT}, which an earlier recording left (a process may still hold it): ${error.message}`);
+  }
+  mkdirSync(SANDBOX_ROOT, { recursive: true });
+}
+
+// ---- what may differ between two recordings of the same turns ----------------------------------------------------------------
+// The run itself, never behaviour: each such value is replaced by a fixed placeholder, every rule is declared in the manifest
+// (`normalisations`), and `compareRuns` shows each one needed by the fields that differed between two raw runs.
+const SANDBOX_PLACEHOLDER = '<SANDBOX>';
+const CLOCK_KEYS = new Set([
+  'createdAt', 'ts', 'at', 'elapsedMs', 'duration', 'tool_ms', 'started_at_ms', 'completed_at_ms',
+  'dispatchStartedAt', 'executionStartedAt', 'executionCompletedAt', 'postprocessStartedAt', 'resultCompletedAt',
+  'dispatch_wait_ms', 'execution_ms', 'result_collection_wait_ms', 'postprocess_ms', 'total_ms',
+]);
+const BATCH_ID_KEYS = new Set(['batch_id']);
+const sandboxForms = (sandbox) => [sandbox, sandbox.replaceAll('\\', '/')];
+const withoutSandbox = (text, sandbox) => sandboxForms(sandbox).reduce((out, form) => out.replaceAll(form, SANDBOX_PLACEHOLDER), text);
+function normalised(golden, sandbox) {
+  let batchIds = new Map();
+  const walk = (value, key) => {
+    if (typeof value === 'string') {
+      if (BATCH_ID_KEYS.has(key)) {
+        if (!batchIds.has(value)) batchIds.set(value, `<BATCH-${batchIds.size + 1}>`);
+        return batchIds.get(value);
+      }
+      return withoutSandbox(value, sandbox);
+    }
+    if (typeof value === 'number' && CLOCK_KEYS.has(key)) return 0;
+    if (Array.isArray(value)) return value.map((item) => walk(item, key));
+    if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, walk(v, k)]));
+    return value;
+  };
+  // A batch id is unique to its turn: the numbering restarts with each scenario (a row and the tool rows of its calls share one).
+  return { ...golden, scenarios: golden.scenarios.map((scenario) => ((batchIds = new Map()), walk(scenario, ''))) };
+}
+
+/** Two raw runs, leaf by leaf: every difference must be one a declared normalisation replaces, and every declared rule must have
+ *  replaced a difference (by key). Returns, per normalisation, the keys whose values differed; throws naming the first offenders. */
+function compareRuns(a, b) {
+  const differed = { sandboxPath: new Set(), clockValues: new Set(), batchIds: new Set() };
+  const undeclared = [];
+  const walk = (x, y, key, path) => {
+    if (Array.isArray(x) || Array.isArray(y)) {
+      if (!Array.isArray(x) || !Array.isArray(y) || x.length !== y.length) return void undeclared.push(`${path}: ${JSON.stringify(x)?.slice(0, 200)} / ${JSON.stringify(y)?.slice(0, 200)}`);
+      return void x.forEach((item, i) => walk(item, y[i], key, `${path}[${i}]`));
+    }
+    if (x && y && typeof x === 'object' && typeof y === 'object') {
+      if (Object.keys(x).join('\u0000') !== Object.keys(y).join('\u0000')) return void undeclared.push(`${path}: keys ${Object.keys(x)} / ${Object.keys(y)}`);
+      return void Object.keys(x).forEach((k) => walk(x[k], y[k], k, `${path}.${k}`));
+    }
+    if (x === y) return;
+    if (typeof x === 'string' && typeof y === 'string') {
+      if (BATCH_ID_KEYS.has(key)) return void differed.batchIds.add(key);
+      if (withoutSandbox(x, a.sandbox) === withoutSandbox(y, b.sandbox)) return void differed.sandboxPath.add(key);
+    }
+    if (typeof x === 'number' && typeof y === 'number' && CLOCK_KEYS.has(key)) return void differed.clockValues.add(key);
+    undeclared.push(`${path}: ${JSON.stringify(x)?.slice(0, 200)} / ${JSON.stringify(y)?.slice(0, 200)}`);
+  };
+  walk(a.golden, b.golden, '', '');
+  const wider = [
+    ...[...CLOCK_KEYS].filter((key) => !differed.clockValues.has(key)).map((key) => `clockValues: ${key}`),
+    ...[...BATCH_ID_KEYS].filter((key) => !differed.batchIds.has(key)).map((key) => `batchIds: ${key}`),
+    ...(differed.sandboxPath.size ? [] : ['sandboxPath: no value held the sandbox']),
+  ];
+  if (undeclared.length || wider.length) {
+    throw new Error(
+      [
+        ...(undeclared.length ? [`${undeclared.length} difference(s) between the two runs that no normalisation declares:`, ...undeclared.slice(0, 20)] : []),
+        ...(wider.length ? ['normalisations no difference between the two runs needed:', ...wider] : []),
+      ].join('\n')
+    );
+  }
+  const left = JSON.stringify(normalised(a.golden, a.sandbox));
+  if (left !== JSON.stringify(normalised(b.golden, b.sandbox))) throw new Error('the two runs differ after their normalisation');
+  return Object.fromEntries(Object.entries(differed).map(([rule, keys]) => [rule, [...keys].sort()]));
+}
+
+// ---- a whole recording: two raw runs, compared, the first kept ---------------------------------------------------------------
+if (!RAW_OUT && !ONLY) {
+  const { FIXTURES_ROOT, commitStage, exactProductIdentity, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
+  const args = parseArgs();
+  const tree = resolveTree(args);
+  const identity = exactProductIdentity(tree, NODE_COMMIT);
+  const runs = [];
+  for (const n of [1, 2]) {
+    const out = join(SANDBOX_ROOT, `raw-${n}.json`);
+    // One recording takes a few minutes; a run that is not over in 20 is the failure, and its janitor (the pipe's end) ends its sandbox.
+    const run = spawnSync(process.execPath, [fileURLToPath(import.meta.url), '--tree', tree, '--raw', out], { stdio: 'inherit', timeout: 20 * 60_000, windowsHide: true });
+    if (run.error || run.status !== 0) throw new Error(`raw run ${n} failed (${run.error?.message ?? `exit ${run.status}`}); what it left is under ${SANDBOX_ROOT}`);
+    runs.push(JSON.parse(readFileSync(out, 'utf8')));
+  }
+  const evidence = compareRuns(runs[0], runs[1]);
+  const [{ golden, sandbox }] = runs;
+  const finalDir = join(FIXTURES_ROOT, 'call-tool');
+  const stage = stageSet(finalDir);
+  writeJson(join(stage, 'golden.json'), normalised(golden, sandbox));
+  writeSetManifest(stage, {
+    set: 'call-tool',
+    recorder,
+    command: `node ${recorder} --tree <exact export of ${NODE_COMMIT}>`,
+    identity,
+    extra: {
+      scenarios: golden.scenarios.length,
+      recorderSha256: createHash('sha256').update(readFileSync(fileURLToPath(import.meta.url))).digest('hex'),
+      nodeRuntime: process.version,
+      ...runs[0].described,
+      normalisations: {
+        sandboxPath: `the recorder's sandbox folder (and its forward-slash form), in every string, becomes ${SANDBOX_PLACEHOLDER}`,
+        clockValues: `numbers under these keys become 0: ${[...CLOCK_KEYS].join(', ')}`,
+        batchIds: "the batch_id of a trace row (and the batch_id inside a tool row's payload.batch) becomes <BATCH-n>, n by first appearance within the scenario",
+        keptWhole: 'everything else: system messages, stored and requested messages, events, cards, hooks, executed calls, the timeline, the human gate\'s audit records and every trace row of the session',
+      },
+      // `compareRuns`: the recording was made twice, each run in a sandbox of its own; these are the keys whose values differed between
+      // the two, per normalisation. Nothing else differed, every declared key differed at least once, and the two normalised runs were
+      // the same bytes.
+      twoRunEvidence: evidence,
+    },
+  });
+  commitStage(stage, finalDir);
+  rmSync(SANDBOX_ROOT, { recursive: true, force: true });
+  console.log(`scenarios=${golden.scenarios.length}; differed: ${JSON.stringify(evidence)}`);
+  process.exit(0);
+}
+
+const sandbox = mkdtempSync(join(SANDBOX_ROOT, 'run-'));
 for (const name of ['MIXDOG_DATA_DIR', 'MIXDOG_HOME', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA']) {
   process.env[name] = join(sandbox, name.toLowerCase());
 }
@@ -40,9 +182,10 @@ mkdirSync(join(process.env.MIXDOG_DATA_DIR, 'history'), { recursive: true });
 //       `shutdownOwnedPg`), awaited under a deadline, below in `finishSandbox`;
 //   (b) a cluster still running for the profile: `pg_ctl stop -m fast -D <the profile's data directory>` (sandbox-janitor.mjs `endSandbox`);
 //   (c) what this recorder spawned, through the ChildProcess it holds: the janitor, below.
-// A process that still names the profile after that is not killed: the run fails naming it and the profile stays for inspection.
+// The profile folder is then removed, after a failure too. A process that still names the profile is not killed: the run fails naming
+// it, and the folder, which cannot go while that process holds it, stays under SANDBOX_ROOT until the next run empties that.
 // The janitor is a detached process holding the other end of a pipe: the pipe reaches end-of-file when this process dies by any means,
-// which makes it run (b) and the removal for a recording that could run nothing. `keep` on the pipe says the profile must stay.
+// which makes it run (b) and the removal for a recording that could run nothing.
 const janitor = spawn(process.execPath, [fileURLToPath(new URL('./sandbox-janitor.mjs', import.meta.url))], {
   env: { ...process.env, REC_SANDBOX: sandbox },
   detached: true,
@@ -75,10 +218,7 @@ async function finishSandbox() {
   }
   failures.push(...endSandbox(sandbox));
   for (const failure of failures) console.error(failure);
-  if (failures.length) {
-    process.exitCode = 1;
-    janitor.stdin.write('keep');
-  }
+  if (failures.length) process.exitCode = 1;
   janitor.stdin.end();
 }
 for (const signal of ['SIGINT', 'SIGTERM', 'SIGBREAK']) {
@@ -143,6 +283,13 @@ const { _registerMcpServerForTest, disconnectAll } = await imp(`${S}mcp/client.m
 const { applyDeferredToolSurface, refreshDeferredMcpToolCatalog, renderToolSearch } = await imp(`${S}runtime-core/tool-catalog.mjs`);
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
+// What a host callback was handed, as JSON (`undefined` kept as null, a function as its name).
+const cloneable = (value) => JSON.parse(JSON.stringify(value ?? null, (_, v) => (typeof v === 'function' ? `[function ${v.name}]` : v === undefined ? null : v)));
+const LOOP_CALLBACKS = [
+  'onTextDelta', 'onTextReset', 'onReasoningDelta', 'onAssistantText', 'onAssistantMessageCommitted', 'onAssistantToolCallObserved',
+  'onStreamItemStart', 'onProviderSendStarted', 'onToolPhaseStarted', 'onToolPhaseCompleted', 'onUsageDelta', 'onCompactEvent',
+  'onContextPressure', 'onSteerMessage', 'onSkillsApplied', 'onStageChange', 'onStreamDelta',
+];
 const workdir = join(sandbox, 'work');
 mkdirSync(workdir, { recursive: true });
 writeFileSync(join(workdir, 'x.txt'), 'FILE-SENTINEL\n');
@@ -389,6 +536,27 @@ SCENARIOS.push({
   ],
   script: [round(call('c1', 'edit', { file_path: 'x.txt', old_string: 'a', new_string: 'b' }), bridged('c2', 'probe_read', { q: 'r' }), call('c3', 'edit', { file_path: 'x.txt', old_string: 'b', new_string: 'c' }), bridged('c4', 'probe_write', { q: 'w' })), FINAL],
 });
+// A write that ignores the cancel: its tool is held until the client has learnt that the turn ended (`turnEnded`), so it settles
+// after that; a loop that waited for it before ending the turn would never get there (the hold fails the recording).
+const TURN_ENDED = at('turnEnded');
+SCENARIOS.push({
+  name: 'a turn cancelled while a write runs that ignores the cancel and settles after the turn has ended',
+  abortWhen: [at('ran', { name: 'probe_write' })],
+  settled: ['c1'],
+  gates: [{ stage: 'tool', name: 'probe_write', until: TURN_ENDED }],
+  script: [round(call('c1', 'probe_write', { q: 'w' })), FINAL],
+});
+// The cancel reaches the batch while it waits for the result of an edit: a refused call before it has its answer staged (never run,
+// so never told early), a read before it has settled, the edit runs on until after the turn ended, and a second edit of the same
+// file waits behind it.
+SCENARIOS.push({
+  name: 'a turn cancelled while the batch waits for an edit, a refusal staged and a read settled before it and an edit of the same file queued behind it',
+  internal: ['edit'],
+  abortWhen: [at('toolResult', { id: 'c2', early: true }), at('ran', { name: 'edit' })],
+  settled: ['c2', 'c3', 'c4'],
+  gates: [{ stage: 'tool', name: 'edit', args: { file_path: 'x.txt', old_string: 'a', new_string: 'b' }, until: TURN_ENDED }],
+  script: [round(bridged('c1', 'no_such_tool', {}), bridged('c2', 'probe_read', { q: '1' }), call('c3', 'edit', { file_path: 'x.txt', old_string: 'a', new_string: 'b' }), call('c4', 'edit', { file_path: 'x.txt', old_string: 'b', new_string: 'c' })), FINAL],
+});
 // A streaming provider whose stream is cut (`TRUNCATED_STREAM`) after two complete calls, while a third call's arguments were still streaming
 // (`pendingToolUse`): the turn goes on with the complete calls, the partial one is dropped unrun and the model is told to split it
 // (send-with-recovery.mjs:720 `recoverableToolCalls`, :767 `recoverPartialToolCalls`, :737 the notice). One complete call names no tool.
@@ -421,12 +589,10 @@ for (const name of STREAMED) {
 // ---- one scenario --------------------------------------------------------------------------------------------------------------
 const AUDIT_PATH = join(process.env.MIXDOG_DATA_DIR, 'human-gate', 'audit.jsonl');
 let auditOffset = 0;
-let serial = 0;
-let twins = 0;
 // `twin`: the same scenario with a provider that streams nothing, run only to learn which calls of each round the loop dispatches
 // (and so tells the host about as they settle): a streaming response ends once those have settled.
 async function runScenario(scenario, twin = false) {
-  const n = twin ? 1000 + (twins += 1) : (serial += 1);
+  const n = twin ? scenario.twinN : scenario.n;
   const scopeId = `call-tool-scope-${n}`;
   const sessionId = `sess_call_tool_${String(n).padStart(2, '0')}`;
   const providerName = `scripted-call-tool-${n}`;
@@ -434,6 +600,7 @@ async function runScenario(scenario, twin = false) {
   const hooks = { before: [], after: [] };
   const cards = [];
   const events = [];
+  const callbacks = [];
   const sends = [];
   // Everything observable, in the order it happened: the requests, the hooks, the cards, the tool events and the executors.
   const timeline = [];
@@ -461,13 +628,19 @@ async function runScenario(scenario, twin = false) {
   };
   // One step a script controls. A scenario can hold the n-th occurrence of a step (`gates`) until an entry of the timeline appears.
   const gateSeen = new Map();
+  const heldTooLong = [];
   const step = async (stage, name = '', args = {}) => {
     for (const gate of scenario.gates ?? []) {
       if (gate.stage !== stage || (gate.name !== undefined && gate.name !== name) || (gate.args !== undefined && !same(gate.args, args))) continue;
       const seen = (gateSeen.get(gate) ?? 0) + 1;
       gateSeen.set(gate, seen);
       if (seen !== (gate.nth ?? 1)) continue;
-      await until(gate.until, `${stage} of ${name || 'a call'} (held)`);
+      // A hold that never ends is the recording's failure, not the product's: the step's own error would otherwise be recorded as the
+      // call's result.
+      await until(gate.until, `${stage} of ${name || 'a call'} (held)`).catch((error) => {
+        heldTooLong.push(error.message);
+        throw error;
+      });
       break;
     }
     await macrotask();
@@ -599,6 +772,15 @@ async function runScenario(scenario, twin = false) {
       null,
       null,
       {
+        // Every other callback the turn raises for its host (ask-turn-loop-options.mjs:113-236), in the order raised, with what it was given.
+        ...Object.fromEntries(
+          LOOP_CALLBACKS.map((ev) => [
+            ev,
+            (...args) => {
+              callbacks.push({ ev, args: args.map(cloneable) });
+            },
+          ])
+        ),
         onToolApproval: (card) =>
           track(
             (async () => {
@@ -632,6 +814,9 @@ async function runScenario(scenario, twin = false) {
       if (!cancelled) throw error;
       turnError = { name: error?.name ?? null, message: error?.message ?? String(error) };
     }
+    // The moment the client learns the cancelled turn is over, noted where a step is held until it (elsewhere where it falls among the
+    // calls' own steps is only how many steps the unwinding takes).
+    if (cancelled && (scenario.gates ?? []).some((gate) => gate.until.ev === 'turnEnded')) note({ ev: 'turnEnded' });
     if (cancelled) {
       await cancelled;
       if (!turnError) throw new Error(`${scenario.name}: the cancelled turn ended without an error`);
@@ -659,6 +844,7 @@ async function runScenario(scenario, twin = false) {
     if ((gateSeen.get(gate) ?? 0) < (gate.nth ?? 1)) throw new Error(`${scenario.name}: the gate ${JSON.stringify(gate)} was never reached`);
   }
   if (answers.length) throw new Error(`${scenario.name}: ${answers.length} scripted answer(s) never used`);
+  if (heldTooLong.length) throw new Error(`${scenario.name}: ${heldTooLong.join('; ')}`);
   return {
     name: scenario.name,
     sessionId,
@@ -680,6 +866,7 @@ async function runScenario(scenario, twin = false) {
     ...result,
     requests: sends,
     events,
+    callbacks,
     cards,
     hooks,
     executed,
@@ -693,7 +880,12 @@ async function runScenario(scenario, twin = false) {
 await humanGateStore();
 
 const scenarios = [];
-for (const scenario of SCENARIOS) {
+let streamedSoFar = 0;
+for (const [index, scenario] of SCENARIOS.entries()) {
+  // A scenario's session is numbered by its place in the list, so that `--only` records it under the id a whole run gives it.
+  scenario.n = index + 1;
+  if (scenario.stream) scenario.twinN = 1000 + (streamedSoFar += 1);
+  if (ONLY && !scenario.name.includes(ONLY)) continue;
   if (scenario.stream) {
     const twin = await runScenario({ ...scenario, stream: false }, true);
     const sent = twin.timeline.flatMap((entry, at) => (entry.ev === 'sent' ? [at] : []));
@@ -706,51 +898,12 @@ for (const scenario of SCENARIOS) {
   scenarios.push(await runScenario(scenario));
 }
 
-const finalDir = join(FIXTURES_ROOT, 'call-tool');
-const stage = stageSet(finalDir);
-// What differs between two recordings of the same turns is the run itself, never behaviour; each such value is replaced by a fixed
-// placeholder, and every rule is declared in the manifest (`normalisations`) so a reader and the replay know exactly what is not kept.
-const SANDBOX_PLACEHOLDER = '<SANDBOX>';
-const CLOCK_KEYS = new Set([
-  'createdAt', 'ts', 'at', 'elapsedMs', 'duration', 'tool_ms', 'started_at_ms', 'completed_at_ms',
-  'dispatchStartedAt', 'executionStartedAt', 'executionCompletedAt', 'postprocessStartedAt', 'resultCompletedAt',
-  'dispatch_wait_ms', 'execution_ms', 'result_collection_wait_ms', 'postprocess_ms', 'total_ms',
-]);
-const BATCH_ID_KEYS = new Set(['batch_id']);
-function normalised(golden) {
-  const pathForms = [sandbox, sandbox.replaceAll('\\', '/')];
-  let batchIds = new Map();
-  const walk = (value, key) => {
-    if (typeof value === 'string') {
-      if (BATCH_ID_KEYS.has(key)) {
-        if (!batchIds.has(value)) batchIds.set(value, `<BATCH-${batchIds.size + 1}>`);
-        return batchIds.get(value);
-      }
-      return pathForms.reduce((text, form) => text.replaceAll(form, SANDBOX_PLACEHOLDER), value);
-    }
-    if (typeof value === 'number' && CLOCK_KEYS.has(key)) return 0;
-    if (Array.isArray(value)) return value.map((item) => walk(item, key));
-    if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, walk(v, k)]));
-    return value;
-  };
-  // A batch id is unique to its turn: the numbering restarts with each scenario (a row and the tool rows of its calls share one).
-  return { ...golden, scenarios: golden.scenarios.map((scenario) => ((batchIds = new Map()), walk(scenario, ''))) };
-}
-const recorderText = readFileSync(fileURLToPath(import.meta.url));
-writeJson(join(stage, 'golden.json'), normalised({
+const golden = {
   note: 'a real askSession turn over a bridge session (call_tool / load_tool, deferred probe tools, one connected MCP server) at b6f10295a',
   tools: PROBE_TOOLS,
   scenarios,
-}));
-writeSetManifest(stage, {
-  set: 'call-tool',
-  recorder,
-  command: `node ${recorder} --tree <exact export of ${NODE_COMMIT}>`,
-  identity,
-  extra: {
-    scenarios: scenarios.length,
-    recorderSha256: createHash('sha256').update(recorderText).digest('hex'),
-    nodeRuntime: process.version,
+};
+const described = {
     // Everything in the recording that is the recorder's own and not the product's.
     syntheticInputs: [
       'the provider: a scripted `send` that returns each scenario\'s replies in order; for a streamed scenario it hands every call to `onToolCall` one macrotask apart and ends the response once the calls the twin run saw settle early (`settles`)',
@@ -764,16 +917,17 @@ writeSetManifest(stage, {
       'synchronous file work: `fs/promises` readFile / appendFile / mkdir of the human gate\'s grants.json and audit.jsonl are replaced by the same operation done synchronously after one macrotask (the recorder\'s `fileStep`), so the order of two concurrent approvals is the scenario\'s',
       'the session: createSession with the sandbox profile (MIXDOG_DATA_DIR and the home variables under the sandbox), a fixed id per scenario, a work directory holding x.txt',
     ],
-    normalisations: {
-      sandboxPath: `the recorder's sandbox folder (and its forward-slash form), in every string, becomes ${SANDBOX_PLACEHOLDER}`,
-      clockValues: `numbers under these keys become 0: ${[...CLOCK_KEYS].join(', ')}`,
-      batchIds: 'the batch_id of a trace row (and the batch_id inside a tool row\'s payload.batch) becomes <BATCH-n>, n by first appearance within the scenario',
-      keptWhole: 'system messages, tool timings\' keys, stored and requested messages, events, cards, hooks, executed calls, the timeline, the human gate\'s audit records and every trace row of the session (context, batch, tool, usage) are recorded whole apart from the values above',
-    },
-    twoRunIdentity: 'two recordings in a row produce byte-identical golden.json and MANIFEST.json (compare their sha256 entries)',
-  },
-});
-commitStage(stage, finalDir);
+};
+if (RAW_OUT) {
+  writeFileSync(RAW_OUT, JSON.stringify({ sandbox, golden, described }));
+} else {
+  // `--only`: the scenarios recorded now take their places in golden.json; the others and the manifest stay as they were.
+  const goldenPath = join(FIXTURES_ROOT, 'call-tool', 'golden.json');
+  const kept = new Map(JSON.parse(readFileSync(goldenPath, 'utf8')).scenarios.map((s) => [s.name, s]));
+  const fresh = new Map(normalised(golden, sandbox).scenarios.map((s) => [s.name, s]));
+  const merged = SCENARIOS.map((s) => fresh.get(s.name) ?? kept.get(s.name)).filter(Boolean);
+  writeJson(goldenPath, { ...golden, scenarios: merged });
+}
 console.log(`scenarios=${scenarios.length}`);
 } catch (error) {
   console.error(error);

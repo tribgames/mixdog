@@ -292,6 +292,12 @@ impl Stages {
     }
 }
 
+/// Whether a step of the scenario is held until the client has learnt that the cancelled turn ended (the recording notes `turnEnded`
+/// only then: elsewhere where it falls among the calls' own steps is only how many steps Node's unwinding takes).
+fn holds_until_turn_end(scenario: &Value) -> bool {
+    scenario["gates"].as_array().is_some_and(|gates| gates.iter().any(|gate| gate["until"]["ev"] == "turnEnded"))
+}
+
 fn strings(value: &Value) -> Vec<String> {
     value.as_array().map(|items| items.iter().filter_map(|item| item.as_str().map(str::to_owned)).collect()).unwrap_or_default()
 }
@@ -702,14 +708,20 @@ impl SteerSource for NoSteer {
     }
 }
 
-#[derive(Default)]
-struct Events(Mutex<Vec<RunEvent>>, Timeline);
+/// The run's events, and the early results the host's interruption record holds: those told before the run's token was cancelled
+/// (`run_host/factory.rs` `PortObserver`, as Node's tracker is finalized in the abort's own step).
+struct Events(Mutex<Vec<RunEvent>>, Timeline, CancellationToken, Mutex<Vec<AgentMessage>>);
 
 impl RunObserver for Events {
     fn event(&self, event: RunEvent) {
         match &event {
             RunEvent::ToolCalls { calls, .. } => self.1.note(json!({ "ev": "toolCall", "ids": calls.iter().map(|call| call.id.as_str()).collect::<Vec<_>>() })),
-            RunEvent::EarlyResult(message) => self.1.note(json!({ "ev": "toolResult", "id": message.tool_call_id(), "early": true })),
+            RunEvent::EarlyResult(message) => {
+                if !self.2.is_cancelled() {
+                    self.3.lock().expect("observed").push(message.clone());
+                }
+                self.1.note(json!({ "ev": "toolResult", "id": message.tool_call_id(), "early": true }));
+            }
             RunEvent::ToolResult { call_id, .. } => self.1.note(json!({ "ev": "toolResult", "id": call_id, "early": false })),
             _ => {}
         }
@@ -906,7 +918,11 @@ async fn observed(scenario: &Value, defined: &[Value]) -> Value {
         bridge: !non_bridge,
         ..SessionSurface::default()
     };
-    let observer = Arc::new(Events(Mutex::default(), timeline.clone()));
+    // The run's token and the abort signal over it, as the host builds them (`run_host/factory.rs`: `config.signal`, the gate's
+    // `cancel`).
+    let token = CancellationToken::new();
+    let signal = Cancel::from_token(&token);
+    let observer = Arc::new(Events(Mutex::default(), timeline.clone(), token.clone(), Mutex::default()));
     let approvals = Arc::new(Cards { answers: MockApprovalGate::default(), timeline: timeline.clone(), stages: stages.clone() });
     for answer in scenario["answers"].as_array().expect("answers") {
         approvals.answers.script.lock().expect("script").push_back(ApprovalResolution::Decided {
@@ -937,10 +953,6 @@ async fn observed(scenario: &Value, defined: &[Value]) -> Value {
     let policy = ToolPolicy::new(grant_store.clone(), Arc::new(Connectors)).with_hook(Arc::new(SharedHook(hook.clone())));
     // The thread is the recorded session: the texts that name it (a card, an abort) name the same one.
     let thread = ThreadId::from(scenario["sessionId"].as_str().expect("sessionId"));
-    // The run's token and the abort signal over it, as the host builds them (`run_host/factory.rs`: `config.signal`, the gate's
-    // `cancel`).
-    let token = CancellationToken::new();
-    let signal = Cancel::from_token(&token);
     let gate = PolicyGate::new(PolicyGateParts {
         policy: Arc::new(policy),
         connectors: Arc::new(Connectors),
@@ -1033,6 +1045,12 @@ async fn observed(scenario: &Value, defined: &[Value]) -> Value {
         })
     });
     let ran = awaiting_for(DEADLINE, || format!("the run of {}", scenario["name"]), run.run()).await;
+    // What the host has seen of the run when it ends: the interruption of a cancelled turn is built from it.
+    let seen_at_end = observer.0.lock().expect("events").clone();
+    if holds_until_turn_end(scenario) {
+        // The client learns the cancelled turn is over (the recording's `turnEnded`, noted where a step is held until it).
+        timeline.note(json!({ "ev": "turnEnded" }));
+    }
 
     let requests: Vec<Value> = provider
         .requests
@@ -1058,18 +1076,20 @@ async fn observed(scenario: &Value, defined: &[Value]) -> Value {
                 timeline.until(&json!({ "ev": "toolResult", "id": id, "early": true }), &format!("the settlement of {id} after the cancellation")).await;
             }
             // What the stored transcript of a cancelled turn is: the host's interruption (`finalizeTurnInterruptionSnapshot`, replayed
-            // against `fixtures/interrupt/golden.json` by `interrupt::tests`) over the loop's transcript at the stop, in the tool phase,
-            // with the reason the turn was aborted with. Node's snapshot held no settled result (every call is closed `Cancelled`), and none
-            // had settled before the abort here either (the timeline is compared below).
+            // against `fixtures/interrupt/golden.json` by `interrupt::tests`) over the loop's transcript at the stop, with what the host
+            // had seen of the run by then, as `run_host/factory.rs` `close_cancelled` builds it: the calls the loop announced and the
+            // results the calls told as they settled (`EarlyResult`), the tool phase if calls were announced.
+            let calls: Vec<ToolCall> = seen_at_end.iter().filter_map(|event| match event { RunEvent::ToolCalls { calls, .. } => Some(calls.clone()), _ => None }).flatten().collect();
+            let results: Vec<AgentMessage> = observer.3.lock().expect("observed").clone();
             let finalized = finalize_interrupted_turn(Interrupted {
                 transcript: failure.transcript,
                 current_user_text: "go".to_owned(),
-                response_started: true,
+                response_started: !calls.is_empty() || !results.is_empty(),
                 partial_assistant: String::new(),
                 partial_reasoning: String::new(),
-                observed_tool_calls: Vec::new(),
-                observed_tool_results: Vec::new(),
-                phase: Phase::Tools,
+                phase: if calls.is_empty() { Phase::Streaming } else { Phase::Tools },
+                observed_tool_calls: calls,
+                observed_tool_results: results,
                 reason: AbortReason::from_name(abort_reason.as_deref().expect("abortReason")),
             });
             // A cancelled turn is Node's `SessionClosedError`, with the text of the abort that ended it.
