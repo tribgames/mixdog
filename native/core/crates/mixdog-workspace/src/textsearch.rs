@@ -24,12 +24,13 @@ const PREVIEW_UNITS: usize = 1_000;
 
 /// Which strings of a text search held an unpaired surrogate escape on the wire, read as U+FFFD. Node kept the code unit,
 /// which no path or text decoded from disk holds: such a query finds nothing ([`Pattern::compile`]) and such a selector entry
-/// selects nothing ([`selectors`]).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// selects nothing ([`selectors`]). The selectors are lists: `include` and `exclude` are the `char` indices of the units that
+/// were lone, so only the entry holding one is affected.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct QueryLone {
     pub query: bool,
-    pub include: bool,
-    pub exclude: bool,
+    pub include: Vec<usize>,
+    pub exclude: Vec<usize>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -182,18 +183,31 @@ pub fn clamp_max(query: &TextQuery) -> usize {
     query.max_results.unwrap_or(2_000).clamp(1, 5_000)
 }
 
-/// Node's `globList` (workspace-search.ts:45-56) of `list`. When the string held a lone surrogate, its entries holding U+FFFD
-/// are Node's entries holding the lone unit: a case-insensitive RegExp of it matches no path read from disk, so each is an
-/// entry that matches nothing (an include of only such entries selects no file; such an exclude excludes none).
-fn selectors(list: &str, lone: bool) -> Vec<Regex> {
-    if !lone {
+/// Node's `globList` (workspace-search.ts:45-56) of `list`. An entry that held a lone surrogate (`lone`: `char` indices of the
+/// units that were lone) is Node's entry holding the lone unit: a case-insensitive RegExp of it matches no path read from disk,
+/// so it matches nothing (an include of only such entries selects no file; such an exclude excludes none). Every other entry,
+/// one holding a real U+FFFD included, is Node's.
+fn selectors(list: &str, lone: &[usize]) -> Vec<Regex> {
+    if lone.is_empty() {
         return glob_list(list);
     }
-    list.split(',')
-        .map(str::trim)
-        .filter(|entry| !entry.is_empty())
-        .flat_map(|entry| if entry.contains('\u{fffd}') { vec![Regex::new(r"\z.").expect("static pattern")] } else { glob_list(entry) })
-        .collect()
+    let mut start = 0;
+    let mut out = Vec::new();
+    for raw in list.split(',') {
+        let end = start + raw.chars().count();
+        let held = lone.iter().any(|&at| (start..end).contains(&at));
+        start = end + 1;
+        let entry = raw.trim();
+        if entry.is_empty() {
+            continue;
+        }
+        if held {
+            out.push(Regex::new(r"\z.").expect("static pattern"));
+        } else {
+            out.extend(glob_list(entry));
+        }
+    }
+    out
 }
 
 fn accepts(path: &str, include: &[Regex], exclude: &[Regex]) -> bool {
@@ -204,7 +218,7 @@ pub fn search(root: &Path, query: &TextQuery, stop: &dyn Fn() -> bool) -> WsResu
     let maximum = clamp_max(query);
     let pattern = Pattern::compile(query)?;
     let word = word_character();
-    let (include, exclude) = (selectors(&query.include, query.lone.include), selectors(&query.exclude, query.lone.exclude));
+    let (include, exclude) = (selectors(&query.include, &query.lone.include), selectors(&query.exclude, &query.lone.exclude));
     let mut files = Vec::new();
     let mut count = 0;
     for rel in text_files(root, stop) {
@@ -434,12 +448,16 @@ mod tests {
             let query = TextQuery { include: include.into(), exclude: exclude.into(), lone, ..q("hello") };
             search(&root, &query, &|| false).unwrap().files.into_iter().map(|f| f.rel_path).collect::<Vec<_>>()
         };
-        let include = QueryLone { include: true, ..QueryLone::default() };
-        let exclude = QueryLone { exclude: true, ..QueryLone::default() };
-        assert_eq!(named("a\u{fffd}.txt", "", include), Vec::<String>::new());
-        assert_eq!(named("a\u{fffd}.txt, a.txt", "", include), ["a.txt"]);
+        let include = |at: &[usize]| QueryLone { include: at.to_vec(), ..QueryLone::default() };
+        let exclude = |at: &[usize]| QueryLone { exclude: at.to_vec(), ..QueryLone::default() };
+        assert_eq!(named("a\u{fffd}.txt", "", include(&[1])), Vec::<String>::new());
+        assert_eq!(named("a\u{fffd}.txt, a.txt", "", include(&[1])), ["a.txt"]);
         assert_eq!(named("a\u{fffd}.txt", "", QueryLone::default()), ["a\u{fffd}.txt"]);
-        assert_eq!(named("", "a\u{fffd}.txt", exclude), named("", "", QueryLone::default()));
+        assert_eq!(named("", "a\u{fffd}.txt", exclude(&[1])), named("", "", QueryLone::default()));
+        // Only the entry that held the lone unit is out: `b\ud800.txt` beside a real `a\ufffd.txt` (Node selects or excludes
+        // the real one).
+        assert_eq!(named("a\u{fffd}.txt,b\u{fffd}.txt", "", include(&[8])), ["a\u{fffd}.txt"]);
+        assert!(!named("", "a\u{fffd}.txt,b\u{fffd}.txt", exclude(&[8])).contains(&"a\u{fffd}.txt".to_owned()));
         let plan = plan_replace(&root, &q("hello"), "bye", Some(&[]), &|| false).unwrap();
         assert!(plan.writes.is_empty(), "a list of only paths that held a lone surrogate selects nothing");
     }

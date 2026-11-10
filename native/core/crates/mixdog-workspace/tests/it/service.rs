@@ -1838,7 +1838,7 @@ async fn a_project_path_that_held_a_lone_surrogate_names_no_project() {
     env.state.write(move |tx| tx.put_project(&row)).await.unwrap();
     let held = |method: &'static str, params: Value, at: &str| {
         let mut req = request(method, params);
-        req.ctx.lone_surrogates = vec![mixdog_js::LoneAt::Value(at.into())];
+        req.ctx.lone_surrogates = vec![mixdog_js::LoneAt::Value(at.into(), vec![0])];
         req
     };
     let answer = |req| async { match env.service.call(req).await { Ok(Reply::Value(v)) => Ok(v), Ok(Reply::Subscribe(_)) => panic!("unexpected subscribe"), Err(e) => Err(e) } };
@@ -1849,4 +1849,20 @@ async fn a_project_path_that_held_a_lone_surrogate_names_no_project() {
     let kept = rows.iter().find(|row| row.path == path).unwrap();
     assert!(!kept.hidden && kept.alias.is_none(), "{kept:?}");
     assert!(call(&env, "projectFs/listDir", json!({ "root": path, "rel": "" })).await.is_ok());
+}
+
+/// A `relPaths` entry that held a lone surrogate names no file, even one whose name holds a real U+FFFD (Node keeps a match
+/// only when its relPath equals an entry, workspace-search.ts:238-240); the other entries still select.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_replace_path_that_held_a_lone_surrogate_selects_no_file() {
+    let env = env();
+    std::fs::write(env.root.join("a\u{fffd}.txt"), "old\n").unwrap();
+    std::fs::write(env.root.join("b.txt"), "old\n").unwrap();
+    let root = env.root.to_string_lossy().into_owned();
+    let params = json!({ "root": root, "options": { "query": "old" }, "replacement": "new", "relPaths": ["a\u{fffd}.txt", "b.txt"] });
+    let mut req = request("projectFs/replaceText", params);
+    req.ctx.lone_surrogates = vec![mixdog_js::LoneAt::Value("/relPaths/0".into(), vec![1])];
+    env.service.call(req).await.unwrap();
+    assert_eq!(std::fs::read_to_string(env.root.join("a\u{fffd}.txt")).unwrap(), "old\n");
+    assert_eq!(std::fs::read_to_string(env.root.join("b.txt")).unwrap(), "new\n");
 }
