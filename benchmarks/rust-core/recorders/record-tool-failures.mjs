@@ -41,7 +41,9 @@ if (process.argv[2] === '--child') {
   const { askSession } = await imp(`${S}session/manager/ask-session.mjs`);
   const { abortSessionTurn } = await imp(`${S}session/manager/session-close.mjs`);
   const { _withRegisteredProviderForTestAsync } = await imp(`${S}providers/registry.mjs`);
-  const { modelToolSchemaAllowlist } = await imp(`${S}runtime-core/tool-profile.mjs`);
+  const { HEADLESS_TOOL_PROFILE, modelToolSchemaAllowlist } = await imp(`${S}runtime-core/tool-profile.mjs`);
+  const { sessionOptions } = await imp('src/session-runtime/session-create/session-options.mjs');
+  const { workflowHelpers } = await imp('src/session-runtime/boot/shared.mjs');
   const { makeInvalidToolArgsMarker } = await imp(`${S}providers/lib/openai-tool-args.mjs`);
   const { setInternalToolsProvider } = await imp(`${S}internal-tools.mjs`);
   const { connectMcpServers, disconnectAll } = await imp(`${S}mcp/client.mjs`);
@@ -99,12 +101,24 @@ if (process.argv[2] === '--child') {
     await _withRegisteredProviderForTestAsync(providerName, provider, async () => {
       // The headless allowlist has no skill, delegated-agent or MCP tools: a `full` scenario gets the whole surface, with the agent tool the
       // way headless-role.mjs builds it (real modules, no boot) and the stdio server `fx` connected under the session's MCP scope.
-      // The session is a user's Lead, with the identity sessionOptions gives one (session-options.mjs:88-103; the same fields as
-      // LEAD_FIELDS, imported-session.mjs:39): a row's `agent` is the session's (finalize.mjs:236), "lead" for it.
-      const lead = { owner: 'cli', agent: 'lead', lane: 'cli', sourceType: 'lead', sourceName: 'main' };
+      // The session's options are what the product's builder gives a user's session (sessionOptions, session-options.mjs:47-139, as
+      // materialize.mjs:61 and the conversation import, apis.mjs:418-434, call it) with no session profile: a `full` scenario is the
+      // interactive Lead, the others a headless run (the headless tool profile). Its identity (owner, agent, lane, source) is the
+      // builder's; a row's `agent` is the session's (finalize.mjs:236). Only what a scenario sets itself is laid over it.
+      const toolProfile = scenario.full ? 'interactive' : HEADLESS_TOOL_PROFILE;
+      const built = sessionOptions(
+        {
+          rt: { route: { provider: providerName, model: MODEL }, config: {}, mode: 'full', toolProfile, sessionProfile: null, currentCwd: WORKSPACE, mcpScopeId: scenario.full ? scopeId : undefined },
+          cfgMod,
+          activeWorkflowContext: workflowHelpers.activeWorkflowContext,
+          schemaAllowedTools: modelToolSchemaAllowlist(toolProfile),
+          featureDisallowedTools: () => [],
+        },
+        null
+      );
       const session = scenario.full
-        ? createSession({ ...lead, provider: providerName, model: MODEL, cwd: WORKSPACE, mcpScopeId: scopeId })
-        : createSession({ ...lead, provider: providerName, model: MODEL, cwd: WORKSPACE, skipSkills: true, schemaAllowedTools: modelToolSchemaAllowlist('headless'), workflow: { id: 'headless', delegatesAgents: false } });
+        ? createSession(built)
+        : createSession({ ...built, skipSkills: true, workflow: { id: 'headless', delegatesAgents: false } });
       sessionId = session.id;
       if (scenario.full) {
         const agentTool = createStandaloneAgent({ cfgMod: { loadConfig: cfgMod.loadConfig, resolveRuntimeSpec: cfgMod.resolveRuntimeSpec }, reg, mgr, dataDir: cfgMod.getPluginData(), cwd: WORKSPACE, mcpScopeId: scopeId });
@@ -152,7 +166,7 @@ if (process.argv[2] === '--child') {
 }
 
 const { FIXTURES_ROOT, commitStage, exactProductIdentity, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
-const { maskWorkspace, rowsByScenario } = await import('./lib/tool-failure-rows.mjs');
+const { leftAtExit, maskWorkspace, rowsByScenario } = await import('./lib/tool-failure-rows.mjs');
 const { readJobReport, spawnInJob } = await import('./lib/job-run.mjs');
 const argv = process.argv.slice(2);
 const onlyAt = argv.indexOf('--only');
@@ -161,14 +175,35 @@ const tree = resolveTree(parseArgs(onlyAt >= 0 ? argv.filter((_, i) => i !== onl
 const identity = exactProductIdentity(tree, NODE_COMMIT);
 const sha256 = (path) => createHash('sha256').update(readFileSync(path)).digest('hex');
 
+const SCENARIO_COUNT = scenarios('').length;
+const selected = only ? only.split(',').map(Number) : [...Array(SCENARIO_COUNT).keys()];
+
 /**
- * One recording in its own profile under the run's folder. The child runs in a job object of its own (lib/job-run.mjs): every process
- * it or its tools start is a member, and a member still running after the child exits fails the recording (and is ended). The child is
- * ended only through the handle held here, which ends the job.
+ * One recording: every selected scenario in a Node process of its own (as the replay gives each scenario a core of its own), so what
+ * each leaves running when Node exits is its own. The rows, results and leftovers of the scenarios, in scenario order.
  */
 async function record(label, run, workspace) {
+  const rows = Array(SCENARIO_COUNT).fill(null);
+  const results = Array(SCENARIO_COUNT).fill(null);
+  const left = Array(SCENARIO_COUNT).fill(null);
+  for (const index of selected) {
+    const one = await recordScenario(`${label}-${index}`, index, run, workspace);
+    rows[index] = one.rows[index];
+    results[index] = one.results[index];
+    left[index] = one.left;
+  }
+  return { rows, results, left };
+}
+
+/**
+ * One scenario in its own profile under the run's folder. The child runs in a job object of its own (lib/job-run.mjs): every process
+ * it or its tools start is a member. What was still a member when the child exited is part of the recording (lib/tool-failure-rows.mjs
+ * `leftAtExit`: Node's own helpers are named and set aside there); the job is then ended. The child is ended only through the handle
+ * held here, which ends the job.
+ */
+async function recordScenario(label, index, run, workspace) {
   const sandbox = join(run, `profile-${label}`);
-  const env = { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, RECORDER_TREE: tree, RECORDER_WORKSPACE: workspace, MIXDOG_SKIP_USER_DATA_BACKUP: '1', MIXDOG_FEATURE_MEMORY: '0', ...(only ? { RECORDER_ONLY: only } : {}) };
+  const env = { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, RECORDER_TREE: tree, RECORDER_WORKSPACE: workspace, MIXDOG_SKIP_USER_DATA_BACKUP: '1', MIXDOG_FEATURE_MEMORY: '0', RECORDER_ONLY: String(index) };
   for (const name of ['MIXDOG_DATA_DIR', 'MIXDOG_HOME', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'TEMP', 'TMP']) {
     env[name] = join(sandbox, name.toLowerCase());
     mkdirSync(env[name], { recursive: true });
@@ -188,8 +223,8 @@ async function record(label, run, workspace) {
     throw new Error(`${error.message}\n${output}`);
   }
   const job = readJobReport(report);
-  if (job.left.length) throw new Error(`recording ${label} left processes behind (ended now): ${JSON.stringify(job.left)}`);
-  if (result.code !== 0 || job.exitCode !== 0) throw new Error(`recording ${label} failed (${job.exitCode}, host ${result.code ?? result.signal}):\n${output}`);
+  if (result.code !== 0 && !job.left.length) throw new Error(`recording ${label}'s job host failed (${result.code ?? result.signal}):\n${output}`);
+  if (job.exitCode !== 0) throw new Error(`recording ${label} failed (${job.exitCode}):\n${output}`);
   const results = JSON.parse(readFileSync(join(env.MIXDOG_DATA_DIR, 'results.json'), 'utf8'));
   const sessions = results.map((r) => r?.session ?? null);
   const file = join(env.MIXDOG_DATA_DIR, 'history', 'tool-failures.jsonl');
@@ -197,7 +232,7 @@ async function record(label, run, workspace) {
   // Each recording's own session ids, workspace and data folder become placeholders; what is left must be what the other recording wrote.
   const rows = rowsByScenario(text, sessions, workspace, env.MIXDOG_DATA_DIR);
   const masked = results.map((r, i) => (r === null ? null : JSON.parse(maskWorkspace(maskWorkspace(JSON.stringify({ ...r, session: undefined }), workspace), env.MIXDOG_DATA_DIR, '<DATA>').split(sessions[i]).join(`<session:${i}>`))));
-  return { rows, results: masked };
+  return { rows, results: masked, left: leftAtExit(job, { nodeHelpers: true }) };
 }
 
 // The run's own folder: both profiles and the workspace (`<run>\ws`, whose path and length are part of the rows) live in it, and it is
@@ -223,6 +258,7 @@ try {
     model: MODEL,
     rows: a.rows,
     results: a.results,
+    leftAtExit: a.left,
   };
   if (only) {
     console.log(JSON.stringify(golden, null, 1));
@@ -233,7 +269,13 @@ try {
     // Everything the recording was given that Node did not produce itself.
     const syntheticInputs = {
       provider: `a scripted provider (only its send is scripted; model ${MODEL}): the replies of each scenario in lib/tool-failure-scenarios.mjs`,
-      sessionIdentity: { owner: 'cli', agent: 'lead', lane: 'cli', sourceType: 'lead', sourceName: 'main', source: 'session-options.mjs:88-103 for a Lead with no session profile' },
+      sessionBuilderInputs: {
+        builder: 'sessionOptions (src/session-runtime/session-create/session-options.mjs), with the product workflowHelpers.activeWorkflowContext',
+        rt: { config: {}, mode: 'full', sessionProfile: null, toolProfile: 'interactive for a full scenario, headless otherwise', coreMemoryContext: null },
+        featureDisallowedTools: [],
+        laidOver: 'a headless scenario: skipSkills true and workflow { id: headless, delegatesAgents: false }',
+      },
+      leftAtExit: 'what each scenario\'s Node process left running in its job when it exited (lib/job-run.mjs), Node\'s own helpers set aside (lib/tool-failure-rows.mjs NODE_HELPERS: mixdog-spawn-*, mixdog-patch-* and their console hosts)',
       scenarios: all.map((s) => ({ name: s.name, replies: s.replies.length, hook: s.hook ?? null, approval: s.approval ?? null, full: s.full === true, abortWhenFile: s.abortWhenFile ?? null })),
       hookDecisions: all.filter((s) => s.hook).map((s) => ({ scenario: s.name, ...s.hook })),
       approvalAnswers: all.filter((s) => s.approval).map((s) => ({ scenario: s.name, ...s.approval })),
