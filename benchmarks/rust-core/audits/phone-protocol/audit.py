@@ -63,8 +63,8 @@ EVENT_MAP = {
     'orchestration-mode-changed': (['config/updated'], 'section config (orchestration-mode-changed)'),
     'updater-state-changed': (['update/status/updated'], 'section update'),
     'browserApprovalSessions': (['host/state/updated'], 'section hostState (publishBrowserApprovalSessions)'),
-    'browserRemoteFrame': (['host/browser/viewFrames'], 'X17 binary frames, purpose browserView (SPEC In-app browser view)'),
-    'browserRemoteWebrtc': (['host/state/updated'], 'WebRTC signalling stays in Electron/core carrier (mixdog-remote webrtc); no phone-visible notification of this name'),
+    'browserRemoteFrame': (['browser/frame'], 'the live view streams push a subscribed phone its JPEG-view frames (live_view_streams.rs), acknowledged by browser/streamAck'),
+    'browserRemoteWebrtc': (['browser/webrtcSignal'], 'the live view relay pushes the phone its WebRTC signals (live_view.rs RelayAdapter::send)'),
     'browserRemoteTabs': (['host/state/updated'], 'section hostState key browserTabs'),
     'browserProfileImportProgress': (['host/state/updated'], 'section hostState key browserImport'),
     'browserOpenRequested': (['ui/openRequested'], 'ui/openRequested'),
@@ -99,6 +99,15 @@ MECHANICS = {
                           evidence=('native/core/crates/mixdog-core-domains/src/notify/screen.rs', r'foreground')),
     'stateResync': dict(rust=['thread/resume'], kind='methods',
                         evidence=('native/core/crates/mixdog-app-server/src/server.rs', r'ThreadUnsubscribe')),
+    # The live view's transport-scoped phone calls (remote-relay-client-calls.ts:241-335, :403-409), served by LiveViewService.
+    'browserRemoteStream': dict(rust=['browser/stream'], kind='methods',
+                                evidence=('native/core/crates/mixdog-app-server-daemon/src/live_view.rs', r'"browser/stream" =>')),
+    'browserRemoteStreamAck': dict(rust=['browser/streamAck'], kind='clientNotification',
+                                   evidence=('native/core/crates/mixdog-app-server-daemon/src/live_view.rs', r'"browser/streamAck" =>')),
+    'browserRemoteScreenDisplays': dict(rust=['browser/screenDisplays'], kind='methods',
+                                        evidence=('native/core/crates/mixdog-app-server-daemon/src/live_view.rs', r'"browser/screenDisplays" =>')),
+    'browserRemoteWebrtcSignal': dict(rust=['browser/webrtcSignal'], kind='methods',
+                                      evidence=('native/core/crates/mixdog-app-server-daemon/src/live_view.rs', r'"browser/webrtcSignal" =>')),
 }
 
 # Names whose o1 phone source replaces the Node call (file in the working tree, token that must be in it).
@@ -868,24 +877,7 @@ def module_wired(rust: RustTree, crate: str, module: str) -> str | None:
     return None
 
 
-def symbol_wired(rust: RustTree, symbol: str, defined_in: str) -> str | None:
-    """First non-test reference to `symbol` outside the file that defines it."""
-    rx = re.compile(rf'\b{symbol}\b')
-    for rel, lines in rust.files.items():
-        if rel.endswith(defined_in) or is_test_path(rel):
-            continue
-        for n, text in enumerate(lines, 1):
-            if n >= rust.test_from.get(rel, 10**9):
-                break
-            if rx.search(text) and not text.strip().startswith('//'):
-                return f'{short(rel)}:{n}'
-    return None
-
-
 TRANSFER_RX = r'^(fileDownload|resolveLocalPaths|readLocalFile|attachmentOpen|readAttachmentThumbnail|previewProjectFileRange|previewDocumentPages|visualizePane|visualizeExport|captureFileSnapshot)'
-
-# Live-view names: the Rust live view exists only if something outside tests builds it.
-LIVE_VIEW = {'browserRemoteStream', 'browserRemoteStreamAck', 'browserRemoteScreenDisplays', 'browserRemoteWebrtcSignal'}
 
 
 def build_rows(args):
@@ -900,7 +892,6 @@ def build_rows(args):
     ifaces = interface_fields(base)
     phone = extract_calls(base)
     now_calls = extract_calls(now)['calls']
-    live_view_site = symbol_wired(rust, 'LiveViewConnection', 'webrtc/liveview.rs')
 
     rows = []
     for name in sorted(phone['calls']):
@@ -908,10 +899,6 @@ def build_rows(args):
         mech = MECHANICS.get(name)
         item = tables['inventory'].get(name)
         info = rust_side(tables, rust, None if mech else item, mech)
-        if name in LIVE_VIEW:
-            info = dict(kind='none', targets=[], problems=[], sites=[], composed=[], shape=[])
-            if not live_view_site:
-                info['problems'].append('the Rust live view (mixdog-remote webrtc/liveview.rs LiveViewConnection) is built only by interop tests; nothing in the daemon starts it for a phone')
         crates = {RustTree.crate(s.split(':')[0] if s.startswith('native') else 'native/core/crates/' + s.split(':')[0]) for s in info['sites']}
         api_key = call['api_key'] if call['api_key'] in sigs else (name if name in sigs else '')
         level, evidence = rec.proof([name], info['targets'], crates)
@@ -928,7 +915,7 @@ def build_rows(args):
         row['class'] = classify(row, info, level)
         row['feature'] = feature_of(name, api_key) if row['class'] in ('exists-unproven', 'missing') or row['server'] != 'served' else ''
         rows.append(row)
-    return dict(rows=rows, rust=rust, rec=rec, tables=tables, base=base, node=node, phone=phone, now=now, live_view_site=live_view_site)
+    return dict(rows=rows, rust=rust, rec=rec, tables=tables, base=base, node=node, phone=phone, now=now)
 
 
 def server_state(row) -> str:
