@@ -45,10 +45,8 @@ async function stubbedCheckout(t) {
     JSON.stringify({
       scripts: {
         'build:spawn:test': noop,
-        'build:supervisor:test': noop,
         test: 'node scripts/test.mjs',
         'test:slow': 'node scripts/test.mjs --lane slow',
-        'smoke:patch': noop,
       },
     })
   );
@@ -59,7 +57,6 @@ async function stubbedCheckout(t) {
         build: noop,
         test: 'node ../../scripts/test.mjs',
         'test:slow': 'node ../../scripts/test.mjs --lane slow',
-        'test:daemon:e2e': noop,
       },
     })
   );

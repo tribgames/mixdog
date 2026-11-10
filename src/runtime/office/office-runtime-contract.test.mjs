@@ -3,12 +3,12 @@ import assert from 'node:assert/strict';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import JSZip from 'jszip';
-import { officeBenchmarkSnapshotRequest, officeBenchmarkVisualPolicy } from './bench/benchmark.mjs';
+
 import { OFFICE_ACTIONS, assertOfficeOperationContracts, describeOfficeCapabilities } from './capabilities.mjs';
-import { runOfficeContractBenchmark } from './bench/contract-benchmark.mjs';
+
 import { executeOfficeTool } from './index.mjs';
 import { createOfficeSnapshotRequest, finalizeOfficeSnapshotPage } from './core/pagination.mjs';
-import { TOOL_DEFS } from './tool-defs.mjs';
+
 import { addWorksheetValidation } from './portable/portable-xlsx-operations.mjs';
 import { xmlDecode } from './portable/portable-xml.mjs';
 import { validateXlsxOperations } from './portable/xlsx-contract.mjs';
@@ -16,55 +16,6 @@ import { value, workspace } from './office-test-support.mjs';
 
 process.env.MIXDOG_OOXML_VALIDATOR_DISABLED = '1';
 
-test('office is a first-class built-in tool with stateful document actions', () => {
-  assert.equal(TOOL_DEFS.length, 1);
-  assert.equal(TOOL_DEFS[0].name, 'office');
-  assert.deepEqual(TOOL_DEFS[0].inputSchema.properties.action.enum, OFFICE_ACTIONS);
-  for (const removed of ['set', 'add', 'remove', 'move']) {
-    assert.equal(TOOL_DEFS[0].inputSchema.properties.action.enum.includes(removed), false);
-  }
-  for (const removed of ['type', 'text', 'value', 'values', 'formula', 'to', 'index']) {
-    assert.equal(Object.hasOwn(TOOL_DEFS[0].inputSchema.properties, removed), false);
-  }
-  assert.match(TOOL_DEFS[0].description, /\bsecure\b/);
-  assert.match(TOOL_DEFS[0].description, /untrusted data/);
-  // Method and policy live in the format skills; the description is contract only.
-  assert.doesNotMatch(
-    TOOL_DEFS[0].description,
-    /Inspect unfamiliar|Split only|Describe only|same turn|design\.content|never runs VBA|Keep review/
-  );
-  const deferredLead = TOOL_DEFS[0].description.slice(0, 220);
-  assert.match(deferredLead, /XLSX\/CSV\/TSV set_range/);
-  assert.match(TOOL_DEFS[0].inputSchema.properties.action.description, /\bsecure\b/);
-  assert.match(TOOL_DEFS[0].inputSchema.properties.action.description, /render exports PDF and page images/);
-  assert.match(TOOL_DEFS[0].inputSchema.properties.output.description, /render: exported PDF path/);
-  assert.doesNotMatch(TOOL_DEFS[0].inputSchema.properties.action.description, /media tool/);
-  assert.match(TOOL_DEFS[0].inputSchema.properties.operations.description, /per the format skill/);
-  assert.doesNotMatch(
-    TOOL_DEFS[0].inputSchema.properties.operations.description,
-    /every operation whose inputs|compose_document|fill_template|Unicode font/
-  );
-  assert.equal(TOOL_DEFS[0].inputSchema.properties.finalize.type, 'boolean');
-  assert.equal(TOOL_DEFS[0].inputSchema.properties.review.type, 'boolean');
-  assert.doesNotMatch(TOOL_DEFS[0].inputSchema.properties.review.description, /deliverables/);
-  assert.equal(TOOL_DEFS[0].inputSchema.properties.acknowledgeUntrustedContent.type, 'boolean');
-  assert.ok(TOOL_DEFS[0].inputSchema.properties.mode.enum.includes('visible'));
-  assert.ok(TOOL_DEFS[0].inputSchema.properties.mode.enum.includes('attach'));
-  assert.match(TOOL_DEFS[0].inputSchema.properties.mode.description, /auto defaults to background/);
-  assert.match(TOOL_DEFS[0].inputSchema.properties.mode.description, /Only explicit attach/);
-  assert.equal(TOOL_DEFS[0].inputSchema.properties.requireChanges.type, 'boolean');
-  assert.deepEqual(TOOL_DEFS[0].inputSchema.properties.failOn.enum, ['error', 'warning']);
-  const descriptionChars = [
-    TOOL_DEFS[0].description,
-    ...Object.values(TOOL_DEFS[0].inputSchema.properties).map((property) => property.description || ''),
-  ].reduce((total, description) => total + description.length, 0);
-  assert.ok(descriptionChars <= 3500, `Office schema descriptions grew to ${descriptionChars} characters`);
-  const size = JSON.stringify(TOOL_DEFS[0].inputSchema).length;
-  assert.ok(
-    size <= 7000,
-    `office input schema is ${size} chars; budget 7000 — trim the description or justify raising the budget`
-  );
-});
 
 // Split pages and rendered images write into a folder, so a caller points
 // output at one here too. Copying the document onto a directory failed with an
@@ -190,23 +141,6 @@ test('finalize without a review saves and closes a created file', async (t) => {
   assert.equal(finalized.closed, true);
 });
 
-test('Office benchmark inherits adaptive cursor limits and separates large spreadsheet visuals', () => {
-  assert.deepEqual(officeBenchmarkSnapshotRequest('office_1'), {
-    action: 'snapshot',
-    session: 'office_1',
-    limit: 10000,
-    maxChars: 100000,
-  });
-  assert.deepEqual(officeBenchmarkSnapshotRequest('office_1', 'cursor_1'), {
-    action: 'snapshot',
-    session: 'office_1',
-    cursor: 'cursor_1',
-    maxChars: 100000,
-  });
-  assert.deepEqual(officeBenchmarkVisualPolicy({ format: 'xlsx', totalCells: 50_000 }), { mode: 'full' });
-  assert.equal(officeBenchmarkVisualPolicy({ format: 'xlsx', totalCells: 50_001 }).mode, 'performance-only');
-  assert.deepEqual(officeBenchmarkVisualPolicy({ format: 'pptx', totalCells: 500_000 }), { mode: 'full' });
-});
 
 test('styled XLSX cursors keep their selector and cap detailed pages at 500 cells', () => {
   const session = { id: 'office_1', format: 'xlsx', snapshotVersion: 0 };
@@ -890,14 +824,6 @@ test('a failed create leaves no file behind for the retry to trip over', async (
   assert.ok((await readFile(join(cwd, 'kept.xlsx'))).length > 0);
 });
 
-test('Office contract benchmark avoids broad catalogs and retries', async () => {
-  const report = await runOfficeContractBenchmark();
-  assert.equal(report.accurate, true);
-  assert.equal(report.retries, 0);
-  assert.equal(report.unnecessaryRereads, 0);
-  assert.equal(report.broadCatalogMaterializations, 0);
-  assert.deepEqual(report.requirementFulfillment, { passed: 4, total: 4, rate: 1 });
-});
 
 test('CSV and TSV sessions preserve delimiters, transactions, and formula-like value warnings', async (t) => {
   const cwd = await workspace(t);

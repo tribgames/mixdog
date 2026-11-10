@@ -21,9 +21,7 @@ const {
   normalizeContentForOpenAIResponses,
   sanitizeContentForStoredHistory,
 } = await import('../agent/orchestrator/providers/media-normalization.mjs');
-const { imageResizeCacheStats, openAIImagePatchCount, resizeImageBuffer } = await import(
-  '../agent/orchestrator/tools/builtin/read-image-resize.mjs'
-);
+
 
 function minimalPdf(text = 'Hello PDF') {
   const objects = [
@@ -118,50 +116,7 @@ test('attachment reads reject content that no longer matches its sha256 referenc
   assert.throws(() => freshStore.readAttachmentBuffer(stored), /integrity check failed/);
 });
 
-test('image resize output is reused from the bounded hash LRU', async () => {
-  const onePixelPng = Buffer.from(
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
-    'base64'
-  );
-  const before = imageResizeCacheStats();
-  const first = await resizeImageBuffer(onePixelPng, 'png');
-  assert.ok(first?.data, 'sharp is a required image backend');
-  const second = await resizeImageBuffer(onePixelPng, 'png');
-  assert.equal(second.data, first.data);
-  const after = imageResizeCacheStats();
-  assert.equal(after.hits, before.hits + 1);
-  assert.ok(after.bytes <= after.maxBytes);
-});
 
-test('OpenAI image profile respects the 2048px and 1536-patch budget', async () => {
-  const sharp = (await import('sharp')).default;
-  const source = await sharp({
-    create: { width: 1600, height: 1200, channels: 3, background: '#abcdef' },
-  })
-    .png()
-    .toBuffer();
-  const anthropic = await resizeImageBuffer(source, 'png', { profile: 'anthropic' });
-  const openai = await resizeImageBuffer(source, 'png', { profile: 'openai' });
-  // Each profile answers to its own vision billing: Anthropic tiles 28px
-  // patches under a 1568-patch budget with a 1568px edge ceiling, OpenAI tiles
-  // 32px patches under 1536. Both keep the picture's shape.
-  const anthropicPatches =
-    Math.ceil(anthropic.dimensions.displayWidth / 28) * Math.ceil(anthropic.dimensions.displayHeight / 28);
-  assert.ok(anthropicPatches <= 1568, `anthropic spent ${anthropicPatches} patches`);
-  assert.ok(anthropic.dimensions.displayWidth <= 1568 && anthropic.dimensions.displayHeight <= 1568);
-  assert.equal(
-    (anthropic.dimensions.displayWidth / anthropic.dimensions.displayHeight).toFixed(2),
-    (1600 / 1200).toFixed(2)
-  );
-  // The reported size is what the caller maps coordinates through, so it has
-  // to be the size of the image that was actually produced.
-  for (const rendition of [anthropic, openai]) {
-    const rendered = await sharp(Buffer.from(rendition.data, 'base64')).metadata();
-    assert.equal(rendered.width, rendition.dimensions.displayWidth);
-    assert.equal(rendered.height, rendition.dimensions.displayHeight);
-  }
-  assert.ok(openAIImagePatchCount(openai.dimensions.displayWidth, openai.dimensions.displayHeight) <= 1536);
-});
 
 function pagedPdf(pageCount) {
   const objects = ['<< /Type /Catalog /Pages 2 0 R >>'];

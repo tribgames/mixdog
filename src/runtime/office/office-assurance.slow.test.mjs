@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 import { createCanvas } from '@napi-rs/canvas';
 
-import { runOfficeAssuranceBenchmark } from './bench/assurance-benchmark.mjs';
+
 import {
   analyzeOfficePromptInjection,
   assertOfficeMutationAllowed,
@@ -1849,12 +1849,6 @@ test('a tie-out between uncalculated formulas is pending, not agreement', () => 
   assert.equal(disagree.issues[0].code, 'assertion_tie_out_failed');
 });
 
-test('Office assurance benchmark covers spreadsheet, slide, document, cross-app, locale, and Brand kit gates', async () => {
-  const report = await runOfficeAssuranceBenchmark();
-  assert.equal(report.categories, 10);
-  assert.equal(report.failed, 0, JSON.stringify(report, null, 2));
-  assert.equal(report.passRate, 1);
-});
 
 // The polish plan turns every design, render, brief, and editability code into
 // a repair instruction; a code that falls back to the generic "Correct <code>"

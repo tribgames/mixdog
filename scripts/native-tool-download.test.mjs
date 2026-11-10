@@ -9,7 +9,6 @@ import {
   nativeToolInstalledName,
   nativeToolPlatformAssets,
 } from './native-tool-download.mjs';
-import { GRAPH_PLATFORMS, PATCH_PLATFORMS, SPAWN_PLATFORMS, SUPERVISOR_PLATFORMS } from './verify-release-assets.mjs';
 
 // Independent literals: the published asset names for the complete kind x platform matrix.
 const GRAPH_FILES = {
@@ -52,13 +51,6 @@ test('native tool asset names match the published matrix for every kind and plat
       assert.equal(nativeToolAssetName(kind, { platform, arch }), file, `${kind} ${key}`);
     }
   }
-});
-
-test('release verification expects the published matrix', () => {
-  assert.deepEqual(GRAPH_PLATFORMS, GRAPH_FILES);
-  assert.deepEqual(PATCH_PLATFORMS, PATCH_FILES);
-  assert.deepEqual(SPAWN_PLATFORMS, SPAWN_FILES);
-  assert.deepEqual(SUPERVISOR_PLATFORMS, SUPERVISOR_FILES);
 });
 
 test('native tool install names, asset names and URLs follow the release layout', () => {

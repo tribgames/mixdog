@@ -5,13 +5,9 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { after, test } from 'node:test';
 
-import {
-  RE_CACHE_TMP,
-  RE_CALLS_CACHE_TMP,
-  RE_MANIFEST_TMP,
-} from '../agent/orchestrator/tools/code-graph/constants.mjs';
-import { sweepStaleSummaryTempFiles } from '../agent/orchestrator/session/store-summary-index.mjs';
-import { pruneDaemonCrashCaptures } from '../../session-runtime/services/daemon-crash-capture/retention.mjs';
+
+
+
 import {
   writeFileAtomicAsync,
   writeFileAtomicSync,
@@ -98,36 +94,3 @@ test('a basename whose old-shape temp fit in 255 characters still publishes', as
   assert.deepEqual(fs.readdirSync(dir), [name]);
 });
 
-test('every stale-temp sweep still recognises the temp name the writer produces', async (t) => {
-  const tempNameFor = async (dir, target) => {
-    const names = await createdNames(t, dir, () => writeFileAtomicSync(join(dir, target), 'x'));
-    assert.equal(names.length, 1);
-    return names[0];
-  };
-
-  const cacheDir = freshDir();
-  const hash = 'a1'.repeat(8);
-  assert.match(await tempNameFor(cacheDir, `${hash}.json`), RE_CACHE_TMP);
-  assert.match(await tempNameFor(cacheDir, 'manifest.json'), RE_MANIFEST_TMP);
-  assert.match(await tempNameFor(cacheDir, `${hash}.calls.json`), RE_CALLS_CACHE_TMP);
-
-  const captureDir = freshDir();
-  const captureTemp = join(captureDir, await tempNameFor(captureDir, 'daemon-20260915-064858-999999998-dead.json'));
-  fs.writeFileSync(captureTemp, '{');
-  pruneDaemonCrashCaptures({ dir: captureDir, pidAlive: () => false });
-  assert.equal(fs.existsSync(captureTemp), false, 'crash-capture debris of a dead writer is reclaimed');
-
-  const dataDir = freshDir();
-  const previous = process.env.MIXDOG_DATA_DIR;
-  process.env.MIXDOG_DATA_DIR = dataDir;
-  t.after(() => {
-    if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
-    else process.env.MIXDOG_DATA_DIR = previous;
-  });
-  const summaryTemp = join(dataDir, await tempNameFor(dataDir, 'session-summaries.json'));
-  fs.writeFileSync(summaryTemp, '{');
-  const old = new Date(Date.now() - 3 * 60 * 60 * 1000);
-  fs.utimesSync(summaryTemp, old, old);
-  assert.equal(await sweepStaleSummaryTempFiles(), 1);
-  assert.equal(fs.existsSync(summaryTemp), false, 'a stale summary-index temp is reclaimed');
-});

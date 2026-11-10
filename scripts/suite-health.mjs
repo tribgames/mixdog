@@ -27,7 +27,6 @@ export const WORKSPACES = [
       'test:all': 'aggregate of the fast, slow, live, and electron lanes',
       'test:electron': 'needs a real Electron window and graphics device, which the Linux sweep runner lacks',
       'test:live': 'needs built artifacts; the packaging workflow owns it',
-      'test:daemon:e2e': 'needs the built daemon; the release gate desktop job owns it',
       'test:spec-advisory': 'advisory by design (MIXDOG_TEST_ADVISORY)',
       'test:browser-host:integration': 'live desktop integration harness',
       'test:browser-profile-import:integration': 'live desktop integration harness',

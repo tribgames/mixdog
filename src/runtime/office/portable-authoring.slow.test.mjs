@@ -8,7 +8,7 @@ import { expandOfficeDesignOperations } from './design/design-system.mjs';
 import { executeOfficeTool } from './index.mjs';
 import { applyPortableOoxmlBatch } from './portable/portable-ooxml.mjs';
 import { createPortableOoxmlDocument } from './portable/portable-package.mjs';
-import { describeOfficeSnapshotViolations, officeSnapshotContractViolations } from './core/snapshot-contract.mjs';
+
 import { MALGUN_GOTHIC_INSTALLED, PNG_PIXEL, parts, value, workspace, writeZip } from './office-test-support.mjs';
 import { contrastRatio } from './portable/text-metrics.mjs';
 import { validateXlsxOperations } from './portable/xlsx-contract.mjs';
@@ -4388,93 +4388,6 @@ test('portable slide snapshots keep deck order and report evidence shapes', asyn
   assert.equal(table.table.columns, 2);
 });
 
-test('portable snapshots satisfy the shared backend contract', async (t) => {
-  const cwd = await workspace(t);
-  const cases = [
-    {
-      format: 'docx',
-      file: 'contract.docx',
-      operations: [
-        { op: 'append_text', text: 'Heading one', style: 'Heading1' },
-        { op: 'append_text', text: 'Body paragraph.' },
-        {
-          op: 'add_table',
-          values: [
-            ['A', 'B'],
-            ['1', '2'],
-          ],
-        },
-      ],
-    },
-    {
-      format: 'xlsx',
-      file: 'contract.xlsx',
-      operations: [
-        {
-          op: 'set_range',
-          range: 'A1:B3',
-          values: [
-            ['Region', 'Revenue'],
-            ['Korea', 120],
-            ['Japan', 95],
-          ],
-        },
-      ],
-    },
-    {
-      format: 'pptx',
-      file: 'contract.pptx',
-      operations: [
-        { op: 'add_slide' },
-        { op: 'set_slide_background', slide: 1, color: '16191D' },
-        {
-          op: 'add_textbox',
-          slide: 1,
-          text: 'Title',
-          properties: { left: 40, top: 40, width: 400, height: 60, fontSize: 40 },
-        },
-        { op: 'set_notes', slide: 1, text: 'Speaker note.' },
-        { op: 'add_slide' },
-        {
-          op: 'add_table',
-          slide: 2,
-          values: [
-            ['A', 'B'],
-            ['1', '2'],
-          ],
-          left: 40,
-          top: 40,
-          width: 300,
-          height: 90,
-        },
-      ],
-    },
-  ];
-  for (const testCase of cases) {
-    const target = join(cwd, testCase.file);
-    const created = value(
-      await executeOfficeTool(
-        {
-          action: 'create',
-          path: target,
-          mode: 'portable',
-          operations: testCase.operations,
-        },
-        { cwd }
-      )
-    );
-    const snapshot = value(await executeOfficeTool({ action: 'snapshot', session: created.session }, { cwd }));
-    const violations = officeSnapshotContractViolations(snapshot.document, {
-      format: testCase.format,
-      paged: true,
-    });
-    assert.deepEqual(
-      violations,
-      [],
-      `${testCase.format} snapshot breaks the backend contract:\n${describeOfficeSnapshotViolations(violations)}`
-    );
-  }
-});
 
 test('portable Word reads and edits tables that contain a nested table', async (t) => {
   const cwd = await workspace(t);

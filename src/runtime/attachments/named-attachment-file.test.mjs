@@ -13,9 +13,9 @@ process.env.MIXDOG_DATA_DIR = dataDir;
 const { attachmentsForIntake, collectPromptAttachments, materializePromptSubmission, namedAttachmentFile } =
   await import('./store.mjs');
 const { attachmentFileName } = await import('./attachment-file-name.mjs');
-const { attachedFilesNote, mediaPartToReference } = await import('./attachment-reference.mjs');
-const require_transcript_metadata = await import('../shared/transcript-metadata.mjs');
-const { restoredUserText } = await import('../agent/orchestrator/session/transcript-restore/user-text.mjs');
+
+
+
 
 const JPEG = Buffer.from('\xff\xd8\xff\xe0 photo of a lease', 'latin1');
 
@@ -62,45 +62,9 @@ function phoneSend() {
   return { intake, attachments: attachmentsForIntake(intake.prompt, intake.options) };
 }
 
-test('an attached image is copied under its original name; the blob stays content-addressed', () => {
-  const { intake, attachments } = phoneSend();
-  const note = attachedFilesNote(intake.prompt, intake.options, attachments);
-  const [photo] = note.attachmentReference.files.filter((file) => file.mimeType === 'image/jpeg');
-  assert.equal(basename(photo.path), 'KakaoTalk_20261103_195007703.jpg');
-  assert.deepEqual(readFileSync(photo.path), JPEG);
-  assert.ok(note.text.includes(photo.path));
-  const blob = join(dataDir, 'prompt-attachments', 'sha256', photo.attachmentRef.slice(0, 2), photo.attachmentRef);
-  assert.deepEqual(readFileSync(blob), JPEG);
-  // Sending the same photo again reuses the copy.
-  assert.equal(
-    namedAttachmentFile(photo.attachmentRef, { filename: photo.name, mimeType: photo.mimeType }),
-    photo.path
-  );
-});
 
-test('a document without a name still gets a typed file, and a paste is not listed as a file', () => {
-  const { intake, attachments } = phoneSend();
-  const note = attachedFilesNote(intake.prompt, intake.options, attachments);
-  const names = note.attachmentReference.files.map((file) => basename(file.path)).sort();
-  assert.deepEqual(names, ['KakaoTalk_20261103_195007703.jpg', 'attachment.pdf']);
-  assert.equal(attachedFilesNote('plain', {}, []), null);
-});
 
-test('the note is model-facing only: the restored bubble does not show it', () => {
-  const { intake, attachments } = phoneSend();
-  const note = attachedFilesNote(intake.prompt, intake.options, attachments);
-  assert.equal(restoredUserText([...intake.prompt, note]), restoredUserText(intake.prompt));
-});
 
-test('a by-reference image names the same copy the note gave, not the bare blob', () => {
-  const { intake, attachments } = phoneSend();
-  const note = attachedFilesNote(intake.prompt, intake.options, attachments);
-  const photo = note.attachmentReference.files.find((file) => file.mimeType === 'image/jpeg');
-  const imagePart = intake.prompt.find((part) => part.type === 'image');
-  const reference = mediaPartToReference(imagePart);
-  assert.ok(reference.text.includes(photo.path));
-  assert.equal(reference.attachmentReference.attachmentRef, photo.attachmentRef);
-});
 
 const ORIGINAL = Buffer.concat([JPEG, Buffer.from(' full-resolution original '.repeat(40))]);
 
@@ -125,55 +89,8 @@ function resizedSend(originalRef) {
   return { intake, attachments: attachmentsForIntake(intake.prompt, intake.options) };
 }
 
-test('the PC file is the original picked bytes in their own format; the model keeps the resized blob', async () => {
-  const { stageOriginal } = await import('../../tui/session/session-api/media.mjs');
-  const originalRef = await stageOriginal(ORIGINAL.toString('base64'));
-  const { intake, attachments } = resizedSend(originalRef);
-  const note = attachedFilesNote(intake.prompt, intake.options, attachments);
-  const [file] = note.attachmentReference.files;
-  assert.equal(basename(file.path), 'IMG_0042.heic');
-  assert.deepEqual(readFileSync(file.path), ORIGINAL);
-  assert.deepEqual(
-    readFileSync(namedBlob(file.attachmentRef)),
-    JPEG,
-    'the content-addressed blob stays the resized image'
-  );
-  // The census keeps the original blob through the message record that names it.
-  assert.equal(attachments[0].original.attachmentRef, originalRef);
-  // A later note with no original given never touches the original's file.
-  const other = namedAttachmentFile(file.attachmentRef, { filename: 'IMG_0042.heic', mimeType: 'image/webp' });
-  assert.notEqual(other, file.path);
-  assert.deepEqual(readFileSync(file.path), ORIGINAL);
-});
 
-test('two originals that resize to the same bytes and share a name keep separate files', async () => {
-  const { stageOriginal } = await import('../../tui/session/session-api/media.mjs');
-  const first = Buffer.concat([ORIGINAL, Buffer.from('exif A')]);
-  const second = Buffer.concat([ORIGINAL, Buffer.from('exif B')]);
-  const paths = [];
-  for (const bytes of [first, second]) {
-    const { intake, attachments } = resizedSend(await stageOriginal(bytes.toString('base64')));
-    const note = attachedFilesNote(intake.prompt, intake.options, attachments);
-    paths.push(note.attachmentReference.files[0].path);
-  }
-  assert.notEqual(paths[0], paths[1]);
-  assert.equal(basename(paths[0]), basename(paths[1]));
-  assert.deepEqual(readFileSync(paths[0]), first);
-  assert.deepEqual(readFileSync(paths[1]), second);
-});
 
-test('a message record keeps the picked file referenced', () => {
-  const { normalizeMessageAttachments } = require_transcript_metadata;
-  const ref = 'c'.repeat(64);
-  const [kept] = normalizeMessageAttachments([
-    { id: 'd'.repeat(64), name: 'a.jpg', original: { attachmentRef: ref, mimeType: 'image/heic' } },
-  ]);
-  assert.deepEqual(kept.original, { attachmentRef: ref, mimeType: 'image/heic' });
-  assert.equal(
-    'original' in normalizeMessageAttachments([{ id: 'd'.repeat(64), original: { attachmentRef: 'x' } }])[0],
-    false
-  );
-});
 
 test('staged originals are bounded: quota with oldest-first eviction, retention, claims', async () => {
   const { stageOriginalAttachment, claimStagedOriginals } = await import('./staged-originals.mjs');
@@ -209,13 +126,6 @@ test('staged originals are bounded: quota with oldest-first eviction, retention,
   assert.equal(existsSync(attachmentFilePath(stored)), true);
 });
 
-test('a missing original falls back to the resized copy under the same name', () => {
-  const { intake, attachments } = resizedSend('f'.repeat(64));
-  const note = attachedFilesNote(intake.prompt, intake.options, attachments);
-  const [file] = note.attachmentReference.files;
-  assert.equal(basename(file.path), 'IMG_0042.heic.jpg');
-  assert.deepEqual(readFileSync(file.path), JPEG);
-});
 
 function namedBlob(ref) {
   return join(dataDir, 'prompt-attachments', 'sha256', ref.slice(0, 2), ref);

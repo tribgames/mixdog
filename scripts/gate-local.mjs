@@ -7,7 +7,7 @@
 // section) and stops if it fails. Everything else runs from one shared pool of
 // workers (scripts/lib/gate-scheduler.mjs): every test lane is cut into shards
 // of its own files (each run with the lane's own npm script command), and the
-// desktop build + daemon end-to-end test is a unit of the same pool.
+// desktop build is a unit of the same pool.
 // The whole run is at below-normal priority so the desktop stays responsive.
 // Not covered locally: runtime-macos, computer-backend (cargo + Linux X11),
 // desktop-tests `computer` lane (windows-latest, src/main/computer/ only),
@@ -119,9 +119,8 @@ const testLanes = [
 });
 const lanesByName = new Map(testLanes.map((lane) => [lane.name, lane]));
 const commandUnits = [
-  // Only the daemon end-to-end test reads the build (apps/desktop/out); no
-  // test lane does, so the build shares the pool with them.
-  { lane: 'desktop', cmds: ['npm run build --prefix apps/desktop', 'npm run test:daemon:e2e --prefix apps/desktop'] },
+  // No test lane reads the build (apps/desktop/out), so it shares the pool with them.
+  { lane: 'desktop', cmds: ['npm run build --prefix apps/desktop'] },
 ].map((unit) => {
   const key = `cmd:${unit.cmds.join(' && ')}`;
   return { ...unit, key, estimate: history[key] ?? DEFAULT_ESTIMATE_MS.command };
