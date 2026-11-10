@@ -10,9 +10,9 @@
 // its place against the entries that cause or order it, all stay compared. Unsettled (`immediate`) are the sequences an answer orders:
 // an ensure's answer before the new shell's first output, a dispose's answer before the killed shell's last output and exit line.
 //
-// One rule for each list, in its one global order. Where Node's five runs differ, only the unit that differs is exempt, at that one
-// place, named in `exemptions` with the runs that differ; the trace must still have one run's value for it, and every other unit there is
-// compared exactly.
+// One rule for each list, in its one global order. Where Node's runs differ at a place, the units they differ on are named in
+// `exemptions` with the runs that differ, and the trace must have there the whole of one run's state, entry, sequence of states or order
+// of tabs (the runs do not show those units varying apart from each other, so a mix of two runs is not something Node showed).
 //   - Every entry but output (answers, pushes of every tab, fires, lane switches, clock steps, checkpoints) is compared at its position,
 //     field by field (every leaf of its value, and the shape of every object and array).
 //   - Output is a real PTY's, and its bytes are not what either product decides: the console host cuts its frames by its own render timing
@@ -22,7 +22,8 @@
 //     announces the tab's new size (a `sizeOwner` push with a size: Node resizes the PTY before it announces, terminal-manager.ts:485-487; a
 //     new PTY starts at 80x24, :322-325). The state is everything the terminal shows and holds (`stateOf`: both buffers cell by cell with
 //     every attribute, wrapped lines, cursors, viewport, scroll regions, tab stops, saved cursors, modes, cursor visibility and style,
-//     current attributes and character sets, title and icon name, bells, colour changes, and every byte the terminal answered). A stretch
+//     current attributes and character sets, title and icon name, bells, colour changes, every byte the terminal answered, and input the
+//     parser holds unfinished; a state with such input pending makes no step of a sequence, its effect shows in the next). A stretch
 //     runs from one entry to the next (an activity change paired with its own output does not end it). For each tab in each stretch, the
 //     sequence of distinct states its output went through (and its paired activity changes among them) must be Node's, and so must the
 //     order in which the stretch's tabs changed; where Node's runs differ in those, the stretch's intermediate states (or its tab order)
@@ -31,7 +32,8 @@
 //   - A tab's output frame and its own activity change that every Node run sends directly next to each other (that frame on one side, not
 //     both, and nothing between them) are one place: the framing recording proves that exactly this pair flips with when the write lands
 //     against the relay's 16 ms window (RELAY_FRAMING_PROOF), which in a replay is call latency (0 ms in the recorder, a socket for a
-//     phone). Here the change must still be directly next to a frame of its own tab carrying output, it does not end the stretch, and in
+//     phone). Here the change must still be directly next to a frame of its own tab carrying output on one side only, as in Node's runs,
+//     it does not end the stretch, and in
 //     the stretch's sequence it counts as after its frame; each such place is named in `sets`. No other change may move against output.
 //   - A tab that exits in every run ends its output with `[process exited with code N]\r\n`, N the recorded code (a code the runs
 //     disagree on is exempt as above; the line is required all the same).
@@ -42,7 +44,9 @@
 // its console closed (terminal-manager.ts:543), the read returns, and whether that `C` reaches the PTY before the console is gone is a race.
 // When it does, the marker starts a command (terminal-activity.ts `marker`: running) and the exit then ends it
 // (terminal-manager.ts:378-383: activity.exit(), null, then the exit line). Every tab below is PowerShell with that integration, disposed
-// at its prompt, so the mechanism covers each of them alike; nothing else is accepted, and each pair taken out is named in `exemptions`.
+// at its prompt, so the mechanism covers each of them alike; nothing else is accepted. A pair is taken out at a disposal only where Node's
+// runs vary on it there (some run has it, some does not; where every run has it the trace must too, where none has it the trace may not),
+// and each is named in `exemptions` with the runs that have it.
 import assert from 'node:assert/strict';
 import { isDeepStrictEqual } from 'node:util';
 
@@ -55,17 +59,23 @@ const isData = (entry) => entry.push === 'termData';
 const pick = (trace, part) => part.split('.').reduce((value, key) => value?.[key], trace);
 const show = (value) => JSON.stringify(value === undefined ? '<absent>' : value)?.slice(0, 600);
 
-/** The list without the PowerShell disposal pairs (named in `exemptions`); anything else around a disposal stays and is compared. */
-function withoutDisposalPairs(list, part, exemptions) {
+/** The list without the PowerShell disposal pairs, and which disposals had one (`<tab> dispose <n>`, n counting the tab's disposals in
+ *  the list); anything else around a disposal stays and is compared. */
+function withoutDisposalPairs(list, part) {
   const state = new Map();
   const text = new Map();
+  const disposals = new Map();
   const kept = [];
+  const pairs = [];
   for (const entry of list) {
     if (entry.call === 'termEnsure') {
       state.delete(entry.params[0]);
       text.delete(entry.params[0]);
     }
-    if (entry.call === 'termDispose' && !('error' in entry)) state.set(entry.params[0], 'disposed');
+    if (entry.call === 'termDispose' && !('error' in entry)) {
+      state.set(entry.params[0], 'disposed');
+      disposals.set(entry.params[0], (disposals.get(entry.params[0]) ?? 0) + 1);
+    }
     if (isData(entry)) {
       const id = entry.event.id;
       text.set(id, (text.get(id) ?? '') + entry.event.data);
@@ -78,7 +88,7 @@ function withoutDisposalPairs(list, part, exemptions) {
       const { id, state: activity } = entry.event;
       if (activity === 'running' && state.get(id) === 'disposed') {
         state.set(id, 'running');
-        exemptions.push(`${part}: ${id}'s running/null pair after its dispose answer`);
+        pairs.push(`${id} dispose ${disposals.get(id)}`);
         continue;
       }
       if (activity === null && state.get(id) === 'running') {
@@ -89,7 +99,7 @@ function withoutDisposalPairs(list, part, exemptions) {
     kept.push(entry);
   }
   for (const [id, at] of state) assert.notEqual(at, 'running', `${part}: ${id}'s running after its dispose answer never ended`);
-  return kept;
+  return { kept, pairs };
 }
 
 /** Per non-output position k of `list` that is an activity change with an output frame of its own tab (one that carries output) directly
@@ -155,9 +165,13 @@ function attrOf(attr, core) {
 
 const charsetName = (charset) => (charset ? Object.entries(charset).map(([from, to]) => `${from}${to}`).join('') : 'ascii');
 
-/** One buffer line, every cell: whether it continues the line before (wrapped), and each cell's character (an erased cell is `␀`, a
- *  wide character's second cell too) with its width and attributes, written as a change of attributes where they change (`«width.fg.bg…»`).
- *  Nothing is trimmed: a blank is a cell like any other. */
+/** A cell's own content written so that nothing a cell can hold reads as another: its code points with the four marks this form uses
+ *  (`«`, `»`, `␀`, `\`, and `⏎`) escaped by `\`; an empty cell (erased, or a wide character's second cell) is the unescaped `␀`. */
+const cellText = (chars) => (chars === '' ? '␀' : chars.replace(/[«»␀⏎\\]/g, (mark) => `\\${mark}`));
+
+/** One buffer line, every cell: whether it continues the line before (wrapped, a leading `⏎`), and each cell's content (`cellText`)
+ *  with its width and attributes, written as a change of attributes where they change (`«width.fg.bg…»`). Nothing is trimmed: a blank
+ *  is a cell like any other. */
 function lineOf(line, core, cell) {
   let out = line.isWrapped ? '⏎' : '';
   let attrs = DEFAULT_CELL;
@@ -168,9 +182,31 @@ function lineOf(line, core, cell) {
       out += `«${cellAttrs}»`;
       attrs = cellAttrs;
     }
-    out += cell.getChars() || '␀';
+    out += cellText(cell.getChars());
   }
   return out;
+}
+
+/** What the parser holds of input it has not finished reading (xterm 5.5's EscapeSequenceParser and its decoders): its state, the
+ *  sequence's parameters and intermediates so far, an OSC or DCS string being collected (its identifier and the data its handlers hold),
+ *  and a split character waiting for its other half; null when nothing is pending (the ground state, nothing collected). The next input
+ *  is read on from here. */
+function parserOf(core) {
+  const input = core._inputHandler;
+  const parser = input._parser;
+  const osc = parser._oscParser;
+  const dcs = parser._dcsParser;
+  const pending = {
+    state: parser.currentState,
+    params: parser._params.toArray(),
+    collect: parser._collect,
+    osc: osc._state === 0 ? null : [osc._state, osc._id, osc._active.map((handler) => handler._data ?? null)],
+    dcs: dcs._active.length === 0 ? null : [dcs._ident, dcs._active.map((handler) => handler._data ?? null)],
+    split: [input._stringDecoder._interim, ...Array.from(input._utf8Decoder.interim)].filter((unit) => unit !== 0),
+  };
+  // In the ground state the parameters and intermediates are what the last sequence left; the next sequence clears them first.
+  const ground = pending.state === 0 && pending.osc === null && pending.dcs === null && pending.split.length === 0;
+  return ground ? null : pending;
 }
 
 /** Everything the phone's terminal shows and holds, as named units: its size and active buffer; for the normal and the alternate buffer
@@ -211,6 +247,7 @@ function stateOf(tab) {
   state.bells = tab.bells;
   state.answers = tab.answers;
   state['colour changes'] = tab.colours;
+  state['parser pending'] = parserOf(core);
   return state;
 }
 
@@ -284,12 +321,16 @@ async function analyse(list, paired) {
     if (!stretches.has(stretch)) stretches.set(stretch, { events: [], finals: new Map(), bytes: new Map() });
     return stretches.get(stretch);
   };
+  // A state with input pending in the parser (a frame cut inside a sequence) is the stretch's last state if nothing follows, but makes
+  // no step of the sequence: the input after it is read on from there, and what it does shows in the next state.
   const changed = (id, tab) => {
     const state = intern(stateOf(tab));
     const at = here();
     at.finals.set(id, state);
-    if (state !== tab.last) at.events.push({ tab: id, screen: state });
-    tab.last = state;
+    if (state !== tab.last && states[state]['parser pending'] === null) {
+      at.events.push({ tab: id, screen: state });
+      tab.last = state;
+    }
   };
   let deferred = null;
   for (const [i, entry] of list.entries()) {
@@ -359,32 +400,31 @@ export function stateAt(analysis, k, tab) {
 
 const showUnit = (value) => (value === undefined ? '<absent>' : JSON.stringify(value).slice(0, 400));
 
-/** Compares units: where Node's runs agree on a unit, it must be theirs; where they differ, it is named in `exemptions` (the runs that
- *  differ from run 0) and must still be one run's. Throws naming every unit that fails. */
+/** The units in which `got` differs from `node` (either may be null: nothing drawn yet), as message lines. */
+function unitDifferences(got, node) {
+  if (got === null || node === null) return got === node ? [] : [`drawn: got ${got === null ? 'no output' : 'output'}, Node ${node === null ? 'no output' : 'output'}`];
+  const keys = [...new Set([...Object.keys(got), ...Object.keys(node)])];
+  return keys.filter((key) => !isDeepStrictEqual(got[key], node[key])).map((key) => `${key}: got ${showUnit(got[key])}, Node ${showUnit(node[key])}`);
+}
+
+/** Compares a whole state or entry (its units, or null) at one place. Where Node's runs agree on all of it, it must be theirs, and every
+ *  unit that differs is named. Where they differ, the units they differ on are named in `exemptions` with the runs that differ from run
+ *  0, and `got` must be the whole of one run's: the runs do not show their differing units varying apart, so a mix of two runs' units
+ *  is not one Node showed. Throws naming the units that fail (against the closest run). */
 function compareUnits(got, recorded, what, exemptions) {
-  const present = recorded.map((units) => units !== null);
-  let runs = recorded.map((_, run) => run);
-  if (present.some((at) => at !== present[0])) {
-    exemptions.push(`${what}: whether the tab has drawn anything yet (Node's runs ${runs.filter((run) => present[run] !== present[0]).join(', ')} differ from run 0)`);
-    runs = runs.filter((run) => present[run] === (got !== null));
-    assert.ok(runs.length > 0, `${what}: got ${got === null ? 'no output' : 'output'}, no Node run has that`);
-  } else if ((got !== null) !== present[0]) {
-    assert.fail(`${what}: got ${got === null ? 'no output' : 'output'}, Node ${present[0] ? 'output' : 'no output'}`);
+  const differing = recorded.flatMap((units, run) => (isDeepStrictEqual(units, recorded[0]) ? [] : [run]));
+  if (differing.length === 0) {
+    const failures = unitDifferences(got, recorded[0]);
+    if (failures.length > 0) assert.fail(`${what}\n  ${failures.slice(0, 16).join('\n  ')}`);
+    return;
   }
-  if (got === null) return;
-  const keys = [...new Set([got, ...runs.map((run) => recorded[run])].flatMap((units) => Object.keys(units)))];
-  const failures = [];
-  for (const key of keys) {
-    const values = runs.map((run) => recorded[run][key]);
-    const differing = runs.filter((_, i) => !isDeepStrictEqual(values[i], values[0]));
-    if (differing.length === 0) {
-      if (!isDeepStrictEqual(got[key], values[0])) failures.push(`${key}: got ${showUnit(got[key])}, Node ${showUnit(values[0])}`);
-      continue;
-    }
-    exemptions.push(`${what}: ${key} (Node's runs ${differing.join(', ')} differ from run ${runs[0]})`);
-    if (!values.some((value) => isDeepStrictEqual(value, got[key]))) failures.push(`${key}: got ${showUnit(got[key])}, which no Node run has: ${values.map(showUnit).join(' | ')}`);
+  const units = [...new Set(differing.flatMap((run) => unitDifferences(recorded[run], recorded[0]).map((line) => line.split(': got ')[0])))];
+  const matched = recorded.flatMap((units, run) => (isDeepStrictEqual(units, got) ? [run] : []));
+  if (matched.length === 0) {
+    const [closest] = recorded.map((units, run) => [run, unitDifferences(got, units)]).sort((a, b) => a[1].length - b[1].length);
+    assert.fail(`${what}: no Node run has this whole (they differ on ${units.join(', ')}); against run ${closest[0]}, the closest:\n  ${closest[1].slice(0, 16).join('\n  ')}`);
   }
-  if (failures.length > 0) assert.fail(`${what}\n  ${failures.slice(0, 16).join('\n  ')}`);
+  exemptions.push(`${what}: ${units.join(', ')} (Node's runs ${differing.join(', ')} differ from run 0; here the whole of run ${matched.join('/')})`);
 }
 
 /** Where a stretch's events of one tab differ, for a message: the first state that differs, shown by the units in which it differs from
@@ -413,20 +453,22 @@ export async function nodeView(runs, part) {
   const views = nodeViews.get(runs);
   const key = part;
   if (!views.has(key)) {
-    const lists = runs.map((run) => withoutDisposalPairs(pick(run, part) ?? [], `Node's ${part}`, []));
+    const read = runs.map((run) => withoutDisposalPairs(pick(run, part) ?? [], `Node's ${part}`));
+    const lists = read.map(({ kept }) => kept);
+    const pairs = read.map((run) => new Set(run.pairs));
     const entries = (list) => list.filter((entry) => !isData(entry)).length;
     const lengths = lists.map(entries);
     assert.equal(new Set(lengths).size, 1, `Node's runs differ in ${part} beyond the recorded variation (${lengths.join(', ')} entries besides output)`);
     const sides = lists.map(ownSides);
     const single = (side) => side === 'before' || side === 'after';
     const paired = new Set([...sides[0].keys()].filter((k) => sides.every((run) => single(run.get(k)))));
-    views.set(key, { lists, paired, sides, analyses: await Promise.all(lists.map((list) => analyse(list, paired))) });
+    views.set(key, { lists, pairs, paired, sides, analyses: await Promise.all(lists.map((list) => analyse(list, paired))) });
   }
   return views.get(key);
 }
 
 /** The list as the comparison reads it: without the PowerShell disposal pairs (the entries kept are the list's own objects). */
-export const comparedList = (list, part) => withoutDisposalPairs(list, part, []);
+export const comparedList = (list, part) => withoutDisposalPairs(list, part).kept;
 
 /** What the framing recording (apps/mobile/fixtures/relay-framing/golden.json, Node's relay lane on a virtual clock) shows of a tab's
  *  output against its own activity change, and so the one pair whose order a replay may flip:
@@ -457,7 +499,17 @@ export async function compareTraces(got, runs) {
   assert.deepEqual(extra, [], 'the trace has fields the comparison does not know');
   for (const part of PARTS) {
     const node = await nodeView(runs, part);
-    const mine = withoutDisposalPairs(pick(got, part) ?? [], part, exemptions);
+    const { kept: mine, pairs: minePairs } = withoutDisposalPairs(pick(got, part) ?? [], part);
+    // A disposal pair is taken out only where Node's runs vary on it: some run has it at that disposal and some does not; where every
+    // run has it, the trace must too, and where none has it, the trace may not.
+    const disposals = [...new Set([...minePairs, ...node.pairs.flatMap((pairs) => [...pairs])])];
+    for (const disposal of disposals) {
+      const having = node.pairs.flatMap((pairs, run) => (pairs.has(disposal) ? [run] : []));
+      const here = minePairs.includes(disposal);
+      assert.ok(having.length > 0 || !here, `${part}: a running/null pair after ${disposal}'s answer, which no Node run has`);
+      assert.ok(having.length < runs.length || here, `${part}: no running/null pair after ${disposal}'s answer, which every Node run has`);
+      exemptions.push(`${part}: the running/null pair after ${disposal}'s answer (Node's runs ${having.join(', ')} have it; here ${here ? 'present' : 'absent'})`);
+    }
     // An output entry is compared by its data alone, so it may carry nothing else.
     for (const entry of mine.filter(isData)) {
       assert.ok(isDeepStrictEqual(Object.keys(entry), ['push', 'event']) && isDeepStrictEqual(Object.keys(entry.event), ['id', 'data']), `${part}: an output entry with other fields: ${show(entry)}`);
@@ -468,7 +520,8 @@ export async function compareTraces(got, runs) {
     const mineSides = ownSides(mine);
     for (const k of node.paired) {
       const { id } = entries[k].event ?? {};
-      assert.ok(mineSides.has(k), `${part} entry ${k}: ${id}'s activity change is not next to its own output, as in every Node run (${show(entries[k])})`);
+      const side = mineSides.get(k);
+      assert.ok(side === 'before' || side === 'after', `${part} entry ${k}: ${id}'s activity change is not next to its own output on one side, as in every Node run (here: ${side ?? 'neither'}; ${show(entries[k])})`);
       const recorded = [...new Set(node.sides.map((sides) => sides.get(k)))].join('/');
       sets.push(`${part} entry ${k}: ${id}'s activity change with its own frame (Node: frame ${recorded} it; here: ${mineSides.get(k)}), proved by ${RELAY_FRAMING_PROOF}`);
     }
@@ -491,7 +544,12 @@ export async function compareTraces(got, runs) {
             assert.fail(`${part}: ${tab}'s states within the stretch ${where}\n  ${eventsDifference(mineSequence, sequences[0], before(analysis), before(node.analyses[0]))}`);
           }
         } else {
-          exemptions.push(`${part}: ${tab}'s states within the stretch ${where} before its last (Node's runs ${differing.join(', ')} differ from run 0)`);
+          const matched = sequences.flatMap((sequence, run) => (isDeepStrictEqual(mineSequence.map(eventKey), sequence.map(eventKey)) ? [run] : []));
+          if (matched.length === 0) {
+            const before = (run) => stateIdAt(run, k - 1, tab) ?? undefined;
+            assert.fail(`${part}: ${tab}'s states within the stretch ${where} are no Node run's (the runs differ there: ${differing.join(', ')} from run 0); against run 0:\n  ${eventsDifference(mineSequence, sequences[0], before(analysis), before(node.analyses[0]))}`);
+          }
+          exemptions.push(`${part}: ${tab}'s states within the stretch ${where} (Node's runs ${differing.join(', ')} differ from run 0; here run ${matched.join('/')}'s)`);
         }
         // Its state at the end of the stretch.
         compareUnits(stateAt(analysis, k, tab), node.analyses.map((run) => stateAt(run, k, tab)), `${part}: ${tab}'s screen ${where}`, exemptions);
@@ -506,7 +564,10 @@ export async function compareTraces(got, runs) {
         const mineOrder = tabOrder(stretch(analysis).events);
         assert.ok(isDeepStrictEqual(mineOrder, orders[0]), `${part}: the order of the tabs' output in the stretch ${where}: got ${mineOrder.join(', ')}, Node ${orders[0].join(', ')}`);
       } else {
-        exemptions.push(`${part}: the order of the tabs' output in the stretch ${where} (Node's runs ${differing.join(', ')} differ from run 0)`);
+        const mineOrder = tabOrder(stretch(analysis).events);
+        const matched = orders.flatMap((order, run) => (isDeepStrictEqual(order, mineOrder) ? [run] : []));
+        assert.ok(matched.length > 0, `${part}: the order of the tabs' output in the stretch ${where}: got ${mineOrder.join(', ')}, which no Node run has: ${orders.map((order) => order.join(', ')).join(' | ')}`);
+        exemptions.push(`${part}: the order of the tabs' output in the stretch ${where} (Node's runs ${differing.join(', ')} differ from run 0; here run ${matched.join('/')}'s)`);
       }
     }
     const tabs = [...new Set([mine, ...node.lists].flatMap((list) => list.filter(isData).map((entry) => entry.event.id)))].sort();

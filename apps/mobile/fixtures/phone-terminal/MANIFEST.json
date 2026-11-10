@@ -1,8 +1,8 @@
 {
+  "additionalRunsRule": "Written before any further run was recorded (2026-11-10, tip ca1241142a): Node is recorded again with this recorder unchanged, one run at a time (--runs 1 --out <own folder>), the 5 runs already in runs.json counting toward the total. Recording stops as soon as both of these states have each been seen in some Node run, or at 30 runs in total, whichever comes first: (1) term_ph2a in `order`, around non-output entry 30 (its `running`): the echo frame (Write-Output MIXDOG_PH2_DONE) sent, then `running`, then a frame starting with \\e[m; (2) term_ph2a in `order`, between non-output entries 43 (`running`) and 44 (`finished`): a resize re-render frame that does not contain the typed command (MIXDOG_PH2_SETTLE_1). Every run recorded is kept in runs.json in recording order; none is dropped or picked.",
   "command": "node benchmarks/rust-core/recorders/record-phone-terminal.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 (src, apps) with node_modules>",
   "disposalPairEvidence": "A 20-run recording with this recorder (the script before 17658be467: 116 entries, runs.json sha256 fe8fe7060db1b780fc67c4507b06f97a91911e6a7db3253b2f830d153dea03fb, not kept in the repository) had a running/null pair after the dispose answer on term_ph2a in 25 of 60 disposals, term_ph2_l1 2/20, term_ph2_l2 5/20, term_ph2_l4 2/20, term_ph2_l5 6/20, term_ph2_l6 3/20, term_ph2_i1 3/20, term_ph2_i2 0/20, and never on a non-PowerShell tab; the mechanism (PSConsoleHostReadLine C marker against the console close) is the same on every PowerShell tab at its prompt.",
   "entries": 115,
-  "additionalRunsRule": "Written before any further run was recorded (2026-11-10, tip ca1241142a): Node is recorded again with this recorder unchanged, one run at a time (--runs 1 --out <own folder>), the 5 runs already in runs.json counting toward the total. Recording stops as soon as both of these states have each been seen in some Node run, or at 30 runs in total, whichever comes first: (1) term_ph2a in `order`, around non-output entry 30 (its `running`): the echo frame (Write-Output MIXDOG_PH2_DONE) sent, then `running`, then a frame starting with \\e[m; (2) term_ph2a in `order`, between non-output entries 43 (`running`) and 44 (`finished`): a resize re-render frame that does not contain the typed command (MIXDOG_PH2_SETTLE_1). Every run recorded is kept in runs.json in recording order; none is dropped or picked.",
   "fileCount": 3,
   "files": [
     {
@@ -11,14 +11,14 @@
       "sha256": "02ff643f9cb65e8b80cf0216601d58c557e90bc8974439e5bfad96bb4dda8f2b"
     },
     {
-      "bytes": 967204,
+      "bytes": 4604134,
       "path": "runs.json",
-      "sha256": "898bf39a5ef7e035e3f9ac63375807cad4d93477ca8dbeb0f6c30895d23d74da"
+      "sha256": "8dff843e55f9c00acf42d704fd1b68ed4f5a4ba399f692565d4298ca0dd4165c"
     },
     {
-      "bytes": 3565,
+      "bytes": 8334,
       "path": "variance.json",
-      "sha256": "89d59b9cda4a5c3d3b0816377a8ca8022a388308a8d77dddce8b9c3ab7f1f97b"
+      "sha256": "6d57c06ef888394b494f9d1ea7d103b58f96b900b19a56b7be04cffd40005971"
     }
   ],
   "framingProof": "apps/mobile/fixtures/relay-framing drives Node's relay lane (remote-relay-push-lanes.ts) with a scripted source on a virtual clock: given output and activity changes at set times, Node's frames, their times and their order against the changes (G15 against G16/G17: a write and its change 15 ms after a frame go change first, 16 or 17 ms after it frame first). mixdog-spawn service::relay_buffer the_frames_are_nodes_for_the_recorded_script feeds the same steps to the core's RelayBuffer, the buffer the feed pump uses. The core's ordering of a change after its chunk is in the relay buffer is shown by mixdog-spawn terminal::lock_order tests (a_marker_change_waits_for_the_pump_to_take_its_chunk, the_pump_counts_from_its_first_event_after_an_evicted_prefix, a_paused_producers_chunk_changes_nothing_until_it_enters_the_feed, the_tabs_end_follows_the_output_before_the_exit). Not proved by any recording: that the core's PTY reader hands the relay the same chunks at the same times node-pty did (the reader's cuts and timing against ConPTY); the real replay compares the states that output produces, not its cuts.",
@@ -40,8 +40,9 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-phone-terminal.mjs",
+  "runsMerged": "runs.json: runs 0-4 from the fixture's 5-run recording, runs 5-22 from 18 recordings of one run each (run-06, run-07, run-08, run-09, run-10, run-11, run-12, run-13, run-14, run-15, run-16, run-17, run-18, run-19, run-20, run-21, run-22, run-23), merged with --merge in that order.",
   "scriptSha256": "bbd2a80901dc8444f034726c36a433523a7e43f617ba5c98dee77c61c3add389",
   "set": "phone-terminal",
   "settled": "Output no answered call causes (a resize re-render, a prompt after idle, a closing output against the next dispose) is waited for before the next call: its place among later calls is call latency, 0 ms in this in-process recorder and a socket round trip for a phone. The immediate part keeps the answer-ordered sequences (ensure then first output, dispose then closing output) unsettled.",
-  "totalBytes": 1164266
+  "totalBytes": 4805965
 }
