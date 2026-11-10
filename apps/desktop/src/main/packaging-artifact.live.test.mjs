@@ -5,12 +5,14 @@
 // in packaging.test.mjs.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { access, open, readdir, readFile } from 'node:fs/promises';
 import { dirname, join, sep } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { extractFile, listPackage, statFile } from '@electron/asar';
-import { onnxRuntimeSupported } from '../../../../src/runtime/shared/onnx-runtime-support.mjs';
+import { CORE_READS, onnxRuntimeSupported } from '../../scripts/core-layout.mjs';
+import { verifyStagedResources } from '../../scripts/verify-staged-package.mjs';
 
 async function findRuntimeArchives(directory, depth = 0) {
   if (depth > 8) return [];
@@ -157,7 +159,7 @@ test('built runtime archive metadata and emitted native sidecar agree', async ()
   await access(runtimeArchive);
 
   // Targets without an onnxruntime-node binding (darwin-x64) ship none at all.
-  const onnx = onnxRuntimeSupported();
+  const onnx = onnxRuntimeSupported(process.platform, process.arch);
   const targetBinding = `/bin/napi-v6/${process.platform}/${process.arch}/onnxruntime_binding.node`;
   const candidates = await findRuntimeArchives(fileURLToPath(new URL('../../dist', import.meta.url)));
   const built = candidates
@@ -177,7 +179,7 @@ test('built runtime archive metadata and emitted native sidecar agree', async ()
   for (const required of [
     '/package.json',
     '/node_modules/mixdog/package.json',
-    '/node_modules/mixdog/src/tui/session.mjs',
+    ...CORE_READS.files.map((file) => `/node_modules/mixdog/${file}`),
     '/node_modules/mixdog/src/runtime/office/core/journal.mjs',
     '/node_modules/mixdog/src/runtime/office/quality/visual-diff.mjs',
     '/node_modules/mixdog/src/runtime/office/com/office-com-host.ps1',
@@ -258,4 +260,16 @@ test('built runtime archive metadata and emitted native sidecar agree', async ()
       `${entry} was not emitted unchanged beside the built runtime.asar`
     );
   }
+});
+
+test('the packaged resources hold the Rust core, its unpacked resource root, the ONNX library and the extension host closure', async () => {
+  const candidates = await findRuntimeArchives(fileURLToPath(new URL('../../dist', import.meta.url)));
+  const resources = candidates.map((archive) => dirname(archive)).find((directory) => existsSync(join(directory, 'core')));
+  assert.ok(resources, 'dist holds no packaged resources with a core/ directory');
+  assert.deepEqual(verifyStagedResources({ resources, platform: process.platform, arch: process.arch }).sort(), [
+    'darwin-arm64',
+    'darwin-x64',
+    'linux-arm64',
+    'linux-x64',
+  ]);
 });
