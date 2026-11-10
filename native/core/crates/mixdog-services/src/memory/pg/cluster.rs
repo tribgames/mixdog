@@ -186,6 +186,7 @@ const CANCELLED_START: &str = "the start was cancelled before postgres was ready
 const RECOVERY_WAIT: Duration = Duration::from_secs(30);
 
 /// `isPostgresPid`: the pid's process is a postgres (a pid a reboot handed to another program is not a postmaster). Where the name cannot be read it is taken as alive.
+#[allow(clippy::disallowed_methods, reason = "Linux only: one read of procfs, which is memory and not a disk")]
 async fn is_postgres_pid(processes: &Processes, pid: u32) -> bool {
     if cfg!(windows) {
         let args = ["/FI".to_owned(), format!("PID eq {pid}"), "/FO".to_owned(), "CSV".to_owned(), "/NH".to_owned()];
@@ -354,7 +355,9 @@ async fn rotate_log_if_needed(lane: DurabilityIo, log: &Path) {
 async fn free_port(preferred: u16) -> Result<u16> {
     let last = preferred.saturating_add(PORT_SPAN);
     for port in preferred..=last {
-        if tokio::net::TcpListener::bind(("127.0.0.1", port)).await.is_ok() {
+        // A postmaster on Windows listens with SO_REUSEADDR, so a second bind to its port succeeds: a free port is one nothing answers on too.
+        let held = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.is_ok();
+        if !held && tokio::net::TcpListener::bind(("127.0.0.1", port)).await.is_ok() {
             return Ok(port);
         }
     }

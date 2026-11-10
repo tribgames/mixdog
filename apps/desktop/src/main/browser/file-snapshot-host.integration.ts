@@ -55,6 +55,7 @@ async function run(): Promise<void> {
     () => ({
       captureFileSnapshot: (r, rel, grant) => hostSide.capture(r, rel, grant),
       localPageUrl: async () => '',
+      trashItem: async () => undefined,
     })
   );
   const hostCall = handlers.get('host/capture/fileSnapshot')!;

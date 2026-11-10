@@ -15,6 +15,13 @@ const MIB: u64 = 1024 * 1024;
 pub const LIVE_VIEW_MAX_WIDTH: u64 = 4096;
 pub const LIVE_VIEW_MAX_HEIGHT: u64 = 4096;
 
+/// What Node lets accumulate for one phone that is not draining (`RELAY_LEG_QUEUE_BYTES`,
+/// `apps/desktop/src/shared/remote-transport.ts:90`; `PHONE_QUEUE_LIMIT_BYTES`,
+/// `apps/relay/lib/relay-transport.mjs:198`). The budget bounds accumulation, not one frame's size: an idle
+/// leg always takes one frame, and a frame that would take a leg already holding something past the budget
+/// cuts it (`admitFrame`, `relay-transport.mjs:301-314`: `queued > 0 && queued + size > budget`).
+const NODE_LEG_QUEUE_BYTES: u64 = 8 * MIB;
+
 /// Room kept in an inbound frame for the `blob/put` request around its base64 data
 /// (JSON-RPC envelope, `opId`, `digest`, `offset`).
 const BLOB_PUT_ENVELOPE_BYTES: u64 = 4 * KIB;
@@ -71,6 +78,11 @@ pub struct Limits {
     pub control_reserve_bytes: u64,
     #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub event_budget_bytes: u64,
+    /// The ordered class's event room (events never dropped, P §6.5), apart from `queueBytes`:
+    /// one event of any size enters an empty room; behind it, events queue while the queued bytes
+    /// stay within this bound, and the connection closes 4000 when the peer has not drained them.
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
+    pub ordered_queue_bytes: u64,
     #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub max_snapshot_bytes: u64,
     #[cfg_attr(feature = "codegen", ts(type = "number"))]
@@ -112,6 +124,7 @@ impl Default for Limits {
             queue_bytes,
             control_reserve_bytes,
             event_budget_bytes: queue_bytes - control_reserve_bytes,
+            ordered_queue_bytes: NODE_LEG_QUEUE_BYTES,
             max_snapshot_bytes: 3 * MIB,
             ring_bytes: 4 * MIB,
             app_ring_bytes: MIB,
@@ -157,6 +170,16 @@ impl Limits {
         }
         if self.max_frame_bytes * 4 > self.event_budget_bytes {
             return Err(LimitsViolation("maxFrameBytes <= eventBudgetBytes / 4"));
+        }
+        // The largest ordered frame always fits an empty ordered room: the app feed's frames are
+        // bounded by maxFrameBytes, `lsp:` and `fs:` frames by nothing in the core (nor in Node),
+        // so the writer admits any one frame into an empty room. Behind a held frame the room is
+        // Node's leg budget: no less, or a backlog Node carries would close the connection.
+        if self.ordered_queue_bytes < NODE_LEG_QUEUE_BYTES {
+            return Err(LimitsViolation("orderedQueueBytes >= 8 MiB (Node's leg queue)"));
+        }
+        if self.max_frame_bytes > self.ordered_queue_bytes {
+            return Err(LimitsViolation("maxFrameBytes <= orderedQueueBytes"));
         }
         // base64 of the raw chunk plus the request's schema-bounded fields.
         if self.max_blob_put_chunk_bytes.div_ceil(3) * 4 + BLOB_PUT_ENVELOPE_BYTES
