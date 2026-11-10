@@ -88,22 +88,36 @@ pub(super) async fn walk_entries_pruned(
     prune: Vec<AbsPath>,
     cap: Option<usize>,
 ) -> Result<Walked, ToolError> {
-    let mut walk = ctx.files.walk(
-        ctx.io.maintenance,
-        WalkRequest {
-            root: root.clone(),
-            recursive: true,
-            include_hidden: true,
-            respect_ignore,
-            include_dirs: false,
-            prune,
-        },
-    );
+    let request = WalkRequest { root: root.clone(), recursive: true, include_hidden: true, respect_ignore, include_dirs: false, prune };
+    walk_kept(ctx, request, keep, cap).await
+}
+
+/// Files and directories under `root` (nothing ignored or hidden skipped; the kernel trees of a
+/// filesystem root pruned), at most `cap` kept entries.
+pub(super) async fn walk_inventory(
+    ctx: &ToolContext,
+    root: &AbsPath,
+    keep: impl Fn(&DirEntry) -> bool,
+    cap: usize,
+) -> Result<Walked, ToolError> {
+    let prune = root_scan_prunes(root, cfg!(not(windows)));
+    let request = WalkRequest { root: root.clone(), recursive: true, include_hidden: true, respect_ignore: false, include_dirs: true, prune };
+    walk_kept(ctx, request, keep, Some(cap)).await
+}
+
+async fn walk_kept(
+    ctx: &ToolContext,
+    request: WalkRequest,
+    keep: impl Fn(&DirEntry) -> bool,
+    cap: Option<usize>,
+) -> Result<Walked, ToolError> {
+    let include_dirs = request.include_dirs;
+    let mut walk = ctx.files.walk(ctx.io.maintenance, request);
     let mut out = Vec::new();
     let mut capped = false;
     let end = pull_all(ctx, walk.as_mut(), |item| {
         if let Ok(entry) = item {
-            if entry.kind != EntryKind::Dir && keep(&entry) {
+            if (include_dirs || entry.kind != EntryKind::Dir) && keep(&entry) {
                 // Exactly `cap` files is a complete list; the next one is what was cut.
                 if cap.is_some_and(|cap| out.len() >= cap) {
                     capped = true;

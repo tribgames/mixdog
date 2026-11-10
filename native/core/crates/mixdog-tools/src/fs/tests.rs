@@ -185,6 +185,82 @@ async fn edit_read_failures_are_answered_as_node_answers_them_on_windows() {
     assert_eq!(compared, 9);
 }
 
+/// Sets a file's or a directory's modification time.
+fn set_mtime(path: &Path, at: std::time::SystemTime) {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true);
+    #[cfg(windows)]
+    std::os::windows::fs::OpenOptionsExt::custom_flags(&mut options, 0x0200_0000); // directories open with backup semantics
+    options.open(path).unwrap().set_modified(at).unwrap();
+}
+
+/// Node's answers in `fixtures/tools-fs-search/<scenario>.json` (`record-tools-fs-search.mjs`), replayed whole, in order,
+/// over the scenario's workspace on disk. As the recorder does, files are dated 2026-01-02T03:04:05Z unless the scenario
+/// dates them, and dated directories are dated after their files are written.
+async fn replay_fs_search(scenario: &str) {
+    let fixture: JsonValue = serde_json::from_str(
+        &std::fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../fixtures/tools-fs-search/{scenario}.json")),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let ws = dir.path().join("ws");
+    let at = |iso: &str| std::time::SystemTime::from(chrono::DateTime::parse_from_rfc3339(iso).unwrap());
+    let files = fixture["files"].as_object().unwrap();
+    let mtimes = fixture["mtimes"].as_object().cloned().unwrap_or_default();
+    for (rel, text) in files {
+        std::fs::create_dir_all(ws.join(rel).parent().unwrap()).unwrap();
+        std::fs::write(ws.join(rel), text.as_str().unwrap()).unwrap();
+    }
+    for rel in files.keys() {
+        set_mtime(&ws.join(rel), at(mtimes.get(rel).and_then(|v| v.as_str()).unwrap_or("2026-01-02T03:04:05Z")));
+    }
+    for (rel, iso) in mtimes.iter().filter(|(rel, _)| !files.contains_key(*rel)) {
+        set_mtime(&ws.join(rel), at(iso.as_str().unwrap()));
+    }
+    assert!(fixture.get("junctions").is_none(), "junction scenarios are not replayed here");
+    let mut ctx = context_seeded(
+        &AbsPath::new(&ws).unwrap(),
+        Arc::new(mixdog_workspace::localfs::LocalFileService::new()),
+        Vec::new(),
+    )
+    .await;
+    if let Some(cwd) = fixture["cwd"].as_str() {
+        ctx.cwd = AbsPath::new(ws.join(cwd)).unwrap();
+    }
+    let raw = ws.to_string_lossy().into_owned();
+    let fwd = raw.replace('\\', "/");
+    let mut failures = Vec::new();
+    for (index, call) in fixture["calls"].as_array().unwrap().iter().enumerate() {
+        let tool = call["tool"].as_str().unwrap();
+        let input: JsonValue = serde_json::from_str(&call["input"].to_string().replace("<ROOT>", &fwd)).unwrap();
+        let args = schema_args(tool, input);
+        let outcome = match tool {
+            "list" => ListTool::new().call(&ctx, args).await,
+            "glob" => GlobTool::new().call(&ctx, args).await,
+            "find" => FindTool::new().call(&ctx, args).await,
+            "grep" => GrepTool::new().call(&ctx, args).await,
+            "read" => ReadTool::new(None, None).call(&ctx, args).await,
+            other => panic!("no replay for {other}"),
+        };
+        let (is_error, text) = text_of(outcome);
+        let text = text.replace(&raw, "<ROOT>").replace(&fwd, "<ROOT>");
+        let want = call["text"].as_str().unwrap_or_else(|| panic!("call {index} threw in Node"));
+        if text != want || is_error != (call["isError"] == true) {
+            failures.push(format!("#{index} {tool} {}:\n  want ({}) {want:?}\n  got  ({is_error}) {text:?}", call["input"], call["isError"]));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// gaps-tools item 12: a glob-shaped `list` path is Node's name search, newest first with size and date columns.
+#[tokio::test]
+async fn list_answers_a_glob_shaped_path_as_node_does() {
+    replay_fs_search("list-glob-path").await;
+}
+
 struct NoRoots;
 
 #[async_trait::async_trait]
