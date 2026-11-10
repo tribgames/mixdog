@@ -139,6 +139,10 @@ async fn changes_are_published_at_a_bounded_rate_and_an_unchanged_ledger_is_neve
     assert!(published.try_recv().is_err(), "three reads for three bursts of changes");
 }
 
+/// How far the clock is advanced to show that a failed read arms no retry: a hundred refresh intervals, far past the end of any
+/// interval the feed could retry on.
+const NO_RETRY_HORIZON: Duration = REFRESH_INTERVAL.saturating_mul(100);
+
 /// Node never retried a failed re-read by itself: with no later trigger a failure produces no further read, however long it waits.
 #[tokio::test(start_paused = true)]
 async fn a_failed_read_with_no_later_change_is_never_retried() {
@@ -156,9 +160,8 @@ async fn a_failed_read_with_no_later_change_is_never_retried() {
     // The source answers without awaiting, so the first poll takes the failure and parks the feed.
     assert!(poll_feed().await.is_pending());
     assert_eq!(began(&mut reads), 1, "the startup read began");
-    // Far past the end of any retry interval, held by the explicit advance; the advance gives the clock's timers their turn, and the
-    // next poll resumes a feed that waited on one.
-    tokio::time::advance(REFRESH_INTERVAL * 100).await;
+    // The explicit advance gives the clock's timers their turn, and the next poll resumes a feed that waited on one.
+    tokio::time::advance(NO_RETRY_HORIZON).await;
     assert!(poll_feed().await.is_pending(), "the feed is parked on the writer, not finished");
     assert_eq!(began(&mut reads), 0, "no timer retries a failure");
     assert!(published.try_recv().is_err());
@@ -387,6 +390,9 @@ async fn the_ledger_sources_pushed_entries_equal_nodes_answers() {
 
     for (n, step) in steps.iter().enumerate() {
         if n > 0 {
+            // Both feeds are parked on the next change here; the longest interval passes by this advance, so the step's change is
+            // the first after a quiet interval and is published at once (the figures' own clock is `now`, not the runtime's).
+            tokio::time::advance(DASHBOARD_INTERVAL).await;
             quotas.step.store(n, Ordering::SeqCst);
             *setup.config.lock().unwrap() = step["dashboard"]["config"].clone();
             now.store(step["now"].as_i64().unwrap(), Ordering::SeqCst);

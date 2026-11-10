@@ -1807,14 +1807,14 @@ impl Deadline {
     fn start() -> Self {
         let (over, ended) = std::sync::mpsc::channel::<()>();
         let (fire, fired) = tokio::sync::oneshot::channel();
-        std::thread::Builder::new()
-            .name("await-deadline".into())
-            .spawn(move || {
-                if ended.recv_timeout(DEADLINE) == Err(std::sync::mpsc::RecvTimeoutError::Timeout) {
-                    let _ = fire.send(());
-                }
-            })
-            .expect("the deadline thread starts");
+        // A blocking task, not a bare thread: while one runs, a paused runtime does not advance its clock by itself, so the wait
+        // cannot be made true by a timer nobody advanced to.
+        #[allow(clippy::disallowed_methods, reason = "test setup")]
+        tokio::task::spawn_blocking(move || {
+            if ended.recv_timeout(DEADLINE) == Err(std::sync::mpsc::RecvTimeoutError::Timeout) {
+                let _ = fire.send(());
+            }
+        });
         Self { fired, _over: over }
     }
 
