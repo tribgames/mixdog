@@ -210,6 +210,11 @@ impl Db {
         }
     }
 
+    /// Waits for the handle's pool: a deferred handle's opener has opened the database (or failed to).
+    pub async fn ready(&self) -> Result<()> {
+        self.pool().await.map(drop)
+    }
+
     pub fn schema(&self) -> Schema {
         self.schema
     }

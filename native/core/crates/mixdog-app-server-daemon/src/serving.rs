@@ -485,6 +485,77 @@ mod tests {
         assert!(health.get("buildHash").is_none());
     }
 
+    /// Node's recorded answers to the first memory requests while its opening cannot complete (`record-memory-first-request.mjs`).
+    fn first_requests_scenario(name: &str) -> serde_json::Value {
+        let golden: serde_json::Value = serde_json::from_str(include_str!("../../../fixtures/memory-first-request/golden.json")).unwrap();
+        golden["scenarios"].as_array().unwrap().iter().find(|scenario| scenario["name"] == name).cloned().unwrap_or_else(|| panic!("no recorded scenario {name}"))
+    }
+
+    /// One recorded request through the dispatch a client's request takes (`domain_for`, then the wire error `error_data`), in the recording's shape. Node's
+    /// `session.configure` action is the core's method (`recall`'s `[query, options]` are `query` and `args`, `memoryControl`'s `[args]` is `args`), and Node's
+    /// `/call` answers an action's error with HTTP 200 and `{ error }`, the wire's domain error message.
+    async fn replay(core: &crate::compose::ComposedCore, request: &serde_json::Value) -> serde_json::Value {
+        use mixdog_core_api::handle::CoreHandle as _;
+        use mixdog_core_api::ids::Method;
+        use mixdog_core_api::{CallContext, CoreRequest};
+        let args = request["args"].as_array().unwrap();
+        let (method, params) = match request["action"].as_str().unwrap() {
+            "recall" => ("memory/recall", serde_json::json!({ "query": args[0], "args": args[1] })),
+            "memoryControl" => ("memory/memoryControl", serde_json::json!({ "args": args[0] })),
+            other => panic!("unrecorded action {other}"),
+        };
+        let service = core.domain_for(method).expect("the method is served");
+        match service.call(CoreRequest { method: Method(method), params, op: None, ctx: CallContext::internal("test") }).await {
+            Err(error) => match mixdog_app_server::error_data(&error) {
+                mixdog_app_protocol::ErrorData::DomainError { domain, message: Some(message), .. } if domain == "memory" => {
+                    serde_json::json!({ "status": 200, "body": { "error": message } })
+                }
+                other => serde_json::json!({ "unexpected error": format!("{other:?}") }),
+            },
+            Ok(mixdog_core_api::Reply::Value(value)) => serde_json::json!({ "unexpected value": value }),
+            Ok(_) => serde_json::json!({ "unexpected": "a subscription" }),
+        }
+    }
+
+    /// A fresh profile whose runtime install fails (its folder `<data>/runtime` is a regular file, so the real installer fails at its first step and nothing
+    /// reaches a network): the first memory requests get Node's recorded answers for the same profile.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_first_memory_requests_after_a_failed_install_answer_as_node() {
+        use mixdog_core_session::session::testing::awaiting_for;
+        const LIMIT: std::time::Duration = std::time::Duration::from_secs(20);
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path().join("data");
+        std::fs::create_dir_all(&data).unwrap();
+        std::fs::write(data.join("runtime"), "not a folder").unwrap();
+        let tokens = mixdog_rt::testing::tokens();
+        let outgoing = mixdog_app_server::Outgoing::new();
+        let composing = crate::compose::compose(
+            &tokens,
+            ComposeConfig {
+                data_dir: data.clone(),
+                user_data_dir: dir.path().join("userdata"),
+                js_runtime: crate::js_runtime::fixture(dir.path()),
+                ort_library: mixdog_services::effort_judge::model::OrtRuntime::NoBinding,
+                outgoing: outgoing.clone(),
+                ownership: Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()),
+                log: crate::daemon_log::DaemonLog::new(data.join("daemon.log"), tokens.maintenance_io, mixdog_rt::CancellationToken::new()),
+                stop: mixdog_rt::CancellationToken::new(),
+                catalog_http: crate::compose_test_support::offline_http(),
+                pg_install: None,
+            },
+        );
+        let core = Arc::new(awaiting_for(LIMIT, || "the composition".into(), composing).await.unwrap());
+        let scenario = first_requests_scenario("recall then memoryControl when the runtime install fails");
+        let requests = scenario["requests"].as_array().unwrap();
+        let mut answers = Vec::new();
+        for request in requests {
+            answers.push(awaiting_for(LIMIT, || format!("the request {}", request["action"]), replay(&core, request)).await);
+        }
+        awaiting_for(LIMIT, || "the core's stop".into(), core.stop("test")).await;
+        assert_eq!(answers, requests.iter().map(|request| request["answer"].clone()).collect::<Vec<_>>(), "the answers are Node's");
+        assert!(!data.join("pgdata").exists(), "a failed install initialises nothing");
+    }
+
     /// Readiness does not wait for the PostgreSQL runtime (Node installs it inside the memory start, at the first memory use, `supervisor.mjs:484`; its ready
     /// signal, `daemon.mjs:852`, comes first). A fresh profile whose install is held at a gate composes, publishes `serving` and answers `/mgmt/status` with the
     /// install not entered; the first database use then enters it and waits there while `/mgmt/status` still answers, and when the install ends the use gets its
@@ -519,8 +590,11 @@ mod tests {
                     entered.send(()).expect("the test listens");
                     let gate = gate.clone();
                     Box::pin(async move {
-                        let gate = gate.lock().await.take().expect("one install");
-                        let _ = gate.await;
+                        // The first install waits at the gate; a later one (the next request's new opening) fails as the first did.
+                        let held = gate.lock().await.take();
+                        if let Some(gate) = held {
+                            let _ = gate.await;
+                        }
                         Err(mixdog_services::memory::error::MemoryError::Runtime("held at the gate".to_owned()))
                     })
                 })),
@@ -554,14 +628,25 @@ mod tests {
             assert!(entries.try_recv().is_err(), "the install was not entered before the first memory use");
             assert!(!data.join("runtime").exists() && !data.join("pgdata").exists(), "nothing was downloaded or initialised");
 
-            // The first database use enters the install and waits at the gate; the daemon keeps answering.
-            let db = core.memory_db();
-            let using = tokio::spawn(async move { db.client().await.err().map(|error| error.message()) });
-            awaiting_for(LIMIT, || "the first use to enter the install".into(), entries.recv()).await.expect("announced");
-            assert!(!using.is_finished(), "the use waits for the install");
-            assert_eq!(status().await, 200, "the daemon answers while the use waits");
+            // The first memory request enters the install and waits at the gate; the daemon keeps answering. Node's recording of the same requests while
+            // its opening cannot complete is what the answers must equal.
+            let scenario = first_requests_scenario("recall then memoryControl while the spawn lock is held by another live process");
+            let requests = scenario["requests"].as_array().unwrap().clone();
+            let first = requests[0].clone();
+            let replaying = core.clone();
+            let using = tokio::spawn(async move { replay(&replaying, &first).await });
+            awaiting_for(LIMIT, || "the first request to enter the install".into(), entries.recv()).await.expect("announced");
+            assert!(!using.is_finished(), "the request waits for the install");
+            assert_eq!(status().await, 200, "the daemon answers while the request waits");
             release.send(()).expect("the install waits at the gate");
-            let outcome = awaiting_for(LIMIT, || "the use to end with the install".into(), using).await.unwrap();
+            let mut answers = vec![awaiting_for(LIMIT, || "the first request to end with the install".into(), using).await.unwrap()];
+            for request in &requests[1..] {
+                answers.push(awaiting_for(LIMIT, || format!("the request {}", request["action"]), replay(&core, request)).await);
+            }
+            assert_eq!(answers, requests.iter().map(|request| request["answer"].clone()).collect::<Vec<_>>(), "the answers are Node's");
+            // The database's own error is the install's outcome; the client sees the runtime proxy's text above.
+            let db = core.memory_db();
+            let outcome = awaiting_for(LIMIT, || "a database use".into(), db.client()).await.err().map(|error| error.message());
             assert_eq!(outcome.as_deref(), Some("postgres runtime: held at the gate"), "the use gets the install's outcome");
             assert!(!data.join("pgdata").exists(), "a failed install initialises nothing");
         })

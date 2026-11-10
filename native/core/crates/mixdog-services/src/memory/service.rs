@@ -40,9 +40,16 @@ pub trait SessionSource: Send + Sync {
     async fn profile_title(&self) -> String;
 }
 
+/// The runtime proxy's refusal of a call whose memory runtime never came up (`memory-runtime-proxy/discovery.mjs:95`).
+const RUNTIME_NOT_READY: &str = "memory runtime did not become ready";
+
 /// The memory runtime's tool entry: `handleToolCall(name, args)` as text.
 #[async_trait]
 pub trait MemoryModule: Send + Sync {
+    /// Waits for the memory database to be open, opening it when nobody has; `Err` when the opening failed. A module with nothing to open is ready.
+    async fn ready(&self) -> Result<(), String> {
+        Ok(())
+    }
     /// The `memory` tool, including `ingest_session`.
     async fn memory(&self, args: Value) -> String;
     /// The `recall` tool.
@@ -101,6 +108,10 @@ impl LocalMemory {
 
 #[async_trait]
 impl MemoryModule for LocalMemory {
+    async fn ready(&self) -> Result<(), String> {
+        self.db.ready().await.map_err(|error| error.message())
+    }
+
     async fn memory(&self, args: Value) -> String {
         if args.get("action").and_then(Value::as_str) == Some("ingest_session") {
             return self.ingest.ingest_session(&args).await.unwrap_or_else(|error| error.message());
@@ -240,13 +251,21 @@ impl MemoryService {
         Self { memory, sessions }
     }
 
-    async fn memory_control(&self, params: &Value) -> Value {
+    /// Node's `memoryModule()` (`resource-recall-api.mjs:39-43`) through its runtime proxy: a call waits for the memory runtime, and one whose runtime
+    /// never comes up (its opening failed) is refused with the proxy's text (`memory-runtime-proxy/discovery.mjs:95`), whatever the opening's own
+    /// error was: Node's child answers `starting` to every health probe until its init succeeded (`http-router/lifecycle-routes.mjs:43-45`).
+    async fn runtime(&self) -> Result<(), CoreError> {
+        self.memory.ready().await.map_err(|_| CoreError::DomainError { domain: "memory".into(), code: None, message: Some(RUNTIME_NOT_READY.into()), detail: None })
+    }
+
+    async fn memory_control(&self, params: &Value) -> Result<Value, CoreError> {
+        self.runtime().await?;
         let args = params.get("args").filter(|args| truthy(args)).cloned().unwrap_or_else(|| json!({}));
-        Value::String(self.memory.memory(args).await)
+        Ok(Value::String(self.memory.memory(args).await))
     }
 
     /// `recall(query, args)` of the session runtime.
-    async fn recall(&self, params: &Value) -> Value {
+    async fn recall(&self, params: &Value) -> Result<Value, CoreError> {
         let thread = params.get("threadId").and_then(Value::as_str);
         let args = params.get("args").filter(|args| args.is_object()).cloned().unwrap_or_else(|| json!({}));
         let base_query = params
@@ -260,9 +279,9 @@ impl MemoryService {
             let title = self.sessions.profile_title().await;
             let title = js_trim(&title);
             if !title.is_empty() {
-                return Value::String(format!(
+                return Ok(Value::String(format!(
                     "[profile] Current configured user name/identity: {title}. This profile value is authoritative; ignore stale memory rows that say the user's identity is unknown."
-                ));
+                )));
             }
         }
         let session = self.sessions.session(thread).await.filter(|session| !session.id.is_empty());
@@ -271,9 +290,10 @@ impl MemoryService {
         if let (true, Some(session)) = (current_session_on, &session) {
             let own = current_session_recall_rows(&session.messages, &query_text, args.get("limit"));
             if !is_empty_recall_text(&own) {
-                return Value::String(own);
+                return Ok(Value::String(own));
             }
         }
+        self.runtime().await?;
         let mut base_args: Map<String, Value> = args.as_object().cloned().unwrap_or_default();
         base_args.insert("query".into(), base_query);
         let cwd = args.get("cwd").filter(|cwd| truthy(cwd)).cloned().or_else(|| current_cwd.clone().map(Value::String));
@@ -309,7 +329,7 @@ impl MemoryService {
         if is_empty_recall_text(&result) {
             result = self.memory.recall(Value::Object(base_args)).await;
         }
-        Value::String(result)
+        Ok(Value::String(result))
     }
 }
 
@@ -317,8 +337,8 @@ impl MemoryService {
 impl DomainService for MemoryService {
     async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
         match req.method.as_str() {
-            "memory/memoryControl" => Ok(Reply::Value(self.memory_control(&req.params).await)),
-            "memory/recall" => Ok(Reply::Value(self.recall(&req.params).await)),
+            "memory/memoryControl" => Ok(Reply::Value(self.memory_control(&req.params).await?)),
+            "memory/recall" => Ok(Reply::Value(self.recall(&req.params).await?)),
             _ => Err(CoreError::InvalidParams { path: "method".into(), expected: "memory/*".into() }),
         }
     }
