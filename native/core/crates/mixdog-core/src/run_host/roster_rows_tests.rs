@@ -155,8 +155,8 @@ fn on_the_wire(row: &Value) -> Value {
     Value::Object(out)
 }
 
-/// `thread/list` over the migrated directory: the real store, the real room records and the real room list.
-async fn listed(roots: &MigrationRoots, live: Vec<(String, Value)>, answers: &Value) -> Vec<Value> {
+/// The migrated directory's index and thread store, as the core opens them.
+async fn opened(roots: &MigrationRoots) -> (mixdog_store::sqlite::SqliteStore, Arc<StoreThreads>) {
     let tokens = mixdog_rt::testing::tokens();
     let root = roots.data.clone();
     let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
@@ -166,14 +166,33 @@ async fn listed(roots: &MigrationRoots, live: Vec<(String, Value)>, answers: &Va
     .await
     .expect("job ran")
     .expect("index");
-    let _threads = StoreThreads::over_data_dir(&roots.data, index.clone(), Arc::new(MockOwnership::default()), tokens.maintenance_io).await.expect("thread store");
-    let (state, _) = mixdog_store::state::CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &roots.data.join("state").join("core.sqlite")).expect("core state");
+    let threads = StoreThreads::over_data_dir(&roots.data, index.clone(), Arc::new(MockOwnership::default()), tokens.maintenance_io).await.expect("thread store");
+    (index, Arc::new(threads))
+}
+
+/// `thread/list` over the migrated directory: the real store, the real room records and the real room list.
+async fn listed(roots: &MigrationRoots, live: Vec<(String, Value)>, answers: &Value) -> Vec<Value> {
+    let (index, threads) = opened(roots).await;
+    listed_over(roots, index, threads, live, answers).await
+}
+
+/// `thread/list` over an opened index; the list follows the thread store's writes.
+async fn listed_over(
+    roots: &MigrationRoots,
+    index: mixdog_store::sqlite::SqliteStore,
+    threads: Arc<StoreThreads>,
+    live: Vec<(String, Value)>,
+    answers: &Value,
+) -> Vec<Value> {
+    let tokens = mixdog_rt::testing::tokens();
+    let (state, _)= mixdog_store::state::CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &roots.data.join("state").join("core.sqlite")).expect("core state");
     let rooms = Arc::new(Rooms::new(StateRoomStore::new(state)));
     let names: HashMap<String, String> =
         answers["agents"].as_array().expect("agents").iter().map(|a| (a["id"].as_str().expect("id").to_owned(), a["label"].as_str().expect("label").to_owned())).collect();
     let room_rows = RoomListRows::new(rooms, Arc::new(Idle), Arc::new(Names(names)));
     let tasks = answers["taskWorkspace"].as_str().expect("task workspace").to_owned();
     let list = ThreadListService::new(Arc::new(index), Arc::new(Live(live)), Arc::new(room_rows), Arc::new(Tasks(tasks)));
+    list.fence(threads);
     let answer = value(&list, request(LIST, json!({ "limit": 1000 }), None)).await.expect("thread/list");
     answer["data"].as_array().expect("data").clone()
 }
@@ -199,6 +218,38 @@ async fn the_roster_over_stored_sessions_and_rooms_is_nodes_roster_row_for_row()
             want["compactCount"] = record["compaction"]["compactCount"].clone();
         }
         assert_eq!(got, &want, "row of {}", want["id"]);
+    }
+}
+
+/// The marks the core itself writes list as Node's rows: a deleted bot's home retired (`agent-home-sessions.ts:192-193` archives
+/// and retires it through `setArchived`/`setRetired`) and a thread archived, each written through the rooms' session port
+/// (`DirectorySessions`, the production `SessionOps`) over the recorded session with the migrated mark taken off first. Node's
+/// recorded rows of `ids.home` (retired) and `ids.archived` (archived) are the expectation, whole.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_archive_and_retire_marks_the_core_writes_list_as_nodes_rows() {
+    use mixdog_core_ports::ports::threads::ThreadState;
+    use mixdog_core_rooms::rooms::sessions::SessionOps;
+
+    let (_dir, roots) = migrated().await;
+    let answers = answers();
+    let (index, threads) = opened(&roots).await;
+    let rig = mixdog_core_session::session::testing::Rig::new();
+    let directory = Arc::new(mixdog_core_session::session::SessionDirectory::new(Arc::new(rig.deps_parts(threads.clone()))));
+    let state = Arc::new(mixdog_core_session::session::thread_state::SessionThreads::new(directory.clone()));
+    let sessions = super::directory_sessions::DirectorySessions::new(directory, state.clone());
+    let home = answers["ids"]["home"].as_str().expect("home id");
+    let archived = answers["ids"]["archived"].as_str().expect("archived id");
+    for (id, mark) in [(home, "retiredAt"), (archived, "archivedAt")] {
+        state.patch_header(&ThreadId::from(id), serde_json::Map::new(), vec![mark.to_owned()]).await.expect("the migrated mark taken off");
+    }
+    assert!(!sessions.is_retired(home).await.expect("is_retired"), "the home is not retired before the deletion");
+    sessions.set_retired(home, true).await.expect("retire");
+    sessions.set_archived(archived, true).await.expect("archive");
+    assert!(sessions.is_retired(home).await.expect("is_retired"), "the home reads as retired after it");
+    let got = listed_over(&roots, index, threads, Vec::new(), &answers).await;
+    for id in [home, archived] {
+        let want = answers["roster"].as_array().expect("roster").iter().find(|row| row["id"] == id).map(on_the_wire).expect("Node's row");
+        assert_eq!(got.iter().find(|row| row["id"] == id), Some(&want), "row of {id}");
     }
 }
 

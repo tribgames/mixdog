@@ -4166,8 +4166,9 @@ impl SessionActor {
         if user_prompt.is_some() && display_text(&params.input).is_empty() {
             return Err(coded("session", SUBMIT_REFUSED, "The message is empty."));
         }
-        // A deleted bot's chat is kept to read, never to talk to (`submitToSession`).
-        if self.projected.header.get("retired").and_then(Value::as_bool) == Some(true) {
+        // A deleted bot's chat is kept to read, never to talk to (`submitToSession` asks `sessionMetadata.isRetired`: the
+        // retirement stamp, `retiredAt` here).
+        if self.projected.header.get("retiredAt").and_then(Value::as_f64).is_some_and(|at| at > 0.0) {
             return Err(coded("session", SUBMIT_REFUSED, "This bot was deleted."));
         }
         // The device that sent a user prompt rides it (`transcriptMeta.device`, stamped by the host in Node).
