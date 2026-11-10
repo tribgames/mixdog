@@ -250,6 +250,28 @@ impl ThreadListService {
         self.summary_of(id, &listed, &workspace).await
     }
 
+    /// The row a room publication carries for the room log `id`, as Node's in-memory catalog has it inside the call
+    /// (`session-host.ts:354` `sessionCatalog()` → `catalogWithRooms`, `agent-room-views.ts:116-152`): the indexed row stamped with
+    /// the room when the index holds the log, else the row made up from the saved room alone. It waits for no projection, so
+    /// the saved room is always carried; `None` only for a log that is no room's.
+    async fn room_row(&self, id: &ThreadId) -> Result<Option<ThreadSummary>, CoreError> {
+        let workspace = self.workspace().await?;
+        if let Some(listed) = self.store.lead_row(id.as_str()).await.map_err(|error| failed(DOMAIN, error.to_string()))? {
+            return self.summary_of(id, &listed, &workspace).await;
+        }
+        let row = self.rooms.unlisted(std::slice::from_ref(id)).await.map_err(|error| failed(DOMAIN, error))?.pop();
+        if let Some(row) = &row {
+            self.published(&[row.id.as_str()]);
+        }
+        Ok(row)
+    }
+
+    /// The whole first page, as Node's background `publishCatalogs` lists it (`listSessions`, which marks the catalog loaded).
+    async fn whole_listing(&self) -> Result<ThreadListResponse, CoreError> {
+        self.list(ThreadListParams { cursor: None, limit: None, sort_key: None, sort_direction: None, archived: None, cwd: None, search_term: None })
+            .await
+    }
+
     /// The host's task workspace; a lookup that fails fails the listing (`listSessions` asks the host first, `session-host.ts:793`).
     async fn workspace(&self) -> Result<String, CoreError> {
         self.task_workspace.path().await.map_err(|error| failed(DOMAIN, error))
@@ -309,8 +331,9 @@ impl ThreadListService {
                 data = made_up;
             }
         }
-        self.published(&data.iter().map(|row| row.id.as_str()).collect::<Vec<_>>());
+        // Loaded once the listing is in hand, before anything hears of it (`session-host.ts:807` precedes `sessionCatalog()`).
         self.loaded.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.published(&data.iter().map(|row| row.id.as_str()).collect::<Vec<_>>());
         Ok(ThreadListResponse { data, next_cursor, backwards_cursor: None })
     }
 }
@@ -338,14 +361,27 @@ impl RoomSummaries {
 
     /// `deps.republishCatalog` as a room call makes it (`session-host.ts:353-356`). Once a listing has been answered (Node's
     /// `sessionCatalogLoaded`) the pass runs inside the call, and its error is the call's (`agent-rooms.ts:289` lets the
-    /// synchronous publish throw, the room already saved). Before that the pass is started and not awaited, and its failure is
-    /// dropped as Node's `publishCatalogs` drops a failed listing (`session-host-catalog.ts:231-238`, `() => undefined`).
+    /// synchronous publish throw, the room already saved). Before that a whole listing is started and not awaited, as Node's
+    /// `publishCatalogs` runs `listSessions` (`session-host-catalog.ts:217-238`): a listing that answers marks the catalog loaded
+    /// (`session-host.ts:807`) and its room rows go out; a failed one is dropped (`() => undefined`).
     pub async fn republish_catalog(self: &Arc<Self>) -> Result<(), CoreError> {
         if self.list.catalog_loaded() {
             return self.publish_rooms().await;
         }
         let this = self.clone();
-        tokio::spawn(async move { drop(this.publish_rooms().await) });
+        tokio::spawn(async move { drop(this.publish_listing().await) });
+        Ok(())
+    }
+
+    /// The background pass: the whole listing, then the room rows it holds; one pass in the chain, so a call that the listing made
+    /// loaded publishes after it.
+    async fn publish_listing(&self) -> Result<(), CoreError> {
+        let _pass = self.pass.acquire().await;
+        let listed = self.list.whole_listing().await?;
+        let rooms = self.list.rooms.room_threads().await.map_err(|error| failed(DOMAIN, error))?;
+        for thread in listed.data.into_iter().filter(|row| rooms.contains(&row.id)) {
+            self.app.notify(SUMMARY_UPDATED, &ThreadSummaryUpdatedParams { thread });
+        }
         Ok(())
     }
 
@@ -383,7 +419,7 @@ impl RoomSummaries {
         {
             tracing::warn!(?error, thread = room_thread.as_str(), "room view: not published");
         }
-        match self.list.summary(room_thread).await {
+        match self.list.room_row(room_thread).await {
             Ok(Some(thread)) => self.app.notify(SUMMARY_UPDATED, &ThreadSummaryUpdatedParams { thread }),
             Ok(None) => {}
             Err(error) => tracing::warn!(?error, thread = room_thread.as_str(), "room summaries: the row could not be read"),
@@ -398,15 +434,16 @@ impl RoomSummaries {
     }
 
     /// The pass; the rooms that could not be read, or else the first row that could not be, is the error (after the other rows
-    /// went out). It holds the pass chain while it reads; each row's read waits at most [`FENCE_BOUND`] for the index.
+    /// went out). It holds the pass chain while it reads, and waits for no projection: each room goes out from its saved state
+    /// ([`ThreadListService::room_row`]).
     async fn publish_rooms(&self) -> Result<(), CoreError> {
         let _pass = self.pass.acquire().await;
         let threads = self.list.rooms.room_threads().await.map_err(|error| failed(DOMAIN, error))?;
         let mut first = None;
         for id in threads {
-            match self.list.summary(&id).await {
+            match self.list.room_row(&id).await {
                 Ok(Some(thread)) => self.app.notify(SUMMARY_UPDATED, &ThreadSummaryUpdatedParams { thread }),
-                // A log thread with no listed row (not stored yet, or deleted) has nothing to show.
+                // A log whose room is gone, or a member's log the rooms leave out, has nothing to show.
                 Ok(None) => {}
                 Err(error) => {
                     first.get_or_insert(error);
@@ -632,24 +669,26 @@ mod tests {
         async fn room_threads(&self) -> Result<Vec<ThreadId>, String> {
             Ok(vec![ThreadId::from("sess_room_room01".to_owned()), ThreadId::from("sess_room_gone01".to_owned())])
         }
+        /// The row made from the saved room alone (`catalogWithRooms`' `unlisted`).
+        async fn unlisted(&self, logs: &[ThreadId]) -> Result<Vec<ThreadSummary>, String> {
+            Ok(logs
+                .iter()
+                .filter(|log| log.as_str() == "sess_room_gone01")
+                .map(|log| {
+                    serde_json::from_value(json!({ "id": log.as_str(), "preview": "", "title": "Gone", "updatedAt": 5, "messageCount": 0, "cwd": "",
+                        "classification": "task", "projectPath": null, "agentRoom": { "id": "gone01" } }))
+                    .expect("row")
+                })
+                .collect())
+        }
     }
 
-    /// A republish pass sends each room's log row, stamped as `thread/list` shows it, on the app
-    /// feed as `thread/summary/updated`; a room whose log has no listed row sends nothing.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_republish_sends_each_rooms_log_row_on_the_app_feed() {
+    /// The app feed and the room publisher over `list`, with what the feed has sent.
+    fn room_rig(list: Arc<ThreadListService>) -> (Arc<RoomSummaries>, mixdog_core_api::mock::MockConnection) {
         use mixdog_core_api::FeedSource;
         use mixdog_core_api::mock::MockConnection;
         use mixdog_core_api::mock::MockFeed;
         use mixdog_core_api::mock::MockLimits;
-
-        let golden = golden();
-        let data = tempfile::tempdir().expect("data dir");
-        let store = service(data.path(), &golden).await.store;
-        let header = json!({ "id": "sess_room_room01", "title": "log", "cwd": "C:\\Tasks", "createdAt": 1000, "updatedAt": 1000 });
-        let head = CatalogHead { session: "sess_room_room01".into(), log_id: "L".into(), base_session: None, header: header.as_object().unwrap().clone() };
-        store.upsert(head, DirtyMark::Clear).await.expect("upsert");
-        let list = Arc::new(ThreadListService::new(store, Arc::new(Busy), Arc::new(Stamp), Arc::new(crate::session::testing::FixedTaskWorkspace("/tasks"))));
 
         let limits = MockLimits::default();
         let feed = Arc::new(MockFeed::new("app".into(), mixdog_core_api::mock::epoch(1), Arc::new(mixdog_core_api::mock::EchoView), limits));
@@ -659,13 +698,69 @@ mod tests {
         mixdog_core_api::sink::ConnectionSink::send_control_release(&app, bytes::Bytes::from_static(b"{}"), attached.release).unwrap();
         let rig = crate::session::testing::Rig::new();
         let directory = Arc::new(crate::session::SessionDirectory::new(rig.deps()));
-        let summaries = RoomSummaries::new(list, Arc::new(mixdog_core_base::state::SectionFeedState::new(feed)), directory);
+        (RoomSummaries::new(list, Arc::new(mixdog_core_base::state::SectionFeedState::new(feed)), directory), app)
+    }
 
-        summaries.publish().await;
+    /// The index holds the log of `room01` and not that of `gone01`.
+    async fn room_list(data: &std::path::Path) -> Arc<ThreadListService> {
+        let golden = golden();
+        let store = service(data, &golden).await.store;
+        let header = json!({ "id": "sess_room_room01", "title": "log", "cwd": "C:\\Tasks", "createdAt": 1000, "updatedAt": 1000 });
+        let head = CatalogHead { session: "sess_room_room01".into(), log_id: "L".into(), base_session: None, header: header.as_object().unwrap().clone() };
+        store.upsert(head, DirtyMark::Clear).await.expect("upsert");
+        Arc::new(ThreadListService::new(store, Arc::new(Busy), Arc::new(Stamp), Arc::new(crate::session::testing::FixedTaskWorkspace("/tasks"))))
+    }
+
+    /// A publication carries every saved room as Node's in-memory catalog does inside the call (`catalogWithRooms`): the log
+    /// the index holds stamped with its room, and the room whose log the index does not hold as the row made from the saved
+    /// room. No projection decides it: with a projection held pending for good, the pass answers at its first poll.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_publication_carries_every_saved_room_whether_or_not_the_index_holds_its_log() {
+        let data = tempfile::tempdir().expect("data dir");
+        let list = room_list(data.path()).await;
+        let (_never_opened, held) = tokio::sync::oneshot::channel();
+        let (reached, _waiting) = tokio::sync::oneshot::channel();
+        list.fence(Arc::new(Gate(std::sync::Mutex::new(Some((reached, held))))));
+        let (summaries, app) = room_rig(list);
+
+        let pass = summaries.publish();
+        tokio::pin!(pass);
+        assert!(polled(&mut pass).await.is_ready(), "the publication waited for the index");
         let sent: Vec<String> = app.drain_text().into_iter().filter(|text| text.contains(SUMMARY_UPDATED)).collect();
-        assert_eq!(sent.len(), 1, "{sent:?}");
+        assert_eq!(sent.len(), 2, "{sent:?}");
         assert!(sent[0].contains(r#""id":"sess_room_room01""#) && sent[0].contains(r#""agentRoom":{"id":"room01"}"#), "{}", sent[0]);
         assert!(sent[0].contains(r#""title":"Room one""#), "{}", sent[0]);
+        assert!(sent[1].contains(r#""id":"sess_room_gone01""#) && sent[1].contains(r#""agentRoom":{"id":"gone01"}"#), "{}", sent[1]);
+    }
+
+    /// Tells a waiter when a listing is published.
+    struct Listed(std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>);
+    impl mixdog_core_api::state::CatalogObserver for Listed {
+        fn published(&self, _ids: &[&str]) {
+            if let Some(told) = self.0.lock().unwrap().take() {
+                let _ = told.send(());
+            }
+        }
+    }
+
+    /// A room call before any listing starts Node's background `publishCatalogs`: a whole listing that marks the catalog loaded
+    /// (`session-host-catalog.ts:231`, `session-host.ts:807`), so the next room call publishes inside the call.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_room_call_before_any_listing_lists_in_the_background_and_the_next_call_is_loaded() {
+        let data = tempfile::tempdir().expect("data dir");
+        let list = room_list(data.path()).await;
+        let (told, listed) = tokio::sync::oneshot::channel();
+        list.observe(Arc::new(Listed(std::sync::Mutex::new(Some(told)))));
+        let (summaries, app) = room_rig(list.clone());
+
+        assert!(!list.catalog_loaded());
+        summaries.republish_catalog().await.expect("the first call answers without the publication");
+        tokio::time::timeout(std::time::Duration::from_secs(10), listed).await.expect("the background publication never listed").expect("told");
+        assert!(list.catalog_loaded(), "the background publication left the catalog unloaded");
+        summaries.republish_catalog().await.expect("the second call publishes inside the call");
+        // The background listing's two room rows, then the second call's two, all sent when the second call answers.
+        let sent = app.drain_text().into_iter().filter(|text| text.contains(SUMMARY_UPDATED)).count();
+        assert_eq!(sent, 4, "the second call's publication was not inside the call");
     }
 
     /// A room's republish sets its log thread's `roomView` (opening the log for it), so the
