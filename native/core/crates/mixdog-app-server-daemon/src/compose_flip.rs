@@ -2220,7 +2220,14 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let session_turns = Arc::new(mixdog_core_session::session::agent_registry::flow::SessionTurns::new(directory.clone(), runtime_release).with_shells(b.shell_control.clone()).with_admission(agent_registry.clone())); // flip-agent-worlds-8: without it a turn is not admission-checked (agent-turns.mjs:96,108,116)
     let session_close = Arc::new(mixdog_core_session::session::close::SessionClose::new(directory.clone(), registry.clone(), owned_shells.clone(), read_state.clone()));
     let agent_host = Arc::new(mixdog_core::run_host::agent_world::AgentHost::new(config.clone(), registry.clone())); // kept concrete: `close()` at shutdown
-    let agent_world = Arc::new(mixdog_core::run_host::agent_world::AgentWorld::new(config.clone(), Arc::new(mixdog_core::run_host::agent_world::CatalogWindows(b.catalog.clone())), b.env.clone(), clock_agent.clone()));
+    // The `stall_abort` rows of a stopped dispatch join the tool-failure log, the one buffer and file of this data directory.
+    let stall_failures = mixdog_core_run::run_host::failure_log::FailureWriter::for_data_dir(
+        &b.data_dir,
+        mixdog_core_api::domain::tool::ToolIo { interactive: b.tokens.interactive_io, durability: b.tokens.durability_io, maintenance: b.tokens.maintenance_io },
+        clock_agent.clone(),
+    );
+    let stall_log: mixdog_core::run_host::agent_world::StallLog = Arc::new(move |ctx| stall_failures.record_watchdog_abort(&ctx));
+    let agent_world = Arc::new(mixdog_core::run_host::agent_world::AgentWorld::new(config.clone(), Arc::new(mixdog_core::run_host::agent_world::CatalogWindows(b.catalog.clone())), b.env.clone(), clock_agent.clone(), stall_log));
     // ONE admission, also `AgentParts.admission`.
     let agent_admission = Arc::new(mixdog_core::run_host::admission::ResourceAdmission::new(
         mixdog_core::run_host::admission::Limits::from_env(std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get), &*b.env),

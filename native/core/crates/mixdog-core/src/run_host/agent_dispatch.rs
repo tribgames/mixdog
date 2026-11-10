@@ -28,7 +28,7 @@ use mixdog_agent::env::{Clock, Yielder};
 use mixdog_agent::subagent::{ChildResult, ChildRunner, DispatchRequest, dispatch, partial_handoff_text};
 use mixdog_ai::service::admin_route::{normalize_context_tokens, truthy};
 use mixdog_core_config::config::agent_disabled;
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
 
 use crate::run_host::cycle1_dispatch::{AgentDispatch, AgentDispatchPayload};
@@ -100,6 +100,8 @@ pub trait DispatchSessions: Send + Sync {
     async fn ask(&self, id: &str, request: AskRequest, cancel: &Cancel) -> Result<String, String>;
     /// `getSessionProgressSnapshot(id)` at `now`.
     fn progress(&self, id: &str, now: i64) -> Option<Snapshot>;
+    /// `sess.lastIterationIndex` when it is a number.
+    fn last_iteration_index(&self, id: &str) -> Option<Value>;
     /// `armTurnTimeout(id)`: the watchdog is the source that stops the turn.
     fn arm_turn_timeout(&self, id: &str);
     /// `closeSession(id, reason)`.
@@ -122,6 +124,9 @@ pub trait DispatchWorld: Send + Sync {
     fn clock(&self) -> Arc<dyn Clock>;
     /// One `[agent-dispatch] ...` diagnostic line (no trailing newline).
     fn diagnostic(&self, line: &str);
+    /// `recordAgentWatchdogAbort(ctx)`: the `stall_abort` trace row and failure row of the stop (see `mixdog_trace::watchdog_abort_records`
+    /// for the fields of `ctx`).
+    fn record_stall_abort(&self, ctx: Map<String, Value>);
 }
 
 /// The runner behind [`dispatch`]: Node's `dispatchAdmitted`.
@@ -195,8 +200,23 @@ impl HiddenRoleRunner {
                 move |now| sessions.progress(&id, now)
             },
             {
-                let (sessions, id) = (self.sessions.clone(), id.clone());
-                move || sessions.arm_turn_timeout(&id)
+                // `startDispatchWatchdog`: the stop is recorded with the clocks it judged, then the turn's own timeout is armed, then the abort.
+                let (sessions, world, id, agent) = (self.sessions.clone(), self.world.clone(), id.clone(), agent.to_owned());
+                let anchor_ts = clock.now_ms();
+                move |snapshot: &Snapshot, message: &str, now: i64| {
+                    let mut ctx = Map::new();
+                    ctx.insert("sessionId".into(), json!(id));
+                    ctx.insert("agent".into(), json!(agent));
+                    ctx.insert("error".into(), json!({ "message": message }));
+                    ctx.insert("snapshot".into(), snapshot_ctx(snapshot));
+                    ctx.insert("policy".into(), json!({ "idleStaleMs": policy.idle_stale_ms }));
+                    ctx.insert("now".into(), json!(now));
+                    ctx.insert("anchorTs".into(), json!(anchor_ts));
+                    ctx.insert("iteration".into(), sessions.last_iteration_index(&id).unwrap_or(Value::Null));
+                    ctx.insert("buildVersion".into(), json!(env!("CARGO_PKG_VERSION")));
+                    world.record_stall_abort(ctx);
+                    sessions.arm_turn_timeout(&id);
+                }
             },
         );
         // One composite survives the ask's controller swap: the caller's abort and the watchdog's
@@ -249,6 +269,23 @@ impl ChildRunner for HiddenRoleRunner {
 /// The call's value when it is truthy, else the factory's (`a || b`).
 fn first_set<'a>(call: Option<&'a Value>, factory: Option<&'a Value>) -> Option<&'a Value> {
     call.filter(|value| truthy(Some(value))).or(factory)
+}
+/// `getSessionProgressSnapshot`'s object, as `recordAgentWatchdogAbort` reads it (`awaitingUser` is present only while a person is asked).
+fn snapshot_ctx(snapshot: &Snapshot) -> Value {
+    let mut object = Map::new();
+    object.insert("stage".into(), json!(snapshot.stage.as_deref().unwrap_or("idle")));
+    object.insert("askStartedAt".into(), json!(snapshot.ask_started_at));
+    object.insert("modelRequestStartedAt".into(), json!(snapshot.model_request_started_at));
+    object.insert("firstActivityAt".into(), json!(snapshot.first_activity_at));
+    object.insert("currentTool".into(), snapshot.current_tool.as_ref().map_or(Value::Null, |tool| json!(tool)));
+    object.insert("lastProgressAt".into(), json!(snapshot.last_progress_at));
+    object.insert("lastKeepaliveAt".into(), json!(snapshot.last_keepalive_at));
+    object.insert("waitingForTransport".into(), json!(snapshot.waiting_for_transport));
+    object.insert("waitingForFirstSemantic".into(), json!(snapshot.waiting_for_first_semantic));
+    if snapshot.awaiting_user {
+        object.insert("awaitingUser".into(), json!("approval"));
+    }
+    Value::Object(object)
 }
 
 fn non_empty(text: &Option<String>) -> Option<String> {

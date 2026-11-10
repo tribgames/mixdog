@@ -74,7 +74,19 @@ impl FailureWriter {
     /// `traceAgentToolFailure(args)` (the fields are `tool_failure_row`'s): queues the row and starts the flush
     /// that is due, on the durability lane.
     pub fn record(self: &Arc<Self>, args: &Map<String, Value>) {
-        if self.trace.tool_failure(args, self.clock.now_ms()) {
+        let due = self.trace.tool_failure(args, self.clock.now_ms());
+        self.after_append(due);
+    }
+
+    /// `recordAgentWatchdogAbort(ctx)`: the `stall_abort` row of a stopped dispatch (`mixdog_trace::watchdog_abort_records` has the
+    /// fields of `ctx`), queued behind the same buffer.
+    pub fn record_watchdog_abort(self: &Arc<Self>, ctx: &Map<String, Value>) {
+        let due = self.trace.watchdog_abort(ctx, self.clock.now_ms());
+        self.after_append(due);
+    }
+
+    fn after_append(self: &Arc<Self>, due: bool) {
+        if due {
             let me = Arc::clone(self);
             drop(mixdog_rt::spawn("tool-failures-flush", TaskClass::Work, async move { me.flush().await }));
         } else if !self.armed.swap(true, Ordering::AcqRel) {
