@@ -13,6 +13,7 @@
 mod access;
 mod json;
 mod lock;
+pub mod new_task_receipt;
 mod publish;
 mod trace;
 
@@ -27,6 +28,7 @@ pub use access::create_dir;
 pub use access::create_dir_all;
 pub use access::create_private_dir_all;
 pub use access::is_owner_only;
+pub use access::secure_private_dir;
 pub use access::sync_dir;
 pub use access::unlaned;
 #[cfg(windows)]

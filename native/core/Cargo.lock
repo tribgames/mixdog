@@ -3986,6 +3986,7 @@ dependencies = [
  "tokio-tungstenite",
  "tokio-util",
  "tracing",
+ "uuid",
  "windows-sys 0.61.2",
 ]
 
@@ -4497,6 +4498,7 @@ dependencies = [
  "mixdog-tools",
  "mixdog-workspace",
  "mixdog-workspace-hack",
+ "rand 0.9.5",
  "regex",
  "serde",
  "serde_json",
@@ -4682,6 +4684,7 @@ dependencies = [
  "mixdog-rt",
  "mixdog-secrets",
  "mixdog-spawn",
+ "mixdog-statefile",
  "mixdog-store",
  "mixdog-workspace",
  "mixdog-workspace-hack",
