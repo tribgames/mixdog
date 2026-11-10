@@ -140,3 +140,45 @@ impl Pool {
         self.lock().get(key).map_or(0, Vec::len)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::io::AsyncReadExt;
+
+    // A8: an idle connection closes when its keep-alive runs out, with no other request to look at it.
+    #[tokio::test(start_paused = true)]
+    async fn an_idle_connection_is_closed_by_its_timer() {
+        let pool = Arc::new(Pool::default());
+        let (near, mut far) = tokio::io::duplex(64);
+        let conn = Conn::open(Box::new(near), pool.birth()).await.unwrap();
+        pool.put_h1("k".into(), conn, Duration::from_secs(60));
+        assert_eq!(pool.idle_count("k"), 1);
+        tokio::time::advance(Duration::from_secs(59)).await;
+        assert_eq!(pool.idle_count("k"), 1, "still inside its keep-alive");
+        tokio::time::advance(Duration::from_secs(2)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(pool.idle_count("k"), 0, "closed at the end of its keep-alive");
+        let mut byte = [0u8; 1];
+        assert_eq!(far.read(&mut byte).await.unwrap(), 0, "the peer sees the close");
+    }
+
+    // The oldest idle connection is the next one used (undici's pool order).
+    #[tokio::test(start_paused = true)]
+    async fn the_oldest_idle_connection_is_taken_first() {
+        let pool = Arc::new(Pool::default());
+        let mut peers = Vec::new();
+        let mut born = Vec::new();
+        for _ in 0..2 {
+            let (near, far) = tokio::io::duplex(64);
+            peers.push(far);
+            let conn = Conn::open(Box::new(near), pool.birth()).await.unwrap();
+            born.push(conn.born);
+            pool.put_h1("k".into(), conn, Duration::from_secs(60));
+        }
+        // Put back in the other order than created.
+        let first = pool.take("k").await;
+        let Some(Idle::H1 { conn, .. }) = first else { panic!("an idle connection") };
+        assert_eq!(conn.born, born[0]);
+    }
+}
