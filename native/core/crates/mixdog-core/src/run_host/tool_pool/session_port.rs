@@ -49,7 +49,12 @@ use serde_json::Value;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
+use mixdog_app_protocol::v2::thread::ThreadItemsListResponse;
+use mixdog_core_session::session::transcript_row;
+
 use super::callers::ThreadCallers;
+use super::session_control;
+use super::session_control::SessionListing;
 
 /// Requests to a thread, open or not (`CallContext::internal`): the directory seen as the tools
 /// see it.
@@ -162,6 +167,8 @@ pub struct SessionPortParts {
     pub projects: Arc<dyn ProjectList>,
     pub bots: Arc<dyn BotIds>,
     pub suggestions: Arc<dyn Suggestions>,
+    /// The session catalog `session action=list` pages.
+    pub listing: Arc<dyn SessionListing>,
     pub io: InteractiveIo,
 }
 
@@ -193,6 +200,69 @@ impl DirectorySessionPort {
 
     async fn header(&self, thread: &ThreadId) -> Result<Header, PortError> {
         self.parts.threads.header(thread).await
+    }
+
+    /// The cross-session actions (`createSessionControl`'s `control`), each request checked as
+    /// `targetRequest` checks it.
+    async fn cross_session(&self, call: &ControlCall) -> Result<Value, PortError> {
+        let action = call.action.as_str();
+        if !matches!(action, "list" | "read" | "cancel" | "delete") {
+            return Err(PortError::Unavailable {
+                capability: "session-control".to_owned(),
+                message: format!("session: action={action} is not available in this runtime"),
+            });
+        }
+        let caller = call.caller_thread.as_str();
+        let target = session_control::target_request(&call.args, action, caller).map_err(failed)?;
+        let thread = ThreadId::from(target.session_id.as_str());
+        match action {
+            "list" => {
+                let own = session_control::scoped_bot(&self.parts.callers.scope(&call.caller_thread).await, caller);
+                session_control::list(self.parts.listing.as_ref(), &call.args, own.as_deref(), target.limit).await.map_err(failed)
+            }
+            "read" => {
+                let Some((rows, has_older)) = self.transcript(&thread, target.offset + target.limit).await? else {
+                    return Err(failed(format!("session {} is not available", target.session_id)));
+                };
+                session_control::read(&target.session_id, &rows, has_older, &target, call.args.get("item_id")).map_err(failed)
+            }
+            "cancel" => {
+                let aborted = self.parts.requests.interrupt(&thread).map_err(core)?;
+                Ok(json!({ "sessionId": thread.as_str(), "aborted": aborted }))
+            }
+            _ => {
+                let params = json!({ "threadId": thread.as_str(), "opId": uuid::Uuid::now_v7().to_string() });
+                let deleted = self.parts.requests.request(&thread, "thread/delete", params).await.map_err(core)?;
+                Ok(json!({ "sessionId": thread.as_str(), "deleted": deleted == Value::Bool(true) }))
+            }
+        }
+    }
+
+    /// At least the newest `newest + 1` rows of `thread` (all when it holds fewer), oldest first,
+    /// as Node transcript rows, and whether older rows exist; `None` for a session that does not
+    /// exist.
+    async fn transcript(&self, thread: &ThreadId, newest: usize) -> Result<Option<(Vec<Value>, bool)>, PortError> {
+        if self.parts.callers.header(thread).await?.is_none() {
+            return Ok(None);
+        }
+        let mut rows: Vec<Value> = Vec::new();
+        let mut cursor: Option<String> = None;
+        loop {
+            let limit = (newest + 1).saturating_sub(rows.len()).clamp(1, 512);
+            let mut params = json!({ "threadId": thread.as_str(), "opId": uuid::Uuid::now_v7().to_string(), "limit": limit, "sortDirection": "desc" });
+            if let Some(cursor) = &cursor {
+                params["cursor"] = json!(cursor);
+            }
+            let reply = self.parts.requests.request(thread, "thread/items/list", params).await.map_err(core)?;
+            let page: ThreadItemsListResponse = serde_json::from_value(reply).map_err(|e| failed(format!("session: unreadable transcript page ({e})")))?;
+            let mut older: Vec<Value> = page.data.iter().map(transcript_row).collect();
+            older.append(&mut rows);
+            rows = older;
+            cursor = page.next_cursor.filter(|_| page.has_older && rows.len() <= newest);
+            if cursor.is_none() {
+                return Ok(Some((rows, page.has_older)));
+            }
+        }
     }
 }
 
@@ -245,23 +315,19 @@ impl SessionPort for DirectorySessionPort {
     }
 
     async fn control(&self, call: ControlCall) -> Result<Value, PortError> {
-        let session_id = || call.args.get("session_id").map(mixdog_js::value_to_string).map(|s| mixdog_js::js_trim(&s).to_owned()).unwrap_or_default();
-        match call.action.as_str() {
-            "cancel" => {
-                let target = ThreadId::from(session_id());
-                let aborted = self.parts.requests.interrupt(&target).map_err(core)?;
-                Ok(json!({ "sessionId": target.as_str(), "aborted": aborted }))
+        let error = match self.cross_session(&call).await {
+            Ok(value) => return Ok(value),
+            Err(error) => error,
+        };
+        // A bot id is resolved to its home chat before this, so a bot-shaped id no session
+        // answers is no bot either: say which ids are.
+        let target = call.args.get("session_id").and_then(Value::as_str).map(|s| mixdog_js::js_trim(s).to_owned()).unwrap_or_default();
+        match &error {
+            PortError::Failed { message, .. } if session_control::is_unknown_bot(&call.action, &target, message) => {
+                let bots = self.parts.bots.ids().await.map_err(failed)?;
+                Err(failed(session_control::unknown_bot_error(&target, &bots)))
             }
-            "delete" => {
-                let target = ThreadId::from(session_id());
-                let params = json!({ "threadId": target.as_str(), "opId": uuid::Uuid::now_v7().to_string() });
-                let deleted = self.parts.requests.request(&target, "thread/delete", params).await.map_err(core)?;
-                Ok(json!({ "sessionId": target.as_str(), "deleted": deleted == Value::Bool(true) }))
-            }
-            other => Err(PortError::Unavailable {
-                capability: "session-control".to_owned(),
-                message: format!("session: action={other} is not available in this runtime"),
-            }),
+            _ => Err(error),
         }
     }
 

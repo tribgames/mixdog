@@ -1,0 +1,45 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-session-tool-control.mjs --tree <tree>",
+  "exclusions": [
+    "The session service is stood in for its catalog page and transcript range reads only (see the recorder header); every other step is the product code.",
+    "Room sends, members and asks are not recorded (out of scope)."
+  ],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 1786075,
+      "path": "golden.json",
+      "sha256": "4cd239179317ceb4a877a049fd56ee085a618af3736d9de360885a477ebaed5e"
+    }
+  ],
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "provenance": {
+    "inputs": [
+      {
+        "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+        "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+      }
+    ],
+    "nodeVersion": "v22.20.0",
+    "recorderSha256": "f994022c190f0d7e29d40dff2f0ae59f31924a3569b9bab2846372c96caebbde"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-session-tool-control.mjs",
+  "scenarios": 44,
+  "set": "session-tool-control",
+  "totalBytes": 1786075
+}

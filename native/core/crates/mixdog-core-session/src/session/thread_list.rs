@@ -117,6 +117,35 @@ fn clean_text(value: Option<&serde_json::Value>, lower: bool) -> String {
     if lower { text.to_lowercase() } else { text }
 }
 
+/// The root owner an agent session works for while its turn is in flight (its `ownerSessionId ||
+/// parentSessionId`, with `owner: 'agent'` or an agent other than `lead`); `None` otherwise.
+fn working_agent_owner(handle: &super::SessionHandle) -> Option<String> {
+    handle.cell.run.load().as_ref()?;
+    let header = handle.cell.header.load();
+    let owner = clean_text(header.get("ownerSessionId").filter(|v| truthy(v)).or_else(|| header.get("parentSessionId")), false);
+    let agent = clean_text(header.get("agent"), true);
+    (clean_text(header.get("owner"), true) == "agent" || (!agent.is_empty() && agent != "lead")).then_some(owner)
+}
+
+impl super::SessionDirectory {
+    /// `inFlightSessionActivity()`: the loaded threads whose own turn is in flight (`working`),
+    /// and the threads an agent session with a turn in flight works for (`agentWorking`).
+    pub fn in_flight(&self) -> (Vec<ThreadId>, Vec<String>) {
+        let mut working = Vec::new();
+        let mut agents = Vec::new();
+        for id in self.loaded_ids() {
+            let Some(handle) = self.handle(&id) else { continue };
+            if handle.cell.run.load().is_some() {
+                working.push(id.clone());
+            }
+            if let Some(owner) = working_agent_owner(&handle).filter(|owner| !owner.is_empty() && *owner != id.as_str() && !agents.contains(owner)) {
+                agents.push(owner);
+            }
+        }
+        (working, agents)
+    }
+}
+
 impl ListOverlay for LiveListOverlay {
 
     fn of(&self, thread: &ThreadId) -> RowOverlay {
@@ -132,16 +161,12 @@ impl ListOverlay for LiveListOverlay {
                 }
             }
         }
-        let agent_working = self.directory.loaded_ids().into_iter().filter(|id| id != thread).any(|id| {
-            let Some(handle) = self.directory.handle(&id) else { return false };
-            if handle.cell.run.load().is_none() {
-                return false;
-            }
-            let header = handle.cell.header.load();
-            let owner = clean_text(header.get("ownerSessionId").filter(|v| truthy(v)).or_else(|| header.get("parentSessionId")), false);
-            let agent = clean_text(header.get("agent"), true);
-            owner == thread.as_str() && (clean_text(header.get("owner"), true) == "agent" || (!agent.is_empty() && agent != "lead"))
-        });
+        let agent_working = self
+            .directory
+            .loaded_ids()
+            .into_iter()
+            .filter(|id| id != thread)
+            .any(|id| self.directory.handle(&id).and_then(|handle| working_agent_owner(&handle)).as_deref() == Some(thread.as_str()));
         if agent_working {
             overlay.agent_working = Some(true);
         }

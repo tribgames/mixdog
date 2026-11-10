@@ -388,6 +388,45 @@ impl Bound for LateCatalog {
     }
 }
 
+/// The session catalog the `session` tool lists, bound once the list overlay exists.
+#[derive(Default)]
+pub struct LateListing(OnceLock<Arc<dyn mixdog_core::run_host::tool_pool::session_control::SessionListing>>);
+
+impl LateListing {
+    pub fn bind(&self, listing: Arc<dyn mixdog_core::run_host::tool_pool::session_control::SessionListing>) -> Result<(), &'static str> {
+        self.0.set(listing).map_err(|_| "session listing")
+    }
+
+    fn listing(&self) -> &Arc<dyn mixdog_core::run_host::tool_pool::session_control::SessionListing> {
+        self.0.get().expect("session listing bound (compose::verify_bound)")
+    }
+}
+
+#[async_trait]
+impl mixdog_core::run_host::tool_pool::session_control::SessionListing for LateListing {
+    async fn page(&self, limit: usize, cursor: Option<&str>) -> Result<mixdog_core::run_host::tool_pool::session_control::ListingPage, String> {
+        self.listing().page(limit, cursor).await
+    }
+
+    async fn row(&self, id: &str) -> Result<Option<mixdog_core::run_host::tool_pool::session_control::ListedRow>, String> {
+        self.listing().row(id).await
+    }
+
+    fn live(&self) -> mixdog_core::run_host::tool_pool::session_control::LiveWork {
+        self.listing().live()
+    }
+}
+
+impl Bound for LateListing {
+    fn cell(&self) -> &'static str {
+        "session listing"
+    }
+
+    fn is_bound(&self) -> bool {
+        self.0.get().is_some()
+    }
+}
+
 #[derive(Default)]
 pub struct LateReactions(OnceLock<Arc<dyn mixdog_tools::state::react::Reactions>>);
 

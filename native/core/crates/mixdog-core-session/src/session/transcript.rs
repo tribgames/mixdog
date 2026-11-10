@@ -128,7 +128,8 @@ pub(super) use self::transcript_live::compact_marker_item;
 pub(super) use self::transcript_live::idle_notice_item;
 pub(super) use self::transcript_live::notice_item;
 pub(super) use self::transcript_response::has_body;
-pub(super) use self::transcript_convert::live_end;
+pub use self::transcript_convert::live_end;
+pub(super) use self::transcript_convert::displayed_id;
 pub(super) use self::transcript_convert::position_of_id;
 
 /// `MessageRows` of one run: every history message the run holds is registered with the

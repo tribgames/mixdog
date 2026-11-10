@@ -355,6 +355,9 @@ async fn call_tool_hands_the_projected_target_to_the_dispatcher_and_refuses_the_
 
 // --- the session port ---------------------------------------------------------------------------
 
+#[path = "session_control_tests.rs"]
+mod replay;
+
 #[derive(Default)]
 struct Requests {
     calls: Mutex<Vec<(String, String, Value)>>,
@@ -452,6 +455,7 @@ fn port(headers: &[(&str, Value)], requests: Requests) -> Port {
         projects: Arc::new(NoProjects),
         bots: Arc::new(Bots(vec!["ann"])),
         suggestions: suggested.clone(),
+        listing: Arc::new(replay::Fixture::default()),
         io: mixdog_rt::testing::tokens().interactive_io,
     });
     Port { port, threads, requests, suggested }
@@ -587,7 +591,7 @@ async fn the_sidebar_flags_and_the_control_actions_become_thread_requests() {
     };
     assert_eq!(p.port.control(control("cancel")).await, Ok(json!({ "sessionId": "sess_x", "aborted": true })));
     assert_eq!(p.port.control(control("delete")).await, Ok(json!({ "sessionId": "sess_x", "deleted": true })));
-    assert!(matches!(p.port.control(control("list")).await, Err(PortError::Unavailable { .. })));
+    assert!(matches!(p.port.control(control("send")).await, Err(PortError::Unavailable { .. })));
     assert!(matches!(p.port.schedule_compact(&thread("sess_a")).await, Err(PortError::Unavailable { .. })));
 }
 
