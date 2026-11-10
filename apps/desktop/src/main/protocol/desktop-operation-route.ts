@@ -5,7 +5,8 @@
 // the Rust `v2/params.rs` structs and `operations_map.json`, not from this table.
 import { normalizeBrowserPermissionPolicy } from '../../shared/browser-permission-policy';
 import { isSessionRetentionSettingKey } from '../../shared/contract-settings';
-import { readSettingsChange, SETTINGS_CHANGED_EVENT } from '../../shared/settings-changed';
+import { announcedEvent } from '../../shared/core-announcements';
+import { readSettingsChange } from '../../shared/settings-changed';
 import { notificationWriteMode } from '../../shared/notification-state';
 import { desktopSettingsFromConfig, storedPinsState } from '../settings-store';
 import { createProjectWatchRegistry } from '../../shared/project-watch-registry';
@@ -422,6 +423,20 @@ export interface OperationLane {
   invoke(name: string, args: unknown[] | undefined): Promise<unknown>;
 }
 
+/** The core's announcements reach this process's windows as the desktop events Node's service raised for them
+ *  (`settings-changed`, `provider-models-changed`): the core tells every client, the announcer included. Returns the removal. */
+export function watchAnnouncements(
+  protocol: Pick<ProtocolConnection, 'onEvent'>,
+  emit: (name: string, value: unknown) => void
+): () => void {
+  return protocol.onEvent((event) => {
+    if (event.type !== 'notification') return;
+    const { method, params } = (event as { notification: { method: string; params?: unknown } }).notification;
+    const announced = announcedEvent(method, params);
+    if (announced) emit(announced.name, announced.value);
+  });
+}
+
 export function createOperationLane({
   protocol,
   host = DEFAULT_OPERATION_HOST,
@@ -516,19 +531,20 @@ export function createOperationLane({
       if (name === 'notifySettingsChanged') {
         const change = readSettingsChange({ scope: args[0] });
         if (!change) throw new TypeError('settings scope is invalid.');
-        // The windows of this process re-read as Node's broadcast made them. Paired browsers hold the core's own
-        // sections (`config`, `providerSetup`, ...); the host's theme and language travel as
-        // `hostState.displayPreferences`, which Node's announcement made them re-read.
-        host.emitDesktopEvent?.(SETTINGS_CHANGED_EVENT, change);
+        // The host's theme and language travel as `hostState.displayPreferences`, which Node's announcement made the
+        // paired devices re-read: published first, so a re-read on the announcement sees them.
         if (change.scope === 'desktop' && host.readDisplayPreferences) {
           await call('host/state/set', { key: 'displayPreferences', value: await host.readDisplayPreferences() });
         }
+        // Node's broadcast reached this process's windows and every paired device: the core tells every client, these
+        // windows included (`ui/settings/changed`, wired in `watchAnnouncements`).
+        await call('ui/settings/announce', { scope: change.scope });
         return undefined;
       }
       if (name === 'notifyProviderModelsChanged') {
-        // A cache hint between UI peers: the windows drop their provider model lists; the core's providerSetup /
-        // providerAccounts sections already tell every client when the providers themselves change.
-        host.emitDesktopEvent?.('provider-models-changed', { origin: args[0] });
+        // A cache hint between UI peers: every client drops its provider model lists, this one too (Node's broadcast,
+        // desktop-operations.ts:455-458); the core tells every client (`ui/providerModels/changed`).
+        await call('ui/providerModels/announce', { origin: args[0] });
         return undefined;
       }
       if (IGNORED_DESKTOP_OPERATIONS.includes(name)) return undefined;

@@ -6,7 +6,7 @@
 //
 // What the core publishes as state the page asked Node for is read from the sections this connection holds: the `config` subtrees
 // (`desktop`, `agent`, `notifications`), the `remote` section (paired devices), `hostState.displayPreferences` and `update` (the PC
-// window's updater state). Their changes are the events Node's relay pushed (`settings-changed`, `updater-state`; install below).
+// window's updater state). The events Node's relay pushed are the core's announcements and the `update` section (install below).
 // `libreOfficeStatus` and `installLibreOffice` are answered by the source-control group (remote-protocol-scm.ts).
 import type { ProtocolClient, SessionFold } from '../../../../packages/protocol-client/src/index.ts';
 import { normalizeDesktopFeedback } from '../shared/contract-feedback';
@@ -18,9 +18,10 @@ import {
   notificationWriteMode,
   storedOverrides,
 } from '../shared/notification-state';
-import { readProviderModelsChange } from '../shared/provider-models';
+import { announcedEvent } from '../shared/core-announcements';
+import type { ProviderModelsChange } from '../shared/provider-models';
 import { requiredString } from '../shared/remote-arguments';
-import { readSettingsChange, type SettingsChange } from '../shared/settings-changed';
+import { SETTINGS_CHANGED_EVENT, type SettingsChange } from '../shared/settings-changed';
 import {
   requiredConversationNotificationSetting,
   requiredDesktopSettingKey,
@@ -39,10 +40,6 @@ const NO_WINDOW = 'The desktop app did not answer the remote request.';
 
 const record = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
-
-/** The page's arguments as Node's relay frame carried them to the PC: JSON wrote an array's undefined element as null. One helper
- *  for this group until the router does it for every adapter (branch phone-page-args); the merge removes it. */
-const relayed = (params: unknown[]): unknown[] => Array.from(params, (value) => (value === undefined ? null : value));
 
 /** The held value of `(section, key)`, or undefined while the core holds none. */
 const held = (client: Client, section: string, key: string | null = null): unknown =>
@@ -84,11 +81,11 @@ async function notificationState(host: PhoneProtocolHost) {
   });
 }
 
-/** A Node call: the arguments as the relay frame carried them, the answer `undefined` as null. */
+/** A Node call (the router hands it the arguments as Node's relay JSON carried them), the answer `undefined` as null. */
 const call =
   (run: (args: unknown[], host: PhoneProtocolHost) => unknown): NodeCall =>
   async (params, host) => {
-    const value = await run(relayed(params), host);
+    const value = await run(params, host);
     return value === undefined ? null : value;
   };
 
@@ -97,11 +94,13 @@ const calls: Record<string, NodeCall> = {
   readSettings: call((_args, host) =>
     desktopSettingsFromConfig({ agent: held(host.client(), 'config', 'agent'), desktop: held(host.client(), 'config', 'desktop') })
   ),
-  // Node answered the desktop settings of the config its locked update saved; the core's write answers that config.
+  // Node answered the desktop settings of the config its locked update saved; the core's write answers that config. Node then
+  // announced `desktop` to every client whether or not anything changed (remote-methods.ts:1098): the write's `announce`.
   updateSetting: call(async ([key, enabled], host) => {
     if (typeof enabled !== 'boolean') throw new TypeError('enabled must be a boolean.');
     const path = desktopSettingPath(requiredDesktopSettingKey(key));
-    return desktopSettingsFromConfig(record(await request(host, 'config/value/write', { path, value: enabled })).config);
+    const saved = await request(host, 'config/value/write', { path, value: enabled, announce: 'desktop' });
+    return desktopSettingsFromConfig(record(saved).config);
   }),
 
   // ── this PC's window (hostWindowRemoteMethods, :1053-1084) ──
@@ -127,12 +126,10 @@ const calls: Record<string, NodeCall> = {
     return request(host, 'feedback/upload', { input });
   }),
   // Node checked the origin and told the windows and every paired device, this one included, to drop their provider model lists
-  // (desktop-operations.ts:455-458, remote-relay-push-lanes.ts:53), then answered null. The page fires it without waiting and
-  // ignores the echo of its own origin (sidebar-reference-cache.ts invalidateProviderReferencesFromPeer). The core deletes the
-  // announcement (desktop-services.md §3: the provider sections tell every client), so this phone's echo and answer are made here.
-  notifyProviderModelsChanged: call(([origin], host) => {
-    const change = readProviderModelsChange({ origin: requiredString(origin, 'origin', 128) });
-    if (change) host.ctx.fanOut(host.ctx.providerModelsListeners, change);
+  // (desktop-operations.ts:455-458, remote-relay-push-lanes.ts:53), then answered null; the core tells every client
+  // (`ui/providerModels/changed`, install below). The page ignores the echo of its own origin (sidebar-reference-cache.ts).
+  notifyProviderModelsChanged: call(async ([origin], host) => {
+    await request(host, 'ui/providerModels/announce', { origin: requiredString(origin, 'origin', 128) });
     return null;
   }),
 
@@ -160,36 +157,32 @@ const calls: Record<string, NodeCall> = {
   }),
 };
 
-const settingsOf = (client: Client): string =>
-  JSON.stringify(desktopSettingsFromConfig({ agent: held(client, 'config', 'agent'), desktop: held(client, 'config', 'desktop') }));
-
-/** Node's relay pushed `settings-changed` and the window's `updater-state` to every paired device (remote-relay-push-lanes.ts:50-60,
- *  :113-117); the core publishes the state itself, so each change of it is that event. The scopes are Node's: `desktop` when the
- *  desktop settings changed (`notifySettingsChanged('desktop')` after an update, remote-methods.ts:1098), then `notifications` for the
- *  notification store (desktop-service.ts:811) or `agent` for any other persisted key (agent-settings-watch.ts, its forced pass
- *  after the write). Wired per client: a re-pairing dials a new one. */
+/** Node's relay pushed `settings-changed`, `provider-models-changed` and the window's `updater-state` to every paired device
+ *  (remote-relay-push-lanes.ts:50-60, :113-117). The first two are the core's announcements (`ui/settings/changed`,
+ *  `ui/providerModels/changed`, shared/core-announcements.ts); the updater state is the `update` section the core publishes,
+ *  each change of it that event. Wired per client: a re-pairing dials a new one. */
 function install(host: PhoneProtocolHost): (() => void) | undefined {
   const { ctx } = host;
   let unwire: (() => void) | undefined;
-  const announce = (scope: string): void => {
-    const change: SettingsChange | null = readSettingsChange({ scope });
-    if (change) ctx.fanOut(ctx.settingsChangedListeners, change);
-  };
   const wire = (client: Client): void => {
     unwire?.();
-    let settings = settingsOf(client);
-    unwire = client.store.subscribe((change) => {
-      if (change.type !== 'section') return;
-      if (change.section === 'config') {
-        const next = settingsOf(client);
-        if (next !== settings) announce('desktop');
-        settings = next;
-        if (change.key !== 'desktop') announce(change.key === 'notifications' ? 'notifications' : 'agent');
-      } else if (change.section === 'update') {
-        const state = client.store.section('update' as never, null)?.value as { status?: unknown } | undefined;
-        if (state && typeof state === 'object' && typeof state.status === 'string') ctx.fanOut(ctx.updaterListeners, state as never);
-      }
+    const offStore = client.store.subscribe((change) => {
+      if (change.type !== 'section' || change.section !== 'update') return;
+      const state = client.store.section('update' as never, null)?.value as { status?: unknown } | undefined;
+      if (state && typeof state === 'object' && typeof state.status === 'string') ctx.fanOut(ctx.updaterListeners, state as never);
     });
+    const offEvents = client.on((event) => {
+      if (event.type !== 'notification') return;
+      const { method, params } = (event as { notification: { method: string; params?: unknown } }).notification;
+      const announced = announcedEvent(method, params);
+      if (!announced) return;
+      if (announced.name === SETTINGS_CHANGED_EVENT) ctx.fanOut(ctx.settingsChangedListeners, announced.value as SettingsChange);
+      else ctx.fanOut(ctx.providerModelsListeners, announced.value as ProviderModelsChange);
+    });
+    unwire = () => {
+      offStore();
+      offEvents();
+    };
   };
   const off = host.onClient?.(wire);
   if (!off) void ctx.phone.start().then(() => wire(host.client()), () => undefined);

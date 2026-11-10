@@ -2771,6 +2771,17 @@
       ],
       "type": "object"
     },
+    "SettingsScope": {
+      "description": "Node's `SettingsChange.scope` (shared/settings-changed.ts `SETTINGS_SCOPES`).",
+      "enum": [
+        "desktop",
+        "git",
+        "permissions",
+        "notifications",
+        "agent"
+      ],
+      "type": "string"
+    },
     "SetupUiRequest": {
       "description": "The setup tool's desktop request waiting for a window to claim it (Node's session store `setupUiRequest`): its id, and when the thread took it.",
       "properties": {
@@ -5221,6 +5232,30 @@
         }
       ]
     },
+    "UiProviderModelsChangedParams": {
+      "description": "`ui/providerModels/changed` (app feed) and `ui/providerModels/announce`: Node's `provider-models-changed` desktop event `{origin}` (ipc-state-bridge.ts:113, remote-relay-push-lanes.ts:53).",
+      "properties": {
+        "origin": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "origin"
+      ],
+      "type": "object"
+    },
+    "UiSettingsChangedParams": {
+      "description": "`ui/settings/changed` (app feed) and `ui/settings/announce`: Node's `settings-changed` desktop event, which reached the windows and every paired device (ipc-state-bridge.ts:114, remote-relay-push-lanes.ts:54).",
+      "properties": {
+        "scope": {
+          "$ref": "#/definitions/SettingsScope"
+        }
+      },
+      "required": [
+        "scope"
+      ],
+      "type": "object"
+    },
     "UiTerminalTab": {
       "description": "`DesktopTerminalRunTab`.",
       "properties": {
@@ -6393,6 +6428,44 @@
         },
         "params": {
           "$ref": "#/definitions/UiOpenRequestedParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Node's `settings-changed` event: settings pages re-read (a writer's announcement, a notification store write, or a change of the config outside `desktop`).",
+      "properties": {
+        "method": {
+          "enum": [
+            "ui/settings/changed"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/UiSettingsChangedParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Node's `provider-models-changed` event: every client drops its provider model lists; `origin` names the announcer.",
+      "properties": {
+        "method": {
+          "enum": [
+            "ui/providerModels/changed"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/UiProviderModelsChangedParams"
         }
       },
       "required": [
