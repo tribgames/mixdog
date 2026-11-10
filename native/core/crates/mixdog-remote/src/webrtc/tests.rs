@@ -156,81 +156,93 @@ fn to_candidate(init: RTCIceCandidateInit) -> Candidate {
     Candidate::from_init(init)
 }
 
-/// The crate's Tokio runtime on a machine that refuses the multicast socket the driver opens on
-/// the mDNS port (5353, RFC 6762) to resolve a peer's `.local` candidates, as this PC's adapters
-/// refused its group join in the merge run (`os error 10065`, host unreachable). Every other
-/// socket and timer is the real one.
-#[derive(Debug)]
-struct NoMulticast(webrtc::runtime::TokioRuntime);
+/// The open and join of the mDNS socket on a machine that refuses the join, as this PC's adapters
+/// are taken to have refused it in the merge run (`os error 10065`, host unreachable).
+fn refused_mdns_join() -> std::io::Result<std::net::UdpSocket> {
+    Err(std::io::Error::from(std::io::ErrorKind::HostUnreachable))
+}
 
-impl webrtc::runtime::Runtime for NoMulticast {
+/// The text of the ordinary transport failure [`RefusedTransport`] injects.
+const TRANSPORT_REFUSAL: &str = "injected: the connection's UDP transport cannot be wrapped";
+
+/// The crate's Tokio runtime with every ordinary UDP transport (any socket but the mDNS one on
+/// port 5353, RFC 6762) refused when the driver wraps it, counted.
+#[derive(Debug)]
+struct RefusedTransport {
+    inner: webrtc::runtime::TokioRuntime,
+    refused: std::sync::atomic::AtomicUsize,
+}
+
+impl webrtc::runtime::Runtime for RefusedTransport {
     fn spawn(&self, future: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>) -> Box<dyn webrtc::runtime::JoinHandle> {
-        self.0.spawn(future)
+        self.inner.spawn(future)
     }
 
     fn spawn_reactor(&self, size: usize, future: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>) -> Box<dyn webrtc::runtime::JoinHandle> {
-        self.0.spawn_reactor(size, future)
+        self.inner.spawn_reactor(size, future)
     }
 
     fn wrap_udp_socket(&self, socket: std::net::UdpSocket) -> std::io::Result<Arc<dyn webrtc::runtime::AsyncUdpSocket>> {
-        if socket.local_addr()?.port() == 5353 {
-            return Err(std::io::Error::from(std::io::ErrorKind::HostUnreachable));
+        if socket.local_addr()?.port() != 5353 {
+            self.refused.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            return Err(std::io::Error::other(TRANSPORT_REFUSAL));
         }
-        self.0.wrap_udp_socket(socket)
+        self.inner.wrap_udp_socket(socket)
     }
 
     fn wrap_tcp_listener(&self, listener: std::net::TcpListener) -> std::io::Result<Arc<dyn webrtc::runtime::AsyncTcpListener>> {
-        self.0.wrap_tcp_listener(listener)
+        self.inner.wrap_tcp_listener(listener)
     }
 
     fn connect_tcp<'a>(
         &'a self,
         remote_addr: std::net::SocketAddr,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = std::io::Result<Arc<dyn webrtc::runtime::AsyncTcpStream>>> + Send + 'a>> {
-        self.0.connect_tcp(remote_addr)
+        self.inner.connect_tcp(remote_addr)
     }
 
     fn resolve_host<'a>(&'a self, host: &'a str) -> std::pin::Pin<Box<dyn std::future::Future<Output = std::io::Result<Vec<std::net::SocketAddr>>> + Send + 'a>> {
-        self.0.resolve_host(host)
+        self.inner.resolve_host(host)
     }
 
     fn now(&self) -> std::time::Instant {
-        self.0.now()
+        self.inner.now()
     }
 
     fn sleep(&self, duration: Duration) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'static>> {
-        self.0.sleep(duration)
+        self.inner.sleep(duration)
     }
 
     fn interval(&self, period: Duration) -> Box<dyn webrtc::runtime::AsyncInterval> {
-        self.0.interval(period)
+        self.inner.interval(period)
     }
 
     fn block_on(&self, future: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + '_>>) {
-        self.0.block_on(future)
+        self.inner.block_on(future)
     }
 
     fn yield_now(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'static>> {
-        self.0.yield_now()
+        self.inner.yield_now()
     }
 
     fn name(&self) -> &'static str {
-        self.0.name()
+        self.inner.name()
     }
 }
 
-/// A machine that refuses the mDNS socket still connects the carrier: the connection comes up
-/// without that socket and opens over its loopback host candidates, as Node's Chromium peer
-/// comes up whatever mDNS can do (`peer::open`).
+/// A machine that refuses the mDNS socket's join still connects the carrier: the connection is
+/// built without mDNS, once, and opens over its loopback host candidates, as Node's Chromium
+/// peer comes up whatever mDNS can do (`peer::mdns_mode`).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_carrier_connects_on_a_machine_that_refuses_the_mdns_socket() {
     mixdog_rt::testing::tokens();
     let mut config = loopback();
-    config.runtime = Some(Arc::new(NoMulticast(webrtc::runtime::TokioRuntime)));
+    config.hooks.mdns_socket = Some(refused_mdns_join);
+    let builds = Arc::clone(&config.hooks.builds);
     let (carrier, mut events) = CarrierConnection::spawn(config);
-    let mut phone = Phone::new(false).await;
-    carrier.offer(false);
     let path = tokio::time::timeout(BOUND, async {
+        let mut phone = Phone::new(false).await;
+        carrier.offer(false);
         loop {
             tokio::select! {
                 Some(event) = events.recv() => match event {
@@ -251,8 +263,40 @@ async fn a_carrier_connects_on_a_machine_that_refuses_the_mdns_socket() {
         }
     })
     .await
-    .expect("the carrier opens within the test bound");
+    .expect("the phone is built and the carrier opens within the test bound");
+    assert_eq!(*builds.lock().unwrap(), vec![MulticastDnsMode::Disabled], "one build, without mDNS");
     assert_eq!(path, Some(CandidatePath::Direct));
+}
+
+/// A build that fails for another reason than the mDNS socket (an ordinary UDP transport the
+/// driver cannot wrap) fails once, with that error: no second build follows. The mDNS socket is
+/// the refusing stand-in, so the driver's own join, which no stand-in reaches and which this PC
+/// refuses at times, is not opened.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_build_that_fails_for_another_reason_fails_once_with_its_own_error() {
+    mixdog_rt::testing::tokens();
+    let runtime = Arc::new(RefusedTransport { inner: webrtc::runtime::TokioRuntime, refused: Default::default() });
+    let mut config = loopback();
+    config.hooks.runtime = Some(runtime.clone());
+    config.hooks.mdns_socket = Some(refused_mdns_join);
+    let builds = Arc::clone(&config.hooks.builds);
+    let (carrier, mut events) = CarrierConnection::spawn(config);
+    carrier.offer(false);
+    let fault = tokio::time::timeout(BOUND, async {
+        loop {
+            match events.recv().await.expect("the carrier reports before it ends") {
+                CarrierEvent::Failed(fault) => break fault,
+                CarrierEvent::Open { .. } => panic!("the carrier opened over a refused transport"),
+                _ => {}
+            }
+        }
+    })
+    .await
+    .expect("the carrier fails within the test bound");
+    assert_eq!(fault.reason, PeerFailure::PeerHostUnavailable);
+    assert!(fault.detail.as_deref().is_some_and(|detail| detail.contains(TRANSPORT_REFUSAL)), "the build's own error: {fault}");
+    assert_eq!(*builds.lock().unwrap(), vec![MulticastDnsMode::Disabled], "one build");
+    assert_eq!(runtime.refused.load(std::sync::atomic::Ordering::SeqCst), 1, "the transport was refused once");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

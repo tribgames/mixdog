@@ -36,9 +36,20 @@ pub struct PeerConfig {
     pub udp_bind: Vec<String>,
     /// Gather loopback host candidates (same-machine peers).
     pub include_loopback: bool,
-    /// The runtime the connection's driver runs on; `None` is the crate's Tokio runtime.
     #[cfg(test)]
-    pub(crate) runtime: Option<std::sync::Arc<dyn webrtc::runtime::Runtime>>,
+    pub(crate) hooks: PeerHooks,
+}
+
+/// What a test puts in place of the machine, and what it reads back.
+#[cfg(test)]
+#[derive(Clone, Debug, Default)]
+pub(crate) struct PeerHooks {
+    /// The runtime the connection's driver runs on; `None` is the crate's Tokio runtime.
+    pub runtime: Option<std::sync::Arc<dyn webrtc::runtime::Runtime>>,
+    /// Opens and joins the mDNS socket in place of the machine (`peer::open_mdns_socket`).
+    pub mdns_socket: Option<fn() -> std::io::Result<std::net::UdpSocket>>,
+    /// The mDNS mode of every build, in order.
+    pub builds: std::sync::Arc<std::sync::Mutex<Vec<rtc::ice::mdns::MulticastDnsMode>>>,
 }
 
 impl PeerConfig {
@@ -48,7 +59,7 @@ impl PeerConfig {
             udp_bind: vec!["0.0.0.0:0".to_owned()],
             include_loopback: false,
             #[cfg(test)]
-            runtime: None,
+            hooks: PeerHooks::default(),
         }
     }
 
