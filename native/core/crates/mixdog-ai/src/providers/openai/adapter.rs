@@ -74,6 +74,7 @@ use crate::transport::link::HttpSend;
 use crate::transport::link::WsDial;
 use crate::transport::ws::ConnectError;
 use crate::transport::ws::Message;
+use crate::transport::ws::WsEnding;
 
 const TURN_STATE_HEADER: &str = "x-codex-turn-state";
 /// Turn-state scopes kept; the oldest is dropped beyond this.
@@ -126,9 +127,12 @@ pub trait CredentialSource: Send + Sync {
 // Per-process request context
 // ---------------------------------------------------------------------------
 
+/// One scope's turn state (`openai-turn-state.mjs` `_turnStateByScope`): the logical turn, the token its responses
+/// issued, and the WebSocket connection that owns it while it is open.
 struct TurnState {
     turn: String,
     value: Option<String>,
+    owner: Option<u64>,
 }
 
 #[derive(Default)]
@@ -186,31 +190,91 @@ impl SessionContext {
         self
     }
 
-    /// The first token a turn is issued wins for the whole turn; a new turn
-    /// in the same scope replaces the previous one.
-    fn capture(&self, scope: &str, turn: &str, token: &str) {
+    /// `activateCodexTurnState` (`openai-turn-state.mjs:15`): the token of `turn` in `scope` for a request about to go
+    /// out. Another turn starts the scope afresh, with no token; one live connection (`owner`) holds the turn's token,
+    /// and a different connection gets none until the owner closes. An HTTP request (`owner: None`) reads it freely.
+    pub fn activate(&self, scope: &str, turn: &str, owner: Option<u64>) -> Option<String> {
+        // `cleanString` trims each value.
+        let (scope, turn) = (scope.trim(), turn.trim());
+        if scope.is_empty() || turn.is_empty() {
+            return None;
+        }
         let mut states = self.states.lock().unwrap_or_else(PoisonError::into_inner);
-        match states.by_scope.get_mut(scope) {
-            Some(state) if state.turn == turn => {
-                state.value.get_or_insert_with(|| token.to_owned());
-                return;
-            }
-            Some(state) => {
-                *state = TurnState { turn: turn.to_owned(), value: Some(token.to_owned()) };
-                return;
-            }
-            None => {}
-        }
-        if states.order.len() >= MAX_TURN_STATE_SCOPES
-            && let Some(oldest) = states.order.pop_front()
+        Self::activate_locked(&mut states, scope, turn, owner)
+    }
+
+    fn activate_locked(states: &mut TurnStates, scope: &str, turn: &str, owner: Option<u64>) -> Option<String> {
+        if let Some(current) = states.by_scope.get_mut(scope)
+            && current.turn == turn
         {
-            states.by_scope.remove(&oldest);
+            if owner.is_some() && current.owner.is_some() && current.owner != owner {
+                return None;
+            }
+            if owner.is_some() && current.owner.is_none() {
+                current.owner = owner;
+            }
+            return current.value.clone();
         }
-        states.order.push_back(scope.to_owned());
-        states.by_scope.insert(
-            scope.to_owned(),
-            TurnState { turn: turn.to_owned(), value: Some(token.to_owned()) },
-        );
+        // `_ensureCapacity`: the oldest scope goes when the map is full and this one is new.
+        if !states.by_scope.contains_key(scope) {
+            if states.by_scope.len() >= MAX_TURN_STATE_SCOPES
+                && let Some(oldest) = states.order.pop_front()
+            {
+                states.by_scope.remove(&oldest);
+            }
+            states.order.push_back(scope.to_owned());
+        }
+        states.by_scope.insert(scope.to_owned(), TurnState { turn: turn.to_owned(), value: None, owner });
+        None
+    }
+
+    /// `captureCodexTurnState` (`openai-turn-state.mjs:33`): the first token a turn is issued wins for the whole turn;
+    /// a connection that does not own the turn cannot set it. True when the turn holds a token afterwards (Node returns
+    /// it, and a socket stops looking for one).
+    fn capture(&self, scope: &str, turn: &str, token: &str, owner: Option<u64>) -> bool {
+        let (scope, turn, token) = (scope.trim(), turn.trim(), token.trim());
+        if scope.is_empty() || turn.is_empty() || token.is_empty() {
+            return false;
+        }
+        let mut states = self.states.lock().unwrap_or_else(PoisonError::into_inner);
+        Self::activate_locked(&mut states, scope, turn, owner);
+        let Some(current) = states.by_scope.get_mut(scope).filter(|c| c.turn == turn) else { return false };
+        if owner.is_some() && current.owner.is_some() && current.owner != owner {
+            return false;
+        }
+        if owner.is_some() && current.owner.is_none() {
+            current.owner = owner;
+        }
+        current.value.get_or_insert_with(|| token.to_owned());
+        true
+    }
+
+    /// `retireCodexTurnStateOwner` (`openai-turn-state.mjs:50`): the owning connection closed; a replacement may adopt
+    /// the turn's token.
+    pub fn retire(&self, scope: &str, owner: u64) {
+        let mut states = self.states.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(current) = states.by_scope.get_mut(scope)
+            && current.owner == Some(owner)
+        {
+            current.owner = None;
+        }
+    }
+
+    /// `clearCodexTurnStateScope`: the session's sockets were closed (`closeOpenaiWsPoolForSession`).
+    pub fn clear_scope(&self, scope: &str) {
+        let mut states = self.states.lock().unwrap_or_else(PoisonError::into_inner);
+        states.by_scope.remove(scope);
+        states.order.retain(|s| s != scope);
+    }
+}
+
+impl super::pool::SocketEvents for SessionContext {
+    fn closed(&self, key: &str, owner: u64) {
+        self.retire(key, owner);
+    }
+
+    fn session_closed(&self, key: &str) {
+        self.clear_scope(key);
     }
 }
 
@@ -227,13 +291,9 @@ impl WireContext for SessionContext {
         (self.sources.var)(name)
     }
 
+    /// The HTTP request's read (`openai-oauth-http-sse.mjs:93`: `activateCodexTurnState(poolKey, turnId)`, no owner).
     fn turn_state(&self, scope: &str, turn_id: &str) -> Option<String> {
-        let states = self.states.lock().unwrap_or_else(PoisonError::into_inner);
-        states
-            .by_scope
-            .get(scope)
-            .filter(|state| state.turn == turn_id)
-            .and_then(|state| state.value.clone())
+        self.activate(scope, turn_id, None)
     }
 }
 
@@ -285,6 +345,8 @@ impl OpenAiAdapter {
             links.credentials.clone(),
             links.listing,
         );
+        // A socket's closing releases its hold on its turn's state.
+        let pool = Arc::new(WsPool::with_events(links.context.clone()));
         let adapter = Self {
             id,
             codec,
@@ -295,7 +357,7 @@ impl OpenAiAdapter {
             credentials: links.credentials,
             context: links.context,
             http_codec,
-            pool: Arc::new(WsPool::default()),
+            pool,
             mode: TransportMode::default(),
             models,
             compress_lane: links.compress_lane,
@@ -386,7 +448,7 @@ impl OpenAiAdapter {
             request_scope(request),
             request.options.thread.as_ref().and_then(|t| t.turn.as_ref()),
         ) {
-            self.context.capture(scope, turn.as_str(), token);
+            let _ = self.context.capture(scope, turn.as_str(), token, None);
         }
     }
 
@@ -494,10 +556,15 @@ impl OpenAiAdapter {
             // alone (`openai-ws-stream/socket-handlers.mjs:93`, `_captureTurnStateFromEvent`).
             drop(upgrade);
             checkout.socket = Some(socket);
+            checkout.owner = self.pool.number();
         }
         let chain = if self.mode.delta() { checkout.chain.clone() } else { Chain::default() };
         let framed = delta::compute(&chain, &body);
-        let frame = self.codec.ws_frame(request, framed.frame);
+        // `_withCodexWsClientMetadata`: the frame activates its turn under the session's pool key, with this socket as
+        // the turn state's owner.
+        let scope_turn = request_scope(request).zip(self.codec.ws_turn(request));
+        let token = scope_turn.as_ref().and_then(|(scope, turn)| self.context.activate(scope, turn, Some(checkout.owner)));
+        let frame = self.codec.ws_frame(request, framed.frame, token.as_deref());
         let text = serde_json::to_string(&Value::Object(frame))
             .map_err(|_| ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent))?;
         let socket = checkout.socket.as_ref().expect("a checked-out socket");
@@ -505,11 +572,15 @@ impl OpenAiAdapter {
             .send(Message::text(text))
             .await
             .map_err(|fault| ProviderError::transport(fault, DeliveryState::Ambiguous))?;
+        let owner = checkout.owner;
         let mut stream = ResponsesStream::new(Source::Ws { checkout, pending: None }, self.codec.decoder(request));
         stream.anchor = Some(Anchor { body, response_id: None, items: Vec::new() });
         stream.ledger = Some((self.pool.clone(), key, self.mode.http_fallback()));
-        if let (Some(scope), Some(turn)) = (request_scope(request), request.options.thread.as_ref().and_then(|t| t.turn.as_ref())) {
-            stream.turn_state = Some((self.context.clone(), scope.to_owned(), turn.as_str().to_owned()));
+        // `_captureTurnStateFromEvent` returns at once when the activation gave the socket a token.
+        if let Some((scope, turn)) = scope_turn
+            && token.is_none()
+        {
+            stream.turn_state = Some((self.context.clone(), scope.to_owned(), turn, owner));
         }
         // The first frame decides whether the server took the request.
         stream.prime().await;
@@ -767,9 +838,9 @@ struct ResponsesStream {
     /// The pool and session a failed exchange is recorded on, and whether the
     /// session may switch transports.
     ledger: Option<(Arc<WsPool>, String, bool)>,
-    /// Where a WebSocket response's `x-codex-turn-state` goes (the context, the scope and the turn), until the first
-    /// one is taken (`_captureTurnStateFromEvent` returns once its entry holds a token).
-    turn_state: Option<(Arc<SessionContext>, String, String)>,
+    /// Where a WebSocket response's `x-codex-turn-state` goes (the context, the scope, the turn and the socket that
+    /// owns it), until the first one is taken (`_captureTurnStateFromEvent` returns once its entry holds a token).
+    turn_state: Option<(Arc<SessionContext>, String, String, u64)>,
 }
 
 /// `_captureTurnStateFromEvent`'s carriers (`turn-state-headers.mjs:41-46`), in its order: the event's headers, the
@@ -788,6 +859,14 @@ fn event_turn_state(event: &Value) -> Option<String> {
     })
 }
 
+/// The turn state of one frame, read from the parsed event as Node reads its decoded keys (`socket-handlers.mjs:93`).
+/// The parse is skipped only for a frame that cannot hold the name: one with no escape at all (a JSON string then
+/// writes every character of the name literally) and no literal occurrence of it in any letter case.
+fn frame_turn_state(unit: &[u8]) -> Option<String> {
+    let may_name = unit.contains(&b'\\') || unit.windows(TURN_STATE_HEADER.len()).any(|w| w.eq_ignore_ascii_case(TURN_STATE_HEADER.as_bytes()));
+    may_name.then(|| serde_json::from_slice::<Value>(unit).ok()).flatten().as_ref().and_then(event_turn_state)
+}
+
 impl ResponsesStream {
     fn new(source: Source, decoder: Box<dyn WireDecoder>) -> Self {
         Self { source: Some(source), decoder, queue: VecDeque::new(), failed: None, anchor: None, ledger: None, turn_state: None }
@@ -804,12 +883,13 @@ impl ResponsesStream {
 
     /// Notes what a frame says about the response it belongs to.
     fn note_frame(&mut self, unit: &[u8]) {
-        if self.turn_state.is_some()
-            && unit.windows(TURN_STATE_HEADER.len()).any(|w| w.eq_ignore_ascii_case(TURN_STATE_HEADER.as_bytes()))
-            && let Some(token) = serde_json::from_slice::<Value>(unit).ok().as_ref().and_then(event_turn_state)
-            && let Some((context, scope, turn)) = self.turn_state.take()
+        // A token the turn refuses this socket (another one owns it) leaves the socket looking, as Node's entry keeps a
+        // null `turnState` then.
+        if let Some((context, scope, turn, owner)) = &self.turn_state
+            && let Some(token) = frame_turn_state(unit)
+            && context.capture(scope, turn, &token, Some(*owner))
         {
-            context.capture(&scope, &turn, &token);
+            self.turn_state = None;
         }
         let Some(anchor) = self.anchor.as_mut() else {
             return;
@@ -909,8 +989,23 @@ impl ModelStream for ResponsesStream {
                     }
                 }
                 Some(Err(fault)) => {
+                    let ending = match &self.source {
+                        Some(Source::Ws { checkout, .. }) => checkout.socket.as_ref().and_then(|socket| socket.ending()),
+                        _ => None,
+                    };
                     self.source = None;
-                    let mut err = ProviderError::transport(fault, DeliveryState::Accepted);
+                    // What `ws` emitted first, as `socket-handlers.mjs` takes it: a close is `wsClosedError(code,
+                    // reason)` (`onClose`), a refused frame `ws`'s own error, its message and code (`onError`).
+                    let mut err = match ending {
+                        Some(WsEnding::Close { code, reason }) => super::error::ws_closed(code, &reason, DeliveryState::Accepted),
+                        Some(WsEnding::Violation { message, code, .. }) => {
+                            let mut err = ProviderError::transport(fault, DeliveryState::Accepted);
+                            err.message = message;
+                            err.code = Some(code.to_owned());
+                            err
+                        }
+                        None => ProviderError::transport(fault, DeliveryState::Accepted),
+                    };
                     err.exposure = self.decoder.exposure();
                     self.record_failure(&err);
                     self.failed = Some(err);
@@ -931,6 +1026,120 @@ impl ModelStream for ResponsesStream {
 
     fn delivery(&self) -> DeliveryState {
         DeliveryState::Accepted
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // WS1: the turn state of a frame is what Node's `_captureTurnStateFromEvent` takes from the parsed event, for every
+    // frame Node's recording holds (`turn-state-capture.mjs`): an escaped name, any letter case, each carrier.
+    #[test]
+    fn a_frames_turn_state_is_what_nodes_capture_takes() {
+        const RECORDING: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../benchmarks/terminal-bench-2.1/analysis/parity/fixtures/turn-state-frames.json"));
+        const CAPTURE: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../benchmarks/terminal-bench-2.1/analysis/parity/turn-state-capture.mjs"));
+        let node: Value = serde_json::from_str(RECORDING).unwrap();
+        assert_eq!(node["manifest"]["exact"], true);
+        assert_eq!(node["manifest"]["nodeCommit"], "b6f10295a");
+        let sha: String = ring::digest::digest(&ring::digest::SHA256, CAPTURE).as_ref().iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(node["manifest"]["harness"]["turn-state-capture.mjs"], sha.as_str(), "turn-state-capture.mjs changed since the recording");
+        let rust: Vec<Value> = node["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|case| {
+                let frame = case["frame"].as_str().unwrap();
+                serde_json::json!({ "frame": frame, "turnState": frame_turn_state(frame.as_bytes()) })
+            })
+            .collect();
+        assert_eq!(Value::Array(rust), node["cases"]);
+    }
+
+    struct Held;
+
+    impl mixdog_core_api::domain::keepalive::TransportKeepalive for Held {
+        fn kind(&self) -> TransportKind {
+            TransportKind::WebSocket
+        }
+        fn arm(&self, _: &KeepaliveSchedule) -> Result<(), TransportFault> {
+            Ok(())
+        }
+        fn liveness(&self) -> mixdog_core_api::domain::keepalive::LinkLiveness {
+            mixdog_core_api::domain::keepalive::LinkLiveness::Alive
+        }
+        fn may_start_response(&self) -> bool {
+            true
+        }
+    }
+
+    #[async_trait]
+    impl crate::transport::link::WsSocket for Held {
+        async fn send(&self, _: Message) -> Result<(), TransportFault> {
+            Ok(())
+        }
+        async fn recv(&mut self) -> Option<Result<Message, TransportFault>> {
+            None
+        }
+        fn link(&self) -> Arc<dyn mixdog_core_api::domain::keepalive::TransportKeepalive> {
+            Arc::new(Held)
+        }
+    }
+
+    // WS2: a turn state lives as Node's does (`turn-state-lifetime-capture.mjs`): one live socket owns its turn's
+    // token, another socket under the same pool key gets none until the owner closes, a frame of another turn starts
+    // the scope afresh, the HTTP route keys the turn as given while a socket keys its v7 form, and the session's end
+    // clears the scope. Sockets are opened and closed through the pool, whose closing retires the owner.
+    #[test]
+    fn a_turn_state_lives_as_long_as_nodes() {
+        const RECORDING: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../benchmarks/terminal-bench-2.1/analysis/parity/fixtures/turn-state-lifetime.json"));
+        const CAPTURE: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../benchmarks/terminal-bench-2.1/analysis/parity/turn-state-lifetime-capture.mjs"));
+        let node: Value = serde_json::from_str(RECORDING).unwrap();
+        assert_eq!(node["manifest"]["exact"], true);
+        assert_eq!(node["manifest"]["nodeCommit"], "b6f10295a");
+        let sha: String = ring::digest::digest(&ring::digest::SHA256, CAPTURE).as_ref().iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(node["manifest"]["harness"]["turn-state-lifetime-capture.mjs"], sha.as_str(), "turn-state-lifetime-capture.mjs changed since the recording");
+        let pool_key = node["manifest"]["pool"].as_str().unwrap();
+        let context = Arc::new(SessionContext::default());
+        let pool = Arc::new(WsPool::with_events(context.clone()));
+        let compat = Compat::new("Codex", "account", "cache");
+        // Each open socket: its checkout and the turn its last frame named.
+        let mut sockets: HashMap<u64, (Checkout, String)> = HashMap::new();
+        let mut rust = Vec::new();
+        for step in node["steps"].as_array().unwrap() {
+            let mut out = step.clone();
+            let turn = step["turn"].as_str().unwrap_or_default();
+            match step["do"].as_str().unwrap() {
+                "frame" => {
+                    let n = step["socket"].as_u64().unwrap();
+                    let (checkout, last) = sockets.entry(n).or_insert_with(|| {
+                        let mut checkout = pool.checkout(pool_key, &compat, false, true);
+                        checkout.socket = Some(Box::new(Held));
+                        checkout.owner = pool.number();
+                        (checkout, String::new())
+                    });
+                    *last = super::super::client_meta::codex_uuid_v7(turn);
+                    out["sent"] = json_of(context.activate(pool_key, last, Some(checkout.owner)));
+                }
+                "event" => {
+                    let (checkout, last) = &sockets[&step["socket"].as_u64().unwrap()];
+                    let _ = context.capture(pool_key, last, step["token"].as_str().unwrap(), Some(checkout.owner));
+                }
+                "close" => drop(sockets.remove(&step["socket"].as_u64().unwrap())),
+                "http" => out["sent"] = json_of(context.turn_state(pool_key, turn)),
+                "answer" => {
+                    let _ = context.capture(pool_key, turn, step["token"].as_str().unwrap(), None);
+                }
+                "session-closed" => pool.release_session(pool_key),
+                other => panic!("{other}"),
+            }
+            rust.push(out);
+        }
+        assert_eq!(Value::Array(rust), node["steps"]);
+    }
+
+    fn json_of(token: Option<String>) -> Value {
+        token.map_or(Value::Null, Value::String)
     }
 }
 

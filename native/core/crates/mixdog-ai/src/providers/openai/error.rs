@@ -252,23 +252,67 @@ pub(super) fn classify_http(response: &ErrorResponse, now_ms: u64) -> ProviderEr
     })
 }
 
-/// The socket closed before a terminal frame. Only close codes the server
-/// defines for authorization carry a status.
-pub fn ws_closed(code: Option<u16>, delivery: DeliveryState) -> ProviderError {
-    let status = match code {
-        Some(4401) => Some(401),
-        Some(4403) => Some(403),
-        Some(4429) => Some(429),
-        _ => None,
-    };
-    let mut err = ProviderError::transport(TransportFault::WsClose { code }, delivery);
-    if let Some(status) = status {
+/// `_httpStatusFromWsClose` (`openai-ws-events.mjs`): the status a close's code, or the words of its reason, stand for.
+fn status_of_close(code: u16, reason: &str) -> Option<u16> {
+    static WORDS: std::sync::LazyLock<[regex::Regex; 3]> = std::sync::LazyLock::new(|| {
+        // JavaScript's `\b` is ASCII; `(?-u:\b)` is the same here.
+        [
+            r"(?-u:\b)(?:unauthorized|unauthorised|authentication|auth(?:enticated?)?|not authenticated|token expired|access token)(?-u:\b)",
+            r"(?-u:\b)(?:forbidden|policy|permission denied)(?-u:\b)",
+            r"(?-u:\b)(?:rate limit|quota)(?-u:\b)",
+        ]
+        .map(|pattern| regex::Regex::new(pattern).expect("a valid pattern"))
+    });
+    let reason = reason.to_lowercase();
+    [(4401, 401), (4403, 403), (4429, 429)]
+        .into_iter()
+        .zip(WORDS.iter())
+        .find(|((close, _), words)| code == *close || words.is_match(&reason))
+        .map(|((_, status), _)| status)
+}
+
+/// `wsClosedError` (`openai-ws-terminal.mjs`): the socket closed before a terminal frame, with `ws`'s code (1005 for
+/// a close without one) and reason.
+pub fn ws_closed(code: u16, reason: &str, delivery: DeliveryState) -> ProviderError {
+    let mut err = ProviderError::transport(TransportFault::WsClose { code: Some(code) }, delivery);
+    if let Some(status) = status_of_close(code, reason) {
         err.kind = kind_from_status(status).unwrap_or(ErrorKind::Transient);
         err.status = Some(status);
     }
-    err.message = match code {
-        Some(code) => format!("WebSocket closed before the response completed (code={code})"),
-        None => "WebSocket closed before the response completed".to_owned(),
-    };
+    let reason_part = if reason.is_empty() { String::new() } else { format!(", reason={reason}") };
+    err.message = format!("OpenAI OAuth WS closed before response.completed (code={code}{reason_part})");
     err
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // WS4: a close that ends a response is the error `wsClosedError` makes of it, for every close Node's recording
+    // holds (`ws-close-error-capture.mjs`): the message, the close code and the status of the code or the reason's words.
+    #[test]
+    fn a_close_is_the_error_node_makes_of_it() {
+        const RECORDING: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../benchmarks/terminal-bench-2.1/analysis/parity/fixtures/ws-close-errors.json"));
+        const CAPTURE: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../benchmarks/terminal-bench-2.1/analysis/parity/ws-close-error-capture.mjs"));
+        let node: Value = serde_json::from_str(RECORDING).unwrap();
+        assert_eq!(node["manifest"]["exact"], true);
+        assert_eq!(node["manifest"]["nodeCommit"], "b6f10295a");
+        let sha: String = ring::digest::digest(&ring::digest::SHA256, CAPTURE).as_ref().iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(node["manifest"]["harness"]["ws-close-error-capture.mjs"], sha.as_str(), "ws-close-error-capture.mjs changed since the recording");
+        let rust: Vec<Value> = node["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|case| {
+                let (code, reason) = (case["code"].as_u64().unwrap() as u16, case["reason"].as_str().unwrap());
+                let err = ws_closed(code, reason, DeliveryState::Accepted);
+                let close = match err.transport {
+                    Some(TransportFault::WsClose { code }) => code,
+                    _ => None,
+                };
+                serde_json::json!({ "code": code, "reason": reason, "message": err.message, "wsCloseCode": close, "httpStatus": err.status })
+            })
+            .collect();
+        assert_eq!(Value::Array(rust), node["cases"]);
+    }
 }

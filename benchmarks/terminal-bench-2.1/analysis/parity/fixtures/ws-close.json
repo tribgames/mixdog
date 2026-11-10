@@ -5,7 +5,7 @@
   "node": "v22.20.0",
   "ws": "8.22.0",
   "harness": {
-   "ws-close-capture.mjs": "9d161ebc9e73dbec8c576a2ca4f628f2dde2ee35264aa34a17f8cd70a5625136"
+   "ws-close-capture.mjs": "efa03dd8c1323bcb52431f9a0e58e32ab5a41529ed944a1c8f9395ce833e1da1"
   }
  },
  "cases": [
@@ -25,6 +25,13 @@
      "kind": "end",
      "unread": ""
     }
+   ],
+   "heard": [
+    {
+     "kind": "close",
+     "code": 1000,
+     "reason": "bye"
+    }
    ]
   },
   {
@@ -42,6 +49,13 @@
     {
      "kind": "end",
      "unread": ""
+    }
+   ],
+   "heard": [
+    {
+     "kind": "close",
+     "code": 4000,
+     "reason": ""
     }
    ]
   },
@@ -61,6 +75,13 @@
      "kind": "end",
      "unread": ""
     }
+   ],
+   "heard": [
+    {
+     "kind": "close",
+     "code": 1005,
+     "reason": ""
+    }
    ]
   },
   {
@@ -79,6 +100,18 @@
      "kind": "end",
      "unread": ""
     }
+   ],
+   "heard": [
+    {
+     "kind": "error",
+     "message": "Invalid WebSocket frame: invalid status code 999",
+     "code": "WS_ERR_INVALID_CLOSE_CODE"
+    },
+    {
+     "kind": "close",
+     "code": 1006,
+     "reason": ""
+    }
    ]
   },
   {
@@ -96,6 +129,108 @@
     {
      "kind": "end",
      "unread": ""
+    }
+   ],
+   "heard": [
+    {
+     "kind": "error",
+     "message": "Invalid WebSocket frame: invalid UTF-8 sequence",
+     "code": "WS_ERR_INVALID_UTF8"
+    },
+    {
+     "kind": "close",
+     "code": 1006,
+     "reason": ""
+    }
+   ]
+  },
+  {
+   "name": "a text message that is not UTF-8",
+   "frame": "8102c328",
+   "events": [
+    {
+     "kind": "frame",
+     "fin": true,
+     "rsv": 0,
+     "opcode": 8,
+     "masked": true,
+     "hex": "03ef"
+    },
+    {
+     "kind": "end",
+     "unread": ""
+    }
+   ],
+   "heard": [
+    {
+     "kind": "error",
+     "message": "Invalid WebSocket frame: invalid UTF-8 sequence",
+     "code": "WS_ERR_INVALID_UTF8"
+    },
+    {
+     "kind": "close",
+     "code": 1006,
+     "reason": ""
+    }
+   ]
+  },
+  {
+   "name": "a fragmented text message that is not UTF-8",
+   "frame": "0102c328800161",
+   "events": [
+    {
+     "kind": "frame",
+     "fin": true,
+     "rsv": 0,
+     "opcode": 8,
+     "masked": true,
+     "hex": "03ef"
+    },
+    {
+     "kind": "end",
+     "unread": ""
+    }
+   ],
+   "heard": [
+    {
+     "kind": "error",
+     "message": "Invalid WebSocket frame: invalid UTF-8 sequence",
+     "code": "WS_ERR_INVALID_UTF8"
+    },
+    {
+     "kind": "close",
+     "code": 1006,
+     "reason": ""
+    }
+   ]
+  },
+  {
+   "name": "a character split across fragments",
+   "frame": "0101e2800282ac880203e8",
+   "events": [
+    {
+     "kind": "frame",
+     "fin": true,
+     "rsv": 0,
+     "opcode": 8,
+     "masked": true,
+     "hex": "03e8"
+    },
+    {
+     "kind": "end",
+     "unread": ""
+    }
+   ],
+   "heard": [
+    {
+     "kind": "message",
+     "binary": false,
+     "hex": "e282ac"
+    },
+    {
+     "kind": "close",
+     "code": 1000,
+     "reason": ""
     }
    ]
   }

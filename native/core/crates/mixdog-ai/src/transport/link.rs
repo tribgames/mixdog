@@ -640,6 +640,10 @@ pub trait WsSocket: Send {
     /// The next data frame, or the one fault that ended the link, then `None`.
     async fn recv(&mut self) -> Option<Result<Message, TransportFault>>;
     fn link(&self) -> Arc<dyn TransportKeepalive>;
+    /// What ended the link, as `ws` reports it, once [`recv`](Self::recv) has given the fault.
+    fn ending(&self) -> Option<super::ws::WsEnding> {
+        None
+    }
 }
 
 #[async_trait]
@@ -654,6 +658,10 @@ impl WsSocket for WsConnection {
 
     fn link(&self) -> Arc<dyn TransportKeepalive> {
         WsConnection::link(self)
+    }
+
+    fn ending(&self) -> Option<super::ws::WsEnding> {
+        WsConnection::ending(self)
     }
 }
 

@@ -1,0 +1,131 @@
+{
+ "manifest": {
+  "exact": true,
+  "nodeCommit": "b6f10295a",
+  "node": "v22.20.0",
+  "harness": {
+   "ws-close-error-capture.mjs": "7b65d99942b74e07975c79173ce7425502b66953c801b32f8bf501fe1e64e264"
+  }
+ },
+ "cases": [
+  {
+   "code": 1000,
+   "reason": "bye",
+   "message": "OpenAI OAuth WS closed before response.completed (code=1000, reason=bye)",
+   "wsCloseCode": 1000,
+   "httpStatus": null
+  },
+  {
+   "code": 1005,
+   "reason": "",
+   "message": "OpenAI OAuth WS closed before response.completed (code=1005)",
+   "wsCloseCode": 1005,
+   "httpStatus": null
+  },
+  {
+   "code": 1006,
+   "reason": "",
+   "message": "OpenAI OAuth WS closed before response.completed (code=1006)",
+   "wsCloseCode": 1006,
+   "httpStatus": null
+  },
+  {
+   "code": 1009,
+   "reason": "",
+   "message": "OpenAI OAuth WS closed before response.completed (code=1009)",
+   "wsCloseCode": 1009,
+   "httpStatus": null
+  },
+  {
+   "code": 4000,
+   "reason": "",
+   "message": "OpenAI OAuth WS closed before response.completed (code=4000)",
+   "wsCloseCode": 4000,
+   "httpStatus": null
+  },
+  {
+   "code": 4401,
+   "reason": "",
+   "message": "OpenAI OAuth WS closed before response.completed (code=4401)",
+   "wsCloseCode": 4401,
+   "httpStatus": 401
+  },
+  {
+   "code": 4403,
+   "reason": "x",
+   "message": "OpenAI OAuth WS closed before response.completed (code=4403, reason=x)",
+   "wsCloseCode": 4403,
+   "httpStatus": 403
+  },
+  {
+   "code": 4429,
+   "reason": "",
+   "message": "OpenAI OAuth WS closed before response.completed (code=4429)",
+   "wsCloseCode": 4429,
+   "httpStatus": 429
+  },
+  {
+   "code": 1008,
+   "reason": "Token expired",
+   "message": "OpenAI OAuth WS closed before response.completed (code=1008, reason=Token expired)",
+   "wsCloseCode": 1008,
+   "httpStatus": 401
+  },
+  {
+   "code": 1008,
+   "reason": "authentication failed",
+   "message": "OpenAI OAuth WS closed before response.completed (code=1008, reason=authentication failed)",
+   "wsCloseCode": 1008,
+   "httpStatus": 401
+  },
+  {
+   "code": 1008,
+   "reason": "author",
+   "message": "OpenAI OAuth WS closed before response.completed (code=1008, reason=author)",
+   "wsCloseCode": 1008,
+   "httpStatus": null
+  },
+  {
+   "code": 1011,
+   "reason": "POLICY violation",
+   "message": "OpenAI OAuth WS closed before response.completed (code=1011, reason=POLICY violation)",
+   "wsCloseCode": 1011,
+   "httpStatus": 403
+  },
+  {
+   "code": 1011,
+   "reason": "permission denied",
+   "message": "OpenAI OAuth WS closed before response.completed (code=1011, reason=permission denied)",
+   "wsCloseCode": 1011,
+   "httpStatus": 403
+  },
+  {
+   "code": 1013,
+   "reason": "Rate limit reached",
+   "message": "OpenAI OAuth WS closed before response.completed (code=1013, reason=Rate limit reached)",
+   "wsCloseCode": 1013,
+   "httpStatus": 429
+  },
+  {
+   "code": 1013,
+   "reason": "quota",
+   "message": "OpenAI OAuth WS closed before response.completed (code=1013, reason=quota)",
+   "wsCloseCode": 1013,
+   "httpStatus": 429
+  },
+  {
+   "code": 1013,
+   "reason": "quotas",
+   "message": "OpenAI OAuth WS closed before response.completed (code=1013, reason=quotas)",
+   "wsCloseCode": 1013,
+   "httpStatus": null
+  },
+  {
+   "code": 1000,
+   "reason": "unauthorized and rate limit",
+   "message": "OpenAI OAuth WS closed before response.completed (code=1000, reason=unauthorized and rate limit)",
+   "wsCloseCode": 1000,
+   "httpStatus": 401
+  }
+ ]
+}
