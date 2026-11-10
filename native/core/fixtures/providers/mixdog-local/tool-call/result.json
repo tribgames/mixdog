@@ -1,25 +1,25 @@
 {
-  "dispatchedToolCalls": [
-    {
-      "arguments": {
-        "key": "answer"
-      },
-      "id": "call_fx1",
-      "name": "lookup"
-    }
-  ],
   "ok": {
     "content": "",
-    "stopReason": "tool_calls",
     "toolCalls": [
       {
+        "id": "call_fx1",
+        "name": "lookup",
         "arguments": {
           "key": "answer"
-        },
-        "id": "call_fx1",
-        "name": "lookup"
+        }
       }
     ],
+    "stopReason": "tool_calls",
     "usage": null
-  }
+  },
+  "dispatchedToolCalls": [
+    {
+      "id": "call_fx1",
+      "name": "lookup",
+      "arguments": {
+        "key": "answer"
+      }
+    }
+  ]
 }

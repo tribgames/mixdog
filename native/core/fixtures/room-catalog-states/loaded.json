@@ -8,7 +8,7 @@
     "forget-member",
     "remove"
   ],
-  "taskWorkspace": "D:\\mixdog-build\\tmp\\room-catalog-loaded-uqzsFV\\home\\AppData\\Roaming\\workspace\\unclassified",
+  "taskWorkspace": "D:\\mixdog-build\\tmp\\room-catalog-loaded-efCM6k\\home\\AppData\\Roaming\\workspace\\unclassified",
   "bots": [
     "alpha",
     "beta",
@@ -20,8 +20,8 @@
     "gamma": "Gamma"
   },
   "room": {
-    "sessionId": "sess_room_mwaz7sud8b625074",
-    "roomId": "mwaz7sud8b625074"
+    "sessionId": "sess_room_mwb0anyac08bd317",
+    "roomId": "mwb0anyac08bd317"
   },
   "steps": [
     {
@@ -42,20 +42,20 @@
           "origin": "store-refresh",
           "sessions": [
             {
-              "id": "sess_room_mwaz7sud8b625074",
+              "id": "sess_room_mwb0anyac08bd317",
               "preview": "",
               "title": "Room One",
-              "updatedAt": 1794332457279,
-              "activityAt": 1794332457279,
+              "updatedAt": 1794334270514,
+              "activityAt": 1794334270514,
               "messageCount": 0,
-              "cwd": "D:\\mixdog-build\\tmp\\room-catalog-loaded-uqzsFV\\home\\AppData\\Roaming\\workspace\\unclassified",
+              "cwd": "D:\\mixdog-build\\tmp\\room-catalog-loaded-efCM6k\\home\\AppData\\Roaming\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794332457260,
+              "createdAt": 1794334270477,
               "agentRoom": {
-                "id": "mwaz7sud8b625074",
+                "id": "mwb0anyac08bd317",
                 "name": "Room One",
                 "members": [
                   "alpha",
@@ -79,20 +79,20 @@
           "origin": "room-rename",
           "sessions": [
             {
-              "id": "sess_room_mwaz7sud8b625074",
+              "id": "sess_room_mwb0anyac08bd317",
               "preview": "",
               "title": "Room One",
-              "updatedAt": 1794332457279,
-              "activityAt": 1794332457279,
+              "updatedAt": 1794334270514,
+              "activityAt": 1794334270514,
               "messageCount": 0,
-              "cwd": "D:\\mixdog-build\\tmp\\room-catalog-loaded-uqzsFV\\home\\AppData\\Roaming\\workspace\\unclassified",
+              "cwd": "D:\\mixdog-build\\tmp\\room-catalog-loaded-efCM6k\\home\\AppData\\Roaming\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794332457260,
+              "createdAt": 1794334270477,
               "agentRoom": {
-                "id": "mwaz7sud8b625074",
+                "id": "mwb0anyac08bd317",
                 "name": "Room One",
                 "members": [
                   "alpha",
@@ -116,20 +116,20 @@
           "origin": "room-call",
           "sessions": [
             {
-              "id": "sess_room_mwaz7sud8b625074",
+              "id": "sess_room_mwb0anyac08bd317",
               "preview": "",
               "title": "Room One",
-              "updatedAt": 1794332457279,
-              "activityAt": 1794332457279,
+              "updatedAt": 1794334270514,
+              "activityAt": 1794334270514,
               "messageCount": 0,
-              "cwd": "D:\\mixdog-build\\tmp\\room-catalog-loaded-uqzsFV\\home\\AppData\\Roaming\\workspace\\unclassified",
+              "cwd": "D:\\mixdog-build\\tmp\\room-catalog-loaded-efCM6k\\home\\AppData\\Roaming\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794332457260,
+              "createdAt": 1794334270477,
               "agentRoom": {
-                "id": "mwaz7sud8b625074",
+                "id": "mwb0anyac08bd317",
                 "name": "Room One",
                 "members": [
                   "alpha",
@@ -151,8 +151,8 @@
         {
           "kind": "answered",
           "value": {
-            "sessionId": "sess_room_mwaz7sud8b625074",
-            "roomId": "mwaz7sud8b625074"
+            "sessionId": "sess_room_mwb0anyac08bd317",
+            "roomId": "mwb0anyac08bd317"
           }
         }
       ]
@@ -168,20 +168,20 @@
           "origin": "room-rename",
           "sessions": [
             {
-              "id": "sess_room_mwaz7sud8b625074",
+              "id": "sess_room_mwb0anyac08bd317",
               "preview": "",
               "title": "Room Renamed",
-              "updatedAt": 1794332457279,
-              "activityAt": 1794332457279,
+              "updatedAt": 1794334270514,
+              "activityAt": 1794334270514,
               "messageCount": 0,
-              "cwd": "D:\\mixdog-build\\tmp\\room-catalog-loaded-uqzsFV\\home\\AppData\\Roaming\\workspace\\unclassified",
+              "cwd": "D:\\mixdog-build\\tmp\\room-catalog-loaded-efCM6k\\home\\AppData\\Roaming\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794332457260,
+              "createdAt": 1794334270477,
               "agentRoom": {
-                "id": "mwaz7sud8b625074",
+                "id": "mwb0anyac08bd317",
                 "name": "Room Renamed",
                 "members": [
                   "alpha",
@@ -205,20 +205,20 @@
           "origin": "room-call",
           "sessions": [
             {
-              "id": "sess_room_mwaz7sud8b625074",
+              "id": "sess_room_mwb0anyac08bd317",
               "preview": "",
               "title": "Room Renamed",
-              "updatedAt": 1794332457279,
-              "activityAt": 1794332457279,
+              "updatedAt": 1794334270514,
+              "activityAt": 1794334270514,
               "messageCount": 0,
-              "cwd": "D:\\mixdog-build\\tmp\\room-catalog-loaded-uqzsFV\\home\\AppData\\Roaming\\workspace\\unclassified",
+              "cwd": "D:\\mixdog-build\\tmp\\room-catalog-loaded-efCM6k\\home\\AppData\\Roaming\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794332457260,
+              "createdAt": 1794334270477,
               "agentRoom": {
-                "id": "mwaz7sud8b625074",
+                "id": "mwb0anyac08bd317",
                 "name": "Room Renamed",
                 "members": [
                   "alpha",
@@ -240,7 +240,7 @@
         {
           "kind": "answered",
           "value": {
-            "id": "mwaz7sud8b625074",
+            "id": "mwb0anyac08bd317",
             "name": "Room Renamed",
             "members": [
               "alpha",
@@ -270,20 +270,20 @@
           "origin": "listing",
           "sessions": [
             {
-              "id": "sess_room_mwaz7sud8b625074",
+              "id": "sess_room_mwb0anyac08bd317",
               "preview": "",
               "title": "Room Renamed",
-              "updatedAt": 1794332457279,
-              "activityAt": 1794332457279,
+              "updatedAt": 1794334270514,
+              "activityAt": 1794334270514,
               "messageCount": 0,
-              "cwd": "D:\\mixdog-build\\tmp\\room-catalog-loaded-uqzsFV\\home\\AppData\\Roaming\\workspace\\unclassified",
+              "cwd": "D:\\mixdog-build\\tmp\\room-catalog-loaded-efCM6k\\home\\AppData\\Roaming\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794332457260,
+              "createdAt": 1794334270477,
               "agentRoom": {
-                "id": "mwaz7sud8b625074",
+                "id": "mwb0anyac08bd317",
                 "name": "Room Renamed",
                 "members": [
                   "alpha",
@@ -307,20 +307,20 @@
           "origin": "listing",
           "sessions": [
             {
-              "id": "sess_room_mwaz7sud8b625074",
+              "id": "sess_room_mwb0anyac08bd317",
               "preview": "",
               "title": "Room Renamed",
-              "updatedAt": 1794332457279,
-              "activityAt": 1794332457279,
+              "updatedAt": 1794334270514,
+              "activityAt": 1794334270514,
               "messageCount": 0,
-              "cwd": "D:\\mixdog-build\\tmp\\room-catalog-loaded-uqzsFV\\home\\AppData\\Roaming\\workspace\\unclassified",
+              "cwd": "D:\\mixdog-build\\tmp\\room-catalog-loaded-efCM6k\\home\\AppData\\Roaming\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794332457260,
+              "createdAt": 1794334270477,
               "agentRoom": {
-                "id": "mwaz7sud8b625074",
+                "id": "mwb0anyac08bd317",
                 "name": "Room Renamed",
                 "members": [
                   "alpha",
@@ -344,20 +344,20 @@
           "origin": "listing",
           "sessions": [
             {
-              "id": "sess_room_mwaz7sud8b625074",
+              "id": "sess_room_mwb0anyac08bd317",
               "preview": "",
               "title": "Room Renamed",
-              "updatedAt": 1794332457279,
-              "activityAt": 1794332457279,
+              "updatedAt": 1794334270514,
+              "activityAt": 1794334270514,
               "messageCount": 0,
-              "cwd": "D:\\mixdog-build\\tmp\\room-catalog-loaded-uqzsFV\\home\\AppData\\Roaming\\workspace\\unclassified",
+              "cwd": "D:\\mixdog-build\\tmp\\room-catalog-loaded-efCM6k\\home\\AppData\\Roaming\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794332457260,
+              "createdAt": 1794334270477,
               "agentRoom": {
-                "id": "mwaz7sud8b625074",
+                "id": "mwb0anyac08bd317",
                 "name": "Room Renamed",
                 "members": [
                   "alpha",
@@ -381,20 +381,20 @@
           "origin": "room-call",
           "sessions": [
             {
-              "id": "sess_room_mwaz7sud8b625074",
+              "id": "sess_room_mwb0anyac08bd317",
               "preview": "",
               "title": "Room Renamed",
-              "updatedAt": 1794332458257,
-              "activityAt": 1794332458257,
+              "updatedAt": 1794334271753,
+              "activityAt": 1794334271753,
               "messageCount": 0,
-              "cwd": "D:\\mixdog-build\\tmp\\room-catalog-loaded-uqzsFV\\home\\AppData\\Roaming\\workspace\\unclassified",
+              "cwd": "D:\\mixdog-build\\tmp\\room-catalog-loaded-efCM6k\\home\\AppData\\Roaming\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794332457260,
+              "createdAt": 1794334270477,
               "agentRoom": {
-                "id": "mwaz7sud8b625074",
+                "id": "mwb0anyac08bd317",
                 "name": "Room Renamed",
                 "members": [
                   "alpha",
@@ -432,20 +432,20 @@
           "origin": "room-call",
           "sessions": [
             {
-              "id": "sess_room_mwaz7sud8b625074",
+              "id": "sess_room_mwb0anyac08bd317",
               "preview": "",
               "title": "Room Renamed",
-              "updatedAt": 1794332458257,
-              "activityAt": 1794332458257,
+              "updatedAt": 1794334271753,
+              "activityAt": 1794334271753,
               "messageCount": 0,
-              "cwd": "D:\\mixdog-build\\tmp\\room-catalog-loaded-uqzsFV\\home\\AppData\\Roaming\\workspace\\unclassified",
+              "cwd": "D:\\mixdog-build\\tmp\\room-catalog-loaded-efCM6k\\home\\AppData\\Roaming\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794332457260,
+              "createdAt": 1794334270477,
               "agentRoom": {
-                "id": "mwaz7sud8b625074",
+                "id": "mwb0anyac08bd317",
                 "name": "Room Renamed",
                 "members": [
                   "alpha",
@@ -467,20 +467,20 @@
           "origin": "listing",
           "sessions": [
             {
-              "id": "sess_room_mwaz7sud8b625074",
+              "id": "sess_room_mwb0anyac08bd317",
               "preview": "",
               "title": "Room Renamed",
-              "updatedAt": 1794332458257,
-              "activityAt": 1794332458257,
+              "updatedAt": 1794334271753,
+              "activityAt": 1794334271753,
               "messageCount": 0,
-              "cwd": "D:\\mixdog-build\\tmp\\room-catalog-loaded-uqzsFV\\home\\AppData\\Roaming\\workspace\\unclassified",
+              "cwd": "D:\\mixdog-build\\tmp\\room-catalog-loaded-efCM6k\\home\\AppData\\Roaming\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794332457260,
+              "createdAt": 1794334270477,
               "agentRoom": {
-                "id": "mwaz7sud8b625074",
+                "id": "mwb0anyac08bd317",
                 "name": "Room Renamed",
                 "members": [
                   "alpha",

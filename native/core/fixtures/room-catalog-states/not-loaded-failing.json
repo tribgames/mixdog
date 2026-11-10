@@ -5,7 +5,7 @@
     "create",
     "update"
   ],
-  "taskWorkspace": "D:\\mixdog-build\\tmp\\room-catalog-not-loaded-failing-tc93ld\\home\\AppData\\Roaming\\workspace\\unclassified",
+  "taskWorkspace": "D:\\mixdog-build\\tmp\\room-catalog-not-loaded-failing-vVoq7i\\home\\AppData\\Roaming\\workspace\\unclassified",
   "bots": [
     "alpha",
     "beta",
@@ -17,8 +17,8 @@
     "gamma": "Gamma"
   },
   "room": {
-    "sessionId": "sess_room_mwaz82lf05e0900b",
-    "roomId": "mwaz82lf05e0900b"
+    "sessionId": "sess_room_mwb0b6wgd30a8ca0",
+    "roomId": "mwb0b6wgd30a8ca0"
   },
   "steps": [
     {
@@ -33,8 +33,8 @@
         {
           "kind": "answered",
           "value": {
-            "sessionId": "sess_room_mwaz82lf05e0900b",
-            "roomId": "mwaz82lf05e0900b"
+            "sessionId": "sess_room_mwb0b6wgd30a8ca0",
+            "roomId": "mwb0b6wgd30a8ca0"
           }
         }
       ]
@@ -51,7 +51,7 @@
         {
           "kind": "answered",
           "value": {
-            "id": "mwaz82lf05e0900b",
+            "id": "mwb0b6wgd30a8ca0",
             "name": "Room Renamed",
             "members": [
               "alpha",

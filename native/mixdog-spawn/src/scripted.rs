@@ -37,7 +37,9 @@ pub fn profile() -> SpawnProfile {
 pub async fn say(tabs: &TerminalTabs, manager: &LocalProcessManager, id: &str, lines: &[&str]) {
     let wanted: String = lines.iter().map(|line| format!("{line}\r\n")).collect();
     let mut events = manager.subscribe(&ProcessHandle::from(id), None).expect("subscribe");
-    tabs.write(id, &lines.iter().map(|line| format!("{line}\n")).collect::<String>());
+    if let Some(pending) = tabs.write(id, &lines.iter().map(|line| format!("{line}\n")).collect::<String>()) {
+        pending.finish().await;
+    }
     let mut seen = String::new();
     while seen.len() < wanted.len() {
         match events.next().await.expect("the feed outlives the wait") {
@@ -51,7 +53,9 @@ pub async fn say(tabs: &TerminalTabs, manager: &LocalProcessManager, id: &str, l
 /// Has the tab's scripted shell exit with `code`, and returns once its feed carried the exit.
 pub async fn exit(tabs: &TerminalTabs, manager: &LocalProcessManager, id: &str, code: u8) {
     let mut events = manager.subscribe(&ProcessHandle::from(id), None).expect("subscribe");
-    tabs.write(id, &format!("@exit {code}\n"));
+    if let Some(pending) = tabs.write(id, &format!("@exit {code}\n")) {
+        pending.finish().await;
+    }
     loop {
         if let ProcessEvent::Exited { .. } = events.next().await.expect("the feed ends with the exit") {
             return;

@@ -57,6 +57,48 @@
           }
         ]
       ]
+    },
+    "termEnsure": {
+      "method": "termEnsure",
+      "params": [
+        "term_o1",
+        "D:\\proj",
+        null
+      ]
+    },
+    "termAttach": {
+      "method": "termAttach",
+      "params": [
+        "term_o1"
+      ]
+    },
+    "termProfiles": {
+      "method": "termProfiles",
+      "params": []
+    },
+    "termWrite": {
+      "method": "termWrite",
+      "params": [
+        "term_o1",
+        "x"
+      ],
+      "instant": true
+    },
+    "termResize": {
+      "method": "termResize",
+      "params": [
+        "term_o1",
+        80,
+        24,
+        true
+      ],
+      "instant": true
+    },
+    "termDispose": {
+      "method": "termDispose",
+      "params": [
+        "term_o1"
+      ]
     }
   },
   "scenarios": {
@@ -552,6 +594,244 @@
       "answers": {
         "write": "ok",
         "snapshot": "ok"
+      }
+    },
+    "terminal calls beside a file write and a chat mutation": {
+      "steps": [
+        [
+          "send",
+          "write"
+        ],
+        [
+          "send",
+          "termEnsure"
+        ],
+        [
+          "fire",
+          "termWrite"
+        ],
+        [
+          "send",
+          "rename"
+        ],
+        [
+          "send",
+          "termProfiles"
+        ],
+        [
+          "send",
+          "snapshot"
+        ],
+        [
+          "settle"
+        ],
+        [
+          "release",
+          "termEnsure"
+        ],
+        [
+          "settle"
+        ],
+        [
+          "release",
+          "termProfiles"
+        ],
+        [
+          "settle"
+        ],
+        [
+          "release",
+          "write"
+        ],
+        [
+          "settle"
+        ],
+        [
+          "release",
+          "rename"
+        ],
+        [
+          "settle"
+        ],
+        [
+          "release",
+          "snapshot"
+        ],
+        [
+          "settle"
+        ]
+      ],
+      "events": [
+        [
+          "start",
+          "write"
+        ],
+        [
+          "start",
+          "termEnsure"
+        ],
+        [
+          "end",
+          "termEnsure"
+        ],
+        [
+          "start",
+          "termWrite"
+        ],
+        [
+          "end",
+          "termWrite"
+        ],
+        [
+          "start",
+          "termProfiles"
+        ],
+        [
+          "end",
+          "termProfiles"
+        ],
+        [
+          "end",
+          "write"
+        ],
+        [
+          "start",
+          "rename"
+        ],
+        [
+          "end",
+          "rename"
+        ],
+        [
+          "start",
+          "snapshot"
+        ],
+        [
+          "end",
+          "snapshot"
+        ]
+      ],
+      "answers": {
+        "termEnsure": "ok",
+        "termProfiles": "ok",
+        "write": "ok",
+        "rename": "ok",
+        "snapshot": "ok"
+      }
+    },
+    "terminal lifecycle in one lane, in arrival order": {
+      "steps": [
+        [
+          "send",
+          "termEnsure"
+        ],
+        [
+          "fire",
+          "termWrite"
+        ],
+        [
+          "fire",
+          "termResize"
+        ],
+        [
+          "send",
+          "termDispose"
+        ],
+        [
+          "send",
+          "termAttach"
+        ],
+        [
+          "send",
+          "termProfiles"
+        ],
+        [
+          "settle"
+        ],
+        [
+          "release",
+          "termEnsure"
+        ],
+        [
+          "settle"
+        ],
+        [
+          "release",
+          "termDispose"
+        ],
+        [
+          "settle"
+        ],
+        [
+          "release",
+          "termAttach"
+        ],
+        [
+          "settle"
+        ],
+        [
+          "release",
+          "termProfiles"
+        ],
+        [
+          "settle"
+        ]
+      ],
+      "events": [
+        [
+          "start",
+          "termEnsure"
+        ],
+        [
+          "end",
+          "termEnsure"
+        ],
+        [
+          "start",
+          "termWrite"
+        ],
+        [
+          "end",
+          "termWrite"
+        ],
+        [
+          "start",
+          "termResize"
+        ],
+        [
+          "end",
+          "termResize"
+        ],
+        [
+          "start",
+          "termDispose"
+        ],
+        [
+          "end",
+          "termDispose"
+        ],
+        [
+          "start",
+          "termAttach"
+        ],
+        [
+          "end",
+          "termAttach"
+        ],
+        [
+          "start",
+          "termProfiles"
+        ],
+        [
+          "end",
+          "termProfiles"
+        ]
+      ],
+      "answers": {
+        "termEnsure": "ok",
+        "termDispose": "ok",
+        "termAttach": "ok",
+        "termProfiles": "ok"
       }
     },
     "a slow capability read observes the earlier file write, a later chat mutation waits for the write": {

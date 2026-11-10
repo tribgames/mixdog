@@ -22,7 +22,7 @@ use crate::error::WsResult;
 use crate::lanes::Lanes;
 use crate::lanes::run_fallible;
 use crate::lanes::run_in;
-use crate::pathguard::absolute_local_path;
+use crate::pathguard::project_path;
 use crate::pathguard::canonical;
 use crate::pathguard::comparable;
 
@@ -105,7 +105,7 @@ impl Catalog {
 
     /// The registered project at `path`, or `permissionDenied`.
     pub async fn resolve(&self, path: &str) -> WsResult<PathBuf> {
-        let requested = absolute_local_path(path).map_err(|_| WsError::coded("PROJECT_UNAVAILABLE", "Project is not available."))?;
+        let requested = project_path(path).ok_or_else(|| WsError::coded("PROJECT_UNAVAILABLE", "Project is not available."))?;
         self.list()
             .await?
             .iter()
@@ -149,8 +149,13 @@ impl Catalog {
     }
 
     pub async fn add(&self, path: &str, cancel: &CancellationToken, op: Option<OpRecord>) -> WsResult<Value> {
-        let requested = absolute_local_path(path)?;
-        let given = path.to_owned();
+        // `addProject` (remote-methods.ts:922) trims the argument and `realpath`s it as written: a relative path is the working
+        // directory's, a rooted one the current drive's, and `..` is the file system's.
+        let given = mixdog_js::js_trim(path).to_owned();
+        if given.is_empty() || mixdog_js::utf16_len(&given) > 32_768 {
+            return Err(WsError::invalid("projectPath is invalid."));
+        }
+        let requested = PathBuf::from(&given);
         let folder = run_fallible(self.lanes.interactive, cancel, move || canonical_directory(&requested, &given)).await?;
         let path = folder.to_string_lossy().into_owned();
         // A row's recency starts at its making: Node orders a never-selected project by when it was added (`projectRecency`,
@@ -206,12 +211,13 @@ impl Catalog {
         Ok(out)
     }
 
-    /// Creates the folder (for a new project) and returns its canonical path.
+    /// Creates the folder (for a new project) and returns the absolute path it was resolved to, as spelled: Node's `ensureDir`
+    /// (projects.mjs:239) answers its `resolve`d path, not the real one, and any failure to make the folder is one message.
     pub async fn ensure_directory(&self, path: &str, cancel: &CancellationToken) -> WsResult<PathBuf> {
-        let requested = absolute_local_path(path)?;
+        let requested = project_path(path).ok_or_else(|| WsError::invalid("project path is required"))?;
         run_fallible(self.lanes.durability, cancel, move || {
-            std::fs::create_dir_all(&requested)?;
-            canonical(&requested).map_err(Into::into)
+            std::fs::create_dir_all(&requested).map_err(|_| WsError::new(Reason::Io, "project directory could not be created"))?;
+            Ok(requested)
         })
         .await
     }

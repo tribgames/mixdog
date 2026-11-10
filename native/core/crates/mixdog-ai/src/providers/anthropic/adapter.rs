@@ -44,6 +44,8 @@ use mixdog_rt::CpuBulk;
 use mixdog_rt::LaneToken;
 use tokio_util::sync::CancellationToken;
 
+use crate::claude_floors;
+use crate::claude_floors::Feature;
 use crate::transport::http::BodyStream;
 use crate::transport::http::HttpResponse;
 use crate::transport::http::HttpSend;
@@ -52,6 +54,7 @@ use crate::transport::preconnect::Setting;
 
 use crate::warmer::send::{Post, WarmContext, send_cache_warm};
 use crate::warmer::stream::{WarmFailure, WarmUsage};
+use super::before_output::BeforeOutput;
 use super::fast_mode::CapacityError;
 use super::fast_mode;
 use super::betas::BetaFeatures;
@@ -335,6 +338,19 @@ impl AnthropicAdapter {
         serde_json::to_vec(&parsed).ok()
     }
 
+    /// Whether `rejected` refused a version-floor feature of the request (`anthropicCapabilityReplay`): the feature is
+    /// then switched off for the model on this route and the request is to be encoded again, once per feature and
+    /// attempt. Nothing has streamed yet.
+    fn floor_rejected(&self, request: &ModelRequest, status: Option<u16>, text: &str, replayed: &mut Vec<Feature>) -> bool {
+        let Some(feature) = claude_floors::rejection(status, text) else { return false };
+        if replayed.contains(&feature) {
+            return false;
+        }
+        replayed.push(feature);
+        claude_floors::mark_unsupported(feature, self.codec.flavor().provider_name(), &request.model);
+        true
+    }
+
     /// The thread plan of a request, when it threads at all: a create, a continue of the conversation's stored
     /// response, or unthreaded.
     fn plan(&self, request: &ModelRequest, plain: &Plain, secret: &Secret, directive: Option<Directive>) -> Option<Plan> {
@@ -494,6 +510,7 @@ impl ProviderAdapter for AnthropicAdapter {
         let mut secret = self.credentials.current().await?;
         let mut refreshed = false;
         let mut directive = None;
+        let mut floor_replays = Vec::new();
         // A threaded request the API refuses over its thread is planned again, as a create or unthreaded.
         'plan: loop {
             let mut plan = self.plan(&request, &plain, &secret, directive);
@@ -506,7 +523,21 @@ impl ProviderAdapter for AnthropicAdapter {
                 let response = self.post(&wire, &secret).await?;
                 if (200..300).contains(&response.status) {
                     let thread = plan.as_mut().and_then(Plan::take_session);
-                    return Ok(Box::new(AnthropicStream::new(response.body, self.codec.decoder(&request)).with_thread(thread)));
+                    let stream = Box::new(AnthropicStream::new(response.body, self.codec.decoder(&request)).with_thread(thread));
+                    // OAuth replays only a rejected initial response (`_resendAfterRejection`).
+                    if self.codec.flavor() != Flavor::ApiKey {
+                        return Ok(stream);
+                    }
+                    let opened = BeforeOutput::read(stream).await;
+                    if let Some(err) = opened.failure()
+                        && self.floor_rejected(&request, err.status, &err.message, &mut floor_replays)
+                    {
+                        // A fresh send (`withAnthropicCapabilityFallback`): its thread is planned again, with no directive.
+                        directive = None;
+                        plain = self.codec.encode_plain(&request)?;
+                        continue 'plan;
+                    }
+                    return Ok(Box::new(opened));
                 }
                 let rejected = response.read_all().await?;
                 // A fast-pool refusal (or "Fast mode is not enabled") says nothing about standard-speed
@@ -518,6 +549,11 @@ impl ProviderAdapter for AnthropicAdapter {
                     wire.body = standard;
                     speed_dropped = true;
                     continue;
+                }
+                if self.floor_rejected(&request, rejected.status, &String::from_utf8_lossy(&rejected.body), &mut floor_replays) {
+                    directive = None;
+                    plain = self.codec.encode_plain(&request)?;
+                    continue 'plan;
                 }
                 let mut err = self.codec.classify(&rejected);
                 if !refreshed && self.credentials.refreshable(err.status) {
@@ -595,7 +631,12 @@ impl AnthropicStream {
     fn fail(&mut self, mut err: ProviderError) {
         self.body = None;
         self.thread = None;
-        err.partial_usage = self.last_usage.clone().map(Box::new);
+        // Node carries a turn's partial usage on a stream that was cut (a read failure, a stall, a truncation:
+        // anthropic-sse-turn/turn-outcome.mjs `partialFields`), not on an error the provider sent in the stream
+        // (`_anthropicSseError`, anthropic-sse.mjs:138), whose usage no ledger sees.
+        if err.transport.is_some() {
+            err.partial_usage = self.last_usage.clone().map(Box::new);
+        }
         self.failed = Some(err);
     }
 }

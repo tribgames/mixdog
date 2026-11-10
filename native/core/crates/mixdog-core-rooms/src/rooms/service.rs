@@ -14,7 +14,7 @@ use mixdog_app_protocol::v2::params::{RoomContinueParams, RoomCreateParams, Room
 use mixdog_core_api::CoreError;
 use mixdog_core_api::CoreRequest;
 use mixdog_core_api::Reply;
-use mixdog_core_api::ReplyQueued;
+use mixdog_core_api::AfterAnswer;
 use mixdog_core_api::ids::ConnectionId;
 use mixdog_rt::CancellationToken;
 use mixdog_core_api::ids::Method;
@@ -234,7 +234,7 @@ impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> Roo
         Value::Object(params)
     }
 
-    async fn create(&self, input: &Value, replied: &ReplyQueued) -> Result<Value, RoomError> {
+    async fn create(&self, input: &Value, replied: &AfterAnswer) -> Result<Value, RoomError> {
         let probe = super::config::normalize_room_config(&config_input(input, None))?;
         let known = self.known().await?;
         if let Some(missing) = Self::missing(&known, &probe.members) {
@@ -255,7 +255,7 @@ impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> Roo
         Ok(json!({ "sessionId": session_id, "roomId": room_id }))
     }
 
-    async fn update(&self, input: &Value, replied: &ReplyQueued) -> Result<Value, RoomError> {
+    async fn update(&self, input: &Value, replied: &AfterAnswer) -> Result<Value, RoomError> {
         let room_id = room_id_of(input)?;
         let current = self.rooms.get(room_id).await?;
         let merged = config_input(input, Some(&current));
@@ -303,7 +303,7 @@ impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> Roo
         Ok(super::catalog_rows::room_summary(&updated.room, &self.names.names().await, self.runner.is_running(room_id)))
     }
 
-    async fn remove(&self, input: &Value, replied: &ReplyQueued) -> Result<Value, RoomError> {
+    async fn remove(&self, input: &Value, replied: &AfterAnswer) -> Result<Value, RoomError> {
         let room_id = room_id_of(input)?;
         let room = self.rooms.get(room_id).await?;
         if let Some(session_id) = room_session_id(room_id) {
@@ -332,7 +332,7 @@ impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> Roo
 
     /// "대화 초기화" (`agent-rooms.ts` `reset`): the room's log starts over with the old one archived, every member's
     /// cursor restarts and each member's own session is emptied. Refused while members are speaking.
-    async fn reset(&self, input: &Value, replied: &ReplyQueued) -> Result<Value, RoomError> {
+    async fn reset(&self, input: &Value, replied: &AfterAnswer) -> Result<Value, RoomError> {
         let room_id = room_id_of(input)?;
         let room = self.rooms.get(room_id).await?;
         let session_id = room_session_id(room_id).ok_or_else(|| RoomError::Port("room id is invalid".into()))?;
@@ -388,7 +388,7 @@ impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> Dom
             other => return Err(wrong_method("room", other)),
         };
         let method = method.to_owned();
-        let replied = &req.ctx.reply_queued;
+        let replied = &req.ctx.after_answer;
         self.ops
             .run(
                 &req,
@@ -547,7 +547,7 @@ mod tests {
 
             // The unknown room is asked for by another id than the one the record sits under.
             let asked = if name == "unknown room" { "nosuchroom" } else { room_id };
-            let answer = service.reset(&json!({ "roomId": asked }), &ReplyQueued::new()).await;
+            let answer = service.reset(&json!({ "roomId": asked }), &AfterAnswer::default()).await;
             match (&case["outcome"]["ok"], answer) {
                 (Value::Bool(true), Ok(value)) => assert_eq!(value, case["outcome"]["value"], "{name}"),
                 (Value::Bool(false), Err(error)) => assert_eq!(error.to_string(), case["outcome"]["error"].as_str().unwrap(), "{name}"),
@@ -658,7 +658,7 @@ mod tests {
         let (open_tx, open) = tokio::sync::oneshot::channel();
         let (service, host, _dir) = service_over(Some(open)).await;
         let input = json!({ "name": "Release", "members": ["gh", "rel"] });
-        let replied = ReplyQueued::new();
+        let replied = AfterAnswer::default();
         let create = service.create(&input, &replied);
         tokio::pin!(create);
         assert!(polled(&mut create).await.is_pending(), "the creation answered while the catalog publish was held");
@@ -677,7 +677,7 @@ mod tests {
         let (service, _host, _dir) = service_over(Some(open)).await;
         open_tx.send(Err(RoomError::Port("the room log was not indexed".into()))).expect("gate");
         let input = json!({ "name": "Release", "members": ["gh", "rel"] });
-        let error = service.create(&input, &ReplyQueued::new()).await.expect_err("the publish failed");
+        let error = service.create(&input, &AfterAnswer::default()).await.expect_err("the publish failed");
         assert_eq!(error, RoomError::Port("the room log was not indexed".into()));
         assert_eq!(service.rooms.list().await.expect("rooms").len(), 1, "the saved room stays");
     }
@@ -689,7 +689,7 @@ mod tests {
         let (open_tx, open) = tokio::sync::oneshot::channel();
         let (service, _host, _dir) = service_over(Some(open)).await;
         open_tx.send(Ok(())).expect("gate");
-        let made = service.create(&json!({ "name": "Release", "members": ["gh", "rel"] }), &ReplyQueued::new()).await.expect("created");
+        let made = service.create(&json!({ "name": "Release", "members": ["gh", "rel"] }), &AfterAnswer::default()).await.expect("created");
         service.leave(&json!({ "roomId": made["roomId"] })).await.expect("left with no second publish");
     }
 

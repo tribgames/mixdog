@@ -42,6 +42,7 @@ use mixdog_app_protocol::v2::op::OpStatusResponse;
 use mixdog_app_protocol::v2::thread::TurnInterruptParams;
 use mixdog_app_protocol::v2::thread::TurnSteerParams;
 use mixdog_app_protocol::v2::thread::TurnSteerResponse;
+use mixdog_core_api::AfterAnswer;
 use mixdog_core_api::CallContext;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::CoreHandle;
@@ -49,7 +50,6 @@ use mixdog_core_api::CoreRequest;
 use mixdog_core_api::CoreState;
 use mixdog_core_api::HostError;
 use mixdog_core_api::Reply;
-use mixdog_core_api::ReplyQueued;
 use mixdog_core_api::Subscribe;
 use mixdog_core_api::ThreadHandle;
 use mixdog_core_api::feed::AttachMode;
@@ -263,8 +263,7 @@ type ReplyFuture = Pin<Box<dyn Future<Output = Result<Reply, CoreError>> + Send>
 
 enum Dispatch {
     Ready(Result<Reply, CoreError>),
-    /// The work, and its context's reply mark, set once the reply has been queued.
-    Later(TaskClass, ReplyFuture, ReplyQueued),
+    Later(TaskClass, ReplyFuture),
 }
 
 fn method_index() -> &'static HashMap<&'static str, &'static MethodSpec> {
@@ -372,21 +371,22 @@ impl Shared {
         }
         let scope = typed.serialization_scope();
         let params = params.unwrap_or_else(empty_result);
-        match self.dispatch(conn, &id, origin, typed, params, spec) {
+        // What the call keeps until its answer is queued ends right after `finish` queues it, or with the request if it never is.
+        let after = AfterAnswer::default();
+        match self.dispatch(conn, &id, origin, typed, params, spec, &after) {
             Dispatch::Ready(outcome) => {
                 drop(slot);
                 self.finish(conn, &id, outcome);
+                after.release();
             }
-            Dispatch::Later(class, work, replied) => {
+            Dispatch::Later(class, work) => {
                 let shared = Arc::clone(self);
                 let owner = Arc::clone(conn);
                 let run = async move {
                     let outcome = work.await;
                     drop(slot);
                     shared.finish(&owner, &id, outcome);
-                    // The response is queued on the connection before the mark: what the call held for its reply is queued
-                    // only after it.
-                    replied.mark();
+                    after.release();
                 };
                 match scope {
                     Some(scope) => {
@@ -562,6 +562,7 @@ impl Shared {
         request: ClientRequest,
         params: Value,
         spec: &'static MethodSpec,
+        after: &AfterAnswer,
     ) -> Dispatch {
         match request {
             ClientRequest::AppSubscribe { params: app, .. } => {
@@ -613,7 +614,6 @@ impl Shared {
             ClientRequest::OpStatus { params, .. } => {
                 let core = Arc::clone(&self.core);
                 let ctx = CallContext::connection(conn.id, origin, conn.cancel.clone());
-                let replied = ctx.reply_queued.clone();
                 Dispatch::Later(
                     TaskClass::Work,
                     Box::pin(async move {
@@ -627,7 +627,6 @@ impl Shared {
                             .await?;
                         op_status_reply(params.op_ids, statuses)
                     }),
-                    replied,
                 )
             }
             ClientRequest::HostClaim { params, .. } => {
@@ -646,12 +645,11 @@ impl Shared {
                         shared.outgoing.claim(params.host_id, &conn);
                         Ok(Reply::Value(empty_result()))
                     }),
-                    ReplyQueued::new(),
                 )
             }
             _ => {
                 let op = request.op().map(|(_, op)| op.clone());
-                self.route(conn, origin, spec, params, op)
+                self.route(conn, origin, spec, params, op, after)
             }
         }
     }
@@ -668,9 +666,10 @@ impl Shared {
         spec: &'static MethodSpec,
         params: Value,
         op: Option<OpId>,
+        after: &AfterAnswer,
     ) -> Dispatch {
-        let ctx = CallContext::connection(conn.id, origin, conn.cancel.clone());
-        let replied = ctx.reply_queued.clone();
+        let mut ctx = CallContext::connection(conn.id, origin, conn.cancel.clone());
+        ctx.after_answer = after.clone();
         let namespace = namespace(spec.method);
         let thread = THREAD_NAMESPACES
             .contains(&namespace)
@@ -705,7 +704,6 @@ impl Shared {
                         _ => core.threads().request(request).await,
                     }
                 }),
-                replied,
             );
         }
         Dispatch::Later(
@@ -716,7 +714,6 @@ impl Shared {
                     None => Err(unclaimed(spec.method)),
                 }
             }),
-            replied,
         )
     }
 
@@ -742,7 +739,6 @@ impl Shared {
         let Some(thread) = thread else {
             return Dispatch::Ready(Ok(Reply::Value(stop_reply(None, false))));
         };
-        let replied = ctx.reply_queued.clone();
         let stop = Stop { turn: turn_id, restore_prompt, submission_id, ctx };
         Dispatch::Later(
             TaskClass::Control,
@@ -750,7 +746,6 @@ impl Shared {
                 let reply = thread.stop(stop).await?;
                 Ok(Reply::Value(reply))
             }),
-            replied,
         )
     }
 

@@ -1,0 +1,16 @@
+{
+  "note": "Node's phone page: the waits of a call that got no answer (ms, each from the previous one's end), its probe of the connection, and the error text it fails with.",
+  "steps": [
+    {
+      "wait": 20000
+    },
+    {
+      "probe": 20000
+    },
+    {
+      "wait": 5000
+    }
+  ],
+  "error": "mixdog remote call timed out.",
+  "stillPending": false
+}

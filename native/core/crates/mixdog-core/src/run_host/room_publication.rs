@@ -101,7 +101,7 @@ mod tests {
 
     use async_trait::async_trait;
     use mixdog_core_api::FeedSource;
-    use mixdog_core_api::ReplyQueued;
+    use mixdog_core_api::AfterAnswer;
     use mixdog_core_api::domain::mock::MockOwnership;
     use mixdog_core_api::ids::ConnectionId;
     use mixdog_core_api::mock::MockConnection;
@@ -427,12 +427,12 @@ mod tests {
         /// queued and then the reply's mark set (`AppServer` `on_message`). Its answer or its error's text.
         async fn call(&self, method: &'static str, input: Value, op: u64) -> Result<Value, String> {
             let (answer, replied) = self.call_held(method, input, op).await;
-            replied.mark();
+            replied.release();
             answer
         }
 
         /// [`Self::call`] up to its answer, the reply's mark not yet set: the moment between the call's answer and its reply queued.
-        async fn call_held(&self, method: &'static str, input: Value, op: u64) -> (Result<Value, String>, ReplyQueued) {
+        async fn call_held(&self, method: &'static str, input: Value, op: u64) -> (Result<Value, String>, AfterAnswer) {
             let (answering, replied) = self.spawn_held(method, input, op);
             let answer = tokio::time::timeout(DEADLINE, answering)
                 .await
@@ -442,11 +442,11 @@ mod tests {
         }
 
         /// The room call running, and the mark of its reply, not yet set.
-        fn spawn_held(&self, method: &'static str, input: Value, op: u64) -> (tokio::task::JoinHandle<Result<Value, mixdog_core_api::CoreError>>, ReplyQueued) {
+        fn spawn_held(&self, method: &'static str, input: Value, op: u64) -> (tokio::task::JoinHandle<Result<Value, mixdog_core_api::CoreError>>, AfterAnswer) {
             let service = self.service.clone();
             let req = request(method, with_op(json!({ "input": input }), op), Some(op));
             // The server's copy: the reply's mark is the test's to set, not the dropped request's.
-            let replied = req.ctx.reply_queued.clone();
+            let replied = req.ctx.after_answer.clone();
             (tokio::spawn(async move { value(&*service, req).await }), replied)
         }
 
@@ -544,7 +544,7 @@ mod tests {
         open.send(()).expect("the deletion waits at the stop");
         let answer = tokio::time::timeout(DEADLINE, updating).await.expect("the update never answered").expect("task").expect("room/update");
         assert_eq!(answer["members"], json!(["gh", "rel"]), "{answer}");
-        replied.mark();
+        replied.release();
         assert!(world.list.catalog_loaded(), "the joined listing loaded the catalog");
     }
 
@@ -723,7 +723,7 @@ mod tests {
                         "forget-member" => {
                             let forget = world.homes.forget_room_member(&bots[2]);
                             let answer = tokio::time::timeout(DEADLINE, forget).await.expect("forget_room_member answered");
-                            (answer.map(|()| Value::Null).map_err(|error| format!("{error:?}")), ReplyQueued::new())
+                            (answer.map(|()| Value::Null).map_err(|error| format!("{error:?}")), AfterAnswer::default())
                         }
                         // No client call: the third bot's definition deleted past the host, then the core restarted (`Composed::restart`):
                         // its start-up `recover` runs the rooms' first load, which prunes the member. Node's step ends at the first load's
@@ -749,7 +749,7 @@ mod tests {
                                 Some((open, _)) if call == "restart-held-at-save" => held_save = Some((open, started)),
                                 _ => tokio::time::timeout(DEADLINE, started).await.unwrap_or_else(|_| panic!("{what}: the start-up never ended")).expect("the start-up"),
                             }
-                            (Ok(Value::Null), ReplyQueued::new())
+                            (Ok(Value::Null), AfterAnswer::default())
                         }
                         // While the first load is held at its save: a room update (it awaits the first load) is started, a listing (it
                         // does not) is answered, and whether the update had ended by then is Node's; then the save goes on.
@@ -788,7 +788,7 @@ mod tests {
                         }
                         "list-sessions" => {
                             let listed = value(world.list.as_ref(), request(LIST, json!({ "limit": 1000 }), None)).await.map_err(|error| format!("{error:?}"));
-                            (listed, ReplyQueued::new())
+                            (listed, AfterAnswer::default())
                         }
                         other => panic!("{what}: a call this replay does not know: {other}"),
                     };
@@ -803,7 +803,7 @@ mod tests {
                     }
                     // What the client was sent before the reply: the server queues the reply and then sets its mark.
                     let sent = frames(&world.app);
-                    replied.mark();
+                    replied.release();
                     // Node's recorder awaits the call's background listing to its end before the next step sets its listing fault; so
                     // does the replay, for the core's.
                     tokio::time::timeout(DEADLINE, world.summaries.background_ended())

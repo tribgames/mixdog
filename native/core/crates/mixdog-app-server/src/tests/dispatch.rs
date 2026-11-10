@@ -352,7 +352,7 @@ async fn requests_of_one_key_run_one_at_a_time_and_other_keys_run_beside_them() 
     assert!(a_ends[0] < a_starts[1], "second `a` started before the first ended: {log:?}");
 }
 
-/// What a call holds for its reply (`CallContext::reply_queued`, e.g. the rows of a room call's background catalog listing) is
+/// What a call holds for its reply (`CallContext::after_answer`, e.g. the rows of a room call's background catalog listing) is
 /// let go only once the server has queued the reply: as the response is queued, the call's hold stands; after, it has ended.
 /// The call's hold ends only after its response is queued on the connection.
 #[tokio::test]

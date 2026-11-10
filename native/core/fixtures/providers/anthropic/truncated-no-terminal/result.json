@@ -1,8 +1,8 @@
 {
-  "dispatchedToolCalls": [],
   "error": {
-    "message": "Anthropic SSE stream truncated: message_start without message_stop",
     "name": "TruncatedStreamError",
+    "message": "Anthropic SSE stream truncated: message_start without message_stop",
     "status": null
-  }
+  },
+  "dispatchedToolCalls": []
 }
