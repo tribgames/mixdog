@@ -6,6 +6,12 @@
 // recording. The connection's one call queue (remote-protocol-queue.ts) orders them, entered by the router (remote-shim-protocol.ts)
 // for every adapter alike, as Node's was: nothing here queues.
 import type { ProtocolClient, SessionFold } from '../../../../packages/protocol-client/src/index.ts';
+import {
+  FILE_DOWNLOAD_MAX_BYTES,
+  FILE_DOWNLOAD_PURPOSES,
+  FILE_DOWNLOAD_RANGE_MAX_BYTES,
+  type FileDownloadPurpose,
+} from '../shared/file-downloads';
 import { requiredString } from '../shared/remote-arguments';
 import {
   fileSearchLimit,
@@ -33,7 +39,7 @@ const FILE_CHANGED = 'File changed on disk. Reload or keep your edits before sav
 /** What a domain failure was to Node's page: the error's text, and its `code` when Node's error had one (a system error's
  *  `ENOENT`, `PROJECT_UNAVAILABLE`, ...). The core names those codes in capitals; its own reasons are camel case. A call that needs the
  *  PC's window while none is connected is Node's "unavailable" TypeError. */
-function failure(error: unknown): unknown {
+export function failure(error: unknown): unknown {
   const data = (error as { detail?: { data?: Record<string, unknown> } } | null)?.detail?.data;
   if (!data) return error;
   if (data.reason === 'capabilityUnavailable' && data.capability === 'desktopHost') return new TypeError(DESKTOP_UNAVAILABLE);
@@ -48,7 +54,7 @@ function failure(error: unknown): unknown {
   const rebuilt: Error & { code?: string } = new Error(text);
   // The preview worker's refusals are plain Errors in Node; their code only routes the text through the core.
   const plainInNode = data.code === 'NO_PREVIEW_FOR_TYPE' || data.code === 'NOT_A_FILE' || data.code === 'PATH_OUTSIDE_PROJECT' || data.code === 'HOST_COMMAND_FAILED';
-  if (!plainInNode && typeof data.code === 'string' && /^[A-Z][A-Z0-9_]+$/.test(data.code)) rebuilt.code = data.code;
+  if (!plainInNode && typeof data.code === 'string' && /^([A-Z][A-Z0-9_]+|file-download:[a-z-]+)$/.test(data.code)) rebuilt.code = data.code;
   return rebuilt;
 }
 
@@ -81,6 +87,104 @@ async function grantedPlace(host: PhoneProtocolHost, target: Params): Promise<{ 
   const { path } = (await rpc(host, 'projectFs/entryPath', target)) as { path: string };
   const cut = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
   return { root: path.slice(0, cut), rel: path.slice(cut + 1) };
+}
+
+// ── a paired phone's downloads (Node's `fileDownloadRemoteMethods`, main/file-downloads.ts:960-1070 at b6f10295a) ──
+// The arguments are checked here, in Node's order and with its sentences. The conversation a request names is the core's to resolve
+// (Node's `sessionRow` / `projectRoot`), and its deletion ends the grant.
+const DOWNLOAD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const DOWNLOAD_VERSION = /^[A-Za-z0-9_-]{43}$/;
+const SESSION_ID = /^[A-Za-z0-9_-]+$/;
+
+function plainRecord(value: unknown, name: string): Params {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError(`${name} is invalid.`);
+  return value as Params;
+}
+
+function requiredText(value: unknown, name: string, maximum: number): string {
+  const text = requiredString(value, name, maximum);
+  if (text.includes('\0')) throw new TypeError(`${name} is invalid.`);
+  return text;
+}
+
+function requiredSessionId(value: unknown): string {
+  const id = requiredString(value, 'session id', 256);
+  if (!SESSION_ID.test(id)) throw new TypeError('session id is invalid.');
+  return id;
+}
+
+function downloadId(value: unknown, name: string): string {
+  if (typeof value !== 'string' || !DOWNLOAD_ID.test(value)) throw new TypeError(`${name} is invalid.`);
+  return value;
+}
+
+/** Node's `path.isAbsolute` on the PC (a Windows host also takes the POSIX form). */
+const isAbsolutePath = (path: string): boolean => /^([\\/]|[A-Za-z]:[\\/])/.test(path);
+
+const MEDIA_ASSET_ID = /^[A-Za-z0-9_-]{1,128}$/;
+
+const ATTACHMENT_ID = /^[a-f0-9]{64}$/;
+
+type DownloadRequest = { sessionId: string; purpose: FileDownloadPurpose } & (
+  | { kind: 'project'; relPath: string }
+  | { kind: 'session'; path: string }
+  | { kind: 'media'; assetId: string }
+  | { kind: 'link'; itemId: string; href: string }
+  | { kind: 'attachment'; attachmentId: string }
+  | { kind: 'folder'; path: string }
+);
+
+function downloadRequest(value: unknown): DownloadRequest {
+  const request = plainRecord(value, 'download request');
+  const source = plainRecord(request.source, 'download source');
+  const purpose = request.purpose as FileDownloadPurpose;
+  if (!FILE_DOWNLOAD_PURPOSES.includes(purpose)) throw new TypeError('download purpose is invalid.');
+  const sessionId = requiredSessionId(source.sessionId);
+  if (source.kind === 'project') {
+    const relPath = requiredText(source.relPath, 'relPath', 4_096);
+    if (isAbsolutePath(relPath)) throw new TypeError('relPath must be project-relative.');
+    return { kind: 'project', sessionId, relPath, purpose };
+  }
+  if (source.kind === 'link') {
+    return { kind: 'link', sessionId, itemId: requiredText(source.itemId, 'item id', 256), href: requiredText(source.href, 'href', 4_096), purpose };
+  }
+  if (source.kind === 'attachment') {
+    if (typeof source.attachmentId !== 'string' || !ATTACHMENT_ID.test(source.attachmentId)) throw new TypeError('attachment id is invalid.');
+    return { kind: 'attachment', sessionId, attachmentId: source.attachmentId, purpose };
+  }
+  if (source.kind === 'session' || source.kind === 'folder') return { kind: source.kind, sessionId, path: requiredText(source.path, 'path', 4_096), purpose };
+  if (source.kind === 'media') {
+    const assetId = requiredText(source.assetId, 'asset id', 128);
+    if (!MEDIA_ASSET_ID.test(assetId)) throw new TypeError('asset id is invalid.');
+    return { kind: 'media', sessionId, assetId, purpose };
+  }
+  throw new TypeError('download source is invalid.');
+}
+
+/** The conversation, its project and its folder are the core's to resolve from its own catalog (Node's `sessionRow` / `projectRoot`): a
+ *  conversation it does not list is Node's `unavailable`, whoever asks, so the request names only the conversation and the file. */
+function authorizeDownload(host: PhoneProtocolHost, value: unknown): Promise<unknown> {
+  const request = downloadRequest(value);
+  const source =
+    request.kind === 'project'
+      ? { kind: 'file', rel: request.relPath }
+      : request.kind === 'media'
+        ? { kind: 'mediaAsset', assetId: request.assetId }
+        : request.kind === 'link'
+          ? { kind: 'link', itemId: request.itemId, href: request.href }
+          : request.kind === 'attachment'
+            ? { kind: 'attachment', attachmentId: request.attachmentId }
+            : request.kind === 'folder'
+              ? { kind: 'folder', path: request.path }
+              : { kind: 'sessionFile', path: request.path };
+  return rpc(host, 'transfer/authorizeRead', { sessionId: request.sessionId, source, purpose: request.purpose });
+}
+function downloadRange(transferId: unknown, offset: unknown, length: unknown, version: unknown): Params {
+  const id = downloadId(transferId, 'transfer id');
+  if (typeof offset !== 'number' || !Number.isSafeInteger(offset) || offset < 0 || offset > FILE_DOWNLOAD_MAX_BYTES) throw new TypeError('offset is invalid.');
+  if (typeof length !== 'number' || !Number.isSafeInteger(length) || length < 1 || length > FILE_DOWNLOAD_RANGE_MAX_BYTES) throw new TypeError('length is invalid.');
+  if (typeof version !== 'string' || !DOWNLOAD_VERSION.test(version)) throw new TypeError('version is invalid.');
+  return { transferId: id, offset, length, version };
 }
 
 let nextSearch = 1;
@@ -208,6 +312,12 @@ export const adapter: PhoneProtocolAdapter = {
       const rel = requiredString(relPath, 'relPath');
       return void_(rpc(host, 'projectFs/trash', { root, rel, viaHost: true }));
     },
+    // ── a paired phone's downloads: a grant that expires, then the transfer it is consumed into ──
+    fileDownloadAuthorize: ([request], host) => authorizeDownload(host, request),
+    fileDownloadBegin: ([grantId], host) => rpc(host, 'transfer/redeemGrant', { grantId: downloadId(grantId, 'grant id') }),
+    fileDownloadRange: ([transferId, offset, length, version], host) => rpc(host, 'transfer/readRange', downloadRange(transferId, offset, length, version)),
+    fileDownloadFinish: ([transferId], host) => rpc(host, 'transfer/finishRead', { transferId: downloadId(transferId, 'transfer id') }),
+    fileDownloadAbort: ([id], host) => rpc(host, 'transfer/endRead', { transferId: downloadId(id, 'download id') }).then((answer: { ended: boolean }) => answer.ended),
     // ── the editor's own storage ──
     readEditorSettings: ([projectPath, relPath, workspaceFile], host) => {
       const root = requiredString(projectPath, 'projectPath');

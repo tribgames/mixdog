@@ -96,13 +96,13 @@ fn a_2_gib_file_streams_with_memory_independent_of_its_size() {
     let opened = transfers.begin_project_read("dev", &root, "big.bin").unwrap();
     assert_eq!(opened.size, SIZE);
     // Warm the allocator with a first page, then measure the rest.
-    let first = transfers.read_range("dev", &opened.transfer_id, 0, RANGE_MAX_BYTES).unwrap();
+    let first = transfers.read_range(&["dev"], &opened.transfer_id, 0, RANGE_MAX_BYTES, None).unwrap();
     assert_eq!(first.length, RANGE_MAX_BYTES);
     drop(first);
     let baseline = peak_working_set();
     let (mut offset, mut pages) = (RANGE_MAX_BYTES, 1u64);
     loop {
-        let page = transfers.read_range("dev", &opened.transfer_id, offset, RANGE_MAX_BYTES).unwrap();
+        let page = transfers.read_range(&["dev"], &opened.transfer_id, offset, RANGE_MAX_BYTES, None).unwrap();
         offset += page.length;
         pages += 1;
         if page.eof {
