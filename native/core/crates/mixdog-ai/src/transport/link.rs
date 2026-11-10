@@ -32,6 +32,9 @@ use super::deadlines::NODE_DISPATCHER;
 use super::fault::fault_from_reqwest;
 use super::fault::provider_error_from_reqwest;
 use super::http::client_builder;
+use super::node_http::NodeClient;
+use super::node_http::Pinned;
+use super::node_http::Writer;
 use super::ws;
 use super::ws::ConnectError;
 use super::ws::Message;
@@ -182,11 +185,19 @@ pub struct Exchange {
     pub liveness: Liveness,
     pub redirect: Redirect,
     pub surface: Surface,
+    /// The Node client that writes the request: the global `fetch` (the default) or a raw `undici.request`.
+    pub writer: Writer,
 }
 
 impl Exchange {
     pub const fn new(liveness: Liveness, redirect: Redirect, surface: Surface) -> Self {
-        Self { liveness, redirect, surface }
+        Self { liveness, redirect, surface, writer: Writer::Fetch }
+    }
+
+    /// The call site is a raw `undici.request`, which adds none of `fetch`'s headers.
+    pub const fn raw(mut self) -> Self {
+        self.writer = Writer::Raw;
+        self
     }
 }
 
@@ -227,6 +238,8 @@ pub trait BidiOpen: Send + Sync {
 enum Clients {
     Fixed(reqwest::Client),
     Routed(RoutedClients),
+    /// The Node-equal HTTP/1.1 (and negotiated h2) client of every exchange that is not a request stream.
+    Node(NodeClient),
 }
 
 /// The shared `reqwest` client as both HTTP seams. Redirects are never
@@ -264,9 +277,19 @@ impl ReqwestLink {
     /// `http2_only` speaks HTTP/2 without negotiation (Connect streams need
     /// it, and so do the h2c peers of tests).
     pub fn new(schedule: &KeepaliveSchedule, http2_only: bool) -> Result<Self, reqwest::Error> {
+        if !http2_only {
+            return Ok(Self { clients: Clients::Node(NodeClient::new(schedule.tcp, None, None)) });
+        }
         Ok(Self {
             clients: Clients::Fixed(link_builder(schedule, http2_only).build()?),
         })
+    }
+
+    /// The Node-equal client with every connect going to `addr` and trusting `tls` alone: what is written is unchanged.
+    pub fn pinned(schedule: &KeepaliveSchedule, addr: std::net::SocketAddr, tls: Arc<rustls::ClientConfig>) -> Self {
+        let mut config = (*tls).clone();
+        config.alpn_protocols = super::node_http::ALPN.iter().map(|p| p.to_vec()).collect();
+        Self { clients: Clients::Node(NodeClient::new(schedule.tcp, None, Some(Pinned { addr, tls: Arc::new(config) }))) }
     }
 
     /// The link with its client built from `tweak(link_builder)`: a test pins hosts to a loopback server and trusts its
@@ -284,6 +307,9 @@ impl ReqwestLink {
     /// change of the setting retires the clients, so no pooled connection
     /// opened under the old setting is reused.
     pub fn routed(schedule: &KeepaliveSchedule, http2_only: bool, policy: Arc<NetworkProxy>) -> Self {
+        if !http2_only {
+            return Self { clients: Clients::Node(NodeClient::new(schedule.tcp, Some(policy), None)) };
+        }
         let clients = RoutedClients::new(policy, routed_builder(*schedule, http2_only));
         Self { clients: Clients::Routed(clients) }
     }
@@ -301,6 +327,11 @@ impl ReqwestLink {
         let client = match &self.clients {
             Clients::Fixed(client) => client.clone(),
             Clients::Routed(routed) => routed.client_for(&request.url).await.map_err(proxy_error)?,
+            Clients::Node(_) => {
+                let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent);
+                error.message = "a request stream needs an http2_only link".to_owned();
+                return Err(error);
+            }
         };
         let mut builder = client.request(method, &request.url);
         for (name, value) in &request.headers {
@@ -454,15 +485,14 @@ fn next_hop(
 /// classes, and a `Unary` body shares the same total.
 async fn settle(
     exchange: Exchange,
-    answer: impl std::future::Future<Output = Result<reqwest::Response, ProviderError>>,
+    answer: impl std::future::Future<Output = Result<HttpResponse, ProviderError>>,
 ) -> Result<HttpResponse, ProviderError> {
     let liveness = exchange.liveness;
     let started = tokio::time::Instant::now();
-    let response = liveness
+    let mut response = liveness
         .bound_head(answer)
         .await
         .map_err(|expired| deadline_error(expired, DeliveryState::Ambiguous, exchange.surface))??;
-    let mut response = response_of(response);
     if let Some(total) = liveness.total_deadline() {
         response.body = Box::new(DeadlineBody {
             inner: response.body,
@@ -489,27 +519,35 @@ impl ReqwestLink {
         &self,
         mut request: WireRequest,
         exchange: Exchange,
-    ) -> Result<reqwest::Response, ProviderError> {
-        let Exchange { redirect, surface, .. } = exchange;
+    ) -> Result<HttpResponse, ProviderError> {
+        let Exchange { redirect, surface, writer, .. } = exchange;
         for _ in 0..=MAX_REDIRECTS {
-            let builder = self.builder(&request, surface).await?.body(request.body.clone());
-            let raw = builder
-                .send()
-                .await
-                .map_err(|err| provider_error_from_reqwest(&err, surface))?;
-            if !is_redirect(raw.status()) {
+            let raw = match &self.clients {
+                Clients::Node(node) => node.send(&request, writer, surface).await?,
+                _ => {
+                    let builder = self.builder(&request, surface).await?.body(request.body.clone());
+                    let sent = builder
+                        .send()
+                        .await
+                        .map_err(|err| provider_error_from_reqwest(&err, surface))?;
+                    response_of(sent)
+                }
+            };
+            let status = reqwest::StatusCode::from_u16(raw.status).unwrap_or(reqwest::StatusCode::OK);
+            if !is_redirect(status) {
                 return Ok(raw);
             }
             match redirect {
                 Redirect::Manual => return Ok(raw),
-                Redirect::Error => return Err(redirect_refused(raw.status(), surface)),
+                Redirect::Error => return Err(redirect_refused(status, surface)),
                 Redirect::Follow => {
                     let location = raw
-                        .headers()
-                        .get(reqwest::header::LOCATION)
-                        .and_then(|v| v.to_str().ok());
+                        .headers
+                        .iter()
+                        .find(|(name, _)| name.eq_ignore_ascii_case("location"))
+                        .map(|(_, value)| value.as_str());
                     // No usable `Location`: the answer is the response, as in fetch.
-                    let Some(next) = location.and_then(|l| next_hop(&request, raw.status(), l))
+                    let Some(next) = location.and_then(|l| next_hop(&request, status, l))
                     else {
                         return Ok(raw);
                     };
@@ -571,7 +609,7 @@ impl BidiOpen for ReqwestLink {
             if redirect == Redirect::Error && is_redirect(raw.status()) {
                 return Err(redirect_refused(raw.status(), surface));
             }
-            Ok(raw)
+            Ok(response_of(raw))
         };
         let response = settle(exchange, answer).await?;
         Ok((response, Arc::new(ChannelSink(tx))))

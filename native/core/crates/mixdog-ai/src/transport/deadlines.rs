@@ -41,7 +41,7 @@ pub const MODEL_STREAM_FETCH: Exchange = Exchange::new(Liveness::stream(secs(600
 
 /// The connection warm-up: `shared/llm/http-agent.mjs:504-515` `undici.request(origin, { method: 'HEAD', signal:
 /// AbortSignal.timeout(10_000) })`, which does not follow redirects; its failure is swallowed.
-pub const PRECONNECT: Exchange = Exchange::new(Liveness::unary(secs(10)), Redirect::Manual, Surface::FetchSignal);
+pub const PRECONNECT: Exchange = Exchange::new(Liveness::unary(secs(10)), Redirect::Manual, Surface::FetchSignal).raw();
 
 /// A unary request that Node gives no timeout of its own: its fetch still rides
 /// the LLM dispatcher (`shared/llm/http-agent.mjs:413-414`, headers and body 600_000). Raw `fetch`

@@ -28,6 +28,8 @@ bytes = { workspace = true }
 ring = { workspace = true }
 chrono = { workspace = true }
 flate2 = { workspace = true }
+httparse = { workspace = true }
+brotli = { workspace = true }
 futures = { workspace = true, features = ["std"] }
 h2 = { workspace = true }
 rand = { workspace = true }
