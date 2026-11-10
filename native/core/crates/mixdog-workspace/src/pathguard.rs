@@ -146,14 +146,19 @@ pub fn is_beyond_project(error: &WsError) -> bool {
 /// `path.isAbsolute` (on Windows that includes a rooted `\dir`, which `path.resolve` then puts on the working directory's drive), and
 /// resolved by the host's `path.resolve`.
 pub fn absolute_local_path(value: &str) -> WsResult<PathBuf> {
+    absolute_local_path_in(mixdog_js::nodepath::Style::host(), value)
+}
+
+/// [`absolute_local_path`] under the path rules of `style` (Node's `path` is `path.win32` on a Windows host and `path.posix` elsewhere).
+pub fn absolute_local_path_in(style: mixdog_js::nodepath::Style, value: &str) -> WsResult<PathBuf> {
     let text = mixdog_js::js_trim(value);
     if text.is_empty() || mixdog_js::utf16_len(text) > 16_384 || text.contains('\0') {
         return Err(WsError::invalid("path is invalid."));
     }
-    if !mixdog_js::nodepath::is_absolute_host(text) {
+    if !mixdog_js::nodepath::is_absolute(style, text) {
         return Err(WsError::invalid("path must be absolute."));
     }
-    Ok(PathBuf::from(mixdog_js::nodepath::resolve_host(&[text])))
+    Ok(PathBuf::from(mixdog_js::nodepath::resolve(style, &[text])))
 }
 
 /// How Node's project registry reads a path (`resolveProjectPath`, projects.mjs:251, behind `knownPath`, `ensureDir` and the catalog): the
@@ -208,4 +213,25 @@ mod tests {
             replayed += 1;
         }
         assert_eq!(replayed, golden["inputs"].as_array().unwrap().iter().filter(|input| input["value"].is_string()).count());
-    }}
+    }
+
+    /// The same function under the POSIX rules, against Node's answers with `node:path` as `path.posix` (the `posix` section of the same recording,
+    /// made by loading local-files.ts with that path module): the criterion holds on both kinds of host.
+    #[test]
+    fn absolute_local_path_answers_each_recorded_posix_input_as_node_does() {
+        let golden: serde_json::Value = serde_json::from_str(include_str!("../../../../../apps/mobile/fixtures/absolute-local-path/golden.json")).unwrap();
+        let posix = &golden["posix"];
+        let mut replayed = 0;
+        for (input, answer) in posix["inputs"].as_array().unwrap().iter().zip(posix["answers"].as_array().unwrap()) {
+            let text = input["value"].as_str().unwrap();
+            let got = absolute_local_path_in(mixdog_js::nodepath::Style::Posix, text).map(|path| path.to_string_lossy().into_owned()).map_err(|error| error.message);
+            let want = match answer.get("result") {
+                Some(result) => Ok(result.as_str().unwrap().to_owned()),
+                None => Err(answer["error"]["message"].as_str().unwrap().to_owned()),
+            };
+            assert_eq!(got, want, "{}: {text:?}", input["name"]);
+            replayed += 1;
+        }
+        assert_eq!(replayed, 23);
+    }
+}

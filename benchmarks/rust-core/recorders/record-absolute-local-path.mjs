@@ -6,7 +6,9 @@
 //   node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs \
 //        benchmarks/rust-core/recorders/record-absolute-local-path.mjs --tree <git archive of b6f10295a with node_modules>
 import { existsSync } from 'node:fs';
+import { register } from 'node:module';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { commitStage, exactProductIdentity, importFrom, parseArgs, REPO_ROOT, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 
 const REF = 'b6f10295a2f698afc85332467192de28500bd146';
@@ -70,6 +72,43 @@ const answer = (input) => {
   }
 };
 
+// The same function with the POSIX rules (see lib/posix-path-hook.mjs). An absolute path never reads the working directory, and a relative one
+// is refused before it could, so the host's current directory takes no part in these answers.
+const POSIX_INPUTS = [
+  ['absolute', '/a/b'],
+  ['dot-dot and trailing slash', '/dir/../x/'],
+  ['dot-dot above the root', '/../..'],
+  ['root', '/'],
+  ['double slashes', '//a//b'],
+  ['two slashes and a name', '//server'],
+  ['relative', 'relative/dir'],
+  ['dot', '.'],
+  ['dot-dot', '..'],
+  ['backslashes are a file name', '\\a\\b'],
+  ['drive-looking', 'C:\\x'],
+  ['drive-looking with slashes', 'C:/x'],
+  ['trimmed spaces', ' /a/b '],
+  ['trimmed tab and newline', '\t/a/b\n'],
+  ['trimmed no-break space and BOM', '\u00a0\ufeff/a/b\u00a0\ufeff'],
+  ['spaces inside', '/a b/c'],
+  ['case is kept', '/Mixed/CASE/'],
+  ['dot segments inside', '/a/./b/./'],
+  ['empty', ''],
+  ['blank', '   '],
+  ['NUL inside', '/a\u0000b'],
+  ['16384 characters', `/${'a'.repeat(16_383)}`],
+  ['16385 characters', `/${'a'.repeat(16_384)}`],
+].map(([name, value]) => ({ name, value }));
+register(pathToFileURL(join(REPO_ROOT, 'benchmarks', 'rust-core', 'recorders', 'lib', 'posix-path-hook.mjs')).href);
+const posix = await import(`${pathToFileURL(join(tree, 'apps/desktop/src/main/local-files.ts')).href}?posix`);
+const posixAnswers = POSIX_INPUTS.map((input) => {
+  try {
+    return { result: posix.absoluteLocalPath(input.value) };
+  } catch (error) {
+    return { error: { name: error.name, message: error.message } };
+  }
+});
+
 const drives = {};
 for (const drive of DRIVES) {
   const root = `${drive}:\\`;
@@ -84,6 +123,7 @@ writeJson(join(out, 'golden.json'), {
   note: "Node's absoluteLocalPath per class of input, on a Windows host: per working-directory drive, each input's answer (the resolved path) or its error (name and message), in the order of `inputs`.",
   inputs,
   drives,
+  posix: { note: "The same function loaded with node:path as path.posix (lib/posix-path-hook.mjs): Node's answers on a POSIX host.", inputs: POSIX_INPUTS, answers: posixAnswers },
 });
 writeSetManifest(out, {
   set: 'absolute-local-path',
