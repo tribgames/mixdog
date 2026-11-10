@@ -314,7 +314,12 @@ fn file_op(dir: &Path, step: &Value) -> bool {
             std::fs::OpenOptions::new().append(true).open(&target).unwrap().write_all(step["text"].as_str().unwrap().as_bytes()).unwrap();
         }
         "size" => std::fs::OpenOptions::new().write(true).open(&target).unwrap().set_len(step["bytes"].as_u64().unwrap()).unwrap(),
-        "remove" => drop(std::fs::remove_file(&target)),
+        // `rmSync(force)`: a missing file is no error, a file that cannot be removed is.
+        "remove" => {
+            if target.exists() {
+                std::fs::remove_file(&target).unwrap_or_else(|error| panic!("{} could not be removed: {error}", target.display()));
+            }
+        }
         "mkdir" => std::fs::create_dir_all(&target).unwrap(),
         "rename" => std::fs::rename(&target, dir.join(step["to"].as_str().unwrap())).unwrap(),
         "junction" => {
@@ -498,6 +503,14 @@ async fn every_recorded_download_scenario_is_answered_and_held_as_nodes_service_
                             Arc::new(move |reached: &str| {
                                 if reached == point {
                                     service.revoke_device(&id);
+                                }
+                            })
+                        }
+                        "revokeAll" => {
+                            let service = world.service.clone();
+                            Arc::new(move |reached: &str| {
+                                if reached == point {
+                                    service.revoke_all_downloads();
                                 }
                             })
                         }

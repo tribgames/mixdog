@@ -589,6 +589,21 @@ await answer('read');
 await handles();
 await call('phone', 'fileDownloadRange', [transferOf(lease), 0, 4, versionOf(lease)]);
 
+begin('relay close during a read', 'a read held at the file when the relay closes (every download revoked) answers expired, never bytes, and the file is let go: it can be removed');
+file('write', { file: 'a.bin', text: '0123456789abcdef' });
+grant = await call('phone', 'fileDownloadAuthorize', [session('a.bin')]);
+lease = await call('phone', 'fileDownloadBegin', [grantOf(grant)]);
+const relayClosing = gate('read');
+step({ op: 'hold', gate: 'read' });
+await call('phone', 'fileDownloadRange', [transferOf(lease), 0, 4, versionOf(lease)], { key: 'read' });
+await relayClosing.arrived;
+revokeAll();
+await release('read', relayClosing);
+await answer('read');
+await handles();
+file('remove', { file: 'a.bin' });
+await call('phone', 'fileDownloadRange', [transferOf(lease), 0, 4, versionOf(lease)]);
+
 begin('unpair during begin', 'a begin held while the file is checked, revoked meanwhile, leaves no transfer behind');
 file('write', { file: 'a.bin', text: '0123456789abcdef' });
 grant = await call('phone', 'fileDownloadAuthorize', [session('a.bin')]);

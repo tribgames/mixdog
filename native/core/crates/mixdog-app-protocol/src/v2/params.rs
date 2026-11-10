@@ -4818,6 +4818,17 @@ pub enum DownloadSource {
         #[serde(rename = "assetId")]
         asset_id: String,
     },
+    /// A link the conversation shows, by its `href` as written (decoded by the core as the desktop decodes it); `itemId` names the row.
+    Link {
+        #[serde(rename = "itemId")]
+        item_id: String,
+        href: String,
+    },
+    /// An attachment the conversation's transcript names, by its content hash.
+    Attachment {
+        #[serde(rename = "attachmentId")]
+        attachment_id: String,
+    },
 }
 
 /// Params of `transfer/authorizeRead`: the first stage of a phone's download, a grant that expires.
