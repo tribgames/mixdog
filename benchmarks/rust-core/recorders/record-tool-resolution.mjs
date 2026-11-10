@@ -10,7 +10,7 @@
 // replay registers; a case's `provider` array names its tools in wire order, each pointing at the
 // definition it carries (`definitions`), so a definition that differs between cases (the Lead's and
 // an agent's `git`/`task`, the edit dialect, the bridge pair) is recorded once per variant.
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 // Import-time sweeps delete real user data: every user dir is a fresh temp dir first.
@@ -18,7 +18,7 @@ const sandbox = mkdtempSync(join(tmpdir(), 'tool-resolution-'));
 for (const key of ['MIXDOG_DATA_DIR', 'MIXDOG_HOME', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA']) process.env[key] = sandbox;
 process.env.MIXDOG_SKIP_USER_DATA_BACKUP = '1';
 process.env.TZ = 'UTC';
-const { FIXTURES_ROOT, commitStage, importFrom, parseArgs, recordingProvenance, resolveTree, exactProductIdentity, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
+const { FIXTURES_ROOT, importFrom, parseArgs, recordingProvenance, resolveTree, exactProductIdentity, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
 
 const { writeJsonCompact } = await import('./lib/tool-definitions.mjs');
 const tree = resolveTree(parseArgs());
@@ -271,5 +271,9 @@ writeSetManifest(stage, {
   identity: exactProductIdentity(tree, 'b6f10295a2f698afc85332467192de28500bd146'),
   extra: recordingProvenance(recorder, ['benchmarks/rust-core/recorders/lib/common.mjs', 'benchmarks/rust-core/recorders/lib/tool-definitions.mjs']),
 });
-commitStage(stage, finalDir);
+// Only this recorder's two files are swapped in: `commitStage` replaces every file of the folder with the staged copy,
+// `harness-request.json` included, which would undo a change made to it meanwhile and leave it missing if this run were cut
+// between its removal and its rename.
+for (const name of ['golden.json', 'MANIFEST.json']) renameSync(join(stage, name), join(finalDir, name));
+rmSync(stage, { recursive: true, force: true });
 console.log(`tool resolution: ${cases.length} cases, ${Object.keys(definitions).length} definitions`);
