@@ -153,6 +153,9 @@ struct Env {
     probe: Arc<FakeProbe>,
     base: Arc<FakeBase>,
     work: RunningWork,
+    owned: Arc<super::routines_db::OwnedRoutines>,
+    /// The state both stores keep their rows in.
+    state: CoreState,
     /// `isCloseRequested()` of the admin.
     closing: CancellationToken,
     _dir: tempfile::TempDir,
@@ -166,7 +169,8 @@ async fn env_with(channel_start_disabled: bool) -> Env {
     let dir = tempfile::tempdir().unwrap();
     let (state, _) = CoreState::open(tokens().sqlite_writer_thread, tokens().interactive_io, &dir.path().join("core.sqlite")).unwrap();
     let schedules = Arc::new(StateScheduleStore::new(state.clone(), Arc::new(SystemClock)));
-    let webhooks = Arc::new(StateWebhookStore::new(state, Arc::new(SystemClock)));
+    let webhooks = Arc::new(StateWebhookStore::new(state.clone(), Arc::new(SystemClock)));
+    let owned = Arc::new(super::routines_db::OwnedRoutines::new(state.clone()));
     let host = Arc::new(FakeHost::default());
     let records = Arc::new(StoreRoutineRecords::new(schedules.clone(), webhooks.clone()));
     let routines = RoutineRuntime::new(host.clone(), records, Arc::new(SystemClock), Tz::UTC);
@@ -191,6 +195,7 @@ async fn env_with(channel_start_disabled: bool) -> Env {
     let admin = ChannelAdmin::new(AdminDeps {
         schedules: schedules.clone(),
         webhooks: webhooks.clone(),
+        owned: owned.clone(),
         routines: routines.clone(),
         runtime: runtime.clone(),
         settings: settings.clone(),
@@ -201,7 +206,7 @@ async fn env_with(channel_start_disabled: bool) -> Env {
         channel_start_disabled,
         close_requested: closing.clone(),
     });
-    Env { host, admin, runtime, routines, schedules, webhooks, settings, services, agent, probe, base, work, closing, _dir: dir }
+    Env { host, admin, runtime, routines, schedules, webhooks, owned, state, settings, services, agent, probe, base, work, closing, _dir: dir }
 }
 
 fn recurring(name: &str) -> Value {
@@ -600,6 +605,33 @@ async fn deleting_a_bots_routines_removes_only_its_own() {
     assert_eq!(e.admin.delete_owned_routines("gh-bot").await.unwrap(), json!({"schedules": ["mine"], "webhooks": ["hook"]}));
     assert_eq!(e.schedules.list().await.unwrap().len(), 1);
     assert_eq!(message(e.admin.delete_owned_routines("lead").await.unwrap_err()), "the routines of \"lead\" cannot be deleted with a bot");
+}
+
+/// All or nothing (routines-db.mjs: one statement): a purge that fails partway leaves every
+/// routine of the bot, its webhook's delivery log included; names come back sorted.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_purge_that_fails_partway_deletes_nothing() {
+    use crate::webhooks::records::{DELIVERY_PREFIX, ENDPOINT_PREFIX};
+    let e = env().await;
+    for name in ["zeta", "alpha"] {
+        e.schedules.upsert(&sched(name)).await.unwrap();
+    }
+    e.webhooks.upsert(&EndpointRecord { name: "hook".into(), owner_agent_id: "gh-bot".into(), ..Default::default() }).await.unwrap();
+    let delivery = format!("{DELIVERY_PREFIX}hook:d1");
+    let bad = format!("{ENDPOINT_PREFIX}broken");
+    let (put_delivery, put_bad) = (delivery.clone(), bad.clone());
+    e.state.write(move |tx| {
+        tx.put_meta(&put_delivery, "{}")?;
+        tx.put_meta(&put_bad, "not json")
+    }).await.unwrap();
+    assert!(e.admin.delete_owned_routines("gh-bot").await.is_err(), "an unreadable row fails the purge");
+    assert_eq!(e.schedules.list().await.unwrap().len(), 2, "the schedules read before the failure are kept");
+    assert!(e.webhooks.load("hook").await.unwrap().is_some());
+    assert!(e.state.meta(&delivery).await.unwrap().is_some(), "the delivery log is kept");
+    let restore = bad.clone();
+    e.state.write(move |tx| tx.delete_meta(&restore)).await.unwrap();
+    assert_eq!(e.owned.delete_owned_by("gh-bot").await.unwrap(), super::routines_db::Removed { schedules: vec!["alpha".into(), "zeta".into()], webhooks: vec!["hook".into()] });
+    assert!(e.state.meta(&delivery).await.unwrap().is_none(), "the delivery log goes with its endpoint");
 }
 
 fn request(method: &'static str, params: Value, op: Option<&str>) -> CoreRequest {
@@ -1001,6 +1033,7 @@ async fn saving_a_webhook_leaves_the_hook_identity_and_the_setup_shows_the_publi
     let admin = ChannelAdmin::new(AdminDeps {
         schedules: e.schedules.clone(),
         webhooks: e.webhooks.clone(),
+        owned: e.owned.clone(),
         routines: e.routines.clone(),
         runtime: runtime.clone(),
         settings: e.settings.clone(),
@@ -1160,6 +1193,7 @@ async fn rig_with(hold_reload: bool) -> Rig {
     let admin = ChannelAdmin::new(AdminDeps {
         schedules: e.schedules.clone(),
         webhooks: e.webhooks.clone(),
+        owned: e.owned.clone(),
         routines: e.routines.clone(),
         runtime: runtime.clone(),
         settings: e.settings.clone(),

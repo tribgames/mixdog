@@ -7,6 +7,7 @@ pub mod bridge;
 pub mod call;
 pub mod intent;
 pub mod ports;
+pub mod routines_db;
 pub mod running;
 pub mod runtime;
 pub mod service;
