@@ -25,9 +25,6 @@ use crate::repo::on_lane;
 /// caller that asks meanwhile, so one wedged child would hold them all. Writes are unbounded.
 pub const GIT_READ_LIMIT: Duration = Duration::from_secs(60);
 
-/// Diagnostic tail kept from a failed child.
-const TAIL_BYTES: usize = 64_000;
-
 /// Output a status scan may produce (about a million untracked paths) before it fails.
 pub const STATUS_MAX_BYTES: u64 = 64 * 1024 * 1024;
 /// Output of ordinary reads and writes.
@@ -248,16 +245,8 @@ pub fn readable_remote_error(failure: ScmFailure) -> ScmFailure {
 }
 fn failure_text(output: &ExecOutput, args: &[&str]) -> String {
     let stderr = output.stderr_text();
-    let tail = if stderr.len() > TAIL_BYTES {
-        let mut start = stderr.len() - TAIL_BYTES;
-        while !stderr.is_char_boundary(start) {
-            start += 1;
-        }
-        &stderr[start..]
-    } else {
-        &stderr[..]
-    };
-    let text = tail.trim();
+    // runGit (git-runner.ts:149) tells the failure by the whole stderr, not a tail.
+    let text = stderr.trim();
     if text.is_empty() {
         format!("Command failed: git {}", args.join(" "))
     } else {

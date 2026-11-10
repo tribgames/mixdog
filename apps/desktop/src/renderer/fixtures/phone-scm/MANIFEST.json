@@ -10,14 +10,14 @@
       "sha256": "fb478bbea7ada0ce291005c19d307544036883efb7084e908d28ec534378f563"
     },
     {
-      "bytes": 10463,
+      "bytes": 11005,
       "path": "gh-script.json",
-      "sha256": "86fccdf8b84803f67e29719e29667e40f4e6d1498e5c1d0b293f11fd3358b7c1"
+      "sha256": "9304aed5ec981ca2dbe7586192081aab1c13822c3d626cdc214d572a32139a38"
     },
     {
-      "bytes": 520754,
+      "bytes": 1157020,
       "path": "golden.json",
-      "sha256": "dcd0626dd68579ab023cbe521792b5bd0db60c0950c9e1588137534e227f7f40"
+      "sha256": "7beb320d0d75781ae8be00d83f88e694facdb8ba8edbb142520b87cc74920717"
     }
   ],
   "product": {
@@ -39,5 +39,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-phone-scm.mjs",
   "set": "phone-scm",
-  "totalBytes": 532065
+  "totalBytes": 1168873
 }

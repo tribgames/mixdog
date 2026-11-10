@@ -327,7 +327,8 @@ pub async fn git_review(git: &Git, lane: MaintenanceIo, cancel: &CancellationTok
             if source == "uncommitted" { Ok(None) } else { resolve_merge_base(&git, &cancel, &root).await.map(Some) }
         }
     };
-    let (status, merge_base) = crate::promise_all::all2(scan, merge).await?;    let unborn = status.head.is_empty() || status.head == "(initial)";
+    let (status, merge_base) = crate::promise_all::all2(scan, merge).await?;
+    let unborn = status.head.is_empty() || status.head == "(initial)";
     let mut base = "HEAD".to_owned();
     let mut reference = "HEAD".to_owned();
     if unborn {

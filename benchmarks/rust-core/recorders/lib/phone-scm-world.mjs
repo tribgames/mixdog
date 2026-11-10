@@ -70,6 +70,12 @@ export function createScriptEngine({ script, onSpawn }) {
     }
     const reply = missing ? { code: -1, stderr: 'ENOENT' } : (rule?.reply ?? { code: 1, stderr: 'unscripted' });
     Object.assign(world, rule?.set ?? {});
+    // What the real tool does to the repository it is run in (a checked-out pull request): these git commands, run for real here, so
+    // the repository changes as it does for either product.
+    for (const args of rule?.effect ?? []) {
+      const done = cp.spawnSync(process.env.PHONE_SCM_REAL_GIT, ['-c', 'core.autocrlf=false', ...args], { cwd, encoding: 'utf8', timeout: 120_000, killSignal: 'SIGKILL' });
+      if (done.error || done.status !== 0) unscripted.push({ tool, argv: clone(argv), effect: args, failed: done.error?.message ?? done.stderr });
+    }
     onSpawn({ tool, argv: clone(argv), cwd: cwd ?? null, env: envDelta(env, process.env), reply: clone(reply) });
     for (const listener of listeners) listener(tool, argv);
     return reply;

@@ -5,7 +5,6 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use mixdog_core_api::CoreError;
 use tokio_util::sync::CancellationToken;
 
 use crate::engine::Scm;
@@ -46,10 +45,10 @@ impl mixdog_core_api::domain::process::ProcessManager for NoPrograms {
     }
 }
 
-/// Only the status answer tells a git that could not start apart. A caller that reads the work tree for another purpose (the
-/// dirty-paths guard of a reset, the commit's selection) has always been told a git diagnostic under `COMMAND_FAILED`.
+/// The dirty-paths guard of a reset or cherry-pick reads the work tree as Node's `assertCleanWorktree` does (git-branches.ts:92):
+/// a status that cannot read the repository yields no files, and the first git command after it reports the missing git.
 #[tokio::test]
-async fn a_caller_other_than_status_is_told_a_git_that_could_not_start_as_before() {
+async fn the_dirty_guard_finds_nothing_when_git_cannot_start() {
     let (_guard, repo, _head) = crate::golden_tests::fixture_repo();
     let programs = Arc::new(NoPrograms(std::sync::Mutex::new(None)));
     let scm = Scm::new(
@@ -58,10 +57,7 @@ async fn a_caller_other_than_status_is_told_a_git_that_could_not_start_as_before
         std::env::temp_dir().join(format!("mixdog-scm-nogit-{}", std::process::id())),
     );
     let cancel = CancellationToken::new();
-    let failure = scm.open(&repo, &cancel).await.unwrap().dirty_paths().await.unwrap_err();
-    let CoreError::DomainError { code, message, .. } = CoreError::from(failure) else { panic!("not a domain error") };
-    assert_eq!(code.as_deref(), Some("COMMAND_FAILED"));
-    // The diagnostic names the program exactly as the manager was asked to start it.
-    let asked = programs.0.lock().unwrap().clone().expect("a program was asked for");
-    assert_eq!(message.as_deref(), Some(format!("{asked} is not available").as_str()));
+    let dirty = scm.open(&repo, &cancel).await.unwrap().dirty_paths().await.unwrap();
+    assert!(dirty.is_empty(), "{dirty:?}");
+    assert!(programs.0.lock().unwrap().is_some(), "git was never asked for");
 }
