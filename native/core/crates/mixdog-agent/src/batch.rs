@@ -501,6 +501,7 @@ impl Run {
                 }
             }
             // 2. Record finished outcomes in call order.
+            let recorded_before = recorded;
             while recorded < n && finished[recorded] {
                 if let Some(mut result) = executed[recorded].take() {
                     let later_mutation = (recorded + 1..n).any(|k| !self.tools.read_only(&calls[k].name));
@@ -569,7 +570,9 @@ impl Run {
             }
             if running.is_empty() {
                 // Everything left was decided without a run.
-                if (0..n).all(|k| finished[k]) {
+                // A decision that waited on unrecorded outcomes is made again once they are recorded; stopping here
+                // would leave the calls after it without a result.
+                if recorded > recorded_before || (0..n).all(|k| finished[k]) {
                     continue;
                 }
                 break;
