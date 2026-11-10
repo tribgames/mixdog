@@ -850,6 +850,9 @@ mod tests {
         fn new_id(&self) -> String {
             "1".into()
         }
+        fn grants(&self) -> Arc<dyn mixdog_tools::policy::GrantStore> {
+            Arc::new(mixdog_tools::policy::MemoryGrantStore::default())
+        }
     }
     #[async_trait]
     impl SetupDesktop for Quiet {
@@ -1066,15 +1069,21 @@ mod tests {
 
     /// The composed MCP service publishes its sign-in flows on the core's scoped feeds: a sign-in begun
     /// through `mcp/beginMcpOAuthLogin` opens `login:<flowId>`, whose snapshot is what the flow's status read
-    /// answers (a configured server whose address refuses the connection fails the flow at once, so the feed holds
-    /// its final state). A server that is not configured is refused before any flow exists, so it opens no feed.
+    /// answers (a configured server whose address serves no request fails the flow at once, so the feed holds its
+    /// final state). A server that is not configured is refused before any flow exists, so it opens no feed.
     #[tokio::test(flavor = "multi_thread")]
     async fn a_sign_in_begun_through_the_composition_publishes_its_login_feed() {
         let Composed { composed, extensions, feeds, .. } = compose_over(Arc::new(Quiet)).await;
         let owner = composed.mcp_domain.clone();
-        let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let url = format!("http://{}/mcp", closed.local_addr().unwrap());
-        drop(closed);
+        // The address hangs up on every connection. A closed port would fail the flow the same way, but each of
+        // the flow's eleven requests then waits two seconds for Windows to refuse the connection.
+        let hangs_up = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/mcp", hangs_up.local_addr().unwrap());
+        tokio::spawn(async move {
+            while let Ok((socket, _)) = hangs_up.accept().await {
+                drop(socket);
+            }
+        });
         let mut agent = extensions.agent();
         agent.insert("mcpServers".to_owned(), serde_json::json!({"remote": {"type": "http", "url": url}}));
         extensions.save_agent(&extensions.agent(), &agent).await.unwrap();

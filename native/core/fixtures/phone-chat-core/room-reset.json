@@ -1,0 +1,636 @@
+{
+  "recorder": "benchmarks/rust-core/recorders/record-room-reset.mjs",
+  "cases": [
+    {
+      "name": "success",
+      "roomId": "id000001",
+      "logSession": "sess_room_id000001",
+      "running": false,
+      "existing": [
+        "sess_rmem_id000001_bench",
+        "sess_rmem_id000001_gh",
+        "sess_rmem_id000001_rel"
+      ],
+      "inject": {
+        "failMembers": [],
+        "startOver": "sess_archived_room"
+      },
+      "before": {
+        "name": "Release check",
+        "members": [
+          "gh",
+          "rel",
+          "bench"
+        ],
+        "maxRounds": 1,
+        "maxMessages": 30,
+        "shareTools": false,
+        "id": "id000001",
+        "createdAt": 1001,
+        "cursors": {
+          "gh": "user_id000002",
+          "rel": "row_id000004",
+          "bench": "row_id000006"
+        },
+        "running": null,
+        "lastPreview": "said by bench",
+        "lastSpeaker": "bench",
+        "lastAt": 1009,
+        "owed": null,
+        "seen": {
+          "gh": "user_id000002",
+          "rel": "row_id000004",
+          "bench": "row_id000006"
+        }
+      },
+      "outcome": {
+        "ok": true,
+        "value": {
+          "archivedSessionId": "sess_archived_room"
+        }
+      },
+      "calls": [
+        [
+          "startOver",
+          "sess_room_id000001"
+        ],
+        [
+          "resetMember",
+          "sess_rmem_id000001_gh"
+        ],
+        [
+          "resetMember",
+          "sess_rmem_id000001_rel"
+        ],
+        [
+          "resetMember",
+          "sess_rmem_id000001_bench"
+        ]
+      ],
+      "after": {
+        "name": "Release check",
+        "members": [
+          "gh",
+          "rel",
+          "bench"
+        ],
+        "maxRounds": 1,
+        "maxMessages": 30,
+        "shareTools": false,
+        "id": "id000001",
+        "createdAt": 1001,
+        "cursors": {},
+        "running": null,
+        "lastAt": 1011,
+        "owed": null
+      }
+    },
+    {
+      "name": "a member session that does not exist is skipped",
+      "roomId": "id000001",
+      "logSession": "sess_room_id000001",
+      "running": false,
+      "existing": [
+        "sess_rmem_id000001_gh",
+        "sess_rmem_id000001_rel"
+      ],
+      "inject": {
+        "failMembers": [],
+        "startOver": "sess_archived_room"
+      },
+      "before": {
+        "name": "Release check",
+        "members": [
+          "gh",
+          "rel",
+          "bench"
+        ],
+        "maxRounds": 1,
+        "maxMessages": 30,
+        "shareTools": false,
+        "id": "id000001",
+        "createdAt": 1001,
+        "cursors": {
+          "gh": "user_id000002",
+          "rel": "row_id000004",
+          "bench": "row_id000006"
+        },
+        "running": null,
+        "lastPreview": "said by bench",
+        "lastSpeaker": "bench",
+        "lastAt": 1009,
+        "owed": null,
+        "seen": {
+          "gh": "user_id000002",
+          "rel": "row_id000004",
+          "bench": "row_id000006"
+        }
+      },
+      "outcome": {
+        "ok": true,
+        "value": {
+          "archivedSessionId": "sess_archived_room"
+        }
+      },
+      "calls": [
+        [
+          "startOver",
+          "sess_room_id000001"
+        ],
+        [
+          "resetMember",
+          "sess_rmem_id000001_gh"
+        ],
+        [
+          "resetMember",
+          "sess_rmem_id000001_rel"
+        ]
+      ],
+      "after": {
+        "name": "Release check",
+        "members": [
+          "gh",
+          "rel",
+          "bench"
+        ],
+        "maxRounds": 1,
+        "maxMessages": 30,
+        "shareTools": false,
+        "id": "id000001",
+        "createdAt": 1001,
+        "cursors": {},
+        "running": null,
+        "lastAt": 1011,
+        "owed": null
+      }
+    },
+    {
+      "name": "nothing kept in the log",
+      "roomId": "id000001",
+      "logSession": "sess_room_id000001",
+      "running": false,
+      "existing": [
+        "sess_rmem_id000001_bench",
+        "sess_rmem_id000001_gh",
+        "sess_rmem_id000001_rel"
+      ],
+      "inject": {
+        "failMembers": [],
+        "startOver": null
+      },
+      "before": {
+        "name": "Release check",
+        "members": [
+          "gh",
+          "rel",
+          "bench"
+        ],
+        "maxRounds": 1,
+        "maxMessages": 30,
+        "shareTools": false,
+        "id": "id000001",
+        "createdAt": 1001,
+        "cursors": {
+          "gh": "user_id000002",
+          "rel": "row_id000004",
+          "bench": "row_id000006"
+        },
+        "running": null,
+        "lastPreview": "said by bench",
+        "lastSpeaker": "bench",
+        "lastAt": 1009,
+        "owed": null,
+        "seen": {
+          "gh": "user_id000002",
+          "rel": "row_id000004",
+          "bench": "row_id000006"
+        }
+      },
+      "outcome": {
+        "ok": true,
+        "value": {
+          "archivedSessionId": null
+        }
+      },
+      "calls": [
+        [
+          "startOver",
+          "sess_room_id000001"
+        ],
+        [
+          "resetMember",
+          "sess_rmem_id000001_gh"
+        ],
+        [
+          "resetMember",
+          "sess_rmem_id000001_rel"
+        ],
+        [
+          "resetMember",
+          "sess_rmem_id000001_bench"
+        ]
+      ],
+      "after": {
+        "name": "Release check",
+        "members": [
+          "gh",
+          "rel",
+          "bench"
+        ],
+        "maxRounds": 1,
+        "maxMessages": 30,
+        "shareTools": false,
+        "id": "id000001",
+        "createdAt": 1001,
+        "cursors": {},
+        "running": null,
+        "lastAt": 1011,
+        "owed": null
+      }
+    },
+    {
+      "name": "still talking",
+      "roomId": "id000001",
+      "logSession": "sess_room_id000001",
+      "running": true,
+      "existing": [],
+      "inject": {
+        "failMembers": [],
+        "startOver": "sess_archived_room"
+      },
+      "before": {
+        "name": "Release check",
+        "members": [
+          "gh",
+          "rel",
+          "bench"
+        ],
+        "maxRounds": 1,
+        "maxMessages": 30,
+        "shareTools": false,
+        "id": "id000001",
+        "createdAt": 1001,
+        "cursors": {},
+        "running": {
+          "startedAt": 1003
+        },
+        "lastPreview": "old question",
+        "lastSpeaker": "user",
+        "lastAt": 1002,
+        "owed": null
+      },
+      "outcome": {
+        "ok": false,
+        "error": "The room is still talking; stop it or wait before resetting."
+      },
+      "calls": [],
+      "after": {
+        "name": "Release check",
+        "members": [
+          "gh",
+          "rel",
+          "bench"
+        ],
+        "maxRounds": 1,
+        "maxMessages": 30,
+        "shareTools": false,
+        "id": "id000001",
+        "createdAt": 1001,
+        "cursors": {},
+        "running": {
+          "startedAt": 1003
+        },
+        "lastPreview": "old question",
+        "lastSpeaker": "user",
+        "lastAt": 1002,
+        "owed": null
+      }
+    },
+    {
+      "name": "one member fails to start over",
+      "roomId": "id000001",
+      "logSession": "sess_room_id000001",
+      "running": false,
+      "existing": [
+        "sess_rmem_id000001_bench",
+        "sess_rmem_id000001_gh",
+        "sess_rmem_id000001_rel"
+      ],
+      "inject": {
+        "failMembers": [
+          "rel"
+        ],
+        "startOver": "sess_archived_room"
+      },
+      "before": {
+        "name": "Release check",
+        "members": [
+          "gh",
+          "rel",
+          "bench"
+        ],
+        "maxRounds": 1,
+        "maxMessages": 30,
+        "shareTools": false,
+        "id": "id000001",
+        "createdAt": 1001,
+        "cursors": {
+          "gh": "user_id000002",
+          "rel": "row_id000004",
+          "bench": "row_id000006"
+        },
+        "running": null,
+        "lastPreview": "said by bench",
+        "lastSpeaker": "bench",
+        "lastAt": 1009,
+        "owed": null,
+        "seen": {
+          "gh": "user_id000002",
+          "rel": "row_id000004",
+          "bench": "row_id000006"
+        }
+      },
+      "outcome": {
+        "ok": false,
+        "error": "The room was reset, but 1 of its members could not start over."
+      },
+      "calls": [
+        [
+          "startOver",
+          "sess_room_id000001"
+        ],
+        [
+          "resetMember",
+          "sess_rmem_id000001_gh"
+        ],
+        [
+          "resetMember",
+          "sess_rmem_id000001_rel"
+        ],
+        [
+          "resetMember",
+          "sess_rmem_id000001_bench"
+        ]
+      ],
+      "after": {
+        "name": "Release check",
+        "members": [
+          "gh",
+          "rel",
+          "bench"
+        ],
+        "maxRounds": 1,
+        "maxMessages": 30,
+        "shareTools": false,
+        "id": "id000001",
+        "createdAt": 1001,
+        "cursors": {},
+        "running": null,
+        "lastAt": 1011,
+        "owed": null
+      }
+    },
+    {
+      "name": "two members fail to start over",
+      "roomId": "id000001",
+      "logSession": "sess_room_id000001",
+      "running": false,
+      "existing": [
+        "sess_rmem_id000001_bench",
+        "sess_rmem_id000001_gh",
+        "sess_rmem_id000001_rel"
+      ],
+      "inject": {
+        "failMembers": [
+          "gh",
+          "bench"
+        ],
+        "startOver": "sess_archived_room"
+      },
+      "before": {
+        "name": "Release check",
+        "members": [
+          "gh",
+          "rel",
+          "bench"
+        ],
+        "maxRounds": 1,
+        "maxMessages": 30,
+        "shareTools": false,
+        "id": "id000001",
+        "createdAt": 1001,
+        "cursors": {
+          "gh": "user_id000002",
+          "rel": "row_id000004",
+          "bench": "row_id000006"
+        },
+        "running": null,
+        "lastPreview": "said by bench",
+        "lastSpeaker": "bench",
+        "lastAt": 1009,
+        "owed": null,
+        "seen": {
+          "gh": "user_id000002",
+          "rel": "row_id000004",
+          "bench": "row_id000006"
+        }
+      },
+      "outcome": {
+        "ok": false,
+        "error": "The room was reset, but 2 of its members could not start over."
+      },
+      "calls": [
+        [
+          "startOver",
+          "sess_room_id000001"
+        ],
+        [
+          "resetMember",
+          "sess_rmem_id000001_gh"
+        ],
+        [
+          "resetMember",
+          "sess_rmem_id000001_rel"
+        ],
+        [
+          "resetMember",
+          "sess_rmem_id000001_bench"
+        ]
+      ],
+      "after": {
+        "name": "Release check",
+        "members": [
+          "gh",
+          "rel",
+          "bench"
+        ],
+        "maxRounds": 1,
+        "maxMessages": 30,
+        "shareTools": false,
+        "id": "id000001",
+        "createdAt": 1001,
+        "cursors": {},
+        "running": null,
+        "lastAt": 1011,
+        "owed": null
+      }
+    },
+    {
+      "name": "the log cannot start over",
+      "roomId": "id000001",
+      "logSession": "sess_room_id000001",
+      "running": false,
+      "existing": [
+        "sess_rmem_id000001_bench",
+        "sess_rmem_id000001_gh",
+        "sess_rmem_id000001_rel"
+      ],
+      "inject": {
+        "failMembers": [],
+        "startOver": "throws"
+      },
+      "before": {
+        "name": "Release check",
+        "members": [
+          "gh",
+          "rel",
+          "bench"
+        ],
+        "maxRounds": 1,
+        "maxMessages": 30,
+        "shareTools": false,
+        "id": "id000001",
+        "createdAt": 1001,
+        "cursors": {
+          "gh": "user_id000002",
+          "rel": "row_id000004",
+          "bench": "row_id000006"
+        },
+        "running": null,
+        "lastPreview": "said by bench",
+        "lastSpeaker": "bench",
+        "lastAt": 1009,
+        "owed": null,
+        "seen": {
+          "gh": "user_id000002",
+          "rel": "row_id000004",
+          "bench": "row_id000006"
+        }
+      },
+      "outcome": {
+        "ok": false,
+        "error": "archive failed"
+      },
+      "calls": [
+        [
+          "startOver",
+          "sess_room_id000001"
+        ]
+      ],
+      "after": {
+        "name": "Release check",
+        "members": [
+          "gh",
+          "rel",
+          "bench"
+        ],
+        "maxRounds": 1,
+        "maxMessages": 30,
+        "shareTools": false,
+        "id": "id000001",
+        "createdAt": 1001,
+        "cursors": {
+          "gh": "user_id000002",
+          "rel": "row_id000004",
+          "bench": "row_id000006"
+        },
+        "running": null,
+        "lastPreview": "said by bench",
+        "lastSpeaker": "bench",
+        "lastAt": 1009,
+        "owed": null,
+        "seen": {
+          "gh": "user_id000002",
+          "rel": "row_id000004",
+          "bench": "row_id000006"
+        }
+      }
+    },
+    {
+      "name": "unknown room",
+      "roomId": "id000001",
+      "logSession": "sess_room_id000001",
+      "running": false,
+      "existing": [
+        "sess_rmem_id000001_bench",
+        "sess_rmem_id000001_gh",
+        "sess_rmem_id000001_rel"
+      ],
+      "inject": {
+        "failMembers": [],
+        "startOver": "sess_archived_room"
+      },
+      "before": {
+        "name": "Release check",
+        "members": [
+          "gh",
+          "rel",
+          "bench"
+        ],
+        "maxRounds": 1,
+        "maxMessages": 30,
+        "shareTools": false,
+        "id": "id000001",
+        "createdAt": 1001,
+        "cursors": {
+          "gh": "user_id000002",
+          "rel": "row_id000004",
+          "bench": "row_id000006"
+        },
+        "running": null,
+        "lastPreview": "said by bench",
+        "lastSpeaker": "bench",
+        "lastAt": 1009,
+        "owed": null,
+        "seen": {
+          "gh": "user_id000002",
+          "rel": "row_id000004",
+          "bench": "row_id000006"
+        }
+      },
+      "outcome": {
+        "ok": false,
+        "error": "This room no longer exists."
+      },
+      "calls": [],
+      "after": {
+        "name": "Release check",
+        "members": [
+          "gh",
+          "rel",
+          "bench"
+        ],
+        "maxRounds": 1,
+        "maxMessages": 30,
+        "shareTools": false,
+        "id": "id000001",
+        "createdAt": 1001,
+        "cursors": {
+          "gh": "user_id000002",
+          "rel": "row_id000004",
+          "bench": "row_id000006"
+        },
+        "running": null,
+        "lastPreview": "said by bench",
+        "lastSpeaker": "bench",
+        "lastAt": 1009,
+        "owed": null,
+        "seen": {
+          "gh": "user_id000002",
+          "rel": "row_id000004",
+          "bench": "row_id000006"
+        }
+      }
+    }
+  ]
+}

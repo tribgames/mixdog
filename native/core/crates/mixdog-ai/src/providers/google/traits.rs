@@ -146,6 +146,7 @@ mod tests {
             family_gated: false,
             replay_same_model: true,
             default_tool_mode: None,
+            omit_ignored_sampling: false,
         };
         let cases = golden()["configs"].as_array().unwrap().clone();
         assert!(cases.len() > 100);

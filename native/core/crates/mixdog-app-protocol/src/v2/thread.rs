@@ -724,6 +724,7 @@ pub enum TurnStartResponse {
 #[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct TurnInterruptParams {
     pub thread_id: ThreadId,
+    /// Absent: the thread's active turn (Node's `abortSession` named none), or, with none running, the idle stop.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turn_id: Option<TurnId>,
     /// Rewind a submitted prompt only when the composer was empty at cancel.
@@ -733,16 +734,37 @@ pub struct TurnInterruptParams {
     pub submission_id: Option<String>,
 }
 
-/// Fixed C0 reply (R12).
+/// The C0 reply (R12, amended): what Node's `abortSession` answered. A named or active turn's stop is
+/// `cancelRequested: true` with its `turnId`; a thread with no active turn and no turn named is idle
+/// (`cancelRequested: false`, no `turnId`), and `submissionId` then hands a queued submission back.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct TurnInterruptResponse {
-    /// Always `true`.
+    /// A running turn was cancelled.
     pub cancel_requested: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turn_id: Option<TurnId>,
+    /// Node's `aborted`: the stop took a running turn.
+    pub aborted: bool,
+    /// The prompt handed back to the composer of the device that cancelled; empty when the prompt stays in the
+    /// transcript, or travels to the device that sent it through `thread/promptRestore`.
+    pub restore_text: String,
+    /// The pasted images and texts of the handed-back prompt, read from the attachment store.
+    pub pasted_images: Option<JsonValue>,
+    pub pasted_texts: Option<JsonValue>,
+    /// The pasted images and texts a queued steering prompt left unrestored, for the client to discard.
+    pub discard_pasted_images: Option<JsonValue>,
+    pub discard_pasted_texts: Option<JsonValue>,
+    /// The submissions (`clientSubmissionId`) the handed-back text came from.
+    pub restored_submission_ids: Vec<String>,
+    /// The file parts of the handed-back prompt.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content: Option<JsonValue>,
+    /// An attachment that could not be read back (`N attachment(s) no longer available and dropped.`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notice: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

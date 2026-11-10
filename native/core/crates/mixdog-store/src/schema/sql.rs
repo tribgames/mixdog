@@ -25,9 +25,11 @@ pub fn session_id_key(id: &str) -> Vec<u8> {
 }
 
 /// `state/core.sqlite`, run once on an empty file (as `INDEX_DDL`).
-pub const STATE_DDL: &str = include_str!("sql/state_v1.sql");
+pub const STATE_DDL: &str = concat!(include_str!("sql/state_v1.sql"), include_str!("sql/state_v2_delta.sql"));
+/// The v2 delta over `state_v1.sql`, run on an existing version 1 file.
+pub const STATE_V2_DELTA: &str = include_str!("sql/state_v2_delta.sql");
 pub const STATE_APPLICATION_ID: i32 = 0x4D58_5354;
-pub const STATE_USER_VERSION: i32 = 1;
+pub const STATE_USER_VERSION: i32 = 2;
 
 /// The 37 ledger objects written by the 1.4.5 tag (13 tables, 7 indexes, 1 view,
 /// 16 triggers), text byte-identical to its `sqlite_master.sql`.

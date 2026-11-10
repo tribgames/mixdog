@@ -198,35 +198,52 @@ async fn the_relay_peer_header_never_raises_rights_or_works_off_the_ssh_listener
 
     // Everything a relay connection may call, a local or SSH one may call as well.
     use mixdog_app_protocol::{CLIENT_METHODS, Origin};
-    // The one exception is the paired device's one-file grant: Node holds those per relay credential only
-    // (`remote-relay-device-methods.ts` `fileGrantsFor`), so a local or SSH connection has nothing to mint into.
-    for spec in CLIENT_METHODS.iter().filter(|spec| spec.allows(Origin::Relay) && spec.method != "transfer/grant/mint") {
+    // The exceptions are calls only a paired phone makes, which Node serves per relay client and nowhere else:
+    // the device's one-file grant (`remote-relay-device-methods.ts` `fileGrantsFor`: held per relay credential, so a
+    // local or SSH connection has nothing to mint into), and the phone's live view, whose stream, signals and display
+    // list belong to the relay client that asked (`remote-relay-client-calls.ts` `browserRemoteStream`;
+    // `desktop-service.ts` `browserRemoteWebrtcSignal`, called with the relay client's id; `remote-webrtc.ts`
+    // `REMOTE_WEBRTC_SCREEN_DISPLAYS_METHOD`), and the phone's download stages: Node serves `fileDownloadAuthorize`, `fileDownloadBegin`
+    // and `fileDownloadFinish` only in the relay's method table (`remote-methods.ts:874`, `fileDownloadRemoteMethods`), so the desktop's
+    // own window and an SSH client never call them (`transfer/readRange` and `transfer/endRead` also serve their local reads).
+    let phone_only = [
+        ("transfer/authorizeRead", serde_json::json!({ "sessionId": "s1", "source": { "kind": "sessionFile", "path": "/outside/file.txt" }, "purpose": "save" })),
+        ("transfer/redeemGrant", serde_json::json!({ "grantId": "00000000-0000-4000-8000-000000000001" })),
+        ("transfer/finishRead", serde_json::json!({ "transferId": "00000000-0000-4000-8000-000000000002" })),
+        ("transfer/grant/mint", serde_json::json!({ "path": "/outside/file.txt" })),
+        ("browser/stream", serde_json::json!({ "sessionId": "s1", "on": true })),
+        ("browser/webrtcSignal", serde_json::json!({ "signal": {} })),
+        ("browser/screenDisplays", serde_json::json!({})),
+    ];
+    for spec in CLIENT_METHODS.iter().filter(|spec| spec.allows(Origin::Relay) && phone_only.iter().all(|(method, _)| spec.method != *method)) {
         assert!(spec.allows(Origin::Local) && spec.allows(Origin::Ssh), "{} is relay-only", spec.method);
     }
 
-    // The exception stated outright, not read back from the table it is an exception to: the real server behind each
-    // listener refuses the grant to a local and to an SSH connection (a relay peer header on the loopback listener
+    // Each exception stated outright, not read back from the table it is an exception to: the real server behind each
+    // listener refuses the call to a local and to an SSH connection (a relay peer header on the loopback listener
     // changes nothing), and serves it to a relay connection.
-    for (listener, peers, origin) in [
-        (ListenerOrigin::Loopback, &[][..], "local"),
-        (ListenerOrigin::Loopback, &["0a1b2c3d-4e5f"][..], "local"),
-        (ListenerOrigin::SshTunnel, &[][..], "ssh"),
-    ] {
-        let answer = mint_answer(listener, peers).await;
-        assert_eq!(
-            answer["error"]["data"],
-            serde_json::json!({ "reason": "permissionDenied", "method": "transfer/grant/mint", "origin": origin }),
-            "{origin} {peers:?}: {answer}"
-        );
+    for (method, params) in &phone_only {
+        for (listener, peers, origin) in [
+            (ListenerOrigin::Loopback, &[][..], "local"),
+            (ListenerOrigin::Loopback, &["0a1b2c3d-4e5f"][..], "local"),
+            (ListenerOrigin::SshTunnel, &[][..], "ssh"),
+        ] {
+            let answer = answer_to(listener, peers, method, params).await;
+            assert_eq!(
+                answer["error"]["data"],
+                serde_json::json!({ "reason": "permissionDenied", "method": method, "origin": origin }),
+                "{method} {origin} {peers:?}: {answer}"
+            );
+        }
+        let served = answer_to(ListenerOrigin::SshTunnel, &["0a1b2c3d-4e5f"], method, params).await;
+        assert!(served.get("error").is_none(), "a relay connection is served {method}: {served}");
+        assert_eq!(served["result"]["method"], *method, "{served}");
     }
-    let served = mint_answer(ListenerOrigin::SshTunnel, &["0a1b2c3d-4e5f"]).await;
-    assert!(served.get("error").is_none(), "a relay connection is served the grant: {served}");
-    assert_eq!(served["result"]["method"], "transfer/grant/mint", "{served}");
 }
 
-/// `transfer/grant/mint` sent over a connection to a listener of `origin` (dialled with the relay `peers` header) on the
-/// real server over the mock core, which echoes what it is served; the answer to it.
-async fn mint_answer(origin: ListenerOrigin, peers: &[&str]) -> serde_json::Value {
+/// `method` sent over a connection to a listener of `origin` (dialled with the relay `peers` header) on the real server
+/// over the mock core, which echoes what it is served; the answer to it.
+async fn answer_to(origin: ListenerOrigin, peers: &[&str], method: &'static str, params: &serde_json::Value) -> serde_json::Value {
     use mixdog_app_protocol::v1::{CapabilityState, ServerCapabilities};
     use mixdog_app_server::{AppServer, Inbound, Outgoing, ServerConfig, VersionOrder};
     use mixdog_core_api::mock::{MockCore, MockLimits};
@@ -235,7 +252,10 @@ async fn mint_answer(origin: ListenerOrigin, peers: &[&str]) -> serde_json::Valu
     let origins = hub.clone();
     let available = || CapabilityState::Available;
     let server = AppServer::new(
-        Arc::new(MockCore::new(&["transfer/grant/mint"], MockLimits::default())),
+        Arc::new(MockCore::new(
+            &["transfer/authorizeRead", "transfer/redeemGrant", "transfer/finishRead", "transfer/grant/mint", "browser/stream", "browser/webrtcSignal", "browser/screenDisplays"],
+            MockLimits::default(),
+        )),
         Outgoing::new(),
         Arc::new(move |id| origins.origin_of(id)),
         ServerConfig {
@@ -278,8 +298,8 @@ async fn mint_answer(origin: ListenerOrigin, peers: &[&str]) -> serde_json::Valu
         "id": 0, "method": "initialize",
         "params": { "clientInfo": { "name": "test", "version": "1.4.6", "kind": "desktop" }, "capabilities": {} },
     });
-    let mint = serde_json::json!({ "id": 1, "method": "transfer/grant/mint", "params": { "path": "/outside/file.txt" } });
-    for request in [initialize, mint] {
+    let call = serde_json::json!({ "id": 1, "method": method, "params": params });
+    for request in [initialize, call] {
         client.send(Message::text(request.to_string())).await.unwrap();
         loop {
             let Message::Text(text) = client.next().await.expect("the connection ended").unwrap() else { continue };
@@ -292,7 +312,7 @@ async fn mint_answer(origin: ListenerOrigin, peers: &[&str]) -> serde_json::Valu
             }
         }
     }
-    unreachable!("the mint request is the last one sent")
+    unreachable!("the call is the last request sent")
 }
 
 #[tokio::test]

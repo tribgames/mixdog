@@ -10,6 +10,7 @@
 
 pub mod agent_tool;
 pub mod attachments;
+mod barriers;
 mod batch;
 pub mod cache_scope;
 pub mod coerce;
@@ -31,6 +32,7 @@ pub mod project;
 pub mod recovery;
 pub mod repair;
 pub mod response;
+pub mod result_kind;
 pub mod run;
 mod send;
 pub use send::wire_request;

@@ -95,6 +95,8 @@ use crate::providers::openai::config::WireContext;
 use crate::providers::openai::oauth::OpenAiOAuth;
 use crate::transport::BidiOpen;
 use crate::transport::HttpSend;
+use crate::transport::preconnect::Preconnect;
+use crate::transport::preconnect::Setting;
 use crate::transport::WsDial;
 
 /// What the host supplies to every adapter.
@@ -164,6 +166,13 @@ impl DefaultProviderBuilder {
 #[allow(clippy::disallowed_methods, reason = "body of a lane job")]
 fn read_text(path: &std::path::Path) -> std::io::Result<String> {
     std::fs::read_to_string(path)
+}
+
+/// [`read_text`] of a credential file (the gcloud login).
+fn read_credential_text(path: &std::path::Path) -> std::io::Result<String> {
+    #[cfg(feature = "count-work")]
+    crate::work::credential_read();
+    read_text(path)
 }
 
 /// The `project =` of the `[core]` section of the gcloud configuration `named`
@@ -511,7 +520,23 @@ impl DefaultProviderBuilder {
         }
         let session = Arc::new(OAuthSession::new(self.file(name)?, http.clone()));
         let enterprise = session.stored().await.map(|s| s.is_enterprise()).unwrap_or(false);
-        Ok(adapter(AnthropicAdapter::oauth(config, http, session, enterprise, self.env.gzip_lane)))
+        Ok(adapter(
+            AnthropicAdapter::oauth(config, http, session, enterprise, self.env.gzip_lane)
+                .with_settings(self.settings())
+                .with_preconnect(self.preconnect()),
+        ))
+    }
+
+    /// The process settings the wire reads, from the process's request context.
+    fn settings(&self) -> Setting {
+        let context = self.env.openai_context.clone();
+        Arc::new(move |name| context.var(name))
+    }
+
+    /// The socket warm-up of the providers that run one, on the process's request clock and settings.
+    fn preconnect(&self) -> Preconnect {
+        let clock = self.env.openai_context.clone();
+        Preconnect::new(self.env.http.clone(), Arc::new(move || clock.now_unix_ms()), self.settings())
     }
 
     fn build_openai(&self, name: &str, cfg: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
@@ -535,6 +560,7 @@ impl DefaultProviderBuilder {
             AdapterLinks {
                 http: self.env.http.clone(),
                 dial: self.env.dial.clone(),
+                compress_lane: self.env.gzip_lane,
                 credentials,
                 context: self.env.openai_context.clone(),
                 listing: self.env.listing.clone(),
@@ -618,10 +644,12 @@ impl DefaultProviderBuilder {
     }
 
     async fn build_gemini(&self, name: &str, cfg: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
-        let key = self.env.keys.resolve(name, &key_config(cfg)).await.map_err(|e| unread_key(name, &e))?;
+        // A key that cannot be read fails the build; the key itself is read at each request and again after a 401.
+        self.env.keys.resolve(name, &key_config(cfg)).await.map_err(|e| unread_key(name, &e))?;
         Ok(adapter(
-            google::gemini(key, self.env.http.clone(), self.env.google_traits.clone())
-                .with_listing_lookup(self.env.listing.clone()),
+            google::gemini_keyed(self.key_source(name, cfg), self.env.http.clone(), self.env.google_traits.clone())
+                .with_listing_lookup(self.env.listing.clone())
+                .with_preconnect(self.preconnect()),
         ))
     }
 
@@ -659,7 +687,7 @@ impl DefaultProviderBuilder {
             None => self.gcloud_dir().join("application_default_credentials.json"),
         };
         let shown = path.display().to_string();
-        let read = self.env.io.read_job(move |_| read_text(&path)).await;
+        let read = self.env.io.read_job(move |_| read_credential_text(&path)).await;
         match read {
             Ok(raw) => Ok(AdcRead::Found { raw, path: shown }),
             Err(e) if matches!(e.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory) => {

@@ -1,0 +1,238 @@
+{
+ "manifest": {
+  "exact": true,
+  "nodeCommit": "b6f10295a",
+  "node": "v22.20.0",
+  "ws": "8.22.0",
+  "harness": {
+   "ws-close-capture.mjs": "efa03dd8c1323bcb52431f9a0e58e32ab5a41529ed944a1c8f9395ce833e1da1"
+  }
+ },
+ "cases": [
+  {
+   "name": "code and reason",
+   "frame": "880503e8627965",
+   "events": [
+    {
+     "kind": "frame",
+     "fin": true,
+     "rsv": 0,
+     "opcode": 8,
+     "masked": true,
+     "hex": "03e8627965"
+    },
+    {
+     "kind": "end",
+     "unread": ""
+    }
+   ],
+   "heard": [
+    {
+     "kind": "close",
+     "code": 1000,
+     "reason": "bye"
+    }
+   ]
+  },
+  {
+   "name": "a library code alone",
+   "frame": "88020fa0",
+   "events": [
+    {
+     "kind": "frame",
+     "fin": true,
+     "rsv": 0,
+     "opcode": 8,
+     "masked": true,
+     "hex": "0fa0"
+    },
+    {
+     "kind": "end",
+     "unread": ""
+    }
+   ],
+   "heard": [
+    {
+     "kind": "close",
+     "code": 4000,
+     "reason": ""
+    }
+   ]
+  },
+  {
+   "name": "no payload",
+   "frame": "8800",
+   "events": [
+    {
+     "kind": "frame",
+     "fin": true,
+     "rsv": 0,
+     "opcode": 8,
+     "masked": true,
+     "hex": ""
+    },
+    {
+     "kind": "end",
+     "unread": ""
+    }
+   ],
+   "heard": [
+    {
+     "kind": "close",
+     "code": 1005,
+     "reason": ""
+    }
+   ]
+  },
+  {
+   "name": "a code ws refuses",
+   "frame": "880203e7",
+   "events": [
+    {
+     "kind": "frame",
+     "fin": true,
+     "rsv": 0,
+     "opcode": 8,
+     "masked": true,
+     "hex": "03ea"
+    },
+    {
+     "kind": "end",
+     "unread": ""
+    }
+   ],
+   "heard": [
+    {
+     "kind": "error",
+     "message": "Invalid WebSocket frame: invalid status code 999",
+     "code": "WS_ERR_INVALID_CLOSE_CODE"
+    },
+    {
+     "kind": "close",
+     "code": 1006,
+     "reason": ""
+    }
+   ]
+  },
+  {
+   "name": "a reason that is not UTF-8",
+   "frame": "880403e8c328",
+   "events": [
+    {
+     "kind": "frame",
+     "fin": true,
+     "rsv": 0,
+     "opcode": 8,
+     "masked": true,
+     "hex": "03ef"
+    },
+    {
+     "kind": "end",
+     "unread": ""
+    }
+   ],
+   "heard": [
+    {
+     "kind": "error",
+     "message": "Invalid WebSocket frame: invalid UTF-8 sequence",
+     "code": "WS_ERR_INVALID_UTF8"
+    },
+    {
+     "kind": "close",
+     "code": 1006,
+     "reason": ""
+    }
+   ]
+  },
+  {
+   "name": "a text message that is not UTF-8",
+   "frame": "8102c328",
+   "events": [
+    {
+     "kind": "frame",
+     "fin": true,
+     "rsv": 0,
+     "opcode": 8,
+     "masked": true,
+     "hex": "03ef"
+    },
+    {
+     "kind": "end",
+     "unread": ""
+    }
+   ],
+   "heard": [
+    {
+     "kind": "error",
+     "message": "Invalid WebSocket frame: invalid UTF-8 sequence",
+     "code": "WS_ERR_INVALID_UTF8"
+    },
+    {
+     "kind": "close",
+     "code": 1006,
+     "reason": ""
+    }
+   ]
+  },
+  {
+   "name": "a fragmented text message that is not UTF-8",
+   "frame": "0102c328800161",
+   "events": [
+    {
+     "kind": "frame",
+     "fin": true,
+     "rsv": 0,
+     "opcode": 8,
+     "masked": true,
+     "hex": "03ef"
+    },
+    {
+     "kind": "end",
+     "unread": ""
+    }
+   ],
+   "heard": [
+    {
+     "kind": "error",
+     "message": "Invalid WebSocket frame: invalid UTF-8 sequence",
+     "code": "WS_ERR_INVALID_UTF8"
+    },
+    {
+     "kind": "close",
+     "code": 1006,
+     "reason": ""
+    }
+   ]
+  },
+  {
+   "name": "a character split across fragments",
+   "frame": "0101e2800282ac880203e8",
+   "events": [
+    {
+     "kind": "frame",
+     "fin": true,
+     "rsv": 0,
+     "opcode": 8,
+     "masked": true,
+     "hex": "03e8"
+    },
+    {
+     "kind": "end",
+     "unread": ""
+    }
+   ],
+   "heard": [
+    {
+     "kind": "message",
+     "binary": false,
+     "hex": "e282ac"
+    },
+    {
+     "kind": "close",
+     "code": 1000,
+     "reason": ""
+    }
+   ]
+  }
+ ]
+}

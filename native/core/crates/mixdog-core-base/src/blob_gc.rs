@@ -90,18 +90,34 @@ impl BlobGc {
     /// now unless one is armed or ran within the spacing. `cancel` (the shutdown token) ends the
     /// wait and a census under way, which leaves no stamp so the next start runs it again.
     pub fn schedule(self: &Arc<Self>, clock: Clock, on_error: ErrorSink, cancel: CancellationToken) {
+        drop(self.schedule_after(clock, on_error, cancel, || tokio::time::sleep(START_DELAY)));
+    }
+
+    /// [`Self::schedule`] over the wait that stands for the start delay, made when the trigger
+    /// reaches it: the armed task, `None` when one is armed already.
+    pub(crate) fn schedule_after<D, W>(
+        self: &Arc<Self>,
+        clock: Clock,
+        on_error: ErrorSink,
+        cancel: CancellationToken,
+        delay: D,
+    ) -> Option<tokio::task::JoinHandle<()>>
+    where
+        D: FnOnce() -> W + Send + 'static,
+        W: Future<Output = ()> + Send,
+    {
         if self.armed.swap(true, Ordering::SeqCst) {
-            return;
+            return None;
         }
         let gc = self.clone();
-        drop(mixdog_rt::spawn("blob-gc", mixdog_rt::TaskClass::Work, async move {
+        Some(mixdog_rt::spawn("blob-gc", mixdog_rt::TaskClass::Work, async move {
             let outcome = async {
                 if gc.fresh_for(clock()).await? > 0 {
                     return Ok(());
                 }
                 tokio::select! {
                     () = cancel.cancelled() => return Ok(()),
-                    () = tokio::time::sleep(START_DELAY) => {}
+                    () = delay() => {}
                 }
                 gc.armed.store(false, Ordering::SeqCst);
                 gc.run_if_due(clock(), SystemTime::now(), &cancel).await.map(drop)
@@ -111,6 +127,6 @@ impl BlobGc {
             if let Err(error) = outcome {
                 on_error(&error);
             }
-        }));
+        }))
     }
 }

@@ -486,13 +486,30 @@ pub struct ThreadSettingsParts {
     pub ops: OpScopes,
     /// The surface generation (`invalidatePreSessionToolSurface`): a tool mode change and a workspace switch move it.
     pub surface: mixdog_core_base::surface::SurfaceGeneration,
+    /// The core's one archive stamp counter, shared with the rooms' archive (`DirectorySessions`).
+    pub archive_stamps: Arc<ArchiveStamps>,
+}
+
+/// `DesktopSessionMetadata.lastArchiveStamp` (`desktop-session-metadata.ts:49,142-143`): the last archive stamp handed out, so two
+/// archives never share one even inside one millisecond. Node's host has one metadata instance, which both its own archive and the
+/// rooms' (`session-host-lifecycle.ts:356`) use; the core has one of these for both. Like Node's it starts at 0 with the process and
+/// is not seeded from stored stamps.
+#[derive(Default)]
+pub struct ArchiveStamps(Mutex<i64>);
+
+impl ArchiveStamps {
+    /// `const stamp = Math.max(now, lastArchiveStamp + 1); this.lastArchiveStamp = stamp`: the stamp an archive at `now` takes,
+    /// taken and remembered in one step as Node's two statements are, so two archives at once never take the same one.
+    pub fn take(&self, now: i64) -> i64 {
+        let mut last = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        *last = now.max(*last + 1);
+        *last
+    }
 }
 
 pub struct ThreadSettings {
     parts: ThreadSettingsParts,
     threads: SessionThreads,
-    /// The last archive stamp handed out: stamps never repeat, so two archives never share one.
-    last_archive_stamp: Mutex<i64>,
 }
 
 fn thread_of(id: Option<ThreadId>) -> Result<ThreadId, CoreError> {
@@ -509,7 +526,7 @@ fn not_found(error: &CoreError) -> bool {
 
 impl ThreadSettings {
     pub fn new(parts: ThreadSettingsParts) -> Self {
-        Self { threads: SessionThreads::new(parts.directory.clone()), parts, last_archive_stamp: Mutex::new(0) }
+        Self { threads: SessionThreads::new(parts.directory.clone()), parts }
     }
 
     fn now(&self) -> i64 {
@@ -637,14 +654,16 @@ impl ThreadSettings {
         self.open(thread).await?;
         let descendants = self.descendants(thread).await?;
         let now = self.now();
-        let last = *self.parts_stamp();
+        // Taken only when the session is really archived now (Node returns before its stamp for one already archived), and once:
+        // a patch that lost its race and is decided again keeps the stamp it took.
+        let mut taken = None;
         let stamp = self
             .update_header(thread, &["archivedAt"], |header| {
                 if archived == sidebar_flag(header, "archivedAt") {
                     return (None, None);
                 }
                 if archived {
-                    let stamp = json!(now.max(last + 1));
+                    let stamp = json!(*taken.get_or_insert_with(|| self.parts.archive_stamps.take(now)));
                     (Some(stamp.clone()), Some((Map::from_iter([("archivedAt".to_owned(), stamp)]), Vec::new())))
                 } else {
                     (header.get("archivedAt").cloned(), Some((Map::new(), vec!["archivedAt".to_owned()])))
@@ -652,10 +671,6 @@ impl ThreadSettings {
             })
             .await?;
         let Some(stamp) = stamp else { return Ok(false) };
-        if archived {
-            let mut last = self.parts_stamp();
-            *last = (*last).max(stamp.as_i64().unwrap_or(now));
-        }
         for id in &descendants {
             let child = ThreadId::from(id.as_str());
             let moved = self
@@ -691,10 +706,6 @@ impl ThreadSettings {
         let method = if archived { "thread/archived" } else { "thread/unarchived" };
         self.parts.app.notify(method, &ThreadIdParams { thread_id: thread.clone() });
         Ok(true)
-    }
-
-    fn parts_stamp(&self) -> std::sync::MutexGuard<'_, i64> {
-        self.last_archive_stamp.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// `setCwd(path)`: `resolveCwdPath` from the session's folder, then the Project switch with

@@ -11,6 +11,11 @@ pub enum Reason {
     NotFound,
     AlreadyExists,
     NotAFile,
+    /// Node's `canonicalDirectory` on a path that does not exist (`realpath` failed with `ENOENT`). The error's message is the
+    /// path as the caller gave it, which is all the OS error names; the client rebuilds Node's text from it.
+    PathMissing,
+    /// Node's `canonicalDirectory` on a path that is not a folder; the message is Node's text.
+    NotADirectory,
     /// An attachment the session's conversation does not name (Node's `not-linked`).
     NotLinked,
     /// Compare-and-set mismatch; `actual` is the current content.
@@ -19,6 +24,10 @@ pub enum Reason {
     /// The file or folder changed under a transfer or a save.
     Changed,
     Expired,
+    /// A download the host no longer holds (Node's FileDownloadError('expired'), whose code is file-download:expired).
+    DownloadExpired,
+    /// Any other refusal of a phone's download (Node's `FileDownloadError`); the value is the whole code, `file-download:<reason>`.
+    Download(&'static str),
     Busy,
     /// An upload chunk that does not start where the received bytes end.
     OutOfOrder,
@@ -26,7 +35,8 @@ pub enum Reason {
     GrantUnavailable,
     /// A one-file grant presented for a path other than the file it names.
     GrantMismatch,
-    FolderTooLarge,
+    /// What the walk counted (after the exclusions): Node's `FolderTooLargeError.files` and `.bytes`.
+    FolderTooLarge { files: u64, bytes: u64 },
     /// A `RECOVERY_*` code of the recovery journal.
     Recovery(&'static str),
     InvalidEncoding,
@@ -34,6 +44,11 @@ pub enum Reason {
     Overloaded,
     Cancelled,
     Io,
+    /// Node's `Error` that carried a `code` of its own - a system error's `ENOENT`, `PROJECT_UNAVAILABLE` - with Node's text as the
+    /// message. Answered as a code-bearing `domainError`, so a client rebuilds the error Node threw.
+    Coded(&'static str),
+    /// Node's plain `Error`: a text and no code. Answered as a code-less `domainError`.
+    Plain,
 }
 
 impl Reason {
@@ -44,22 +59,28 @@ impl Reason {
             Self::NotFound => "notFound",
             Self::AlreadyExists => "alreadyExists",
             Self::NotAFile => "notAFile",
+            Self::PathMissing => "pathMissing",
+            Self::NotADirectory => "notADirectory",
             Self::NotLinked => "notLinked",
             Self::PreconditionFailed { .. } => "preconditionFailed",
             Self::TooLarge => "tooLarge",
             Self::Changed => "changed",
             Self::Expired => "expired",
+            Self::DownloadExpired => "file-download:expired",
+            Self::Download(code) => code,
             Self::Busy => "busy",
             Self::OutOfOrder => "outOfOrder",
             Self::GrantUnavailable => "SELECTED_FILE_GRANT_UNAVAILABLE",
             Self::GrantMismatch => "grantMismatch",
-            Self::FolderTooLarge => "folderTooLarge",
+            Self::FolderTooLarge { .. } => "folderTooLarge",
             Self::Recovery(code) => code,
             Self::InvalidEncoding => "invalidEncoding",
             Self::Unsupported => "unsupported",
             Self::Overloaded => "overloaded",
             Self::Cancelled => "cancelled",
             Self::Io => "io",
+            Self::Coded(code) => code,
+            Self::Plain => "plain",
         }
     }
 }
@@ -76,6 +97,14 @@ impl WsError {
     pub fn new(reason: Reason, message: impl Into<String>) -> Self {
         Self { reason, message: message.into() }
     }
+    /// Node's error with a `code` of its own (see [`Reason::Coded`]).
+    pub fn coded(code: &'static str, message: impl Into<String>) -> Self {
+        Self::new(Reason::Coded(code), message)
+    }
+    /// Node's plain `Error` with only a message (see [`Reason::Plain`]).
+    pub fn plain(message: impl Into<String>) -> Self {
+        Self::new(Reason::Plain, message)
+    }
     pub fn invalid(message: impl Into<String>) -> Self {
         Self::new(Reason::InvalidParams, message)
     }
@@ -86,7 +115,7 @@ impl WsError {
         Self::new(Reason::Changed, "The file changed on the host.")
     }
     pub fn expired() -> Self {
-        Self::new(Reason::Expired, "This download is no longer available.")
+        Self::new(Reason::DownloadExpired, "This download is no longer available.")
     }
     pub fn precondition(expected: &str, actual: &str) -> Self {
         Self::new(

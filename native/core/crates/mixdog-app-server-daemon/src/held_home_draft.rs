@@ -13,6 +13,7 @@ use mixdog_core::run_host::unattended::UnattendedRunRegistry;
 use mixdog_core_ports::ports::gate::GateRun;
 use mixdog_protocol::{HeldRequest, HeldRunKind, ThreadId};
 use mixdog_services::bots::delivery::home::AgentHomeDelivery;
+use mixdog_tools::policy::GrantStore;
 use mixdog_tools::policy::RunKind;
 
 use crate::held_requests::{HeldHome, HeldPush, RunInfo};
@@ -31,11 +32,20 @@ pub struct ProcessHeldHome {
     interactive: mixdog_rt::InteractiveIo,
     data_dir: std::path::PathBuf,
     notifier: HeldNotifier,
+    /// The grant store the policy gate holds (`humanGateStore()`): an answered request is audited in it.
+    grants: Arc<dyn GrantStore>,
 }
 
 impl ProcessHeldHome {
-    pub fn new(runs: Arc<UnattendedRunRegistry>, surfaces: Arc<dyn ApprovalSurfaces>, interactive: mixdog_rt::InteractiveIo, data_dir: std::path::PathBuf, notifier: HeldNotifier) -> Arc<Self> {
-        Arc::new(Self { runs, delivery: OnceLock::new(), surfaces, interactive, data_dir, notifier })
+    pub fn new(
+        runs: Arc<UnattendedRunRegistry>,
+        surfaces: Arc<dyn ApprovalSurfaces>,
+        interactive: mixdog_rt::InteractiveIo,
+        data_dir: std::path::PathBuf,
+        notifier: HeldNotifier,
+        grants: Arc<dyn GrantStore>,
+    ) -> Arc<Self> {
+        Arc::new(Self { runs, delivery: OnceLock::new(), surfaces, interactive, data_dir, notifier, grants })
     }
 
     /// Binds the home delivery once the directory exists; a second bind is refused.
@@ -96,5 +106,9 @@ impl HeldHome for ProcessHeldHome {
     /// `randomUUID()`; the id is `held_` + this.
     fn new_id(&self) -> String {
         mixdog_ai::registry::accounting::random_uuid()
+    }
+
+    fn grants(&self) -> Arc<dyn GrantStore> {
+        self.grants.clone()
     }
 }

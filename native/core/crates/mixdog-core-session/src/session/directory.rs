@@ -56,7 +56,6 @@ use super::durability::DurabilityTask;
 use super::durability::LogInit;
 use super::handle::SessionHandle;
 use super::new_epoch;
-use super::new_id;
 use super::seams::OpenedLog;
 use super::state::Change;
 use super::state::Display;
@@ -367,11 +366,6 @@ impl SessionDirectory {
     /// `SessionSeams::grants`: the thread's "Allow for this session" grants.
     pub fn grants(&self, id: &ThreadId) -> Arc<mixdog_tools::policy::SessionGrants> {
         self.running(id).grants()
-    }
-
-    /// `RunSettings.thread_window`: the thread's compaction count.
-    pub fn thread_window(&self, id: &ThreadId) -> u64 {
-        self.running(id).thread_window()
     }
 
     pub fn deps(&self) -> &Arc<SessionDeps> {
@@ -1279,6 +1273,8 @@ impl DirInner {
             stepped: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             busy: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            prompt_timers: Default::default(),
         });
         let handle = Arc::new(SessionHandle {
             id: id.clone(),
@@ -1340,7 +1336,7 @@ impl DirInner {
         // a warm parked on it re-checks.
         let _settled = super::prewarm_signals::WakeOnDrop(self.deps.code_graph_prewarm.clone());
         let _creating = CreateInFlight::enter(&self.creating);
-        let id = spec.id.unwrap_or_else(|| ThreadId::from(new_id()));
+        let id = spec.id.unwrap_or_else(|| ThreadId::from(super::new_session_id(self.deps.clock.now_ms())));
         let invalid = |path: &str| CoreError::InvalidParams {
             path: path.into(),
             expected: "a shorter value".into(),
@@ -1522,6 +1518,7 @@ impl ThreadDirectory for SessionDirectory {
                 let mut header = Header::new();
                 header.insert("createdAt".into(), json!(now));
                 header.insert("updatedAt".into(), json!(now));
+                header.insert("lastUsedAt".into(), json!(now));
                 // The project the request names: its own path, else the new task's draft (`submitNewTask(prompt, options, draft)`).
                 // The desktop's control session is its own kind, not inferred (Node: `ensureControlSession`): the task
                 // workspace, no project, no classification.
@@ -1557,7 +1554,7 @@ impl ThreadDirectory for SessionDirectory {
                 // Node's `sessionOptions` always applies: with no options a Lead is `full`, denied the goal tools.
                 super::session_options::write_header(&params.session.clone().unwrap_or_default(), &mut header);
                 // `createSession`'s tool surface and `seedToolSurface`, for the id it will have.
-                let id = ThreadId::from(new_id());
+                let id = ThreadId::from(super::new_session_id(self.inner.deps.clock.now_ms()));
                 // The control session is followed by the config's adoption from before its route is first resolved.
                 let starting = if control { Some(self.inner.start(&id)?) } else { None };
                 // The route the thread begins on is settled first: the tools and the prompt below are
@@ -1623,7 +1620,7 @@ impl ThreadDirectory for SessionDirectory {
                 }
                 let mut result = json!({ "thread": handle.cell.view.load_full().summary });
                 if let Some(input) = params.initial_input {
-                    let turn = handle
+                    let started = handle
                         .request(CoreRequest {
                             method: Method("turn/start"),
                             params: json!({
@@ -1634,7 +1631,12 @@ impl ThreadDirectory for SessionDirectory {
                             op: req.op.as_ref().map(|op| OpId::from(format!("{op}:turn"))),
                             ctx: req.ctx.clone(),
                         })
-                        .await?;
+                        .await;
+                    // A first prompt the session refuses leaves no thread behind.
+                    if matches!(&started, Err(CoreError::DomainError { code: Some(code), .. }) if code.as_ref() == super::actor::SUBMIT_REFUSED) {
+                        let _ = super::delete::delete_session(&self.inner, handle.id.as_str(), None).await;
+                    }
+                    let turn = started?;
                     if let Reply::Value(turn) = turn {
                         result["turn"] = turn;
                     }

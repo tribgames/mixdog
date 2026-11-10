@@ -1,6 +1,7 @@
 // What the phone UI shows about its connection, derived from the client library's `ConnectionStatus` and the relay socket's
 // close codes. The renderer applies these to its existing connection indicator and pairing screen.
 import type { ConnectionStatus } from '../../../packages/protocol-client/src/index.ts';
+import { DESKTOP_OFFLINE_CLOSE } from '../../relay/lib/relay-close-codes.mjs';
 import { isInvalidRemotePairingClose } from '../../desktop/src/renderer/remote-pairing-recovery.ts';
 
 export type PhoneConnection =
@@ -13,14 +14,14 @@ export type PhoneConnection =
   | { readonly state: 'pairing-lost' }
   | { readonly state: 'closed' };
 
-/** Core close code for a version mismatch, forwarded to the phone by the bridge (lifecycle-remote §9 test 4). */
-export const CLOSE_VERSION_MISMATCH = 4002;
+/** The relay's close for a paired phone whose PC has no live leg. The core's version refusal also closes with 4002, but only
+ *  after the `initialize` refusal frame, which the client library turns into `versionRefused` first; so a 4002 close seen here is
+ *  always the PC being offline (transient), never a terminal state. */
+export const CLOSE_DESKTOP_OFFLINE = DESKTOP_OFFLINE_CLOSE;
 
 /** The terminal state a relay close code names, if any. */
-export function terminalOfClose(code: number, reason: string): 'update-required' | 'pairing-lost' | undefined {
-  if (code === CLOSE_VERSION_MISMATCH) return 'update-required';
-  if (isInvalidRemotePairingClose({ code, reason })) return 'pairing-lost';
-  return undefined;
+export function terminalOfClose(code: number, reason: string): 'pairing-lost' | undefined {
+  return isInvalidRemotePairingClose({ code, reason }) ? 'pairing-lost' : undefined;
 }
 
 export function phoneConnectionOf(status: ConnectionStatus): PhoneConnection {

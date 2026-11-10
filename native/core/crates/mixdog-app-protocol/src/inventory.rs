@@ -735,7 +735,7 @@ pub static INVENTORY: &[(InventoryList, &str, Target)] = &[
     (
         InventoryList::Operations,
         "browserRemoteWebrtcSignal",
-        Target::Internal("WebRTC runs in mixdog-remote (SPEC R36)"),
+        Target::Method("browser/webrtcSignal"),
     ),
     (
         InventoryList::Operations,
@@ -1090,6 +1090,7 @@ pub static INVENTORY: &[(InventoryList, &str, Target)] = &[
             "room/update",
             "room/continue",
             "room/leave",
+            "room/reset",
             "room/remove",
         ]),
     ),
@@ -1398,6 +1399,7 @@ pub static INVENTORY: &[(InventoryList, &str, Target)] = &[
             "room/update",
             "room/continue",
             "room/leave",
+            "room/reset",
             "room/remove",
         ]),
     ),
@@ -1838,12 +1840,12 @@ pub static INVENTORY: &[(InventoryList, &str, Target)] = &[
     (
         InventoryList::Remote,
         "fileDownloadAuthorize",
-        Target::Method("transfer/beginRead"),
+        Target::Method("transfer/authorizeRead"),
     ),
     (
         InventoryList::Remote,
         "fileDownloadBegin",
-        Target::Method("transfer/beginRead"),
+        Target::Method("transfer/redeemGrant"),
     ),
     (
         InventoryList::Remote,
@@ -1853,7 +1855,7 @@ pub static INVENTORY: &[(InventoryList, &str, Target)] = &[
     (
         InventoryList::Remote,
         "fileDownloadFinish",
-        Target::Method("transfer/endRead"),
+        Target::Method("transfer/finishRead"),
     ),
     (
         InventoryList::Remote,
@@ -1983,7 +1985,7 @@ pub static INVENTORY: &[(InventoryList, &str, Target)] = &[
     (
         InventoryList::Remote,
         "previewProjectFile",
-        Target::Method("transfer/beginRead"),
+        Target::Method("projectFs/previewFile"),
     ),
     (
         InventoryList::Remote,
@@ -1993,7 +1995,7 @@ pub static INVENTORY: &[(InventoryList, &str, Target)] = &[
     (
         InventoryList::Remote,
         "previewProjectFileRange",
-        Target::Method("transfer/readRange"),
+        Target::Method("projectFs/previewRange"),
     ),
     (
         InventoryList::Remote,

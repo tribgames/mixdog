@@ -55,6 +55,14 @@ impl<'a> Scope<'a> {
         self
     }
 
+    /// A deadline `budget` from now, taken on the tokio clock itself. A std deadline built by the caller
+    /// (`Instant::now() + budget`) loses the real time that passes before [`Self::deadline`] converts it, so
+    /// under a paused clock the wait ended that much short of `budget` (9.999 s of 10 s on a loaded machine).
+    pub fn within(mut self, budget: std::time::Duration) -> Self {
+        self.deadline = Some(tokio::time::Instant::now() + budget);
+        self
+    }
+
     /// `select!{ biased; cancel, deadline, work }`: cancel wins over an expired deadline, which
     /// wins over finished work. The work is dropped when the scope ends it.
     pub async fn run<F: Future>(self, work: F) -> Scoped<F::Output> {

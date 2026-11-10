@@ -1,11 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { PROVIDER_MODELS_EVENT } from '../shared/provider-models.ts';
+import { readProviderModelsChange } from '../shared/provider-models.ts';
 import { subscribeModelCatalogInvalidation } from './model-catalog-cache.ts';
-import { createRemoteApi } from './remote-shim-api.ts';
 import { sectionStoreFor } from './section-store.ts';
 import { toolModulesSource } from './test-support/test-dom.mjs';
-import { publishedCeilings, withShim } from './remote-shim-test-harness.mjs';
+import { settle, withPhoneApi } from './test-support/phone-api-rig.mjs';
 import {
   PROVIDER_MODELS_INSTANCE_ID,
   invalidateSidebarReferenceForMutation,
@@ -83,25 +82,32 @@ test('a peer notification reloads pickers without echoing; own echo is ignored',
   }
 });
 
-test('relay notifications reach the paired client and notify uses the remote method path', async () => {
-  await withShim({}, async ({ ctx, dial }) => {
-    const api = createRemoteApi(ctx);
-    const leg = await dial({ ready: publishedCeilings(4096, 4096) });
+// Node's version of this test (b6f10295a) read the call and the pushed frames off a fake relay socket. On the phone the call is handed to the
+// adapter that owns the name and the pushed event reaches the listener sets through that adapter; the router and the table are the real ones.
+test('notify uses the remote method path and subscribers hear the change until they unsubscribe', async () => {
+  await withPhoneApi({ notifyProviderModelsChanged: () => undefined }, async ({ ctx, api, calls }) => {
     const received = [];
     const unsubscribe = api.subscribeProviderModelsChanged((change) => received.push(change));
     api.notifyProviderModelsChanged('phone-1');
-    const sent = await leg.nextPayload();
-    assert.equal(sent.method, 'notifyProviderModelsChanged');
-    assert.deepEqual(sent.params, ['phone-1']);
-    ctx.handleMessage({ event: PROVIDER_MODELS_EVENT, payload: { origin: 'a' } }, false);
-    assert.deepEqual(received, [], 'clear relay hints are ignored');
-    await leg.deliver({ event: PROVIDER_MODELS_EVENT, payload: { origin: 'a' } });
-    await leg.deliver({ event: PROVIDER_MODELS_EVENT, payload: { origin: 7 } });
+    await settle();
+    // Node remote-shim-api.ts:479 -- `fire('notifyProviderModelsChanged', [origin])`: the same method name and parameters Node put in its frame.
+    assert.deepEqual(calls, [{ method: 'notifyProviderModelsChanged', params: ['phone-1'] }]);
+    // :480 -- subscribeProviderModelsChanged is `listenOn(ctx.providerModelsListeners, …)`; Node's dispatch fans out to that set (remote-shim-dispatch.ts:279).
+    ctx.fanOut(ctx.providerModelsListeners, { origin: 'a' });
     assert.deepEqual(received, [{ origin: 'a' }]);
     unsubscribe();
-    await leg.deliver({ event: PROVIDER_MODELS_EVENT, payload: { origin: 'b' } });
+    ctx.fanOut(ctx.providerModelsListeners, { origin: 'b' });
     assert.deepEqual(received, [{ origin: 'a' }]);
   });
+});
+
+// Node dispatch (remote-shim-dispatch.ts:278-279) read the pushed payload with readProviderModelsChange: a payload without a string origin
+// was never fanned out. That reader is shared, so the rule holds for whichever adapter carries the event. The other Node check there
+// (`if (!authenticated) return`, :277, "clear relay hints are ignored") has no counterpart: the protocol has no unauthenticated hint frames.
+test('a pushed change is read by the shared reader: a string origin only', () => {
+  assert.deepEqual(readProviderModelsChange({ origin: 'a' }), { origin: 'a' });
+  assert.equal(readProviderModelsChange({ origin: 7 }), null);
+  assert.equal(readProviderModelsChange({}), null);
 });
 
 test('a local window provider invalidation re-reads references without forcing them', async () => {

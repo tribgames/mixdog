@@ -179,37 +179,47 @@ async fn shared_http_link_returns_status_headers_and_a_streaming_body() {
     assert_eq!(all.body, b"hi");
 }
 
-#[tokio::test]
+// Driven by the paused clock with explicit advances: hyper's HTTP/2 keep-alive takes its timers from tokio, so virtual time
+// is moved by this test, a step at a time, once the peer has the client's preface; the instants asserted are the
+// schedule's own, whatever the machine's load.
+#[tokio::test(start_paused = true)]
 async fn silent_http2_peer_fails_the_request_within_the_schedule() {
     // A cleartext peer that accepts and swallows bytes: it never sends its
-    // SETTINGS or a PING ack.
+    // SETTINGS or a PING ack. It says when it has the client's preface.
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
+    let (has_preface, preface) = tokio::sync::oneshot::channel::<()>();
     let server = tokio::spawn(async move {
         let (mut stream, _) = listener.accept().await.unwrap();
         let mut sink = [0u8; 4096];
-        while stream.read(&mut sink).await.map_or(false, |n| n > 0) {}
+        let mut has_preface = Some(has_preface);
+        while stream.read(&mut sink).await.map_or(false, |n| n > 0) {
+            if let Some(tx) = has_preface.take() {
+                let _ = tx.send(());
+            }
+        }
     });
     let schedule = fast();
     let client = http::client_builder(&schedule)
         .http2_prior_knowledge()
         .build()
         .unwrap();
-    let started = Instant::now();
-    let err = client
-        .get(format!("http://{addr}/"))
-        .send()
-        .await
-        .expect_err("the request ends as a socket error");
+    let url = format!("http://{addr}/");
+    let request = tokio::spawn(async move { client.get(url).send().await });
+    // Real I/O first (connect, preface); no virtual time has to pass for it.
+    tokio::time::timeout(Duration::from_secs(10), preface).await.expect("the peer receives the preface within 10 s").unwrap();
+    let started = tokio::time::Instant::now();
+    let bound = (schedule.h2.interval + schedule.h2.timeout) * 3;
+    let step = Duration::from_millis(10);
+    while !request.is_finished() {
+        assert!(started.elapsed() < bound, "the request is still open {:?} into the schedule", started.elapsed());
+        tokio::time::advance(step).await;
+    }
+    let err = request.await.unwrap().expect_err("the request ends as a socket error");
     let (fault, _) = fault_from_reqwest(&err);
-    assert!(
-        started.elapsed() < (schedule.h2.interval + schedule.h2.timeout) * 3,
-        "within the schedule, took {:?} ({fault:?})",
-        started.elapsed()
-    );
+    assert!(started.elapsed() < bound, "within the schedule, took {:?} ({fault:?})", started.elapsed());
     server.abort();
 }
-
 /// A server whose `/final` answers 200 `land` and whose every other path answers a 302 to it.
 async fn redirecting_server() -> std::net::SocketAddr {
     use tokio::io::AsyncWriteExt;
@@ -347,6 +357,19 @@ fn recorded_texts(kind: &str) -> Vec<(mixdog_ai::transport::Exchange, String, St
     .collect()
 }
 
+/// What each class of `kind` got from its own send to `url()`, with its recorded text. The sends share nothing (a
+/// link each), so they go out together: a refused loopback connect alone takes two seconds on Windows.
+async fn each_class<U: Future<Output = String>>(
+    kind: &str,
+    url: impl Fn() -> U,
+) -> Vec<(String, String, mixdog_core_api::domain::provider::ProviderError)> {
+    let sends = recorded_texts(kind).into_iter().map(|(exchange, class, text)| {
+        let url = url();
+        async move { (class, text, refused(exchange, url.await).await) }
+    });
+    futures::future::join_all(sends).await
+}
+
 /// Every failure kind against a real socket, each class reading as Node's recorded text, while the fault stays typed.
 /// Not covered here: a connect that hangs (192.0.2.1) needs a network that drops instead of rejecting; it expires in
 /// `settle` exactly as the unanswered response does.
@@ -355,20 +378,18 @@ async fn every_failure_kind_reads_as_each_classes_recorded_text() {
     use tokio::io::AsyncWriteExt;
 
     // refused: a typed connect fault.
-    for (exchange, class, text) in recorded_texts("refused") {
-        let error = refused(exchange, closed_port_url().await).await;
+    for (class, text, error) in each_class("refused", closed_port_url).await {
         assert!(matches!(error.transport, Some(TransportFault::Connect { .. })), "{class}: {error:?}");
         assert_eq!(error.message, text, "refused/{class}");
     }
     // badPort: fails before connecting, an I/O fault.
-    for (exchange, class, text) in recorded_texts("badPort") {
-        let error = refused(exchange, "http://127.0.0.1:9/v1".into()).await;
+    for (class, text, error) in each_class("badPort", || std::future::ready("http://127.0.0.1:9/v1".to_owned())).await {
         assert_eq!(error.transport, Some(TransportFault::Io { os_code: None }), "{class}");
         assert_eq!(error.message, text, "badPort/{class}");
     }
     // dns: a name that never resolves.
-    for (exchange, class, text) in recorded_texts("dns") {
-        let error = refused(exchange, "https://connect-errors-no-such-host.invalid/v1".into()).await;
+    let no_host = || std::future::ready("https://connect-errors-no-such-host.invalid/v1".to_owned());
+    for (class, text, error) in each_class("dns", no_host).await {
         assert_eq!(error.message, text, "dns/{class}");
     }
     // tls: a plain-HTTP peer answering the handshake.
@@ -384,8 +405,7 @@ async fn every_failure_kind_reads_as_each_classes_recorded_text() {
             });
         }
     });
-    for (exchange, class, text) in recorded_texts("tls") {
-        let error = refused(exchange, tls_url.clone()).await;
+    for (class, text, error) in each_class("tls", || std::future::ready(tls_url.clone())).await {
         assert_eq!(error.message, text, "tls/{class}");
     }
     // reset: the peer resets the connection before any header.
@@ -400,8 +420,7 @@ async fn every_failure_kind_reads_as_each_classes_recorded_text() {
             drop(socket);
         }
     });
-    for (exchange, class, text) in recorded_texts("reset") {
-        let error = refused(exchange, reset_url.clone()).await;
+    for (class, text, error) in each_class("reset", || std::future::ready(reset_url.clone())).await {
         assert_eq!(error.message, text, "reset/{class}");
     }
     // responseTimeout: the peer accepts and never answers; the exchange's own timer expires.
@@ -413,8 +432,7 @@ async fn every_failure_kind_reads_as_each_classes_recorded_text() {
             held.push(socket);
         }
     });
-    for (exchange, class, text) in recorded_texts("responseTimeout") {
-        let error = refused(exchange, quiet_url.clone()).await;
+    for (class, text, error) in each_class("responseTimeout", || std::future::ready(quiet_url.clone())).await {
         assert_eq!(error.message, text, "responseTimeout/{class}");
     }
 }

@@ -204,7 +204,7 @@ async fn a_reset_keeps_the_old_conversation_archived_durable_and_restorable() {
 
     // The home thread starts over; its old conversation sits in the archive copy.
     assert!(user_texts(&read(&world.directory, &home).await).is_empty());
-    assert_eq!(world.state.header(&ThreadId::from(archive.as_str())).await.unwrap().get("archived"), Some(&json!(true)));
+    assert!(stamped(&world.state.header(&ThreadId::from(archive.as_str())).await.unwrap(), "archivedAt"));
 
     // Durable: a fresh directory over the same stored state reads the archive whole and the home emptied.
     let reopened = SessionDirectory::new(world.rig.deps_on(world.store.clone()));
@@ -213,7 +213,7 @@ async fn a_reset_keeps_the_old_conversation_archived_durable_and_restorable() {
 
     // Restorable: unarchiving brings the whole conversation back as a live thread.
     world.deps.set_archived(&archive, false).await.expect("restores");
-    assert_eq!(world.state.header(&ThreadId::from(archive.as_str())).await.unwrap().get("archived"), Some(&json!(false)));
+    assert!(!stamped(&world.state.header(&ThreadId::from(archive.as_str())).await.unwrap(), "archivedAt"));
     let restored = SessionDirectory::new(world.rig.deps_on(world.store.clone()));
     assert_eq!(user_texts(&read(&restored, &archive).await), ["write a haiku"]);
 
@@ -262,15 +262,20 @@ async fn a_deleted_agents_home_is_archived_and_named_then_brought_back_by_a_rest
 
     homes.retire(&["ada".into(), "lead".into()]).await.expect("retires");
     let retired = header().await;
-    assert_eq!((retired.get("archived"), retired.get("retired")), (Some(&json!(true)), Some(&json!(true))));
+    assert!(stamped(&retired, "archivedAt") && stamped(&retired, "retiredAt"), "the thread rows read these two stamps: {retired:?}");
     assert_eq!(world.rooms.0.lock().unwrap().as_slice(), ["ada"], "the deletion is proven once, and Mixy is never retired");
 
     // A reconcile after the transition archives nothing again.
     world.deps.set_archived(&home, false).await.unwrap();
     homes.reconcile().await.expect("reconciles");
-    assert_eq!(header().await.get("archived"), Some(&json!(false)), "a hand-restored home stays restored");
+    assert!(!stamped(&header().await, "archivedAt"), "a hand-restored home stays restored");
 
     homes.restore("ada").await.expect("restores");
     let restored = header().await;
-    assert_eq!((restored.get("archived"), restored.get("retired")), (Some(&json!(false)), Some(&json!(false))));
+    assert!(!stamped(&restored, "archivedAt") && !stamped(&restored, "retiredAt"));
+}
+
+/// The sidebar marks are positive stamps in the header (`archivedAt`, `retiredAt`), which the thread rows read.
+fn stamped(header: &mixdog_store::schema::record::Header, key: &str) -> bool {
+    header.get(key).and_then(Value::as_f64).is_some_and(|at| at > 0.0)
 }

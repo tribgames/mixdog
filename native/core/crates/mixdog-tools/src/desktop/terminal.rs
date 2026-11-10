@@ -704,6 +704,118 @@ mod tests {
         }
     }
 
+    fn tab_json(info: &TabInfo) -> Value {
+        serde_json::json!({ "tab": info.tab, "id": info.id, "shell": info.shell, "running": info.running, "cwd": info.cwd })
+    }
+
+    /// The tab list and snapshot payloads of Node's terminal manager (`termSessionTabs`, `termSnapshot`, recorded in
+    /// `session-tabs.json` with the real manager over a scripted PTY), against the same tabs in the Rust tab layer over the scripted
+    /// shell (`mixdog_spawn::scripted`, which prints the recorded writes and nothing else). Every recorded fact is compared whole:
+    /// the listings of every session, every snapshot (text, cursor against the tab's own base, flag), the listing after an exit
+    /// with the exited tab's snapshot, and the state after a dispose. A guard fails the test if a recorded key was never consumed.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn the_tab_list_and_snapshots_equal_nodes_recorded_payloads() {
+        use std::collections::BTreeSet;
+        let recorded: Value = serde_json::from_str(include_str!("../../../../fixtures/terminal-tabs/session-tabs.json")).unwrap();
+        let consumed = std::cell::RefCell::new(BTreeSet::<String>::new());
+        let take = |path: &str| -> Value {
+            consumed.borrow_mut().insert(path.to_owned());
+            path.split('.').fold(&recorded, |at, key| &at[key]).clone()
+        };
+        let cwd_key = take("cwd");
+        let cwd = std::env::temp_dir().display().to_string();
+        let fill = |value: &Value| serde_json::from_str::<Value>(&value.to_string().replace(cwd_key.as_str().unwrap(), &cwd.replace('\\', "\\\\"))).unwrap();
+        let manager = mixdog_spawn::LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, mixdog_spawn::ProcessConfig::default());
+        let mut config = mixdog_spawn::terminal::TerminalConfig::new(Arc::new(NoEvents));
+        config.piped = true;
+        let tabs = Arc::new(mixdog_spawn::terminal::TerminalTabs::new(manager.clone(), config));
+        let port = TabsTerminalPort::new(Arc::clone(&tabs), Arc::new(Host { revealed: Default::default() }));
+        // Opened in the order Node's recording opened them; ids that are not tabs of a session are never listed.
+        for id in ["session-terminal:S:3", "session-terminal:S", "session-terminal:S:2", "session-terminal:T", "term_other", "session-terminal:S:03", "session-terminal:S:0"] {
+            let request = mixdog_spawn::terminal::EnsureRequest { cwd: Some(cwd.clone()), profile: Some(mixdog_spawn::scripted::profile()), ..Default::default() };
+            tabs.ensure(Some(id), request).await.unwrap();
+        }
+        // The label of the platform's default shell is the one Node recorded on Windows.
+        let shell_of_the_platform = |mut want: Value, got: &[Value]| {
+            if !cfg!(windows) {
+                for tab in want.as_array_mut().unwrap() {
+                    tab["shell"] = got[0]["shell"].clone();
+                }
+            }
+            want
+        };
+        let listed = |session: &'static str| {
+            let tabs = &tabs;
+            async move { tabs.session_tabs(session).iter().map(|t| serde_json::json!({ "tab": t.tab, "id": t.id, "shell": t.shell, "running": t.running, "cwd": t.cwd })).collect::<Vec<Value>>() }
+        };
+        for session in ["S", "T", "none", "S:2"] {
+            // A thread id never holds `:`, so the port refuses `S:2`; the tab layer lists it as Node did. The others go through the port too.
+            let got = listed(session).await;
+            if session != "S:2" {
+                let through_port: Vec<Value> = port.list(&ThreadId::from(session)).await.unwrap().iter().map(tab_json).collect();
+                assert_eq!(through_port, got, "the port lists the tab layer's tabs of {session}");
+            } else {
+                assert!(port.list(&ThreadId::from(session)).await.is_err());
+            }
+            let want = shell_of_the_platform(fill(&take(&format!("listing.{session}"))), &got);
+            assert_eq!(Value::Array(got), want, "listing of {session}");
+        }
+        let lines = |key: &str| -> Vec<String> { take(key).as_str().unwrap().split("\r\n").filter(|line| !line.is_empty()).map(str::to_owned).collect() };
+        let say = |lines: Vec<String>, id: &'static str| {
+            let (tabs, manager) = (Arc::clone(&tabs), manager.clone());
+            async move { mixdog_spawn::scripted::say(&tabs, &manager, id, &lines.iter().map(String::as_str).collect::<Vec<_>>()).await }
+        };
+        let thread = ThreadId::from("S");
+        let whole = |read: TerminalRead, base: u64| serde_json::json!({ "text": read.raw, "cursor": read.cursor as i64 - base as i64, "reset": read.reset });
+        // The tab's own base: where its cursor stood before it printed anything.
+        let base = port.read(&thread, Some(1), None).await.unwrap().cursor;
+        say(lines("firstWrite"), "session-terminal:S").await;
+        let first = port.read(&thread, Some(1), None).await.unwrap();
+        say(lines("secondWrite"), "session-terminal:S").await;
+        let read = |since: Option<u64>| port.read(&thread, Some(1), since);
+        assert_eq!(whole(read(None).await.unwrap(), base), take("snapshots.all"), "all");
+        assert_eq!(whole(read(Some(first.cursor)).await.unwrap(), base), take("snapshots.sinceFirstCursor"), "sinceFirstCursor");
+        assert_eq!(whole(read(Some(base)).await.unwrap(), base), take("snapshots.sinceStart"), "sinceStart");
+        assert_eq!(whole(read(Some(base + 7)).await.unwrap(), base), take("snapshots.sinceMiddle"), "sinceMiddle");
+        let end = read(None).await.unwrap().cursor;
+        assert_eq!(whole(read(Some(end)).await.unwrap(), base), take("snapshots.sinceEnd"), "sinceEnd");
+        assert_eq!(whole(read(Some(base - 1)).await.unwrap(), base), take("snapshots.belowWindow"), "belowWindow");
+        assert_eq!(whole(read(Some(end + 1)).await.unwrap(), base), take("snapshots.pastEnd"), "pastEnd");
+        // A tab that is not there is `null` in Node, a refusal here.
+        assert!(take("snapshots.unknown").is_null());
+        assert!(matches!(port.read(&thread, Some(9), None).await, Err(PortError::NotFound { .. })));
+        // Another tab has its own text and base.
+        let other_base = tabs.snapshot("session-terminal:T", None).unwrap().cursor;
+        let other = ThreadId::from("T");
+        assert_eq!(whole(port.read(&other, Some(1), None).await.unwrap(), other_base), take("snapshots.other"), "other");
+        // The third tab exits: still listed, no longer running, its snapshot ends with the exit line.
+        let exited_base = tabs.snapshot("session-terminal:S:3", None).unwrap().cursor;
+        mixdog_spawn::scripted::exit(&tabs, &manager, "session-terminal:S:3", 7).await;
+        let got = listed("S").await;
+        let want = shell_of_the_platform(fill(&take("exited")), &got);
+        assert_eq!(Value::Array(got), want, "listing after the exit");
+        assert_eq!(whole(port.read(&thread, Some(3), None).await.unwrap(), exited_base), take("exitedSnapshot"), "exitedSnapshot");
+        // Disposed: gone from the list and from snapshots.
+        tabs.dispose("session-terminal:S:2");
+        let got = listed("S").await;
+        let want = shell_of_the_platform(fill(&take("afterDispose.tabs")), &got);
+        assert_eq!(Value::Array(got), want, "listing after the dispose");
+        assert!(take("afterDispose.snapshot").is_null());
+        assert!(tabs.snapshot("session-terminal:S:2", None).is_none());
+        tabs.dispose_all();
+
+        // Every recorded fact was consumed.
+        let mut recorded_paths = BTreeSet::new();
+        for (key, value) in recorded.as_object().unwrap() {
+            match (key.as_str(), value.as_object()) {
+                ("listing" | "snapshots" | "afterDispose", Some(inner)) => recorded_paths.extend(inner.keys().map(|inner| format!("{key}.{inner}"))),
+                _ => {
+                    recorded_paths.insert(key.clone());
+                }
+            }
+        }
+        assert_eq!(*consumed.borrow(), recorded_paths, "a recorded key was never replayed");
+    }
     /// A session with no tab lists nothing and cannot read; `run` starts the first terminal,
     /// types the command into its real shell, and a later read from the returned cursor sees the
     /// output.

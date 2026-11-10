@@ -628,6 +628,10 @@ pub enum ProxyEvent {
     /// Anthropic extended-thinking blocks, verbatim and ordered (`StreamEvent::ThinkingBlocks`).
     ThinkingBlocks { value: JsonValue },
     ProviderState { state: JsonValue },
+    /// A display-only transcript notice raised while preparing the request (`StreamEvent::Notice`).
+    Notice { message: String, warn: bool },
+    /// The model that answered when it is not the one the request named (`StreamEvent::ServedModel`).
+    ServedModel { model: String },
     /// `pricing_model`: the catalog model the send bills as when it differs from the one sent.
     /// `request_ms`: the request's wall time as the usage ledger measured it (Node `usageDurationMs`).
     Completed {
@@ -754,6 +758,17 @@ pub struct ProxyFailure {
     pub account_blocked: bool,
     pub unsafe_to_retry: bool,
     pub quota_limit: Option<String>,
+    /// The display-only notices the failed call raised before it failed (`ProviderError::notices`).
+    pub notices: Vec<ProxyNotice>,
+}
+
+/// One display-only transcript notice (`StreamEvent::Notice`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyNotice {
+    pub message: String,
+    pub warn: bool,
 }
 
 /// The provider set as an ordered JSON object.

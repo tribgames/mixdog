@@ -1332,6 +1332,21 @@ impl crate::common::HasOpId for RoomLeaveParams {
     }
 }
 
+/// Params of `room/reset`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct RoomResetParams {
+    pub op_id: OpId,
+    pub input: JsonValue,
+}
+
+impl crate::common::HasOpId for RoomResetParams {
+    fn op_id(&self) -> &OpId {
+        &self.op_id
+    }
+}
+
 /// Params of `room/remove`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
@@ -3506,6 +3521,13 @@ pub struct AccountRefreshProviderSetupParams {
     pub unlock_keychain: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recheck_keychain: Option<bool>,
+    /// A provider id whose current account's OAuth token is refreshed now unless it lasts
+    /// `minimumValidityMs` more (the host preflight of a benchmark run); needs `minimumValidityMs`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub renew_credential: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
+    pub minimum_validity_ms: Option<u64>,
 }
 
 impl crate::common::HasOpId for AccountRefreshProviderSetupParams {
@@ -4115,6 +4137,14 @@ pub struct ToolsToolsStatusParams {
     pub thread_id: Option<ThreadId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub query: Option<String>,
+    /// `true`: the reply also carries `requestSnapshot`, the provider request the thread's next send
+    /// would carry (needs `threadId`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snapshot: Option<bool>,
+    /// With snapshot: the user message the snapshot's request carries as its last turn, as the send of that message would;
+    /// a thread with no user turn yet cannot be encoded by every provider (Gemini refuses a request with nothing to send).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snapshot_user_message: Option<String>,
 }
 
 /// Params of `memory/memoryControl`.
@@ -4271,6 +4301,10 @@ impl crate::common::HasOpId for ProjectEnsureDirectoryParams {
 #[serde(rename_all = "camelCase")]
 pub struct ProjectDirectoryParams {
     pub path: String,
+    /// Answer the registered Project's real path even when `path` names a managed worktree of it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional))]
+    pub owner: Option<bool>,
 }
 
 /// Params of `project/recoveryDirectory`.
@@ -4317,6 +4351,18 @@ pub struct ProjectFsReadTextParams {
     /// A paired device's one-file grant (`transfer/grant/mint`): `root` and `rel` are then Node's `projectPath` and `relPath`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub access_token: Option<String>,
+    /// Read as a paired device does (Node's `readProjectTextFileAuthorized`): the file is opened first and the open file is checked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authorized: Option<bool>,
+    /// Answer only `maxChars` code points of the text, from code point `fromChar`; the answer then carries `nextChar` while text remains.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_char: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_chars: Option<u32>,
+    /// The `readId` the first window's answer carried: the windows after it are served from that one read of the file (the file is not
+    /// opened again), so a file replaced between two windows does not mix versions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub read_id: Option<String>,
 }
 
 /// Params of `projectFs/writeText`.
@@ -4332,6 +4378,9 @@ pub struct ProjectFsWriteTextParams {
     pub expected_content: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub encoding: Option<String>,
+    /// A paired device's one-file grant, as on `projectFs/readText`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access_token: Option<String>,
 }
 
 impl crate::common::HasOpId for ProjectFsWriteTextParams {
@@ -4442,10 +4491,14 @@ impl crate::common::HasOpId for ProjectFsCopyParams {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ProjectFsTrashParams {
     pub op_id: OpId,
     pub root: String,
     pub rel: String,
+    /// The OS trash is the desktop window's (Node's `trashItem` host request): the core confines the path and asks the window.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub via_host: Option<bool>,
 }
 
 impl crate::common::HasOpId for ProjectFsTrashParams {
@@ -4458,9 +4511,13 @@ impl crate::common::HasOpId for ProjectFsTrashParams {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ProjectFsEntryPathParams {
     pub root: String,
     pub rel: String,
+    /// A paired device's one-file grant, as on `projectFs/readText`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access_token: Option<String>,
 }
 
 /// Params of `projectFs/readLocal`.
@@ -4620,18 +4677,55 @@ pub struct ProjectFsReadEditorSettingsParams {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ProjectFsCaptureSnapshotParams {
     pub root: String,
     pub rel: String,
+    /// A paired device's one-file grant, as on `projectFs/readText`; the window then captures the granted file alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access_token: Option<String>,
 }
 
 /// Params of `projectFs/localPageUrl`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ProjectFsLocalPageUrlParams {
     pub root: String,
     pub rel: String,
+    /// A paired device's one-file grant, as on `projectFs/readText`; the page then serves that file alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access_token: Option<String>,
+}
+
+/// Params of `projectFs/previewFile`: what a paired device's file preview needs to know before it reads (Node's `previewProjectFile`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct ProjectFsPreviewFileParams {
+    pub root: String,
+    pub rel: String,
+    /// A paired device's one-file grant, as on `projectFs/readText`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access_token: Option<String>,
+}
+
+/// Params of `projectFs/previewRange`: one bounded window of a previewable file (Node's `previewProjectFileRange`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct ProjectFsPreviewRangeParams {
+    pub root: String,
+    pub rel: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access_token: Option<String>,
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
+    pub offset: u64,
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
+    pub length: u64,
 }
 
 /// Params of `fs/watch`.
@@ -4712,13 +4806,73 @@ pub struct TransferReadRangeParams {
     pub offset: u64,
     #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub length: u64,
+    /// A phone's read names the version it leased; another is `changed`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
 }
 
-/// Params of `transfer/endRead`.
+/// Params of `transfer/endRead`: the transfer, or the unredeemed grant, to release.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct TransferEndReadParams {
+    pub transfer_id: TransferId,
+}
+
+/// What a paired phone asks to download (`transfer/authorizeRead`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum DownloadSource {
+    /// A file of the conversation's project, by its path in the project. The project is the host catalog's, never the caller's.
+    File { rel: String },
+    /// A file the conversation names, by its absolute path or its path in the conversation's folder.
+    SessionFile { path: String },
+    /// A media asset of the host's media store, by its id; the conversation must still be in the catalog.
+    MediaAsset {
+        #[serde(rename = "assetId")]
+        asset_id: String,
+    },
+    /// A link the conversation shows, by its `href` as written (decoded by the core as the desktop decodes it); `itemId` names the row.
+    Link {
+        #[serde(rename = "itemId")]
+        item_id: String,
+        href: String,
+    },
+    /// An attachment the conversation's transcript names, by its content hash.
+    Attachment {
+        #[serde(rename = "attachmentId")]
+        attachment_id: String,
+    },
+    /// A folder the conversation names (absolute, or in its folder), served as a zip of its work files.
+    Folder { path: String },
+}
+
+/// Params of `transfer/authorizeRead`: the first stage of a phone's download, a grant that expires.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct TransferAuthorizeReadParams {
+    /// The conversation the phone names: the grant and the transfer it becomes end with it (Node's `Grant.sessionId`).
+    pub session_id: String,
+    pub source: DownloadSource,
+    /// `save`, `share` or `open`.
+    pub purpose: String,
+}
+
+/// Params of `transfer/redeemGrant`: the second stage, which consumes the grant once into a transfer.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct TransferRedeemGrantParams {
+    pub grant_id: String,
+}
+
+/// Params of `transfer/finishRead`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct TransferFinishReadParams {
     pub transfer_id: TransferId,
 }
 

@@ -1,0 +1,1293 @@
+{
+  "note": "a real askSession turn over the client turn's approval queue (turn.mjs toolHandlers over tool-approval.mjs), at b6f10295a",
+  "scenarios": [
+    {
+      "name": "the clients leave before the tool is asked: the card waits, a hundred years later it is still the same card, and a client that returns approves it",
+      "session": "sess_rmem_room000abc_ann",
+      "now": 1800000000000,
+      "env": {},
+      "replies": [
+        {
+          "content": "reading",
+          "toolCalls": [
+            {
+              "id": "call_a",
+              "name": "read",
+              "arguments": {
+                "path": "x.txt"
+              }
+            }
+          ],
+          "stopReason": "tool_use",
+          "usage": {
+            "inputTokens": 1,
+            "outputTokens": 1
+          }
+        },
+        {
+          "content": "all done",
+          "usage": {
+            "inputTokens": 1,
+            "outputTokens": 1
+          }
+        }
+      ],
+      "script": [
+        {
+          "op": "start"
+        },
+        {
+          "op": "detach"
+        },
+        {
+          "op": "release"
+        },
+        {
+          "op": "facts"
+        },
+        {
+          "op": "advance",
+          "ms": 3153600000000
+        },
+        {
+          "op": "facts"
+        },
+        {
+          "op": "reattach"
+        },
+        {
+          "op": "answer",
+          "decision": {
+            "approved": true,
+            "device": "Pixel"
+          }
+        },
+        {
+          "op": "release"
+        }
+      ],
+      "trace": [
+        {
+          "op": "start",
+          "sends": 1
+        },
+        {
+          "op": "detach",
+          "card": null,
+          "waiting": 0,
+          "outcome": null,
+          "patches": []
+        },
+        {
+          "op": "release",
+          "sends": 1,
+          "turnDone": false,
+          "card": {
+            "name": "read",
+            "args": {
+              "path": "x.txt"
+            },
+            "reason": "needs approval",
+            "timeoutMs": null,
+            "expiresAt": null
+          },
+          "waiting": 0,
+          "outcome": null,
+          "patches": [
+            [
+              "toolApproval"
+            ]
+          ]
+        },
+        {
+          "op": "facts",
+          "approvals": 0,
+          "card": {
+            "name": "read",
+            "args": {
+              "path": "x.txt"
+            },
+            "reason": "needs approval",
+            "timeoutMs": null,
+            "expiresAt": null
+          },
+          "waiting": 0,
+          "outcome": null,
+          "patches": []
+        },
+        {
+          "op": "advance",
+          "ms": 3153600000000,
+          "now": 4953600000000,
+          "card": {
+            "name": "read",
+            "args": {
+              "path": "x.txt"
+            },
+            "reason": "needs approval",
+            "timeoutMs": null,
+            "expiresAt": null
+          },
+          "waiting": 0,
+          "outcome": null,
+          "patches": []
+        },
+        {
+          "op": "facts",
+          "approvals": 0,
+          "card": {
+            "name": "read",
+            "args": {
+              "path": "x.txt"
+            },
+            "reason": "needs approval",
+            "timeoutMs": null,
+            "expiresAt": null
+          },
+          "waiting": 0,
+          "outcome": null,
+          "patches": []
+        },
+        {
+          "op": "reattach",
+          "card": {
+            "name": "read",
+            "args": {
+              "path": "x.txt"
+            },
+            "reason": "needs approval",
+            "timeoutMs": null,
+            "expiresAt": null
+          },
+          "waiting": 0,
+          "outcome": null,
+          "patches": []
+        },
+        {
+          "op": "answer",
+          "accepted": true,
+          "card": null,
+          "waiting": 0,
+          "outcome": {
+            "approved": true,
+            "device": "Pixel",
+            "expired": false,
+            "interrupted": false,
+            "at": 4953600000000
+          },
+          "patches": [
+            [
+              "toolApproval",
+              "toolApprovalResult"
+            ]
+          ]
+        },
+        {
+          "op": "release",
+          "sends": 2,
+          "turnDone": true,
+          "card": null,
+          "waiting": 0,
+          "outcome": {
+            "approved": true,
+            "device": "Pixel",
+            "expired": false,
+            "interrupted": false,
+            "at": 4953600000000
+          },
+          "patches": []
+        },
+        {
+          "op": "end",
+          "answer": "all done",
+          "sends": 2,
+          "toolMessages": [
+            "[lines 1-1]\nFILE-SENTINEL\n[lines 1-1 of 1]"
+          ],
+          "card": null,
+          "waiting": 0,
+          "outcome": {
+            "approved": true,
+            "device": "Pixel",
+            "expired": false,
+            "interrupted": false,
+            "at": 4953600000000
+          },
+          "patches": []
+        }
+      ],
+      "timers": {
+        "registered": 0,
+        "pending": 0
+      }
+    },
+    {
+      "name": "the clients leave before the tool is asked: a client that returns denies it",
+      "session": "sess_rmem_room001abc_ann",
+      "now": 1801000000000,
+      "env": {},
+      "replies": [
+        {
+          "content": "reading",
+          "toolCalls": [
+            {
+              "id": "call_a",
+              "name": "read",
+              "arguments": {
+                "path": "x.txt"
+              }
+            }
+          ],
+          "stopReason": "tool_use",
+          "usage": {
+            "inputTokens": 1,
+            "outputTokens": 1
+          }
+        },
+        {
+          "content": "all done",
+          "usage": {
+            "inputTokens": 1,
+            "outputTokens": 1
+          }
+        }
+      ],
+      "script": [
+        {
+          "op": "start"
+        },
+        {
+          "op": "detach"
+        },
+        {
+          "op": "release"
+        },
+        {
+          "op": "advance",
+          "ms": 3153600000000
+        },
+        {
+          "op": "reattach"
+        },
+        {
+          "op": "answer",
+          "decision": {
+            "approved": false,
+            "reason": "not now",
+            "device": "Pixel"
+          }
+        },
+        {
+          "op": "release"
+        }
+      ],
+      "trace": [
+        {
+          "op": "start",
+          "sends": 1
+        },
+        {
+          "op": "detach",
+          "card": null,
+          "waiting": 0,
+          "outcome": null,
+          "patches": []
+        },
+        {
+          "op": "release",
+          "sends": 1,
+          "turnDone": false,
+          "card": {
+            "name": "read",
+            "args": {
+              "path": "x.txt"
+            },
+            "reason": "needs approval",
+            "timeoutMs": null,
+            "expiresAt": null
+          },
+          "waiting": 0,
+          "outcome": null,
+          "patches": [
+            [
+              "toolApproval"
+            ]
+          ]
+        },
+        {
+          "op": "advance",
+          "ms": 3153600000000,
+          "now": 4954600000000,
+          "card": {
+            "name": "read",
+            "args": {
+              "path": "x.txt"
+            },
+            "reason": "needs approval",
+            "timeoutMs": null,
+            "expiresAt": null
+          },
+          "waiting": 0,
+          "outcome": null,
+          "patches": []
+        },
+        {
+          "op": "reattach",
+          "card": {
+            "name": "read",
+            "args": {
+              "path": "x.txt"
+            },
+            "reason": "needs approval",
+            "timeoutMs": null,
+            "expiresAt": null
+          },
+          "waiting": 0,
+          "outcome": null,
+          "patches": []
+        },
+        {
+          "op": "answer",
+          "accepted": true,
+          "card": null,
+          "waiting": 0,
+          "outcome": {
+            "approved": false,
+            "device": "Pixel",
+            "expired": false,
+            "interrupted": false,
+            "at": 4954600000000
+          },
+          "patches": [
+            [
+              "toolApproval",
+              "toolApprovalResult"
+            ]
+          ]
+        },
+        {
+          "op": "release",
+          "sends": 2,
+          "turnDone": true,
+          "card": null,
+          "waiting": 0,
+          "outcome": {
+            "approved": false,
+            "device": "Pixel",
+            "expired": false,
+            "interrupted": false,
+            "at": 4954600000000
+          },
+          "patches": []
+        },
+        {
+          "op": "end",
+          "answer": "all done",
+          "sends": 2,
+          "toolMessages": [
+            "Error: tool \"read\" was not approved: not now. Do not retry it or reach the same result another way; report it."
+          ],
+          "card": null,
+          "waiting": 0,
+          "outcome": {
+            "approved": false,
+            "device": "Pixel",
+            "expired": false,
+            "interrupted": false,
+            "at": 4954600000000
+          },
+          "patches": []
+        }
+      ],
+      "timers": {
+        "registered": 0,
+        "pending": 0
+      }
+    },
+    {
+      "name": "the clients stay: the card is answered at once",
+      "session": "sess_rmem_room002abc_ann",
+      "now": 1802000000000,
+      "env": {},
+      "replies": [
+        {
+          "content": "reading",
+          "toolCalls": [
+            {
+              "id": "call_a",
+              "name": "read",
+              "arguments": {
+                "path": "x.txt"
+              }
+            }
+          ],
+          "stopReason": "tool_use",
+          "usage": {
+            "inputTokens": 1,
+            "outputTokens": 1
+          }
+        },
+        {
+          "content": "all done",
+          "usage": {
+            "inputTokens": 1,
+            "outputTokens": 1
+          }
+        }
+      ],
+      "script": [
+        {
+          "op": "start"
+        },
+        {
+          "op": "release"
+        },
+        {
+          "op": "facts"
+        },
+        {
+          "op": "answer",
+          "decision": {
+            "approved": true,
+            "device": "Pixel"
+          }
+        },
+        {
+          "op": "release"
+        }
+      ],
+      "trace": [
+        {
+          "op": "start",
+          "sends": 1
+        },
+        {
+          "op": "release",
+          "sends": 1,
+          "turnDone": false,
+          "card": {
+            "name": "read",
+            "args": {
+              "path": "x.txt"
+            },
+            "reason": "needs approval",
+            "timeoutMs": null,
+            "expiresAt": null
+          },
+          "waiting": 0,
+          "outcome": null,
+          "patches": [
+            [
+              "toolApproval"
+            ]
+          ]
+        },
+        {
+          "op": "facts",
+          "approvals": 0,
+          "card": {
+            "name": "read",
+            "args": {
+              "path": "x.txt"
+            },
+            "reason": "needs approval",
+            "timeoutMs": null,
+            "expiresAt": null
+          },
+          "waiting": 0,
+          "outcome": null,
+          "patches": []
+        },
+        {
+          "op": "answer",
+          "accepted": true,
+          "card": null,
+          "waiting": 0,
+          "outcome": {
+            "approved": true,
+            "device": "Pixel",
+            "expired": false,
+            "interrupted": false,
+            "at": 1802000000000
+          },
+          "patches": [
+            [
+              "toolApproval",
+              "toolApprovalResult"
+            ]
+          ]
+        },
+        {
+          "op": "release",
+          "sends": 2,
+          "turnDone": true,
+          "card": null,
+          "waiting": 0,
+          "outcome": {
+            "approved": true,
+            "device": "Pixel",
+            "expired": false,
+            "interrupted": false,
+            "at": 1802000000000
+          },
+          "patches": []
+        },
+        {
+          "op": "end",
+          "answer": "all done",
+          "sends": 2,
+          "toolMessages": [
+            "[lines 1-1]\nFILE-SENTINEL\n[lines 1-1 of 1]"
+          ],
+          "card": null,
+          "waiting": 0,
+          "outcome": {
+            "approved": true,
+            "device": "Pixel",
+            "expired": false,
+            "interrupted": false,
+            "at": 1802000000000
+          },
+          "patches": []
+        }
+      ],
+      "timers": {
+        "registered": 0,
+        "pending": 0
+      }
+    },
+    {
+      "name": "the clients leave after the first tool: the second tool asked later waits on the same queue, and is approved when a client returns",
+      "session": "sess_rmem_room003abc_ann",
+      "now": 1803000000000,
+      "env": {},
+      "replies": [
+        {
+          "content": "reading",
+          "toolCalls": [
+            {
+              "id": "call_a",
+              "name": "read",
+              "arguments": {
+                "path": "x.txt"
+              }
+            }
+          ],
+          "stopReason": "tool_use",
+          "usage": {
+            "inputTokens": 1,
+            "outputTokens": 1
+          }
+        },
+        {
+          "content": "reading",
+          "toolCalls": [
+            {
+              "id": "call_b",
+              "name": "read",
+              "arguments": {
+                "path": "x.txt",
+                "offset": 0
+              }
+            }
+          ],
+          "stopReason": "tool_use",
+          "usage": {
+            "inputTokens": 1,
+            "outputTokens": 1
+          }
+        },
+        {
+          "content": "all done",
+          "usage": {
+            "inputTokens": 1,
+            "outputTokens": 1
+          }
+        }
+      ],
+      "script": [
+        {
+          "op": "start"
+        },
+        {
+          "op": "release"
+        },
+        {
+          "op": "answer",
+          "decision": {
+            "approved": true,
+            "device": "Pixel"
+          }
+        },
+        {
+          "op": "detach"
+        },
+        {
+          "op": "release"
+        },
+        {
+          "op": "facts"
+        },
+        {
+          "op": "advance",
+          "ms": 3153600000000
+        },
+        {
+          "op": "facts"
+        },
+        {
+          "op": "reattach"
+        },
+        {
+          "op": "answer",
+          "decision": {
+            "approved": true,
+            "device": "Pixel"
+          }
+        },
+        {
+          "op": "release"
+        }
+      ],
+      "trace": [
+        {
+          "op": "start",
+          "sends": 1
+        },
+        {
+          "op": "release",
+          "sends": 1,
+          "turnDone": false,
+          "card": {
+            "name": "read",
+            "args": {
+              "path": "x.txt"
+            },
+            "reason": "needs approval",
+            "timeoutMs": null,
+            "expiresAt": null
+          },
+          "waiting": 0,
+          "outcome": null,
+          "patches": [
+            [
+              "toolApproval"
+            ]
+          ]
+        },
+        {
+          "op": "answer",
+          "accepted": true,
+          "card": null,
+          "waiting": 0,
+          "outcome": {
+            "approved": true,
+            "device": "Pixel",
+            "expired": false,
+            "interrupted": false,
+            "at": 1803000000000
+          },
+          "patches": [
+            [
+              "toolApproval",
+              "toolApprovalResult"
+            ]
+          ]
+        },
+        {
+          "op": "detach",
+          "card": null,
+          "waiting": 0,
+          "outcome": {
+            "approved": true,
+            "device": "Pixel",
+            "expired": false,
+            "interrupted": false,
+            "at": 1803000000000
+          },
+          "patches": []
+        },
+        {
+          "op": "release",
+          "sends": 2,
+          "turnDone": false,
+          "card": {
+            "name": "read",
+            "args": {
+              "path": "x.txt",
+              "offset": 0
+            },
+            "reason": "needs approval",
+            "timeoutMs": null,
+            "expiresAt": null
+          },
+          "waiting": 0,
+          "outcome": {
+            "approved": true,
+            "device": "Pixel",
+            "expired": false,
+            "interrupted": false,
+            "at": 1803000000000
+          },
+          "patches": [
+            [
+              "toolApproval"
+            ]
+          ]
+        },
+        {
+          "op": "facts",
+          "approvals": 0,
+          "card": {
+            "name": "read",
+            "args": {
+              "path": "x.txt",
+              "offset": 0
+            },
+            "reason": "needs approval",
+            "timeoutMs": null,
+            "expiresAt": null
+          },
+          "waiting": 0,
+          "outcome": {
+            "approved": true,
+            "device": "Pixel",
+            "expired": false,
+            "interrupted": false,
+            "at": 1803000000000
+          },
+          "patches": []
+        },
+        {
+          "op": "advance",
+          "ms": 3153600000000,
+          "now": 4956600000000,
+          "card": {
+            "name": "read",
+            "args": {
+              "path": "x.txt",
+              "offset": 0
+            },
+            "reason": "needs approval",
+            "timeoutMs": null,
+            "expiresAt": null
+          },
+          "waiting": 0,
+          "outcome": {
+            "approved": true,
+            "device": "Pixel",
+            "expired": false,
+            "interrupted": false,
+            "at": 1803000000000
+          },
+          "patches": []
+        },
+        {
+          "op": "facts",
+          "approvals": 0,
+          "card": {
+            "name": "read",
+            "args": {
+              "path": "x.txt",
+              "offset": 0
+            },
+            "reason": "needs approval",
+            "timeoutMs": null,
+            "expiresAt": null
+          },
+          "waiting": 0,
+          "outcome": {
+            "approved": true,
+            "device": "Pixel",
+            "expired": false,
+            "interrupted": false,
+            "at": 1803000000000
+          },
+          "patches": []
+        },
+        {
+          "op": "reattach",
+          "card": {
+            "name": "read",
+            "args": {
+              "path": "x.txt",
+              "offset": 0
+            },
+            "reason": "needs approval",
+            "timeoutMs": null,
+            "expiresAt": null
+          },
+          "waiting": 0,
+          "outcome": {
+            "approved": true,
+            "device": "Pixel",
+            "expired": false,
+            "interrupted": false,
+            "at": 1803000000000
+          },
+          "patches": []
+        },
+        {
+          "op": "answer",
+          "accepted": true,
+          "card": null,
+          "waiting": 0,
+          "outcome": {
+            "approved": true,
+            "device": "Pixel",
+            "expired": false,
+            "interrupted": false,
+            "at": 4956600000000
+          },
+          "patches": [
+            [
+              "toolApproval",
+              "toolApprovalResult"
+            ]
+          ]
+        },
+        {
+          "op": "release",
+          "sends": 3,
+          "turnDone": true,
+          "card": null,
+          "waiting": 0,
+          "outcome": {
+            "approved": true,
+            "device": "Pixel",
+            "expired": false,
+            "interrupted": false,
+            "at": 4956600000000
+          },
+          "patches": []
+        },
+        {
+          "op": "end",
+          "answer": "all done",
+          "sends": 3,
+          "toolMessages": [
+            "[lines 1-1]\nFILE-SENTINEL\n[lines 1-1 of 1]",
+            "[lines 1-1]\nFILE-SENTINEL\n[lines 1-1 of 1]"
+          ],
+          "card": null,
+          "waiting": 0,
+          "outcome": {
+            "approved": true,
+            "device": "Pixel",
+            "expired": false,
+            "interrupted": false,
+            "at": 4956600000000
+          },
+          "patches": []
+        }
+      ],
+      "timers": {
+        "registered": 0,
+        "pending": 0
+      }
+    },
+    {
+      "name": "with the opt-in limit: the clients leave and the limit passes, the card expires and the model is told it was denied",
+      "session": "sess_rmem_room004abc_ann",
+      "now": 1804000000000,
+      "env": {
+        "MIXDOG_TOOL_APPROVAL_TIMEOUT_MS": "600000"
+      },
+      "replies": [
+        {
+          "content": "reading",
+          "toolCalls": [
+            {
+              "id": "call_a",
+              "name": "read",
+              "arguments": {
+                "path": "x.txt"
+              }
+            }
+          ],
+          "stopReason": "tool_use",
+          "usage": {
+            "inputTokens": 1,
+            "outputTokens": 1
+          }
+        },
+        {
+          "content": "all done",
+          "usage": {
+            "inputTokens": 1,
+            "outputTokens": 1
+          }
+        }
+      ],
+      "script": [
+        {
+          "op": "start"
+        },
+        {
+          "op": "detach"
+        },
+        {
+          "op": "release"
+        },
+        {
+          "op": "advance",
+          "ms": 599999
+        },
+        {
+          "op": "facts"
+        },
+        {
+          "op": "advance",
+          "ms": 1
+        },
+        {
+          "op": "facts"
+        },
+        {
+          "op": "release"
+        }
+      ],
+      "trace": [
+        {
+          "op": "start",
+          "sends": 1
+        },
+        {
+          "op": "detach",
+          "card": null,
+          "waiting": 0,
+          "outcome": null,
+          "patches": []
+        },
+        {
+          "op": "release",
+          "sends": 1,
+          "turnDone": false,
+          "card": {
+            "name": "read",
+            "args": {
+              "path": "x.txt"
+            },
+            "reason": "needs approval",
+            "timeoutMs": 600000,
+            "expiresAt": 1804000600000
+          },
+          "waiting": 0,
+          "outcome": null,
+          "patches": [
+            [
+              "toolApproval"
+            ]
+          ]
+        },
+        {
+          "op": "advance",
+          "ms": 599999,
+          "now": 1804000599999,
+          "card": {
+            "name": "read",
+            "args": {
+              "path": "x.txt"
+            },
+            "reason": "needs approval",
+            "timeoutMs": 600000,
+            "expiresAt": 1804000600000
+          },
+          "waiting": 0,
+          "outcome": null,
+          "patches": []
+        },
+        {
+          "op": "facts",
+          "approvals": 0,
+          "card": {
+            "name": "read",
+            "args": {
+              "path": "x.txt"
+            },
+            "reason": "needs approval",
+            "timeoutMs": 600000,
+            "expiresAt": 1804000600000
+          },
+          "waiting": 0,
+          "outcome": null,
+          "patches": []
+        },
+        {
+          "op": "advance",
+          "ms": 1,
+          "now": 1804000600000,
+          "card": null,
+          "waiting": 0,
+          "outcome": {
+            "approved": false,
+            "device": "",
+            "expired": true,
+            "interrupted": false,
+            "at": 1804000600000
+          },
+          "patches": [
+            [
+              "toolApproval",
+              "toolApprovalResult"
+            ]
+          ]
+        },
+        {
+          "op": "facts",
+          "approvals": 0,
+          "card": null,
+          "waiting": 0,
+          "outcome": {
+            "approved": false,
+            "device": "",
+            "expired": true,
+            "interrupted": false,
+            "at": 1804000600000
+          },
+          "patches": []
+        },
+        {
+          "op": "release",
+          "sends": 2,
+          "turnDone": false,
+          "card": null,
+          "waiting": 0,
+          "outcome": {
+            "approved": false,
+            "device": "",
+            "expired": true,
+            "interrupted": false,
+            "at": 1804000600000
+          },
+          "patches": []
+        },
+        {
+          "op": "end",
+          "answer": "all done",
+          "sends": 2,
+          "toolMessages": [
+            "Error: tool \"read\" was not approved: approval timed out. Do not retry it or reach the same result another way; report it."
+          ],
+          "card": null,
+          "waiting": 0,
+          "outcome": {
+            "approved": false,
+            "device": "",
+            "expired": true,
+            "interrupted": false,
+            "at": 1804000600000
+          },
+          "patches": []
+        }
+      ],
+      "timers": {
+        "registered": 1,
+        "pending": 0
+      }
+    },
+    {
+      "name": "with the opt-in limit: a client returns before the limit and approves, and the limit passing later changes nothing",
+      "session": "sess_rmem_room005abc_ann",
+      "now": 1805000000000,
+      "env": {
+        "MIXDOG_TOOL_APPROVAL_TIMEOUT_MS": "600000"
+      },
+      "replies": [
+        {
+          "content": "reading",
+          "toolCalls": [
+            {
+              "id": "call_a",
+              "name": "read",
+              "arguments": {
+                "path": "x.txt"
+              }
+            }
+          ],
+          "stopReason": "tool_use",
+          "usage": {
+            "inputTokens": 1,
+            "outputTokens": 1
+          }
+        },
+        {
+          "content": "all done",
+          "usage": {
+            "inputTokens": 1,
+            "outputTokens": 1
+          }
+        }
+      ],
+      "script": [
+        {
+          "op": "start"
+        },
+        {
+          "op": "detach"
+        },
+        {
+          "op": "release"
+        },
+        {
+          "op": "advance",
+          "ms": 599999
+        },
+        {
+          "op": "reattach"
+        },
+        {
+          "op": "answer",
+          "decision": {
+            "approved": true,
+            "device": "Pixel"
+          }
+        },
+        {
+          "op": "advance",
+          "ms": 10
+        },
+        {
+          "op": "release"
+        }
+      ],
+      "trace": [
+        {
+          "op": "start",
+          "sends": 1
+        },
+        {
+          "op": "detach",
+          "card": null,
+          "waiting": 0,
+          "outcome": null,
+          "patches": []
+        },
+        {
+          "op": "release",
+          "sends": 1,
+          "turnDone": false,
+          "card": {
+            "name": "read",
+            "args": {
+              "path": "x.txt"
+            },
+            "reason": "needs approval",
+            "timeoutMs": 600000,
+            "expiresAt": 1805000600000
+          },
+          "waiting": 0,
+          "outcome": null,
+          "patches": [
+            [
+              "toolApproval"
+            ]
+          ]
+        },
+        {
+          "op": "advance",
+          "ms": 599999,
+          "now": 1805000599999,
+          "card": {
+            "name": "read",
+            "args": {
+              "path": "x.txt"
+            },
+            "reason": "needs approval",
+            "timeoutMs": 600000,
+            "expiresAt": 1805000600000
+          },
+          "waiting": 0,
+          "outcome": null,
+          "patches": []
+        },
+        {
+          "op": "reattach",
+          "card": {
+            "name": "read",
+            "args": {
+              "path": "x.txt"
+            },
+            "reason": "needs approval",
+            "timeoutMs": 600000,
+            "expiresAt": 1805000600000
+          },
+          "waiting": 0,
+          "outcome": null,
+          "patches": []
+        },
+        {
+          "op": "answer",
+          "accepted": true,
+          "card": null,
+          "waiting": 0,
+          "outcome": {
+            "approved": true,
+            "device": "Pixel",
+            "expired": false,
+            "interrupted": false,
+            "at": 1805000599999
+          },
+          "patches": [
+            [
+              "toolApproval",
+              "toolApprovalResult"
+            ]
+          ]
+        },
+        {
+          "op": "advance",
+          "ms": 10,
+          "now": 1805000600009,
+          "card": null,
+          "waiting": 0,
+          "outcome": {
+            "approved": true,
+            "device": "Pixel",
+            "expired": false,
+            "interrupted": false,
+            "at": 1805000599999
+          },
+          "patches": []
+        },
+        {
+          "op": "release",
+          "sends": 2,
+          "turnDone": true,
+          "card": null,
+          "waiting": 0,
+          "outcome": {
+            "approved": true,
+            "device": "Pixel",
+            "expired": false,
+            "interrupted": false,
+            "at": 1805000599999
+          },
+          "patches": []
+        },
+        {
+          "op": "end",
+          "answer": "all done",
+          "sends": 2,
+          "toolMessages": [
+            "[lines 1-1]\nFILE-SENTINEL\n[lines 1-1 of 1]"
+          ],
+          "card": null,
+          "waiting": 0,
+          "outcome": {
+            "approved": true,
+            "device": "Pixel",
+            "expired": false,
+            "interrupted": false,
+            "at": 1805000599999
+          },
+          "patches": []
+        }
+      ],
+      "timers": {
+        "registered": 1,
+        "pending": 0
+      }
+    }
+  ]
+}

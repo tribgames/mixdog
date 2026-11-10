@@ -50,6 +50,21 @@ pub fn remote_viewing_value(registry: &DeviceRegistry) -> Value {
     json!({ "sessionIds": registry.visualize_viewed_sessions() })
 }
 
+/// `hostState` key `remoteSession`: the session the channel bridge is pinned to, which the host stamps on every
+/// snapshot as `remoteEnabled`/`remoteSessionId`. `applyRemoteSessionState` (`session-host-publication.ts`) keeps the id
+/// only for an enabled state whose id is at most 256 characters and a session id (`/^[A-Za-z0-9_-]+$/`).
+pub fn remote_session_value(enabled: bool, session_id: Option<&str>) -> Value {
+    let kept = session_id.filter(|id| {
+        enabled && id.chars().count() <= 256 && !id.is_empty() && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    });
+    json!({ "sessionId": kept })
+}
+
+/// Publishes [`remote_session_value`] for the binding as it now stands.
+pub fn publish_remote_session(publisher: &dyn StatePublisher, enabled: bool, session_id: Option<&str>) {
+    publisher.publish(SectionName::HostState, Some("remoteSession".to_owned()), change_of(&remote_session_value(enabled, session_id)));
+}
+
 /// Publishes [`remote_viewing_value`] now and after each change of who is attached or what is
 /// shown; ends when the registry is dropped.
 pub async fn publish_remote_viewing(registry: std::sync::Weak<DeviceRegistry>, publisher: Arc<dyn StatePublisher>) {
@@ -109,6 +124,9 @@ pub struct HostService {
     power: Arc<dyn PowerSink>,
     clicks: Arc<dyn NotificationClicks>,
     surfaces: Arc<dyn BrowserSurfaces>,
+    /// The core's copy of the visualize tabs, folded from every `visualize` value the desktop sets (the section may hold
+    /// only a stub of a large one).
+    visualize: Arc<mixdog_exthost::VisualizePanes>,
 }
 
 impl HostService {
@@ -118,6 +136,7 @@ impl HostService {
         power: Arc<dyn PowerSink>,
         clicks: Arc<dyn NotificationClicks>,
         surfaces: Arc<dyn BrowserSurfaces>,
+        visualize: Arc<mixdog_exthost::VisualizePanes>,
     ) -> Arc<Self> {
         Arc::new(Self {
             publisher,
@@ -125,11 +144,15 @@ impl HostService {
             power,
             clicks,
             surfaces,
+            visualize,
         })
     }
 
     fn state_set(&self, req: &CoreRequest) -> Result<Value, CoreError> {
         let (key, value) = decode::<HostStateSetParams>(req)?.into_parts();
+        if key == "visualize" {
+            self.visualize.fold(&value);
+        }
         self.publisher.publish(
             SectionName::HostState,
             Some(key.to_owned()),

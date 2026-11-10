@@ -2,6 +2,7 @@
 
 pub mod adapter;
 pub mod body;
+pub mod cache_key;
 pub mod client_meta;
 pub mod codec;
 pub mod config;

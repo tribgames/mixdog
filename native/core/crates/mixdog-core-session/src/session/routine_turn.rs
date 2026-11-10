@@ -214,7 +214,8 @@ mod tests {
     use mixdog_services::bots::{RoutineKind, RoutineTrigger};
 
     use super::*;
-    use crate::session::tests::{eventually_on, idle, start_thread, turn};
+    use crate::eventually_on;
+        use crate::session::tests::{idle, start_thread, turn};
     use crate::session::testing::Rig;
 
     fn routine(id: &str, thread: &ThreadId) -> RoutineTurn {
@@ -325,20 +326,20 @@ mod tests {
         let directory = Arc::new(SessionDirectory::new(rig.deps()));
         let handle = start_thread(&directory).await;
         turn(&handle, "user work", "op-1").await;
-        eventually_on(&[&ran, &handle.cell.stepped], || (runs.lock().unwrap().len() == 1).then_some(())).await;
+        eventually_on!(&[&ran, &handle.cell.stepped], || (runs.lock().unwrap().len() == 1).then_some(())).await;
         let cancel = CancellationToken::new();
         let waiting = {
             let (directory, cancel, thread) = (directory.clone(), cancel.clone(), handle.id.clone());
             tokio::spawn(async move { directory.run_routine_turn(routine("routine_2", &thread), Box::new(|| {}), cancel).await })
         };
-        eventually_on(&[&handle.cell.stepped], || (handle.cell.queued.load().len() == 1).then_some(())).await;
+        eventually_on!(&[&handle.cell.stepped], || (handle.cell.queued.load().len() == 1).then_some(())).await;
         assert!(handle.cell.queued.load().len() == 1, "the fire rides the thread's queue");
         cancel.cancel();
         assert_eq!(waiting.await.unwrap(), TurnSettle::Cancelled);
         assert!(handle.cell.routine_starts.lock().unwrap().is_empty());
-        eventually_on(&[&handle.cell.stepped], || (handle.cell.queued.load().is_empty()).then_some(())).await;
+        eventually_on!(&[&handle.cell.stepped], || (handle.cell.queued.load().is_empty()).then_some(())).await;
         hold.notify_one();
-        eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+        eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
         assert_eq!(runs.lock().unwrap().len(), 1, "the dropped fire never ran");
     }
 }

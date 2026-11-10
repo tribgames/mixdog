@@ -50,11 +50,14 @@ pub mod domain_seams;
 pub mod js_runtime;
 pub mod event_pipeline;
 pub mod held_requests;
+#[cfg(test)]
+mod held_runs_tests;
 pub mod memory_callers;
 pub mod hook_rule_setup;
 pub mod setup_status;
 pub mod lifecycle;
 pub mod mcp_surface;
+pub mod live_view;
 pub mod media;
 pub mod exec;
 pub mod exec_events;
@@ -172,6 +175,8 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens) -> Result<(), Ser
         log,
         stop: stop.clone(),
         catalog_http: catalog::production_http().map_err(compose::ComposeError::Catalog)?,
+        #[cfg(test)]
+        pg_install: None,
     };
     // A stop that arrives while the core composes (the stop watcher is the one installed at boot) cancels the composition's slow waits, and the composition then fails
     // through its own cleanup: what it had acquired (PostgreSQL) is given back before the error returns. The composition is never dropped half done.
@@ -228,6 +233,8 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens) -> Result<(), Ser
     core.start_sub_agent_retention();
     // Mixy's heartbeat (`daemon.mjs:1212`): its first check comes one `FIRST_TICK` later.
     core.start_heartbeat();
+    // `startPostgresInBackground` (daemon.mjs:1274), after ready: the memory database starts here only where a cluster already exists.
+    core.open_memory_in_background();
     // The report-only stall monitor (LR §5.4): the runtime probe and the lanes' wedge watch. It lives as long as the process serves.
     let _stall_monitor = serving.watch_stalls(executors.clone());
     // A stop that arrived on the way is handed over now: the watcher has been live since boot.

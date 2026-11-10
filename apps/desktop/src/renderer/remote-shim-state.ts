@@ -51,7 +51,6 @@ import { createRemoteSessionInbox } from './remote-session-inbox';
 import type { RemoteTransportPeer } from './remote-transport-peer';
 import { createRelayPayloadLimits, showRemoteToast, type PendingCall } from './remote-shim-payload-limit';
 import type { createRemotePairingScreen } from './remote-pairing-screen';
-import type { createRemoteViewSync } from './remote-view-sync';
 import type { TerminalSizeOwnerEvent } from '../shared/terminal-size-owner';
 import type { TerminalActivityEvent } from '../shared/terminal-activity';
 
@@ -102,6 +101,8 @@ export interface RemoteShimState {
   // background observations. The desktop decides notification presence from
   // it alone; every new leg is told again once it is ready.
   lastScreenSessionIds: string[];
+  /** The sessions whose visualize panel the page shows (reported with the screen). */
+  visualizePanelIds: string[];
   // The set the latest synchronizeViews request named, in flight or complete.
   // Every connection opens with a new request, so a registration of this same
   // set is already being served and never needs another full sync.
@@ -276,18 +277,9 @@ export interface RemoteShimCollaborators {
   quietRecycledSockets: WeakSet<WebSocket>;
 }
 
-/** What the responsibility modules publish for one another (each install*
- *  function fills in its own part). */
+/** What the phone's pieces publish for one another: pairing (remote-shim-pairing.ts) and the protocol link
+ *  (remote-shim-phone.ts). */
 export interface RemoteShimServices {
-  // remote-shim-sync.ts
-  viewSync: ReturnType<typeof createRemoteViewSync>;
-  viewSyncSessionIds: () => string[];
-  sessionSetKey: (sessionIds: readonly string[]) => string;
-  invalidateViewResume: () => void;
-  resetDeltaState: () => void;
-  refreshBroadcastLanes: () => void;
-  requestResync: () => void;
-  applyStatePayload: (payload: unknown) => SessionSnapshot | null;
   // remote-shim-pairing.ts
   currentToken: () => string;
   waitForCredential: () => Promise<void>;
@@ -299,21 +291,18 @@ export interface RemoteShimServices {
   restoreDurablePairing: () => Promise<void>;
   verifyApprovedConnection: () => Promise<void>;
   resetApprovalAndAsk: (message: string) => void;
-  // remote-shim-dispatch.ts
+  // remote-shim-phone.ts
+  /** The phone's connection (apps/mobile/src/phone-boot.ts). */
+  phone: PhoneLink;
   fanOut: <T>(listeners: Set<(value: T) => void>, value: T) => void;
   dispatchState: (snapshot: SessionSnapshot) => void;
-  handleMessage: (frame: Record<string, unknown>, authenticated: boolean) => void;
-  handleClearResync: (clear: Record<string, unknown>) => void;
-  // remote-shim-liveness.ts
-  clearWakePongTimer: () => void;
-  answerWakeProbe: () => void;
-  wakeProbe: (event?: Event) => void;
-  scheduleReconnect: (fleet?: boolean) => void;
-  // remote-shim-socket.ts
-  connect: () => Promise<WebSocket>;
-  // remote-shim-calls.ts
+  /** Tell the page its lanes may have a gap (it re-reads what it shows). */
+  requestResync: () => void;
+  resetDeltaState: () => void;
   publishLanes: () => void;
   laneSubscription: <T>(lane: string, listeners: Set<T>, listener: T) => () => void;
+  /** Resolves once the client is up. */
+  connect: () => Promise<unknown>;
   invoke: <T = unknown>(method: string, params?: unknown[]) => Promise<T>;
   call: <T = unknown>(method: string, params?: unknown[]) => Promise<T>;
   readCatalog: <T>(
@@ -321,16 +310,18 @@ export interface RemoteShimServices {
     method: 'listSessions' | 'listAgentPool'
   ) => Promise<T[]>;
   fire: (method: string, params: unknown[]) => void;
-  /** `fire` that settles true once a transport session handed the frame to
-   *  a carrier, false at once when it cannot right away (or off transport). */
-  fireHanded: (method: string, params: unknown[]) => Promise<boolean>;
-  /** The PC answered call `id` (or named it in a refusal): its transport
-   *  credit returns, whether or not the caller is still waiting. */
-  settleCallCredit: (id: number) => void;
-  /** The PC leg behind `ws` is gone: every credit its calls held returns. */
-  retireCallCredits: (ws: WebSocket) => void;
 }
 
+/** The part of the phone's connection the DesktopApi table uses. */
+export interface PhoneLink {
+  start(): Promise<unknown>;
+  synced(): Promise<void>;
+  setVisibleSessions(threadIds: readonly string[]): Promise<boolean>;
+  refreshScreen(): void;
+  recycle(): void;
+  /** Starts the app's mount-time reads beside the first view sync (Node's prefetchBootReads). */
+  prefetchBootReads(reads: ReadonlyArray<readonly [string, unknown[]]>): void;
+}
 export type RemoteShimContext = RemoteShimState & RemoteShimCollaborators & RemoteShimServices;
 
 const restoreVisibleSessionIds = (): string[] => {
@@ -442,6 +433,7 @@ export const createRemoteShimContext = (): RemoteShimContext => {
     lastVisibleSessionIds,
     restoredVisibleSessionIds: [...lastVisibleSessionIds],
     lastScreenSessionIds: [],
+    visualizePanelIds: [],
     requestedViewSyncKey: null,
     everConnected: false,
     everPaired,

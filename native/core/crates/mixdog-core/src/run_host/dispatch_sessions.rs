@@ -137,6 +137,10 @@ impl DispatchSessions for SessionDispatch {
         self.threads.progress(id, now)
     }
 
+    fn last_iteration_index(&self, id: &str) -> Option<Value> {
+        self.threads.last_iteration_index(id)
+    }
+
     fn arm_turn_timeout(&self, id: &str) {
         self.threads.arm_turn_timeout(id);
     }

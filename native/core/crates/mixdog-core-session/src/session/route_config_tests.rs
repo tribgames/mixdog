@@ -15,7 +15,7 @@ use super::SessionDirectory;
 use super::seams::RunOutcome;
 use super::testing::Rig;
 use super::testing::lock;
-use super::tests::eventually_on;
+use crate::eventually_on;
 use super::tests::idle;
 use super::tests::start_thread;
 use super::tests::turn;
@@ -66,7 +66,7 @@ async fn the_configured_route_values_are_state_from_install_and_no_frame() {
     let handle = start_thread(&directory).await;
     assert_eq!(newest(&rig, handle.id.as_str(), "thread/route/updated"), None, "install publishes no route frame");
     handle.set_section(Section::Route(ThreadRoute { effort: Some("high".into()), ..Default::default() })).await.expect("route");
-    let route = eventually_on(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/route/updated")).await;
+    let route = eventually_on!(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/route/updated")).await;
     assert_eq!((&route["autoClear"], &route["systemShell"], &route["webSearchRoute"]), (&auto_clear, &system_shell, &web_search_route));
 }
 
@@ -79,7 +79,7 @@ async fn a_route_written_into_the_header_moves_the_route_state() {
     *lock(&rig.compaction.route) = ThreadRoute { auto_clear: Some(auto_clear.clone()), ..Default::default() };
     let directory = SessionDirectory::new(rig.deps());
     let handle = super::tests::start_routed_thread(&directory).await;
-    let route = eventually_on(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/route/updated")).await;
+    let route = eventually_on!(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/route/updated")).await;
     assert_eq!(
         (&route["provider"], &route["model"], &route["sessionProvider"], &route["sessionModel"], &route["autoClear"]),
         (&json!(super::tests::ROUTE_PROVIDER), &json!(super::tests::ROUTE_MODEL), &json!(super::tests::ROUTE_PROVIDER), &json!(super::tests::ROUTE_MODEL), &auto_clear)
@@ -116,12 +116,12 @@ async fn context_after_turn(interrupted: bool) -> ThreadContext {
     let handle = start_thread(&directory).await;
     let started = turn(&handle, "measure", "op-1").await;
     // The window is published while the turn runs; the display fields are not.
-    let published = eventually_on(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/context/updated").filter(|context| context["contextWindow"] == json!(9_000))).await;
+    let published = eventually_on!(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/context/updated").filter(|context| context["contextWindow"] == json!(9_000))).await;
     if interrupted {
         assert_eq!(published["displayContextWindow"], json!(0), "a running turn has not published its display fields");
         handle.interrupt(&TurnId::from(started["turnId"].as_str().expect("turn id")), None).expect("interrupt");
     }
-    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     handle.cell.view.load_full().state.context.clone().expect("context")
 }
 
@@ -154,10 +154,10 @@ async fn each_announced_settings_change_moves_setup_changed() {
     assert_eq!(seq_of(newest(&rig, handle.id.as_str(), "thread/runtime/updated")), None, "nothing is announced before a change");
     let (recorded, seqs) = node_setup_changed();
     announce.send_modify(|count| *count += 1);
-    let first = eventually_on(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/runtime/updated").filter(|runtime| runtime["setupChanged"]["seq"] == recorded["seq"])).await;
+    let first = eventually_on!(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/runtime/updated").filter(|runtime| runtime["setupChanged"]["seq"] == recorded["seq"])).await;
     assert_eq!(first["setupChanged"]["action"], recorded["action"]);
     announce.send_modify(|count| *count += 1);
-    eventually_on(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/runtime/updated").filter(|runtime| runtime["setupChanged"]["seq"] == json!(seqs[1]))).await;
+    eventually_on!(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/runtime/updated").filter(|runtime| runtime["setupChanged"]["seq"] == json!(seqs[1]))).await;
 }
 
 /// A route that saves the configuration `saves` times while the new thread is being created, as the draft's route does (`adopt_draft`
@@ -197,7 +197,7 @@ async fn a_settings_change_the_creation_makes_reaches_the_new_threads_setup_chan
     let directory = SessionDirectory::new(Arc::new(deps));
     let handle = start_thread(&directory).await;
     let (recorded, _) = node_setup_changed();
-    let first = eventually_on(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/runtime/updated").filter(|runtime| runtime["setupChanged"]["seq"] == recorded["seq"])).await;
+    let first = eventually_on!(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/runtime/updated").filter(|runtime| runtime["setupChanged"]["seq"] == recorded["seq"])).await;
     assert_eq!(first["setupChanged"]["action"], recorded["action"]);
 }
 
@@ -214,7 +214,7 @@ async fn announcements_made_before_install_each_count() {
     let directory = SessionDirectory::new(Arc::new(deps));
     let handle = start_thread(&directory).await;
     let last = *seqs.last().expect("a recorded delivery");
-    eventually_on(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/runtime/updated").filter(|runtime| runtime["setupChanged"]["seq"] == json!(last))).await;
+    eventually_on!(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/runtime/updated").filter(|runtime| runtime["setupChanged"]["seq"] == json!(last))).await;
     assert_eq!(published_setup_seqs(&rig, handle.id.as_str()), seqs);
 }
 
@@ -228,7 +228,7 @@ async fn announcements_before_the_thread_begins_do_not_count() {
     let handle = start_thread(&directory).await;
     announce.send_modify(|count| *count += 1);
     let (recorded, _) = node_setup_changed();
-    eventually_on(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/runtime/updated").filter(|runtime| runtime["setupChanged"]["seq"] == recorded["seq"])).await;
+    eventually_on!(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/runtime/updated").filter(|runtime| runtime["setupChanged"]["seq"] == recorded["seq"])).await;
 }
 
 /// A turn's close does not take `setupChanged`: the settings announcement is the session's, not the run's, and a client reads it after the turn.
@@ -241,10 +241,10 @@ async fn a_turn_end_leaves_setup_changed_in_the_state() {
     let handle = start_thread(&directory).await;
     let (recorded, _) = node_setup_changed();
     announce.send_modify(|count| *count += 1);
-    eventually_on(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/runtime/updated").filter(|runtime| runtime["setupChanged"]["seq"] == recorded["seq"])).await;
+    eventually_on!(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/runtime/updated").filter(|runtime| runtime["setupChanged"]["seq"] == recorded["seq"])).await;
     turn(&handle, "go", "op-1").await;
-    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    eventually_on(&[&handle.cell.stepped], || {
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || {
         rig.feeds.frames(handle.id.as_str()).iter().any(|(_, method, _)| method == "turn/completed").then_some(())
     })
     .await;

@@ -419,6 +419,14 @@ impl crate::common::HasOpId for UpdateDesktopCommandParams {
     }
 }
 
+/// Params of `host/files/trashItem` (core → host): the absolute path the core has already confined.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct HostFilesTrashItemParams {
+    pub path: String,
+}
+
 /// Params of `host/capture/fileSnapshot` (core → host). The core has already confined the path.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
@@ -519,6 +527,86 @@ pub struct HostBrowserViewFramesParams {
     pub stream_id: u32,
     pub on: bool,
     /// Phone stream request (fit, quality) as today's take-over request.
+    pub request: JsonValue,
+}
+
+/// A phone's live-view signal (`browser/webrtcSignal` request, Node's `browserRemoteWebrtcSignal`
+/// call) and the core's signal to that phone (the `browser/webrtcSignal` push, Node's
+/// `browserRemoteWebrtc` event). `signal` is the validated wire object of
+/// `mixdog-remote::webrtc::signal` (`ClientSignal` / `DesktopSignal`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserWebrtcSignalParams {
+    pub signal: JsonValue,
+}
+
+/// `host/browser/page` (host → core notification): what a viewed browser page shows now — the
+/// document and the geometry its stream locked (Node's `source.page()` and
+/// `remoteMedia.geometryChanged`). `geometry` is `null` when the stream ended. The core's X17
+/// frames carry pixels only; the phone's input coordinates need this.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct HostBrowserPageParams {
+    /// The browser session a phone streams (`sessionId` of its `browser/stream`; the source
+    /// `browser:<id>` of its live-view signals), as in `host/browser/viewFrames`.
+    pub tab_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document_id: Option<String>,
+    /// `{generation, cssWidth, cssHeight, deviceScaleFactor, pixelWidth, pixelHeight}`.
+    pub geometry: Option<JsonValue>,
+}
+
+/// Params of `browser/stream` (a phone's request, Node's `browserRemoteStream`): `on` starts or
+/// stops this connection's stream of the browser session. The first stream of a session makes the
+/// core send `host/browser/viewFrames{on:true}` and the last one `{on:false}`; the phone's
+/// live-view signals name only a session it streams. `request` is the stream request (fit, quality)
+/// the core hands on to the host unchanged.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct BrowserStreamParams {
+    pub session_id: String,
+    pub on: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request: Option<JsonValue>,
+}
+
+/// Params of `browser/screenDisplays` (a granted phone's request, Node's
+/// `browserRemoteScreenDisplays`) and of `host/screen/displays` (core → host): none. Both answer
+/// `RemoteScreenDisplaySummary[]` (`apps/desktop/src/shared/remote-webrtc.ts`), unchanged.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(deny_unknown_fields)]
+pub struct ScreenDisplaysParams {}
+
+/// What `host/browser/liveControl` carries to the viewed page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub enum LiveControlKind {
+    /// A phone's `resize-request`: `request` is its `resize` object (`{mode: "page"}` or
+    /// `{mode: "fit-client", cssWidth, cssHeight, deviceScaleFactor}`); the host resizes the page
+    /// (Node's `remote.resize(sessionId, request)`).
+    Resize,
+    /// A phone's `ready.videoLimit`: `request` is `{maxWidth, maxHeight}`; the host may capture
+    /// larger than its frame bound, up to it, and lock a new geometry (Node's
+    /// `remote.widenVideo(sessionId, limit)`).
+    VideoLimit,
+}
+
+/// Params of `host/browser/liveControl` (core → host): a live-view control that is not page
+/// input. The page input itself goes as `host/browser/command{action:"input"}`. The result is null;
+/// a failure is a JSON-RPC error.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct HostBrowserLiveControlParams {
+    pub session_id: String,
+    pub kind: LiveControlKind,
     pub request: JsonValue,
 }
 

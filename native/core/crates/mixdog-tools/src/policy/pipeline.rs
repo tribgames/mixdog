@@ -481,9 +481,14 @@ impl ToolPolicy {
             ApprovalResolution::Interrupted { .. } | ApprovalResolution::Cancelled { .. } => {
                 return Err(cancelled());
             }
-            // Nobody could be asked: denied before any decision exists, so none is recorded
-            // (`resolvePreToolAskApproval` without a hook, `tool-helpers.mjs:218`).
+            // Nobody could be asked (`resolvePreToolAskApproval` without a hook, `tool-helpers.mjs:218`): denied with
+            // no approval, which `before-hook.mjs` still records, as a plain `deny` (`recordHumanDecision(gate, undefined)`).
             ApprovalResolution::Unavailable { .. } => {
+                if let Some(audit) = spec.audit {
+                    self.record_decision(rq, audit, false, "deny", None, "")
+                        .await
+                        .map_err(|error| check_failed(spec.name, &error))?;
+                }
                 return Err(ToolError::new(
                     ToolErrorCode::DeniedByHook,
                     missing_approval_ui_denial(spec.name, spec.reason),
@@ -1139,7 +1144,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_session_without_an_approval_surface_is_denied_with_nodes_text_and_no_audit() {
+    async fn a_session_without_an_approval_surface_is_denied_with_nodes_text_and_a_deny_audit() {
         let h = Harness::new(github());
         h.answer(ApprovalResolution::Unavailable { at: 0 });
         let err = h.run(&h.policy(None), &bot(), "github", comment_args()).await.expect_err("unavailable");
@@ -1148,7 +1153,7 @@ mod tests {
             err.message_for_model,
             "Error: tool \"github\" denied by hook: approval required but no approval UI is available (This sends or posts outside Mixdog; it needs your approval.)"
         );
-        assert!(h.store.audit().is_empty());
+        assert_eq!(h.store.audit().iter().map(|e| e.decision.as_str()).collect::<Vec<_>>(), ["deny"]);
         assert_eq!(
             missing_approval_ui_denial("shell", ""),
             "Error: tool \"shell\" denied by hook: approval required but no approval UI is available (approval requested by hook)"

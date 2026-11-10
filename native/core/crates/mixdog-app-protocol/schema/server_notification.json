@@ -277,6 +277,16 @@
       ],
       "type": "object"
     },
+    "BrowserWebrtcSignalParams": {
+      "description": "A phone's live-view signal (`browser/webrtcSignal` request, Node's `browserRemoteWebrtcSignal` call) and the core's signal to that phone (the `browser/webrtcSignal` push, Node's `browserRemoteWebrtc` event). `signal` is the validated wire object of `mixdog-remote::webrtc::signal` (`ClientSignal` / `DesktopSignal`).",
+      "properties": {
+        "signal": true
+      },
+      "required": [
+        "signal"
+      ],
+      "type": "object"
+    },
     "CompactionStatus": {
       "description": "How a compaction ended (the `status` of its divider row).",
       "enum": [
@@ -1700,6 +1710,48 @@
           "type": "object"
         },
         {
+          "description": "A display-only transcript notice raised while preparing the request (`StreamEvent::Notice`).",
+          "properties": {
+            "message": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "notice"
+              ],
+              "type": "string"
+            },
+            "warn": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "message",
+            "type",
+            "warn"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The model that answered when it is not the one the request named (`StreamEvent::ServedModel`).",
+          "properties": {
+            "model": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "servedModel"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "model",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
           "description": "`pricing_model`: the catalog model the send bills as when it differs from the one sent. `request_ms`: the request's wall time as the usage ledger measured it (Node `usageDurationMs`).",
           "properties": {
             "pricing_model": {
@@ -2444,7 +2496,7 @@
           "type": "string"
         },
         {
-          "description": "Model catalog; pages through `model/list` when stubbed.",
+          "description": "Model catalog (the `model/list` rows); when stubbed the client reads `model/list`, which is not paged.",
           "enum": [
             "modelCatalog"
           ],
@@ -2577,7 +2629,7 @@
           "type": "string"
         },
         {
-          "description": "Review summary of a thread; key = thread id (thread feed).",
+          "description": "The tell that open reviews may read differently (Node's global `turn-review-changed`): one app-wide revision per tell, no value; each window rereads the review of every session it shows.",
           "enum": [
             "reviewDiff"
           ],
@@ -6043,25 +6095,6 @@
       "type": "object"
     },
     {
-      "description": "Section `reviewDiff`, key = thread id.",
-      "properties": {
-        "method": {
-          "enum": [
-            "review/diff/updated"
-          ],
-          "type": "string"
-        },
-        "params": {
-          "$ref": "#/definitions/SectionUpdate"
-        }
-      },
-      "required": [
-        "method",
-        "params"
-      ],
-      "type": "object"
-    },
-    {
       "properties": {
         "method": {
           "enum": [
@@ -6125,6 +6158,25 @@
         },
         "params": {
           "$ref": "#/definitions/HostBrowserViewFramesParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The core's live-view signal to one phone (offer, candidate, promote, demote, close, geometry).",
+      "properties": {
+        "method": {
+          "enum": [
+            "browser/webrtcSignal"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/BrowserWebrtcSignalParams"
         }
       },
       "required": [
@@ -6788,6 +6840,25 @@
         "method": {
           "enum": [
             "migration/progress"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SectionUpdate"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Section `reviewDiff`: the app-wide tell that open reviews may read differently (Node's `turn-review-changed`).",
+      "properties": {
+        "method": {
+          "enum": [
+            "review/diff/updated"
           ],
           "type": "string"
         },

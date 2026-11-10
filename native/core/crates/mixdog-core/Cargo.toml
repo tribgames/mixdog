@@ -56,13 +56,43 @@ libc = { workspace = true }
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = ["Wdk_System_SystemServices", "Win32_System_SystemInformation"] }
 
+[features]
+# Test-only: the work counters the hot-path tests read, here and in the crates below. A test build of this crate (the
+# self dev-dependency below) or of a crate that depends on it turns it on; no normal build does.
+count-work = ["mixdog-ai/count-work", "mixdog-core-config/count-work", "mixdog-core-domains/count-work"]
+
 [dev-dependencies]
+mixdog-core = { path = ".", features = ["count-work"] }
+bytes = { workspace = true }
+flate2 = { workspace = true }
+tokio-tungstenite = { workspace = true }
+zstd = { workspace = true }
+# The loopback TLS server of the wire parity check (`mixdog_ai::transport::loopback`) and the client that trusts only its certificate.
+mixdog-ai = { workspace = true, features = ["count-work", "test-support"] }
+reqwest = { workspace = true }
+rustls = { workspace = true, features = ["ring", "std"] }
+tokio-rustls = { workspace = true, features = ["ring"] }
 mixdog-js = { workspace = true, features = ["fixture-tools"] }
+mixdog-migrate = { workspace = true, features = ["crash-hook"] }
 mixdog-core-review = { workspace = true, features = ["test-support"] }
-mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core"] }
+mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core", "core-test"] }
 tempfile = { workspace = true }
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-rt = { workspace = true, features = ["test-support"] }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util", "net", "io-util"] }
 mixdog-core-session = { workspace = true, features = ["test-support"] }
+mixdog-core-run = { workspace = true, features = ["test-support"] }
 mixdog-core-base = { workspace = true, features = ["test-support"] }
+mixdog-trace = { workspace = true }
+mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-app-protocol = { workspace = true, features = ["codegen"] }
+mixdog-core-domains = { workspace = true, features = ["count-work"] }
+mixdog-mcp = { workspace = true, features = ["test-support"] }
+mixdog-secrets = { workspace = true, features = ["count-work", "test-support"] }
+mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", "replay-controls"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-core-config = { workspace = true, features = ["count-work"] }
+mixdog-protocol = { workspace = true, features = ["codegen"] }

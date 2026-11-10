@@ -1,0 +1,100 @@
+{
+  "domain": "screen-access",
+  "recorder": "benchmarks/rust-core/recorders/record-screen-access.mjs",
+  "displays": [
+    {
+      "id": "display-1",
+      "label": "Display 1",
+      "primary": true,
+      "width": 1920,
+      "height": 1080
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "a paired, E2EE-established phone is allowed and gets the host's display list",
+      "reply": {
+        "id": 7,
+        "ok": true,
+        "value": [
+          {
+            "id": "display-1",
+            "label": "Display 1",
+            "primary": true,
+            "width": 1920,
+            "height": 1080
+          }
+        ]
+      },
+      "hostAsked": 1
+    },
+    {
+      "name": "a local client, which is no relay connection, is refused and the host is not asked",
+      "reply": {
+        "id": 7,
+        "ok": false,
+        "error": "Remote screen is not allowed for this device."
+      },
+      "hostAsked": 0
+    },
+    {
+      "name": "a device whose unpair is in force is refused and the host is not asked",
+      "reply": {
+        "id": 7,
+        "ok": false,
+        "error": "Remote screen is not allowed for this device."
+      },
+      "hostAsked": 0,
+      "envelopes": []
+    },
+    {
+      "name": "a paired phone is allowed, then unpaired with the relay not removing the pairing: the connection stays and is refused",
+      "before": {
+        "reply": {
+          "id": 7,
+          "ok": true,
+          "value": [
+            {
+              "id": "display-1",
+              "label": "Display 1",
+              "primary": true,
+              "width": 1920,
+              "height": 1080
+            }
+          ]
+        },
+        "hostAsked": 1
+      },
+      "envelopesAtUnpair": [],
+      "reply": {
+        "id": 7,
+        "ok": false,
+        "error": "Remote screen is not allowed for this device."
+      },
+      "hostAsked": 0
+    },
+    {
+      "name": "a paired phone is allowed, then unpaired with the relay removing the pairing: the relay ends the connection and nothing is sent",
+      "before": {
+        "reply": {
+          "id": 7,
+          "ok": true,
+          "value": [
+            {
+              "id": "display-1",
+              "label": "Display 1",
+              "primary": true,
+              "width": 1920,
+              "height": 1080
+            }
+          ]
+        },
+        "hostAsked": 1
+      },
+      "envelopesAtUnpair": [],
+      "reply": null,
+      "hostAsked": 0,
+      "envelopesAfter": []
+    }
+  ]
+}

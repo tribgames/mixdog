@@ -102,12 +102,6 @@ impl Rig {
     }
 }
 
-async fn settle() {
-    for _ in 0..4 {
-        tokio::task::yield_now().await;
-    }
-}
-
 fn rig() -> Arc<Rig> {
     Arc::new(Rig {
         host: DelegatedApprovalHost::new(),
@@ -168,7 +162,7 @@ async fn every_scripted_step_does_what_the_node_host_did() {
             rig.events.lock().unwrap().clear();
             let call = recorded["call"].as_array().unwrap();
             let returned = step(&rig, call);
-            settle().await;
+            rig.host.deferred_offers().await;
             let events = Value::Array(std::mem::take(&mut *rig.events.lock().unwrap()));
             if returned != recorded["returned"] || events != recorded["events"] {
                 failures.push(format!("{} / step {index} {call:?}:\n got  {returned} {events}\n Node {} {}", scenario["name"], recorded["returned"], recorded["events"]));

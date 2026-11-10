@@ -352,6 +352,14 @@ pub struct Run {
     pub(crate) cross_turn: crate::batch::CrossTurn,
     pub(crate) eager: std::collections::HashMap<String, tokio::task::JoinHandle<crate::tools::Executed>>,
     pub(crate) eager_sigs: std::collections::HashSet<String>,
+    /// The calls started while the response streams, in call order: what a later conflicting call waits for.
+    pub(crate) eager_started: Vec<crate::batch::EagerStarted>,
+    /// The ordering barriers of the turn's started calls (eager-dispatch/barriers.mjs).
+    pub(crate) barriers: crate::barriers::Barriers,
+    /// The first call of each one-per-turn tool the stream handed over (`_singleCallFirstIdByName`).
+    pub(crate) eager_single: std::collections::HashMap<String, String>,
+    /// The ids of the complete calls the stream of the request in flight handed over ([`Run::stream_dispatched`]).
+    pub(crate) streamed_ids: std::collections::HashSet<String>,
     /// The tail reminder the request in flight carries.
     pub(crate) last_reminder: Option<String>,
     /// Tools the provider rejected the schema of: name → why a call is refused.
@@ -475,6 +483,10 @@ impl Run {
             cross_turn: crate::batch::CrossTurn::default(),
             eager: std::collections::HashMap::new(),
             eager_sigs: std::collections::HashSet::new(),
+            eager_started: Vec::new(),
+            barriers: crate::barriers::Barriers::default(),
+            eager_single: std::collections::HashMap::new(),
+            streamed_ids: std::collections::HashSet::new(),
             last_reminder: None,
             dropped_tools: std::collections::HashMap::new(),
             fixed_surface: None,

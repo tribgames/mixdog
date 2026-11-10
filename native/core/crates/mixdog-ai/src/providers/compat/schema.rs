@@ -442,6 +442,15 @@ pub(crate) fn exclusion(name: &str, index: usize, problem: Problem, source: &str
     }
 }
 
+/// `warned` (`claude-bridge-schema.mjs:382`): the exclusion messages already logged in this process.
+static WARNED: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Default::default);
+
+/// No exclusion logged yet, as in a new process.
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) fn reset_warned() {
+    WARNED.lock().unwrap_or_else(PoisonError::into_inner).clear();
+}
+
 /// Where an adapter reports a tool it leaves out (`opts.onToolExcluded`): the request's sink, else
 /// the log, as Node's default `console.warn`.
 pub(crate) fn report_exclusion(options: &RequestOptions, found: ToolExclusion) {
@@ -455,7 +464,6 @@ pub(crate) fn report_exclusion(options: &RequestOptions, found: ToolExclusion) {
         }),
         None => {
             // Node's `console.warn` fires once per distinct message (`warned`).
-            static WARNED: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Default::default);
             if WARNED.lock().unwrap_or_else(PoisonError::into_inner).insert(found.message.clone()) {
                 mixdog_rt::node_console_warn!("{}", found.message);
             }

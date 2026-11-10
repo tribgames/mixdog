@@ -1,0 +1,106 @@
+// A literal port of the Node web app's view synchronization state machine (renderer/remote-view-sync.ts at b6f10295a, `createRemoteViewSync`):
+// the requested/completed counters, the epoch, one sync in flight, a refusal retried after 250 ms doubling to 10 s, `failureLimit` failures in a
+// row recycling the connection, and `close()` rejecting every waiter as interrupted. What a "sync" is stays the owner's business
+// (`synchronize`); the gate every call waits on (`ready`) is this module's alone.
+
+/** Secure transport readiness is not view readiness. One recovery request is
+ * in flight per connection; changes during it coalesce into the next request.
+ * A superseded connection can never complete the replacement's recovery. */
+export function createViewSync(options: {
+  synchronize(): Promise<unknown>;
+  state(state: 'syncing' | 'connected'): void;
+  error(error: unknown): void;
+  interrupted(): Error;
+  /** Called once when `failureLimit` synchronizations in a row failed on this
+   *  connection: the socket is alive but unusable for sync, so everything
+   *  waiting on `ready()` would otherwise wait forever. The owner recycles
+   *  the connection, whose close rejects those waiters. */
+  recycle?(): void;
+  failureLimit?: number;
+}) {
+  const failureLimit = options.failureLimit ?? 3;
+  let failures = 0;
+  let generation = 0;
+  let active = false;
+  let requested = 0;
+  let completed = 0;
+  let running = false;
+  let retry: ReturnType<typeof setTimeout> | null = null;
+  let retryDelay = 250;
+  const waiting = new Set<{ resolve(): void; reject(error: Error): void }>();
+  const pump = (): void => {
+    if (!active || running || retry || completed === requested) return;
+    const epoch = generation;
+    const revision = requested;
+    running = true;
+    options.state('syncing');
+    void options
+      .synchronize()
+      .then(() => {
+        if (!active || epoch !== generation) return;
+        completed = revision;
+        retryDelay = 250;
+        failures = 0;
+        if (completed === requested) {
+          options.state('connected');
+          for (const waiter of waiting) waiter.resolve();
+          waiting.clear();
+        }
+      })
+      .catch((error) => {
+        if (!active || epoch !== generation) return;
+        options.error(error);
+        failures += 1;
+        retry = setTimeout(() => {
+          retry = null;
+          pump();
+        }, retryDelay);
+        retryDelay = Math.min(10_000, retryDelay * 2);
+        // Armed first: the recycle's close() clears the timer with the rest
+        // of this connection, and an owner that cannot recycle keeps retrying.
+        if (failures >= failureLimit) {
+          failures = 0;
+          options.recycle?.();
+        }
+      })
+      .finally(() => {
+        if (epoch !== generation) return;
+        running = false;
+        pump();
+      });
+  };
+  const ready = (): Promise<void> => {
+    if (!active) return Promise.reject(options.interrupted());
+    if (completed === requested) return Promise.resolve();
+    return new Promise((resolve, reject) => waiting.add({ resolve, reject }));
+  };
+  return {
+    open(): void {
+      active = true;
+      generation += 1;
+      running = false;
+      // A new connection owes nothing to the previous one's failures: a grown
+      // backoff here made a healthy reconnect wait up to 10 s to retry.
+      retryDelay = 250;
+      failures = 0;
+      requested += 1;
+      completed = 0;
+      pump();
+    },
+    request(): Promise<void> {
+      requested += 1;
+      pump();
+      return ready();
+    },
+    ready,
+    close(): void {
+      active = false;
+      generation += 1;
+      running = false;
+      if (retry) clearTimeout(retry);
+      retry = null;
+      for (const waiter of waiting) waiter.reject(options.interrupted());
+      waiting.clear();
+    },
+  };
+}

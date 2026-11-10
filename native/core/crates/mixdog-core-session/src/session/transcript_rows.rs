@@ -277,7 +277,9 @@ pub fn metadata(message: &Value) -> Metadata {
         fields.insert("posted".into(), json!(true));
     }
     fields.extend(route_fields(value));
-    for key in ["sender", "device", "fromAgent", "checkpointId"] {
+    // `clientSubmissionId` has no key in Node's stored metadata: Node's row takes its `id` from the submission instead
+    // (`pushUserOrSyntheticItem(text, id)`), which the item carries here.
+    for key in ["sender", "device", "fromAgent", "checkpointId", "clientSubmissionId"] {
         put_text(&mut fields, key, value);
     }
     let attachments = normalize_attachments(value.get("attachments"));

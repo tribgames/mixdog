@@ -89,6 +89,19 @@ struct Inner {
     connections: HashMap<u64, Link>,
     /// Relay peer id → the paired device it is attached as.
     peers: HashMap<String, Described>,
+    /// Relay peers revoked for their lifetime: live at an unpair, or admitted while one was in force. Only the screen reads it
+    /// (Node's `revoked` set in `screen-access-publisher.ts`); the peer keeps its credential and everything else it holds.
+    screen_revoked: HashSet<String>,
+    /// Phones whose leg is a transport session: the last authenticated liveness (ms on `clock`)
+    /// and whether the phone said it went to the background. Such a leg shows a session only
+    /// while live (`foreground.ts` `legShowsSession`).
+    transport: HashMap<String, TransportLeg>,
+}
+
+#[derive(Clone, Copy)]
+struct TransportLeg {
+    live_at: Option<u64>,
+    background: bool,
 }
 
 pub struct DeviceRegistry {
@@ -96,15 +109,54 @@ pub struct DeviceRegistry {
     /// Counts every change of who is attached or what is shown, written after the change is in
     /// place: what a caller waits on instead of polling [`describe`](Self::describe) and friends.
     changes: tokio::sync::watch::Sender<u64>,
+    /// Monotonic milliseconds; replaceable so a test drives time by hand.
+    clock: Box<dyn Fn() -> u64 + Send + Sync>,
 }
 
 impl Default for DeviceRegistry {
     fn default() -> Self {
-        Self { inner: Mutex::default(), changes: tokio::sync::watch::Sender::new(0) }
+        let start = std::time::Instant::now();
+        Self::with_clock(Box::new(move || start.elapsed().as_millis() as u64))
     }
 }
 
 impl DeviceRegistry {
+    pub fn with_clock(clock: Box<dyn Fn() -> u64 + Send + Sync>) -> Self {
+        Self { inner: Mutex::default(), changes: tokio::sync::watch::Sender::new(0), clock }
+    }
+
+    /// The peer's leg is a transport session: it shows nothing until it shows liveness.
+    pub fn set_peer_transport(&self, peer_id: &str) {
+        self.inner().transport.insert(peer_id.to_owned(), TransportLeg { live_at: None, background: false });
+        self.changed();
+    }
+
+    /// Authenticated inbound on the peer's transport session (`noteLegLive`).
+    pub fn note_peer_live(&self, peer_id: &str) {
+        let now = (self.clock)();
+        if let Some(leg) = self.inner().transport.get_mut(peer_id) {
+            leg.live_at = Some(now);
+        }
+    }
+
+    /// The phone's session said `close{suspended}`: the leg is in the background from now on.
+    pub fn set_peer_background(&self, peer_id: &str) {
+        if let Some(leg) = self.inner().transport.get_mut(peer_id) {
+            leg.background = true;
+        }
+        self.changed();
+    }
+
+    fn leg_shows(&self, inner: &Inner, peer_id: &str) -> bool {
+        match inner.transport.get(peer_id) {
+            None => true,
+            Some(leg) => {
+                !leg.background
+                    && leg.live_at.is_some_and(|at| (self.clock)().saturating_sub(at) < crate::transport::consts::FOREGROUND_STALE_MS)
+            }
+        }
+    }
+
     /// The change counter: it moves after every attach, detach, connect, disconnect and screen report.
     pub fn watch(&self) -> tokio::sync::watch::Receiver<u64> {
         self.changes.subscribe()
@@ -129,14 +181,48 @@ impl DeviceRegistry {
         self.changed();
     }
 
+    /// The peer's screen access ends for its lifetime; it stays attached under its credential.
+    pub fn revoke_screen(&self, peer_id: &str) {
+        self.inner().screen_revoked.insert(peer_id.to_owned());
+    }
+
+    /// Whether the relay peer behind `connection` is revoked for the screen.
+    pub fn screen_revoked(&self, connection: u64) -> bool {
+        let inner = self.inner();
+        matches!(inner.connections.get(&connection), Some(Link::Relay { peer_id, .. }) if inner.screen_revoked.contains(peer_id))
+    }
+
+    /// Every connection of the paired credential still attached.
+    pub fn connections_of(&self, credential: &str) -> Vec<u64> {
+        let inner = self.inner();
+        inner
+            .connections
+            .iter()
+            .filter_map(|(id, link)| match link {
+                Link::Relay { peer_id, .. } if !credential.is_empty() && inner.peers.get(peer_id).is_some_and(|d| d.credential == credential) => Some(*id),
+                _ => None,
+            })
+            .collect()
+    }
+
     /// `client-close`, a revoke or the loss of the leg.
     pub fn detach_peer(&self, peer_id: &str) {
-        self.inner().peers.remove(peer_id);
+        {
+            let mut inner = self.inner();
+            inner.peers.remove(peer_id);
+            inner.screen_revoked.remove(peer_id);
+            inner.transport.remove(peer_id);
+        }
         self.changed();
     }
 
     pub fn detach_all_peers(&self) {
-        self.inner().peers.clear();
+        {
+            let mut inner = self.inner();
+            inner.peers.clear();
+            inner.screen_revoked.clear();
+            inner.transport.clear();
+        }
         self.changed();
     }
 
@@ -218,7 +304,9 @@ impl DeviceRegistry {
         let inner = self.inner();
         inner.connections.values().any(|link| match link {
             Link::Relay { peer_id, screen } => {
-                screen.sessions.contains(thread_id) && inner.peers.get(peer_id).is_some_and(|described| which(described, screen))
+                screen.sessions.contains(thread_id)
+                    && self.leg_shows(&inner, peer_id)
+                    && inner.peers.get(peer_id).is_some_and(|described| which(described, screen))
             }
             Link::Local { .. } => false,
         })

@@ -1,0 +1,67 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-exec-readonly.mjs --tree <tree> --commit b6f10295a2f698afc85332467192de28500bd146",
+  "exact": true,
+  "fileCount": 8,
+  "files": [
+    {
+      "bytes": 1022,
+      "path": "cli.json",
+      "sha256": "241b2fa83253802e9947a59a2de07514f41272cf844023cfcb8cdacd61362554"
+    },
+    {
+      "bytes": 31506,
+      "path": "full-json.json",
+      "sha256": "1aa866209a82c27120443f30943157f179be63479e0a20885c42ddbb89bac58f"
+    },
+    {
+      "bytes": 26170,
+      "path": "full-simple.json",
+      "sha256": "0a4bed49024de670da857035083ad28d60b48adb6b7676e7c942c9a699405365"
+    },
+    {
+      "bytes": 36777,
+      "path": "interactive-gated.json",
+      "sha256": "ec45245f1c629c47b2c3d8d9de24a4dbdaedba193025afb85a46784112771ac1"
+    },
+    {
+      "bytes": 43402,
+      "path": "interactive-toggled.json",
+      "sha256": "e407d36ca1393129404fa2c5830d62ab80cdbb23b45a07bb8dd0d99b1d3c7acf"
+    },
+    {
+      "bytes": 24264,
+      "path": "readonly-blocked.json",
+      "sha256": "777e5be89c003b479e085f18a30699056c7f423ff83ea8257125474b3221bd54"
+    },
+    {
+      "bytes": 20838,
+      "path": "readonly-json.json",
+      "sha256": "512e5fb83dd78d17707026753686e497bd5d8d5e606067c8e50d8af4dc9143c6"
+    },
+    {
+      "bytes": 3903,
+      "path": "scripts.json",
+      "sha256": "8853a80a1bbefd29915ca0a6065779bc8f143338ba9828c659ff4dd95f4b521e"
+    }
+  ],
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-exec-readonly.mjs",
+  "set": "exec-readonly",
+  "totalBytes": 187882
+}
