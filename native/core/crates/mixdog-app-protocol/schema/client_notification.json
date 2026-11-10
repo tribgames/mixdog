@@ -1021,7 +1021,7 @@
       "type": "object"
     },
     {
-      "description": "Ignored unless the sender owns the PTY size.",
+      "description": "Ignored while a phone's claim stands, unless the sender claims (`claim`).",
       "properties": {
         "method": {
           "enum": [
