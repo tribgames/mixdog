@@ -36,26 +36,22 @@ async fn one_vault_lookup_through_the_key_store_is_one_credential_read() {
     }
 }
 
-/// The platform's own store: a lookup is one read where the keychain is a single file or item, and a fallback check reads
-/// nothing where `is_fallback` is a constant (Windows, macOS).
+/// The Windows store (DPAPI files) over a directory the test owns: a lookup is exactly one read, and `is_fallback` is a
+/// constant that reads nothing. Only Windows has a platform store the test can own: macOS ignores the directory and reads
+/// the user's real keychain, Linux the real keyring (two reads on a keyring miss: keyring, then the fallback file), so
+/// neither is looked up from a test; the platform-independent count is `one_vault_lookup_through_the_key_store_...`.
+#[cfg(windows)]
 #[tokio::test]
-async fn the_platform_store_counts_a_lookup_and_a_constant_fallback_check_reads_nothing() {
+async fn the_windows_store_counts_one_read_per_lookup_and_a_constant_fallback_check_reads_nothing() {
     let dir = tempfile::tempdir().unwrap();
     let store = mixdog_secrets::default_store(mixdog_rt::testing::tokens().durability_io, dir.path());
     let vault = KeychainVault::new(store);
     let before = mixdog_ai::work::credential_reads();
-    assert_eq!(vault.get("agent.openai.apiKey").await.unwrap(), None);
-    let lookup = mixdog_ai::work::credential_reads() - before;
-    if cfg!(any(windows, target_os = "macos")) {
-        assert_eq!(lookup, 1, "one keychain lookup");
-    } else {
-        assert!(lookup >= 1, "a lookup reads the keyring or the private file");
-    }
+    assert_eq!(vault.get("agent.test-owned.apiKey").await.unwrap(), None);
+    assert_eq!(mixdog_ai::work::credential_reads() - before, 1, "one keychain lookup");
     let before = mixdog_ai::work::credential_reads();
-    vault.is_fallback("agent.openai.apiKey").await.unwrap();
-    if cfg!(any(windows, target_os = "macos")) {
-        assert_eq!(mixdog_ai::work::credential_reads() - before, 0, "is_fallback reads nothing on this platform");
-    }
+    vault.is_fallback("agent.test-owned.apiKey").await.unwrap();
+    assert_eq!(mixdog_ai::work::credential_reads() - before, 0, "is_fallback reads nothing on this platform");
 }
 
 /// The settings view's probe of a custom provider's key variable reads the process environment through the counted function.
