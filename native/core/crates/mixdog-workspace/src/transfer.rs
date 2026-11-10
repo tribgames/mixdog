@@ -665,7 +665,14 @@ impl Transfers {
     }
 
     /// Ends every grant and phone transfer whose time is up (Node's `sweep`: run at the start of every call, and by the sweeper).
+    /// A call runs as a lane job, so the expired staged folders are removed here.
     fn sweep_downloads(&self) {
+        drop(self.swept());
+    }
+
+    /// The sweep, with the staged downloads it ended handed back: removing their folders can wait on a handle still closing
+    /// ([`Cleanup`]), which belongs on a blocking thread.
+    fn swept(&self) -> Vec<Staged> {
         let _reporting = Reporting(self);
         let now = self.now_ms();
         self.grants.lock().expect("transfer grants").retain(|(_, grant)| grant.expires_at > now);
@@ -678,8 +685,8 @@ impl Transfers {
             *staged = kept;
             expired
         };
-        drop(expired);
         self.stop_sweeper_when_idle();
+        expired
     }
 
     /// Whether any grant, phone transfer or staged download is held (Node's three tables being empty).
@@ -740,7 +747,12 @@ impl Transfers {
                         if *self.sweeper.anchor.lock().expect("sweeper") != Some(anchor) {
                             break;
                         }
-                        self.sweep_downloads();
+                        // The sweeper is an async task: the folders go on a blocking thread, and the tick is not over (nor reported)
+                        // until they are gone, so what a tick leaves on disk is the same as before.
+                        let expired = self.swept();
+                        if !expired.is_empty() {
+                            let _ = tokio::task::spawn_blocking(move || drop(expired)).await;
+                        }
                         #[cfg(feature = "replay-controls")]
                         crate::replay_controls::publish("swept", &self.now_ms().to_string());
                         #[cfg(test)]
