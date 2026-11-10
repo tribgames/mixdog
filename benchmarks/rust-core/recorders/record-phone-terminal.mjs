@@ -108,6 +108,11 @@ if (!args.has('child')) {
   rmSync(PROFILE, { recursive: true, force: true });
   const trace = traces[0];
   const variance = { runs, ...varianceReport(traces) };
+  // The main list is compared entry by entry without its output: Node's runs must agree on it, or the first run is not Node's behaviour
+  // but one of its timings (one recording of five had two entries more; recorded again, the five agreed).
+  if (variance.order.distinctSequencesWithoutData !== 1) {
+    throw new Error(`Node's ${runs} runs disagree on the main list without output (${variance.order.entriesWithoutData.join(', ')} entries): record again`);
+  }
   const finalOut =join(REPO_ROOT, 'apps', 'mobile', 'fixtures', 'phone-terminal');
   const out = stageSet(finalOut);
   writeJson(join(out, 'golden.json'), {
