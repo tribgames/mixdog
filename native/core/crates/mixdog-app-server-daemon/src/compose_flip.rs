@@ -1321,7 +1321,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // host that holds the pool, the react tool's reactions open threads on the directory, and the `agent` tool needs the `AgentPort` of `assemble(AgentParts{..})` (flip-agent-worlds-15 `LateAgentPort`).
     let late_dispatcher = Arc::new(crate::late_session::LateDispatcher::default());
     let late_catalog = Arc::new(crate::late_session::LateCatalog::default());
-    let late_listing = Arc::new(crate::late_session::LateListing::default());
+    let late_listing = Arc::new(mixdog_core::run_host::tool_pool::session_control::LateListing::default());
     let late_skills = Arc::new(crate::late_session::LateSkills::default());
     let late_reactions = Arc::new(crate::late_session::LateReactions::default());
     let late_agent_port = Arc::new(mixdog_core::run_host::late_agent_port::LateAgentPort::default());
@@ -2557,7 +2557,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let list_overlay = Arc::new(mixdog_core_session::session::thread_list::LiveListOverlay::new(directory.clone(), bot_work)); // wp-session-37: the overlay reads the directory's handles and `bot_work.by_session()`
     let catalog_handle = Arc::new(catalog_index.clone()); // the handle the idle sweep and the heartbeat's catalog read (Node listSessionCatalog)
     late_listing
-        .bind(Arc::new(mixdog_core::run_host::tool_pool::session_control::StoreListing::new(catalog_handle.clone(), list_overlay.clone(), directory.clone(), now_ms.clone())))
+        .bind(Arc::new(mixdog_core::run_host::tool_pool::session_control::StoreListing::new(catalog_handle.clone(), list_overlay.clone(), directory.clone(), agent_pool.clone(), now_ms.clone())))
         .map_err(ComposeError::AlreadyBound)?;
     let thread_list = Arc::new(mixdog_core_session::session::thread_list::ThreadListService::new(catalog_handle.clone(), list_overlay.clone(), room_rows, agents.clone()));
     thread_list.fence(store_threads.clone()); // a list is never older than a write whose reply or notification has gone out

@@ -10,7 +10,10 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use mixdog_core_agents::agents::AgentPool;
 use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
+use mixdog_services::task_reports::chain::has_pending_agent_work;
+use mixdog_services::task_reports::chain::sessions_with_pending_work;
 use mixdog_core_base::rooms::ids::agent_home_session_id;
 use mixdog_core_base::rooms::ids::room_member_of_session;
 use mixdog_core_config::workflow::ids::truthy;
@@ -73,6 +76,42 @@ pub struct LiveWork {
     pub agents: Vec<String>,
 }
 
+/// What `storedLiveWork()` reads: `inFlightSessionActivity()` (`working`, `agentWorking`), the
+/// Agents pool rows (`listStoredAgentWorkersAsync`) and `Date.now()`.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LiveSources {
+    pub working: Vec<String>,
+    pub agent_working: Vec<String>,
+    pub pool: Vec<Value>,
+    pub now: i64,
+}
+
+/// `storedLiveWork()`: a turn in flight here is live now; a pool row still running or queued is
+/// live since its `updatedAt` (`Date.parse(...) || 0`); its owner (Lead) has an agent working.
+pub fn live_work(sources: LiveSources) -> LiveWork {
+    let mut own: Vec<(String, i64)> = Vec::new();
+    for id in sources.working {
+        if !own.iter().any(|(seen, _)| *seen == id) {
+            own.push((id, sources.now));
+        }
+    }
+    for row in &sources.pool {
+        let id = row.get("sessionId").filter(|v| truthy(Some(v))).map(value_to_string).unwrap_or_default();
+        if id.is_empty() || own.iter().any(|(seen, _)| *seen == id) || !has_pending_agent_work(row) {
+            continue;
+        }
+        let at = row.get("updatedAt").filter(|v| !v.is_null()).map_or(f64::NAN, |v| mixdog_js::time::date_parse(&value_to_string(v)));
+        own.push((id, if at.is_nan() { 0 } else { at as i64 }));
+    }
+    let mut agents: Vec<String> = Vec::new();
+    for id in sources.agent_working.into_iter().chain(sessions_with_pending_work(&sources.pool)) {
+        if !agents.contains(&id) {
+            agents.push(id);
+        }
+    }
+    LiveWork { own, agents }
+}
+
 /// The session catalog as `session action=list` reads it.
 #[async_trait]
 pub trait SessionListing: Send + Sync {
@@ -82,7 +121,7 @@ pub trait SessionListing: Send + Sync {
     async fn page(&self, limit: usize, cursor: Option<&str>) -> Result<ListingPage, String>;
     /// `readStoredSessionCatalogRow(id)`: the row the catalog would list, else `None`.
     async fn row(&self, id: &str) -> Result<Option<ListedRow>, String>;
-    fn live(&self) -> LiveWork;
+    async fn live_sources(&self) -> Result<LiveSources, String>;
 }
 
 /// The addressed session and transcript paging of a request (`targetRequest`).
@@ -330,7 +369,7 @@ pub async fn list(listing: &dyn SessionListing, args: &Value, own: Option<&str>,
             return Err(format!("session: {flag} must be a boolean"));
         }
     }
-    let live = listing.live();
+    let live = live_work(listing.live_sources().await?);
     let mut candidates: Vec<String> = Vec::new();
     for id in live.own.iter().map(|(id, _)| id).chain(live.agents.iter()) {
         if !candidates.contains(id) {
@@ -390,20 +429,76 @@ pub async fn list(listing: &dyn SessionListing, args: &Value, own: Option<&str>,
 
 // --- read ----------------------------------------------------------------------------------------
 
-/// `summarizeToolResult(name, args, '', isError)`: the line a tool row with an empty result shows.
-fn empty_result_summary(name: &str, is_error: bool) -> Option<&'static str> {
+/// `parseToolArgs(args)` (`tool-primitives.mjs`).
+fn tool_args(args: Option<&Value>) -> Value {
+    match args {
+        None | Some(Value::Null) => json!({}),
+        Some(value) if !truthy(Some(value)) => json!({}),
+        Some(Value::String(text)) => match serde_json::from_str::<Value>(text) {
+            Ok(parsed @ (Value::Object(_) | Value::Array(_))) => parsed,
+            _ => json!({ "value": text }),
+        },
+        Some(Value::Object(object)) => match object.get("input") {
+            Some(input @ (Value::Object(_) | Value::Array(_))) => input.clone(),
+            _ => Value::Object(object.clone()),
+        },
+        Some(Value::Array(list)) => Value::Array(list.clone()),
+        Some(other) => json!({ "value": other }),
+    }
+}
+
+/// `firstText(...values)`: the first value whose text is not blank, trimmed.
+fn first_text(values: &[Option<&Value>]) -> String {
+    values
+        .iter()
+        .flatten()
+        .filter(|value| !value.is_null())
+        .map(|value| mixdog_js::js_trim(&value_to_string(value)).to_owned())
+        .find(|text| !text.is_empty())
+        .unwrap_or_default()
+}
+
+/// `displayToolPath(path)`: the last path segment, else the text as given.
+fn display_tool_path(path: &str) -> String {
+    path.replace('\\', "/").split('/').filter(|part| !part.is_empty()).last().map_or_else(|| path.to_owned(), str::to_owned)
+}
+
+/// `summarizeToolResult(name, args, '', isError)` (`tool-result-summary.mjs`): the line a tool row
+/// with an empty result shows. `sessionReadOutput` asks only for an empty result, so each
+/// summarizer's empty-text answer is all it can give: an error's cause is empty, an MCP tool and
+/// the counting, fetching, searching, media and generic summarizers answer nothing.
+fn empty_result_summary(name: &str, args: Option<&Value>, is_error: bool) -> Option<String> {
     if is_error {
         return None;
     }
     let name = if name.is_empty() { "tool" } else { name };
     let name = name.strip_prefix("functions.").unwrap_or(name);
-    let mcp = name.strip_prefix("mcp__").and_then(|rest| rest.split_once("__")).is_some_and(|(server, tool)| !server.is_empty() && !tool.is_empty());
+    // `/^mcp__(.+?)__(.+)$/`
+    let mcp = name.strip_prefix("mcp__").is_some_and(|rest| rest.char_indices().skip(1).any(|(at, _)| rest[at..].starts_with("__") && rest.len() > at + 2));
     if mcp {
         return None;
     }
-    match name.replace('-', "_").to_lowercase().as_str() {
-        "shell" | "bash" | "bash_session" | "shell_command" | "job_wait" | "git" => Some("(No Output)"),
-        "recall" | "search_memories" | "memory" => Some("No Results"),
+    let normalized = name.replace('-', "_").to_lowercase();
+    let args = tool_args(args);
+    match normalized.as_str() {
+        "shell" | "bash" | "bash_session" | "shell_command" | "job_wait" | "git" => Some("(No Output)".to_owned()),
+        "recall" | "search_memories" | "memory" => Some("No Results".to_owned()),
+        // `summarizeUpdateResult('', args)`: no changed line, so the target argument names it.
+        "apply_patch" => {
+            let target = ["path", "file", "file_path"].iter().find_map(|key| args.get(*key).filter(|v| !v.is_null()));
+            let target = target.filter(|v| truthy(Some(v)))?;
+            let verb = if args.get("dry_run") == Some(&Value::Bool(true)) { "Checked" } else { "Updated" };
+            Some(format!("{verb} {}", display_tool_path(&value_to_string(target))))
+        }
+        // `summarizeSkillResult`: an empty skill list counts nothing; a named skill was loaded or used.
+        "skill" | "skill_execute" | "skill_view" | "use_skill" => {
+            let target = first_text(&[args.get("name"), args.get("skill"), args.get("skill_name")]);
+            if target.is_empty() {
+                return None;
+            }
+            let verb = if normalized == "skill" || normalized == "skill_view" { "Loaded" } else { "Used" };
+            Some(format!("{verb} {}", truncate_tool_text(&target, 80)))
+        }
         _ => None,
     }
 }
@@ -446,8 +541,8 @@ fn conversation_item(item: &Value, offset: usize, text_offset: usize) -> Result<
         let name = item.get("name").filter(|v| truthy(Some(v))).map(value_to_string).unwrap_or_default();
         if !raw.is_empty() {
             text = raw;
-        } else if let Some(summary) = empty_result_summary(&name, is_error) {
-            text = summary.to_owned();
+        } else if let Some(summary) = empty_result_summary(&name, item.get("args"), is_error) {
+            text = summary;
         }
     }
     if !text.is_empty() {
@@ -511,18 +606,64 @@ pub fn read(session_id: &str, rows: &[Value], has_older: bool, target: &Target, 
 
 // --- the production catalog ----------------------------------------------------------------------
 
+/// The catalog the `session` tool lists, bound once the store, the list overlay and the Agents
+/// pool exist (after the tool pool is built). Unbound it answers as Node does without a session
+/// service (`daemon-session-control.mjs` `control`): the catalog opens before it is bound, so it
+/// has no loading state of its own.
+#[derive(Default)]
+pub struct LateListing(std::sync::OnceLock<Arc<dyn SessionListing>>);
+
+const NO_SERVICE: &str = "session: session service is unavailable";
+
+impl LateListing {
+    pub fn bind(&self, listing: Arc<dyn SessionListing>) -> Result<(), &'static str> {
+        self.0.set(listing).map_err(|_| "session listing")
+    }
+
+    fn listing(&self) -> Result<&Arc<dyn SessionListing>, String> {
+        self.0.get().ok_or_else(|| NO_SERVICE.to_owned())
+    }
+}
+
+#[async_trait]
+impl SessionListing for LateListing {
+    async fn page(&self, limit: usize, cursor: Option<&str>) -> Result<ListingPage, String> {
+        self.listing()?.page(limit, cursor).await
+    }
+
+    async fn row(&self, id: &str) -> Result<Option<ListedRow>, String> {
+        self.listing()?.row(id).await
+    }
+
+    async fn live_sources(&self) -> Result<LiveSources, String> {
+        self.listing()?.live_sources().await
+    }
+}
+
+impl crate::run_host::late::Bound for LateListing {
+    fn cell(&self) -> &'static str {
+        "session listing"
+    }
+
+    fn is_bound(&self) -> bool {
+        self.0.get().is_some()
+    }
+}
+
 /// [`SessionListing`] over the store's lead-visible listing, the runtime's overlay and the
 /// threads this process runs.
 pub struct StoreListing {
     store: Arc<SqliteStore>,
     overlay: Arc<dyn ListOverlay>,
     directory: Arc<SessionDirectory>,
+    /// The Agents pool rows: the durable worker indexes as this daemon's live state lays them over.
+    pool: Arc<AgentPool>,
     now_ms: Arc<dyn Fn() -> i64 + Send + Sync>,
 }
 
 impl StoreListing {
-    pub fn new(store: Arc<SqliteStore>, overlay: Arc<dyn ListOverlay>, directory: Arc<SessionDirectory>, now_ms: Arc<dyn Fn() -> i64 + Send + Sync>) -> Self {
-        Self { store, overlay, directory, now_ms }
+    pub fn new(store: Arc<SqliteStore>, overlay: Arc<dyn ListOverlay>, directory: Arc<SessionDirectory>, pool: Arc<AgentPool>, now_ms: Arc<dyn Fn() -> i64 + Send + Sync>) -> Self {
+        Self { store, overlay, directory, pool, now_ms }
     }
 
     /// `withRuntimeActivity`: the live `working` / `agentWorking` of a stored row.
@@ -552,9 +693,9 @@ impl SessionListing for StoreListing {
         Ok(self.store.lead_row(id).await.map_err(|error| error.to_string())?.map(|lead| self.listed(lead)))
     }
 
-    fn live(&self) -> LiveWork {
-        let (working, agents) = self.directory.in_flight();
-        let now = (self.now_ms)();
-        LiveWork { own: working.into_iter().map(|id| (id.as_str().to_owned(), now)).collect(), agents }
+    async fn live_sources(&self) -> Result<LiveSources, String> {
+        let (working, agent_working) = self.directory.in_flight();
+        let pool = self.pool.list().await.map_err(|error| error.to_string())?;
+        Ok(LiveSources { working: working.into_iter().map(|id| id.as_str().to_owned()).collect(), agent_working, pool, now: (self.now_ms)() })
     }
 }
