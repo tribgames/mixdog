@@ -25,7 +25,19 @@
           "reply": {
             "accepted": true,
             "ok": true,
-            "sessionId": "sess_desktop_6c848fb3281687c0903aeb18c93d8c021635a77ee38534df928d83426849d06e"
+            "sessionId": "sess_desktop_6c848fb3281687c0903aeb18c93d8c021635a77ee38534df928d83426849d06e",
+            "snapshot": {
+              "busy": false,
+              "commandBusy": false,
+              "fast": false,
+              "items": [],
+              "model": "m",
+              "provider": "p",
+              "queued": [],
+              "remoteEnabled": false,
+              "remoteSessionId": null,
+              "sessionId": "sess_desktop_6c848fb3281687c0903aeb18c93d8c021635a77ee38534df928d83426849d06e"
+            }
           },
           "sessions": {
             "sess_desktop_6c848fb3281687c0903aeb18c93d8c021635a77ee38534df928d83426849d06e": {
@@ -73,7 +85,19 @@
           "reply": {
             "accepted": true,
             "ok": true,
-            "sessionId": "sess_desktop_6c848fb3281687c0903aeb18c93d8c021635a77ee38534df928d83426849d06e"
+            "sessionId": "sess_desktop_6c848fb3281687c0903aeb18c93d8c021635a77ee38534df928d83426849d06e",
+            "snapshot": {
+              "busy": false,
+              "commandBusy": false,
+              "fast": false,
+              "items": [],
+              "model": "m",
+              "provider": "p",
+              "queued": [],
+              "remoteEnabled": false,
+              "remoteSessionId": null,
+              "sessionId": "sess_desktop_6c848fb3281687c0903aeb18c93d8c021635a77ee38534df928d83426849d06e"
+            }
           },
           "sessions": {
             "sess_desktop_6c848fb3281687c0903aeb18c93d8c021635a77ee38534df928d83426849d06e": {
@@ -168,7 +192,19 @@
           "reply": {
             "accepted": true,
             "ok": true,
-            "sessionId": "sess_desktop_1198c699368581b2bb37a4deaa5f35154407665ceb41ed0d5dfdd9ccf36d0851"
+            "sessionId": "sess_desktop_1198c699368581b2bb37a4deaa5f35154407665ceb41ed0d5dfdd9ccf36d0851",
+            "snapshot": {
+              "busy": false,
+              "commandBusy": false,
+              "fast": false,
+              "items": [],
+              "model": "m",
+              "provider": "p",
+              "queued": [],
+              "remoteEnabled": false,
+              "remoteSessionId": null,
+              "sessionId": "sess_desktop_1198c699368581b2bb37a4deaa5f35154407665ceb41ed0d5dfdd9ccf36d0851"
+            }
           },
           "sessions": {
             "sess_desktop_1198c699368581b2bb37a4deaa5f35154407665ceb41ed0d5dfdd9ccf36d0851": {
@@ -259,7 +295,19 @@
           "reply": {
             "accepted": true,
             "ok": true,
-            "sessionId": "sess_desktop_32653cc3989339c3b3f664e40fd60294807de82e24c2853bdd03917f3c9bdf2c"
+            "sessionId": "sess_desktop_32653cc3989339c3b3f664e40fd60294807de82e24c2853bdd03917f3c9bdf2c",
+            "snapshot": {
+              "busy": false,
+              "commandBusy": false,
+              "fast": false,
+              "items": [],
+              "model": "m",
+              "provider": "p",
+              "queued": [],
+              "remoteEnabled": false,
+              "remoteSessionId": null,
+              "sessionId": "sess_desktop_32653cc3989339c3b3f664e40fd60294807de82e24c2853bdd03917f3c9bdf2c"
+            }
           },
           "sessions": {
             "sess_desktop_32653cc3989339c3b3f664e40fd60294807de82e24c2853bdd03917f3c9bdf2c": {
@@ -331,7 +379,19 @@
           "reply": {
             "accepted": true,
             "ok": true,
-            "sessionId": "sess_desktop_ca75112c3b494140e8fd236d3acaf933b24df9245b7e69cdf647b533300ac813"
+            "sessionId": "sess_desktop_ca75112c3b494140e8fd236d3acaf933b24df9245b7e69cdf647b533300ac813",
+            "snapshot": {
+              "busy": false,
+              "commandBusy": false,
+              "fast": false,
+              "items": [],
+              "model": "m",
+              "provider": "p",
+              "queued": [],
+              "remoteEnabled": false,
+              "remoteSessionId": null,
+              "sessionId": "sess_desktop_ca75112c3b494140e8fd236d3acaf933b24df9245b7e69cdf647b533300ac813"
+            }
           },
           "sessions": {
             "sess_desktop_ca75112c3b494140e8fd236d3acaf933b24df9245b7e69cdf647b533300ac813": {
@@ -358,7 +418,19 @@
           "reply": {
             "accepted": true,
             "ok": true,
-            "sessionId": "sess_desktop_ca75112c3b494140e8fd236d3acaf933b24df9245b7e69cdf647b533300ac813"
+            "sessionId": "sess_desktop_ca75112c3b494140e8fd236d3acaf933b24df9245b7e69cdf647b533300ac813",
+            "snapshot": {
+              "busy": false,
+              "commandBusy": false,
+              "fast": false,
+              "items": [],
+              "model": "m",
+              "provider": "p",
+              "queued": [],
+              "remoteEnabled": false,
+              "remoteSessionId": null,
+              "sessionId": "sess_desktop_ca75112c3b494140e8fd236d3acaf933b24df9245b7e69cdf647b533300ac813"
+            }
           },
           "sessions": {
             "sess_desktop_ca75112c3b494140e8fd236d3acaf933b24df9245b7e69cdf647b533300ac813": {
@@ -429,7 +501,19 @@
           "reply": {
             "accepted": true,
             "ok": true,
-            "sessionId": "sess_desktop_f19dd272a172389a0449e27d3a99997489d3feb5fe4b689af1fb31d47eb10b78"
+            "sessionId": "sess_desktop_f19dd272a172389a0449e27d3a99997489d3feb5fe4b689af1fb31d47eb10b78",
+            "snapshot": {
+              "busy": false,
+              "commandBusy": false,
+              "fast": false,
+              "items": [],
+              "model": "m",
+              "provider": "p",
+              "queued": [],
+              "remoteEnabled": false,
+              "remoteSessionId": null,
+              "sessionId": "sess_desktop_f19dd272a172389a0449e27d3a99997489d3feb5fe4b689af1fb31d47eb10b78"
+            }
           },
           "sessions": {
             "sess_desktop_f19dd272a172389a0449e27d3a99997489d3feb5fe4b689af1fb31d47eb10b78": {
@@ -456,7 +540,19 @@
           "reply": {
             "accepted": true,
             "ok": true,
-            "sessionId": "sess_desktop_f19dd272a172389a0449e27d3a99997489d3feb5fe4b689af1fb31d47eb10b78"
+            "sessionId": "sess_desktop_f19dd272a172389a0449e27d3a99997489d3feb5fe4b689af1fb31d47eb10b78",
+            "snapshot": {
+              "busy": false,
+              "commandBusy": false,
+              "fast": false,
+              "items": [],
+              "model": "m",
+              "provider": "p",
+              "queued": [],
+              "remoteEnabled": false,
+              "remoteSessionId": null,
+              "sessionId": "sess_desktop_f19dd272a172389a0449e27d3a99997489d3feb5fe4b689af1fb31d47eb10b78"
+            }
           },
           "sessions": {
             "sess_desktop_f19dd272a172389a0449e27d3a99997489d3feb5fe4b689af1fb31d47eb10b78": {
@@ -527,7 +623,19 @@
           "reply": {
             "accepted": true,
             "ok": true,
-            "sessionId": "sess_desktop_fdedf6e46cbc1c2fff2d12e31daa122dcb5702fc646081104c9964a82673929a"
+            "sessionId": "sess_desktop_fdedf6e46cbc1c2fff2d12e31daa122dcb5702fc646081104c9964a82673929a",
+            "snapshot": {
+              "busy": false,
+              "commandBusy": false,
+              "fast": false,
+              "items": [],
+              "model": "m",
+              "provider": "p",
+              "queued": [],
+              "remoteEnabled": false,
+              "remoteSessionId": null,
+              "sessionId": "sess_desktop_fdedf6e46cbc1c2fff2d12e31daa122dcb5702fc646081104c9964a82673929a"
+            }
           },
           "sessions": {
             "sess_desktop_fdedf6e46cbc1c2fff2d12e31daa122dcb5702fc646081104c9964a82673929a": {
@@ -554,7 +662,19 @@
           "reply": {
             "accepted": true,
             "ok": true,
-            "sessionId": "sess_desktop_fdedf6e46cbc1c2fff2d12e31daa122dcb5702fc646081104c9964a82673929a"
+            "sessionId": "sess_desktop_fdedf6e46cbc1c2fff2d12e31daa122dcb5702fc646081104c9964a82673929a",
+            "snapshot": {
+              "busy": false,
+              "commandBusy": false,
+              "fast": false,
+              "items": [],
+              "model": "m",
+              "provider": "p",
+              "queued": [],
+              "remoteEnabled": false,
+              "remoteSessionId": null,
+              "sessionId": "sess_desktop_fdedf6e46cbc1c2fff2d12e31daa122dcb5702fc646081104c9964a82673929a"
+            }
           },
           "sessions": {
             "sess_desktop_fdedf6e46cbc1c2fff2d12e31daa122dcb5702fc646081104c9964a82673929a": {
@@ -625,7 +745,19 @@
           "reply": {
             "accepted": true,
             "ok": true,
-            "sessionId": "sess_desktop_8ef06d66f2b2411aa219ab0a4edfc16eaac3de18a82db72a99ac9a7b0a574236"
+            "sessionId": "sess_desktop_8ef06d66f2b2411aa219ab0a4edfc16eaac3de18a82db72a99ac9a7b0a574236",
+            "snapshot": {
+              "busy": false,
+              "commandBusy": false,
+              "fast": false,
+              "items": [],
+              "model": "m",
+              "provider": "p",
+              "queued": [],
+              "remoteEnabled": false,
+              "remoteSessionId": null,
+              "sessionId": "sess_desktop_8ef06d66f2b2411aa219ab0a4edfc16eaac3de18a82db72a99ac9a7b0a574236"
+            }
           },
           "sessions": {
             "sess_desktop_8ef06d66f2b2411aa219ab0a4edfc16eaac3de18a82db72a99ac9a7b0a574236": {
@@ -652,7 +784,19 @@
           "reply": {
             "accepted": true,
             "ok": true,
-            "sessionId": "sess_desktop_8ef06d66f2b2411aa219ab0a4edfc16eaac3de18a82db72a99ac9a7b0a574236"
+            "sessionId": "sess_desktop_8ef06d66f2b2411aa219ab0a4edfc16eaac3de18a82db72a99ac9a7b0a574236",
+            "snapshot": {
+              "busy": false,
+              "commandBusy": false,
+              "fast": false,
+              "items": [],
+              "model": "m",
+              "provider": "p",
+              "queued": [],
+              "remoteEnabled": false,
+              "remoteSessionId": null,
+              "sessionId": "sess_desktop_8ef06d66f2b2411aa219ab0a4edfc16eaac3de18a82db72a99ac9a7b0a574236"
+            }
           },
           "sessions": {
             "sess_desktop_8ef06d66f2b2411aa219ab0a4edfc16eaac3de18a82db72a99ac9a7b0a574236": {
@@ -723,7 +867,19 @@
           "reply": {
             "accepted": true,
             "ok": true,
-            "sessionId": "sess_desktop_df85a7be0839015c3bb93d23c3be074ff49fb7a3f91c905def0f95875ff80cc8"
+            "sessionId": "sess_desktop_df85a7be0839015c3bb93d23c3be074ff49fb7a3f91c905def0f95875ff80cc8",
+            "snapshot": {
+              "busy": false,
+              "commandBusy": false,
+              "fast": false,
+              "items": [],
+              "model": "m",
+              "provider": "p",
+              "queued": [],
+              "remoteEnabled": false,
+              "remoteSessionId": null,
+              "sessionId": "sess_desktop_df85a7be0839015c3bb93d23c3be074ff49fb7a3f91c905def0f95875ff80cc8"
+            }
           },
           "sessions": {
             "sess_desktop_df85a7be0839015c3bb93d23c3be074ff49fb7a3f91c905def0f95875ff80cc8": {
@@ -750,7 +906,19 @@
           "reply": {
             "accepted": true,
             "ok": true,
-            "sessionId": "sess_desktop_df85a7be0839015c3bb93d23c3be074ff49fb7a3f91c905def0f95875ff80cc8"
+            "sessionId": "sess_desktop_df85a7be0839015c3bb93d23c3be074ff49fb7a3f91c905def0f95875ff80cc8",
+            "snapshot": {
+              "busy": false,
+              "commandBusy": false,
+              "fast": false,
+              "items": [],
+              "model": "m",
+              "provider": "p",
+              "queued": [],
+              "remoteEnabled": false,
+              "remoteSessionId": null,
+              "sessionId": "sess_desktop_df85a7be0839015c3bb93d23c3be074ff49fb7a3f91c905def0f95875ff80cc8"
+            }
           },
           "sessions": {
             "sess_desktop_df85a7be0839015c3bb93d23c3be074ff49fb7a3f91c905def0f95875ff80cc8": {
@@ -821,7 +989,19 @@
           "reply": {
             "accepted": true,
             "ok": true,
-            "sessionId": "sess_desktop_88ca0dacf54caa4d1562bb56de6e5caa9297a401283ddafa3823a9737b96b2d0"
+            "sessionId": "sess_desktop_88ca0dacf54caa4d1562bb56de6e5caa9297a401283ddafa3823a9737b96b2d0",
+            "snapshot": {
+              "busy": false,
+              "commandBusy": false,
+              "fast": false,
+              "items": [],
+              "model": "m",
+              "provider": "p",
+              "queued": [],
+              "remoteEnabled": false,
+              "remoteSessionId": null,
+              "sessionId": "sess_desktop_88ca0dacf54caa4d1562bb56de6e5caa9297a401283ddafa3823a9737b96b2d0"
+            }
           },
           "sessions": {
             "sess_desktop_88ca0dacf54caa4d1562bb56de6e5caa9297a401283ddafa3823a9737b96b2d0": {
@@ -848,7 +1028,19 @@
           "reply": {
             "accepted": true,
             "ok": true,
-            "sessionId": "sess_desktop_88ca0dacf54caa4d1562bb56de6e5caa9297a401283ddafa3823a9737b96b2d0"
+            "sessionId": "sess_desktop_88ca0dacf54caa4d1562bb56de6e5caa9297a401283ddafa3823a9737b96b2d0",
+            "snapshot": {
+              "busy": false,
+              "commandBusy": false,
+              "fast": false,
+              "items": [],
+              "model": "m",
+              "provider": "p",
+              "queued": [],
+              "remoteEnabled": false,
+              "remoteSessionId": null,
+              "sessionId": "sess_desktop_88ca0dacf54caa4d1562bb56de6e5caa9297a401283ddafa3823a9737b96b2d0"
+            }
           },
           "sessions": {
             "sess_desktop_88ca0dacf54caa4d1562bb56de6e5caa9297a401283ddafa3823a9737b96b2d0": {
@@ -919,7 +1111,19 @@
           "reply": {
             "accepted": true,
             "ok": true,
-            "sessionId": "sess_desktop_41fd3388b5e94920af09d0abb5e1b996750d595725fc81321c48e6a186073cba"
+            "sessionId": "sess_desktop_41fd3388b5e94920af09d0abb5e1b996750d595725fc81321c48e6a186073cba",
+            "snapshot": {
+              "busy": false,
+              "commandBusy": false,
+              "fast": false,
+              "items": [],
+              "model": "m",
+              "provider": "p",
+              "queued": [],
+              "remoteEnabled": false,
+              "remoteSessionId": null,
+              "sessionId": "sess_desktop_41fd3388b5e94920af09d0abb5e1b996750d595725fc81321c48e6a186073cba"
+            }
           },
           "sessions": {
             "sess_desktop_41fd3388b5e94920af09d0abb5e1b996750d595725fc81321c48e6a186073cba": {
@@ -946,7 +1150,19 @@
           "reply": {
             "accepted": true,
             "ok": true,
-            "sessionId": "sess_desktop_41fd3388b5e94920af09d0abb5e1b996750d595725fc81321c48e6a186073cba"
+            "sessionId": "sess_desktop_41fd3388b5e94920af09d0abb5e1b996750d595725fc81321c48e6a186073cba",
+            "snapshot": {
+              "busy": false,
+              "commandBusy": false,
+              "fast": false,
+              "items": [],
+              "model": "m",
+              "provider": "p",
+              "queued": [],
+              "remoteEnabled": false,
+              "remoteSessionId": null,
+              "sessionId": "sess_desktop_41fd3388b5e94920af09d0abb5e1b996750d595725fc81321c48e6a186073cba"
+            }
           },
           "sessions": {
             "sess_desktop_41fd3388b5e94920af09d0abb5e1b996750d595725fc81321c48e6a186073cba": {
@@ -1017,7 +1233,19 @@
           "reply": {
             "accepted": true,
             "ok": true,
-            "sessionId": "sess_desktop_81d8b575d4f155038342760516a6199bd8efcc40f6e8eb1d4f8992a6bf51c85b"
+            "sessionId": "sess_desktop_81d8b575d4f155038342760516a6199bd8efcc40f6e8eb1d4f8992a6bf51c85b",
+            "snapshot": {
+              "busy": false,
+              "commandBusy": false,
+              "fast": false,
+              "items": [],
+              "model": "m",
+              "provider": "p",
+              "queued": [],
+              "remoteEnabled": false,
+              "remoteSessionId": null,
+              "sessionId": "sess_desktop_81d8b575d4f155038342760516a6199bd8efcc40f6e8eb1d4f8992a6bf51c85b"
+            }
           },
           "sessions": {
             "sess_desktop_81d8b575d4f155038342760516a6199bd8efcc40f6e8eb1d4f8992a6bf51c85b": {
@@ -1044,7 +1272,19 @@
           "reply": {
             "accepted": true,
             "ok": true,
-            "sessionId": "sess_desktop_81d8b575d4f155038342760516a6199bd8efcc40f6e8eb1d4f8992a6bf51c85b"
+            "sessionId": "sess_desktop_81d8b575d4f155038342760516a6199bd8efcc40f6e8eb1d4f8992a6bf51c85b",
+            "snapshot": {
+              "busy": false,
+              "commandBusy": false,
+              "fast": false,
+              "items": [],
+              "model": "m",
+              "provider": "p",
+              "queued": [],
+              "remoteEnabled": false,
+              "remoteSessionId": null,
+              "sessionId": "sess_desktop_81d8b575d4f155038342760516a6199bd8efcc40f6e8eb1d4f8992a6bf51c85b"
+            }
           },
           "sessions": {
             "sess_desktop_81d8b575d4f155038342760516a6199bd8efcc40f6e8eb1d4f8992a6bf51c85b": {
@@ -1115,7 +1355,19 @@
           "reply": {
             "accepted": true,
             "ok": true,
-            "sessionId": "sess_desktop_2991ca835ec13a9671fcfc8857c0add9594efccac75b5196c9f3da4ffd7f3223"
+            "sessionId": "sess_desktop_2991ca835ec13a9671fcfc8857c0add9594efccac75b5196c9f3da4ffd7f3223",
+            "snapshot": {
+              "busy": false,
+              "commandBusy": false,
+              "fast": false,
+              "items": [],
+              "model": "m",
+              "provider": "p",
+              "queued": [],
+              "remoteEnabled": false,
+              "remoteSessionId": null,
+              "sessionId": "sess_desktop_2991ca835ec13a9671fcfc8857c0add9594efccac75b5196c9f3da4ffd7f3223"
+            }
           },
           "sessions": {
             "sess_desktop_2991ca835ec13a9671fcfc8857c0add9594efccac75b5196c9f3da4ffd7f3223": {
@@ -1142,7 +1394,19 @@
           "reply": {
             "accepted": true,
             "ok": true,
-            "sessionId": "sess_desktop_2991ca835ec13a9671fcfc8857c0add9594efccac75b5196c9f3da4ffd7f3223"
+            "sessionId": "sess_desktop_2991ca835ec13a9671fcfc8857c0add9594efccac75b5196c9f3da4ffd7f3223",
+            "snapshot": {
+              "busy": false,
+              "commandBusy": false,
+              "fast": false,
+              "items": [],
+              "model": "m",
+              "provider": "p",
+              "queued": [],
+              "remoteEnabled": false,
+              "remoteSessionId": null,
+              "sessionId": "sess_desktop_2991ca835ec13a9671fcfc8857c0add9594efccac75b5196c9f3da4ffd7f3223"
+            }
           },
           "sessions": {
             "sess_desktop_2991ca835ec13a9671fcfc8857c0add9594efccac75b5196c9f3da4ffd7f3223": {
@@ -1217,12 +1481,36 @@
             {
               "accepted": true,
               "ok": true,
-              "sessionId": "sess_desktop_e971a855687220c78bcccb5dfc9cc0c4839811acae00516e3963b6ce715a39e3"
+              "sessionId": "sess_desktop_e971a855687220c78bcccb5dfc9cc0c4839811acae00516e3963b6ce715a39e3",
+              "snapshot": {
+                "busy": false,
+                "commandBusy": false,
+                "fast": false,
+                "items": [],
+                "model": "m",
+                "provider": "p",
+                "queued": [],
+                "remoteEnabled": false,
+                "remoteSessionId": null,
+                "sessionId": "sess_desktop_e971a855687220c78bcccb5dfc9cc0c4839811acae00516e3963b6ce715a39e3"
+              }
             },
             {
               "accepted": true,
               "ok": true,
-              "sessionId": "sess_desktop_e971a855687220c78bcccb5dfc9cc0c4839811acae00516e3963b6ce715a39e3"
+              "sessionId": "sess_desktop_e971a855687220c78bcccb5dfc9cc0c4839811acae00516e3963b6ce715a39e3",
+              "snapshot": {
+                "busy": false,
+                "commandBusy": false,
+                "fast": false,
+                "items": [],
+                "model": "m",
+                "provider": "p",
+                "queued": [],
+                "remoteEnabled": false,
+                "remoteSessionId": null,
+                "sessionId": "sess_desktop_e971a855687220c78bcccb5dfc9cc0c4839811acae00516e3963b6ce715a39e3"
+              }
             }
           ],
           "sessions": {
@@ -1298,7 +1586,19 @@
             {
               "accepted": true,
               "ok": true,
-              "sessionId": "sess_desktop_b818feea0b5f2f874084b97f01d2c91ff1be864deac9e3f2e7c3d78f0385cd1e"
+              "sessionId": "sess_desktop_b818feea0b5f2f874084b97f01d2c91ff1be864deac9e3f2e7c3d78f0385cd1e",
+              "snapshot": {
+                "busy": false,
+                "commandBusy": false,
+                "fast": false,
+                "items": [],
+                "model": "m",
+                "provider": "p",
+                "queued": [],
+                "remoteEnabled": false,
+                "remoteSessionId": null,
+                "sessionId": "sess_desktop_b818feea0b5f2f874084b97f01d2c91ff1be864deac9e3f2e7c3d78f0385cd1e"
+              }
             },
             {
               "error": "Submission id was reused for different content.",
@@ -1340,7 +1640,19 @@
           "reply": {
             "accepted": true,
             "ok": true,
-            "sessionId": "sess_desktop_b818feea0b5f2f874084b97f01d2c91ff1be864deac9e3f2e7c3d78f0385cd1e"
+            "sessionId": "sess_desktop_b818feea0b5f2f874084b97f01d2c91ff1be864deac9e3f2e7c3d78f0385cd1e",
+            "snapshot": {
+              "busy": false,
+              "commandBusy": false,
+              "fast": false,
+              "items": [],
+              "model": "m",
+              "provider": "p",
+              "queued": [],
+              "remoteEnabled": false,
+              "remoteSessionId": null,
+              "sessionId": "sess_desktop_b818feea0b5f2f874084b97f01d2c91ff1be864deac9e3f2e7c3d78f0385cd1e"
+            }
           },
           "sessions": {
             "sess_desktop_b818feea0b5f2f874084b97f01d2c91ff1be864deac9e3f2e7c3d78f0385cd1e": {
@@ -1403,7 +1715,19 @@
           "reply": {
             "accepted": true,
             "ok": true,
-            "sessionId": "sess_desktop_09423d2c4ef9ef3b3abe42988792df38b24127da93051b2b035cc9ed3b9aaf83"
+            "sessionId": "sess_desktop_09423d2c4ef9ef3b3abe42988792df38b24127da93051b2b035cc9ed3b9aaf83",
+            "snapshot": {
+              "busy": false,
+              "commandBusy": false,
+              "fast": false,
+              "items": [],
+              "model": "m",
+              "provider": "p",
+              "queued": [],
+              "remoteEnabled": false,
+              "remoteSessionId": null,
+              "sessionId": "sess_desktop_09423d2c4ef9ef3b3abe42988792df38b24127da93051b2b035cc9ed3b9aaf83"
+            }
           },
           "sessions": {
             "sess_desktop_09423d2c4ef9ef3b3abe42988792df38b24127da93051b2b035cc9ed3b9aaf83": {
@@ -1452,12 +1776,36 @@
             {
               "accepted": true,
               "ok": true,
-              "sessionId": "sess_desktop_6cbc8dd0c69be9a5f8bf21392ae15d58ddeeb903b880365eefaf34d41841fe21"
+              "sessionId": "sess_desktop_6cbc8dd0c69be9a5f8bf21392ae15d58ddeeb903b880365eefaf34d41841fe21",
+              "snapshot": {
+                "busy": false,
+                "commandBusy": false,
+                "fast": false,
+                "items": [],
+                "model": "m",
+                "provider": "p",
+                "queued": [],
+                "remoteEnabled": false,
+                "remoteSessionId": null,
+                "sessionId": "sess_desktop_6cbc8dd0c69be9a5f8bf21392ae15d58ddeeb903b880365eefaf34d41841fe21"
+              }
             },
             {
               "accepted": true,
               "ok": true,
-              "sessionId": "sess_desktop_6cbc8dd0c69be9a5f8bf21392ae15d58ddeeb903b880365eefaf34d41841fe21"
+              "sessionId": "sess_desktop_6cbc8dd0c69be9a5f8bf21392ae15d58ddeeb903b880365eefaf34d41841fe21",
+              "snapshot": {
+                "busy": false,
+                "commandBusy": false,
+                "fast": false,
+                "items": [],
+                "model": "m",
+                "provider": "p",
+                "queued": [],
+                "remoteEnabled": false,
+                "remoteSessionId": null,
+                "sessionId": "sess_desktop_6cbc8dd0c69be9a5f8bf21392ae15d58ddeeb903b880365eefaf34d41841fe21"
+              }
             }
           ],
           "sessions": {
@@ -1495,7 +1843,19 @@
           "reply": {
             "accepted": true,
             "ok": true,
-            "sessionId": "sess_desktop_6cbc8dd0c69be9a5f8bf21392ae15d58ddeeb903b880365eefaf34d41841fe21"
+            "sessionId": "sess_desktop_6cbc8dd0c69be9a5f8bf21392ae15d58ddeeb903b880365eefaf34d41841fe21",
+            "snapshot": {
+              "busy": false,
+              "commandBusy": false,
+              "fast": false,
+              "items": [],
+              "model": "m",
+              "provider": "p",
+              "queued": [],
+              "remoteEnabled": false,
+              "remoteSessionId": null,
+              "sessionId": "sess_desktop_6cbc8dd0c69be9a5f8bf21392ae15d58ddeeb903b880365eefaf34d41841fe21"
+            }
           },
           "sessions": {
             "sess_desktop_6cbc8dd0c69be9a5f8bf21392ae15d58ddeeb903b880365eefaf34d41841fe21": {
@@ -1550,8 +1910,10 @@
           "receipts": null,
           "reply": {
             "code": "EISDIR",
+            "errno": -4068,
             "error": "EISDIR: illegal operation on a directory, read",
-            "ok": false
+            "ok": false,
+            "syscall": "read"
           },
           "sessions": {},
           "step": {
@@ -1628,7 +1990,19 @@
           "reply": {
             "accepted": true,
             "ok": true,
-            "sessionId": "<fresh:2>"
+            "sessionId": "<fresh:2>",
+            "snapshot": {
+              "busy": false,
+              "commandBusy": false,
+              "fast": false,
+              "items": [],
+              "model": "m",
+              "provider": "p",
+              "queued": [],
+              "remoteEnabled": false,
+              "remoteSessionId": null,
+              "sessionId": "<fresh:2>"
+            }
           },
           "sessions": {
             "<fresh:2>": {
@@ -1655,7 +2029,19 @@
           "reply": {
             "accepted": true,
             "ok": true,
-            "sessionId": "<fresh:2>"
+            "sessionId": "<fresh:2>",
+            "snapshot": {
+              "busy": false,
+              "commandBusy": false,
+              "fast": false,
+              "items": [],
+              "model": "m",
+              "provider": "p",
+              "queued": [],
+              "remoteEnabled": false,
+              "remoteSessionId": null,
+              "sessionId": "<fresh:2>"
+            }
           },
           "sessions": {
             "<fresh:2>": {
@@ -1849,7 +2235,19 @@
           "reply": {
             "accepted": true,
             "ok": true,
-            "sessionId": "<fresh:3>"
+            "sessionId": "<fresh:3>",
+            "snapshot": {
+              "busy": false,
+              "commandBusy": false,
+              "fast": false,
+              "items": [],
+              "model": "m",
+              "provider": "p",
+              "queued": [],
+              "remoteEnabled": false,
+              "remoteSessionId": null,
+              "sessionId": "<fresh:3>"
+            }
           },
           "sessions": {
             "<fresh:3>": {
@@ -1907,7 +2305,19 @@
           "reply": {
             "accepted": true,
             "ok": true,
-            "sessionId": "sess_desktop_420fa74b17593a71318a4c7a7c2a6378fb40957d4830bb2a2ebdb0fc48846dec"
+            "sessionId": "sess_desktop_420fa74b17593a71318a4c7a7c2a6378fb40957d4830bb2a2ebdb0fc48846dec",
+            "snapshot": {
+              "busy": false,
+              "commandBusy": false,
+              "fast": false,
+              "items": [],
+              "model": "m",
+              "provider": "p",
+              "queued": [],
+              "remoteEnabled": false,
+              "remoteSessionId": null,
+              "sessionId": "sess_desktop_420fa74b17593a71318a4c7a7c2a6378fb40957d4830bb2a2ebdb0fc48846dec"
+            }
           },
           "sessions": {
             "sess_desktop_420fa74b17593a71318a4c7a7c2a6378fb40957d4830bb2a2ebdb0fc48846dec": {
@@ -1934,7 +2344,19 @@
           "reply": {
             "accepted": true,
             "ok": true,
-            "sessionId": "sess_desktop_420fa74b17593a71318a4c7a7c2a6378fb40957d4830bb2a2ebdb0fc48846dec"
+            "sessionId": "sess_desktop_420fa74b17593a71318a4c7a7c2a6378fb40957d4830bb2a2ebdb0fc48846dec",
+            "snapshot": {
+              "busy": false,
+              "commandBusy": false,
+              "fast": false,
+              "items": [],
+              "model": "m",
+              "provider": "p",
+              "queued": [],
+              "remoteEnabled": false,
+              "remoteSessionId": null,
+              "sessionId": "sess_desktop_420fa74b17593a71318a4c7a7c2a6378fb40957d4830bb2a2ebdb0fc48846dec"
+            }
           },
           "sessions": {
             "sess_desktop_420fa74b17593a71318a4c7a7c2a6378fb40957d4830bb2a2ebdb0fc48846dec": {
@@ -1977,7 +2399,19 @@
           "reply": {
             "accepted": true,
             "ok": true,
-            "sessionId": "sess_desktop_420fa74b17593a71318a4c7a7c2a6378fb40957d4830bb2a2ebdb0fc48846dec"
+            "sessionId": "sess_desktop_420fa74b17593a71318a4c7a7c2a6378fb40957d4830bb2a2ebdb0fc48846dec",
+            "snapshot": {
+              "busy": false,
+              "commandBusy": false,
+              "fast": false,
+              "items": [],
+              "model": "m",
+              "provider": "p",
+              "queued": [],
+              "remoteEnabled": false,
+              "remoteSessionId": null,
+              "sessionId": "sess_desktop_420fa74b17593a71318a4c7a7c2a6378fb40957d4830bb2a2ebdb0fc48846dec"
+            }
           },
           "sessions": {
             "sess_desktop_420fa74b17593a71318a4c7a7c2a6378fb40957d4830bb2a2ebdb0fc48846dec": {
@@ -2054,7 +2488,19 @@
           "reply": {
             "accepted": true,
             "ok": true,
-            "sessionId": "sess_desktop_d3451ca87679dbaac02407e9081f4c261916bf690e2fe90426fa5afe8fc5a6f8"
+            "sessionId": "sess_desktop_d3451ca87679dbaac02407e9081f4c261916bf690e2fe90426fa5afe8fc5a6f8",
+            "snapshot": {
+              "busy": false,
+              "commandBusy": false,
+              "fast": false,
+              "items": [],
+              "model": "m",
+              "provider": "p",
+              "queued": [],
+              "remoteEnabled": false,
+              "remoteSessionId": null,
+              "sessionId": "sess_desktop_d3451ca87679dbaac02407e9081f4c261916bf690e2fe90426fa5afe8fc5a6f8"
+            }
           },
           "sessions": {
             "sess_desktop_d3451ca87679dbaac02407e9081f4c261916bf690e2fe90426fa5afe8fc5a6f8": {
@@ -2124,7 +2570,19 @@
           "reply": {
             "accepted": true,
             "ok": true,
-            "sessionId": "sess_desktop_8e9a959293b55e549118cd34459306649e640073267c6e4e985ccb1884c99700"
+            "sessionId": "sess_desktop_8e9a959293b55e549118cd34459306649e640073267c6e4e985ccb1884c99700",
+            "snapshot": {
+              "busy": false,
+              "commandBusy": false,
+              "fast": false,
+              "items": [],
+              "model": "m",
+              "provider": "p",
+              "queued": [],
+              "remoteEnabled": false,
+              "remoteSessionId": null,
+              "sessionId": "sess_desktop_8e9a959293b55e549118cd34459306649e640073267c6e4e985ccb1884c99700"
+            }
           },
           "sessions": {
             "sess_desktop_8e9a959293b55e549118cd34459306649e640073267c6e4e985ccb1884c99700": {
@@ -2194,7 +2652,19 @@
           "reply": {
             "accepted": true,
             "ok": true,
-            "sessionId": "sess_desktop_a0f2b3f2d142764aab77d8353b5c4ed513ba71d937c5f7a299ea47625bde8959"
+            "sessionId": "sess_desktop_a0f2b3f2d142764aab77d8353b5c4ed513ba71d937c5f7a299ea47625bde8959",
+            "snapshot": {
+              "busy": false,
+              "commandBusy": false,
+              "fast": false,
+              "items": [],
+              "model": "m",
+              "provider": "p",
+              "queued": [],
+              "remoteEnabled": false,
+              "remoteSessionId": null,
+              "sessionId": "sess_desktop_a0f2b3f2d142764aab77d8353b5c4ed513ba71d937c5f7a299ea47625bde8959"
+            }
           },
           "sessions": {
             "sess_desktop_a0f2b3f2d142764aab77d8353b5c4ed513ba71d937c5f7a299ea47625bde8959": {

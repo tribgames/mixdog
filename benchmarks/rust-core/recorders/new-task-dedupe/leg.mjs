@@ -19,7 +19,7 @@ import fs, { mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync, 
 import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { CONTENTS, CORRUPT } from './scenarios.mjs';
+import { asReceived, CONTENTS, CORRUPT } from './scenarios.mjs';
 
 const [exportDir, scenarioDir, legJson] = process.argv.slice(2);
 const leg = JSON.parse(legJson);
@@ -135,10 +135,9 @@ const sessions = () => Object.fromEntries(Object.entries(model.sessions).sort(([
 const submit = async ({ id, content }) => {
   const { prompt, options, draft } = CONTENTS[content];
   try {
-    const result = await host.submitNewTask(prompt, { ...options, id }, structuredClone(draft));
-    return { ok: true, accepted: result.accepted, sessionId: result.sessionId };
+    return asReceived.answer(await host.submitNewTask(prompt, { ...options, id }, structuredClone(draft)));
   } catch (error) {
-    return { ok: false, error: String(error?.message ?? error), ...(error?.code ? { code: error.code } : {}) };
+    return asReceived.rejection(error);
   }
 };
 
