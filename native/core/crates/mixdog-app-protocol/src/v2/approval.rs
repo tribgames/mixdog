@@ -116,6 +116,63 @@ pub struct ServerRequestResolvedParams {
     pub resolution: ApprovalResolution,
 }
 
+/// A phone notification's button on an approval (today's `answerApprovalNotification`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub enum ApprovalNotificationAction {
+    Allow,
+    Deny,
+}
+
+/// `thread/approval/answerNotification`: the approval the notification was about, in the thread it waits in.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadApprovalAnswerNotificationParams {
+    pub thread_id: ThreadId,
+    pub approval_id: String,
+    pub action: ApprovalNotificationAction,
+}
+
+/// What came of the button: `answered` (this answer resolved the approval), `settled` (it was answered already),
+/// `open` (Allow is not taken from a notification for it: the phone opens the app instead).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub enum ApprovalNotificationOutcome {
+    Answered,
+    Settled,
+    Open,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadApprovalAnswerNotificationResponse {
+    pub outcome: ApprovalNotificationOutcome,
+}
+
+/// `thread/approval/answer`: a card's decision on the approval request `approval_id` (the server request's id) of the thread it
+/// waits in, the `result` a server-request response would carry.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadApprovalAnswerParams {
+    pub thread_id: ThreadId,
+    pub approval_id: String,
+    pub result: JsonValue,
+}
+
+/// `accepted`: this decision resolved the request; `false` when it was resolved or resolving already (Node's
+/// `resolveToolApprovalForSession` result).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadApprovalAnswerResponse {
+    pub accepted: bool,
+}
+
 /// Secret answer of a human-gate `provide-secret` request (today's `provideSecretInput`);
 /// never part of a decision or a log record.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
