@@ -84,7 +84,7 @@ impl SectionLog {
     /// Returns once `ready` holds for what has been published. The deadline only turns a missing
     /// publication into a failure that names it.
     async fn wait_for(&self, what: &str, ready: impl Fn(&Published) -> bool) {
-        let waited = tokio::time::timeout(Duration::from_secs(10), async {
+        let waited = tokio::time::timeout(EVENT_DEADLINE, async {
             loop {
                 let pushed = self.pushed.notified();
                 tokio::pin!(pushed);
@@ -409,7 +409,7 @@ async fn a_dispose_is_answered_after_the_activity_it_ended_is_published() {
     assert!(poll_once(&mut reply).await.is_pending(), "the dispose was answered while the tab's end was still held back from the phone");
     assert_eq!(keys(), ["term_end"], "the tab's end is held, so the phone still sees the tab");
     open.send(()).unwrap();
-    tokio::time::timeout(Duration::from_secs(10), reply).await.expect("the dispose was never answered after the tab's end was published").unwrap();
+    tokio::time::timeout(EVENT_DEADLINE, reply).await.expect("the dispose was never answered after the tab's end was published").unwrap();
     assert!(keys().is_empty(), "the tab's end was not published before the reply: {:?}", keys());
 }
 /// Node's `termActivity` walked its tab map, so the tabs came in creation order, not sorted by id.

@@ -27,6 +27,14 @@ const VALUES = [
 const valueOf = (input) => (input.value?.absent ? undefined : input.value);
 
 const ID = 'term_resize';
+/** A remote frame's answer, or a failure naming it if Node does not settle it within 60 s. */
+function answered(methods, text) {
+  let timer;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`Node did not answer ${text} within 60000 ms`)), 60_000);
+  });
+  return Promise.race([executeRemoteFrame(methods, text), deadline]).finally(() => clearTimeout(timer));
+}
 async function once(cols, rows, claim) {
   const manager = new TerminalManager();
   const sizes = [];
@@ -39,11 +47,11 @@ async function once(cols, rows, claim) {
     { connectionId: () => 'phone' }
   );
   if (claim) {
-    await executeRemoteFrame(methods, JSON.stringify({ method: 'termResize', params: [ID, 50, 20, true] }));
+    await answered(methods, JSON.stringify({ method: 'termResize', params: [ID, 50, 20, true] }));
     owners.length = 0;
     sizes.length = 0;
   }
-  await executeRemoteFrame(methods, JSON.stringify({ method: 'termResize', params: [ID, cols, rows, claim] }));
+  await answered(methods, JSON.stringify({ method: 'termResize', params: [ID, cols, rows, claim] }));
   // The claims' lease timers are unref'd; the recording exits without waiting for them.
   return claim ? { owners } : { sizes };
 }
