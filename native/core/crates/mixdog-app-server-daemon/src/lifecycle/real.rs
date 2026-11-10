@@ -109,6 +109,9 @@ pub struct CoreWiring {
     pub final_barriers: Hook,
     /// The user's `release{pid}` decision on an undecidable prior owner (the verdict gate).
     pub release_decision: Arc<dyn Fn(u32) + Send + Sync>,
+    /// The core's stop steps (`ComposedCore::run_stop_steps`, wired in `serving.rs`). Product limit: the stopped core still holds `state/core.sqlite` and
+    /// `index/store.sqlite` open in this process (the parts holding them outlive the stop and the runtime); only the process exit that ends the
+    /// release (`ProcessExiter::exit`) closes them.
     pub close_data_handles: Hook,
     /// The release's Node-text reason (`CorePort::release_started`), kept for the stop steps.
     pub release_started: Arc<dyn Fn(&str) + Send + Sync>,

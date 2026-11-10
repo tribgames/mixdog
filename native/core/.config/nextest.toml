@@ -14,11 +14,17 @@ default-filter = '''not (
 )'''
 
 # `--profile pg --run-ignored only -p mixdog-app-server-daemon`, the one command of the merge check and of CI: the #[ignore]d tests that compose
-# the real core and prove a Node recording against it. They need a Postgres runtime (`MIXDOG_PG_RUNTIME` names an unpacked runtime directory;
-# with it unset or broken the test fails, it does not skip). They are in the `pg-cluster` group below, so they run one at a time, with the
-# time the composed tests get (below).
+# the real core (the review restart replay of a Node recording among them) and the runner's own cluster proof (`compose_test_support`). They need
+# a Postgres runtime (`MIXDOG_PG_RUNTIME` names an unpacked runtime directory; with it unset or broken the test fails, it does not skip). They are
+# in the `pg-cluster` group below, so they run one at a time, with the time the composed tests get (below).
 [profile.pg]
-default-filter = 'package(mixdog-app-server-daemon) & test(/^compose::review_restart_tests::/)'
+default-filter = '''package(mixdog-app-server-daemon) & (
+    test(/^compose::(tests|review_restart_tests)::/)
+  | test(/^server::tests::/)
+  | test(/^serving::tests::start_serves_both/)
+  | test(=compose_domains::tests::every_method_of_the_domains_built_here_has_a_real_service)
+  | test(/^compose_test_support::runner_tests::/)
+)'''
 
 # Each of the two migration crash matrices spreads its fault points over eight work dirs of its own;
 # they run one after the other, so at most eight sync-bound migrations of the pair are in flight.
@@ -45,11 +51,11 @@ slow-timeout = { period = "60s", terminate-after = 6 }
 # one cluster at a time is the load a single test was verified under. Matching the module paths
 # keeps tests added to those modules in the group. The daemon's real-core tests (#[ignore], MIXDOG_PG_RUNTIME) each start a cluster the same way.
 [[profile.default.overrides]]
-filter = 'package(mixdog-services) & (test(/^memory::tests::/) | test(/^memory::thread_search::tests::/)) | (package(mixdog-app-server-daemon) & (test(/^compose::(tests|review_restart_tests)::/) | test(/^server::tests::/) | test(/^serving::tests::start_serves_both/) | test(=compose_domains::tests::every_method_of_the_domains_built_here_has_a_real_service)))'
+filter = 'package(mixdog-services) & (test(/^memory::tests::/) | test(/^memory::thread_search::tests::/)) | (package(mixdog-app-server-daemon) & (test(/^compose::(tests|review_restart_tests)::/) | test(/^server::tests::/) | test(/^serving::tests::start_serves_both/) | test(=compose_domains::tests::every_method_of_the_domains_built_here_has_a_real_service) | test(=compose_test_support::runner_tests::a_cluster_killed_while_starting_is_ended_before_its_directory_is_examined)))'
 test-group = 'pg-cluster'
 
-# The daemon's real-core tests run their core in a child process that the test gives 600 s (`compose_test_support::in_child`) before it
-# kills it and stops the child's cluster itself: nextest ends the test only after that, at 720 s. Applies to every profile (`pg` among them).
+# The daemon's real-core tests run their core in a child process under the runner's one budget (`compose_test_support::BUDGET`, 690 s, checked
+# at compile time to stay under this limit): nextest ends the test only after the runner's report, at 720 s. Applies to every profile (`pg` among them).
 [[profile.default.overrides]]
 filter = '''package(mixdog-app-server-daemon) & (
     test(=compose::review_restart_tests::a_core_composed_again_tells_and_answers_as_node_does)
