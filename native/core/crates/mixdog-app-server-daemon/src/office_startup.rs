@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::Duration;
 
 use mixdog_core_api::domain::ext::{ExtCall, ExtFrame, ExtPool};
@@ -22,10 +22,24 @@ pub(crate) struct OfficeStartup {
 /// One sweep at a time, and none after one that did not finish: sessions starting together would each queue a host call for the
 /// same idempotent listing, and a host that cannot start would log its failure at every session start where Node's swallowed
 /// sweep logged nothing.
+///
+/// One value, so that a start can never begin a sweep between another one's failure and its end.
 #[derive(Default)]
-struct Sweeps {
-    running: AtomicBool,
-    given_up: AtomicBool,
+struct Sweeps(AtomicU8);
+
+const IDLE: u8 = 0;
+const RUNNING: u8 = 1;
+const GIVEN_UP: u8 = 2;
+
+impl Sweeps {
+    /// Whether this start runs a sweep: only from idle.
+    fn begin(&self) -> bool {
+        self.0.compare_exchange(IDLE, RUNNING, Ordering::AcqRel, Ordering::Acquire).is_ok()
+    }
+
+    fn end(&self, finished: bool) {
+        self.0.store(if finished { IDLE } else { GIVEN_UP }, Ordering::Release);
+    }
 }
 
 impl OfficeStartup {
@@ -39,8 +53,9 @@ async fn sweep(pool: Arc<dyn ExtPool>, call: ExtCall) -> bool {
         return false;
     };
     while let Some(frame) = stream.next().await {
-        if matches!(frame, ExtFrame::Done(_)) {
-            return true;
+        // A host that could not start answers the queued call with an error (`mixdog-exthost` pool.rs `fail`): not a sweep.
+        if let ExtFrame::Done(outcome) = frame {
+            return outcome.is_ok();
         }
     }
     false
@@ -49,7 +64,7 @@ async fn sweep(pool: Arc<dyn ExtPool>, call: ExtCall) -> bool {
 impl RuntimeHooks for OfficeStartup {
     fn started(&self, thread: &ThreadId) {
         let sweeps = self.sweeps.clone();
-        if !sweeps.given_up.load(Ordering::Acquire) && !sweeps.running.swap(true, Ordering::AcqRel) {
+        if sweeps.begin() {
             let pool = self.pool.clone();
             let call = ExtCall {
                 thread: thread.clone(),
@@ -61,10 +76,7 @@ impl RuntimeHooks for OfficeStartup {
                 #[cfg(test)]
                 let thread = call.thread.clone();
                 let finished = matches!(tokio::time::timeout(SWEEP_LIMIT, sweep(pool, call)).await, Ok(true));
-                if !finished {
-                    sweeps.given_up.store(true, Ordering::Release);
-                }
-                sweeps.running.store(false, Ordering::Release);
+                sweeps.end(finished);
                 #[cfg(test)]
                 if finished {
                     let _ = completions().send(thread);
