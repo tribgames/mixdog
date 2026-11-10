@@ -32,6 +32,10 @@ use super::deadlines::NODE_DISPATCHER;
 use super::fault::fault_from_reqwest;
 use super::fault::provider_error_from_reqwest;
 use super::http::client_builder;
+use super::node_http::NodeClient;
+#[cfg(any(test, feature = "test-support"))]
+use super::node_http::Pinned;
+use super::node_http::Writer;
 use super::ws;
 use super::ws::ConnectError;
 use super::ws::Message;
@@ -42,6 +46,11 @@ pub trait BodyStream: Send {
     /// The next body chunk; `None` at a clean end of body. A fault is the
     /// transport fact that ended the body.
     async fn next(&mut self) -> Option<Result<Bytes, TransportFault>>;
+
+    /// Keeps the connection of a body read to its end out of the pool until this body is dropped: Node's response
+    /// returns its socket only after the code that drained it has run on (`resendIfEncodingRejected` resends before
+    /// the socket is free, so the resend dials a new one). The default does nothing.
+    fn hold_connection(&mut self) {}
 }
 
 pub struct HttpResponse {
@@ -182,11 +191,19 @@ pub struct Exchange {
     pub liveness: Liveness,
     pub redirect: Redirect,
     pub surface: Surface,
+    /// The Node client that writes the request: the global `fetch` (the default) or a raw `undici.request`.
+    pub writer: Writer,
 }
 
 impl Exchange {
     pub const fn new(liveness: Liveness, redirect: Redirect, surface: Surface) -> Self {
-        Self { liveness, redirect, surface }
+        Self { liveness, redirect, surface, writer: Writer::Fetch }
+    }
+
+    /// The call site is a raw `undici.request`, which adds none of `fetch`'s headers.
+    pub const fn raw(mut self) -> Self {
+        self.writer = Writer::Raw;
+        self
     }
 }
 
@@ -227,6 +244,8 @@ pub trait BidiOpen: Send + Sync {
 enum Clients {
     Fixed(reqwest::Client),
     Routed(RoutedClients),
+    /// The Node-equal HTTP/1.1 (and negotiated h2) client of every exchange that is not a request stream.
+    Node(NodeClient),
 }
 
 /// The shared `reqwest` client as both HTTP seams. Redirects are never
@@ -264,9 +283,31 @@ impl ReqwestLink {
     /// `http2_only` speaks HTTP/2 without negotiation (Connect streams need
     /// it, and so do the h2c peers of tests).
     pub fn new(schedule: &KeepaliveSchedule, http2_only: bool) -> Result<Self, reqwest::Error> {
+        if !http2_only {
+            return Ok(Self { clients: Clients::Node(NodeClient::new(schedule.tcp, None)) });
+        }
         Ok(Self {
             clients: Clients::Fixed(link_builder(schedule, http2_only).build()?),
         })
+    }
+
+    /// The Node-equal client with every connect going to `addr` and trusting `tls` alone: what is written is unchanged.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn pinned(schedule: &KeepaliveSchedule, addr: std::net::SocketAddr, tls: Arc<rustls::ClientConfig>) -> Self {
+        let mut config = (*tls).clone();
+        config.alpn_protocols = super::node_http::ALPN.iter().map(|p| p.to_vec()).collect();
+        Self { clients: Clients::Node(NodeClient::pinned(schedule.tcp, Pinned { addr, tls: Arc::new(config) })) }
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    /// The link with its client built from `tweak(link_builder)`: a test pins hosts to a loopback server and trusts its
+    /// certificate there, and everything else about the client is the production one.
+    pub fn with_builder(
+        schedule: &KeepaliveSchedule,
+        http2_only: bool,
+        tweak: impl FnOnce(reqwest::ClientBuilder) -> reqwest::ClientBuilder,
+    ) -> Result<Self, reqwest::Error> {
+        Ok(Self { clients: Clients::Fixed(tweak(link_builder(schedule, http2_only)).build()?) })
     }
 
     /// Every request follows the network proxy policy: it asks the route of
@@ -274,6 +315,9 @@ impl ReqwestLink {
     /// change of the setting retires the clients, so no pooled connection
     /// opened under the old setting is reused.
     pub fn routed(schedule: &KeepaliveSchedule, http2_only: bool, policy: Arc<NetworkProxy>) -> Self {
+        if !http2_only {
+            return Self { clients: Clients::Node(NodeClient::new(schedule.tcp, Some(policy))) };
+        }
         let clients = RoutedClients::new(policy, routed_builder(*schedule, http2_only));
         Self { clients: Clients::Routed(clients) }
     }
@@ -291,6 +335,11 @@ impl ReqwestLink {
         let client = match &self.clients {
             Clients::Fixed(client) => client.clone(),
             Clients::Routed(routed) => routed.client_for(&request.url).await.map_err(proxy_error)?,
+            Clients::Node(_) => {
+                let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent);
+                error.message = "a request stream needs an http2_only link".to_owned();
+                return Err(error);
+            }
         };
         let mut builder = client.request(method, &request.url);
         for (name, value) in &request.headers {
@@ -365,6 +414,10 @@ struct DeadlineBody {
 
 #[async_trait]
 impl BodyStream for DeadlineBody {
+    fn hold_connection(&mut self) {
+        self.inner.hold_connection();
+    }
+
     async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
         match tokio::time::timeout_at(self.until, self.inner.next()).await {
             Ok(item) => item,
@@ -444,15 +497,14 @@ fn next_hop(
 /// classes, and a `Unary` body shares the same total.
 async fn settle(
     exchange: Exchange,
-    answer: impl std::future::Future<Output = Result<reqwest::Response, ProviderError>>,
+    answer: impl std::future::Future<Output = Result<HttpResponse, ProviderError>>,
 ) -> Result<HttpResponse, ProviderError> {
     let liveness = exchange.liveness;
     let started = tokio::time::Instant::now();
-    let response = liveness
+    let mut response = liveness
         .bound_head(answer)
         .await
         .map_err(|expired| deadline_error(expired, DeliveryState::Ambiguous, exchange.surface))??;
-    let mut response = response_of(response);
     if let Some(total) = liveness.total_deadline() {
         response.body = Box::new(DeadlineBody {
             inner: response.body,
@@ -479,27 +531,40 @@ impl ReqwestLink {
         &self,
         mut request: WireRequest,
         exchange: Exchange,
-    ) -> Result<reqwest::Response, ProviderError> {
-        let Exchange { redirect, surface, .. } = exchange;
+    ) -> Result<HttpResponse, ProviderError> {
+        let Exchange { redirect, surface, writer, .. } = exchange;
         for _ in 0..=MAX_REDIRECTS {
-            let builder = self.builder(&request, surface).await?.body(request.body.clone());
-            let raw = builder
-                .send()
-                .await
-                .map_err(|err| provider_error_from_reqwest(&err, surface))?;
-            if !is_redirect(raw.status()) {
+            let raw = match &self.clients {
+                Clients::Node(node) => {
+                    if let Some(refused) = restricted_port(&request.url, surface) {
+                        return Err(refused);
+                    }
+                    node.send(&request, writer, surface).await?
+                }
+                _ => {
+                    let builder = self.builder(&request, surface).await?.body(request.body.clone());
+                    let sent = builder
+                        .send()
+                        .await
+                        .map_err(|err| provider_error_from_reqwest(&err, surface))?;
+                    response_of(sent)
+                }
+            };
+            let status = reqwest::StatusCode::from_u16(raw.status).unwrap_or(reqwest::StatusCode::OK);
+            if !is_redirect(status) {
                 return Ok(raw);
             }
             match redirect {
                 Redirect::Manual => return Ok(raw),
-                Redirect::Error => return Err(redirect_refused(raw.status(), surface)),
+                Redirect::Error => return Err(redirect_refused(status, surface)),
                 Redirect::Follow => {
                     let location = raw
-                        .headers()
-                        .get(reqwest::header::LOCATION)
-                        .and_then(|v| v.to_str().ok());
+                        .headers
+                        .iter()
+                        .find(|(name, _)| name.eq_ignore_ascii_case("location"))
+                        .map(|(_, value)| value.as_str());
                     // No usable `Location`: the answer is the response, as in fetch.
-                    let Some(next) = location.and_then(|l| next_hop(&request, raw.status(), l))
+                    let Some(next) = location.and_then(|l| next_hop(&request, status, l))
                     else {
                         return Ok(raw);
                     };
@@ -561,7 +626,7 @@ impl BidiOpen for ReqwestLink {
             if redirect == Redirect::Error && is_redirect(raw.status()) {
                 return Err(redirect_refused(raw.status(), surface));
             }
-            Ok(raw)
+            Ok(response_of(raw))
         };
         let response = settle(exchange, answer).await?;
         Ok((response, Arc::new(ChannelSink(tx))))
@@ -575,6 +640,20 @@ pub trait WsSocket: Send {
     /// The next data frame, or the one fault that ended the link, then `None`.
     async fn recv(&mut self) -> Option<Result<Message, TransportFault>>;
     fn link(&self) -> Arc<dyn TransportKeepalive>;
+    /// What ended the link, as `ws` reports it, once [`recv`](Self::recv) has given the fault.
+    fn ending(&self) -> Option<super::ws::WsEnding> {
+        None
+    }
+    /// Closes the socket for good with `code` and `reason`; by default it is dropped.
+    fn close(self: Box<Self>, _code: u16, _reason: &str) {}
+    /// What closes the socket while it is held elsewhere; `None` when it cannot be closed but by dropping it.
+    fn closer(&self) -> Option<super::ws::WsCloser> {
+        None
+    }
+    /// Becomes `true` once the socket is actually closed (`ws`'s `close` event); `None`: it is closed when dropped.
+    fn closed(&self) -> Option<tokio::sync::watch::Receiver<bool>> {
+        None
+    }
 }
 
 #[async_trait]
@@ -589,6 +668,22 @@ impl WsSocket for WsConnection {
 
     fn link(&self) -> Arc<dyn TransportKeepalive> {
         WsConnection::link(self)
+    }
+
+    fn ending(&self) -> Option<super::ws::WsEnding> {
+        WsConnection::ending(self)
+    }
+
+    fn close(self: Box<Self>, code: u16, reason: &str) {
+        WsConnection::close(*self, code, reason);
+    }
+
+    fn closer(&self) -> Option<super::ws::WsCloser> {
+        Some(WsConnection::closer(self))
+    }
+
+    fn closed(&self) -> Option<tokio::sync::watch::Receiver<bool>> {
+        Some(WsConnection::link(self).closed())
     }
 }
 
@@ -606,16 +701,24 @@ pub trait WsDial: Send + Sync {
 pub struct KeepaliveDialer {
     schedule: KeepaliveSchedule,
     policy: Option<Arc<NetworkProxy>>,
+    #[cfg(any(test, feature = "test-support"))]
+    pinned: Option<(std::net::SocketAddr, Arc<rustls::ClientConfig>)>,
 }
 
 impl KeepaliveDialer {
     pub fn new(schedule: KeepaliveSchedule) -> Self {
-        Self { schedule, policy: None }
+        Self { schedule, policy: None, #[cfg(any(test, feature = "test-support"))] pinned: None }
+    }
+
+    /// Every dial goes to `addr` and trusts `tls` alone ([`ws::connect_pinned`]); what is written is unchanged.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn pinned(schedule: KeepaliveSchedule, addr: std::net::SocketAddr, tls: Arc<rustls::ClientConfig>) -> Self {
+        Self { schedule, policy: None, pinned: Some((addr, tls)) }
     }
 
     /// Every dial follows the network proxy policy.
     pub fn routed(schedule: KeepaliveSchedule, policy: Arc<NetworkProxy>) -> Self {
-        Self { schedule, policy: Some(policy) }
+        Self { schedule, policy: Some(policy), #[cfg(any(test, feature = "test-support"))] pinned: None }
     }
 }
 
@@ -625,6 +728,11 @@ impl WsDial for KeepaliveDialer {
         &self,
         request: Request,
     ) -> Result<(Box<dyn WsSocket>, Response<Option<Vec<u8>>>), ConnectError> {
+        #[cfg(any(test, feature = "test-support"))]
+        if let Some((addr, tls)) = &self.pinned {
+            let (connection, response) = ws::connect_pinned(request, *addr, &self.schedule, tls.clone()).await?;
+            return Ok((Box::new(connection), response));
+        }
         let (connection, response) = ws::connect_via(request, &self.schedule, self.policy.as_deref()).await?;
         Ok((Box::new(connection), response))
     }
