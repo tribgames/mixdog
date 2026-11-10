@@ -47,7 +47,7 @@ const serverFrame = (opcode, payload) => {
 
 /**
  * Listens on 127.0.0.1 and records into `traffic.sink`; `traffic.script` says what to answer:
- *   dials:   one per upgrade request: { accept: true } or { accept: false, status, headers, body }
+ *   dials:   one per upgrade request: { accept: true, headers } or { accept: false, status, headers, body }
  *   ws:      one per data message received: a list of events (sent as text frames), or { events, then: 'close' | 'reset' }
  *   http:    one per request: a list of events (a 200 event stream), or { status, headers, events | body, then: 'reset' }
  *   awaitClose: a connection number the scenario ends on once it closed
@@ -105,13 +105,13 @@ export async function startWireServer({ traffic, keepRandom = false }) {
       record({ kind: 'ws-upgrade', line: head.line, headers });
       upgraded.add(conn);
       const dial = traffic.script.dials.shift() ?? { accept: true };
+      const extra = Object.entries(dial.headers || {}).map(([n, v]) => `${n}: ${v}\r\n`).join('');
       if (dial.accept) {
         const accept = crypto.createHash('sha1').update(key + GUID).digest('base64');
-        socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`);
+        socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n${extra}\r\n`);
         return;
       }
       const body = Buffer.from(dial.body || '');
-      const extra = Object.entries(dial.headers || {}).map(([n, v]) => `${n}: ${v}\r\n`).join('');
       socket.write(`HTTP/1.1 ${dial.status} Refused\r\n${extra}content-length: ${body.length}\r\nconnection: close\r\n\r\n`);
       socket.write(body);
     };

@@ -490,12 +490,9 @@ impl OpenAiAdapter {
                     }));
                 }
             };
-            let upgrade_token = upgrade
-                .headers()
-                .get(TURN_STATE_HEADER)
-                .and_then(|v| v.to_str().ok())
-                .map(str::to_owned);
-            self.remember_turn_state(request, upgrade_token.as_deref());
+            // The upgrade answer's headers are not read for a turn state: Node takes it from the response's events
+            // alone (`openai-ws-stream/socket-handlers.mjs:93`, `_captureTurnStateFromEvent`).
+            drop(upgrade);
             checkout.socket = Some(socket);
         }
         let chain = if self.mode.delta() { checkout.chain.clone() } else { Chain::default() };
@@ -511,6 +508,9 @@ impl OpenAiAdapter {
         let mut stream = ResponsesStream::new(Source::Ws { checkout, pending: None }, self.codec.decoder(request));
         stream.anchor = Some(Anchor { body, response_id: None, items: Vec::new() });
         stream.ledger = Some((self.pool.clone(), key, self.mode.http_fallback()));
+        if let (Some(scope), Some(turn)) = (request_scope(request), request.options.thread.as_ref().and_then(|t| t.turn.as_ref())) {
+            stream.turn_state = Some((self.context.clone(), scope.to_owned(), turn.as_str().to_owned()));
+        }
         // The first frame decides whether the server took the request.
         stream.prime().await;
         Ok(Opened::Stream(stream))
@@ -767,11 +767,30 @@ struct ResponsesStream {
     /// The pool and session a failed exchange is recorded on, and whether the
     /// session may switch transports.
     ledger: Option<(Arc<WsPool>, String, bool)>,
+    /// Where a WebSocket response's `x-codex-turn-state` goes (the context, the scope and the turn), until the first
+    /// one is taken (`_captureTurnStateFromEvent` returns once its entry holds a token).
+    turn_state: Option<(Arc<SessionContext>, String, String)>,
+}
+
+/// `_captureTurnStateFromEvent`'s carriers (`turn-state-headers.mjs:41-46`), in its order: the event's headers, the
+/// response's, the response metadata's, the event metadata's. A header name matches in any letter case; a string
+/// value is taken when not empty, a number or boolean as its text, a list by its first non-empty string.
+fn event_turn_state(event: &Value) -> Option<String> {
+    let carriers = [event.get("headers"), event.pointer("/response/headers"), event.pointer("/response/metadata/headers"), event.pointer("/metadata/headers")];
+    carriers.into_iter().flatten().filter_map(Value::as_object).find_map(|headers| {
+        headers.iter().filter(|(name, _)| name.eq_ignore_ascii_case(TURN_STATE_HEADER)).find_map(|(_, value)| match value {
+            Value::String(text) if !text.is_empty() => Some(text.clone()),
+            Value::Number(n) => Some(n.to_string()),
+            Value::Bool(b) => Some(b.to_string()),
+            Value::Array(items) => items.iter().filter_map(Value::as_str).find(|s| !s.is_empty()).map(str::to_owned),
+            _ => None,
+        })
+    })
 }
 
 impl ResponsesStream {
     fn new(source: Source, decoder: Box<dyn WireDecoder>) -> Self {
-        Self { source: Some(source), decoder, queue: VecDeque::new(), failed: None, anchor: None, ledger: None }
+        Self { source: Some(source), decoder, queue: VecDeque::new(), failed: None, anchor: None, ledger: None, turn_state: None }
     }
 
     /// Reads a WebSocket's first frame ahead of the consumer.
@@ -785,6 +804,13 @@ impl ResponsesStream {
 
     /// Notes what a frame says about the response it belongs to.
     fn note_frame(&mut self, unit: &[u8]) {
+        if self.turn_state.is_some()
+            && unit.windows(TURN_STATE_HEADER.len()).any(|w| w.eq_ignore_ascii_case(TURN_STATE_HEADER.as_bytes()))
+            && let Some(token) = serde_json::from_slice::<Value>(unit).ok().as_ref().and_then(event_turn_state)
+            && let Some((context, scope, turn)) = self.turn_state.take()
+        {
+            context.capture(&scope, &turn, &token);
+        }
         let Some(anchor) = self.anchor.as_mut() else {
             return;
         };

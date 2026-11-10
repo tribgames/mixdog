@@ -57,8 +57,13 @@ pub struct ModelFacts {
     pub reasoning_summaries: Option<bool>,
     pub verbosity: Option<bool>,
     pub native_tool_search: Option<bool>,
+    /// The public API's fast tiers (`openAiDirectSupportsFast`, `openAiDirectSupportsUltrafast`).
     pub fast_tier: bool,
     pub ultrafast_tier: bool,
+    /// The Codex route's: what the cached Codex catalog row offers (`codexModelSupportsServiceTier`,
+    /// `model-service-tiers.mjs`), never the model id.
+    pub codex_fast_tier: bool,
+    pub codex_ultrafast_tier: bool,
     pub prompt_cache: PromptCacheLifetime,
     /// Codex route only: the catalog's `access_programs` value for the model.
     pub access_programs: Option<Value>,

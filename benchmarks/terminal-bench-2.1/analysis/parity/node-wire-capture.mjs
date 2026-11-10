@@ -151,9 +151,11 @@ for (const scenario of doc.scenarios) {
   if (scenario.provider === 'openai-oauth') {
     // The send options of a turn as Node's session builds them (ask-turn-loop-options.mjs): the session's own id is
     // not the Codex wire identity, the session's `codexWireSessionId` is.
-    const { turnId } = scenario;
-    const record = { id: doc.nodeSessionId, provider: 'openai-oauth', model: route.model, promptCacheKey: 'mixdog-codex', codexWireSessionId: session.storedHeader.codexWireSessionId };
-    opts = buildRequestSendOptions({ sessionId: doc.nodeSessionId, session: record, turnEffort: undefined, effortConfiguration: undefined, stepAutoEffort: null, codexTurnId: turnId, startedAtMs: stampOf(turnId), signal: controller.signal });
+    // `sendOpts` are the turn's effort and the session's fast flag, the two inputs of the effort and service-tier
+    // scenarios; a scenario without them sends as the first turn does.
+    const { turnId, sendOpts = {} } = scenario;
+    const record = { id: doc.nodeSessionId, provider: 'openai-oauth', model: route.model, promptCacheKey: 'mixdog-codex', codexWireSessionId: session.storedHeader.codexWireSessionId, ...(sendOpts.fast === true ? { fast: true } : {}) };
+    opts = buildRequestSendOptions({ sessionId: doc.nodeSessionId, session: record, turnEffort: sendOpts.effort, effortConfiguration: undefined, stepAutoEffort: null, codexTurnId: turnId, startedAtMs: stampOf(turnId), signal: controller.signal });
   }
   try {
     await within(`the reply of ${scenario.id}`, provider.send(messages, route.model, tools, opts));

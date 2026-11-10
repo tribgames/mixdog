@@ -42,11 +42,16 @@ pub struct BuiltBody {
     pub facts: ModelFacts,
 }
 
-/// `priority` is the only fast-class value the Codex backend accepts.
-fn service_tier(facts: &ModelFacts, request: &ModelRequest) -> Option<&'static str> {
+/// `priority` is the only fast-class value the Codex backend accepts. Which tiers a model has is the route's own
+/// source (`resolveOpenAiServiceTier`, `openai-service-tier.mjs`): the public API's rules, or the Codex catalog.
+fn service_tier(facts: &ModelFacts, request: &ModelRequest, route: Route) -> Option<&'static str> {
     if !request.options.fast {
         return None;
     }
+    let (fast, ultrafast) = match route {
+        Route::Codex => (facts.codex_fast_tier, facts.codex_ultrafast_tier),
+        _ => (facts.fast_tier, facts.ultrafast_tier),
+    };
     let asks_ultrafast = request
         .options
         .model_parameters
@@ -54,10 +59,10 @@ fn service_tier(facts: &ModelFacts, request: &ModelRequest) -> Option<&'static s
         .and_then(|p| p.get("serviceTier"))
         .and_then(Value::as_str)
         == Some("ultrafast");
-    if asks_ultrafast && facts.ultrafast_tier {
+    if asks_ultrafast && ultrafast {
         return Some("ultrafast");
     }
-    facts.fast_tier.then_some("priority")
+    fast.then_some("priority")
 }
 
 pub fn build(config: &OpenAiConfig, request: &ModelRequest) -> BuiltBody {
@@ -74,7 +79,7 @@ pub fn build_with(
     let facts = config.facts.facts(&request.model);
     let caps = Capabilities::resolve(route, &facts);
     let codex = route == Route::Codex;
-    let tier = service_tier(&facts, request);
+    let tier = service_tier(&facts, request, route);
 
     let profile = ResponsesProfile {
         order: ORDER_FIRST_PARTY.to_vec(),

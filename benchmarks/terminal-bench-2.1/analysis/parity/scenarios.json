@@ -722,6 +722,1092 @@
       ]
     },
     {
+      "id": "openai-turn-state-first",
+      "provider": "openai-oauth",
+      "fresh": true,
+      "turnId": "01a1c1e0-11a0-7000-8000-000000000010",
+      "messages": [
+        {
+          "role": "user",
+          "content": "parity probe"
+        }
+      ],
+      "ws": [
+        [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_parity_10",
+              "model": "gpt-6.1-sol"
+            },
+            "headers": {
+              "x-codex-turn-state": "ts-parity-10"
+            }
+          },
+          {
+            "type": "response.output_item.added",
+            "output_index": 0,
+            "item": {
+              "type": "function_call",
+              "id": "fc_parity_1",
+              "call_id": "call_parity_1",
+              "name": "read",
+              "arguments": ""
+            }
+          },
+          {
+            "type": "response.function_call_arguments.done",
+            "output_index": 0,
+            "item_id": "fc_parity_1",
+            "arguments": "{\"file_path\":\"parity.txt\"}"
+          },
+          {
+            "type": "response.output_item.done",
+            "output_index": 0,
+            "item": {
+              "type": "function_call",
+              "id": "fc_parity_1",
+              "call_id": "call_parity_1",
+              "name": "read",
+              "arguments": "{\"file_path\":\"parity.txt\"}",
+              "status": "completed"
+            }
+          },
+          {
+            "type": "response.completed",
+            "response": {
+              "id": "resp_parity_10",
+              "model": "gpt-6.1-sol",
+              "status": "completed",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 10,
+                "total_tokens": 110
+              },
+              "output": [
+                {
+                  "type": "function_call",
+                  "id": "fc_parity_1",
+                  "call_id": "call_parity_1",
+                  "name": "read",
+                  "arguments": "{\"file_path\":\"parity.txt\"}",
+                  "status": "completed"
+                }
+              ]
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "id": "openai-turn-state-carried",
+      "provider": "openai-oauth",
+      "fresh": false,
+      "turnId": "01a1c1e0-11a0-7000-8000-000000000010",
+      "messages": [
+        {
+          "role": "user",
+          "content": "parity probe"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "call_parity_1",
+              "name": "read",
+              "arguments": {
+                "file_path": "parity.txt"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "call_parity_1",
+          "content": "parity file text"
+        }
+      ],
+      "ws": [
+        [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_parity_11",
+              "model": "gpt-6.1-sol"
+            }
+          },
+          {
+            "type": "response.output_item.added",
+            "output_index": 0,
+            "item": {
+              "type": "function_call",
+              "id": "fc_parity_1",
+              "call_id": "call_parity_1",
+              "name": "read",
+              "arguments": ""
+            }
+          },
+          {
+            "type": "response.function_call_arguments.done",
+            "output_index": 0,
+            "item_id": "fc_parity_1",
+            "arguments": "{\"file_path\":\"parity.txt\"}"
+          },
+          {
+            "type": "response.output_item.done",
+            "output_index": 0,
+            "item": {
+              "type": "function_call",
+              "id": "fc_parity_1",
+              "call_id": "call_parity_1",
+              "name": "read",
+              "arguments": "{\"file_path\":\"parity.txt\"}",
+              "status": "completed"
+            }
+          },
+          {
+            "type": "response.completed",
+            "response": {
+              "id": "resp_parity_11",
+              "model": "gpt-6.1-sol",
+              "status": "completed",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 10,
+                "total_tokens": 110
+              },
+              "output": [
+                {
+                  "type": "function_call",
+                  "id": "fc_parity_1",
+                  "call_id": "call_parity_1",
+                  "name": "read",
+                  "arguments": "{\"file_path\":\"parity.txt\"}",
+                  "status": "completed"
+                }
+              ]
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "id": "openai-turn-state-upgrade-header",
+      "provider": "openai-oauth",
+      "fresh": true,
+      "turnId": "01a1c1e0-1250-7000-8000-000000000021",
+      "messages": [
+        {
+          "role": "user",
+          "content": "parity probe"
+        }
+      ],
+      "dials": [
+        {
+          "accept": true,
+          "headers": {
+            "x-codex-turn-state": "ts-upgrade-21"
+          }
+        }
+      ],
+      "ws": [
+        [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_parity_21",
+              "model": "gpt-6.1-sol"
+            }
+          },
+          {
+            "type": "response.output_item.added",
+            "output_index": 0,
+            "item": {
+              "type": "function_call",
+              "id": "fc_parity_1",
+              "call_id": "call_parity_1",
+              "name": "read",
+              "arguments": ""
+            }
+          },
+          {
+            "type": "response.function_call_arguments.done",
+            "output_index": 0,
+            "item_id": "fc_parity_1",
+            "arguments": "{\"file_path\":\"parity.txt\"}"
+          },
+          {
+            "type": "response.output_item.done",
+            "output_index": 0,
+            "item": {
+              "type": "function_call",
+              "id": "fc_parity_1",
+              "call_id": "call_parity_1",
+              "name": "read",
+              "arguments": "{\"file_path\":\"parity.txt\"}",
+              "status": "completed"
+            }
+          },
+          {
+            "type": "response.completed",
+            "response": {
+              "id": "resp_parity_21",
+              "model": "gpt-6.1-sol",
+              "status": "completed",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 10,
+                "total_tokens": 110
+              },
+              "output": [
+                {
+                  "type": "function_call",
+                  "id": "fc_parity_1",
+                  "call_id": "call_parity_1",
+                  "name": "read",
+                  "arguments": "{\"file_path\":\"parity.txt\"}",
+                  "status": "completed"
+                }
+              ]
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "id": "openai-turn-state-upgrade-next",
+      "provider": "openai-oauth",
+      "fresh": false,
+      "turnId": "01a1c1e0-1250-7000-8000-000000000021",
+      "messages": [
+        {
+          "role": "user",
+          "content": "parity probe"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "call_parity_1",
+              "name": "read",
+              "arguments": {
+                "file_path": "parity.txt"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "call_parity_1",
+          "content": "parity file text"
+        }
+      ],
+      "ws": [
+        [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_parity_22",
+              "model": "gpt-6.1-sol"
+            }
+          },
+          {
+            "type": "response.output_item.added",
+            "output_index": 0,
+            "item": {
+              "type": "function_call",
+              "id": "fc_parity_1",
+              "call_id": "call_parity_1",
+              "name": "read",
+              "arguments": ""
+            }
+          },
+          {
+            "type": "response.function_call_arguments.done",
+            "output_index": 0,
+            "item_id": "fc_parity_1",
+            "arguments": "{\"file_path\":\"parity.txt\"}"
+          },
+          {
+            "type": "response.output_item.done",
+            "output_index": 0,
+            "item": {
+              "type": "function_call",
+              "id": "fc_parity_1",
+              "call_id": "call_parity_1",
+              "name": "read",
+              "arguments": "{\"file_path\":\"parity.txt\"}",
+              "status": "completed"
+            }
+          },
+          {
+            "type": "response.completed",
+            "response": {
+              "id": "resp_parity_22",
+              "model": "gpt-6.1-sol",
+              "status": "completed",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 10,
+                "total_tokens": 110
+              },
+              "output": [
+                {
+                  "type": "function_call",
+                  "id": "fc_parity_1",
+                  "call_id": "call_parity_1",
+                  "name": "read",
+                  "arguments": "{\"file_path\":\"parity.txt\"}",
+                  "status": "completed"
+                }
+              ]
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "id": "openai-reasoning-replay",
+      "provider": "openai-oauth",
+      "fresh": true,
+      "turnId": "01a1c1e0-11c0-7000-8000-000000000012",
+      "messages": [
+        {
+          "role": "user",
+          "content": "parity probe"
+        },
+        {
+          "role": "assistant",
+          "content": "earlier answer",
+          "providerReplay": {
+            "version": 1,
+            "provider": "openai-oauth",
+            "items": [
+              {
+                "type": "reasoning",
+                "id": "rs_parity_12",
+                "encrypted_content": "gAAAAparity-encrypted-reasoning",
+                "summary": []
+              },
+              {
+                "type": "message",
+                "id": "msg_parity_earlier",
+                "role": "assistant",
+                "status": "completed",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "earlier answer",
+                    "annotations": []
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "role": "user",
+          "content": "and now?"
+        }
+      ],
+      "ws": [
+        [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_parity_12",
+              "model": "gpt-6.1-sol"
+            }
+          },
+          {
+            "type": "response.output_item.added",
+            "output_index": 0,
+            "item": {
+              "type": "function_call",
+              "id": "fc_parity_1",
+              "call_id": "call_parity_1",
+              "name": "read",
+              "arguments": ""
+            }
+          },
+          {
+            "type": "response.function_call_arguments.done",
+            "output_index": 0,
+            "item_id": "fc_parity_1",
+            "arguments": "{\"file_path\":\"parity.txt\"}"
+          },
+          {
+            "type": "response.output_item.done",
+            "output_index": 0,
+            "item": {
+              "type": "function_call",
+              "id": "fc_parity_1",
+              "call_id": "call_parity_1",
+              "name": "read",
+              "arguments": "{\"file_path\":\"parity.txt\"}",
+              "status": "completed"
+            }
+          },
+          {
+            "type": "response.completed",
+            "response": {
+              "id": "resp_parity_12",
+              "model": "gpt-6.1-sol",
+              "status": "completed",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 10,
+                "total_tokens": 110
+              },
+              "output": [
+                {
+                  "type": "function_call",
+                  "id": "fc_parity_1",
+                  "call_id": "call_parity_1",
+                  "name": "read",
+                  "arguments": "{\"file_path\":\"parity.txt\"}",
+                  "status": "completed"
+                }
+              ]
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "id": "openai-image-input",
+      "provider": "openai-oauth",
+      "fresh": true,
+      "turnId": "01a1c1e0-11d0-7000-8000-000000000013",
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "what is in this image?"
+            },
+            {
+              "type": "image",
+              "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+              "mimeType": "image/png"
+            }
+          ]
+        }
+      ],
+      "ws": [
+        [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_parity_13",
+              "model": "gpt-6.1-sol"
+            }
+          },
+          {
+            "type": "response.output_item.added",
+            "output_index": 0,
+            "item": {
+              "type": "function_call",
+              "id": "fc_parity_1",
+              "call_id": "call_parity_1",
+              "name": "read",
+              "arguments": ""
+            }
+          },
+          {
+            "type": "response.function_call_arguments.done",
+            "output_index": 0,
+            "item_id": "fc_parity_1",
+            "arguments": "{\"file_path\":\"parity.txt\"}"
+          },
+          {
+            "type": "response.output_item.done",
+            "output_index": 0,
+            "item": {
+              "type": "function_call",
+              "id": "fc_parity_1",
+              "call_id": "call_parity_1",
+              "name": "read",
+              "arguments": "{\"file_path\":\"parity.txt\"}",
+              "status": "completed"
+            }
+          },
+          {
+            "type": "response.completed",
+            "response": {
+              "id": "resp_parity_13",
+              "model": "gpt-6.1-sol",
+              "status": "completed",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 10,
+                "total_tokens": 110
+              },
+              "output": [
+                {
+                  "type": "function_call",
+                  "id": "fc_parity_1",
+                  "call_id": "call_parity_1",
+                  "name": "read",
+                  "arguments": "{\"file_path\":\"parity.txt\"}",
+                  "status": "completed"
+                }
+              ]
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "id": "openai-effort-minimal",
+      "provider": "openai-oauth",
+      "fresh": true,
+      "turnId": "01a1c1e0-11e0-7000-8000-000000000014",
+      "sendOpts": {
+        "effort": "minimal"
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "parity probe"
+        }
+      ],
+      "ws": [
+        [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_parity_14",
+              "model": "gpt-6.1-sol"
+            }
+          },
+          {
+            "type": "response.output_item.added",
+            "output_index": 0,
+            "item": {
+              "type": "function_call",
+              "id": "fc_parity_1",
+              "call_id": "call_parity_1",
+              "name": "read",
+              "arguments": ""
+            }
+          },
+          {
+            "type": "response.function_call_arguments.done",
+            "output_index": 0,
+            "item_id": "fc_parity_1",
+            "arguments": "{\"file_path\":\"parity.txt\"}"
+          },
+          {
+            "type": "response.output_item.done",
+            "output_index": 0,
+            "item": {
+              "type": "function_call",
+              "id": "fc_parity_1",
+              "call_id": "call_parity_1",
+              "name": "read",
+              "arguments": "{\"file_path\":\"parity.txt\"}",
+              "status": "completed"
+            }
+          },
+          {
+            "type": "response.completed",
+            "response": {
+              "id": "resp_parity_14",
+              "model": "gpt-6.1-sol",
+              "status": "completed",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 10,
+                "total_tokens": 110
+              },
+              "output": [
+                {
+                  "type": "function_call",
+                  "id": "fc_parity_1",
+                  "call_id": "call_parity_1",
+                  "name": "read",
+                  "arguments": "{\"file_path\":\"parity.txt\"}",
+                  "status": "completed"
+                }
+              ]
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "id": "openai-effort-low",
+      "provider": "openai-oauth",
+      "fresh": true,
+      "turnId": "01a1c1e0-11f0-7000-8000-000000000015",
+      "sendOpts": {
+        "effort": "low"
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "parity probe"
+        }
+      ],
+      "ws": [
+        [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_parity_15",
+              "model": "gpt-6.1-sol"
+            }
+          },
+          {
+            "type": "response.output_item.added",
+            "output_index": 0,
+            "item": {
+              "type": "function_call",
+              "id": "fc_parity_1",
+              "call_id": "call_parity_1",
+              "name": "read",
+              "arguments": ""
+            }
+          },
+          {
+            "type": "response.function_call_arguments.done",
+            "output_index": 0,
+            "item_id": "fc_parity_1",
+            "arguments": "{\"file_path\":\"parity.txt\"}"
+          },
+          {
+            "type": "response.output_item.done",
+            "output_index": 0,
+            "item": {
+              "type": "function_call",
+              "id": "fc_parity_1",
+              "call_id": "call_parity_1",
+              "name": "read",
+              "arguments": "{\"file_path\":\"parity.txt\"}",
+              "status": "completed"
+            }
+          },
+          {
+            "type": "response.completed",
+            "response": {
+              "id": "resp_parity_15",
+              "model": "gpt-6.1-sol",
+              "status": "completed",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 10,
+                "total_tokens": 110
+              },
+              "output": [
+                {
+                  "type": "function_call",
+                  "id": "fc_parity_1",
+                  "call_id": "call_parity_1",
+                  "name": "read",
+                  "arguments": "{\"file_path\":\"parity.txt\"}",
+                  "status": "completed"
+                }
+              ]
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "id": "openai-effort-medium",
+      "provider": "openai-oauth",
+      "fresh": true,
+      "turnId": "01a1c1e0-1200-7000-8000-000000000016",
+      "sendOpts": {
+        "effort": "medium"
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "parity probe"
+        }
+      ],
+      "ws": [
+        [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_parity_16",
+              "model": "gpt-6.1-sol"
+            }
+          },
+          {
+            "type": "response.output_item.added",
+            "output_index": 0,
+            "item": {
+              "type": "function_call",
+              "id": "fc_parity_1",
+              "call_id": "call_parity_1",
+              "name": "read",
+              "arguments": ""
+            }
+          },
+          {
+            "type": "response.function_call_arguments.done",
+            "output_index": 0,
+            "item_id": "fc_parity_1",
+            "arguments": "{\"file_path\":\"parity.txt\"}"
+          },
+          {
+            "type": "response.output_item.done",
+            "output_index": 0,
+            "item": {
+              "type": "function_call",
+              "id": "fc_parity_1",
+              "call_id": "call_parity_1",
+              "name": "read",
+              "arguments": "{\"file_path\":\"parity.txt\"}",
+              "status": "completed"
+            }
+          },
+          {
+            "type": "response.completed",
+            "response": {
+              "id": "resp_parity_16",
+              "model": "gpt-6.1-sol",
+              "status": "completed",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 10,
+                "total_tokens": 110
+              },
+              "output": [
+                {
+                  "type": "function_call",
+                  "id": "fc_parity_1",
+                  "call_id": "call_parity_1",
+                  "name": "read",
+                  "arguments": "{\"file_path\":\"parity.txt\"}",
+                  "status": "completed"
+                }
+              ]
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "id": "openai-effort-high",
+      "provider": "openai-oauth",
+      "fresh": true,
+      "turnId": "01a1c1e0-1210-7000-8000-000000000017",
+      "sendOpts": {
+        "effort": "high"
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "parity probe"
+        }
+      ],
+      "ws": [
+        [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_parity_17",
+              "model": "gpt-6.1-sol"
+            }
+          },
+          {
+            "type": "response.output_item.added",
+            "output_index": 0,
+            "item": {
+              "type": "function_call",
+              "id": "fc_parity_1",
+              "call_id": "call_parity_1",
+              "name": "read",
+              "arguments": ""
+            }
+          },
+          {
+            "type": "response.function_call_arguments.done",
+            "output_index": 0,
+            "item_id": "fc_parity_1",
+            "arguments": "{\"file_path\":\"parity.txt\"}"
+          },
+          {
+            "type": "response.output_item.done",
+            "output_index": 0,
+            "item": {
+              "type": "function_call",
+              "id": "fc_parity_1",
+              "call_id": "call_parity_1",
+              "name": "read",
+              "arguments": "{\"file_path\":\"parity.txt\"}",
+              "status": "completed"
+            }
+          },
+          {
+            "type": "response.completed",
+            "response": {
+              "id": "resp_parity_17",
+              "model": "gpt-6.1-sol",
+              "status": "completed",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 10,
+                "total_tokens": 110
+              },
+              "output": [
+                {
+                  "type": "function_call",
+                  "id": "fc_parity_1",
+                  "call_id": "call_parity_1",
+                  "name": "read",
+                  "arguments": "{\"file_path\":\"parity.txt\"}",
+                  "status": "completed"
+                }
+              ]
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "id": "openai-effort-xhigh",
+      "provider": "openai-oauth",
+      "fresh": true,
+      "turnId": "01a1c1e0-1220-7000-8000-000000000018",
+      "sendOpts": {
+        "effort": "xhigh"
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "parity probe"
+        }
+      ],
+      "ws": [
+        [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_parity_18",
+              "model": "gpt-6.1-sol"
+            }
+          },
+          {
+            "type": "response.output_item.added",
+            "output_index": 0,
+            "item": {
+              "type": "function_call",
+              "id": "fc_parity_1",
+              "call_id": "call_parity_1",
+              "name": "read",
+              "arguments": ""
+            }
+          },
+          {
+            "type": "response.function_call_arguments.done",
+            "output_index": 0,
+            "item_id": "fc_parity_1",
+            "arguments": "{\"file_path\":\"parity.txt\"}"
+          },
+          {
+            "type": "response.output_item.done",
+            "output_index": 0,
+            "item": {
+              "type": "function_call",
+              "id": "fc_parity_1",
+              "call_id": "call_parity_1",
+              "name": "read",
+              "arguments": "{\"file_path\":\"parity.txt\"}",
+              "status": "completed"
+            }
+          },
+          {
+            "type": "response.completed",
+            "response": {
+              "id": "resp_parity_18",
+              "model": "gpt-6.1-sol",
+              "status": "completed",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 10,
+                "total_tokens": 110
+              },
+              "output": [
+                {
+                  "type": "function_call",
+                  "id": "fc_parity_1",
+                  "call_id": "call_parity_1",
+                  "name": "read",
+                  "arguments": "{\"file_path\":\"parity.txt\"}",
+                  "status": "completed"
+                }
+              ]
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "id": "openai-effort-max",
+      "provider": "openai-oauth",
+      "fresh": true,
+      "turnId": "01a1c1e0-1230-7000-8000-000000000019",
+      "sendOpts": {
+        "effort": "max"
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "parity probe"
+        }
+      ],
+      "ws": [
+        [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_parity_19",
+              "model": "gpt-6.1-sol"
+            }
+          },
+          {
+            "type": "response.output_item.added",
+            "output_index": 0,
+            "item": {
+              "type": "function_call",
+              "id": "fc_parity_1",
+              "call_id": "call_parity_1",
+              "name": "read",
+              "arguments": ""
+            }
+          },
+          {
+            "type": "response.function_call_arguments.done",
+            "output_index": 0,
+            "item_id": "fc_parity_1",
+            "arguments": "{\"file_path\":\"parity.txt\"}"
+          },
+          {
+            "type": "response.output_item.done",
+            "output_index": 0,
+            "item": {
+              "type": "function_call",
+              "id": "fc_parity_1",
+              "call_id": "call_parity_1",
+              "name": "read",
+              "arguments": "{\"file_path\":\"parity.txt\"}",
+              "status": "completed"
+            }
+          },
+          {
+            "type": "response.completed",
+            "response": {
+              "id": "resp_parity_19",
+              "model": "gpt-6.1-sol",
+              "status": "completed",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 10,
+                "total_tokens": 110
+              },
+              "output": [
+                {
+                  "type": "function_call",
+                  "id": "fc_parity_1",
+                  "call_id": "call_parity_1",
+                  "name": "read",
+                  "arguments": "{\"file_path\":\"parity.txt\"}",
+                  "status": "completed"
+                }
+              ]
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "id": "openai-service-tier-fast",
+      "provider": "openai-oauth",
+      "fresh": true,
+      "turnId": "01a1c1e0-1240-7000-8000-000000000020",
+      "sendOpts": {
+        "fast": true
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "parity probe"
+        }
+      ],
+      "ws": [
+        [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_parity_20",
+              "model": "gpt-6.1-sol"
+            }
+          },
+          {
+            "type": "response.output_item.added",
+            "output_index": 0,
+            "item": {
+              "type": "function_call",
+              "id": "fc_parity_1",
+              "call_id": "call_parity_1",
+              "name": "read",
+              "arguments": ""
+            }
+          },
+          {
+            "type": "response.function_call_arguments.done",
+            "output_index": 0,
+            "item_id": "fc_parity_1",
+            "arguments": "{\"file_path\":\"parity.txt\"}"
+          },
+          {
+            "type": "response.output_item.done",
+            "output_index": 0,
+            "item": {
+              "type": "function_call",
+              "id": "fc_parity_1",
+              "call_id": "call_parity_1",
+              "name": "read",
+              "arguments": "{\"file_path\":\"parity.txt\"}",
+              "status": "completed"
+            }
+          },
+          {
+            "type": "response.completed",
+            "response": {
+              "id": "resp_parity_20",
+              "model": "gpt-6.1-sol",
+              "status": "completed",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 10,
+                "total_tokens": 110
+              },
+              "output": [
+                {
+                  "type": "function_call",
+                  "id": "fc_parity_1",
+                  "call_id": "call_parity_1",
+                  "name": "read",
+                  "arguments": "{\"file_path\":\"parity.txt\"}",
+                  "status": "completed"
+                }
+              ]
+            }
+          }
+        ]
+      ]
+    },
+    {
       "id": "anthropic-oauth-first-turn",
       "provider": "anthropic-oauth",
       "expectError": true,

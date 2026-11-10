@@ -228,13 +228,13 @@ async fn serve(inner: Arc<Inner>, acceptor: TlsAcceptor, tcp: TcpStream) {
                         record(&mut conn, json!({ "kind": "ws-upgrade", "line": line, "headers": shown }));
                         inner.upgraded.lock().unwrap().push(conn);
                         let dial = inner.script.lock().unwrap().dials.pop_front().unwrap_or(json!({ "accept": true }));
+                        let extra: String = dial["headers"].as_object().into_iter().flatten().map(|(n, v)| format!("{n}: {}\r\n", v.as_str().unwrap())).collect();
                         if dial["accept"] == true {
                             let accept = tokio_tungstenite::tungstenite::handshake::derive_accept_key(key.as_bytes());
-                            let reply = format!("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n");
+                            let reply = format!("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n{extra}\r\n");
                             io.write_all(reply.as_bytes()).await.ok();
                         } else {
                             let body = dial["body"].as_str().unwrap_or("").as_bytes().to_vec();
-                            let extra: String = dial["headers"].as_object().into_iter().flatten().map(|(n, v)| format!("{n}: {}\r\n", v.as_str().unwrap())).collect();
                             let reply = format!("HTTP/1.1 {} Refused\r\n{extra}content-length: {}\r\nconnection: close\r\n\r\n", dial["status"], body.len());
                             io.write_all(reply.as_bytes()).await.ok();
                             io.write_all(&body).await.ok();

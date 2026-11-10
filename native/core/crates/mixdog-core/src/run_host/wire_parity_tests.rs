@@ -18,7 +18,7 @@ use mixdog_ai::providers::openai::adapter::SessionContext;
 use mixdog_ai::registry::builder::DefaultProviderBuilder;
 use mixdog_ai::registry::providers::ProviderBuilder;
 use mixdog_ai::transport::{KeepaliveDialer, KeepaliveSchedule, ReqwestLink};
-use mixdog_core_api::domain::provider::{CacheTier, Content, Message, ModelRequest, RequestOptions, Role, ToolCall, ToolDefinition};
+use mixdog_core_api::domain::provider::{CacheTier, Content, Message, ModelRequest, RequestOptions, Role, ToolDefinition};
 use mixdog_protocol::ProviderId;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -62,19 +62,10 @@ fn sha256(bytes: &[u8]) -> String {
 
 // ---- the scenarios -------------------------------------------------------------------------------
 
-/// A scenario message in Node's shape (`{role, content, toolCalls, toolCallId}`).
+/// A scenario message: a stored row in Node's shape (`{role, content, toolCalls, toolCallId, providerReplay}`, image
+/// parts), read as the core reads its stored rows.
 fn message(node: &Value) -> Message {
-    let role = match node["role"].as_str().unwrap() {
-        "assistant" => Role::Assistant,
-        "tool" => Role::Tool,
-        _ => Role::User,
-    };
-    let mut message = Message::new(role, Content::Text(text(&node["content"])));
-    message.tool_call_id = node.get("toolCallId").map(text);
-    for call in node.get("toolCalls").and_then(Value::as_array).into_iter().flatten() {
-        message.tool_calls.push(ToolCall { id: text(&call["id"]), name: text(&call["name"]), arguments: call["arguments"].clone(), native_type: None });
-    }
-    message
+    super::message_row::message_of(node).unwrap_or_else(|e| panic!("a scenario message the store cannot read: {e}")).message
 }
 
 /// The request one scenario sends, as the core assembles it (`HostRunParts::request_parts`): the session's four system
@@ -108,6 +99,10 @@ fn request(session: &Value, scenario: &Value, model: &str) -> ModelRequest {
     let mut options = RequestOptions { session_id: Some(thread.clone()), ..RequestOptions::default() };
     if scenario["provider"] == "openai-oauth" {
         options.prompt_cache_key = Some("mixdog-codex".into());
+        // The turn's effort and the session's fast flag (`buildRequestSendOptions` `effort: turnEffort`,
+        // `fast: session.fast === true`).
+        options.effort = scenario["sendOpts"]["effort"].as_str().map(str::to_owned);
+        options.fast = scenario["sendOpts"]["fast"] == true;
         // The identity comes through the production assembly from the stored header, not from the fixture's thread id.
         let header = session["storedHeader"].as_object().unwrap().clone();
         super::assemble::apply_identity(&mut options, &thread.as_str().into(), &header, Some(text(&scenario["turnId"]).as_str().into()));
