@@ -1,14 +1,8 @@
 {
-  "command": "node benchmarks/rust-core/recorders/record-providers.mjs --tree <tree with node_modules>",
+  "command": "node benchmarks/rust-core/recorders/record-providers.mjs --tree <tree with node_modules> --commit 7f633e7305166c5fc8ee66464859ab7de7b60b4d",
   "externalFixtures": [
     "gemini-explicit-cache/cases.json (WP-AI-GOOGLE)",
-    "oracles/openai-codex-metadata-golden.json (WP-AI-OPENAI)",
-    "oracles/openai-login-golden.json (WP-AI-OPENAI)",
-    "oracles/openai-models-golden.json (WP-AI-OPENAI)",
-    "oracles/openai-reasoning-replay-golden.json (WP-AI-OPENAI)",
-    "oracles/openai-retry-policy-golden.json (WP-AI-OPENAI)",
-    "oracles/openai-transport-switch-golden.json (WP-AI-OPENAI)",
-    "oracles/openai-ws-delta-golden.json (WP-AI-OPENAI)"
+    "oracles/openai-reasoning-replay-golden.json (WP-AI-OPENAI)"
   ],
   "fileCount": 85,
   "files": [
@@ -25,7 +19,7 @@
     {
       "bytes": 35409,
       "path": "anthropic-models/cases.json",
-      "sha256": "6d2870fd106e5dc8aa0c92922309e921087bf0212eeab3af760f35597b6df3a3"
+      "sha256": "69f043c41a84c9002df2a49b7a990e2242aeacf73a8ad4dbed57e77cbd7c8119"
     },
     {
       "bytes": 97707,
@@ -35,7 +29,7 @@
     {
       "bytes": 3500,
       "path": "anthropic/cache-write-1h/request.json",
-      "sha256": "42ea8f7c58724bcfb41831968b5a88ed712cac7888783b7249fde05d650c22df"
+      "sha256": "9b3973435391d503d99b7e9c2d5fbd3084098dfe85a84e93223f94d8fad7fcd5"
     },
     {
       "bytes": 827,
@@ -45,12 +39,12 @@
     {
       "bytes": 597,
       "path": "anthropic/cache-write-1h/result.json",
-      "sha256": "48bec7324e5ad349a7cd3c7014685350a9d775b90668cfee4b4680a33fde81aa"
+      "sha256": "387a3758c070368363520858222cf5aa6edccd92673a01c3c8106a9405b74339"
     },
     {
       "bytes": 3290,
       "path": "anthropic/error-400/request.json",
-      "sha256": "33f2a208d97a21dae7e39fc9902a22e5566ccd92881f7fa60db0bacb3a4fd5f3"
+      "sha256": "c9e426786a7493a79064cac363642220eaf92c7f9ca484aaa476295731c59409"
     },
     {
       "bytes": 89,
@@ -60,12 +54,12 @@
     {
       "bytes": 215,
       "path": "anthropic/error-400/result.json",
-      "sha256": "6b0475503e2242029bdd73caeb0e6eae911fb5ea7dff33ef3c6fce15aba06887"
+      "sha256": "c94e86be32c4726ec86a8c3ecfd01c5d4235e57cc7cd2e9b36493b2be9c137f4"
     },
     {
       "bytes": 3490,
       "path": "anthropic/text/request.json",
-      "sha256": "73dc63d73a0163783afce8d968e882187a12ec3770574cffd68075dac1aeb939"
+      "sha256": "73c0bad05f0da869fa1998f484abef96ae866e0b880663acad7a8581afffdc0b"
     },
     {
       "bytes": 806,
@@ -75,12 +69,12 @@
     {
       "bytes": 363,
       "path": "anthropic/text/result.json",
-      "sha256": "10f52d4d8204fdc8d8ef0e5c88f3aa5fbb2fb0b5a4bcb095a14a14568b2eb70b"
+      "sha256": "8286d5d83db79b23975bc970920fb8aefcd0f7e29fbb2c7a468fc7bf8297279d"
     },
     {
       "bytes": 3494,
       "path": "anthropic/tool-call/request.json",
-      "sha256": "9fa884490e7bc8b8bf744152503db16534a990ba39c4d439d627e55392b7a3a1"
+      "sha256": "3d5e7fa94df33fe65d0aec75fe18c70660fe0da8dc1258934d7980f74895dea6"
     },
     {
       "bytes": 877,
@@ -90,12 +84,12 @@
     {
       "bytes": 598,
       "path": "anthropic/tool-call/result.json",
-      "sha256": "d974380d0d3c9d2c1c736cd822e207f0d3a9dd439ba40b8ddde1c522cf6b8a74"
+      "sha256": "d7fb46c9fadf1561985bc286d37d6888ec8969bee7093b5cae0699cd90f01479"
     },
     {
       "bytes": 3718,
       "path": "anthropic/tool-result-followup/request.json",
-      "sha256": "c5b01ddfee829be19effad1f78bd4aa797adf7c1fe1875207bdc3649dc9affa5"
+      "sha256": "2fdd6e3f9c9fc091841ac87669c8608ba5dbbfea5a7f029d368727059b8e5bb3"
     },
     {
       "bytes": 806,
@@ -105,12 +99,12 @@
     {
       "bytes": 363,
       "path": "anthropic/tool-result-followup/result.json",
-      "sha256": "10f52d4d8204fdc8d8ef0e5c88f3aa5fbb2fb0b5a4bcb095a14a14568b2eb70b"
+      "sha256": "8286d5d83db79b23975bc970920fb8aefcd0f7e29fbb2c7a468fc7bf8297279d"
     },
     {
       "bytes": 12435,
       "path": "anthropic/truncated-no-terminal/request.json",
-      "sha256": "86917604a2147b80ed593a2497fa9f83d66d70e9b370998979ae00e301bcfbab"
+      "sha256": "b2bf17acb5ee0c0d16e58c4d0ffb63d1b25c5a1a541c3ccd8f98bcea26f6aaf1"
     },
     {
       "bytes": 639,
@@ -120,7 +114,7 @@
     {
       "bytes": 190,
       "path": "anthropic/truncated-no-terminal/result.json",
-      "sha256": "182ca0d9cd4db663d4164edc3b6ced2a3f30187451e40ed93482b1be840583b8"
+      "sha256": "cf0f130570242b2a24ccd8de61bf1ae627c97186794bc9e1e9f3baf812cc6c8d"
     },
     {
       "bytes": 34121,
@@ -130,7 +124,7 @@
     {
       "bytes": 302826,
       "path": "cursor-models/cases.json",
-      "sha256": "75e996193948ca5fde18e4d03d304d7aa03f5bb7639774176223d986d64d19a2"
+      "sha256": "09ed95b87c875a75d55191d2078a37b699f92979afba1e042497767c7f53c315"
     },
     {
       "bytes": 12132,
@@ -145,7 +139,7 @@
     {
       "bytes": 306859,
       "path": "devin-models/cases.json",
-      "sha256": "b01a74e6bc3388454ad92fbcd4b258b2790813867189b0112a11a8f18dd915d5"
+      "sha256": "b1e8c6a2726b12bec65e72cc318880a52a540c2be03c781ce10e7a23c8b2e6dd"
     },
     {
       "bytes": 83030,
@@ -165,17 +159,17 @@
     {
       "bytes": 15014,
       "path": "grok-models/cases.json",
-      "sha256": "66e0b150fe3b444be38ab5a58f02b11ab18bce6b9d2b07fcf7ea7115dafca8aa"
+      "sha256": "a0819ab9ed2cbe3a080ff5352a3272ac840d3312bc2fc5dd3ee2492411a5607b"
     },
     {
       "bytes": 3378,
       "path": "local-models/cases.json",
-      "sha256": "fcc055301ae6d3f2d6f524c472f0513d091effa905d5fabfa1a5bf05cd594da6"
+      "sha256": "70ac3b0c92c84d649f49b75bc95ec3c92e06d13cf3c1f29a76e9a5a091fb4074"
     },
     {
       "bytes": 3162,
       "path": "mixdog-local/tool-call/request.json",
-      "sha256": "6dfc46c99aa35d511c372d30aa9cfdd0ffe769580bfee39854474ccb68f243ac"
+      "sha256": "03ca8904856626b6491ce50567aebc66ef48effcd042071f179810259c2f073e"
     },
     {
       "bytes": 852,
@@ -185,12 +179,12 @@
     {
       "bytes": 385,
       "path": "mixdog-local/tool-call/result.json",
-      "sha256": "f2fb5caa41a53dc9741ef34105928bafddd60df01c32b2544165fddb43ba558b"
+      "sha256": "cc5a901c0b62259f4f4e76f72544a4f36a6d4e43e9c9e5c9c82925cbc3da5eeb"
     },
     {
       "bytes": 4902,
       "path": "openai-compat-chat/error-401/request.json",
-      "sha256": "6450d91158651d848be228b9f56d4e82ae1b207e0b1e251bc440e8b558a27303"
+      "sha256": "04991aa5cb1ac621c918a8a64ec83af277eee0088136ab5a7935b66c2e7faa4a"
     },
     {
       "bytes": 75,
@@ -200,12 +194,12 @@
     {
       "bytes": 132,
       "path": "openai-compat-chat/error-401/result.json",
-      "sha256": "a5b585b618531cd88f3ac9c461a9a9d26d8b4f8867ca2c4b48fb781f6cfec756"
+      "sha256": "15422c63476cc208d3468937c14186b79afba1469a4e3652e7e6b7daff799880"
     },
     {
       "bytes": 3159,
       "path": "openai-compat-chat/text/request.json",
-      "sha256": "9d573b6396e5fcb97490e96ef69be8f22045211b39f30562b65a718dbb8b49d2"
+      "sha256": "32a3882522735b4b59ca5dbeb4138a8c8dcfc06ce4b8218e23902b080b65061c"
     },
     {
       "bytes": 819,
@@ -215,12 +209,12 @@
     {
       "bytes": 392,
       "path": "openai-compat-chat/text/result.json",
-      "sha256": "2a4cc47a795fdb09826c4f55e4c6943a07c649fd27431a0b02ca34f9aaf41f94"
+      "sha256": "4dc8a21190e0d7799832e3fa581b3dda24d3d025252b81bee8045fcac5084b64"
     },
     {
       "bytes": 3104,
       "path": "openai-compat-chat/tool-call/request.json",
-      "sha256": "cc214637ec977a395531013ba17c55ce8f49291fb7d297d721958d0ed8684822"
+      "sha256": "21e620f3322b80e11aaf5e335cb9bec30ba685d54e492349600974cc22c1f6d3"
     },
     {
       "bytes": 852,
@@ -230,12 +224,12 @@
     {
       "bytes": 385,
       "path": "openai-compat-chat/tool-call/result.json",
-      "sha256": "f2fb5caa41a53dc9741ef34105928bafddd60df01c32b2544165fddb43ba558b"
+      "sha256": "cc5a901c0b62259f4f4e76f72544a4f36a6d4e43e9c9e5c9c82925cbc3da5eeb"
     },
     {
       "bytes": 3369,
       "path": "openai-compat-chat/tool-result-followup/request.json",
-      "sha256": "3fb1a60160f796e006ca0db17cf01c563ab0bdb8bfc90fcb79a057e6d8f8069b"
+      "sha256": "ef5c82ca99e1405487797925aa26357cb755d39a3ef1305ede2e795c549e49e5"
     },
     {
       "bytes": 819,
@@ -245,12 +239,12 @@
     {
       "bytes": 392,
       "path": "openai-compat-chat/tool-result-followup/result.json",
-      "sha256": "2a4cc47a795fdb09826c4f55e4c6943a07c649fd27431a0b02ca34f9aaf41f94"
+      "sha256": "4dc8a21190e0d7799832e3fa581b3dda24d3d025252b81bee8045fcac5084b64"
     },
     {
       "bytes": 3112,
       "path": "openai-compat-chat/truncated-no-done/request.json",
-      "sha256": "e4994e39a3d9f64c262fc7ec28f7a9675bb4adafb5b4a091f8e2d85152eea773"
+      "sha256": "83a88b0d446613c65a86b678e3102ce3c1c275923e467d4996d13da5cda6bca1"
     },
     {
       "bytes": 721,
@@ -260,12 +254,12 @@
     {
       "bytes": 148,
       "path": "openai-compat-chat/truncated-no-done/result.json",
-      "sha256": "f839cac8ac9b4402cba179f136b73b196d5e748682b6d54413c6f6c9e76d7c1e"
+      "sha256": "e51beca3ad06117a2e5b41c9a8409791a89ab24df485ef9305a014e06aa4bd86"
     },
     {
       "bytes": 3245,
       "path": "openai-responses-http-sse/text/request.json",
-      "sha256": "bdb12d392332cdd4d0c58c0ac31b10bbeb8483308a3efb7f62013d588fce1e08"
+      "sha256": "a67f3f22cf65401f86fc9e3dd4a5ceac5c25586b516aa019a72c0e6c73e77e55"
     },
     {
       "bytes": 1084,
@@ -275,12 +269,12 @@
     {
       "bytes": 385,
       "path": "openai-responses-http-sse/text/result.json",
-      "sha256": "860cb7fe998545306717308f5d5e8338ebd6f975380a012f98d52e4f73bd469b"
+      "sha256": "89f0c65a92b22edeb0c93a4ade46df9f088b226805286e39db747265698f6822"
     },
     {
       "bytes": 3249,
       "path": "openai-responses-http-sse/tool-call/request.json",
-      "sha256": "8475ee3ee225a4f7773b2ee53d4624f4305b00e1b001137b8aaf3edd26be5f3d"
+      "sha256": "e41c557d9c0f37c49141f31fc410a5b35e2f5ab29f2563ee16a61c76624444e9"
     },
     {
       "bytes": 1175,
@@ -290,12 +284,12 @@
     {
       "bytes": 618,
       "path": "openai-responses-http-sse/tool-call/result.json",
-      "sha256": "b1ec5f5714654ad91560237b48f16b57d2fca44d7a3e45c94b6138b003a43b32"
+      "sha256": "67fb7459368f019ba110309a54e52b18b6e6d487bb85054156fd852d8d28a6c3"
     },
     {
       "bytes": 3460,
       "path": "openai-responses-http-sse/tool-result-followup/request.json",
-      "sha256": "9381267a3491cd2cff92d65a804afda8cfca2f3a8bdd510503441e48f53742d5"
+      "sha256": "0a7a260b65211af5c593a82a17df4cdbeb64641568f70e5fd1fed5c9bdcba2cd"
     },
     {
       "bytes": 1084,
@@ -305,12 +299,12 @@
     {
       "bytes": 385,
       "path": "openai-responses-http-sse/tool-result-followup/result.json",
-      "sha256": "860cb7fe998545306717308f5d5e8338ebd6f975380a012f98d52e4f73bd469b"
+      "sha256": "89f0c65a92b22edeb0c93a4ade46df9f088b226805286e39db747265698f6822"
     },
     {
       "bytes": 3262,
       "path": "openai-responses-http-sse/truncated-no-completed/request.json",
-      "sha256": "da655013136dc671668512e2c1bfbd32979cf2cd5b188efa7b7fcfc4a23d9110"
+      "sha256": "aab4b84e41e062bee768cbdde3d2aad685776efee35458734658ad66caabb3f8"
     },
     {
       "bytes": 761,
@@ -320,22 +314,22 @@
     {
       "bytes": 190,
       "path": "openai-responses-http-sse/truncated-no-completed/result.json",
-      "sha256": "c77daff59ba782ee1e7c51f2b0e39a58542612cd4809eacfaaa57314b1f60066"
+      "sha256": "71ccd01648f5eb724bcc1106b95ae6816b6023e8960c8b0885554fdda1f52335"
     },
     {
       "bytes": 13695,
       "path": "oracles/chat-parts-messages.json",
-      "sha256": "e25ea2024bbb7f95bb5962d83f88104f2197fcde3e5fee048625b17511402263"
+      "sha256": "b97590a13075e9ad204186ada770ba98d59372f05b9ad16e5c1fb0ab4eca178d"
     },
     {
       "bytes": 64476,
       "path": "oracles/compat-listing.json",
-      "sha256": "121f6f7f866e15f2a783701f105a68dc8a97ea5507d53064352e1a3378e32fd9"
+      "sha256": "c8d4c62a79e3ea764461f4929667f5437dcb6d541cb7634a5858177da64d0229"
     },
     {
       "bytes": 32499,
       "path": "oracles/custom-listing.json",
-      "sha256": "fbfd34f29db1ae5d57a3f2d0fd097ed7414bb9ed0b4ed7d25bb7ecce3d2fe706"
+      "sha256": "4506725f8c057113f0c6f14e763ef10b48861cd5f0cdc5823f78e3014497fb03"
     },
     {
       "bytes": 32338,
@@ -400,17 +394,17 @@
     {
       "bytes": 77577,
       "path": "oracles/wire-route.json",
-      "sha256": "46f5dabc1c3f353932efb941c701d1e660aa0e649f16e039f81e23d08067a857"
+      "sha256": "602d47f1bde3b995e6266c07021895a5bb169ae5b5f214355845c16841ccb6d6"
     },
     {
       "bytes": 39390,
       "path": "oracles/xai-cache-routing.json",
-      "sha256": "8826adb52082aab0ccb0f552dfb128fa2b814c38ea24ce59e3ef505a7bab3ced"
+      "sha256": "faa277d689a3298b3cf08cfafc6dfc8801b0b24f19b5b4450d398d9f5decc50d"
     },
     {
       "bytes": 10079,
       "path": "oracles/xai-responses-continuation.json",
-      "sha256": "41551970b0d5e77b39208e2525781feed102618126f3501657980ded407d7a6c"
+      "sha256": "6bd67f9be7666c516baaf81ab020d082db23d81f75256ea43d931cdce26d49a2"
     },
     {
       "bytes": 24344,
@@ -420,17 +414,17 @@
     {
       "bytes": 3748,
       "path": "request-builders/anthropic-oauth.json",
-      "sha256": "71532bcea9ce9dc10131dfcfa960f015b50b0dae579a6410ae03bb5798f386a8"
+      "sha256": "f54bc6fc060ff2dff86dae363f3561bf81ac817edcaf3090e9d9755af95da3ca"
     },
     {
       "bytes": 2591,
       "path": "request-builders/openai-responses.json",
-      "sha256": "b4f37a5b5b9ec14145ce2a73169e35b2545f261f748f61ab5fa4b66899b52592"
+      "sha256": "b6ed520dfe10c4ddca332cb73d00866399413ef098bd2648cc036465940e465b"
     },
     {
       "bytes": 1559,
       "path": "request-builders/openai-ws-response-create.json",
-      "sha256": "dc163f811f6317e529f2c5adb02fdaae6e00366d955acf5dc15e9f163e7469ee"
+      "sha256": "c3ea1fae822fbe9382c6a005c4beca1d8b17e3c4facf784033787404adeb7d0f"
     },
     {
       "bytes": 183792,
@@ -438,46 +432,47 @@
       "sha256": "1d057bd5a0227b03800b1218c3d38565872ad50af298279ba641c194952750c8"
     }
   ],
+  "notFromThisRun": [
+    "action-input-union/cases.json",
+    "compat-tool-exclusion/cases.json",
+    "cursor-tool-choice/cases.json",
+    "cursor-tools/cases.json",
+    "gemini-explicit-cache/cases.json",
+    "gemini-tool-schema/cases.json",
+    "google-models/cases.json",
+    "oracles/model-meta.json",
+    "oracles/native-request-bytes.head.json",
+    "oracles/openai-codex-metadata-golden.json",
+    "oracles/openai-compat-responses-head-parity.json",
+    "oracles/openai-login-golden.json",
+    "oracles/openai-max-context-golden.json",
+    "oracles/openai-models-golden.json",
+    "oracles/openai-reasoning-replay-golden.json",
+    "oracles/openai-responses-payload-parity.fixture.json",
+    "oracles/openai-retry-policy-golden.json",
+    "oracles/openai-transport-switch-golden.json",
+    "oracles/openai-ws-delta-golden.json",
+    "oracles/xai-tool-search-head-parity.json",
+    "schema-wording/cases.json"
+  ],
   "product": {
-    "appsSha256": "76fce0d110cb5122882854fe249d47c63431d8ff9439b7b2924969e3ec7b44f5",
-    "commit": null,
-    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
-    "files": 43481,
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "7f633e7305166c5fc8ee66464859ab7de7b60b4d",
+    "comparedAgainst": "7f633e7305166c5fc8ee66464859ab7de7b60b4d",
+    "exact": true,
+    "files": 9142,
     "refComparison": {
-      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
-      "commitFilesMissingFromTree": 1,
-      "exact": false,
-      "filesDifferingFromCommit": 34407
+      "closestCommit": "7f633e7305166c5fc8ee66464859ab7de7b60b4d",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
     },
-    "srcSha256": "cd19ae47524b0f6a486c3c407d67ec40c3373ff082b78574133e107a1ce76de0",
+    "srcSha256": "938d5325e28e2ad94621b1dec936ddda2ad4212305e7463fe2be9dcf404d8387",
     "tree": "product tree loaded by the recorder",
-    "treeKind": "git-checkout",
+    "treeKind": "archive",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-providers.mjs",
-  "rerecorded": [
-    {
-      "command": "node benchmarks/rust-core/recorders/record-anthropic-effort.mjs --tree <git archive export of 7f633e7305166c5fc8ee66464859ab7de7b60b4d>",
-      "path": "anthropic-effort/cases.json",
-      "product": {
-        "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
-        "commit": "7f633e7305166c5fc8ee66464859ab7de7b60b4d",
-        "comparedAgainst": "7f633e7305166c5fc8ee66464859ab7de7b60b4d",
-        "exact": true,
-        "files": 9142,
-        "refComparison": {
-          "closestCommit": "7f633e7305166c5fc8ee66464859ab7de7b60b4d",
-          "commitFilesMissingFromTree": 0,
-          "exact": true,
-          "filesDifferingFromCommit": 0
-        },
-        "srcSha256": "938d5325e28e2ad94621b1dec936ddda2ad4212305e7463fe2be9dcf404d8387",
-        "tree": "product tree loaded by the recorder",
-        "treeKind": "archive",
-        "version": "1.4.5"
-      }
-    }
-  ],
   "scenarios": [
     "anthropic/cache-write-1h",
     "anthropic/error-400",

@@ -1,2115 +1,24 @@
 {
   "_doc": "Recorded from the REAL listModels of each Node provider over a scripted /models (or console config) behind a stubbed fetch; the metadata catalogs are empty except the opencode-go models.dev rows the empty console config falls back to. `rows` are the Node rows verbatim; `requests` the calls made.",
-  "cases": [
-    {
-      "provider": "xai",
-      "requests": [
-        {
-          "headers": {
-            "authorization": "Bearer fixture-list-key"
-          },
-          "method": "GET",
-          "url": "https://gateway.example/v1/models"
-        }
-      ],
-      "rows": [
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "plain-model",
-          "name": "plain-model",
-          "outputTokens": null,
-          "provider": "xai"
-        },
-        {
-          "contextWindow": 128000,
-          "created": null,
-          "id": "limits-a",
-          "name": "limits-a",
-          "outputTokens": 4096,
-          "provider": "xai"
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "limits-zero-first",
-          "name": "limits-zero-first",
-          "outputTokens": null,
-          "provider": "xai"
-        },
-        {
-          "contextWindow": 32000,
-          "created": null,
-          "id": "limits-string",
-          "name": "limits-string",
-          "outputTokens": 2048,
-          "provider": "xai"
-        },
-        {
-          "contextWindow": 200000,
-          "created": null,
-          "id": "limits-top",
-          "name": "limits-top",
-          "outputTokens": 8192,
-          "provider": "xai"
-        },
-        {
-          "contextWindow": 16000,
-          "created": null,
-          "id": "limits-camel",
-          "name": "limits-camel",
-          "outputTokens": 1000,
-          "provider": "xai"
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "limits-negative",
-          "name": "limits-negative",
-          "outputTokens": null,
-          "provider": "xai"
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "mode-chat",
-          "mode": "chat",
-          "name": "mode-chat",
-          "outputTokens": null,
-          "provider": "xai"
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "mode-code",
-          "mode": "completion",
-          "name": "mode-code",
-          "outputTokens": null,
-          "provider": "xai"
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "mode-text-out",
-          "name": "mode-text-out",
-          "outputTokens": null,
-          "provider": "xai"
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "mode-caps-true",
-          "mode": "chat",
-          "name": "mode-caps-true",
-          "outputTokens": null,
-          "provider": "xai"
-        },
-        {
-          "aliasTarget": "real/model-1",
-          "contextWindow": 0,
-          "created": null,
-          "id": "alias-string",
-          "name": "alias-string",
-          "outputTokens": null,
-          "provider": "xai"
-        },
-        {
-          "aliasTarget": "real/model-2",
-          "contextWindow": 0,
-          "created": null,
-          "id": "alias-object",
-          "name": "alias-object",
-          "outputTokens": null,
-          "provider": "xai"
-        },
-        {
-          "contextWindow": 0,
-          "created": 1700000000,
-          "id": "created-number",
-          "name": "created-number",
-          "outputTokens": null,
-          "provider": "xai"
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "created-string",
-          "name": "created-string",
-          "outputTokens": null,
-          "provider": "xai"
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "effort-list",
-          "name": "effort-list",
-          "outputTokens": null,
-          "provider": "xai",
-          "reasoningLevels": [
-            "low",
-            "high",
-            "max"
-          ],
-          "reasoningOptions": [
-            {
-              "type": "effort",
-              "values": [
-                "low",
-                "high",
-                "max"
-              ]
-            }
-          ],
-          "supportsReasoning": true
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "effort-objects",
-          "name": "effort-objects",
-          "outputTokens": null,
-          "provider": "xai",
-          "reasoningLevels": [
-            "none",
-            "medium"
-          ],
-          "reasoningOptions": [
-            {
-              "type": "effort",
-              "values": [
-                "none",
-                "medium"
-              ]
-            }
-          ],
-          "supportsReasoning": true
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "effort-none-only",
-          "name": "effort-none-only",
-          "outputTokens": null,
-          "provider": "xai",
-          "reasoningLevels": [
-            "none"
-          ],
-          "reasoningOptions": [
-            {
-              "type": "effort",
-              "values": [
-                "none"
-              ]
-            }
-          ],
-          "supportsReasoning": false
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "effort-empty",
-          "name": "effort-empty",
-          "outputTokens": null,
-          "provider": "xai"
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "effort-flag",
-          "name": "effort-flag",
-          "outputTokens": null,
-          "provider": "xai",
-          "supportsReasoning": true
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "effort-caps-flag",
-          "name": "effort-caps-flag",
-          "outputTokens": null,
-          "provider": "xai",
-          "supportsReasoning": true
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "name-given",
-          "name": "name-given",
-          "outputTokens": null,
-          "provider": "xai"
-        }
-      ],
-      "scenario": "roster"
-    },
-    {
-      "provider": "deepseek",
-      "requests": [
-        {
-          "headers": {
-            "authorization": "Bearer fixture-list-key"
-          },
-          "method": "GET",
-          "url": "https://gateway.example/v1/models"
-        }
-      ],
-      "rows": [
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "plain-model",
-          "name": "plain-model",
-          "outputTokens": null,
-          "provider": "deepseek"
-        },
-        {
-          "contextWindow": 128000,
-          "created": null,
-          "id": "limits-a",
-          "name": "limits-a",
-          "outputTokens": 4096,
-          "provider": "deepseek"
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "limits-zero-first",
-          "name": "limits-zero-first",
-          "outputTokens": null,
-          "provider": "deepseek"
-        },
-        {
-          "contextWindow": 32000,
-          "created": null,
-          "id": "limits-string",
-          "name": "limits-string",
-          "outputTokens": 2048,
-          "provider": "deepseek"
-        },
-        {
-          "contextWindow": 200000,
-          "created": null,
-          "id": "limits-top",
-          "name": "limits-top",
-          "outputTokens": 8192,
-          "provider": "deepseek"
-        },
-        {
-          "contextWindow": 16000,
-          "created": null,
-          "id": "limits-camel",
-          "name": "limits-camel",
-          "outputTokens": 1000,
-          "provider": "deepseek"
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "limits-negative",
-          "name": "limits-negative",
-          "outputTokens": null,
-          "provider": "deepseek"
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "mode-chat",
-          "mode": "chat",
-          "name": "mode-chat",
-          "outputTokens": null,
-          "provider": "deepseek"
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "mode-code",
-          "mode": "completion",
-          "name": "mode-code",
-          "outputTokens": null,
-          "provider": "deepseek"
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "mode-text-out",
-          "name": "mode-text-out",
-          "outputTokens": null,
-          "provider": "deepseek"
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "mode-caps-true",
-          "mode": "chat",
-          "name": "mode-caps-true",
-          "outputTokens": null,
-          "provider": "deepseek"
-        },
-        {
-          "aliasTarget": "real/model-1",
-          "contextWindow": 0,
-          "created": null,
-          "id": "alias-string",
-          "name": "alias-string",
-          "outputTokens": null,
-          "provider": "deepseek"
-        },
-        {
-          "aliasTarget": "real/model-2",
-          "contextWindow": 0,
-          "created": null,
-          "id": "alias-object",
-          "name": "alias-object",
-          "outputTokens": null,
-          "provider": "deepseek"
-        },
-        {
-          "contextWindow": 0,
-          "created": 1700000000,
-          "id": "created-number",
-          "name": "created-number",
-          "outputTokens": null,
-          "provider": "deepseek"
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "created-string",
-          "name": "created-string",
-          "outputTokens": null,
-          "provider": "deepseek"
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "effort-list",
-          "name": "effort-list",
-          "outputTokens": null,
-          "provider": "deepseek",
-          "reasoningLevels": [
-            "low",
-            "high",
-            "max"
-          ],
-          "reasoningOptions": [
-            {
-              "type": "effort",
-              "values": [
-                "low",
-                "high",
-                "max"
-              ]
-            }
-          ],
-          "supportsReasoning": true
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "effort-objects",
-          "name": "effort-objects",
-          "outputTokens": null,
-          "provider": "deepseek",
-          "reasoningLevels": [
-            "none",
-            "medium"
-          ],
-          "reasoningOptions": [
-            {
-              "type": "effort",
-              "values": [
-                "none",
-                "medium"
-              ]
-            }
-          ],
-          "supportsReasoning": true
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "effort-none-only",
-          "name": "effort-none-only",
-          "outputTokens": null,
-          "provider": "deepseek",
-          "reasoningLevels": [
-            "none"
-          ],
-          "reasoningOptions": [
-            {
-              "type": "effort",
-              "values": [
-                "none"
-              ]
-            }
-          ],
-          "supportsReasoning": false
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "effort-empty",
-          "name": "effort-empty",
-          "outputTokens": null,
-          "provider": "deepseek"
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "effort-flag",
-          "name": "effort-flag",
-          "outputTokens": null,
-          "provider": "deepseek",
-          "supportsReasoning": true
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "effort-caps-flag",
-          "name": "effort-caps-flag",
-          "outputTokens": null,
-          "provider": "deepseek",
-          "supportsReasoning": true
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "name-given",
-          "name": "name-given",
-          "outputTokens": null,
-          "provider": "deepseek"
-        }
-      ],
-      "scenario": "roster"
-    },
-    {
-      "provider": "openrouter",
-      "requests": [
-        {
-          "headers": {
-            "authorization": "Bearer fixture-list-key"
-          },
-          "method": "GET",
-          "url": "https://gateway.example/v1/models"
-        }
-      ],
-      "rows": [
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "plain-model",
-          "name": "plain-model",
-          "outputTokens": null,
-          "provider": "openrouter"
-        },
-        {
-          "contextWindow": 128000,
-          "created": null,
-          "id": "limits-a",
-          "name": "limits-a",
-          "outputTokens": 4096,
-          "provider": "openrouter"
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "limits-zero-first",
-          "name": "limits-zero-first",
-          "outputTokens": null,
-          "provider": "openrouter"
-        },
-        {
-          "contextWindow": 32000,
-          "created": null,
-          "id": "limits-string",
-          "name": "limits-string",
-          "outputTokens": 2048,
-          "provider": "openrouter"
-        },
-        {
-          "contextWindow": 200000,
-          "created": null,
-          "id": "limits-top",
-          "name": "limits-top",
-          "outputTokens": 8192,
-          "provider": "openrouter"
-        },
-        {
-          "contextWindow": 16000,
-          "created": null,
-          "id": "limits-camel",
-          "name": "limits-camel",
-          "outputTokens": 1000,
-          "provider": "openrouter"
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "limits-negative",
-          "name": "limits-negative",
-          "outputTokens": null,
-          "provider": "openrouter"
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "mode-chat",
-          "mode": "chat",
-          "name": "mode-chat",
-          "outputTokens": null,
-          "provider": "openrouter"
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "mode-code",
-          "mode": "completion",
-          "name": "mode-code",
-          "outputTokens": null,
-          "provider": "openrouter"
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "mode-text-out",
-          "name": "mode-text-out",
-          "outputTokens": null,
-          "provider": "openrouter"
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "mode-caps-true",
-          "mode": "chat",
-          "name": "mode-caps-true",
-          "outputTokens": null,
-          "provider": "openrouter"
-        },
-        {
-          "aliasTarget": "real/model-1",
-          "contextWindow": 0,
-          "created": null,
-          "id": "alias-string",
-          "name": "alias-string",
-          "outputTokens": null,
-          "provider": "openrouter"
-        },
-        {
-          "aliasTarget": "real/model-2",
-          "contextWindow": 0,
-          "created": null,
-          "id": "alias-object",
-          "name": "alias-object",
-          "outputTokens": null,
-          "provider": "openrouter"
-        },
-        {
-          "contextWindow": 0,
-          "created": 1700000000,
-          "id": "created-number",
-          "name": "created-number",
-          "outputTokens": null,
-          "provider": "openrouter"
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "created-string",
-          "name": "created-string",
-          "outputTokens": null,
-          "provider": "openrouter"
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "effort-list",
-          "name": "effort-list",
-          "outputTokens": null,
-          "provider": "openrouter",
-          "reasoningLevels": [
-            "low",
-            "high",
-            "max"
-          ],
-          "reasoningOptions": [
-            {
-              "type": "effort",
-              "values": [
-                "low",
-                "high",
-                "max"
-              ]
-            }
-          ],
-          "supportsReasoning": true
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "effort-objects",
-          "name": "effort-objects",
-          "outputTokens": null,
-          "provider": "openrouter",
-          "reasoningLevels": [
-            "none",
-            "medium"
-          ],
-          "reasoningOptions": [
-            {
-              "type": "effort",
-              "values": [
-                "none",
-                "medium"
-              ]
-            }
-          ],
-          "supportsReasoning": true
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "effort-none-only",
-          "name": "effort-none-only",
-          "outputTokens": null,
-          "provider": "openrouter",
-          "reasoningLevels": [
-            "none"
-          ],
-          "reasoningOptions": [
-            {
-              "type": "effort",
-              "values": [
-                "none"
-              ]
-            }
-          ],
-          "supportsReasoning": false
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "effort-empty",
-          "name": "effort-empty",
-          "outputTokens": null,
-          "provider": "openrouter"
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "effort-flag",
-          "name": "effort-flag",
-          "outputTokens": null,
-          "provider": "openrouter",
-          "supportsReasoning": true
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "effort-caps-flag",
-          "name": "effort-caps-flag",
-          "outputTokens": null,
-          "provider": "openrouter",
-          "supportsReasoning": true
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "name-given",
-          "name": "name-given",
-          "outputTokens": null,
-          "provider": "openrouter"
-        }
-      ],
-      "scenario": "roster"
-    },
-    {
-      "provider": "deepseek",
-      "requests": [
-        {
-          "headers": {
-            "authorization": "Bearer fixture-list-key"
-          },
-          "method": "GET",
-          "url": "https://gateway.example/v1/models"
-        }
-      ],
-      "rows": [
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "plain-model",
-          "name": "plain-model",
-          "outputTokens": null,
-          "provider": "deepseek"
-        },
-        {
-          "contextWindow": 128000,
-          "created": null,
-          "id": "limits-a",
-          "name": "limits-a",
-          "outputTokens": 4096,
-          "provider": "deepseek"
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "limits-zero-first",
-          "name": "limits-zero-first",
-          "outputTokens": null,
-          "provider": "deepseek"
-        },
-        {
-          "contextWindow": 32000,
-          "created": null,
-          "id": "limits-string",
-          "name": "limits-string",
-          "outputTokens": 2048,
-          "provider": "deepseek"
-        }
-      ],
-      "scenario": "bare-array"
-    },
-    {
-      "error": "deepseek models 403",
-      "provider": "deepseek",
-      "requests": [
-        {
-          "headers": {
-            "authorization": "Bearer fixture-list-key"
-          },
-          "method": "GET",
-          "url": "https://gateway.example/v1/models"
-        }
-      ],
-      "scenario": "refused",
-      "status": 403
-    },
-    {
-      "provider": "mimo-oauth",
-      "requests": [
-        {
-          "headers": {
-            "accept": "application/json",
-            "authorization": "Bearer fixture-mimo-key",
-            "x-mimo-source": "mimocode-cli"
-          },
-          "method": "GET",
-          "url": "https://api.xiaomimimo.com/v1/models"
-        }
-      ],
-      "rows": [
-        {
-          "contextWindow": 1048576,
-          "created": null,
-          "display": "MiMo V2.6 Pro",
-          "id": "mimo-v2.6-pro",
-          "inputModalities": [
-            "text",
-            "image"
-          ],
-          "mode": null,
-          "name": "MiMo V2.6 Pro",
-          "outputTokens": 131072,
-          "pricingModel": "mimo-v2.6-pro",
-          "pricingProvider": "xiaomi",
-          "pricingTiers": [],
-          "provider": "mimo-oauth",
-          "reasoning": true,
-          "reasoningContentField": "reasoning_content",
-          "reasoningLevels": [
-            "minimal",
-            "low",
-            "medium",
-            "high"
-          ],
-          "reasoningOptions": [],
-          "supportsReasoning": true,
-          "supportsVision": true,
-          "vision": true
-        },
-        {
-          "contextWindow": 500000,
-          "created": null,
-          "id": "MiMo-V2.6-Flash-0101",
-          "inputModalities": [
-            "text",
-            "image"
-          ],
-          "mode": null,
-          "name": "MiMo-V2.6-Flash-0101",
-          "outputTokens": 131072,
-          "pricingModel": "MiMo-V2.6-Flash-0101",
-          "pricingProvider": "xiaomi",
-          "pricingTiers": [],
-          "provider": "mimo-oauth",
-          "reasoning": true,
-          "reasoningContentField": "reasoning_content",
-          "reasoningLevels": [
-            "minimal",
-            "low",
-            "medium",
-            "high"
-          ],
-          "reasoningOptions": [],
-          "supportsReasoning": true,
-          "supportsVision": true,
-          "vision": true
-        },
-        {
-          "contextWindow": 262144,
-          "created": null,
-          "id": "mimo-v2-omni",
-          "inputModalities": [
-            "text",
-            "image"
-          ],
-          "mode": null,
-          "name": "mimo-v2-omni",
-          "outputTokens": 9000,
-          "pricingModel": "mimo-v2-omni",
-          "pricingProvider": "xiaomi",
-          "pricingTiers": [],
-          "provider": "mimo-oauth",
-          "reasoning": true,
-          "reasoningContentField": "reasoning_content",
-          "reasoningLevels": [
-            "minimal",
-            "low",
-            "medium",
-            "high"
-          ],
-          "reasoningOptions": [],
-          "supportsReasoning": true,
-          "supportsVision": true,
-          "vision": true
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "display": "Unseeded",
-          "id": "mimo-vX-unseeded",
-          "mode": null,
-          "name": "Unseeded",
-          "outputTokens": null,
-          "pricingModel": "mimo-vX-unseeded",
-          "pricingProvider": "xiaomi",
-          "pricingTiers": [],
-          "provider": "mimo-oauth",
-          "reasoningContentField": "reasoning_content",
-          "reasoningLevels": [
-            "minimal",
-            "low",
-            "medium",
-            "high"
-          ],
-          "reasoningOptions": []
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "id": "mimo-effort",
-          "mode": null,
-          "name": "mimo-effort",
-          "outputTokens": null,
-          "pricingModel": "mimo-effort",
-          "pricingProvider": "xiaomi",
-          "pricingTiers": [],
-          "provider": "mimo-oauth",
-          "reasoningContentField": "reasoning_content",
-          "reasoningLevels": [
-            "low",
-            "high"
-          ],
-          "reasoningOptions": [
-            {
-              "type": "effort",
-              "values": [
-                "low",
-                "high"
-              ]
-            }
-          ],
-          "supportsReasoning": true
-        }
-      ],
-      "scenario": "roster"
-    },
-    {
-      "provider": "mimo-oauth",
-      "requests": [
-        {
-          "headers": {
-            "accept": "application/json",
-            "authorization": "Bearer fixture-mimo-key",
-            "x-mimo-source": "mimocode-cli"
-          },
-          "method": "GET",
-          "url": "https://api.xiaomimimo.com/v1/models"
-        }
-      ],
-      "rows": [
-        {
-          "contextWindow": 1048576,
-          "created": null,
-          "display": "mimo-v2.6-pro",
-          "id": "mimo-v2.6-pro",
-          "inputModalities": [
-            "text",
-            "image"
-          ],
-          "mode": null,
-          "name": "MiMo-V2.6-Pro",
-          "outputTokens": 131072,
-          "pricingModel": "mimo-v2.6-pro",
-          "pricingProvider": "xiaomi",
-          "provider": "mimo-oauth",
-          "reasoning": true,
-          "reasoningContentField": "reasoning_content",
-          "reasoningLevels": [
-            "minimal",
-            "low",
-            "medium",
-            "high"
-          ],
-          "reasoningOptions": [],
-          "supportsReasoning": true,
-          "supportsVision": true,
-          "vision": true
-        },
-        {
-          "contextWindow": 1048576,
-          "created": null,
-          "display": "mimo-v2.6-flash",
-          "id": "mimo-v2.6-flash",
-          "inputModalities": [
-            "text",
-            "image"
-          ],
-          "mode": null,
-          "name": "MiMo-V2.6-Flash",
-          "outputTokens": 131072,
-          "pricingModel": "mimo-v2.6-flash",
-          "pricingProvider": "xiaomi",
-          "provider": "mimo-oauth",
-          "reasoning": true,
-          "reasoningContentField": "reasoning_content",
-          "reasoningLevels": [
-            "minimal",
-            "low",
-            "medium",
-            "high"
-          ],
-          "reasoningOptions": [],
-          "supportsReasoning": true,
-          "supportsVision": true,
-          "vision": true
-        },
-        {
-          "contextWindow": 1048576,
-          "created": null,
-          "display": "mimo-v2.6-pro-ultraspeed",
-          "id": "mimo-v2.6-pro-ultraspeed",
-          "inputModalities": [
-            "text",
-            "image"
-          ],
-          "mode": null,
-          "name": "MiMo-V2.6-Pro-Ultraspeed",
-          "outputTokens": 131072,
-          "pricingModel": "mimo-v2.6-pro-ultraspeed",
-          "pricingProvider": "xiaomi",
-          "provider": "mimo-oauth",
-          "reasoning": true,
-          "reasoningContentField": "reasoning_content",
-          "reasoningLevels": [
-            "minimal",
-            "low",
-            "medium",
-            "high"
-          ],
-          "reasoningOptions": [],
-          "supportsReasoning": true,
-          "supportsVision": true,
-          "vision": true
-        },
-        {
-          "contextWindow": 1048576,
-          "created": null,
-          "display": "mimo-v2.5-pro",
-          "id": "mimo-v2.5-pro",
-          "inputModalities": [
-            "text",
-            "image"
-          ],
-          "mode": null,
-          "name": "MiMo-V2.5-Pro",
-          "outputTokens": 131072,
-          "pricingModel": "mimo-v2.5-pro",
-          "pricingProvider": "xiaomi",
-          "provider": "mimo-oauth",
-          "reasoning": true,
-          "reasoningContentField": "reasoning_content",
-          "reasoningLevels": [
-            "minimal",
-            "low",
-            "medium",
-            "high"
-          ],
-          "reasoningOptions": [],
-          "supportsReasoning": true,
-          "supportsVision": true,
-          "vision": true
-        },
-        {
-          "contextWindow": 1048576,
-          "created": null,
-          "display": "mimo-v2.5",
-          "id": "mimo-v2.5",
-          "inputModalities": [
-            "text",
-            "image"
-          ],
-          "mode": null,
-          "name": "MiMo-V2.5",
-          "outputTokens": 131072,
-          "pricingModel": "mimo-v2.5",
-          "pricingProvider": "xiaomi",
-          "provider": "mimo-oauth",
-          "reasoning": true,
-          "reasoningContentField": "reasoning_content",
-          "reasoningLevels": [
-            "minimal",
-            "low",
-            "medium",
-            "high"
-          ],
-          "reasoningOptions": [],
-          "supportsReasoning": true,
-          "supportsVision": true,
-          "vision": true
-        },
-        {
-          "contextWindow": 1048576,
-          "created": null,
-          "display": "mimo-v2-pro",
-          "id": "mimo-v2-pro",
-          "inputModalities": [
-            "text",
-            "image"
-          ],
-          "mode": null,
-          "name": "MiMo-V2-Pro",
-          "outputTokens": 131072,
-          "pricingModel": "mimo-v2-pro",
-          "pricingProvider": "xiaomi",
-          "provider": "mimo-oauth",
-          "reasoning": true,
-          "reasoningContentField": "reasoning_content",
-          "reasoningLevels": [
-            "minimal",
-            "low",
-            "medium",
-            "high"
-          ],
-          "reasoningOptions": [],
-          "supportsReasoning": true,
-          "supportsVision": true,
-          "vision": true
-        },
-        {
-          "contextWindow": 262144,
-          "created": null,
-          "display": "mimo-v2-omni",
-          "id": "mimo-v2-omni",
-          "inputModalities": [
-            "text",
-            "image"
-          ],
-          "mode": null,
-          "name": "MiMo-V2-Omni",
-          "outputTokens": 131072,
-          "pricingModel": "mimo-v2-omni",
-          "pricingProvider": "xiaomi",
-          "provider": "mimo-oauth",
-          "reasoning": true,
-          "reasoningContentField": "reasoning_content",
-          "reasoningLevels": [
-            "minimal",
-            "low",
-            "medium",
-            "high"
-          ],
-          "reasoningOptions": [],
-          "supportsReasoning": true,
-          "supportsVision": true,
-          "vision": true
-        }
-      ],
-      "scenario": "empty-roster"
-    },
-    {
-      "provider": "mimo-oauth",
-      "requests": [
-        {
-          "headers": {
-            "accept": "application/json",
-            "authorization": "Bearer fixture-mimo-key",
-            "x-mimo-source": "mimocode-cli"
-          },
-          "method": "GET",
-          "url": "https://api.xiaomimimo.com/v1/models"
-        }
-      ],
-      "rows": [
-        {
-          "contextWindow": 1048576,
-          "created": null,
-          "display": "mimo-v2.6-pro",
-          "id": "mimo-v2.6-pro",
-          "inputModalities": [
-            "text",
-            "image"
-          ],
-          "mode": null,
-          "name": "MiMo-V2.6-Pro",
-          "outputTokens": 131072,
-          "pricingModel": "mimo-v2.6-pro",
-          "pricingProvider": "xiaomi",
-          "provider": "mimo-oauth",
-          "reasoning": true,
-          "reasoningContentField": "reasoning_content",
-          "reasoningLevels": [
-            "minimal",
-            "low",
-            "medium",
-            "high"
-          ],
-          "reasoningOptions": [],
-          "supportsReasoning": true,
-          "supportsVision": true,
-          "vision": true
-        },
-        {
-          "contextWindow": 1048576,
-          "created": null,
-          "display": "mimo-v2.6-flash",
-          "id": "mimo-v2.6-flash",
-          "inputModalities": [
-            "text",
-            "image"
-          ],
-          "mode": null,
-          "name": "MiMo-V2.6-Flash",
-          "outputTokens": 131072,
-          "pricingModel": "mimo-v2.6-flash",
-          "pricingProvider": "xiaomi",
-          "provider": "mimo-oauth",
-          "reasoning": true,
-          "reasoningContentField": "reasoning_content",
-          "reasoningLevels": [
-            "minimal",
-            "low",
-            "medium",
-            "high"
-          ],
-          "reasoningOptions": [],
-          "supportsReasoning": true,
-          "supportsVision": true,
-          "vision": true
-        },
-        {
-          "contextWindow": 1048576,
-          "created": null,
-          "display": "mimo-v2.6-pro-ultraspeed",
-          "id": "mimo-v2.6-pro-ultraspeed",
-          "inputModalities": [
-            "text",
-            "image"
-          ],
-          "mode": null,
-          "name": "MiMo-V2.6-Pro-Ultraspeed",
-          "outputTokens": 131072,
-          "pricingModel": "mimo-v2.6-pro-ultraspeed",
-          "pricingProvider": "xiaomi",
-          "provider": "mimo-oauth",
-          "reasoning": true,
-          "reasoningContentField": "reasoning_content",
-          "reasoningLevels": [
-            "minimal",
-            "low",
-            "medium",
-            "high"
-          ],
-          "reasoningOptions": [],
-          "supportsReasoning": true,
-          "supportsVision": true,
-          "vision": true
-        },
-        {
-          "contextWindow": 1048576,
-          "created": null,
-          "display": "mimo-v2.5-pro",
-          "id": "mimo-v2.5-pro",
-          "inputModalities": [
-            "text",
-            "image"
-          ],
-          "mode": null,
-          "name": "MiMo-V2.5-Pro",
-          "outputTokens": 131072,
-          "pricingModel": "mimo-v2.5-pro",
-          "pricingProvider": "xiaomi",
-          "provider": "mimo-oauth",
-          "reasoning": true,
-          "reasoningContentField": "reasoning_content",
-          "reasoningLevels": [
-            "minimal",
-            "low",
-            "medium",
-            "high"
-          ],
-          "reasoningOptions": [],
-          "supportsReasoning": true,
-          "supportsVision": true,
-          "vision": true
-        },
-        {
-          "contextWindow": 1048576,
-          "created": null,
-          "display": "mimo-v2.5",
-          "id": "mimo-v2.5",
-          "inputModalities": [
-            "text",
-            "image"
-          ],
-          "mode": null,
-          "name": "MiMo-V2.5",
-          "outputTokens": 131072,
-          "pricingModel": "mimo-v2.5",
-          "pricingProvider": "xiaomi",
-          "provider": "mimo-oauth",
-          "reasoning": true,
-          "reasoningContentField": "reasoning_content",
-          "reasoningLevels": [
-            "minimal",
-            "low",
-            "medium",
-            "high"
-          ],
-          "reasoningOptions": [],
-          "supportsReasoning": true,
-          "supportsVision": true,
-          "vision": true
-        },
-        {
-          "contextWindow": 1048576,
-          "created": null,
-          "display": "mimo-v2-pro",
-          "id": "mimo-v2-pro",
-          "inputModalities": [
-            "text",
-            "image"
-          ],
-          "mode": null,
-          "name": "MiMo-V2-Pro",
-          "outputTokens": 131072,
-          "pricingModel": "mimo-v2-pro",
-          "pricingProvider": "xiaomi",
-          "provider": "mimo-oauth",
-          "reasoning": true,
-          "reasoningContentField": "reasoning_content",
-          "reasoningLevels": [
-            "minimal",
-            "low",
-            "medium",
-            "high"
-          ],
-          "reasoningOptions": [],
-          "supportsReasoning": true,
-          "supportsVision": true,
-          "vision": true
-        },
-        {
-          "contextWindow": 262144,
-          "created": null,
-          "display": "mimo-v2-omni",
-          "id": "mimo-v2-omni",
-          "inputModalities": [
-            "text",
-            "image"
-          ],
-          "mode": null,
-          "name": "MiMo-V2-Omni",
-          "outputTokens": 131072,
-          "pricingModel": "mimo-v2-omni",
-          "pricingProvider": "xiaomi",
-          "provider": "mimo-oauth",
-          "reasoning": true,
-          "reasoningContentField": "reasoning_content",
-          "reasoningLevels": [
-            "minimal",
-            "low",
-            "medium",
-            "high"
-          ],
-          "reasoningOptions": [],
-          "supportsReasoning": true,
-          "supportsVision": true,
-          "vision": true
-        }
-      ],
-      "scenario": "server-error"
-    },
-    {
-      "error": "[mimo-oauth] API key rejected (401) — open /providers in mixdog to sign in again: mimo-oauth models 401",
-      "provider": "mimo-oauth",
-      "requests": [
-        {
-          "headers": {
-            "accept": "application/json",
-            "authorization": "Bearer fixture-mimo-key",
-            "x-mimo-source": "mimocode-cli"
-          },
-          "method": "GET",
-          "url": "https://api.xiaomimimo.com/v1/models"
-        }
-      ],
-      "scenario": "unauthorized",
-      "status": 401
-    },
-    {
-      "provider": "muse-code-oauth",
-      "requests": [
-        {
-          "headers": {
-            "accept": "application/json",
-            "authorization": "Bearer fixture-muse-key",
-            "x-api-version": "1.0.0"
-          },
-          "method": "GET",
-          "url": "https://api.meta.ai/v1/models"
-        }
-      ],
-      "rows": [
-        {
-          "cacheReadCostPerM": 0.15,
-          "cacheWriteCostPerM": 0,
-          "contextWindow": 2000000,
-          "family": "muse-spark",
-          "id": "muse-spark-1.3",
-          "inputCostPerM": 1.25,
-          "name": "Muse Spark 1.3",
-          "outputCostPerM": 4.25,
-          "outputTokens": 131072,
-          "provider": "muse-code-oauth",
-          "reasoningLevels": [
-            "minimal",
-            "low",
-            "medium",
-            "high",
-            "xhigh",
-            "max"
-          ],
-          "reasoningOptions": [
-            {
-              "type": "effort",
-              "values": [
-                "minimal",
-                "low",
-                "medium",
-                "high",
-                "xhigh",
-                "max"
-              ]
-            }
-          ],
-          "supportsFunctionCalling": true,
-          "supportsReasoning": true,
-          "supportsVision": true
-        },
-        {
-          "cacheReadCostPerM": 0.002,
-          "cacheWriteCostPerM": 0,
-          "contextWindow": 1048576,
-          "family": "muse-spark",
-          "id": "muse-spark-1.3-contributor",
-          "inputCostPerM": 0.1,
-          "name": "muse spark 1.3 c",
-          "outputCostPerM": 0.2,
-          "outputTokens": 131072,
-          "provider": "muse-code-oauth",
-          "reasoningLevels": [
-            "minimal",
-            "low",
-            "medium",
-            "high",
-            "xhigh",
-            "max"
-          ],
-          "reasoningOptions": [
-            {
-              "type": "effort",
-              "values": [
-                "minimal",
-                "low",
-                "medium",
-                "high",
-                "xhigh",
-                "max"
-              ]
-            }
-          ],
-          "supportsFunctionCalling": true,
-          "supportsReasoning": true,
-          "supportsVision": true
-        },
-        {
-          "cacheReadCostPerM": 0.15,
-          "cacheWriteCostPerM": 0,
-          "contextWindow": 1048576,
-          "created": 1700000000,
-          "family": "muse-spark",
-          "id": "muse-spark-1.4",
-          "inputCostPerM": 1.25,
-          "name": "Muse Spark 1.4",
-          "outputCostPerM": 4.25,
-          "outputTokens": 99000,
-          "provider": "muse-code-oauth",
-          "reasoningLevels": [
-            "minimal",
-            "low",
-            "medium",
-            "high",
-            "xhigh"
-          ],
-          "reasoningOptions": [
-            {
-              "type": "effort",
-              "values": [
-                "minimal",
-                "low",
-                "medium",
-                "high",
-                "xhigh"
-              ]
-            }
-          ],
-          "supportsFunctionCalling": true,
-          "supportsReasoning": true,
-          "supportsVision": true
-        },
-        {
-          "cacheReadCostPerM": 0.002,
-          "cacheWriteCostPerM": 0,
-          "contextWindow": 1048576,
-          "family": "muse-spark",
-          "id": "muse-spark-1.4-contributor",
-          "inputCostPerM": 0.1,
-          "name": "Muse Spark 1.4 (C)",
-          "outputCostPerM": 0.2,
-          "outputTokens": 131072,
-          "provider": "muse-code-oauth",
-          "reasoningLevels": [
-            "minimal",
-            "low",
-            "medium",
-            "high",
-            "xhigh"
-          ],
-          "reasoningOptions": [
-            {
-              "type": "effort",
-              "values": [
-                "minimal",
-                "low",
-                "medium",
-                "high",
-                "xhigh"
-              ]
-            }
-          ],
-          "supportsFunctionCalling": true,
-          "supportsReasoning": true,
-          "supportsVision": true
-        },
-        {
-          "cacheReadCostPerM": 0.15,
-          "cacheWriteCostPerM": 0,
-          "contextWindow": 1048576,
-          "family": "muse-spark",
-          "id": "muse-spark-2.0.1",
-          "inputCostPerM": 1.25,
-          "name": "Muse Spark 2.0.1",
-          "outputCostPerM": 4.25,
-          "outputTokens": 131072,
-          "provider": "muse-code-oauth",
-          "reasoningLevels": [
-            "minimal",
-            "low",
-            "medium",
-            "high",
-            "xhigh"
-          ],
-          "reasoningOptions": [
-            {
-              "type": "effort",
-              "values": [
-                "minimal",
-                "low",
-                "medium",
-                "high",
-                "xhigh"
-              ]
-            }
-          ],
-          "supportsFunctionCalling": true,
-          "supportsReasoning": true,
-          "supportsVision": true
-        },
-        {
-          "cacheReadCostPerM": 0.15,
-          "cacheWriteCostPerM": 0,
-          "contextWindow": 1048576,
-          "family": "muse-spark",
-          "id": "muse-spark-1.3.0",
-          "inputCostPerM": 1.25,
-          "name": "Muse Spark 1.3",
-          "outputCostPerM": 4.25,
-          "outputTokens": 131072,
-          "provider": "muse-code-oauth",
-          "reasoningLevels": [
-            "minimal",
-            "low",
-            "medium",
-            "high",
-            "xhigh"
-          ],
-          "reasoningOptions": [
-            {
-              "type": "effort",
-              "values": [
-                "minimal",
-                "low",
-                "medium",
-                "high",
-                "xhigh"
-              ]
-            }
-          ],
-          "supportsFunctionCalling": true,
-          "supportsReasoning": true,
-          "supportsVision": true
-        },
-        {
-          "contextWindow": 4096,
-          "family": "muse-spark",
-          "id": "muse-other",
-          "name": "Other",
-          "provider": "muse-code-oauth",
-          "reasoningLevels": [
-            "minimal",
-            "low",
-            "medium",
-            "high",
-            "xhigh"
-          ],
-          "reasoningOptions": [
-            {
-              "type": "effort",
-              "values": [
-                "minimal",
-                "low",
-                "medium",
-                "high",
-                "xhigh"
-              ]
-            }
-          ]
-        }
-      ],
-      "scenario": "roster"
-    },
-    {
-      "provider": "muse-code-oauth",
-      "requests": [
-        {
-          "headers": {
-            "accept": "application/json",
-            "authorization": "Bearer fixture-muse-key",
-            "x-api-version": "1.0.0"
-          },
-          "method": "GET",
-          "url": "https://api.meta.ai/v1/models"
-        }
-      ],
-      "rows": [],
-      "scenario": "empty-roster"
-    },
-    {
-      "provider": "command-code-oauth",
-      "requests": [
-        {
-          "headers": {
-            "accept": "application/json",
-            "authorization": "Bearer fixture-command-key"
-          },
-          "method": "GET",
-          "url": "https://api.commandcode.ai/provider/v1/models"
-        }
-      ],
-      "rows": [
-        {
-          "contextWindow": 128000,
-          "created": null,
-          "display": "DeepSeek V4 Flash",
-          "id": "deepseek/deepseek-v4-flash",
-          "mode": null,
-          "name": "deepseek/deepseek-v4-flash",
-          "outputTokens": null,
-          "pricingModel": "deepseek/deepseek-v4-flash",
-          "pricingProvider": "command-code-oauth",
-          "pricingTiers": [],
-          "provider": "command-code-oauth",
-          "reasoningContentField": null,
-          "reasoningOptions": []
-        },
-        {
-          "contextWindow": null,
-          "created": null,
-          "id": "claude-sonnet-5",
-          "mode": null,
-          "name": "claude-sonnet-5",
-          "outputTokens": 64000,
-          "pricingModel": "claude-sonnet-5",
-          "pricingProvider": "command-code-oauth",
-          "pricingTiers": [],
-          "provider": "command-code-oauth",
-          "reasoningContentField": null,
-          "reasoningOptions": []
-        },
-        {
-          "contextWindow": null,
-          "created": null,
-          "id": "gpt-5.5",
-          "mode": null,
-          "name": "gpt-5.5",
-          "outputTokens": null,
-          "pricingModel": "gpt-5.5",
-          "pricingProvider": "command-code-oauth",
-          "pricingTiers": [],
-          "provider": "command-code-oauth",
-          "reasoningContentField": null,
-          "reasoningOptions": []
-        },
-        {
-          "contextWindow": null,
-          "created": null,
-          "id": "responses-only",
-          "mode": null,
-          "name": "responses-only",
-          "outputTokens": null,
-          "pricingModel": "responses-only",
-          "pricingProvider": "command-code-oauth",
-          "pricingTiers": [],
-          "provider": "command-code-oauth",
-          "reasoningContentField": null,
-          "reasoningOptions": []
-        },
-        {
-          "contextWindow": null,
-          "created": null,
-          "display": "Name Only",
-          "id": "name-only",
-          "mode": null,
-          "name": "name-only",
-          "outputTokens": null,
-          "pricingModel": "name-only",
-          "pricingProvider": "command-code-oauth",
-          "pricingTiers": [],
-          "provider": "command-code-oauth",
-          "reasoningContentField": null,
-          "reasoningOptions": []
-        }
-      ],
-      "scenario": "roster"
-    },
-    {
-      "error": "[command-code-oauth] API key rejected (401) — open /providers in mixdog to sign in again: {\"error\":\"no\"}",
-      "provider": "command-code-oauth",
-      "requests": [
-        {
-          "headers": {
-            "accept": "application/json",
-            "authorization": "Bearer fixture-command-key"
-          },
-          "method": "GET",
-          "url": "https://api.commandcode.ai/provider/v1/models"
-        }
-      ],
-      "scenario": "unauthorized",
-      "status": 401
-    },
-    {
-      "provider": "opencode-go-oauth",
-      "requests": [
-        {
-          "headers": {
-            "accept": "application/json",
-            "authorization": "Bearer fixture-go-access",
-            "x-org-id": "org-1"
-          },
-          "method": "GET",
-          "url": "https://opencode.ai/console/api/v2/config"
-        }
-      ],
-      "rows": [
-        {
-          "cacheReadCostPerM": 0.1,
-          "cacheWriteCostPerM": 0,
-          "contextWindow": 200000,
-          "displayName": "Go Chat",
-          "id": "go-chat",
-          "inputCostPerM": 1,
-          "mode": null,
-          "name": "Go Chat",
-          "outputCostPerM": 2,
-          "outputTokens": 8000,
-          "pricingModel": "go-chat",
-          "pricingProvider": "opencode-go",
-          "provider": "opencode-go-oauth",
-          "rawProviderModel": {
-            "cacheReadCostPerM": 0.1,
-            "cacheWriteCostPerM": 0,
-            "contextWindow": 200000,
-            "id": "go-chat",
-            "inputCostPerM": 1,
-            "name": "Go Chat",
-            "outputCostPerM": 2,
-            "outputTokens": 8000,
-            "provider": "opencode-go-oauth",
-            "wire": "chat"
-          },
-          "reasoningContentField": null,
-          "reasoningOptions": []
-        },
-        {
-          "contextWindow": 400000,
-          "displayName": "go-responses",
-          "id": "go-responses",
-          "mode": null,
-          "name": "go-responses",
-          "outputTokens": null,
-          "pricingModel": "go-responses",
-          "pricingProvider": "opencode-go",
-          "provider": "opencode-go-oauth",
-          "rawProviderModel": {
-            "contextWindow": 400000,
-            "id": "go-responses",
-            "name": "go-responses",
-            "provider": "opencode-go-oauth",
-            "reasoningLevels": [
-              "low",
-              "high"
-            ],
-            "reasoningOptions": [
-              {
-                "type": "effort",
-                "values": [
-                  "low",
-                  "high"
-                ]
-              }
-            ],
-            "supportsReasoning": true,
-            "wire": "responses"
-          },
-          "reasoningContentField": null,
-          "reasoningLevels": [
-            "low",
-            "high"
-          ],
-          "reasoningOptions": [
-            {
-              "type": "effort",
-              "values": [
-                "low",
-                "high"
-              ]
-            }
-          ],
-          "supportsReasoning": true
-        },
-        {
-          "contextWindow": null,
-          "displayName": "go-messages",
-          "id": "go-messages",
-          "mode": null,
-          "name": "go-messages",
-          "outputTokens": null,
-          "pricingModel": "go-messages",
-          "pricingProvider": "opencode-go",
-          "provider": "opencode-go-oauth",
-          "rawProviderModel": {
-            "id": "go-messages",
-            "name": "go-messages",
-            "provider": "opencode-go-oauth",
-            "reasoningLevels": [],
-            "reasoningOptions": [],
-            "supportsReasoning": false,
-            "wire": "messages"
-          },
-          "reasoningContentField": null,
-          "reasoningLevels": [],
-          "reasoningOptions": [],
-          "supportsReasoning": false
-        },
-        {
-          "contextWindow": null,
-          "displayName": "go-own-route",
-          "id": "go-own-route",
-          "mode": null,
-          "name": "go-own-route",
-          "outputTokens": null,
-          "pricingModel": "go-own-route",
-          "pricingProvider": "opencode-go",
-          "provider": "opencode-go-oauth",
-          "rawProviderModel": {
-            "baseURL": "https://other.example/v1",
-            "headers": {
-              "x-own": "y"
-            },
-            "id": "go-own-route",
-            "name": "go-own-route",
-            "provider": "opencode-go-oauth",
-            "wire": "chat"
-          },
-          "reasoningContentField": null,
-          "reasoningOptions": []
-        },
-        {
-          "contextWindow": null,
-          "displayName": "go-other-package",
-          "id": "go-other-package",
-          "mode": null,
-          "name": "go-other-package",
-          "outputTokens": null,
-          "pricingModel": "go-other-package",
-          "pricingProvider": "opencode-go",
-          "provider": "opencode-go-oauth",
-          "rawProviderModel": {
-            "id": "go-other-package",
-            "name": "go-other-package",
-            "provider": "opencode-go-oauth"
-          },
-          "reasoningContentField": null,
-          "reasoningOptions": []
-        },
-        {
-          "contextWindow": null,
-          "displayName": "go-reasoning-bare",
-          "id": "go-reasoning-bare",
-          "mode": null,
-          "name": "go-reasoning-bare",
-          "outputTokens": null,
-          "pricingModel": "go-reasoning-bare",
-          "pricingProvider": "opencode-go",
-          "provider": "opencode-go-oauth",
-          "rawProviderModel": {
-            "id": "go-reasoning-bare",
-            "name": "go-reasoning-bare",
-            "provider": "opencode-go-oauth",
-            "supportsReasoning": true,
-            "wire": "chat"
-          },
-          "reasoningContentField": null,
-          "reasoningOptions": [],
-          "supportsReasoning": true
-        }
-      ],
-      "scenario": "config"
-    },
-    {
-      "provider": "opencode-go-oauth",
-      "requests": [
-        {
-          "headers": {
-            "accept": "application/json",
-            "authorization": "Bearer fixture-go-access",
-            "x-org-id": "org-1"
-          },
-          "method": "GET",
-          "url": "https://opencode.ai/console/api/v2/config"
-        }
-      ],
-      "rows": [
-        {
-          "cacheReadCostPerM": 0.3,
-          "cacheWriteCostPerM": null,
-          "contextWindow": 128000,
-          "displayName": "MD Chat",
-          "id": "md-chat",
-          "inputCostPerM": 3,
-          "mode": "chat",
-          "name": "MD Chat",
-          "outputCostPerImage": null,
-          "outputCostPerM": 6,
-          "outputCostPerSecond": null,
-          "outputCostPerSecondByResolution": {},
-          "outputImageCostPerM": null,
-          "outputTokens": 4096,
-          "outputVideoCostPerM": null,
-          "pricingModel": "md-chat",
-          "pricingProvider": "opencode-go",
-          "pricingSource": "models.dev",
-          "pricingTiers": [],
-          "provider": "opencode-go-oauth",
-          "reasoningContentField": null,
-          "reasoningLevels": [
-            "low",
-            "high"
-          ],
-          "reasoningOptions": [
-            {
-              "type": "effort",
-              "values": [
-                "low",
-                "high"
-              ]
-            }
-          ],
-          "supportsPromptCaching": true,
-          "supportsReasoning": true
-        },
-        {
-          "cacheReadCostPerM": null,
-          "cacheWriteCostPerM": null,
-          "contextWindow": 200000,
-          "displayName": "MD Messages",
-          "id": "md-messages",
-          "inputCostPerM": null,
-          "mode": "chat",
-          "name": "MD Messages",
-          "outputCostPerImage": null,
-          "outputCostPerM": null,
-          "outputCostPerSecond": null,
-          "outputCostPerSecondByResolution": {},
-          "outputImageCostPerM": null,
-          "outputTokens": null,
-          "outputVideoCostPerM": null,
-          "pricingModel": "md-messages",
-          "pricingProvider": "opencode-go",
-          "pricingSource": null,
-          "pricingTiers": [],
-          "provider": "opencode-go-oauth",
-          "reasoningContentField": null,
-          "reasoningLevels": [],
-          "reasoningOptions": [],
-          "supportsReasoning": false
-        },
-        {
-          "cacheReadCostPerM": null,
-          "cacheWriteCostPerM": null,
-          "contextWindow": 50000,
-          "displayName": null,
-          "id": "md-responses",
-          "inputCostPerM": null,
-          "mode": "chat",
-          "name": "md-responses",
-          "outputCostPerImage": null,
-          "outputCostPerM": null,
-          "outputCostPerSecond": null,
-          "outputCostPerSecondByResolution": {},
-          "outputImageCostPerM": null,
-          "outputTokens": 2000,
-          "outputVideoCostPerM": null,
-          "pricingModel": "md-responses",
-          "pricingProvider": "opencode-go",
-          "pricingSource": null,
-          "pricingTiers": [],
-          "provider": "opencode-go-oauth",
-          "reasoningContentField": null,
-          "reasoningOptions": []
-        }
-      ],
-      "scenario": "config-empty-models-dev"
-    },
-    {
-      "error": "[opencode-go-oauth] the OpenCode organization config has no OpenCode Go provider",
-      "provider": "opencode-go-oauth",
-      "requests": [
-        {
-          "headers": {
-            "accept": "application/json",
-            "authorization": "Bearer fixture-go-access",
-            "x-org-id": "org-1"
-          },
-          "method": "GET",
-          "url": "https://opencode.ai/console/api/v2/config"
-        }
-      ],
-      "scenario": "config-without-provider",
-      "status": null
-    }
-  ],
   "recorder": "benchmarks/rust-core/recorders/record-compat-listing.mjs",
   "rosters": {
-    "command": [
-      {
-        "context_window": 128000,
-        "display_name": "DeepSeek V4 Flash",
-        "id": "deepseek/deepseek-v4-flash"
-      },
-      {
-        "id": "claude-sonnet-5",
-        "max_output_tokens": 64000,
-        "supported_endpoints": [
-          "/messages"
-        ]
-      },
-      {
-        "id": "gpt-5.5",
-        "supported_endpoints": [
-          "/chat/completions",
-          "/responses"
-        ]
-      },
-      {
-        "id": "responses-only",
-        "supported_endpoints": [
-          "v1/responses"
-        ]
-      },
-      {
-        "id": "embedding-only",
-        "supported_endpoints": [
-          "/embeddings"
-        ]
-      },
-      {
-        "id": "no-endpoints",
-        "supported_endpoints": []
-      },
-      {
-        "id": "name-only",
-        "name": "Name Only"
-      }
-    ],
     "generic": [
       {
         "id": "plain-model"
       },
       {
-        "context_window": 128000,
         "id": "limits-a",
+        "context_window": 128000,
         "max_output_tokens": 4096
       },
       {
-        "context_window": 0,
         "id": "limits-zero-first",
+        "context_window": 0,
         "max_context_window": 64000
       },
       {
-        "context_window": "32000",
         "id": "limits-string",
+        "context_window": "32000",
         "output_tokens": "2048"
       },
       {
@@ -2120,13 +29,13 @@
         }
       },
       {
-        "contextWindow": 16000,
         "id": "limits-camel",
+        "contextWindow": 16000,
         "maxOutputTokens": 1000
       },
       {
-        "context_length": -5,
         "id": "limits-negative",
+        "context_length": -5,
         "max_output_tokens": -1
       },
       {
@@ -2142,51 +51,51 @@
         "type": "embedding"
       },
       {
+        "id": "mode-image-out",
         "architecture": {
           "output_modalities": [
             "image"
           ]
-        },
-        "id": "mode-image-out"
+        }
       },
       {
+        "id": "mode-text-out",
         "architecture": {
           "output_modalities": [
             "text",
             "image"
           ]
-        },
-        "id": "mode-text-out"
+        }
       },
       {
+        "id": "mode-caps-true",
         "capabilities": {
           "completion_chat": true
-        },
-        "id": "mode-caps-true"
+        }
       },
       {
+        "id": "mode-caps-false",
         "capabilities": {
           "completion_chat": false
-        },
-        "id": "mode-caps-false"
+        }
       },
       {
-        "alias_target": "real/model-1",
-        "id": "alias-string"
+        "id": "alias-string",
+        "alias_target": "real/model-1"
       },
       {
+        "id": "alias-object",
         "alias_target": {
           "slug": "real/model-2"
-        },
-        "id": "alias-object"
+        }
       },
       {
-        "created": 1700000000,
-        "id": "created-number"
+        "id": "created-number",
+        "created": 1700000000
       },
       {
-        "created": "1700000000",
-        "id": "created-string"
+        "id": "created-string",
+        "created": "1700000000"
       },
       {
         "id": "effort-list",
@@ -2223,15 +132,15 @@
         "supports_reasoning_effort": true
       },
       {
+        "id": "effort-caps-flag",
         "capabilities": {
           "reasoning_effort": true
-        },
-        "id": "effort-caps-flag"
+        }
       },
       {
-        "display_name": "Display Name",
         "id": "name-given",
-        "name": "Given Name"
+        "name": "Given Name",
+        "display_name": "Display Name"
       },
       {
         "name": "no-id"
@@ -2243,140 +152,10 @@
         "id": "plain-model"
       }
     ],
-    "goConfig": {
-      "providers": {
-        "opencode-go": {
-          "headers": {
-            "x-bad": 7,
-            "x-tenant": "fixture"
-          },
-          "models": {
-            "go-chat": {
-              "cost": {
-                "cache": {
-                  "read": 0.1,
-                  "write": 0
-                },
-                "input": 1,
-                "output": 2
-              },
-              "limit": {
-                "context": 200000,
-                "output": 8000
-              },
-              "name": " Go Chat "
-            },
-            "go-disabled": {
-              "disabled": true
-            },
-            "go-messages": {
-              "capabilities": {
-                "reasoning": {
-                  "supported": false
-                }
-              },
-              "package": "@ai-sdk/anthropic"
-            },
-            "go-other-package": {
-              "package": "@x/y"
-            },
-            "go-own-route": {
-              "headers": {
-                "x-own": "y"
-              },
-              "settings": {
-                "baseURL": "https://other.example/v1"
-              }
-            },
-            "go-reasoning-bare": {
-              "capabilities": {
-                "reasoning": {
-                  "supported": true
-                }
-              }
-            },
-            "go-responses": {
-              "capabilities": {
-                "reasoning": {
-                  "effort": [
-                    "low",
-                    "high"
-                  ],
-                  "supported": true
-                }
-              },
-              "limit": {
-                "context": 400000
-              },
-              "package": "@ai-sdk/openai"
-            }
-          },
-          "package": "@ai-sdk/openai-compatible",
-          "settings": {
-            "baseURL": "https://gateway.example/go/openai/v1"
-          }
-        }
-      }
-    },
-    "goEmpty": {
-      "providers": {
-        "opencode-go": {
-          "models": {},
-          "settings": {
-            "baseURL": "https://gateway.example/go/openai/v1"
-          }
-        }
-      }
-    },
-    "goModelsDev": {
-      "md-chat": {
-        "cost": {
-          "cache_read": 0.3,
-          "input": 3,
-          "output": 6
-        },
-        "id": "md-chat",
-        "limit": {
-          "context": 128000,
-          "output": 4096
-        },
-        "name": "MD Chat",
-        "reasoning": true,
-        "reasoning_options": [
-          {
-            "type": "effort",
-            "values": [
-              "low",
-              "high"
-            ]
-          }
-        ]
-      },
-      "md-messages": {
-        "id": "md-messages",
-        "limit": {
-          "context": 200000
-        },
-        "name": "MD Messages",
-        "npm": "@ai-sdk/anthropic",
-        "provider": {
-          "npm": "@ai-sdk/anthropic"
-        },
-        "reasoning": false
-      },
-      "md-responses": {
-        "id": "md-responses",
-        "limit": {
-          "context": 50000,
-          "output": 2000
-        },
-        "npm": "@ai-sdk/openai"
-      }
-    },
     "mimo": [
       {
-        "display_name": " MiMo V2.6 Pro ",
-        "id": "mimo-v2.6-pro"
+        "id": "mimo-v2.6-pro",
+        "display_name": " MiMo V2.6 Pro "
       },
       {
         "id": "mimo-v2.5-tts"
@@ -2385,16 +164,16 @@
         "id": "mimo-v2.5-asr-large"
       },
       {
-        "context_window": 500000,
-        "id": "MiMo-V2.6-Flash-0101"
+        "id": "MiMo-V2.6-Flash-0101",
+        "context_window": 500000
       },
       {
         "id": "mimo-v2-omni",
         "max_output_tokens": 9000
       },
       {
-        "display_name": "Unseeded",
-        "id": "mimo-vX-unseeded"
+        "id": "mimo-vX-unseeded",
+        "display_name": "Unseeded"
       },
       {
         "id": "mimo-effort",
@@ -2406,18 +185,18 @@
     ],
     "muse": [
       {
-        "context_window": 2000000,
         "id": "muse-spark-1.3",
-        "name": "Muse Spark 1.3"
+        "name": "Muse Spark 1.3",
+        "context_window": 2000000
       },
       {
-        "display_name": "muse spark 1.3 c",
-        "id": "muse-spark-1.3-contributor"
+        "id": "muse-spark-1.3-contributor",
+        "display_name": "muse spark 1.3 c"
       },
       {
-        "created": 1700000000,
         "id": "muse-spark-1.4",
-        "max_output_tokens": 99000
+        "max_output_tokens": 99000,
+        "created": 1700000000
       },
       {
         "id": "muse-spark-1.4-contributor"
@@ -2435,10 +214,2231 @@
         "id": "Muse-Voice-2"
       },
       {
-        "context_length": 4096,
         "id": "muse-other",
-        "name": " Other "
+        "name": " Other ",
+        "context_length": 4096
       }
-    ]
-  }
+    ],
+    "command": [
+      {
+        "id": "deepseek/deepseek-v4-flash",
+        "display_name": "DeepSeek V4 Flash",
+        "context_window": 128000
+      },
+      {
+        "id": "claude-sonnet-5",
+        "supported_endpoints": [
+          "/messages"
+        ],
+        "max_output_tokens": 64000
+      },
+      {
+        "id": "gpt-5.5",
+        "supported_endpoints": [
+          "/chat/completions",
+          "/responses"
+        ]
+      },
+      {
+        "id": "responses-only",
+        "supported_endpoints": [
+          "v1/responses"
+        ]
+      },
+      {
+        "id": "embedding-only",
+        "supported_endpoints": [
+          "/embeddings"
+        ]
+      },
+      {
+        "id": "no-endpoints",
+        "supported_endpoints": []
+      },
+      {
+        "id": "name-only",
+        "name": "Name Only"
+      }
+    ],
+    "goConfig": {
+      "providers": {
+        "opencode-go": {
+          "package": "@ai-sdk/openai-compatible",
+          "settings": {
+            "baseURL": "https://gateway.example/go/openai/v1"
+          },
+          "headers": {
+            "x-tenant": "fixture",
+            "x-bad": 7
+          },
+          "models": {
+            "go-chat": {
+              "name": " Go Chat ",
+              "limit": {
+                "context": 200000,
+                "output": 8000
+              },
+              "cost": {
+                "input": 1,
+                "output": 2,
+                "cache": {
+                  "read": 0.1,
+                  "write": 0
+                }
+              }
+            },
+            "go-responses": {
+              "package": "@ai-sdk/openai",
+              "limit": {
+                "context": 400000
+              },
+              "capabilities": {
+                "reasoning": {
+                  "supported": true,
+                  "effort": [
+                    "low",
+                    "high"
+                  ]
+                }
+              }
+            },
+            "go-messages": {
+              "package": "@ai-sdk/anthropic",
+              "capabilities": {
+                "reasoning": {
+                  "supported": false
+                }
+              }
+            },
+            "go-own-route": {
+              "settings": {
+                "baseURL": "https://other.example/v1"
+              },
+              "headers": {
+                "x-own": "y"
+              }
+            },
+            "go-other-package": {
+              "package": "@x/y"
+            },
+            "go-disabled": {
+              "disabled": true
+            },
+            "go-reasoning-bare": {
+              "capabilities": {
+                "reasoning": {
+                  "supported": true
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "goEmpty": {
+      "providers": {
+        "opencode-go": {
+          "settings": {
+            "baseURL": "https://gateway.example/go/openai/v1"
+          },
+          "models": {}
+        }
+      }
+    },
+    "goModelsDev": {
+      "md-chat": {
+        "id": "md-chat",
+        "name": "MD Chat",
+        "limit": {
+          "context": 128000,
+          "output": 4096
+        },
+        "cost": {
+          "input": 3,
+          "output": 6,
+          "cache_read": 0.3
+        },
+        "reasoning": true,
+        "reasoning_options": [
+          {
+            "type": "effort",
+            "values": [
+              "low",
+              "high"
+            ]
+          }
+        ]
+      },
+      "md-messages": {
+        "id": "md-messages",
+        "name": "MD Messages",
+        "provider": {
+          "npm": "@ai-sdk/anthropic"
+        },
+        "npm": "@ai-sdk/anthropic",
+        "limit": {
+          "context": 200000
+        },
+        "reasoning": false
+      },
+      "md-responses": {
+        "id": "md-responses",
+        "npm": "@ai-sdk/openai",
+        "limit": {
+          "context": 50000,
+          "output": 2000
+        }
+      }
+    }
+  },
+  "cases": [
+    {
+      "provider": "xai",
+      "scenario": "roster",
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://gateway.example/v1/models",
+          "headers": {
+            "authorization": "Bearer fixture-list-key"
+          }
+        }
+      ],
+      "rows": [
+        {
+          "id": "plain-model",
+          "name": "plain-model",
+          "provider": "xai",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null
+        },
+        {
+          "id": "limits-a",
+          "name": "limits-a",
+          "provider": "xai",
+          "contextWindow": 128000,
+          "outputTokens": 4096,
+          "created": null
+        },
+        {
+          "id": "limits-zero-first",
+          "name": "limits-zero-first",
+          "provider": "xai",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null
+        },
+        {
+          "id": "limits-string",
+          "name": "limits-string",
+          "provider": "xai",
+          "contextWindow": 32000,
+          "outputTokens": 2048,
+          "created": null
+        },
+        {
+          "id": "limits-top",
+          "name": "limits-top",
+          "provider": "xai",
+          "contextWindow": 200000,
+          "outputTokens": 8192,
+          "created": null
+        },
+        {
+          "id": "limits-camel",
+          "name": "limits-camel",
+          "provider": "xai",
+          "contextWindow": 16000,
+          "outputTokens": 1000,
+          "created": null
+        },
+        {
+          "id": "limits-negative",
+          "name": "limits-negative",
+          "provider": "xai",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null
+        },
+        {
+          "id": "mode-chat",
+          "name": "mode-chat",
+          "provider": "xai",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "mode": "chat"
+        },
+        {
+          "id": "mode-code",
+          "name": "mode-code",
+          "provider": "xai",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "mode": "completion"
+        },
+        {
+          "id": "mode-text-out",
+          "name": "mode-text-out",
+          "provider": "xai",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null
+        },
+        {
+          "id": "mode-caps-true",
+          "name": "mode-caps-true",
+          "provider": "xai",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "mode": "chat"
+        },
+        {
+          "id": "alias-string",
+          "name": "alias-string",
+          "provider": "xai",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "aliasTarget": "real/model-1"
+        },
+        {
+          "id": "alias-object",
+          "name": "alias-object",
+          "provider": "xai",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "aliasTarget": "real/model-2"
+        },
+        {
+          "id": "created-number",
+          "name": "created-number",
+          "provider": "xai",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": 1700000000
+        },
+        {
+          "id": "created-string",
+          "name": "created-string",
+          "provider": "xai",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null
+        },
+        {
+          "id": "effort-list",
+          "name": "effort-list",
+          "provider": "xai",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "supportsReasoning": true,
+          "reasoningLevels": [
+            "low",
+            "high",
+            "max"
+          ],
+          "reasoningOptions": [
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "high",
+                "max"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "effort-objects",
+          "name": "effort-objects",
+          "provider": "xai",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "supportsReasoning": true,
+          "reasoningLevels": [
+            "none",
+            "medium"
+          ],
+          "reasoningOptions": [
+            {
+              "type": "effort",
+              "values": [
+                "none",
+                "medium"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "effort-none-only",
+          "name": "effort-none-only",
+          "provider": "xai",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "supportsReasoning": false,
+          "reasoningLevels": [
+            "none"
+          ],
+          "reasoningOptions": [
+            {
+              "type": "effort",
+              "values": [
+                "none"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "effort-empty",
+          "name": "effort-empty",
+          "provider": "xai",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null
+        },
+        {
+          "id": "effort-flag",
+          "name": "effort-flag",
+          "provider": "xai",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "supportsReasoning": true
+        },
+        {
+          "id": "effort-caps-flag",
+          "name": "effort-caps-flag",
+          "provider": "xai",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "supportsReasoning": true
+        },
+        {
+          "id": "name-given",
+          "name": "name-given",
+          "provider": "xai",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null
+        }
+      ]
+    },
+    {
+      "provider": "deepseek",
+      "scenario": "roster",
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://gateway.example/v1/models",
+          "headers": {
+            "authorization": "Bearer fixture-list-key"
+          }
+        }
+      ],
+      "rows": [
+        {
+          "id": "plain-model",
+          "name": "plain-model",
+          "provider": "deepseek",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null
+        },
+        {
+          "id": "limits-a",
+          "name": "limits-a",
+          "provider": "deepseek",
+          "contextWindow": 128000,
+          "outputTokens": 4096,
+          "created": null
+        },
+        {
+          "id": "limits-zero-first",
+          "name": "limits-zero-first",
+          "provider": "deepseek",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null
+        },
+        {
+          "id": "limits-string",
+          "name": "limits-string",
+          "provider": "deepseek",
+          "contextWindow": 32000,
+          "outputTokens": 2048,
+          "created": null
+        },
+        {
+          "id": "limits-top",
+          "name": "limits-top",
+          "provider": "deepseek",
+          "contextWindow": 200000,
+          "outputTokens": 8192,
+          "created": null
+        },
+        {
+          "id": "limits-camel",
+          "name": "limits-camel",
+          "provider": "deepseek",
+          "contextWindow": 16000,
+          "outputTokens": 1000,
+          "created": null
+        },
+        {
+          "id": "limits-negative",
+          "name": "limits-negative",
+          "provider": "deepseek",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null
+        },
+        {
+          "id": "mode-chat",
+          "name": "mode-chat",
+          "provider": "deepseek",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "mode": "chat"
+        },
+        {
+          "id": "mode-code",
+          "name": "mode-code",
+          "provider": "deepseek",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "mode": "completion"
+        },
+        {
+          "id": "mode-text-out",
+          "name": "mode-text-out",
+          "provider": "deepseek",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null
+        },
+        {
+          "id": "mode-caps-true",
+          "name": "mode-caps-true",
+          "provider": "deepseek",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "mode": "chat"
+        },
+        {
+          "id": "alias-string",
+          "name": "alias-string",
+          "provider": "deepseek",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "aliasTarget": "real/model-1"
+        },
+        {
+          "id": "alias-object",
+          "name": "alias-object",
+          "provider": "deepseek",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "aliasTarget": "real/model-2"
+        },
+        {
+          "id": "created-number",
+          "name": "created-number",
+          "provider": "deepseek",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": 1700000000
+        },
+        {
+          "id": "created-string",
+          "name": "created-string",
+          "provider": "deepseek",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null
+        },
+        {
+          "id": "effort-list",
+          "name": "effort-list",
+          "provider": "deepseek",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "supportsReasoning": true,
+          "reasoningLevels": [
+            "low",
+            "high",
+            "max"
+          ],
+          "reasoningOptions": [
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "high",
+                "max"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "effort-objects",
+          "name": "effort-objects",
+          "provider": "deepseek",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "supportsReasoning": true,
+          "reasoningLevels": [
+            "none",
+            "medium"
+          ],
+          "reasoningOptions": [
+            {
+              "type": "effort",
+              "values": [
+                "none",
+                "medium"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "effort-none-only",
+          "name": "effort-none-only",
+          "provider": "deepseek",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "supportsReasoning": false,
+          "reasoningLevels": [
+            "none"
+          ],
+          "reasoningOptions": [
+            {
+              "type": "effort",
+              "values": [
+                "none"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "effort-empty",
+          "name": "effort-empty",
+          "provider": "deepseek",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null
+        },
+        {
+          "id": "effort-flag",
+          "name": "effort-flag",
+          "provider": "deepseek",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "supportsReasoning": true
+        },
+        {
+          "id": "effort-caps-flag",
+          "name": "effort-caps-flag",
+          "provider": "deepseek",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "supportsReasoning": true
+        },
+        {
+          "id": "name-given",
+          "name": "name-given",
+          "provider": "deepseek",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null
+        }
+      ]
+    },
+    {
+      "provider": "openrouter",
+      "scenario": "roster",
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://gateway.example/v1/models",
+          "headers": {
+            "authorization": "Bearer fixture-list-key"
+          }
+        }
+      ],
+      "rows": [
+        {
+          "id": "plain-model",
+          "name": "plain-model",
+          "provider": "openrouter",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null
+        },
+        {
+          "id": "limits-a",
+          "name": "limits-a",
+          "provider": "openrouter",
+          "contextWindow": 128000,
+          "outputTokens": 4096,
+          "created": null
+        },
+        {
+          "id": "limits-zero-first",
+          "name": "limits-zero-first",
+          "provider": "openrouter",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null
+        },
+        {
+          "id": "limits-string",
+          "name": "limits-string",
+          "provider": "openrouter",
+          "contextWindow": 32000,
+          "outputTokens": 2048,
+          "created": null
+        },
+        {
+          "id": "limits-top",
+          "name": "limits-top",
+          "provider": "openrouter",
+          "contextWindow": 200000,
+          "outputTokens": 8192,
+          "created": null
+        },
+        {
+          "id": "limits-camel",
+          "name": "limits-camel",
+          "provider": "openrouter",
+          "contextWindow": 16000,
+          "outputTokens": 1000,
+          "created": null
+        },
+        {
+          "id": "limits-negative",
+          "name": "limits-negative",
+          "provider": "openrouter",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null
+        },
+        {
+          "id": "mode-chat",
+          "name": "mode-chat",
+          "provider": "openrouter",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "mode": "chat"
+        },
+        {
+          "id": "mode-code",
+          "name": "mode-code",
+          "provider": "openrouter",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "mode": "completion"
+        },
+        {
+          "id": "mode-text-out",
+          "name": "mode-text-out",
+          "provider": "openrouter",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null
+        },
+        {
+          "id": "mode-caps-true",
+          "name": "mode-caps-true",
+          "provider": "openrouter",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "mode": "chat"
+        },
+        {
+          "id": "alias-string",
+          "name": "alias-string",
+          "provider": "openrouter",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "aliasTarget": "real/model-1"
+        },
+        {
+          "id": "alias-object",
+          "name": "alias-object",
+          "provider": "openrouter",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "aliasTarget": "real/model-2"
+        },
+        {
+          "id": "created-number",
+          "name": "created-number",
+          "provider": "openrouter",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": 1700000000
+        },
+        {
+          "id": "created-string",
+          "name": "created-string",
+          "provider": "openrouter",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null
+        },
+        {
+          "id": "effort-list",
+          "name": "effort-list",
+          "provider": "openrouter",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "supportsReasoning": true,
+          "reasoningLevels": [
+            "low",
+            "high",
+            "max"
+          ],
+          "reasoningOptions": [
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "high",
+                "max"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "effort-objects",
+          "name": "effort-objects",
+          "provider": "openrouter",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "supportsReasoning": true,
+          "reasoningLevels": [
+            "none",
+            "medium"
+          ],
+          "reasoningOptions": [
+            {
+              "type": "effort",
+              "values": [
+                "none",
+                "medium"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "effort-none-only",
+          "name": "effort-none-only",
+          "provider": "openrouter",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "supportsReasoning": false,
+          "reasoningLevels": [
+            "none"
+          ],
+          "reasoningOptions": [
+            {
+              "type": "effort",
+              "values": [
+                "none"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "effort-empty",
+          "name": "effort-empty",
+          "provider": "openrouter",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null
+        },
+        {
+          "id": "effort-flag",
+          "name": "effort-flag",
+          "provider": "openrouter",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "supportsReasoning": true
+        },
+        {
+          "id": "effort-caps-flag",
+          "name": "effort-caps-flag",
+          "provider": "openrouter",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "supportsReasoning": true
+        },
+        {
+          "id": "name-given",
+          "name": "name-given",
+          "provider": "openrouter",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null
+        }
+      ]
+    },
+    {
+      "provider": "deepseek",
+      "scenario": "bare-array",
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://gateway.example/v1/models",
+          "headers": {
+            "authorization": "Bearer fixture-list-key"
+          }
+        }
+      ],
+      "rows": [
+        {
+          "id": "plain-model",
+          "name": "plain-model",
+          "provider": "deepseek",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null
+        },
+        {
+          "id": "limits-a",
+          "name": "limits-a",
+          "provider": "deepseek",
+          "contextWindow": 128000,
+          "outputTokens": 4096,
+          "created": null
+        },
+        {
+          "id": "limits-zero-first",
+          "name": "limits-zero-first",
+          "provider": "deepseek",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null
+        },
+        {
+          "id": "limits-string",
+          "name": "limits-string",
+          "provider": "deepseek",
+          "contextWindow": 32000,
+          "outputTokens": 2048,
+          "created": null
+        }
+      ]
+    },
+    {
+      "provider": "deepseek",
+      "scenario": "refused",
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://gateway.example/v1/models",
+          "headers": {
+            "authorization": "Bearer fixture-list-key"
+          }
+        }
+      ],
+      "error": "deepseek models 403",
+      "status": 403
+    },
+    {
+      "provider": "mimo-oauth",
+      "scenario": "roster",
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.xiaomimimo.com/v1/models",
+          "headers": {
+            "authorization": "Bearer fixture-mimo-key",
+            "x-mimo-source": "mimocode-cli",
+            "accept": "application/json"
+          }
+        }
+      ],
+      "rows": [
+        {
+          "id": "mimo-v2.6-pro",
+          "name": "MiMo V2.6 Pro",
+          "provider": "mimo-oauth",
+          "contextWindow": 1048576,
+          "outputTokens": 131072,
+          "created": null,
+          "display": "MiMo V2.6 Pro",
+          "pricingTiers": [],
+          "pricingModel": "mimo-v2.6-pro",
+          "pricingProvider": "xiaomi",
+          "supportsVision": true,
+          "supportsReasoning": true,
+          "reasoningOptions": [],
+          "reasoningContentField": "reasoning_content",
+          "mode": null,
+          "reasoning": true,
+          "vision": true,
+          "inputModalities": [
+            "text",
+            "image"
+          ],
+          "reasoningLevels": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        {
+          "id": "MiMo-V2.6-Flash-0101",
+          "name": "MiMo-V2.6-Flash-0101",
+          "provider": "mimo-oauth",
+          "contextWindow": 500000,
+          "outputTokens": 131072,
+          "created": null,
+          "pricingTiers": [],
+          "pricingModel": "MiMo-V2.6-Flash-0101",
+          "pricingProvider": "xiaomi",
+          "supportsVision": true,
+          "supportsReasoning": true,
+          "reasoningOptions": [],
+          "reasoningContentField": "reasoning_content",
+          "mode": null,
+          "reasoning": true,
+          "vision": true,
+          "inputModalities": [
+            "text",
+            "image"
+          ],
+          "reasoningLevels": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        {
+          "id": "mimo-v2-omni",
+          "name": "mimo-v2-omni",
+          "provider": "mimo-oauth",
+          "contextWindow": 262144,
+          "outputTokens": 9000,
+          "created": null,
+          "pricingTiers": [],
+          "pricingModel": "mimo-v2-omni",
+          "pricingProvider": "xiaomi",
+          "supportsVision": true,
+          "supportsReasoning": true,
+          "reasoningOptions": [],
+          "reasoningContentField": "reasoning_content",
+          "mode": null,
+          "reasoning": true,
+          "vision": true,
+          "inputModalities": [
+            "text",
+            "image"
+          ],
+          "reasoningLevels": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        {
+          "id": "mimo-vX-unseeded",
+          "name": "Unseeded",
+          "provider": "mimo-oauth",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "display": "Unseeded",
+          "pricingTiers": [],
+          "pricingModel": "mimo-vX-unseeded",
+          "pricingProvider": "xiaomi",
+          "reasoningOptions": [],
+          "reasoningContentField": "reasoning_content",
+          "mode": null,
+          "reasoningLevels": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        {
+          "id": "mimo-effort",
+          "name": "mimo-effort",
+          "provider": "mimo-oauth",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "supportsReasoning": true,
+          "reasoningLevels": [
+            "low",
+            "high"
+          ],
+          "reasoningOptions": [
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "high"
+              ]
+            }
+          ],
+          "pricingTiers": [],
+          "pricingModel": "mimo-effort",
+          "pricingProvider": "xiaomi",
+          "reasoningContentField": "reasoning_content",
+          "mode": null
+        }
+      ]
+    },
+    {
+      "provider": "mimo-oauth",
+      "scenario": "empty-roster",
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.xiaomimimo.com/v1/models",
+          "headers": {
+            "authorization": "Bearer fixture-mimo-key",
+            "x-mimo-source": "mimocode-cli",
+            "accept": "application/json"
+          }
+        }
+      ],
+      "rows": [
+        {
+          "id": "mimo-v2.6-pro",
+          "name": "MiMo-V2.6-Pro",
+          "provider": "mimo-oauth",
+          "contextWindow": 1048576,
+          "outputTokens": 131072,
+          "created": null,
+          "display": "mimo-v2.6-pro",
+          "pricingModel": "mimo-v2.6-pro",
+          "pricingProvider": "xiaomi",
+          "supportsVision": true,
+          "supportsReasoning": true,
+          "reasoningOptions": [],
+          "reasoningContentField": "reasoning_content",
+          "mode": null,
+          "reasoning": true,
+          "vision": true,
+          "inputModalities": [
+            "text",
+            "image"
+          ],
+          "reasoningLevels": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        {
+          "id": "mimo-v2.6-flash",
+          "name": "MiMo-V2.6-Flash",
+          "provider": "mimo-oauth",
+          "contextWindow": 1048576,
+          "outputTokens": 131072,
+          "created": null,
+          "display": "mimo-v2.6-flash",
+          "pricingModel": "mimo-v2.6-flash",
+          "pricingProvider": "xiaomi",
+          "supportsVision": true,
+          "supportsReasoning": true,
+          "reasoningOptions": [],
+          "reasoningContentField": "reasoning_content",
+          "mode": null,
+          "reasoning": true,
+          "vision": true,
+          "inputModalities": [
+            "text",
+            "image"
+          ],
+          "reasoningLevels": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        {
+          "id": "mimo-v2.6-pro-ultraspeed",
+          "name": "MiMo-V2.6-Pro-Ultraspeed",
+          "provider": "mimo-oauth",
+          "contextWindow": 1048576,
+          "outputTokens": 131072,
+          "created": null,
+          "display": "mimo-v2.6-pro-ultraspeed",
+          "pricingModel": "mimo-v2.6-pro-ultraspeed",
+          "pricingProvider": "xiaomi",
+          "supportsVision": true,
+          "supportsReasoning": true,
+          "reasoningOptions": [],
+          "reasoningContentField": "reasoning_content",
+          "mode": null,
+          "reasoning": true,
+          "vision": true,
+          "inputModalities": [
+            "text",
+            "image"
+          ],
+          "reasoningLevels": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        {
+          "id": "mimo-v2.5-pro",
+          "name": "MiMo-V2.5-Pro",
+          "provider": "mimo-oauth",
+          "contextWindow": 1048576,
+          "outputTokens": 131072,
+          "created": null,
+          "display": "mimo-v2.5-pro",
+          "pricingModel": "mimo-v2.5-pro",
+          "pricingProvider": "xiaomi",
+          "supportsVision": true,
+          "supportsReasoning": true,
+          "reasoningOptions": [],
+          "reasoningContentField": "reasoning_content",
+          "mode": null,
+          "reasoning": true,
+          "vision": true,
+          "inputModalities": [
+            "text",
+            "image"
+          ],
+          "reasoningLevels": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        {
+          "id": "mimo-v2.5",
+          "name": "MiMo-V2.5",
+          "provider": "mimo-oauth",
+          "contextWindow": 1048576,
+          "outputTokens": 131072,
+          "created": null,
+          "display": "mimo-v2.5",
+          "pricingModel": "mimo-v2.5",
+          "pricingProvider": "xiaomi",
+          "supportsVision": true,
+          "supportsReasoning": true,
+          "reasoningOptions": [],
+          "reasoningContentField": "reasoning_content",
+          "mode": null,
+          "reasoning": true,
+          "vision": true,
+          "inputModalities": [
+            "text",
+            "image"
+          ],
+          "reasoningLevels": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        {
+          "id": "mimo-v2-pro",
+          "name": "MiMo-V2-Pro",
+          "provider": "mimo-oauth",
+          "contextWindow": 1048576,
+          "outputTokens": 131072,
+          "created": null,
+          "display": "mimo-v2-pro",
+          "pricingModel": "mimo-v2-pro",
+          "pricingProvider": "xiaomi",
+          "supportsVision": true,
+          "supportsReasoning": true,
+          "reasoningOptions": [],
+          "reasoningContentField": "reasoning_content",
+          "mode": null,
+          "reasoning": true,
+          "vision": true,
+          "inputModalities": [
+            "text",
+            "image"
+          ],
+          "reasoningLevels": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        {
+          "id": "mimo-v2-omni",
+          "name": "MiMo-V2-Omni",
+          "provider": "mimo-oauth",
+          "contextWindow": 262144,
+          "outputTokens": 131072,
+          "created": null,
+          "display": "mimo-v2-omni",
+          "pricingModel": "mimo-v2-omni",
+          "pricingProvider": "xiaomi",
+          "supportsVision": true,
+          "supportsReasoning": true,
+          "reasoningOptions": [],
+          "reasoningContentField": "reasoning_content",
+          "mode": null,
+          "reasoning": true,
+          "vision": true,
+          "inputModalities": [
+            "text",
+            "image"
+          ],
+          "reasoningLevels": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ]
+        }
+      ]
+    },
+    {
+      "provider": "mimo-oauth",
+      "scenario": "server-error",
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.xiaomimimo.com/v1/models",
+          "headers": {
+            "authorization": "Bearer fixture-mimo-key",
+            "x-mimo-source": "mimocode-cli",
+            "accept": "application/json"
+          }
+        }
+      ],
+      "rows": [
+        {
+          "id": "mimo-v2.6-pro",
+          "name": "MiMo-V2.6-Pro",
+          "provider": "mimo-oauth",
+          "contextWindow": 1048576,
+          "outputTokens": 131072,
+          "created": null,
+          "display": "mimo-v2.6-pro",
+          "pricingModel": "mimo-v2.6-pro",
+          "pricingProvider": "xiaomi",
+          "supportsVision": true,
+          "supportsReasoning": true,
+          "reasoningOptions": [],
+          "reasoningContentField": "reasoning_content",
+          "mode": null,
+          "reasoning": true,
+          "vision": true,
+          "inputModalities": [
+            "text",
+            "image"
+          ],
+          "reasoningLevels": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        {
+          "id": "mimo-v2.6-flash",
+          "name": "MiMo-V2.6-Flash",
+          "provider": "mimo-oauth",
+          "contextWindow": 1048576,
+          "outputTokens": 131072,
+          "created": null,
+          "display": "mimo-v2.6-flash",
+          "pricingModel": "mimo-v2.6-flash",
+          "pricingProvider": "xiaomi",
+          "supportsVision": true,
+          "supportsReasoning": true,
+          "reasoningOptions": [],
+          "reasoningContentField": "reasoning_content",
+          "mode": null,
+          "reasoning": true,
+          "vision": true,
+          "inputModalities": [
+            "text",
+            "image"
+          ],
+          "reasoningLevels": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        {
+          "id": "mimo-v2.6-pro-ultraspeed",
+          "name": "MiMo-V2.6-Pro-Ultraspeed",
+          "provider": "mimo-oauth",
+          "contextWindow": 1048576,
+          "outputTokens": 131072,
+          "created": null,
+          "display": "mimo-v2.6-pro-ultraspeed",
+          "pricingModel": "mimo-v2.6-pro-ultraspeed",
+          "pricingProvider": "xiaomi",
+          "supportsVision": true,
+          "supportsReasoning": true,
+          "reasoningOptions": [],
+          "reasoningContentField": "reasoning_content",
+          "mode": null,
+          "reasoning": true,
+          "vision": true,
+          "inputModalities": [
+            "text",
+            "image"
+          ],
+          "reasoningLevels": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        {
+          "id": "mimo-v2.5-pro",
+          "name": "MiMo-V2.5-Pro",
+          "provider": "mimo-oauth",
+          "contextWindow": 1048576,
+          "outputTokens": 131072,
+          "created": null,
+          "display": "mimo-v2.5-pro",
+          "pricingModel": "mimo-v2.5-pro",
+          "pricingProvider": "xiaomi",
+          "supportsVision": true,
+          "supportsReasoning": true,
+          "reasoningOptions": [],
+          "reasoningContentField": "reasoning_content",
+          "mode": null,
+          "reasoning": true,
+          "vision": true,
+          "inputModalities": [
+            "text",
+            "image"
+          ],
+          "reasoningLevels": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        {
+          "id": "mimo-v2.5",
+          "name": "MiMo-V2.5",
+          "provider": "mimo-oauth",
+          "contextWindow": 1048576,
+          "outputTokens": 131072,
+          "created": null,
+          "display": "mimo-v2.5",
+          "pricingModel": "mimo-v2.5",
+          "pricingProvider": "xiaomi",
+          "supportsVision": true,
+          "supportsReasoning": true,
+          "reasoningOptions": [],
+          "reasoningContentField": "reasoning_content",
+          "mode": null,
+          "reasoning": true,
+          "vision": true,
+          "inputModalities": [
+            "text",
+            "image"
+          ],
+          "reasoningLevels": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        {
+          "id": "mimo-v2-pro",
+          "name": "MiMo-V2-Pro",
+          "provider": "mimo-oauth",
+          "contextWindow": 1048576,
+          "outputTokens": 131072,
+          "created": null,
+          "display": "mimo-v2-pro",
+          "pricingModel": "mimo-v2-pro",
+          "pricingProvider": "xiaomi",
+          "supportsVision": true,
+          "supportsReasoning": true,
+          "reasoningOptions": [],
+          "reasoningContentField": "reasoning_content",
+          "mode": null,
+          "reasoning": true,
+          "vision": true,
+          "inputModalities": [
+            "text",
+            "image"
+          ],
+          "reasoningLevels": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        {
+          "id": "mimo-v2-omni",
+          "name": "MiMo-V2-Omni",
+          "provider": "mimo-oauth",
+          "contextWindow": 262144,
+          "outputTokens": 131072,
+          "created": null,
+          "display": "mimo-v2-omni",
+          "pricingModel": "mimo-v2-omni",
+          "pricingProvider": "xiaomi",
+          "supportsVision": true,
+          "supportsReasoning": true,
+          "reasoningOptions": [],
+          "reasoningContentField": "reasoning_content",
+          "mode": null,
+          "reasoning": true,
+          "vision": true,
+          "inputModalities": [
+            "text",
+            "image"
+          ],
+          "reasoningLevels": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ]
+        }
+      ]
+    },
+    {
+      "provider": "mimo-oauth",
+      "scenario": "unauthorized",
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.xiaomimimo.com/v1/models",
+          "headers": {
+            "authorization": "Bearer fixture-mimo-key",
+            "x-mimo-source": "mimocode-cli",
+            "accept": "application/json"
+          }
+        }
+      ],
+      "error": "[mimo-oauth] API key rejected (401) — open /providers in mixdog to sign in again: mimo-oauth models 401",
+      "status": 401
+    },
+    {
+      "provider": "muse-code-oauth",
+      "scenario": "roster",
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.meta.ai/v1/models",
+          "headers": {
+            "authorization": "Bearer fixture-muse-key",
+            "accept": "application/json",
+            "x-api-version": "1.0.0"
+          }
+        }
+      ],
+      "rows": [
+        {
+          "id": "muse-spark-1.3",
+          "provider": "muse-code-oauth",
+          "family": "muse-spark",
+          "contextWindow": 2000000,
+          "outputTokens": 131072,
+          "inputCostPerM": 1.25,
+          "outputCostPerM": 4.25,
+          "cacheReadCostPerM": 0.15,
+          "cacheWriteCostPerM": 0,
+          "supportsReasoning": true,
+          "supportsVision": true,
+          "supportsFunctionCalling": true,
+          "reasoningOptions": [
+            {
+              "type": "effort",
+              "values": [
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ]
+            }
+          ],
+          "name": "Muse Spark 1.3",
+          "reasoningLevels": [
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        },
+        {
+          "id": "muse-spark-1.3-contributor",
+          "provider": "muse-code-oauth",
+          "family": "muse-spark",
+          "contextWindow": 1048576,
+          "outputTokens": 131072,
+          "inputCostPerM": 0.1,
+          "outputCostPerM": 0.2,
+          "cacheReadCostPerM": 0.002,
+          "cacheWriteCostPerM": 0,
+          "supportsReasoning": true,
+          "supportsVision": true,
+          "supportsFunctionCalling": true,
+          "reasoningOptions": [
+            {
+              "type": "effort",
+              "values": [
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ]
+            }
+          ],
+          "name": "muse spark 1.3 c",
+          "reasoningLevels": [
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        },
+        {
+          "id": "muse-spark-1.4",
+          "provider": "muse-code-oauth",
+          "family": "muse-spark",
+          "contextWindow": 1048576,
+          "outputTokens": 99000,
+          "inputCostPerM": 1.25,
+          "outputCostPerM": 4.25,
+          "cacheReadCostPerM": 0.15,
+          "cacheWriteCostPerM": 0,
+          "supportsReasoning": true,
+          "supportsVision": true,
+          "supportsFunctionCalling": true,
+          "reasoningOptions": [
+            {
+              "type": "effort",
+              "values": [
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "xhigh"
+              ]
+            }
+          ],
+          "created": 1700000000,
+          "name": "Muse Spark 1.4",
+          "reasoningLevels": [
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ]
+        },
+        {
+          "id": "muse-spark-1.4-contributor",
+          "provider": "muse-code-oauth",
+          "family": "muse-spark",
+          "contextWindow": 1048576,
+          "outputTokens": 131072,
+          "inputCostPerM": 0.1,
+          "outputCostPerM": 0.2,
+          "cacheReadCostPerM": 0.002,
+          "cacheWriteCostPerM": 0,
+          "supportsReasoning": true,
+          "supportsVision": true,
+          "supportsFunctionCalling": true,
+          "reasoningOptions": [
+            {
+              "type": "effort",
+              "values": [
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "xhigh"
+              ]
+            }
+          ],
+          "name": "Muse Spark 1.4 (C)",
+          "reasoningLevels": [
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ]
+        },
+        {
+          "id": "muse-spark-2.0.1",
+          "provider": "muse-code-oauth",
+          "family": "muse-spark",
+          "contextWindow": 1048576,
+          "outputTokens": 131072,
+          "inputCostPerM": 1.25,
+          "outputCostPerM": 4.25,
+          "cacheReadCostPerM": 0.15,
+          "cacheWriteCostPerM": 0,
+          "supportsReasoning": true,
+          "supportsVision": true,
+          "supportsFunctionCalling": true,
+          "reasoningOptions": [
+            {
+              "type": "effort",
+              "values": [
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "xhigh"
+              ]
+            }
+          ],
+          "name": "Muse Spark 2.0.1",
+          "reasoningLevels": [
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ]
+        },
+        {
+          "id": "muse-spark-1.3.0",
+          "provider": "muse-code-oauth",
+          "family": "muse-spark",
+          "contextWindow": 1048576,
+          "outputTokens": 131072,
+          "inputCostPerM": 1.25,
+          "outputCostPerM": 4.25,
+          "cacheReadCostPerM": 0.15,
+          "cacheWriteCostPerM": 0,
+          "supportsReasoning": true,
+          "supportsVision": true,
+          "supportsFunctionCalling": true,
+          "reasoningOptions": [
+            {
+              "type": "effort",
+              "values": [
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "xhigh"
+              ]
+            }
+          ],
+          "name": "Muse Spark 1.3",
+          "reasoningLevels": [
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ]
+        },
+        {
+          "id": "muse-other",
+          "provider": "muse-code-oauth",
+          "family": "muse-spark",
+          "name": "Other",
+          "contextWindow": 4096,
+          "reasoningOptions": [
+            {
+              "type": "effort",
+              "values": [
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "xhigh"
+              ]
+            }
+          ],
+          "reasoningLevels": [
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ]
+        }
+      ]
+    },
+    {
+      "provider": "muse-code-oauth",
+      "scenario": "empty-roster",
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.meta.ai/v1/models",
+          "headers": {
+            "authorization": "Bearer fixture-muse-key",
+            "accept": "application/json",
+            "x-api-version": "1.0.0"
+          }
+        }
+      ],
+      "rows": []
+    },
+    {
+      "provider": "command-code-oauth",
+      "scenario": "roster",
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.commandcode.ai/provider/v1/models",
+          "headers": {
+            "accept": "application/json",
+            "authorization": "Bearer fixture-command-key"
+          }
+        }
+      ],
+      "rows": [
+        {
+          "id": "deepseek/deepseek-v4-flash",
+          "name": "deepseek/deepseek-v4-flash",
+          "provider": "command-code-oauth",
+          "contextWindow": 128000,
+          "outputTokens": null,
+          "created": null,
+          "display": "DeepSeek V4 Flash",
+          "pricingTiers": [],
+          "pricingModel": "deepseek/deepseek-v4-flash",
+          "pricingProvider": "command-code-oauth",
+          "reasoningOptions": [],
+          "reasoningContentField": null,
+          "mode": null
+        },
+        {
+          "id": "claude-sonnet-5",
+          "name": "claude-sonnet-5",
+          "provider": "command-code-oauth",
+          "contextWindow": null,
+          "outputTokens": 64000,
+          "created": null,
+          "pricingTiers": [],
+          "pricingModel": "claude-sonnet-5",
+          "pricingProvider": "command-code-oauth",
+          "reasoningOptions": [],
+          "reasoningContentField": null,
+          "mode": null
+        },
+        {
+          "id": "gpt-5.5",
+          "name": "gpt-5.5",
+          "provider": "command-code-oauth",
+          "contextWindow": null,
+          "outputTokens": null,
+          "created": null,
+          "pricingTiers": [],
+          "pricingModel": "gpt-5.5",
+          "pricingProvider": "command-code-oauth",
+          "reasoningOptions": [],
+          "reasoningContentField": null,
+          "mode": null
+        },
+        {
+          "id": "responses-only",
+          "name": "responses-only",
+          "provider": "command-code-oauth",
+          "contextWindow": null,
+          "outputTokens": null,
+          "created": null,
+          "pricingTiers": [],
+          "pricingModel": "responses-only",
+          "pricingProvider": "command-code-oauth",
+          "reasoningOptions": [],
+          "reasoningContentField": null,
+          "mode": null
+        },
+        {
+          "id": "name-only",
+          "name": "name-only",
+          "provider": "command-code-oauth",
+          "contextWindow": null,
+          "outputTokens": null,
+          "created": null,
+          "display": "Name Only",
+          "pricingTiers": [],
+          "pricingModel": "name-only",
+          "pricingProvider": "command-code-oauth",
+          "reasoningOptions": [],
+          "reasoningContentField": null,
+          "mode": null
+        }
+      ]
+    },
+    {
+      "provider": "command-code-oauth",
+      "scenario": "unauthorized",
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.commandcode.ai/provider/v1/models",
+          "headers": {
+            "accept": "application/json",
+            "authorization": "Bearer fixture-command-key"
+          }
+        }
+      ],
+      "error": "[command-code-oauth] API key rejected (401) — open /providers in mixdog to sign in again: {\"error\":\"no\"}",
+      "status": 401
+    },
+    {
+      "provider": "opencode-go-oauth",
+      "scenario": "config",
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://opencode.ai/console/api/v2/config",
+          "headers": {
+            "accept": "application/json",
+            "authorization": "Bearer fixture-go-access",
+            "x-org-id": "org-1"
+          }
+        }
+      ],
+      "rows": [
+        {
+          "contextWindow": 200000,
+          "outputTokens": 8000,
+          "reasoningOptions": [],
+          "reasoningContentField": null,
+          "mode": null,
+          "displayName": "Go Chat",
+          "name": "Go Chat",
+          "rawProviderModel": {
+            "id": "go-chat",
+            "provider": "opencode-go-oauth",
+            "name": "Go Chat",
+            "contextWindow": 200000,
+            "outputTokens": 8000,
+            "inputCostPerM": 1,
+            "outputCostPerM": 2,
+            "cacheReadCostPerM": 0.1,
+            "cacheWriteCostPerM": 0,
+            "wire": "chat"
+          },
+          "pricingModel": "go-chat",
+          "pricingProvider": "opencode-go",
+          "id": "go-chat",
+          "provider": "opencode-go-oauth",
+          "inputCostPerM": 1,
+          "outputCostPerM": 2,
+          "cacheReadCostPerM": 0.1,
+          "cacheWriteCostPerM": 0
+        },
+        {
+          "contextWindow": 400000,
+          "outputTokens": null,
+          "supportsReasoning": true,
+          "reasoningOptions": [
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "high"
+              ]
+            }
+          ],
+          "reasoningContentField": null,
+          "mode": null,
+          "displayName": "go-responses",
+          "name": "go-responses",
+          "rawProviderModel": {
+            "id": "go-responses",
+            "provider": "opencode-go-oauth",
+            "name": "go-responses",
+            "contextWindow": 400000,
+            "supportsReasoning": true,
+            "reasoningOptions": [
+              {
+                "type": "effort",
+                "values": [
+                  "low",
+                  "high"
+                ]
+              }
+            ],
+            "reasoningLevels": [
+              "low",
+              "high"
+            ],
+            "wire": "responses"
+          },
+          "pricingModel": "go-responses",
+          "pricingProvider": "opencode-go",
+          "id": "go-responses",
+          "provider": "opencode-go-oauth",
+          "reasoningLevels": [
+            "low",
+            "high"
+          ]
+        },
+        {
+          "contextWindow": null,
+          "outputTokens": null,
+          "supportsReasoning": false,
+          "reasoningOptions": [],
+          "reasoningContentField": null,
+          "mode": null,
+          "displayName": "go-messages",
+          "name": "go-messages",
+          "rawProviderModel": {
+            "id": "go-messages",
+            "provider": "opencode-go-oauth",
+            "name": "go-messages",
+            "supportsReasoning": false,
+            "reasoningOptions": [],
+            "reasoningLevels": [],
+            "wire": "messages"
+          },
+          "pricingModel": "go-messages",
+          "pricingProvider": "opencode-go",
+          "id": "go-messages",
+          "provider": "opencode-go-oauth",
+          "reasoningLevels": []
+        },
+        {
+          "contextWindow": null,
+          "outputTokens": null,
+          "reasoningOptions": [],
+          "reasoningContentField": null,
+          "mode": null,
+          "displayName": "go-own-route",
+          "name": "go-own-route",
+          "rawProviderModel": {
+            "id": "go-own-route",
+            "provider": "opencode-go-oauth",
+            "name": "go-own-route",
+            "wire": "chat",
+            "baseURL": "https://other.example/v1",
+            "headers": {
+              "x-own": "y"
+            }
+          },
+          "pricingModel": "go-own-route",
+          "pricingProvider": "opencode-go",
+          "id": "go-own-route",
+          "provider": "opencode-go-oauth"
+        },
+        {
+          "contextWindow": null,
+          "outputTokens": null,
+          "reasoningOptions": [],
+          "reasoningContentField": null,
+          "mode": null,
+          "displayName": "go-other-package",
+          "name": "go-other-package",
+          "rawProviderModel": {
+            "id": "go-other-package",
+            "provider": "opencode-go-oauth",
+            "name": "go-other-package"
+          },
+          "pricingModel": "go-other-package",
+          "pricingProvider": "opencode-go",
+          "id": "go-other-package",
+          "provider": "opencode-go-oauth"
+        },
+        {
+          "contextWindow": null,
+          "outputTokens": null,
+          "supportsReasoning": true,
+          "reasoningOptions": [],
+          "reasoningContentField": null,
+          "mode": null,
+          "displayName": "go-reasoning-bare",
+          "name": "go-reasoning-bare",
+          "rawProviderModel": {
+            "id": "go-reasoning-bare",
+            "provider": "opencode-go-oauth",
+            "name": "go-reasoning-bare",
+            "supportsReasoning": true,
+            "wire": "chat"
+          },
+          "pricingModel": "go-reasoning-bare",
+          "pricingProvider": "opencode-go",
+          "id": "go-reasoning-bare",
+          "provider": "opencode-go-oauth"
+        }
+      ]
+    },
+    {
+      "provider": "opencode-go-oauth",
+      "scenario": "config-empty-models-dev",
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://opencode.ai/console/api/v2/config",
+          "headers": {
+            "accept": "application/json",
+            "authorization": "Bearer fixture-go-access",
+            "x-org-id": "org-1"
+          }
+        }
+      ],
+      "rows": [
+        {
+          "contextWindow": 128000,
+          "outputTokens": 4096,
+          "inputCostPerM": 3,
+          "outputCostPerM": 6,
+          "cacheReadCostPerM": 0.3,
+          "cacheWriteCostPerM": null,
+          "pricingTiers": [],
+          "outputImageCostPerM": null,
+          "outputVideoCostPerM": null,
+          "outputCostPerImage": null,
+          "outputCostPerSecond": null,
+          "outputCostPerSecondByResolution": {},
+          "supportsPromptCaching": true,
+          "supportsReasoning": true,
+          "reasoningOptions": [
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "high"
+              ]
+            }
+          ],
+          "reasoningContentField": null,
+          "mode": "chat",
+          "pricingSource": "models.dev",
+          "displayName": "MD Chat",
+          "pricingModel": "md-chat",
+          "pricingProvider": "opencode-go",
+          "id": "md-chat",
+          "provider": "opencode-go-oauth",
+          "name": "MD Chat",
+          "reasoningLevels": [
+            "low",
+            "high"
+          ]
+        },
+        {
+          "contextWindow": 200000,
+          "outputTokens": null,
+          "inputCostPerM": null,
+          "outputCostPerM": null,
+          "cacheReadCostPerM": null,
+          "cacheWriteCostPerM": null,
+          "pricingTiers": [],
+          "outputImageCostPerM": null,
+          "outputVideoCostPerM": null,
+          "outputCostPerImage": null,
+          "outputCostPerSecond": null,
+          "outputCostPerSecondByResolution": {},
+          "supportsReasoning": false,
+          "reasoningOptions": [],
+          "reasoningContentField": null,
+          "mode": "chat",
+          "pricingSource": null,
+          "displayName": "MD Messages",
+          "pricingModel": "md-messages",
+          "pricingProvider": "opencode-go",
+          "id": "md-messages",
+          "provider": "opencode-go-oauth",
+          "name": "MD Messages",
+          "reasoningLevels": []
+        },
+        {
+          "contextWindow": 50000,
+          "outputTokens": 2000,
+          "inputCostPerM": null,
+          "outputCostPerM": null,
+          "cacheReadCostPerM": null,
+          "cacheWriteCostPerM": null,
+          "pricingTiers": [],
+          "outputImageCostPerM": null,
+          "outputVideoCostPerM": null,
+          "outputCostPerImage": null,
+          "outputCostPerSecond": null,
+          "outputCostPerSecondByResolution": {},
+          "reasoningOptions": [],
+          "reasoningContentField": null,
+          "mode": "chat",
+          "pricingSource": null,
+          "displayName": null,
+          "pricingModel": "md-responses",
+          "pricingProvider": "opencode-go",
+          "id": "md-responses",
+          "provider": "opencode-go-oauth",
+          "name": "md-responses"
+        }
+      ]
+    },
+    {
+      "provider": "opencode-go-oauth",
+      "scenario": "config-without-provider",
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://opencode.ai/console/api/v2/config",
+          "headers": {
+            "accept": "application/json",
+            "authorization": "Bearer fixture-go-access",
+            "x-org-id": "org-1"
+          }
+        }
+      ],
+      "error": "[opencode-go-oauth] the OpenCode organization config has no OpenCode Go provider",
+      "status": null
+    }
+  ]
 }

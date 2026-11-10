@@ -1,25 +1,26 @@
 {
-  "command": "node benchmarks/rust-core/recorders/model-lists/record.mjs --tree <tree> --set statusline",
+  "command": "node benchmarks/rust-core/recorders/model-lists/record.mjs --tree <tree> --set statusline --commit 7f633e7305166c5fc8ee66464859ab7de7b60b4d",
   "fileCount": 1,
   "files": [
     {
       "bytes": 41202,
       "path": "node-model-lists.json",
-      "sha256": "4a0c3b7a8541e85d19a9e2247906743fbc12dd97f809bf33f8832594f28303da"
+      "sha256": "fe07cce151458878f1e5837d69483636fce2d38753c7c1ec5d1670c3d05a46a5"
     }
   ],
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
-    "commit": "b6f10295a2f698afc85332467192de28500bd146",
-    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
-    "files": 9139,
+    "commit": "7f633e7305166c5fc8ee66464859ab7de7b60b4d",
+    "comparedAgainst": "7f633e7305166c5fc8ee66464859ab7de7b60b4d",
+    "exact": true,
+    "files": 9142,
     "refComparison": {
-      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "closestCommit": "7f633e7305166c5fc8ee66464859ab7de7b60b4d",
       "commitFilesMissingFromTree": 0,
       "exact": true,
       "filesDifferingFromCommit": 0
     },
-    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "srcSha256": "938d5325e28e2ad94621b1dec936ddda2ad4212305e7463fe2be9dcf404d8387",
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
     "version": "1.4.5"

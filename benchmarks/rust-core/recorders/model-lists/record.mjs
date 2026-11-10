@@ -114,10 +114,13 @@ else rmSync(RUN_ROOT, { recursive: true, force: true });
 // `--only` re-records one scenario into the fixture and leaves the others as they were recorded.
 const kept = only ? JSON.parse(readFileSync(OUT, 'utf8')).scenarios.filter((s) => s.name !== only) : [];
 writeFileSync(OUT, JSON.stringify({ baseURL: '__BASE_URL__', seeds, scenarios: [...kept, ...recorded] }, null, 2).replaceAll(baseURL, '__BASE_URL__'));
-// A named set is a recording of its own: its manifest names the Node commit and says whether the loaded tree is exactly it.
-if (setName) {
+// Every set is a recording of its own: its manifest names the Node commit and says whether the loaded tree is exactly it.
+// The unnamed set got one only from 7f633e730 on, and only from a full run.
+if (setName || !only) {
   const { writeSetManifest, exactProductIdentity } = await import('../lib/common.mjs');
-  const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
+  const commitAt = process.argv.indexOf('--commit');
+  const NODE_COMMIT = commitAt < 0 ? 'b6f10295a2f698afc85332467192de28500bd146' : process.argv[commitAt + 1];
   const recorder = 'benchmarks/rust-core/recorders/model-lists/record.mjs';
-  writeSetManifest(dirname(OUT), { set: `model-lists-${setName}`, recorder, command: `node ${recorder} --tree <tree> --set ${setName}`, identity: exactProductIdentity(NODE_TREE, NODE_COMMIT) });
+  const setArg = setName ? ` --set ${setName}` : '';
+  writeSetManifest(dirname(OUT), { set: setName ? `model-lists-${setName}` : 'model-lists', recorder, command: `node ${recorder} --tree <tree>${setArg} --commit ${NODE_COMMIT}`, identity: exactProductIdentity(NODE_TREE, NODE_COMMIT) });
 }

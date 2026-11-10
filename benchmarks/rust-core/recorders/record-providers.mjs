@@ -9,22 +9,14 @@
 // Output: native/core/fixtures/providers/<provider>/<scenario>/{request.json,
 // response.sse,result.json}; plus providers/oracles/ (copies of the repo's
 // existing parity fixtures) and providers/MANIFEST.json.
-import { cpSync, existsSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { cpSync, existsSync, statSync } from 'node:fs';
 import http from 'node:http';
-import { join } from 'node:path';
-import { recordAnthropicEffort } from './record-anthropic-effort.mjs';
-import { recordAnthropicModels } from './record-anthropic-models.mjs';
-import { recordAnthropicSharedPrefix } from './record-anthropic-shared-prefix.mjs';
-import { recordCompatListing } from './record-compat-listing.mjs';
-import { recordChatParts } from './record-chat-parts.mjs';
-import { recordCustomListing } from './record-custom-listing.mjs';
-import { recordListingMisc } from './record-listing-misc.mjs';
-import { recordWireRoute } from './record-wire-route.mjs';
-import { recordXaiCacheRouting } from './record-xai-cache-routing.mjs';
-import { recordXaiResponsesContinuation } from './record-xai-responses-continuation.mjs';
+import { dirname, join, relative, sep } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { installDeterminism } from './lib/determinism.mjs';
 import { cleanHeaders } from './lib/headers.mjs';
-import { FIXTURES_ROOT, commitStage, stageSet, importFrom, parseArgs, resolveTree, stableStringify, writeJson, writeSetManifest, writeText } from './lib/common.mjs';
+import { FIXTURES_ROOT, commitStage, exactProductIdentity, stageSet, walkFiles, importFrom, parseArgs, resolveTree, stableStringify, writeJson, writeSetManifest, writeText } from './lib/common.mjs';
 
 const args = parseArgs();
 const tree = resolveTree(args);
@@ -32,6 +24,8 @@ const finalDir = join(FIXTURES_ROOT, 'providers');
 // Written into a staging copy and swapped in at the end; `oracles/` belongs to
 // the provider work packages (re-recorded from newer HEADs), so it is kept.
 const setDir = stageSet(finalDir, ['anthropic', 'openai-compat-chat', 'mixdog-local', 'openai-responses-http-sse', 'request-builders']);
+// The copied files this run never rewrites came from other recorders or by hand; the manifest names them.
+const copiedAt = new Map(walkFiles(setDir).map((f) => [f, statSync(f).mtimeMs]));
 
 const P = 'src/runtime/agent/orchestrator/providers';
 const KEY = 'fixture-key-not-a-credential';
@@ -253,24 +247,38 @@ for (const f of ['openai-responses-payload-parity.fixture.json', 'openai-compat-
 if (!existsSync(join(setDir, 'oracles', 'native-request-bytes.head.json'))) cpSync(join(tree, 'scripts/tool-contracts/native-request-bytes.head.json'), join(setDir, 'oracles', 'native-request-bytes.head.json'));
 
 // Owned by WP-AI-ANTHROPIC's recorders; regenerated here, before the manifest write, so the staged set always has them.
-await recordAnthropicEffort(tree, join(setDir, 'anthropic-effort', 'cases.json'));
-await recordAnthropicSharedPrefix(tree, join(setDir, 'anthropic-shared-prefix', 'cases.json'));
-await recordAnthropicModels(tree, join(setDir, 'anthropic-models', 'cases.json'));
-await recordXaiResponsesContinuation(tree, join(setDir, 'oracles', 'xai-responses-continuation.json'));
-await recordXaiCacheRouting(tree, join(setDir, 'oracles', 'xai-cache-routing.json'));
-await recordWireRoute(tree, join(setDir, 'oracles', 'wire-route.json'));
-await recordCompatListing(tree, join(setDir, 'oracles', 'compat-listing.json'));
-await recordCustomListing(tree, join(setDir, 'oracles', 'custom-listing.json'));
-await recordChatParts(tree, join(setDir, 'oracles', 'chat-parts-messages.json'));
+// Each runs in its own process: they install process-wide state (data dir, fetch, cached product modules), and in
+// this process the scenarios above and the earlier recorders leak into the later ones (the anthropic-oauth listing
+// came out as the offline list instead of the served one).
+function isolated(file, name, ...callArgs) {
+  const url = pathToFileURL(join(dirname(fileURLToPath(import.meta.url)), file)).href;
+  execFileSync(process.execPath, ['--input-type=module', '-e', `const m = await import(${JSON.stringify(url)}); await m[${JSON.stringify(name)}](...${JSON.stringify(callArgs)});`, 'record-providers:isolated'], { stdio: 'inherit', timeout: 600_000 });
+}
+isolated('record-anthropic-effort.mjs', 'recordAnthropicEffort', tree, join(setDir, 'anthropic-effort', 'cases.json'));
+isolated('record-anthropic-shared-prefix.mjs', 'recordAnthropicSharedPrefix', tree, join(setDir, 'anthropic-shared-prefix', 'cases.json'));
+isolated('record-anthropic-models.mjs', 'recordAnthropicModels', tree, join(setDir, 'anthropic-models', 'cases.json'));
+isolated('record-xai-responses-continuation.mjs', 'recordXaiResponsesContinuation', tree, join(setDir, 'oracles', 'xai-responses-continuation.json'));
+isolated('record-xai-cache-routing.mjs', 'recordXaiCacheRouting', tree, join(setDir, 'oracles', 'xai-cache-routing.json'));
+isolated('record-wire-route.mjs', 'recordWireRoute', tree, join(setDir, 'oracles', 'wire-route.json'));
+isolated('record-compat-listing.mjs', 'recordCompatListing', tree, join(setDir, 'oracles', 'compat-listing.json'));
+isolated('record-custom-listing.mjs', 'recordCustomListing', tree, join(setDir, 'oracles', 'custom-listing.json'));
+isolated('record-chat-parts.mjs', 'recordChatParts', tree, join(setDir, 'oracles', 'chat-parts-messages.json'));
 // WP-AI-LISTING-MISC: the grok-, cursor-, devin- and local-models cases.
-await recordListingMisc(tree, setDir);
+isolated('record-listing-misc.mjs', 'recordListingMisc', tree, setDir);
 
+// `--commit <full id>`: the tree is a `git archive` export that must be exactly that commit, and the manifest says so.
+const commit = args.get('commit');
 writeSetManifest(setDir, {
   set: 'providers',
   recorder: 'benchmarks/rust-core/recorders/record-providers.mjs',
-  command: 'node benchmarks/rust-core/recorders/record-providers.mjs --tree <tree with node_modules>',
+  command: `node benchmarks/rust-core/recorders/record-providers.mjs --tree <tree with node_modules>${commit ? ` --commit ${commit}` : ''}`,
+  ...(commit ? { identity: exactProductIdentity(tree, commit) } : {}),
   extra: {
     scenarios: recorded.sort(),
+    notFromThisRun: [...copiedAt]
+      .filter(([f, at]) => f !== join(setDir, 'MANIFEST.json') && existsSync(f) && statSync(f).mtimeMs === at)
+      .map(([f]) => relative(setDir, f).split(sep).join('/'))
+      .sort(),
     // Hand-authored by their work packages (no recorder); kept by the staged copy and only hashed here.
     externalFixtures: [
       'gemini-explicit-cache/cases.json (WP-AI-GOOGLE)',

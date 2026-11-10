@@ -1,0 +1,31 @@
+{
+  "command": "node benchmarks/rust-core/recorders/model-lists/record.mjs --tree <tree> --commit 7f633e7305166c5fc8ee66464859ab7de7b60b4d",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 160667,
+      "path": "node-model-lists.json",
+      "sha256": "57ff2be079eb6123b0006c1d0eb231d0965d079e59b692908ee3c95706bf2d42"
+    }
+  ],
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "7f633e7305166c5fc8ee66464859ab7de7b60b4d",
+    "comparedAgainst": "7f633e7305166c5fc8ee66464859ab7de7b60b4d",
+    "exact": true,
+    "files": 9142,
+    "refComparison": {
+      "closestCommit": "7f633e7305166c5fc8ee66464859ab7de7b60b4d",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "938d5325e28e2ad94621b1dec936ddda2ad4212305e7463fe2be9dcf404d8387",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/model-lists/record.mjs",
+  "set": "model-lists",
+  "totalBytes": 160667
+}
