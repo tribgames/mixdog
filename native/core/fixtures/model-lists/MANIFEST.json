@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 160667,
+      "bytes": 161595,
       "path": "node-model-lists.json",
-      "sha256": "57ff2be079eb6123b0006c1d0eb231d0965d079e59b692908ee3c95706bf2d42"
+      "sha256": "9fb83646db683641a38bbc6d444967a62ab9f4af7bde870542bfa2caeed3ac97"
     }
   ],
   "product": {
@@ -27,5 +27,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/model-lists/record.mjs",
   "set": "model-lists",
-  "totalBytes": 160667
+  "totalBytes": 161595
 }
