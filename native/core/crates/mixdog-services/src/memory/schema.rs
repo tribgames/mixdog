@@ -13,7 +13,7 @@ use crate::memory::pg::db::Db;
 pub const ENTRY_STATUSES: [&str; 3] = ["pending", "active", "archived"];
 
 const BOOTSTRAP_DONE_KEY: &str = "boot.schema_bootstrap_complete";
-const DIMS_KEY: &str = "embedding.current_dims";
+pub(crate) const DIMS_KEY: &str = "embedding.current_dims";
 const MODEL_KEY: &str = "embedding.current_model";
 
 fn entries_ddl(dims: usize) -> String {
@@ -256,6 +256,32 @@ pub async fn set_meta(db: &Db, key: &str, value: &serde_json::Value) -> Result<(
     )
     .await?;
     Ok(())
+}
+
+/// `isBootstrapComplete`: the flag counts only while the objects it vouches for still exist.
+pub async fn is_bootstrap_complete(db: &Db) -> bool {
+    let check = async {
+        if db.query_opt("SELECT 1 FROM meta WHERE key = $1", &[&BOOTSTRAP_DONE_KEY]).await?.is_none() {
+            return Ok(false);
+        }
+        let schema = db.schema().name();
+        let row = db
+            .query_opt(
+                "SELECT
+                   EXISTS (SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace
+                           WHERE t.typname = 'entry_status' AND n.nspname = $1)
+                   AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = $1 AND table_name = 'entries')
+                   AND EXISTS (SELECT 1 FROM information_schema.columns
+                               WHERE table_schema = $1 AND table_name = 'entries' AND column_name = 'status')
+                   AND EXISTS (SELECT 1 FROM information_schema.columns
+                               WHERE table_schema = $1 AND table_name = 'entries' AND column_name = 'chunk_root')
+                   AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = $1 AND table_name = 'meta')",
+                &[&schema],
+            )
+            .await?;
+        Ok::<_, crate::memory::error::MemoryError>(row.is_some_and(|row| row.get::<_, bool>(0)))
+    };
+    check.await.unwrap_or(false)
 }
 
 pub async fn get_meta(db: &Db, key: &str) -> Result<Option<serde_json::Value>> {
