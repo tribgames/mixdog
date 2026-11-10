@@ -352,6 +352,7 @@ mod owner_only {
 
     /// `secure_private_dir`: the directory's DACL becomes the owner-only entry (inherited by what it holds, which the system
     /// propagates), and each file directly in it is given an empty unprotected DACL, so it inherits only that entry.
+    #[allow(clippy::disallowed_methods, reason = "synchronous file-state step: its callers run it as a lane job, like the rest of this crate")]
     pub fn secure_dir(path: &Path) -> io::Result<()> {
         let sddl = wide(std::ffi::OsStr::new(&owner_only_sddl(true)?));
         let mut descriptor = null_mut();

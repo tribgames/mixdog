@@ -9,14 +9,18 @@ import {
   type ConversationNotificationOverride,
   type ConversationNotificationSetting,
   NOTIFICATION_PC_DEVICE_ID,
-  type NotificationDeviceKind,
   type NotificationDeviceSummary,
   type NotificationPreferencesPatch,
   type NotificationPreferencesState,
   type NotificationTarget,
 } from '../shared/contract-notifications';
-import { MIXDOG_APP_CLIENT_BROWSER, MIXDOG_DESKTOP_CLIENT_BROWSER, remoteClientKind } from '../shared/remote-trust';
-import type { NotificationDeviceInfo, NotificationPreferencesStore } from './notification-preferences';
+import {
+  notificationDeviceKind as deviceKind,
+  notificationDeviceName,
+  pairedDeviceInfo,
+  type NotificationDeviceInfo,
+} from '../shared/notification-state';
+import type { NotificationPreferencesStore } from './notification-preferences';
 
 export interface NotificationTestResult {
   ok: boolean;
@@ -47,29 +51,7 @@ interface NotificationCenterOptions {
   sendDeviceTest(clientId: string): Promise<NotificationTestResult>;
 }
 
-/** The Connection tab's name for a paired device: its alias, else its own
- *  name without the trailing kind ("Galaxy S24 · Mixdog App" → "Galaxy S24"). */
-export function notificationDeviceName(client: DesktopRemoteClientInfo): string {
-  if (client.alias) return client.alias;
-  const full = client.name || `${client.platform || 'Device'} · ${client.browser || 'Browser'}`;
-  const parts = full.split(' · ');
-  const last = parts[parts.length - 1].toLowerCase();
-  const kinds = [client.browser, MIXDOG_APP_CLIENT_BROWSER, MIXDOG_DESKTOP_CLIENT_BROWSER, 'Mixdog PC', 'Browser'];
-  if (parts.length > 1 && kinds.some((value) => value && value.toLowerCase() === last)) parts.pop();
-  return parts.join(' · ');
-}
-
-const deviceKind = (client: DesktopRemoteClientInfo): NotificationDeviceKind =>
-  remoteClientKind(client.browser) === 'app' ? 'phone-app' : 'browser';
-
-/** What a paired device's default preferences are decided from: its record's
- *  kind and creation time (immutable, unlike a push registration's). */
-export function pairedDeviceInfo(client: DesktopRemoteClientInfo): NotificationDeviceInfo {
-  return {
-    kind: deviceKind(client),
-    ...(Number.isSafeInteger(client.createdAt) && client.createdAt > 0 ? { pairedAt: client.createdAt } : {}),
-  };
-}
+export { notificationDeviceName, pairedDeviceInfo };
 
 export function createNotificationCenter(options: NotificationCenterOptions) {
   const { store } = options;
