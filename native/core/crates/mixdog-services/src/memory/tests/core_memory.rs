@@ -49,6 +49,62 @@ async fn memory_tool_matches_recorded_goldens() {
     }
 }
 
+/// core-memory-uniqueness.test.mjs: start-up keeps conflicting rows, then installs the pool key
+/// and drops the legacy (project_id, element) key, so an agent memory may share a common element;
+/// a write racing the conflict check defers the index instead of failing start-up.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
+async fn the_legacy_key_is_dropped_and_a_racing_conflict_defers_the_index() {
+    const INSERT: &str = "INSERT INTO core_entries (element, summary, category, project_id, agent_id, created_at, updated_at) VALUES ($1, $2, 'rule', NULL, $3, 0, 0)";
+    let identity = json!({ "model": "test", "dtype": "q8" });
+    let pg = TestPg::start().await;
+    let db = pg.db(Schema::Memory).await;
+    ensure_memory_schema(&db, 384, &identity).await.expect("schema");
+    let indexes = || async {
+        let rows = db.query("SELECT indexname FROM pg_indexes WHERE tablename = 'core_entries' AND indexname LIKE 'core_entries_unique_%' ORDER BY 1", &[]).await.unwrap();
+        rows.iter().map(|row| row.get::<_, String>(0)).collect::<Vec<_>>()
+    };
+    let rows = || async { db.query("SELECT id, element, summary FROM core_entries ORDER BY id", &[]).await.unwrap().iter().map(|r| (r.get::<_, i64>(0), r.get::<_, String>(1), r.get::<_, String>(2))).collect::<Vec<_>>() };
+
+    // A store an old build left: duplicate common keys and the legacy key without the pool key.
+    db.batch("DROP INDEX core_entries_unique_pool_elem").await.unwrap();
+    db.execute(INSERT, &[&"key", &"First approved preference", &None::<String>]).await.unwrap();
+    db.execute(INSERT, &[&"key", &"Second approved preference", &None::<String>]).await.unwrap();
+    db.batch("CREATE UNIQUE INDEX core_entries_unique_proj_elem ON core_entries (project_id, (element || id::text))").await.unwrap();
+    let before = rows().await;
+    ensure_memory_schema(&db, 384, &identity).await.expect("conflicts never fail start-up");
+    assert_eq!(rows().await, before, "no winner is chosen");
+    assert_eq!(indexes().await, vec!["core_entries_unique_proj_elem".to_owned()]);
+
+    db.execute("UPDATE core_entries SET element = 'resolved' WHERE id = $1", &[&before[1].0]).await.unwrap();
+    db.batch("DROP INDEX core_entries_unique_proj_elem; CREATE UNIQUE INDEX core_entries_unique_proj_elem ON core_entries (project_id, element)").await.unwrap();
+    ensure_memory_schema(&db, 384, &identity).await.expect("schema");
+    assert_eq!(indexes().await, vec!["core_entries_unique_pool_elem".to_owned()], "the pool key replaces the project key");
+    db.execute(INSERT, &[&"key", &"An agent may share the key", &Some("reviewer".to_owned())]).await.expect("an agent memory shares a common element");
+
+    // A duplicate committed between the conflict check and the index build.
+    db.batch("DROP INDEX core_entries_unique_pool_elem").await.unwrap();
+    let mut writer = db.client().await.unwrap();
+    let racing = writer.transaction().await.unwrap();
+    racing.execute(INSERT, &[&"key", &"Racing duplicate", &None::<String>]).await.unwrap();
+    // The key step alone: the DDL before it would wait on the open write before the check runs.
+    let start = tokio::spawn({
+        let db = pg.db(Schema::Memory).await;
+        async move { crate::memory::schema::install_core_key_index(&db).await }
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(20), async {
+        while db.query_opt("SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE '%CREATE UNIQUE INDEX%core_entries_unique_pool_elem%'", &[]).await.unwrap().is_none() {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the index build waits behind the racing write");
+    racing.commit().await.unwrap();
+    start.await.unwrap().expect("a racing unique violation defers the index");
+    assert!(indexes().await.is_empty(), "the index waits for an explicit resolution");
+    assert_eq!(rows().await.len(), 4, "both racing rows are kept");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
 async fn edit_and_delete_follow_the_listed_revision() {
