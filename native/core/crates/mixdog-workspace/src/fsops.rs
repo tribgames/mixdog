@@ -463,10 +463,20 @@ pub fn rename_destination_rel(rel: &str, new_name: &str) -> WsResult<String> {
     Ok(if dir.is_empty() { trimmed.to_owned() } else { format!("{dir}/{trimmed}") })
 }
 
-/// `lone`: the path or the new name held an unpaired surrogate escape on the wire (now U+FFFD). Node compares the strings
-/// (project-files.ts:999-1006): its lone unit equals no other path and no name read from disk, so the rename is neither a
-/// no-op nor a case-only rename onto an existing entry, which is refused.
-pub fn rename_entry(root: &Path, rel: &str, new_name: &str, lone: bool) -> WsResult<()> {
+/// Where the entry's own name (the last segment of the path) and the new name held unpaired surrogate escapes on the wire
+/// (now U+FFFD), as `char` indices from the start of each name (the new name trimmed). A lone unit in a folder of the path is
+/// the same string on both sides of Node's comparisons and names the folder Node's fs converted, so it is not listed.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RenameLone {
+    pub base: Vec<usize>,
+    pub name: Vec<usize>,
+}
+
+/// `lone`: Node compares the strings (project-files.ts:999-1006). The source and destination are one path only when the two
+/// names are (a lone unit where the other has one, as two lone units compare in the core: decisions.md "frame-lone-surrogate");
+/// and a name holding a lone unit equals no name read from disk, so such a rename is no case-only rename onto an existing
+/// entry, which is refused.
+pub fn rename_entry(root: &Path, rel: &str, new_name: &str, lone: &RenameLone) -> WsResult<()> {
     let destination_rel = rename_destination_rel(rel, new_name)?;
     let trimmed = new_name.trim();
     let from = project_entry_path(root, rel)?;
@@ -475,7 +485,7 @@ pub fn rename_entry(root: &Path, rel: &str, new_name: &str, lone: bool) -> WsRes
     }
     let destination = project_entry_path(root, &destination_rel)?;
     fs::symlink_metadata(&from).at("lstat", &from)?;
-    if !lone && from == destination {
+    if lone.base == lone.name && from == destination {
         return Ok(());
     }
     if entry_exists(&destination)? {
@@ -483,7 +493,8 @@ pub fn rename_entry(root: &Path, rel: &str, new_name: &str, lone: bool) -> WsRes
         let names: Vec<String> =
             fs::read_dir(parent).at("scandir", parent)?.filter_map(Result::ok).map(|e| e.file_name().to_string_lossy().into_owned()).collect();
         let base = from.file_name().unwrap_or_default().to_string_lossy().into_owned();
-        let case_only = !lone
+        let case_only = lone.base.is_empty()
+            && lone.name.is_empty()
             && base.to_lowercase() == trimmed.to_lowercase()
             && names.contains(&base)
             && !names.iter().any(|n| n == trimmed);
@@ -809,9 +820,28 @@ mod tests {
             // A case-sensitive file system: no entry to clash with, the rename is Node's too.
             return;
         }
-        assert_eq!(rename_entry(&root, "x\u{fffd}.txt", "X\u{fffd}.txt", true).unwrap_err().message, EXISTS);
+        let name = RenameLone { base: vec![], name: vec![1] };
+        assert_eq!(rename_entry(&root, "x\u{fffd}.txt", "X\u{fffd}.txt", &name).unwrap_err().message, EXISTS);
         assert!(fs::read_dir(&root).unwrap().any(|e| e.unwrap().file_name() == "x\u{fffd}.txt"));
-        rename_entry(&root, "x\u{fffd}.txt", "X\u{fffd}.txt", false).unwrap();
+        rename_entry(&root, "x\u{fffd}.txt", "X\u{fffd}.txt", &RenameLone::default()).unwrap();
+    }
+
+    /// A lone unit in a folder of the path is the same string on both sides of Node's comparisons: renaming an entry to its
+    /// own name is a no-op, a case-only rename is one; a lone unit at the same place of both names is a no-op too, at
+    /// different places a rename onto an existing entry.
+    #[test]
+    fn a_lone_unit_counts_only_in_the_names_node_compares() {
+        let (_d, root, _fs) = fixture();
+        fs::create_dir(root.join("d\u{fffd}")).unwrap();
+        fs::write(root.join("d\u{fffd}").join("e.txt"), "x").unwrap();
+        fs::write(root.join("d\u{fffd}").join("f\u{fffd}.txt"), "y").unwrap();
+        // `rel` = "d\ud800/e.txt": the folder held it, not the name.
+        rename_entry(&root, "d\u{fffd}/e.txt", "e.txt", &RenameLone::default()).unwrap();
+        let both = RenameLone { base: vec![1], name: vec![1] };
+        rename_entry(&root, "d\u{fffd}/f\u{fffd}.txt", "f\u{fffd}.txt", &both).unwrap();
+        let apart = RenameLone { base: vec![1], name: vec![] };
+        assert_eq!(rename_entry(&root, "d\u{fffd}/f\u{fffd}.txt", "f\u{fffd}.txt", &apart).unwrap_err().message, EXISTS);
+        assert_eq!(fs::read_dir(root.join("d\u{fffd}")).unwrap().count(), 2);
     }
 
     #[test]
@@ -819,7 +849,7 @@ mod tests {
         let (_d, root, _fs) = fixture();
         create_entry(&root, "dir", "sub", true).unwrap();
         assert_eq!(create_entry(&root, "dir", "a/../b", false).unwrap_err().message, "Entry name is invalid.");
-        rename_entry(&root, "dir/inner.txt", "renamed.txt", false).unwrap();
+        rename_entry(&root, "dir/inner.txt", "renamed.txt", &RenameLone::default()).unwrap();
         move_entry(&root, "dir/renamed.txt", "dir/sub").unwrap();
         assert_eq!(copy_entry(&root, "crlf.txt", "dir").unwrap(), "crlf.txt");
         assert_eq!(copy_entry(&root, "crlf.txt", "dir").unwrap(), "crlf copy.txt");

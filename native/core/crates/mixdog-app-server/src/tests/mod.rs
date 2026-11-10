@@ -476,6 +476,14 @@ impl Client {
         self.handle.on_message(message)
     }
 
+    /// A frame as the client's text, read by the server's decoder (lone surrogate escapes and all).
+    pub(crate) fn send_text(&self, frame: &str) -> Inbound {
+        let mixdog_app_protocol::rpc::InboundText::Message(message) = mixdog_app_protocol::rpc::decode_inbound_text(frame, 1 << 20) else {
+            panic!("not a message: {frame}");
+        };
+        self.handle.on_message(message)
+    }
+
     pub(crate) fn request(&self, id: i64, method: &str, params: Value) -> Inbound {
         self.send(json!({ "id": id, "method": method, "params": params }))
     }

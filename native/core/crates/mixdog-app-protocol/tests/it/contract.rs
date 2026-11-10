@@ -473,17 +473,17 @@ fn unpaired_surrogate_escapes_are_read_as_replacement_characters() {
     // The places are a set a service looks a param up in; the order is the parsed map's.
     let mut named = request.lone_surrogates.clone();
     named.sort();
-    let mut expected = vec![LoneAt::Value("/a".into()), LoneAt::Key("/\u{fffd}".into()), LoneAt::Value("/\u{fffd}/n/0".into())];
+    let mut expected = vec![LoneAt::Value("/a".into(), vec![0, 2, 4, 5]), LoneAt::Key("/\u{fffd}".into()), LoneAt::Value("/\u{fffd}/n/0".into(), vec![0])];
     expected.sort();
     assert_eq!(named, expected);
     let frame = r#"{"id":2,"method":"m","params":{"content":"a\ufffdb","relPath":"n\ude00.txt"}}"#;
     let InboundText::Message(JsonRpcMessage::Request(request)) = decode_inbound_text(frame, 1 << 20) else { panic!("not a request") };
-    assert_eq!(request.lone_surrogates, [LoneAt::Value("/relPath".into())]);
+    assert_eq!(request.lone_surrogates, [LoneAt::Value("/relPath".into(), vec![1])]);
     // Upper-case hex is the same escape; an escaped backslash before `u` is no escape; an escaped valid pair is one character.
     let frame = r#"{"id":3,"method":"m","params":["\uD83D x","\\ud83d","\uD83D\uDE00","\ud83d\u0041","\ud83d\ud83d\ude00"]}"#;
     let InboundText::Message(JsonRpcMessage::Request(request)) = decode_inbound_text(frame, 1 << 20) else { panic!("not a request") };
     assert_eq!(request.params, Some(json!(["\u{fffd} x", "\\ud83d", "\u{1f600}", "\u{fffd}A", "\u{fffd}\u{1f600}"])));
-    assert_eq!(request.lone_surrogates, [LoneAt::Value("/0".into()), LoneAt::Value("/3".into()), LoneAt::Value("/4".into())]);
+    assert_eq!(request.lone_surrogates, [LoneAt::Value("/0".into(), vec![0]), LoneAt::Value("/3".into(), vec![0]), LoneAt::Value("/4".into(), vec![0])]);
     let bad = decode_inbound_text(r#"{"id":1,"method":"\ud800"#, 1 << 20);
     assert_eq!(bad.close_code().map(CloseCode::code), Some(1007));
 }
@@ -499,14 +499,14 @@ fn every_inbound_kind_names_its_lone_surrogates_and_merged_keys() {
     };
     let note = decode(r#"{"method":"x","params":{"a":"\ud800"}}"#);
     assert!(matches!(note, JsonRpcMessage::Notification(_)));
-    assert_eq!(note.lone_surrogates(), [LoneAt::Value("/a".into())]);
+    assert_eq!(note.lone_surrogates(), [LoneAt::Value("/a".into(), vec![0])]);
     let answer = decode(r#"{"id":"s1","result":{"answers":{"q\ud83d":"x"}}}"#);
     assert!(matches!(answer, JsonRpcMessage::Response(_)));
     assert_eq!(answer.lone_surrogates(), [LoneAt::Key("/answers/q\u{fffd}".into())]);
     assert_eq!(answer.merged_key(), None);
     let failed = decode(r#"{"id":"s1","error":{"code":1,"message":"m\udc00"}}"#);
     assert!(matches!(failed, JsonRpcMessage::Error(_)));
-    assert_eq!(failed.lone_surrogates(), [LoneAt::Value("/message".into())]);
+    assert_eq!(failed.lone_surrogates(), [LoneAt::Value("/message".into(), vec![1])]);
     let merged = decode(r#"{"id":1,"method":"project/list","params":{"env":{"K\ud800":"1","K\udc00":"2"}}}"#);
     assert_eq!(merged.merged_key(), Some("/env/K\u{fffd}"));
     // The same key twice is one key to Node too (the last value): nothing merged.

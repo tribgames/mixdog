@@ -882,8 +882,24 @@ impl Shared {
             let _ = conn.sink.send_control(error_notification_frame(&data));
             return;
         }
-        let JsonRpcResponse { id, result, .. } = response;
-        let Err(Ok(result)) = conn.complete_host_request(&id, Ok(result)) else {
+        let JsonRpcResponse { id, result, lone_surrogates } = response;
+        // A `host/*` answer holding a replaced unit is a failure of that request: its text (an export's file path, proxy
+        // rules) would name something other than what the desktop meant. A decision keeps its text (decisions.md
+        // "frame-lone-surrogate": stored and shown as U+FFFD, compared with nothing).
+        let (reply, decision) = if lone_surrogates.is_empty() {
+            (Ok(result), None)
+        } else {
+            let failed = HostError::Rpc {
+                code: mixdog_app_protocol::error::INVALID_PARAMS,
+                message: "The answer contains unpaired Unicode surrogates.".into(),
+                data: None,
+            };
+            (Err(failed), Some(result))
+        };
+        let Err(back) = conn.complete_host_request(&id, reply) else {
+            return;
+        };
+        let Some(result) = decision.or_else(|| back.ok()) else {
             return;
         };
         let request = ServerRequestId(id.to_string());
@@ -942,6 +958,9 @@ impl Shared {
         let Some(domain) = self.core.domain_for(spec.method) else {
             return Inbound::Continue;
         };
+        // The report of replaced values goes no further: no consumer compares a notification's text with text that can hold
+        // U+FFFD. Ids (screen sessions, new tab, terminal run, model proxy, browser page) are compared with ids the core minted,
+        // so a replaced one equals none, as Node's lone one equalled none; the rest is written (pty, log) or forwarded as text.
         let params = notification.params.unwrap_or(Value::Null);
         match domain.notify(Method(spec.method), params, conn.id) {
             Admit::Accepted => Inbound::Continue,

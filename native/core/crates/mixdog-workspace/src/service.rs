@@ -725,7 +725,7 @@ impl WorkspaceService {
             "project/touch" | "project/update" | "project/delete" | "project/directory" | "project/recoveryDirectory" => {
                 Self::held_lone(req, "/path")
             }
-            "search/start" => req.ctx.lone_surrogates.iter().any(|at| matches!(at, mixdog_js::LoneAt::Value(p) if p.starts_with("/roots/"))),
+            "search/start" => req.ctx.lone_surrogates.iter().any(|at| matches!(at, mixdog_js::LoneAt::Value(p, _) if p.starts_with("/roots/"))),
             _ => req.ctx.origin == mixdog_protocol::Origin::Relay && Self::held_lone(req, "/root"),
         };
         if lone_project {
@@ -904,8 +904,14 @@ impl WorkspaceService {
                 let destination = fsops::rename_destination_rel(&rel, &new_name)?;
                 let _claim = self.paths.acquire(Self::claim_keys(&root, &[&rel, &destination])?).await;
                 let (note_root, note_rel) = (root.clone(), rel.clone());
-                let lone = Self::held_lone(req, "/rel") || Self::held_lone(req, "/newName");
-                run_fallible(self.lanes.durability, &cancel, move || fsops::rename_entry(&root, &rel, &new_name, lone)).await?;
+                // Lone units of the entry's own name and of the trimmed new name, from the start of each.
+                let base_start = rel.rfind(['/', '\\']).map_or(0, |at| rel[..=at].chars().count());
+                let lead = new_name.chars().take_while(|c| c.is_whitespace()).count();
+                let lone = fsops::RenameLone {
+                    base: Self::lone_units(req, "/rel").iter().filter(|&&at| at >= base_start).map(|at| at - base_start).collect(),
+                    name: Self::lone_units(req, "/newName").iter().filter(|&&at| at >= lead).map(|at| at - lead).collect(),
+                };
+                run_fallible(self.lanes.durability, &cancel, move || fsops::rename_entry(&root, &rel, &new_name, &lone)).await?;
                 self.note_written(&note_root, &[&note_rel, &destination]);
                 value(json!({}))
             }
@@ -1476,15 +1482,20 @@ impl WorkspaceService {
 
     /// Whether the param at `pointer` held an unpaired surrogate escape on the wire (now U+FFFD).
     fn held_lone(req: &CoreRequest, pointer: &str) -> bool {
-        req.ctx.lone_surrogates.iter().any(|held| matches!(held, mixdog_js::LoneAt::Value(at) if at == pointer))
+        !Self::lone_units(req, pointer).is_empty()
     }
 
-    /// Which of a text search's strings held an unpaired surrogate escape.
+    /// Where (`char` indices) the string param at `pointer` held unpaired surrogate escapes; empty when it held none.
+    fn lone_units<'r>(req: &'r CoreRequest, pointer: &str) -> &'r [usize] {
+        req.ctx.lone_surrogates.iter().find(|held| matches!(held, mixdog_js::LoneAt::Value(at, _) if at == pointer)).map_or(&[], |held| held.units())
+    }
+
+    /// Where a text search's strings held an unpaired surrogate escape.
     fn query_lone(req: &CoreRequest) -> crate::textsearch::QueryLone {
         crate::textsearch::QueryLone {
             query: Self::held_lone(req, "/options/query"),
-            include: Self::held_lone(req, "/options/include"),
-            exclude: Self::held_lone(req, "/options/exclude"),
+            include: Self::lone_units(req, "/options/include").to_vec(),
+            exclude: Self::lone_units(req, "/options/exclude").to_vec(),
         }
     }
 

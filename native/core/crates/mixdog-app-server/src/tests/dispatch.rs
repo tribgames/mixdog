@@ -102,6 +102,24 @@ async fn a_delete_of_a_thread_that_is_not_there_is_the_directorys_answer() {
     assert_eq!(client.response(1).await["result"], json!({ "via": "directory" }));
 }
 
+/// Two keys distinct on the wire that the decoder reads as one U+FFFD key (Node kept both with their values) are refused as
+/// `invalidParams` naming that key; the request never reaches the core and the connection answers the next one.
+#[tokio::test(start_paused = true)]
+async fn keys_a_lone_surrogate_merges_into_one_are_refused_before_the_core() {
+    let rig = Rig::new();
+    rig.core
+        .mock
+        .directory()
+        .set_handler(Arc::new(|_| Ok(Reply::Value(json!({ "via": "directory" })))));
+    let client = rig.ready(1, json!({}));
+    client.send_text(r#"{"id":1,"method":"thread/list","params":{"\ud800":1,"\udc00":2}}"#);
+    let refused = client.response(1).await;
+    assert_eq!(reason(&refused), "invalidParams", "{refused}");
+    assert_eq!(refused["error"]["data"]["path"], json!("thread/list.params/\u{fffd}"), "{refused}");
+    client.send_text(r#"{"id":2,"method":"thread/list","params":{"\ud800":1}}"#);
+    assert_eq!(client.response(2).await["result"], json!({ "via": "directory" }));
+}
+
 /// The preflight names its own thread, but the directory answers it (it measures a source the directory looks up); a
 /// session actor has no such method.
 #[tokio::test(start_paused = true)]
