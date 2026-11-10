@@ -12,7 +12,7 @@ const chunk = (delta, finish = null) => ({ id: 'scripted', object: 'chat.complet
 /**
  * @param {{ tool: string, args: string }} call the one tool call the first request answers with (`args` is the raw JSON string)
  * @returns {Promise<{ baseURL: string, requests: object[], toolResult: Promise<object>, close: () => Promise<void> }>}
- *   	oolResult settles with the second chat request, the one that carries the tool's result back: the tool has run.
+ *   `toolResult` settles with the second chat request, the one that carries the tool's result back: the tool has run.
  */
 export function startScriptedProvider({ tool, args }) {
   const requests = [];

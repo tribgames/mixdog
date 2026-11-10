@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { runTree } from '../../scripts/rust-core/lib/process-tree.mjs';
 import { LANGS, MODELS, execInputTokens, inputTokensOfFirstRequest, measureModel, renderTable, usageLogInput } from './measure-exec.mjs';
 
 const lines = (...events) => events.map((event) => JSON.stringify(event)).join('\n');
@@ -160,11 +160,11 @@ test('at the deadline the exec and everything it started are gone, on a real pro
     rmSync(dir, { recursive: true, force: true });
   }
 });
-test('the command fails when a selected model fails, and leaves results.json as it was', () => {
+test('the command fails when a selected model fails, and leaves results.json as it was', async () => {
   const results = new URL('./results/results.json', import.meta.url);
   const before = readFileSync(results, 'utf8');
   // node is the "mixdogd" here: `node exec --json ...` exits 1, which is a failed measurement of the selected model.
-  const run = spawnSync(process.execPath, [fileURLToPath(new URL('./measure-exec.mjs', import.meta.url)), '--mixdogd', process.execPath, '--models', 'kimi', '--n', '1'], { encoding: 'utf8', timeout: 60_000 });
+  const run = await runTree(process.execPath, [fileURLToPath(new URL('./measure-exec.mjs', import.meta.url)), '--mixdogd', process.execPath, '--models', 'kimi', '--n', '1'], { label: 'measure-exec with a failing exec', deadlineMs: 60_000 });
   assert.notEqual(run.status, 0);
   assert.match(run.stderr, /FAILED: Kimi K3/);
   assert.match(run.stderr, /measurement failed for: Kimi K3/);
