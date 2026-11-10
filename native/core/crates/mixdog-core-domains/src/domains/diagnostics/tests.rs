@@ -234,6 +234,20 @@ async fn the_text_report_is_a_notice_only_when_asked_and_a_second_run_is_busy() 
     assert_eq!(busy, json!({ "busy": true }));
 }
 
+/// A config Node wrote with a profile title a phone sent cut inside an emoji
+/// (`native/core/fixtures/lone-surrogate-files`, record-lone-surrogate-files.mjs) is a valid JSON object to Node's
+/// `JSON.parse`: in place of the golden's `{}`, the doctor answers what Node's answered for a valid config.
+#[tokio::test]
+async fn a_config_node_wrote_with_half_an_emoji_is_valid_to_the_doctor() {
+    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let case = golden["cases"].as_array().unwrap().iter().find(|c| c["name"] == "healthy/ok").unwrap();
+    let rig = rig(&golden, case).await;
+    let set = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/lone-surrogate-files");
+    std::fs::copy(set.join("config-profile/before/mixdog-config.json"), rig.data.path().join("mixdog-config.json")).unwrap();
+    let got = value(&*rig.service, request("diagnostics/runDoctor", with_op(json!({}), 1), Some(1))).await.unwrap();
+    assert_eq!(normal(got, rig.data.path()), normal(case["result"].clone(), std::path::Path::new("<none>")));
+}
+
 #[tokio::test]
 async fn a_repeated_op_runs_the_checks_once() {
     let golden: Value = serde_json::from_str(GOLDEN).unwrap();
