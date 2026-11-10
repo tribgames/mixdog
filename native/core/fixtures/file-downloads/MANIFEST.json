@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 310161,
+      "bytes": 363181,
       "path": "file-downloads.json",
-      "sha256": "a45ef3b56e192a1bc7f457d45e291f6a4895dc88529de93a6b5a0935bb5ee75f"
+      "sha256": "33b9a10e26ac564235384f9935694fd3017c13337e3bf001fffbb7912b80d849"
     }
   ],
   "product": {
@@ -27,5 +27,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-file-downloads.mjs",
   "set": "file-downloads",
-  "totalBytes": 310161
+  "totalBytes": 363181
 }

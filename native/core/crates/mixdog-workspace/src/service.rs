@@ -1072,6 +1072,21 @@ impl WorkspaceService {
                         let entry = grants.store.media(&asset).await?;
                         run_fallible(self.lanes.interactive, &cancel, move || crate::transfer::open_media_download(entry.as_ref(), &|point| t.point(point))).await?
                     }
+                    crate::transfer::DownloadRequest::Link(href) => {
+                        // Node's `authorizeLinkedFile`: the link decoded as the desktop decodes it, then opened as a path the conversation names.
+                        let path = crate::transfer::link_path(&href).ok_or_else(|| WsError::new(Reason::Download("file-download:not-a-file"), "Only files on this PC can be downloaded."))?;
+                        let cwd = row.cwd.clone();
+                        run_fallible(self.lanes.interactive, &cancel, move || {
+                            crate::transfer::open_session_download(&path, &cwd, project.as_deref(), given.as_deref(), &|point| t.point(point))
+                        })
+                        .await?
+                    }
+                    crate::transfer::DownloadRequest::Attachment(id) => {
+                        // Node's `authorizeAttachment`: an id the conversation the core resolved names, staged by the attachment domain.
+                        let source = self.sources.iter().find(|x| x.kind() == "attachment").ok_or_else(|| WsError::new(Reason::Unsupported, "Attachments are not available."))?;
+                        let staged = source.open(&json!({ "sessionId": session, "attachmentId": id }), &cancel).await;
+                        run_fallible(self.lanes.interactive, &cancel, move || crate::transfer::open_staged_download(staged)).await?
+                    }
                 };
                 let t = self.transfers.clone();
                 value(json!(t.authorize(&owner, &session, mark, opened)?))

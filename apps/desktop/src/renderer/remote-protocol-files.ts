@@ -123,7 +123,15 @@ const isAbsolutePath = (path: string): boolean => /^([\\/]|[A-Za-z]:[\\/])/.test
 
 const MEDIA_ASSET_ID = /^[A-Za-z0-9_-]{1,128}$/;
 
-type DownloadRequest = { sessionId: string; purpose: FileDownloadPurpose } & ({ kind: 'project'; relPath: string } | { kind: 'session'; path: string } | { kind: 'media'; assetId: string });
+const ATTACHMENT_ID = /^[a-f0-9]{64}$/;
+
+type DownloadRequest = { sessionId: string; purpose: FileDownloadPurpose } & (
+  | { kind: 'project'; relPath: string }
+  | { kind: 'session'; path: string }
+  | { kind: 'media'; assetId: string }
+  | { kind: 'link'; itemId: string; href: string }
+  | { kind: 'attachment'; attachmentId: string }
+);
 
 function downloadRequest(value: unknown): DownloadRequest {
   const request = plainRecord(value, 'download request');
@@ -135,6 +143,13 @@ function downloadRequest(value: unknown): DownloadRequest {
     const relPath = requiredText(source.relPath, 'relPath', 4_096);
     if (isAbsolutePath(relPath)) throw new TypeError('relPath must be project-relative.');
     return { kind: 'project', sessionId, relPath, purpose };
+  }
+  if (source.kind === 'link') {
+    return { kind: 'link', sessionId, itemId: requiredText(source.itemId, 'item id', 256), href: requiredText(source.href, 'href', 4_096), purpose };
+  }
+  if (source.kind === 'attachment') {
+    if (typeof source.attachmentId !== 'string' || !ATTACHMENT_ID.test(source.attachmentId)) throw new TypeError('attachment id is invalid.');
+    return { kind: 'attachment', sessionId, attachmentId: source.attachmentId, purpose };
   }
   if (source.kind === 'session') return { kind: 'session', sessionId, path: requiredText(source.path, 'path', 4_096), purpose };
   if (source.kind === 'media') {
@@ -149,7 +164,16 @@ function downloadRequest(value: unknown): DownloadRequest {
  *  conversation it does not list is Node's `unavailable`, whoever asks, so the request names only the conversation and the file. */
 function authorizeDownload(host: PhoneProtocolHost, value: unknown): Promise<unknown> {
   const request = downloadRequest(value);
-  const source = request.kind === 'project' ? { kind: 'file', rel: request.relPath } : request.kind === 'media' ? { kind: 'mediaAsset', assetId: request.assetId } : { kind: 'sessionFile', path: request.path };
+  const source =
+    request.kind === 'project'
+      ? { kind: 'file', rel: request.relPath }
+      : request.kind === 'media'
+        ? { kind: 'mediaAsset', assetId: request.assetId }
+        : request.kind === 'link'
+          ? { kind: 'link', itemId: request.itemId, href: request.href }
+          : request.kind === 'attachment'
+            ? { kind: 'attachment', attachmentId: request.attachmentId }
+            : { kind: 'sessionFile', path: request.path };
   return rpc(host, 'transfer/authorizeRead', { sessionId: request.sessionId, source, purpose: request.purpose });
 }
 function downloadRange(transferId: unknown, offset: unknown, length: unknown, version: unknown): Params {

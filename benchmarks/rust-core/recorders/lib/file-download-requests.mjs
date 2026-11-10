@@ -5,6 +5,8 @@ const SOURCES = {
   project: ({ relPath }) => ({ kind: 'file', rel: relPath }),
   session: ({ path }) => ({ kind: 'sessionFile', path }),
   media: ({ assetId }) => ({ kind: 'mediaAsset', assetId }),
+  link: ({ itemId, href }) => ({ kind: 'link', itemId, href }),
+  attachment: ({ attachmentId }) => ({ kind: 'attachment', attachmentId }),
 };
 
 const REQUESTS = {

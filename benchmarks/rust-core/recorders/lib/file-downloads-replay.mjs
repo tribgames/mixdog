@@ -304,7 +304,8 @@ export async function replayDownloads({ exe, recording, only = null, failSetup =
       // The first scenario run may come after left-out ones: its own first call sets the counter.
       if (only) expectedId = null;
       const world = realpathSync.native(mkdtempSync(join(WORLDS, 'w-')));
-      for (const folder of ['project', 'task', 'outside']) mkdirSync(join(world, folder), { recursive: true });
+      // The recorder's world: `project/sub` exists from the start too.
+      for (const folder of ['project', 'project/sub', 'task', 'outside']) mkdirSync(join(world, folder), { recursive: true });
       talk.write('clock', recording.clockStart);
       let now = recording.clockStart;
       await ask('project/create', { opId: opId(), path: join(world, 'project') });
