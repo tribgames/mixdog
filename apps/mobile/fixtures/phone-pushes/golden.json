@@ -2165,6 +2165,361 @@
         }
       ],
       "timers": []
+    },
+    "approval-cards": {
+      "cases": [
+        {
+          "name": "outbound-payment",
+          "request": "outbound-payment",
+          "answers": [
+            {
+              "by": "phone",
+              "card": {
+                "approved": true
+              },
+              "stale": false,
+              "outcome": {
+                "value": false
+              },
+              "decided": [],
+              "pending": true
+            },
+            {
+              "by": "phone",
+              "card": {
+                "approved": true,
+                "response": "approve"
+              },
+              "stale": false,
+              "outcome": {
+                "value": true
+              },
+              "decided": [
+                {
+                  "approved": true,
+                  "response": "approve",
+                  "device": "desktop-7"
+                }
+              ],
+              "pending": false
+            }
+          ]
+        },
+        {
+          "name": "outbound-delete",
+          "request": "outbound-delete",
+          "answers": [
+            {
+              "by": "phone",
+              "card": {
+                "approved": true
+              },
+              "stale": false,
+              "outcome": {
+                "value": false
+              },
+              "decided": [],
+              "pending": true
+            },
+            {
+              "by": "phone",
+              "card": {
+                "approved": true,
+                "response": "approve"
+              },
+              "stale": false,
+              "outcome": {
+                "value": true
+              },
+              "decided": [
+                {
+                  "approved": true,
+                  "response": "approve",
+                  "device": "desktop-7"
+                }
+              ],
+              "pending": false
+            }
+          ]
+        },
+        {
+          "name": "office-rollback",
+          "request": "office-rollback",
+          "answers": [
+            {
+              "by": "phone",
+              "card": {
+                "approved": true
+              },
+              "stale": false,
+              "outcome": {
+                "value": false
+              },
+              "decided": [],
+              "pending": true
+            },
+            {
+              "by": "phone",
+              "card": {
+                "approved": true,
+                "response": "approve"
+              },
+              "stale": false,
+              "outcome": {
+                "value": true
+              },
+              "decided": [
+                {
+                  "approved": true,
+                  "response": "approve",
+                  "device": "desktop-7"
+                }
+              ],
+              "pending": false
+            }
+          ]
+        },
+        {
+          "name": "connector",
+          "request": "connector",
+          "answers": [
+            {
+              "by": "phone",
+              "card": {
+                "approved": true
+              },
+              "stale": false,
+              "outcome": {
+                "value": false
+              },
+              "decided": [],
+              "pending": true
+            },
+            {
+              "by": "phone",
+              "card": {
+                "approved": true,
+                "response": "approve"
+              },
+              "stale": false,
+              "outcome": {
+                "value": true
+              },
+              "decided": [
+                {
+                  "approved": true,
+                  "response": "approve",
+                  "device": "desktop-7"
+                }
+              ],
+              "pending": false
+            }
+          ]
+        },
+        {
+          "name": "payment, a bare deny",
+          "request": "outbound-payment",
+          "answers": [
+            {
+              "by": "phone",
+              "card": {
+                "approved": false
+              },
+              "stale": false,
+              "outcome": {
+                "value": true
+              },
+              "decided": [
+                {
+                  "approved": false,
+                  "device": "desktop-7"
+                }
+              ],
+              "pending": false
+            }
+          ]
+        },
+        {
+          "name": "payment, an id the session does not show",
+          "request": "outbound-payment",
+          "answers": [
+            {
+              "by": "phone",
+              "card": {
+                "approved": true
+              },
+              "stale": true,
+              "outcome": {
+                "value": false
+              },
+              "decided": [
+                {
+                  "approved": true,
+                  "device": "desktop-7"
+                }
+              ],
+              "pending": true
+            },
+            {
+              "by": "phone",
+              "card": {
+                "approved": true
+              },
+              "stale": false,
+              "outcome": {
+                "value": false
+              },
+              "decided": [],
+              "pending": true
+            }
+          ]
+        },
+        {
+          "name": "payment, the desktop",
+          "request": "outbound-payment",
+          "answers": [
+            {
+              "by": "desktop",
+              "card": {
+                "approved": true
+              },
+              "stale": false,
+              "outcome": {
+                "value": true
+              },
+              "decided": [
+                {
+                  "approved": true,
+                  "device": "desktop-1"
+                }
+              ],
+              "pending": false
+            }
+          ]
+        },
+        {
+          "name": "shell, a bare allow",
+          "request": "shell",
+          "answers": [
+            {
+              "by": "phone",
+              "card": {
+                "approved": true
+              },
+              "stale": false,
+              "outcome": {
+                "value": true
+              },
+              "decided": [
+                {
+                  "approved": true,
+                  "device": "desktop-7"
+                }
+              ],
+              "pending": false
+            }
+          ]
+        }
+      ],
+      "frames": [
+        {
+          "phone": "a",
+          "frame": {
+            "id": 1,
+            "ok": true,
+            "value": false
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 2,
+            "ok": true,
+            "value": true
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 3,
+            "ok": true,
+            "value": false
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 4,
+            "ok": true,
+            "value": true
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 5,
+            "ok": true,
+            "value": false
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 6,
+            "ok": true,
+            "value": true
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 7,
+            "ok": true,
+            "value": false
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 8,
+            "ok": true,
+            "value": true
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 9,
+            "ok": true,
+            "value": true
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 10,
+            "ok": true,
+            "value": false
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 11,
+            "ok": true,
+            "value": false
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 12,
+            "ok": true,
+            "value": true
+          }
+        }
+      ],
+      "timers": []
     }
   }
 }

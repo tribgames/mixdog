@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 51561,
+      "bytes": 59724,
       "path": "golden.json",
-      "sha256": "1308b9435432884edb1771e213e41adfcaac7b10107a999bfc74fac10285b0d4"
+      "sha256": "de597b46d212bcc864de07aca539747fabdd44a7eb18d10ffacb3d23963f70ea"
     }
   ],
   "product": {
@@ -33,7 +33,7 @@
       },
       {
         "path": "benchmarks/rust-core/recorders/lib/phone-pushes-script.mjs",
-        "sha256": "8d6cdbab12f1501dbd66699fcb5d17efbb7faaeb93856e71dfad2ebc33e95689"
+        "sha256": "274ce2426f167e6bfe927b145dafe15e7790463e957251e2cd51a9a927bf9db0"
       },
       {
         "path": "benchmarks/rust-core/recorders/lib/phone-world.mjs",
@@ -46,7 +46,7 @@
     ],
     "nodeVersion": "v22.20.0",
     "recorder": "benchmarks/rust-core/recorders/record-phone-pushes.mjs",
-    "recorderSha256": "31bf2272fce1bbd7e0d109754f15b20d7e880c14e6affaf74eaed9eda75c8705"
+    "recorderSha256": "6a40bacb2506980b1e77ab189e2d0fbfd5e5885f6ad71c7285c04789ac53961d"
   },
   "recorder": "benchmarks/rust-core/recorders/record-phone-pushes.mjs",
   "scenarios": [
@@ -57,8 +57,9 @@
     "notices",
     "notice-reconnect",
     "approval-answers",
-    "approval-races"
+    "approval-races",
+    "approval-cards"
   ],
   "set": "phone-pushes",
-  "totalBytes": 51561
+  "totalBytes": 59724
 }

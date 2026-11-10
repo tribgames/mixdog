@@ -34,6 +34,7 @@ import {
   writeSetManifest,
 } from './lib/common.mjs';
 import {
+  APPROVAL_CARD_CASES,
   APPROVAL_CASES,
   APPROVAL_DEVICE,
   APPROVAL_RACES,
@@ -50,7 +51,7 @@ import {
 } from './lib/phone-pushes-script.mjs';
 
 const REF = 'b6f10295a2f698afc85332467192de28500bd146';
-const SCENARIOS = ['flags-native', 'flags-plain', 'pins', 'native-push', 'notices', 'notice-reconnect', 'approval-answers', 'approval-races'];
+const SCENARIOS = ['flags-native', 'flags-plain', 'pins', 'native-push', 'notices', 'notice-reconnect', 'approval-answers', 'approval-races', 'approval-cards'];
 const FIXTURES = join(REPO_ROOT, 'apps', 'mobile', 'fixtures', 'phone-pushes');
 const WORK = join('D:\\mixdog-build\\tmp', `${REPO_ROOT.split(/[\\/]/).pop()}-phone-pushes`);
 const args = parseArgs();
@@ -316,6 +317,63 @@ async function approvalAnswers() {
   return { cases, frames, timers: clock.pending() };
 }
 
+/** A card's own answer on an approval (APPROVAL_CARD_CASES): phone a's page through its own API and Node's own remote methods
+ *  (remote-session-methods.ts `resolveToolApprovalForSession`, which refuses a bare Allow where push-notifier.ts `approvalPointerOnly`),
+ *  this PC's window through its own IPC handler (ipc-sessions.ts `resolveToolApprovalForSession`). The session host is scripted as in
+ *  `approvalAnswers`; each step records what the card was given, the decision the host was handed and whether the session still waits.
+ *  This PC is named `desktop-1` (`os.hostname`, read by session-device.ts `hostDeviceName`), the name the core gives the window. */
+async function approvalCards() {
+  const clock = virtualClock();
+  browserGlobals();
+  const os = await import('node:os');
+  const { syncBuiltinESMExports } = await import('node:module');
+  os.default.hostname = () => RACE_DEVICES.desktop;
+  syncBuiltinESMExports();
+  const { normalizeToolApprovalRequest } = await importFrom(tree, 'src/tui/session/tool-approval-request.mjs');
+  const { createPushNotifier } = await importFrom(tree, `${main}push-notifier.ts`);
+  const { createRemoteMethods, executeRemoteFrame } = await importFrom(tree, `${main}remote-methods.ts`);
+  const { registerSessionIpc } = await importFrom(tree, `${main}ipc-sessions.ts`);
+  const { DESKTOP_IPC } = await importFrom(tree, 'apps/desktop/src/shared/contract.ts');
+  const notifier = createPushNotifier({ store: {}, isEnabled: () => false, readFinalAnswer: async () => null, isClientForeground: () => false });
+  const waiting = new Map();
+  let handed = [];
+  const host = {
+    invokeDesktopOperation: async () => undefined,
+    resolveToolApprovalForSession: async (sessionId, id, decision) => {
+      handed.push(decision);
+      if (waiting.get(sessionId) !== id) return false;
+      waiting.delete(sessionId);
+      notifier.onSessionState({ sessionId, snapshot: { toolApproval: null } });
+      return true;
+    },
+  };
+  const handlers = {};
+  registerSessionIpc({ handle: (channel, listener) => (handlers[channel] = listener), host, invokeDesktopOperation: async () => undefined });
+  const methods = createRemoteMethods({ host, approvalNotifications: notifier }, { credentialId: () => PHONES.a, deviceName: async () => APPROVAL_DEVICE });
+  const frames = [];
+  const page = await nodePage((raw) => executeRemoteFrame(methods, raw), frames, 'a');
+  const cases = [];
+  for (const [index, { name, case: request, steps }] of APPROVAL_CARD_CASES.entries()) {
+    const sessionId = `sess_card_${index}`;
+    const id = String(index + 1);
+    const { input } = APPROVAL_CASES.find((entry) => entry.name === request);
+    waiting.set(sessionId, id);
+    notifier.onSessionState({ sessionId, snapshot: { toolApproval: normalizeToolApprovalRequest({ ...input, sessionId }, id, null) } });
+    const answers = [];
+    for (const { by, card, stale } of steps) {
+      handed = [];
+      const approval = stale ? STALE_APPROVAL_ID : id;
+      const given =
+        by === 'desktop'
+          ? await outcome(handlers[DESKTOP_IPC.resolveToolApprovalForSession]({}, sessionId, approval, card))
+          : await outcome(page.api.resolveToolApprovalForSession(sessionId, approval, card));
+      answers.push({ by, card, stale: stale === true, outcome: given, decided: handed, pending: waiting.get(sessionId) === id });
+    }
+    cases.push({ name, request, answers });
+  }
+  return { cases, frames, timers: clock.pending() };
+}
+
 /** Two answers to one approval reaching the session together (APPROVAL_RACES): the phones answer as in `approvalAnswers`, the PC's card
  *  through the session host's own path. The host serializes answers per session with its own lock (session-host-lifecycle.ts:1086-1102,
  *  session-lifecycle-locks.ts) and the runtime takes the first for the approval it waits on (`finishToolApproval`: true once, then the
@@ -452,6 +510,7 @@ if (args.has('scenario')) {
     'notice-reconnect': () => noticeReconnect(),
     'approval-answers': () => approvalAnswers(),
     'approval-races': () => approvalRaces(),
+    'approval-cards': () => approvalCards(),
   }[name];
   const trace = await run();
   process.stdout.write(`\n@@TRACE@@${JSON.stringify(trace)}\n`);

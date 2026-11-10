@@ -114,6 +114,25 @@ export const APPROVAL_RACES = [
     then: [{ by: 'a', action: 'deny' }, { by: 'b', action: 'allow' }, { by: 'b', card: { approved: true } }],
   },
 ];
+/** A card's own answer (`resolveToolApprovalForSession`) on an approval only a click on its card may allow: `case` names the request in
+ *  APPROVAL_CASES the session waits on; each step answers with `card` (the decision sent) from phone a's page (`by: 'phone'`) or this
+ *  PC's window (`by: 'desktop'`, its own IPC path), for the approval the session shows or (`stale`) an id it does not show. */
+export const APPROVAL_CARD_CASES = [
+  ...['outbound-payment', 'outbound-delete', 'office-rollback', 'connector'].map((name) => ({
+    name,
+    case: name,
+    steps: [{ by: 'phone', card: { approved: true } }, { by: 'phone', card: { approved: true, response: 'approve' } }],
+  })),
+  { name: 'payment, a bare deny', case: 'outbound-payment', steps: [{ by: 'phone', card: { approved: false } }] },
+  {
+    name: 'payment, an id the session does not show',
+    case: 'outbound-payment',
+    steps: [{ by: 'phone', card: { approved: true }, stale: true }, { by: 'phone', card: { approved: true } }],
+  },
+  { name: 'payment, the desktop', case: 'outbound-payment', steps: [{ by: 'desktop', card: { approved: true } }] },
+  { name: 'shell, a bare allow', case: 'shell', steps: [{ by: 'phone', card: { approved: true } }] },
+];
+
 /** Each answering connection's device: phone a, phone b and the PC's window (the core's test devices name a connection by its id). */
 export const RACE_DEVICES = { a: 'desktop-7', b: 'desktop-8', desktop: 'desktop-1' };
 

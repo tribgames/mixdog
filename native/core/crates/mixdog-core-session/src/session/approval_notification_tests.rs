@@ -69,11 +69,15 @@ async fn answer_from(directory: &SessionDirectory, phone: ConnectionId, thread: 
 
 /// A card's decision (`thread/approval/answer`, Node's `resolveToolApprovalForSession`) as the page was given it.
 async fn card_from(directory: &SessionDirectory, connection: ConnectionId, thread: &str, approval: &str, result: &Value) -> Value {
+    card_through(directory, connection, Origin::Relay, thread, approval, result).await
+}
+
+async fn card_through(directory: &SessionDirectory, connection: ConnectionId, origin: Origin, thread: &str, approval: &str, result: &Value) -> Value {
     let request = CoreRequest {
         method: Method("thread/approval/answer"),
         params: json!({ "threadId": thread, "approvalId": approval, "result": result }),
         op: None,
-        ctx: CallContext::connection(connection, Origin::Relay, Default::default()),
+        ctx: CallContext::connection(connection, origin, Default::default()),
     };
     match directory.request(request).await {
         Ok(Reply::Value(value)) => json!({ "value": value["accepted"] }),
@@ -238,6 +242,37 @@ async fn a_rooms_answer_that_meets_another_is_arbitrated_as_nodes() {
     .expect("the room's answer is a decision");
     assert_eq!(json!({ "value": if accepted { "answered" } else { "settled" } }), step["outcome"], "what the room's answer came to");
     assert_eq!(waiting.took("room").await, case["took"], "the decision the session took");
+}
+
+/// A card's own answer (scenario `approval-cards`): phone a's card through the relay, this PC's window through its local connection. Each
+/// step gives the card Node's result and leaves the approval waiting as Node's did; an answer the session took is the decision Node
+/// handed its session. (Where Node's host was handed an answer it did not take, nothing is resolved here either.)
+#[tokio::test(flavor = "current_thread")]
+async fn a_cards_bare_allow_is_refused_where_nodes_was() {
+    let golden: Value = serde_json::from_str(include_str!("../../../../../../apps/mobile/fixtures/phone-pushes/golden.json")).expect("golden.json");
+    let requests = golden["scenarios"]["approval-answers"]["cases"].as_array().expect("cases");
+    for case in golden["scenarios"]["approval-cards"]["cases"].as_array().expect("cases") {
+        let name = case["name"].as_str().unwrap();
+        let input = &requests.iter().find(|request| request["name"] == case["request"]).expect("the recorded request")["input"];
+        let waiting = waiting_on(input).await;
+        let Waiting { directory, handle, thread, id, resolved, .. } = &waiting;
+        for step in case["answers"].as_array().unwrap() {
+            let approval = if step["stale"] == json!(true) { STALE } else { id.as_str() };
+            let (connection, origin) = if step["by"] == "desktop" { (connection_of("desktop"), Origin::Local) } else { (PHONE, Origin::Relay) };
+            let outcome = card_through(directory, connection, origin, thread, approval, &step["card"]).await;
+            assert_eq!(outcome, step["outcome"], "{name}: what the card was given for {step}");
+            if outcome["value"] == json!(true) {
+                assert_eq!(waiting.took(name).await, json!([step["decided"][0]]), "{name}: the decision the session took for {step}");
+            } else {
+                assert!(resolved.lock().unwrap().is_none(), "{name}: nothing resolved for {step}");
+            }
+            if step["pending"] == json!(true) {
+                assert!(directory.member_approval(&handle.id).is_some(), "{name}: the approval still waits after {step}");
+            } else {
+                eventually_on!(&[&handle.cell.stepped], || directory.member_approval(&handle.id).is_none().then_some(())).await;
+            }
+        }
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
