@@ -32,6 +32,9 @@ pub struct ServerConfig {
     /// How this start's desktop defaults separation ended; every `initialize` reply carries it.
     pub defaults_separation: mixdog_app_protocol::v1::DefaultsSeparation,
     pub capabilities: ServerCapabilities,
+    /// `capabilities.remote.nativePush` as each `initialize` answers it: Node offered the flag on each new phone connection
+    /// only while its relay could deliver a native push, so it is read at every handshake.
+    pub native_push: Arc<dyn Fn() -> bool + Send + Sync>,
     /// Checked at construction ([`Limits::check`]); the per-class caps are the admission caps.
     pub limits: Limits,
     pub version_gate: VersionGate,
