@@ -992,21 +992,36 @@ mod tests {
         assert!(failures.is_empty(), "{} part(s) differ from Node's recording:\n{}", failures.len(), failures.join("\n"));
     }
 
-    /// The core's known differences from Node in what the client is sent, each owned outside this branch (`coreDifferences` of the
-    /// set's manifest, from `benchmarks/rust-core/recorders/room-catalog-core-differences.json`): one part of one step, Node's
-    /// publications and the core's frames in it exactly, and for each frame the Node publication whose row it carries (none: a
-    /// frame Node has no publication for). A part that differs from Node and is not named so, a named part that differs from its
-    /// entry, and an entry no part used all fail the replay, together, at its end.
+    /// The core's known differences from Node in what the client is sent, each with its owner (`coreDifferences` of the set's
+    /// manifest, from `benchmarks/rust-core/recorders/room-catalog-core-differences.json`): one part of one step and Node's
+    /// publications in it exactly, then either the core's frames in it exactly with, for each frame, the Node publication whose row
+    /// it carries, or (an order Node can produce and the core cannot) `compareWith`: the recorded scenario whose same step and part
+    /// is the order the core produces, which the core's part then equals whole. A part that differs from Node and is not named so, a
+    /// named part that differs from its entry, and an entry no part used all fail the replay, together, at its end.
     struct Differences {
         entries: Vec<(Value, bool)>,
+        /// Per `compareWith` scenario: Node's publications of each step and part, named as that scenario's own replay names them.
+        compared: HashMap<String, HashMap<(String, String), Vec<(String, Vec<Value>)>>>,
         failures: Vec<String>,
     }
     impl Differences {
         fn of(scenario: &str) -> Self {
             let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/room-catalog-states/MANIFEST.json");
             let manifest: Value = serde_json::from_slice(&std::fs::read(&path).expect("manifest")).expect("manifest json");
-            let entries = manifest["coreDifferences"]["differences"].as_array().expect("the manifest's coreDifferences");
-            Self { entries: entries.iter().filter(|entry| entry["scenario"] == scenario).map(|entry| (entry.clone(), false)).collect(), failures: Vec::new() }
+            let entries: Vec<(Value, bool)> = manifest["coreDifferences"]["differences"]
+                .as_array()
+                .expect("the manifest's coreDifferences")
+                .iter()
+                .filter(|entry| entry["scenario"] == scenario)
+                .map(|entry| (entry.clone(), false))
+                .collect();
+            let mut compared = HashMap::new();
+            for (entry, _) in &entries {
+                if let Some(with) = entry["compareWith"].as_str() {
+                    compared.entry(with.to_owned()).or_insert_with(|| node_parts(with));
+                }
+            }
+            Self { entries, compared, failures: Vec::new() }
         }
         fn entry(&mut self, step: &str, part: &str) -> Option<Value> {
             let (entry, used) = self.entries.iter_mut().find(|(entry, _)| entry["step"] == step && entry["part"] == part)?;
@@ -1041,20 +1056,54 @@ mod tests {
     /// folded into what the client holds. With no named difference, the core sends one frame per Node publication and holds, after
     /// each, exactly that publication's catalog. A named difference ([`Differences`]) states both sequences exactly; each frame
     /// then carries its row exactly as the Node publication it is paired with holds it (a deleted row: absent from it), the pairs
-    /// keep Node's order, and after the last frame paired with a publication the client holds exactly that catalog.
-    #[allow(clippy::too_many_arguments)]
-    fn compare_part(what: &str, part: &str, events: &[Value], sent: &[Value], fold: &mut Fold, node_names: &mut Names, core_names: &mut Names, differences: &mut Differences) {
-        let node: Vec<(String, Vec<Value>)> = events
+    /// keep Node's order, and after the last frame paired with a publication the client holds exactly that catalog. A named order
+    /// the core cannot produce is compared as an unnamed part is, against its `compareWith` scenario's publications.
+    /// Node's `published` events of one part, each the catalog named and its rows named.
+    fn published(events: &[Value], names: &mut Names) -> Vec<(String, Vec<Value>)> {
+        events
             .iter()
             .filter(|e| e["kind"] == "published")
             .map(|e| {
-                let rows: Vec<Value> = e["sessions"].as_array().expect("sessions").iter().map(|row| node_names.named(row)).collect();
+                let rows: Vec<Value> = e["sessions"].as_array().expect("sessions").iter().map(|row| names.named(row)).collect();
                 let ids: Vec<&str> = rows.iter().map(|row| row["id"].as_str().expect("named id")).collect();
                 // The catalog as the client is handed it; the recorder's `origin` (which of Node's paths published it) is not part of
                 // it, and two of Node's paths race to it (a rename joins the store refresh's listing in flight, `session-host.ts:790`).
                 (format!("catalog [{}]", ids.join(", ")), rows)
             })
-            .collect();
+            .collect()
+    }
+
+    /// A recorded scenario's publications per step and part, named in the order its own replay names them: a listing step's rows,
+    /// then each part's publications. A step whose replay names other rows (a listing answered within a call) is not walked.
+    fn node_parts(scenario: &str) -> HashMap<(String, String), Vec<(String, Vec<Value>)>> {
+        let node = recorded(scenario);
+        let mut names = Names::new(node["taskWorkspace"].as_str().expect("task workspace"));
+        let mut parts = HashMap::new();
+        for step in node["steps"].as_array().expect("steps") {
+            let name = step["step"].as_str().expect("step");
+            let events = step["events"].as_array().cloned().unwrap_or_default();
+            let walked: Vec<(&str, &[Value])> = match name {
+                "list" => {
+                    named_rows(&step["sessions"], &mut names);
+                    vec![("the step", &events[..])]
+                }
+                "transport-loss-and-renderer-reload" => vec![("the step", &events[..])],
+                "create" | "update" | "update-rounds" | "reset" | "remove" | "forget-member" => {
+                    let answered_at = events.iter().position(|e| e["kind"] == "answered" || e["kind"] == "threw").expect("the call's end");
+                    vec![("before the answer", &events[..answered_at]), ("after the answer", &events[answered_at..])]
+                }
+                other => panic!("{scenario} / {other}: a step a compareWith scenario cannot have (its replay names a listing within it)"),
+            };
+            for (label, events) in walked {
+                parts.insert((name.to_owned(), label.to_owned()), published(events, &mut names));
+            }
+        }
+        parts
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn compare_part(what: &str, part: &str, events: &[Value], sent: &[Value], fold: &mut Fold, node_names: &mut Names, core_names: &mut Names, differences: &mut Differences) {
+        let node = published(events, node_names);
         // Each frame: its shape, its row (named), and the client's fold after it.
         let mut core = Vec::new();
         for (at, frame) in sent.iter().enumerate() {
@@ -1105,15 +1154,31 @@ mod tests {
             return;
         };
         let named_node: Vec<&str> = entry["node"].as_array().expect("node").iter().map(|s| s.as_str().expect("shape")).collect();
+        // An order Node can produce and the core cannot: the core's part is the one Node recorded in the named scenario, whole.
+        if let Some(with) = entry["compareWith"].as_str() {
+            if named_node != node_shapes {
+                differences.failures.push(format!("{label}: not the named difference; Node published {node_shapes:?}; named: {entry}"));
+                return;
+            }
+            let other = differences.compared[with].get(&(step.to_owned(), part.to_owned())).cloned().unwrap_or_else(|| panic!("{label}: {with} has no such part"));
+            let same = other.len() == core.len() && (0..core.len()).all(|at| holds(at, &other[at].1, core_names));
+            if !same {
+                let other_shapes: Vec<&str> = other.iter().map(|(shape, _)| shape.as_str()).collect();
+                differences.failures.push(format!("{label}: the core's part is not Node's {with} / {step} / {part} (Node published {other_shapes:?}, the core sent {core_shapes:?})"));
+            }
+            return;
+        }
         let named_core: Vec<&str> = entry["core"].as_array().expect("core").iter().map(|f| f["frame"].as_str().expect("frame")).collect();
         if named_node != node_shapes || named_core != core_shapes {
             differences.failures.push(format!("{label}: not the named difference; Node published {node_shapes:?}, the core sent {core_shapes:?}; named: {entry}"));
             return;
         }
-        let pairs: Vec<Option<usize>> = entry["core"].as_array().expect("core").iter().map(|f| f["publication"].as_u64().map(|k| k as usize)).collect();
+        let Some(pairs) = entry["core"].as_array().expect("core").iter().map(|f| f["publication"].as_u64().map(|k| k as usize)).collect::<Option<Vec<usize>>>() else {
+            differences.failures.push(format!("{label}: a frame paired with no Node publication; every frame names the publication whose row it carries: {entry}"));
+            return;
+        };
         let mut last = 0;
-        for (at, pair) in pairs.iter().enumerate() {
-            let Some(k) = *pair else { continue };
+        for (at, &k) in pairs.iter().enumerate() {
             if k < last || k >= node.len() {
                 differences.failures.push(format!("{label}: frame {at} is paired out of Node's order (publication {k})"));
                 return;
@@ -1124,20 +1189,17 @@ mod tests {
             }
         }
         for (k, (shape, rows)) in node.iter().enumerate() {
-            if let Some(at) = pairs.iter().rposition(|pair| *pair == Some(k))
+            if let Some(at) = pairs.iter().rposition(|pair| *pair == k)
                 && !holds(at, rows, core_names)
             {
                 differences.failures.push(format!("{label}: after frame {at} the client does not hold Node's publication {k} ({shape})"));
             }
         }
-        // At the part's end the client holds Node's last catalog of it, whether or not a frame of the part is paired with it; an
-        // entry naming an order Node can produce and the core cannot (`"heldAtEnd": false`) states that it does not, and is held to it.
-        if let Some((shape, rows)) = node.last() {
-            let holds_last = held(fold, sent, core_names, rows) == *rows;
-            let expected = entry["heldAtEnd"].as_bool().unwrap_or(true);
-            if holds_last != expected {
-                differences.failures.push(format!("{label}: at the part's end the client {} Node's last publication ({shape}), the entry says it {}", if holds_last { "holds" } else { "does not hold" }, if expected { "does" } else { "does not" }));
-            }
+        // At the part's end the client holds Node's last catalog of it, whether or not a frame of the part is paired with it.
+        if let Some((shape, rows)) = node.last()
+            && held(fold, sent, core_names, rows) != *rows
+        {
+            differences.failures.push(format!("{label}: at the part's end the client does not hold Node's last publication ({shape})"));
         }
     }
 
