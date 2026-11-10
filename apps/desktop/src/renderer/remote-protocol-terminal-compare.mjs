@@ -7,10 +7,16 @@
 // and in order; the output is compared by:
 //   1. which tabs streamed output;
 //   2. that a tab Node killed at two columns ends with an exit line (its last bytes are the kill's timing; the code is the host's).
-// What a tab's bytes were is not compared: the shell is PowerShell, whose PSReadLine redraws the typed line per run (Node's own runs: 3 distinct
-// byte streams for the same screens), and a phone cannot pick another shell (`termEnsure` takes a profile id, which the desktop resolves to the
-// default shell). The screen at every checkpoint, which the other entries hold, is what is compared.
+//   3. for a tab of the Command Prompt profile (`termEnsure(id, cwd, 'cmd')`, a profile a phone names as the desktop's picker does), the
+//      bytes it streamed before its dispose was answered, byte for byte: Node's own runs gave one byte stream (variance.json,
+//      `bytesBeforeDisposeDistinct`), and the comparison refuses to run if they did not.
+// What a PowerShell tab's bytes were is not compared: PSReadLine redraws the typed line per run (Node's own runs: 3 distinct byte streams for
+// the same screens). The screen at every checkpoint, which the other entries hold, is what is compared for it.
 import assert from 'node:assert/strict';
+import { bytesBeforeDispose } from '../../../../benchmarks/rust-core/recorders/lib/trace-variance.mjs';
+
+/** Tabs whose output is compared byte for byte (the `cmd` profile's). */
+const BYTE_EXACT = new Set(['term_ph2c']);
 
 // A tab whose output is not compared byte for byte, and why: the clamp tab's shell is killed at 2 columns while ConPTY redraws it, so what it
 // wrote in its last moments is the kill's timing (Node's own bytes were the same in 5 runs, the core's differ in where the redraw is cut),
@@ -73,6 +79,11 @@ export function compareTraces(got, golden, variance) {
     }
     const [mineOutput, theirOutput] = [mine, theirs].map(outputOf);
     for (const tab of tabsWithData(theirs)) {
+      if (BYTE_EXACT.has(tab)) {
+        const stable = variance[part].perTab[tab]?.bytesBeforeDisposeDistinct;
+        assert.equal(stable, 1, `${part}: Node's ${variance.runs} runs gave ${stable} byte streams for ${tab}; record again before comparing bytes`);
+        assert.equal(bytesBeforeDispose(mine, tab), bytesBeforeDispose(theirs, tab), `${part}: the bytes ${tab} streamed before its dispose`);
+      }
       if (KILLED_AT_TWO_COLUMNS.has(tab)) {
         for (const output of [mineOutput, theirOutput]) assert.match(output[tab], EXIT_LINE, `${part}: ${tab} ends with an exit line`);
       }

@@ -12,6 +12,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { REPO_ROOT, commitStage, exactProductIdentity, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 import { callEntry, play, record, sizeClaimScript, terminalScript } from './lib/phone-terminal-script.mjs';
 import { varianceReport } from './lib/trace-variance.mjs';
+import { assertNoPowerShellProfile, isolatedProfile } from './lib/shell-isolation.mjs';
 
 const REF = 'b6f10295a2f698afc85332467192de28500bd146';
 const ROOT = 'D:\\mixdog-build\\tmp\\ph2-terminal';
@@ -50,13 +51,18 @@ if (!args.has('child')) {
   // The recording runs in a process of its own (the test environment's loader hooks only a fresh process takes). Node's real PTY
   // (ConPTY) leaves that process alive at exit, so the parent waits for the trace's end marker, which is the child's own completion
   // signal, and then ends the child it started.
+  // The shells run with a profile folder the recording owns (lib/shell-isolation.mjs), made fresh for each run.
+  const PROFILE = `${ROOT}-profile`;
   const recordOnce = async () => {
+  rmSync(PROFILE, { recursive: true, force: true });
+  const env = { ...process.env, ...isolatedProfile(PROFILE) };
+  assertNoPowerShellProfile(env);
   const here = fileURLToPath(import.meta.url);
   const hook = (rel) => pathToFileURL(join(REPO_ROOT, rel)).href;
   const child = spawn(
     process.execPath,
     ['--import', hook('apps/desktop/scripts/test-env.mjs'), '--import', hook('apps/desktop/scripts/test-tsx.mjs'), here, '--tree', tree, '--child'],
-    { stdio: ['ignore', 'pipe', 'pipe'] }
+    { stdio: ['ignore', 'pipe', 'pipe'], env }
   );
   const trace = await new Promise((resolve, reject) => {
     let stdout = '';
@@ -99,6 +105,7 @@ if (!args.has('child')) {
   const runs = Number(args.get('runs') ?? 4);
   const traces = [];
   for (let run = 1; run <= runs; run += 1) traces.push(await recordOnce());
+  rmSync(PROFILE, { recursive: true, force: true });
   const trace = traces[0];
   const variance = { runs, ...varianceReport(traces) };
   const finalOut =join(REPO_ROOT, 'apps', 'mobile', 'fixtures', 'phone-terminal');

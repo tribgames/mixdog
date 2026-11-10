@@ -296,14 +296,7 @@
         "push": "termData",
         "event": {
           "id": "term_ph2a",
-          "data": "\u001b[93mWrite-Output \u001b[37mMIXDOG_PH2_DONE    \r\n\u001b[?25h"
-        }
-      },
-      {
-        "push": "termData",
-        "event": {
-          "id": "term_ph2a",
-          "data": "\u001b[mMIXDOG_PH2_DONE\r\n"
+          "data": "\u001b[93mWrite-Output \u001b[37mMIXDOG_PH2_DONE\r\n\u001b[?25h"
         }
       },
       {
@@ -317,7 +310,7 @@
         "push": "termData",
         "event": {
           "id": "term_ph2a",
-          "data": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> "
+          "data": "\u001b[mMIXDOG_PH2_DONE\r\nPS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> "
         }
       },
       {
@@ -504,7 +497,7 @@
         "push": "termData",
         "event": {
           "id": "term_ph2a",
-          "data": "\u001b[?25l\u001b[8;30;100t\u001b[HPS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> \u001b[93mWrite-Output \u001b[37mMIXDOG_PH2_DONE\u001b[K\u001b[m\r\nMIXDOG_PH2_DONE\u001b[K\r\nPS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\u001b[3;42H\u001b[?25h\u001b[93mWrite-Output \u001b[37mMIXDOG_PH2_SETTLE_1\u001b[m\r\nMIXDOG_PH2_SETTLE_1\r\n"
+          "data": "\u001b[?25l\u001b[8;30;100t\u001b[HPS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> \u001b[93mWrite-Output \u001b[37mMIXDOG_PH2_DONE\u001b[K\u001b[m\r\nMIXDOG_PH2_DONE\u001b[K\r\nPS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\u001b[3;42H\u001b[?25h"
         }
       },
       {
@@ -518,7 +511,14 @@
         "push": "termData",
         "event": {
           "id": "term_ph2a",
-          "data": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> "
+          "data": "\u001b[93mWrite-Output \u001b[37mMIXDOG_PH2_SETTLE_1\r\n"
+        }
+      },
+      {
+        "push": "termData",
+        "event": {
+          "id": "term_ph2a",
+          "data": "\u001b[mMIXDOG_PH2_SETTLE_1\r\nPS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> "
         }
       },
       {
@@ -1330,6 +1330,200 @@
         "value": []
       },
       {
+        "call": "termEnsure",
+        "params": [
+          "term_ph2c",
+          "D:\\mixdog-build\\tmp\\ph2-terminal\\cwd",
+          "cmd"
+        ],
+        "value": {
+          "id": "term_ph2c",
+          "replay": {
+            "size": [
+              80,
+              24
+            ],
+            "title": "",
+            "buffer": "normal",
+            "cursor": {
+              "at": [
+                0,
+                0
+              ],
+              "visible": true,
+              "style": "bar",
+              "blink": true
+            },
+            "rows": [],
+            "inactive": []
+          }
+        }
+      },
+      {
+        "push": "termData",
+        "event": {
+          "id": "term_ph2c",
+          "data": "\u001b[?9001h\u001b[?1004h"
+        }
+      },
+      {
+        "push": "activity",
+        "event": {
+          "id": "term_ph2c",
+          "state": "idle"
+        }
+      },
+      {
+        "fire": "termWrite"
+      },
+      {
+        "push": "activity",
+        "event": {
+          "id": "term_ph2c",
+          "state": "running"
+        }
+      },
+      {
+        "push": "activity",
+        "event": {
+          "id": "term_ph2c",
+          "state": "finished"
+        }
+      },
+      {
+        "push": "termData",
+        "event": {
+          "id": "term_ph2c",
+          "data": "\u001b[?25l\u001b[2J\u001b[m\u001b[HMicrosoft Windows [Version 10.0.26300.9818]\u001b]0;C:\\WINDOWS\\System32\\cmd.exe\u0007\u001b[?25h"
+        }
+      },
+      {
+        "push": "termData",
+        "event": {
+          "id": "term_ph2c",
+          "data": "\u001b[?25l\r\n(c) Microsoft Corporation. All rights reserved.\u001b[4;1HD:\\mixdog-build\\tmp\\ph2-terminal\\cwd>echo MIXDOG_PH2_DONE\r\nMIXDOG_PH2_DONE\u001b[7;1HD:\\mixdog-build\\tmp\\ph2-terminal\\cwd>\u001b[?25h"
+        }
+      },
+      {
+        "screen": "term_ph2c",
+        "after": "MIXDOG_PH2_DONE",
+        "view": {
+          "size": [
+            80,
+            24
+          ],
+          "title": "C:\\WINDOWS\\System32\\cmd.exe",
+          "buffer": "normal",
+          "cursor": {
+            "at": [
+              37,
+              6
+            ],
+            "visible": true,
+            "style": "bar",
+            "blink": true
+          },
+          "rows": [
+            {
+              "text": "Microsoft Windows [Version 10.0.26300.9818]"
+            },
+            {
+              "text": "(c) Microsoft Corporation. All rights reserved."
+            },
+            {
+              "text": ""
+            },
+            {
+              "text": "D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>echo MIXDOG_PH2_DONE"
+            },
+            {
+              "text": "MIXDOG_PH2_DONE"
+            },
+            {
+              "text": ""
+            },
+            {
+              "text": "D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+            }
+          ],
+          "inactive": []
+        }
+      },
+      {
+        "snap": "cmd result",
+        "screens": {
+          "term_ph2c": {
+            "size": [
+              80,
+              24
+            ],
+            "title": "C:\\WINDOWS\\System32\\cmd.exe",
+            "buffer": "normal",
+            "cursor": {
+              "at": [
+                37,
+                6
+              ],
+              "visible": true,
+              "style": "bar",
+              "blink": true
+            },
+            "rows": [
+              {
+                "text": "Microsoft Windows [Version 10.0.26300.9818]"
+              },
+              {
+                "text": "(c) Microsoft Corporation. All rights reserved."
+              },
+              {
+                "text": ""
+              },
+              {
+                "text": "D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>echo MIXDOG_PH2_DONE"
+              },
+              {
+                "text": "MIXDOG_PH2_DONE"
+              },
+              {
+                "text": ""
+              },
+              {
+                "text": "D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+              }
+            ],
+            "inactive": []
+          }
+        }
+      },
+      {
+        "push": "activity",
+        "event": {
+          "id": "term_ph2c",
+          "state": null
+        }
+      },
+      {
+        "call": "termDispose",
+        "params": [
+          "term_ph2c"
+        ],
+        "value": null
+      },
+      {
+        "push": "termData",
+        "event": {
+          "id": "term_ph2c",
+          "data": "\u001b[?9001l\u001b[?1004l"
+        }
+      },
+      {
+        "push": "termData",
+        "event": {
+          "id": "term_ph2c",
+          "data": "\r\n[process exited with code -1073741510]\r\n"
+        }
+      },
+      {
         "lane": "terminal",
         "on": false
       },
@@ -1850,13 +2044,6 @@
           }
         },
         {
-          "push": "activity",
-          "event": {
-            "id": "term_ph2_l2",
-            "state": "running"
-          }
-        },
-        {
           "push": "termData",
           "event": {
             "id": "term_ph2_l6",
@@ -1867,7 +2054,14 @@
           "push": "termData",
           "event": {
             "id": "term_ph2_l2",
-            "data": "\u001b[93mWrite-Output \u001b[37mMIXDOG_PH2_SETTLE_1\r\n"
+            "data": "\u001b[?25l\u001b[93mWrite-Output \u001b[37mMIXDOG_PH2_SETT\u001b[97m\u001b[2m\u001b[3mLE_1\u001b[1;70H\u001b[?25h"
+          }
+        },
+        {
+          "push": "activity",
+          "event": {
+            "id": "term_ph2_l2",
+            "state": "running"
           }
         },
         {
@@ -1875,13 +2069,6 @@
           "event": {
             "id": "term_ph2_l6",
             "data": "\u001b[?25lPS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\u001b[1;42H\u001b[?25h"
-          }
-        },
-        {
-          "push": "termData",
-          "event": {
-            "id": "term_ph2_l2",
-            "data": "\u001b[mMIXDOG_PH2_SETTLE_1\r\n"
           }
         },
         {
@@ -1895,7 +2082,14 @@
           "push": "termData",
           "event": {
             "id": "term_ph2_l2",
-            "data": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> "
+            "data": "\u001b[?25l\u001b[m\u001b[93m\u001b[1;42HWrite-Output \u001b[37mMIXDOG_PH2_SETTLE_1\r\n\u001b[?25h"
+          }
+        },
+        {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l2",
+            "data": "\u001b[mMIXDOG_PH2_SETTLE_1\r\nPS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> "
           }
         },
         {
@@ -2042,6 +2236,13 @@
           }
         },
         {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l2",
+            "data": "\u001b[?25l"
+          }
+        },
+        {
           "push": "activity",
           "event": {
             "id": "term_ph2_l2",
@@ -2052,14 +2253,7 @@
           "push": "termData",
           "event": {
             "id": "term_ph2_l2",
-            "data": "\u001b[93mWrite-Output \u001b[37mMIXDOG_PH2_SETTLE_2\u001b[m\r\nMIXDOG_PH2_SETTLE_2\r\n"
-          }
-        },
-        {
-          "push": "termData",
-          "event": {
-            "id": "term_ph2_l2",
-            "data": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> "
+            "data": "\u001b[93mWrite-Output \u001b[37mMIXDOG_PH2_SETTLE_2\r\n\u001b[?25h\u001b[mMIXDOG_PH2_SETTLE_2\r\nPS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> "
           }
         },
         {
@@ -2709,17 +2903,17 @@
           }
         },
         {
-          "push": "termData",
-          "event": {
-            "id": "term_ph2_l5",
-            "data": "\u001b[mMIXDOG_PH2_SETTLE_1\r\n"
-          }
-        },
-        {
           "push": "activity",
           "event": {
             "id": "term_ph2_l5",
             "state": "finished"
+          }
+        },
+        {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l5",
+            "data": "\u001b[mMIXDOG_PH2_SETTLE_1\r\n"
           }
         },
         {
@@ -2873,17 +3067,17 @@
           }
         },
         {
-          "push": "termData",
-          "event": {
-            "id": "term_ph2_l6",
-            "data": "\u001b[mMIXDOG_PH2_SETTLE_1\r\n"
-          }
-        },
-        {
           "push": "activity",
           "event": {
             "id": "term_ph2_l6",
             "state": "finished"
+          }
+        },
+        {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l6",
+            "data": "\u001b[mMIXDOG_PH2_SETTLE_1\r\n"
           }
         },
         {
@@ -6178,6 +6372,18 @@
           }
         },
         {
+          "fire": "termResize"
+        },
+        {
+          "push": "sizeOwner",
+          "event": {
+            "id": "term_ph2_l5",
+            "cols": 99,
+            "rows": 29,
+            "own": true
+          }
+        },
+        {
           "push": "activity",
           "event": {
             "id": "term_ph2_l1",
@@ -6250,6 +6456,13 @@
         {
           "push": "termData",
           "event": {
+            "id": "term_ph2_l5",
+            "data": "\u001b[?25l\u001b[HPS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> \u001b[93mWrite-Output \u001b[37mMIXDOG_PH2_SETTLE_1\u001b[K\u001b[m\r\nMIXDOG_PH2_SETTLE_1\u001b[K\r\nPS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\u001b[3;42H\u001b[?25h\u001b[?9001l\u001b[?1004l"
+          }
+        },
+        {
+          "push": "termData",
+          "event": {
             "id": "term_ph2_l1",
             "data": "\u001b[?9001l\u001b[?1004l"
           }
@@ -6269,31 +6482,17 @@
           }
         },
         {
-          "push": "activity",
+          "push": "termData",
           "event": {
-            "id": "term_ph2_l5",
-            "state": "running"
+            "id": "term_ph2_l6",
+            "data": "\u001b[?9001l\u001b[?1004l"
           }
         },
         {
           "push": "termData",
           "event": {
             "id": "term_ph2_l5",
-            "data": "\u001b[?9001l\u001b[?1004l"
-          }
-        },
-        {
-          "push": "activity",
-          "event": {
-            "id": "term_ph2_l6",
-            "state": "running"
-          }
-        },
-        {
-          "push": "termData",
-          "event": {
-            "id": "term_ph2_l6",
-            "data": "\u001b[?9001l\u001b[?1004l"
+            "data": "\r\n[process exited with code -1073741510]\r\n"
           }
         },
         {
@@ -6304,23 +6503,9 @@
           }
         },
         {
-          "push": "activity",
-          "event": {
-            "id": "term_ph2_l5",
-            "state": null
-          }
-        },
-        {
           "push": "termData",
           "event": {
-            "id": "term_ph2_l5",
-            "data": "\r\n[process exited with code -1073741510]\r\n"
-          }
-        },
-        {
-          "push": "termData",
-          "event": {
-            "id": "term_ph2_l1",
+            "id": "term_ph2_l6",
             "data": "\r\n[process exited with code -1073741510]\r\n"
           }
         },
@@ -6332,16 +6517,9 @@
           }
         },
         {
-          "push": "activity",
-          "event": {
-            "id": "term_ph2_l6",
-            "state": null
-          }
-        },
-        {
           "push": "termData",
           "event": {
-            "id": "term_ph2_l6",
+            "id": "term_ph2_l1",
             "data": "\r\n[process exited with code -1073741510]\r\n"
           }
         },
