@@ -109,7 +109,7 @@ writeSetManifest(stage, {
   extra: {
     exact: true,
     cases: cases.length,
-    provenance: recordingProvenance(recorder, [child, 'benchmarks/rust-core/recorders/lib/common.mjs']),
+    ...recordingProvenance(recorder, [child, 'benchmarks/rust-core/recorders/lib/common.mjs']),
     // What the replay (`mixdog-core` `run_host::turn_durability_replay`) leaves out of each compared step, and why.
     exclusions: [
       'minted ids (message, attempt, session ids, also inside texts) are compared as <id:N> by first appearance: each side mints its own',
