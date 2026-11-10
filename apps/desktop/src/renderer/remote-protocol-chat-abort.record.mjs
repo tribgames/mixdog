@@ -10,7 +10,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { ABORT_CASES, PROJECT_FILE } from './remote-protocol-chat-abort-cases.mjs';
+import { ABORT_CASES, DEVICES, PROJECT_FILE } from './remote-protocol-chat-abort-cases.mjs';
 import { startAbortProvider } from './remote-protocol-chat-abort-provider.mjs';
 
 const [exportDir, outFile, harness] = process.argv.slice(2);
@@ -54,16 +54,17 @@ let provider;
 // Each step ends whether or not the one before it did: a host that fails to dispose still has its daemon shut down and its endpoint closed.
 const end = async () => {
   deadline?.clear();
-  const ended = createDeadline(60_000, () => 'ending the abort recording');
+  const ended = createDeadline(90_000, () => 'ending the abort recording');
   try {
     try {
       if (host) await ended.race(host.dispose(), 'the host to dispose');
     } finally {
       try {
-        // Node's own bounded wait for the daemon to exit.
-        if (discovery) await sessionClient.shutdownDaemon(discovery, { waitForExit: true, timeoutMs: 30_000 });
-      } finally {
+        // The model endpoint goes first: a turn it still holds (a runtime's turn that was queued again after its Stop) keeps the daemon busy.
         if (provider) await ended.race(provider.close(), 'the model endpoint to close');
+      } finally {
+        // Node's own bounded wait for the daemon to exit.
+        if (discovery) await sessionClient.shutdownDaemon(discovery, { waitForExit: true, timeoutMs: 60_000 });
       }
     }
   } finally {
@@ -114,44 +115,76 @@ let published = [];
 host.subscribeSessions((rows) => { published = rows; wake(); });
 const plain = (value) => JSON.parse(JSON.stringify(value));
 /** The session is idle: the host's own state for it says no turn runs. */
-const idle = (id) => host.getSnapshot(id)?.busy === false;
+/** The session state the host holds for a thread (the daemon's session-state frames folded: session-host-publication.ts projections). */
+ const sessionState = (id) => host.publication.projections.get(id)?.snapshot;
+ const idle = (id) => host.getSnapshot(id)?.busy === false;
 
 const cases = [];
 let lastId = '';
+  // The phone's entry into the host: remote-session-methods.ts `sessionRemoteMethods`, one table per paired device (its `deviceName` is what the
+  // relay names the connection after). It validates the options as the phone's call is validated (`requiredSubmitOptions`, `requiredAbortOptions`),
+  // stamps the connection's device on the submission and on the Stop, and calls `host.submitNewTask` / `submitToSession` / `abortSession`
+  // (remote-session-methods.ts:149-167); nothing between the phone's frame and the host is skipped.
+  const { sessionRemoteMethods } = await load('main/remote-session-methods.ts');
+  const phones = new Map();
+  const phone = (device) => {
+    if (!phones.has(device)) phones.set(device, sessionRemoteMethods(host, { deviceName: async () => device }, undefined));
+    return phones.get(device);
+  };
   for (const c of ABORT_CASES) {
+    const since0 = Date.now();
+    const submitter = phone(c.submitter ?? DEVICES.a);
+    const canceller = phone(c.canceller ?? c.submitter ?? DEVICES.a);
     const at = (what) => process.stderr.write(`${c.name}: ${what}\n`);
     at('startProject');
     await deadline.race(host.startProject(project), 'startProject');
-    const submit = { id: `sub-${c.name}`, ...(c.pasted ? { pastedTexts: c.pasted } : {}) };
+    const submit = { id: `sub-${c.name}`, ...(c.pasted ? { pastedTexts: c.pasted } : {}), ...(c.submit ?? {}) };
     at('submitNewTask');
-    const accepted = await deadline.race(host.submitNewTask(c.prompt, submit, { projectPath: project, route }), 'submitNewTask of '+c.name);
+    const accepted = await deadline.race(submitter.submitNewTask([c.prompt, submit, { projectPath: project, route }]), 'submitNewTask of '+c.name);
     const id = accepted.sessionId;
     lastId = id;
-    await deadline.race(provider.held(c.prompt), `the model endpoint to receive the held turn of ${c.name}`);
+    const turns = c.then ? 2 : 1;
+    const closed = () => frames.some((f) => f.includes(id) && f.includes(`"turns":${turns}`)) && idle(id);
+    if (c.ready === 'completed') await until(closed, `the turn of ${c.name} to end on its own`);
+    else if (c.ready === 'approval') {
+      await deadline.race(provider.asked(c.prompt), `the model endpoint to receive the tool-calling turn of ${c.name}`);
+      await until(() => sessionState(id)?.toolApproval, `the tool approval of ${c.name} to be pending in the host`);
+    } else await deadline.race(provider.held(c.prompt), `the model endpoint to receive the held turn of ${c.name}`);
     if (c.output) await until(() => frames.some((f) => f.includes(c.output)), `the streamed text of ${c.name} to reach the host`);
     if (c.then) {
-      await deadline.race(host.submitToSession(id, c.then, { id: `sub-${c.name}-2` }), `submitToSession of the queued prompt of ${c.name}`);
+      await deadline.race(submitter.submitToSession([id, c.then, { id: `sub-${c.name}-2` }]), `submitToSession of the queued prompt of ${c.name}`);
       await until(() => frames.some((f) => f.includes(c.then)), `the queued prompt of ${c.name} to reach the host`);
     }
     at('abort');
-    const reply = plain(await deadline.race(host.abortSession(id, c.stop), 'abortSession of '+c.name));
-    const turns = c.then ? 2 : 1;
-    await until(() => frames.some((f) => f.includes(id) && f.includes(`"turns":${turns}`)) && idle(id), `the turn(s) of ${c.name} to close after its Stop`);
-    const second = c.again ? plain(await deadline.race(host.abortSession(id, c.again), `the second abortSession of ${c.name}`)) : undefined;
+    const stopAt = Date.now();
+    const reply = plain(await deadline.race(canceller.abortSession([id, c.stop]), 'abortSession of '+c.name));
+    await until(closed, `the turn(s) of ${c.name} to close after its Stop`);
+    if (c.requeued) await deadline.race(provider.held(c.prompt, 2), `the model endpoint to receive the second, requeued turn of ${c.name}`);
+    const second = c.again ? plain(await deadline.race(canceller.abortSession([id, c.again]), `the second abortSession of ${c.name}`)) : undefined;
     // What the stopped turn left in the stored thread, whole: the transcript rows the host holds and the thread's list row.
-    // Node publishes a thread's row to subscribers (`subscribeSessions`) when the daemon's session-summary frame for it reaches the host;
-    // `listSessions` answers from those rows, so the row is read once the host has been given it.
-    await until(() => published.some((r) => r.id === id),`the thread row of ${c.name} to be published`);
+    // Node publishes a thread's row to subscribers (`subscribeSessions`) when the daemon's session-summary for it reaches the host
+    // (session-host-catalog.ts:228-240 `publishCatalogs`, called from the daemon's summary handler, session-host-lifecycle.ts:949-950);
+    // `listSessions` answers from those rows. The row is read once the host holds the one the turn's close stamped (`updatedAt` not before the
+    // Stop; for a turn that ended on its own, not before the prompt): an earlier publication of the same thread is a row the Stop has not reached.
+    const stampedAfter = c.ready === 'completed' ? since0 : stopAt;
+    await until(() => (published.find((r) => r.id === id)?.updatedAt ?? 0) >= stampedAfter, `the thread row of ${c.name} stamped by its close to be published`);
     const row = plain((await deadline.race(host.listSessions(), `listSessions after ${c.name}`)).find((r) => r.id === id) ?? null);
     const items = plain((await deadline.race(host.readSessionTranscript(id), `readSessionTranscript after ${c.name}`)).items);
-    cases.push({ name: c.name, id, stop: c.stop, ...(c.again ? { again: c.again } : {}), node: { reply, ...(second ? { second } : {}), items, row } });
+    // What the composer of the device that sent the prompt is told: the session state's `promptRestore`.
+    const promptRestore = plain(sessionState(id)?.promptRestore ?? null);
+    // A requeued turn runs on; the thread is deleted once recorded so the daemon has no turn left when it is shut down.
+    if (c.requeued) await deadline.race(host.deleteSession(id), `deleteSession of ${c.name}`);
+    cases.push({ name: c.name, id, stop: c.stop, ...(c.again ? { again: c.again } : {}), node: { reply, ...(second ? { second } : {}), items, row, promptRestore } });
   }
   writeFileSync(outFile, `${JSON.stringify({
     manifest: { exact: true, commit: COMMIT, filesVerified: checked, source: 'Node daemon + SessionHost from the exact export, run unchanged; model endpoint remote-protocol-chat-abort-provider.mjs' },
     cases,
   }, null, 2)}\n`);
   console.log(`recorded ${cases.length} abort cases`);
-} finally {
-  await end();
+} catch (error) {
+  // The failure that stopped the recording is the one reported; a failure to end what was started is printed beside it.
+  await end().catch((ending) => process.stderr.write(`ending what the recording started failed too: ${ending?.stack ?? ending}\n`));
+  throw error;
 }
+await end();
 process.exit(0);

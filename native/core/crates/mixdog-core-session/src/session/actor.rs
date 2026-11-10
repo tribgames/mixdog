@@ -2608,6 +2608,13 @@ impl SessionActor {
                 // (`ask-turn-failure.mjs:185`), and nothing else of the settle's stamps.
                 let mut set = serde_json::Map::new();
                 set.insert("turnCoverage".into(), json!(turn.as_str()));
+                // A cancelled turn is finalized through the close snapshot (`finalizeCancelledTurn` ->
+                // `prepareCloseSnapshot`, `ask-turn-failure.mjs:129`), which stamps the record's activity
+                // (`ask-turn-state.mjs:256-257`): a Stopped thread's row has `activityAt` = `updatedAt`.
+                if phase == RunPhase::Interrupted {
+                    set.insert("updatedAt".into(), json!(at));
+                    set.insert("lastUsedAt".into(), json!(at));
+                }
                 let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new() }) });
                 self.accept_record(meta, Class::Control, Display::None, Vec::new(), Vec::new());
             }

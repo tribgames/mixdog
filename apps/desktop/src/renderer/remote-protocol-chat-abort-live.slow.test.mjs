@@ -9,31 +9,58 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { mergeToolRows, rowOf } from '../../../../packages/protocol-client/src/rows.ts';
+import { desktopSessionState, sessionReducer } from '../../../../packages/protocol-client/src/session-state.ts';
 import { summariesOfThreadRows } from '../main/protocol/thread-rows.ts';
 import { createChatApi } from './remote-protocol-chat.ts';
 import { createCapabilityLane } from '../main/protocol/capability-route.ts';
 import { routeService } from '../main/protocol/service-route.ts';
 import { coreErrorForWindow } from '../main/protocol/core-error.ts';
+import { RUN_OTHERS, RUN_TIMES } from './remote-protocol-chat-abort-run-fields.mjs';
 import { runAbortLive } from './remote-protocol-chat-abort-live.mjs';
 
 const node = JSON.parse(readFileSync(new URL('./remote-protocol-chat-abort.recorded.json', import.meta.url), 'utf8'));
 const live = await runAbortLive();
 
 const plain = (value) => JSON.parse(JSON.stringify(value));
-/** Values that are a run's own: ids the daemon minted, wall-clock times, the machine/client name. Their kind must match; nothing else is skipped. */
-const RUN_FIELDS = new Set(['at', 'elapsedMs', 'thinkingElapsedMs', 'messageId', 'attemptId', 'device', 'createdAt', 'updatedAt', 'activityAt', 'startedAt', 'completedAt']);
+/**
+ * Values that are a run's own (remote-protocol-chat-abort-run-fields.mjs; remote-protocol-chat-abort-run-fields.test.mjs shows by two recordings of
+ * Node that these, and only these, differ between runs). They compare as: the same kind of value; `messageId` in the same character shape; the ids
+ * as ids (a submission id is fixed by the case and compared as it is; a turn end names a row of its own transcript); the times in the same order
+ * as Node's (`timeFacts`: which fields occur, in which order, none before the one before it, a tool's completion not before its start).
+ * `device` is no longer exempt: both sides name the paired device the case names.
+ */
+const RUN_FIELDS = new Set([...RUN_TIMES, ...RUN_OTHERS]);
+const TIME_FIELDS = new Set(RUN_TIMES);/** The time fields in the order they occur, and for each whether it is not before the one occurring before it (rows: `at` of a later row is not earlier); a tool's completion is not before its start. */
+const timeFacts = (value) => {
+  const seen = [];
+  const walk = (v, key = '') => {
+    if (Array.isArray(v)) v.forEach((x) => walk(x));
+    else if (v && typeof v === 'object') {
+      for (const [k, x] of Object.entries(v)) walk(x, k);
+      if (typeof v.startedAt === 'number' && typeof v.completedAt === 'number') seen.push([`${key}.completedAt>=startedAt`, v.completedAt >= v.startedAt]);
+    } else if (TIME_FIELDS.has(key)) seen.push([key, v]);
+  };
+  walk(value);
+  const stamps = seen.filter(([, v]) => typeof v === 'number');
+  return {
+    names: seen.map(([name]) => name),
+    notBackwards: stamps.map(([, v], i) => (i === 0 ? true : v >= stamps[i - 1][1])),
+    completionNotBeforeStart: seen.filter(([, v]) => typeof v === 'boolean').map(([, v]) => v),
+  };
+};
 const folders = (value) => (typeof value === 'string' ? value.replace(/^.*[\\/]env-ph2-chat-abort-(node|live)[\\/]/, '<env>/') : value);
 const shape = (value, key = '') => {
   if (Array.isArray(value)) return value.map((v) => shape(v));
   if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, shape(v, k)]));
+  if (key === 'messageId' && typeof value === 'string') return value.replace(/[0-9a-f]/g, 'x');
   if (RUN_FIELDS.has(key)) return `<${typeof value}>`;
   if (key === 'finalAssistantId' && typeof value === 'string') return '<id>';
   if (key === 'id' && typeof value === 'string' && !value.startsWith('sub-')) return '<id>';
   if (key === 'checkpointId') return typeof value === 'string' && value.startsWith('sub-') ? value : '<id>';
   return folders(value);
 };
-const foldRows = (items) => mergeToolRows(items.map((item) => rowOf(item)).filter(Boolean));
+/** The transcript rows the production fold gives for a thread snapshot's items (session-state.ts `sessionReducer.initial` + `desktopSessionState`): nothing is dropped here. */
+const foldRows = (items) => desktopSessionState(sessionReducer.initial({ thread: { id: 'abort-live' }, items, state: {} }), []).items;
 
 function adapterFor(replies) {
   const sent = [];
@@ -64,7 +91,10 @@ test('the run is of the built core and holds Node\'s cases', () => {
 for (const nodeCase of node.cases) {
   const core = live.cases.find((c) => c.name === nodeCase.name);
   test(`${nodeCase.name}: the Stop's reply, the stored transcript and the list row are Node's`, async () => {
-    const replies = [core.core.reply, core.core.again?.reply].filter((r) => r !== undefined);
+    // A second Stop has a reply on both sides or on neither: an absent reply where Node had one (or the reverse) fails here.
+    assert.equal(core.core.again?.reply !== undefined, nodeCase.node.second !== undefined, 'a reply to the second Stop on both sides or neither');
+    assert.notEqual(core.core.reply, undefined, 'the core answered the Stop');
+    const replies = nodeCase.node.second !== undefined ? [core.core.reply, core.core.again.reply] : [core.core.reply];
     const { api, sent } = adapterFor(replies);
     const handedBack = await api.abortSession(core.stop.threadId, nodeCase.stop);
     assert.deepEqual(handedBack, nodeCase.node.reply);
@@ -82,7 +112,15 @@ for (const nodeCase of node.cases) {
         assert.ok(rows.some((r) => r.kind === 'assistant' && r.id === end.finalAssistantId), `${side}: the turn end names a row of its transcript`);
       }
     }
-    assert.deepEqual(shape(plain(foldRows(core.core.items))), shape(nodeCase.node.items), 'stored transcript');
-    assert.deepEqual(shape(plain(summariesOfThreadRows([core.core.row])[0])), shape(nodeCase.node.row), 'list row');
+    const coreRows = plain(foldRows(core.core.items));
+    const coreRow = plain(summariesOfThreadRows([core.core.row])[0]);
+    assert.deepEqual(shape(coreRows), shape(nodeCase.node.items), 'stored transcript');
+    assert.deepEqual(shape(coreRow), shape(nodeCase.node.row), 'list row');
+    assert.deepEqual(timeFacts(coreRows), timeFacts(nodeCase.node.items), 'stored transcript: the times are in Node\'s order');
+    assert.deepEqual(timeFacts(coreRow), timeFacts(nodeCase.node.row), 'list row: the times are in Node\'s order');
+    // The composer of the device that sent the prompt: Node's session state `promptRestore` is the core's last `thread/promptRestore` (null when none came).
+    const restore = core.core.promptRestores.at(-1)?.value ?? null;
+    assert.deepEqual(shape(plain(restore)), shape(nodeCase.node.promptRestore), 'the prompt handed to the sending device');
+    assert.equal(core.core.promptRestores.length, nodeCase.node.promptRestore ? 1 : 0, 'one hand-over, or none');
   });
 }
