@@ -15,8 +15,16 @@ export async function startRelay({ repoRoot, clients, capabilities, http }) {
   const E2EE = await import(pathToFileURL(join(repoRoot, 'apps/desktop/src/shared/remote-e2ee.ts')).href);
   const web = http ? createServer(http) : null;
   const server = web ? new WebSocketServer({ server: web }) : new WebSocketServer({ port: 0, host: '127.0.0.1' });
-  if (web) await new Promise((resolve) => web.listen(0, '127.0.0.1', resolve));
-  else await new Promise((resolve) => server.once('listening', resolve));
+  // A bind either succeeds or emits `error` at once; the error fails the start.
+  const bound = web ?? server;
+  await new Promise((resolve, reject) => {
+    bound.once('error', reject);
+    bound.once('listening', () => {
+      bound.off('error', reject);
+      resolve();
+    });
+    web?.listen(0, '127.0.0.1');
+  });
   const state = { socket: null, caps: capabilities, envelopes: [], phones: new Map(), legs: 0, legWaiters: [], envelopeWaiters: [] };
 
   server.on('connection', (socket) => {

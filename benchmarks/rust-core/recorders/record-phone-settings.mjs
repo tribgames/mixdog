@@ -153,7 +153,14 @@ const NOTIFICATION_FILE = join(USER_DATA, 'notification-preferences.json');
 writeFileSync(NOTIFICATION_FILE, JSON.stringify(SEED_NOTIFICATIONS, null, 2));
 const endpoint = feedbackEndpoint();
 const server = createServer(endpoint.handle);
-await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+// A bind either succeeds or emits `error` at once; the error fails the recording.
+await new Promise((resolve, reject) => {
+  server.once('error', reject);
+  server.listen(0, '127.0.0.1', () => {
+    server.off('error', reject);
+    resolve();
+  });
+});
 // The relay's address: the feedback client posts to its `/feedback` (remote-relay-device.ts resolveRelayUrl).
 process.env.MIXDOG_RELAY_URL = `ws://127.0.0.1:${server.address().port}`;
 
@@ -496,7 +503,7 @@ async function replay(exe) {
     return differences.length ? 1 : 0;
   } finally {
     for (const client of clients) client.close?.();
-    spawnSync('taskkill', ['/T', '/F', '/PID', String(child.pid)], { stdio: 'ignore', windowsHide: true });
+    spawnSync('taskkill', ['/T', '/F', '/PID', String(child.pid)], { stdio: 'ignore', windowsHide: true, timeout: 30_000 });
     relay.close();
   }
 }
