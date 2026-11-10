@@ -1824,3 +1824,29 @@ async fn recorded_start_calls_resolve_the_folder_node_did() {
     }
     assert_eq!(replayed, 18, "recorded start cases replayed");
 }
+
+/// A project path that held a lone surrogate names no registered project, even one whose folder name holds a real U+FFFD (Node
+/// compares the string with the registry, `knownPath`, session-host.ts:556): the call is answered as for an unregistered path
+/// and nothing is touched. The same path sent with a real U+FFFD names the project.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_project_path_that_held_a_lone_surrogate_names_no_project() {
+    let env = env();
+    let folder = env.root.parent().unwrap().join("pro\u{fffd}");
+    std::fs::create_dir_all(&folder).unwrap();
+    let path = folder.to_string_lossy().into_owned();
+    let row = mixdog_store::state::ProjectRow { path: path.clone(), alias: None, hidden: false, hidden_rank: None, last_used_at: None, name: None };
+    env.state.write(move |tx| tx.put_project(&row)).await.unwrap();
+    let held = |method: &'static str, params: Value, at: &str| {
+        let mut req = request(method, params);
+        req.ctx.lone_surrogates = vec![mixdog_js::LoneAt::Value(at.into())];
+        req
+    };
+    let answer = |req| async { match env.service.call(req).await { Ok(Reply::Value(v)) => Ok(v), Ok(Reply::Subscribe(_)) => panic!("unexpected subscribe"), Err(e) => Err(e) } };
+    assert!(unavailable(&answer(held("projectFs/listDir", json!({ "root": path, "rel": "" }), "/root")).await));
+    assert!(unavailable(&answer(held("project/update", json!({ "path": path, "alias": "x" }), "/path")).await));
+    assert_eq!(answer(held("project/delete", json!({ "path": path }), "/path")).await.unwrap(), json!({ "removed": false }));
+    let rows = env.state.projects().await.unwrap();
+    let kept = rows.iter().find(|row| row.path == path).unwrap();
+    assert!(!kept.hidden && kept.alias.is_none(), "{kept:?}");
+    assert!(call(&env, "projectFs/listDir", json!({ "root": path, "rel": "" })).await.is_ok());
+}

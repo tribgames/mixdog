@@ -296,8 +296,8 @@ fn opt_bool(params: &Value, key: &str) -> bool {
     params.get(key).and_then(Value::as_bool).unwrap_or(false)
 }
 
-/// `lone`: the query held an unpaired surrogate escape on the wire (now U+FFFD).
-fn text_query(options: &Value, lone: bool) -> WsResult<TextQuery> {
+/// `lone`: which of the query's strings held an unpaired surrogate escape on the wire (now U+FFFD).
+fn text_query(options: &Value, lone: crate::textsearch::QueryLone) -> WsResult<TextQuery> {
     let text = |k: &str| options.get(k).and_then(Value::as_str).unwrap_or_default().to_owned();
     let query = text("query");
     if query.is_empty() || query.len() > 1000 {
@@ -718,6 +718,23 @@ impl WorkspaceService {
         let cancel = req.ctx.cancel.clone();
         let this = self.clone();
         let value = |v: Value| Ok(Reply::Value(v));
+        // A project path that held a lone surrogate names no registered project: Node compares the string with the registry's
+        // paths (`knownPath`, session-host.ts:556) and its lone unit equals none, where the core's U+FFFD could equal a folder
+        // whose name holds a real one. Answered as an unregistered path (a removal removes nothing and releases nothing).
+        let lone_project = match req.method.as_str() {
+            "project/touch" | "project/update" | "project/delete" | "project/directory" | "project/recoveryDirectory" => {
+                Self::held_lone(req, "/path")
+            }
+            "search/start" => req.ctx.lone_surrogates.iter().any(|at| matches!(at, mixdog_js::LoneAt::Value(p) if p.starts_with("/roots/"))),
+            _ => req.ctx.origin == mixdog_protocol::Origin::Relay && Self::held_lone(req, "/root"),
+        };
+        if lone_project {
+            if req.method.as_str() == "project/delete" {
+                // The removal of a path that names no project (the empty path names none), its operation recorded as any.
+                return value(self.catalog.remove("", op).await?);
+            }
+            return Err(WsError::coded("PROJECT_UNAVAILABLE", "Project is not available."));
+        }
         match req.method.as_str() {
             "project/list" => {
                 let projects: Vec<Value> = self.catalog.list().await?.iter().map(crate::catalog::project_json).collect();
@@ -845,7 +862,11 @@ impl WorkspaceService {
                 let (root, rel) = self.file_target(req, params).await?;
                 let (content, expected) = (s(params, "content")?.to_owned(), s(params, "expectedContent")?.to_owned());
                 let encoding = params.get("encoding").and_then(Value::as_str).map(fsops::parse_encoding).transpose()?;
-                let unpaired = fsops::Unpaired { content: Self::held_lone(req, "/content"), name: Self::relay_lone(req, "/rel") };
+                let unpaired = fsops::Unpaired {
+                    content: Self::held_lone(req, "/content"),
+                    name: Self::relay_lone(req, "/rel"),
+                    expected: Self::held_lone(req, "/expectedContent"),
+                };
                 let _claim = self.paths.acquire(Self::claim_keys(&root, &[&rel])?).await;
                 let fs = self.fs.clone();
                 let (note_root, note_rel) = (root.clone(), rel.clone());
@@ -883,7 +904,8 @@ impl WorkspaceService {
                 let destination = fsops::rename_destination_rel(&rel, &new_name)?;
                 let _claim = self.paths.acquire(Self::claim_keys(&root, &[&rel, &destination])?).await;
                 let (note_root, note_rel) = (root.clone(), rel.clone());
-                run_fallible(self.lanes.durability, &cancel, move || fsops::rename_entry(&root, &rel, &new_name)).await?;
+                let lone = Self::held_lone(req, "/rel") || Self::held_lone(req, "/newName");
+                run_fallible(self.lanes.durability, &cancel, move || fsops::rename_entry(&root, &rel, &new_name, lone)).await?;
                 self.note_written(&note_root, &[&note_rel, &destination]);
                 value(json!({}))
             }
@@ -923,7 +945,7 @@ impl WorkspaceService {
             }
             "projectFs/searchText" => {
                 let root = self.root(req.ctx.origin, params).await?;
-                let query = text_query(params.get("options").unwrap_or(&Value::Null), Self::held_lone(req, "/options/query"))?;
+                let query = text_query(params.get("options").unwrap_or(&Value::Null), Self::query_lone(req))?;
                 let token = cancel.clone();
                 let found = run_fallible(self.lanes.maintenance, &cancel, move || {
                     crate::textsearch::search(&root, &query, &|| token.is_cancelled())
@@ -934,16 +956,24 @@ impl WorkspaceService {
             "projectFs/replaceText" => {
                 let root = self.root(req.ctx.origin, params).await?;
                 let options = params.get("options").unwrap_or(&Value::Null);
-                let query = text_query(options, Self::held_lone(req, "/options/query"))?;
+                let query = text_query(options, Self::query_lone(req))?;
                 let replacement = s(params, "replacement")?.to_owned();
                 // Every planned write holds the replacement; one that held a lone surrogate is refused (Node: project-files.ts:744).
-                let unpaired = fsops::Unpaired { content: Self::held_lone(req, "/replacement"), name: false };
-                // An empty list names no file, as in Node: every matching file is replaced.
+                let unpaired = fsops::Unpaired { content: Self::held_lone(req, "/replacement"), ..fsops::Unpaired::default() };
+                // An empty list names no file, as in Node: every matching file is replaced. A path that held a lone surrogate names
+                // no file on disk (Node's lone unit equals no path read from disk, workspace-search.ts:238-240): left out, while the
+                // list still selects, so a list of only such paths replaces nothing.
                 let rel_paths: Option<Vec<String>> = params
                     .get("relPaths")
                     .and_then(Value::as_array)
-                    .map(|a| a.iter().filter_map(|p| p.as_str().map(str::to_owned)).collect::<Vec<_>>())
-                    .filter(|paths| !paths.is_empty());
+                    .filter(|paths| !paths.is_empty())
+                    .map(|a| {
+                        a.iter()
+                            .enumerate()
+                            .filter(|(index, _)| !Self::held_lone(req, &format!("/relPaths/{index}")))
+                            .filter_map(|(_, p)| p.as_str().map(str::to_owned))
+                            .collect::<Vec<_>>()
+                    });
                 let token = cancel.clone();
                 let plan_root = root.clone();
                 let plan = run_fallible(self.lanes.maintenance, &cancel, move || {
@@ -1053,7 +1083,7 @@ impl WorkspaceService {
                 Ok(Reply::Subscribe(Subscribe { result: json!({}), feed: publisher.source(), window: Window::Fixed, resume_from: None }))
             }
             "search/update" => {
-                self.search.update(s(params, "sessionId")?, s(params, "query")?.to_owned())?;
+                self.search.update(s(params, "sessionId")?, s(params, "query")?.to_owned(), Self::held_lone(req, "/query"))?;
                 value(json!({}))
             }
             "search/stop" => {
@@ -1434,7 +1464,11 @@ impl WorkspaceService {
                     rel_path: s(f, "relPath").or_else(|_| s(f, "rel"))?.to_owned(),
                     content: s(f, "content")?.to_owned(),
                     expected_content: s(f, "expectedContent")?.to_owned(),
-                    unpaired: fsops::Unpaired { content: Self::held_lone(req, &format!("/files/{index}/content")), name },
+                    unpaired: fsops::Unpaired {
+                        content: Self::held_lone(req, &format!("/files/{index}/content")),
+                        name,
+                        expected: Self::held_lone(req, &format!("/files/{index}/expectedContent")),
+                    },
                 })
             })
             .collect()
@@ -1442,7 +1476,16 @@ impl WorkspaceService {
 
     /// Whether the param at `pointer` held an unpaired surrogate escape on the wire (now U+FFFD).
     fn held_lone(req: &CoreRequest, pointer: &str) -> bool {
-        req.ctx.lone_surrogates.iter().any(|held| held == pointer)
+        req.ctx.lone_surrogates.iter().any(|held| matches!(held, mixdog_js::LoneAt::Value(at) if at == pointer))
+    }
+
+    /// Which of a text search's strings held an unpaired surrogate escape.
+    fn query_lone(req: &CoreRequest) -> crate::textsearch::QueryLone {
+        crate::textsearch::QueryLone {
+            query: Self::held_lone(req, "/options/query"),
+            include: Self::held_lone(req, "/options/include"),
+            exclude: Self::held_lone(req, "/options/exclude"),
+        }
     }
 
     /// [`Self::held_lone`] for a paired device's file name: Node's remote file lanes open it through `openAuthorizedFile`, which

@@ -588,5 +588,13 @@ mod tests {
         std::fs::copy(set.join("editor-backup/before").join(case["file"].as_str().unwrap()), &path).unwrap();
         assert_eq!(backups.read(&source).unwrap(), case["nodeRead"]);
         assert!(path.exists());
+        // Node's own rewrite of the draft it read, one second later on the recording's clock: the same document.
+        let rel = case["file"].as_str().unwrap();
+        let after = &case["after"][rel];
+        unsafe { std::env::set_var("MIXDOG_FIXED_NOW_MS", after["updatedAt"].to_string()) };
+        let op = &case["op"]["writeEditorBackup"];
+        backups.write(&source, op["content"].as_str().unwrap(), op["expectedContent"].as_str().unwrap()).unwrap();
+        let written: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(&written, after);
     }
 }

@@ -26,6 +26,7 @@ use mixdog_app_protocol::inventory::Target;
 use mixdog_app_protocol::limits::CloseCode;
 use mixdog_app_protocol::rpc::InboundText;
 use mixdog_app_protocol::rpc::decode_inbound_text;
+use mixdog_js::LoneAt;
 use serde_json::Value;
 use serde_json::json;
 
@@ -469,14 +470,50 @@ fn unpaired_surrogate_escapes_are_read_as_replacement_characters() {
     );
     // Where it happened, for the services that refuse a lone unit as Node does (a file save's content):
     // the strings that held one, not the ones that hold a real U+FFFD.
+    // The places are a set a service looks a param up in; the order is the parsed map's.
     let mut named = request.lone_surrogates.clone();
     named.sort();
-    assert_eq!(named, ["/a", "/\u{fffd}/n/0"]);
+    let mut expected = vec![LoneAt::Value("/a".into()), LoneAt::Key("/\u{fffd}".into()), LoneAt::Value("/\u{fffd}/n/0".into())];
+    expected.sort();
+    assert_eq!(named, expected);
     let frame = r#"{"id":2,"method":"m","params":{"content":"a\ufffdb","relPath":"n\ude00.txt"}}"#;
     let InboundText::Message(JsonRpcMessage::Request(request)) = decode_inbound_text(frame, 1 << 20) else { panic!("not a request") };
-    assert_eq!(request.lone_surrogates, ["/relPath"]);
+    assert_eq!(request.lone_surrogates, [LoneAt::Value("/relPath".into())]);
+    // Upper-case hex is the same escape; an escaped backslash before `u` is no escape; an escaped valid pair is one character.
+    let frame = r#"{"id":3,"method":"m","params":["\uD83D x","\\ud83d","\uD83D\uDE00","\ud83d\u0041","\ud83d\ud83d\ude00"]}"#;
+    let InboundText::Message(JsonRpcMessage::Request(request)) = decode_inbound_text(frame, 1 << 20) else { panic!("not a request") };
+    assert_eq!(request.params, Some(json!(["\u{fffd} x", "\\ud83d", "\u{1f600}", "\u{fffd}A", "\u{fffd}\u{1f600}"])));
+    assert_eq!(request.lone_surrogates, [LoneAt::Value("/0".into()), LoneAt::Value("/3".into()), LoneAt::Value("/4".into())]);
     let bad = decode_inbound_text(r#"{"id":1,"method":"\ud800"#, 1 << 20);
     assert_eq!(bad.close_code().map(CloseCode::code), Some(1007));
+}
+
+/// Every inbound kind keeps where its payload held a lone unit: a notification (no id) its `params`, a client's answer its
+/// `result`, an error answer its `error`. Keys distinct on the wire that the core reads as one are told apart from a key
+/// that merely held one, so the server refuses the merge instead of keeping one value where Node kept two.
+#[test]
+fn every_inbound_kind_names_its_lone_surrogates_and_merged_keys() {
+    let decode = |frame: &str| match decode_inbound_text(frame, 1 << 20) {
+        InboundText::Message(message) => message,
+        other => panic!("{frame}: {other:?}"),
+    };
+    let note = decode(r#"{"method":"x","params":{"a":"\ud800"}}"#);
+    assert!(matches!(note, JsonRpcMessage::Notification(_)));
+    assert_eq!(note.lone_surrogates(), [LoneAt::Value("/a".into())]);
+    let answer = decode(r#"{"id":"s1","result":{"answers":{"q\ud83d":"x"}}}"#);
+    assert!(matches!(answer, JsonRpcMessage::Response(_)));
+    assert_eq!(answer.lone_surrogates(), [LoneAt::Key("/answers/q\u{fffd}".into())]);
+    assert_eq!(answer.merged_key(), None);
+    let failed = decode(r#"{"id":"s1","error":{"code":1,"message":"m\udc00"}}"#);
+    assert!(matches!(failed, JsonRpcMessage::Error(_)));
+    assert_eq!(failed.lone_surrogates(), [LoneAt::Value("/message".into())]);
+    let merged = decode(r#"{"id":1,"method":"project/list","params":{"env":{"K\ud800":"1","K\udc00":"2"}}}"#);
+    assert_eq!(merged.merged_key(), Some("/env/K\u{fffd}"));
+    // The same key twice is one key to Node too (the last value): nothing merged.
+    let twice = decode(r#"{"id":1,"method":"m","params":{"a":1,"a":2}}"#);
+    assert_eq!(twice.merged_key(), None);
+    let JsonRpcMessage::Request(twice) = twice else { panic!("not a request") };
+    assert_eq!(twice.params, Some(json!({"a": 2})));
 }
 
 /// §14.3, wire half: the handshake refusals are `-32600` with their `reason`
@@ -710,6 +747,7 @@ fn ccr_shapes() {
             params: None,
             emitted_at_ms: None,
             feed: None,
+            lone_surrogates: Vec::new(),
         },
     );
     assert_eq!(

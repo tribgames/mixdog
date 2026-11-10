@@ -128,7 +128,9 @@ impl SearchSessions {
         Ok(publisher)
     }
 
-    pub fn update(self: &Arc<Self>, session_id: &str, query: String) -> WsResult<()> {
+    /// `lone`: the query held an unpaired surrogate escape on the wire (now U+FFFD). Node's needle keeps the lone unit, which no
+    /// path read from disk holds (shared/file-match.ts:34-55): the query matches nothing, where U+FFFD would match real ones.
+    pub fn update(self: &Arc<Self>, session_id: &str, query: String, lone: bool) -> WsResult<()> {
         let session = self
             .sessions
             .lock()
@@ -139,7 +141,7 @@ impl SearchSessions {
         let generation = session.generation.fetch_add(1, Ordering::SeqCst) + 1;
         let this = self.clone();
         tokio::spawn(async move {
-            let _ = this.search(&session, generation, query).await;
+            let _ = this.search(&session, generation, query, lone).await;
         });
         Ok(())
     }
@@ -223,9 +225,9 @@ impl SearchSessions {
         Ok(found)
     }
 
-    async fn search(&self, session: &Arc<Session>, generation: u64, query: String) -> WsResult<()> {
+    async fn search(&self, session: &Arc<Session>, generation: u64, query: String, lone: bool) -> WsResult<()> {
         let mut scored_roots = Vec::new();
-        for root in &session.config.roots {
+        for root in session.config.roots.iter().filter(|_| !lone) {
             let Some(index) = self.index_for(session, generation, root).await? else { return Ok(()) };
             // The cap keeps the cached index small, not the search narrow: a typed query also
             // walks the folders the cap left over, keeping only what matches.
@@ -317,11 +319,11 @@ mod tests {
         let index = sessions.index_for(&session, 0, &root).await.unwrap().unwrap();
         assert!(!index.pending.is_empty(), "the cap must leave folders unvisited");
         assert!(!index.files.iter().any(|f| f.contains("needle-file")));
-        sessions.search(&session, 0, "needle-file".into()).await.unwrap();
+        sessions.search(&session, 0, "needle-file".into(), false).await.unwrap();
         let files = publisher.state()["files"].to_string();
         assert!(files.contains("d/deep/needle-file.rs"), "{files}");
         // A longer query containing the first one is answered from the finished walk.
-        sessions.search(&session, 0, "needle-file.r".into()).await.unwrap();
+        sessions.search(&session, 0, "needle-file.r".into(), false).await.unwrap();
         assert!(index.beyond.lock().unwrap().is_some());
         assert!(publisher.state()["files"].to_string().contains("needle-file.rs"));
     }
@@ -360,12 +362,37 @@ mod tests {
         let session = sessions.sessions.lock().unwrap().get("s").cloned().unwrap();
         let index = sessions.index_for(&session, 0, &root).await.unwrap().unwrap();
         assert!(index.files.iter().any(|f| f == "top-file.txt"), "{:?}", index.files);
-        sessions.search(&session, 0, "top-file".into()).await.unwrap();
+        sessions.search(&session, 0, "top-file".into(), false).await.unwrap();
         // The answer still comes (what the index holds), and the cut-short walk is not cached
         // as if it had finished.
         let files = publisher.state()["files"].to_string();
         assert!(files.contains("top-file.txt"), "{files}");
         assert!(index.beyond.lock().unwrap().is_none());
+    }
+
+    /// A query that held a lone surrogate matches no path, even one whose name holds a real U+FFFD (Node's needle keeps the
+    /// lone unit, shared/file-match.ts:34-55); the same query typed with a real U+FFFD finds it.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_query_that_held_a_lone_surrogate_matches_no_path() {
+        let tokens = mixdog_rt::testing::tokens();
+        let lanes = Lanes {
+            interactive: tokens.interactive_io,
+            durability: tokens.durability_io,
+            maintenance: tokens.maintenance_io,
+            cpu_bulk: tokens.cpu_bulk,
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let root = crate::pathguard::canonical(dir.path()).unwrap();
+        std::fs::write(root.join("a\u{fffd}.txt"), "").unwrap();
+        let feeds = Arc::new(MockScopedFeeds::new(MockLimits::default()));
+        let sessions = SearchSessions::new(lanes, feeds, Arc::new(FolderWatcher::new(Arc::new(Null)).unwrap()));
+        let config = SessionConfig { roots: vec![root.clone()], limit: None, include_ignored: false, include_directories: false, consumer: None, scan_cap: None, beyond_budget: None };
+        let publisher = sessions.start("s", config).unwrap();
+        let session = sessions.sessions.lock().unwrap().get("s").cloned().unwrap();
+        sessions.search(&session, 0, "\u{fffd}".into(), true).await.unwrap();
+        assert_eq!(publisher.state()["files"], serde_json::json!([]));
+        sessions.search(&session, 0, "\u{fffd}".into(), false).await.unwrap();
+        assert!(publisher.state()["files"].to_string().contains("a\u{fffd}.txt"), "{}", publisher.state());
     }
 
     // Current-thread runtime: the 30 launched tasks cannot start before the test first awaits, so
@@ -390,9 +417,9 @@ mod tests {
             .start("s1", SessionConfig { roots: vec![root.clone()], limit: None, include_ignored: false, include_directories: false, consumer: None, scan_cap: None, beyond_budget: None })
             .unwrap();
         for i in 0..29 {
-            sessions.update("s1", format!("q{i}")).unwrap();
+            sessions.update("s1", format!("q{i}"), false).unwrap();
         }
-        sessions.update("s1", "main".into()).unwrap();
+        sessions.update("s1", "main".into(), false).unwrap();
         // Every launched search task holds a clone of `sessions` until it ends, so the strong count
         // returning to 1 means all 30 ended. A missing launch never changes the count, so the wait
         // is bounded by the position check below instead.

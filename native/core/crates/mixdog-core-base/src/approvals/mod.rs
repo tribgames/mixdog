@@ -405,6 +405,7 @@ pub fn resolved_frame(
             params: Some(serde_json::to_value(params).expect("protocol types serialize")),
             emitted_at_ms: None,
             feed: None,
+            lone_surrogates: Vec::new(),
         })
         .expect("protocol types serialize"),
     )

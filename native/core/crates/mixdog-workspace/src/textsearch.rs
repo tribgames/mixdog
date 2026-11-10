@@ -22,11 +22,20 @@ const MAX_FILE_BYTES: u64 = 2_097_152;
 pub const MAX_REPLACE_FILES: usize = 100;
 const PREVIEW_UNITS: usize = 1_000;
 
+/// Which strings of a text search held an unpaired surrogate escape on the wire, read as U+FFFD. Node kept the code unit,
+/// which no path or text decoded from disk holds: such a query finds nothing ([`Pattern::compile`]) and such a selector entry
+/// selects nothing ([`selectors`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct QueryLone {
+    pub query: bool,
+    pub include: bool,
+    pub exclude: bool,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct TextQuery {
     pub query: String,
-    /// The query held an unpaired surrogate escape on the wire, read as U+FFFD ([`Pattern::compile`]).
-    pub lone: bool,
+    pub lone: QueryLone,
     pub regex: bool,
     pub match_case: bool,
     pub whole_word: bool,
@@ -83,7 +92,7 @@ impl Pattern {
     /// decoded from UTF-8 never holds (workspace-search.ts:107), while the core's U+FFFD would match every real one. A regex
     /// query keeps U+FFFD (decisions.md "frame-lone-surrogate").
     pub fn compile(query: &TextQuery) -> WsResult<Self> {
-        if query.lone && !query.regex {
+        if query.lone.query && !query.regex {
             return Ok(Self(regress::Regex::with_flags("[]", "u").expect("the empty class compiles")));
         }
         let source = if query.regex { query.query.clone() } else { escape_literal(&query.query) };
@@ -173,6 +182,20 @@ pub fn clamp_max(query: &TextQuery) -> usize {
     query.max_results.unwrap_or(2_000).clamp(1, 5_000)
 }
 
+/// Node's `globList` (workspace-search.ts:45-56) of `list`. When the string held a lone surrogate, its entries holding U+FFFD
+/// are Node's entries holding the lone unit: a case-insensitive RegExp of it matches no path read from disk, so each is an
+/// entry that matches nothing (an include of only such entries selects no file; such an exclude excludes none).
+fn selectors(list: &str, lone: bool) -> Vec<Regex> {
+    if !lone {
+        return glob_list(list);
+    }
+    list.split(',')
+        .map(str::trim)
+        .filter(|entry| !entry.is_empty())
+        .flat_map(|entry| if entry.contains('\u{fffd}') { vec![Regex::new(r"\z.").expect("static pattern")] } else { glob_list(entry) })
+        .collect()
+}
+
 fn accepts(path: &str, include: &[Regex], exclude: &[Regex]) -> bool {
     !exclude.iter().any(|p| p.is_match(path)) && (include.is_empty() || include.iter().any(|p| p.is_match(path)))
 }
@@ -181,7 +204,7 @@ pub fn search(root: &Path, query: &TextQuery, stop: &dyn Fn() -> bool) -> WsResu
     let maximum = clamp_max(query);
     let pattern = Pattern::compile(query)?;
     let word = word_character();
-    let (include, exclude) = (glob_list(&query.include), glob_list(&query.exclude));
+    let (include, exclude) = (selectors(&query.include, query.lone.include), selectors(&query.exclude, query.lone.exclude));
     let mut files = Vec::new();
     let mut count = 0;
     for rel in text_files(root, stop) {
@@ -307,8 +330,9 @@ pub fn plan_replace(
     if found.limit_hit {
         return Err(WsError::invalid("Search result limit reached. Narrow the search before replacing."));
     }
-    let requested: Option<Vec<String>> =
-        rel_paths.filter(|p| !p.is_empty()).map(|p| p.iter().map(|s| normalize_path(s)).collect());
+    // `rel_paths` is `None` for no list or an empty one (every match); a list emptied by the caller of paths that name no file
+    // selects nothing.
+    let requested: Option<Vec<String>> = rel_paths.map(|p| p.iter().map(|s| normalize_path(s)).collect());
     let pattern = Pattern::compile(query)?;
     let word = word_character();
     let mut writes = Vec::new();
@@ -392,10 +416,31 @@ mod tests {
         let dir = project();
         fs::write(dir.path().join("r.txt"), "a\u{fffd}b\n").unwrap();
         let root = crate::pathguard::canonical(dir.path()).unwrap();
-        let lone = TextQuery { lone: true, ..q("\u{fffd}") };
+        let lone = TextQuery { lone: QueryLone { query: true, ..QueryLone::default() }, ..q("\u{fffd}") };
         let found = search(&root, &lone, &|| false).unwrap();
         assert_eq!((found.files.len(), found.match_count, found.limit_hit), (0, 0, false));
         assert!(plan_replace(&root, &lone, "x", None, &|| false).unwrap().writes.is_empty());
         assert_eq!(search(&root, &q("\u{fffd}"), &|| false).unwrap().match_count, 1);
+    }
+
+    /// An include, exclude or path list entry that held a lone surrogate names no file (Node: a RegExp of the lone unit, an
+    /// equality with it, workspace-search.ts:45-56, :238-240), even beside a file whose name holds a real U+FFFD.
+    #[test]
+    fn selectors_that_held_a_lone_surrogate_select_nothing() {
+        let dir = project();
+        fs::write(dir.path().join("a\u{fffd}.txt"), "hello\n").unwrap();
+        let root = crate::pathguard::canonical(dir.path()).unwrap();
+        let named = |include: &str, exclude: &str, lone: QueryLone| {
+            let query = TextQuery { include: include.into(), exclude: exclude.into(), lone, ..q("hello") };
+            search(&root, &query, &|| false).unwrap().files.into_iter().map(|f| f.rel_path).collect::<Vec<_>>()
+        };
+        let include = QueryLone { include: true, ..QueryLone::default() };
+        let exclude = QueryLone { exclude: true, ..QueryLone::default() };
+        assert_eq!(named("a\u{fffd}.txt", "", include), Vec::<String>::new());
+        assert_eq!(named("a\u{fffd}.txt, a.txt", "", include), ["a.txt"]);
+        assert_eq!(named("a\u{fffd}.txt", "", QueryLone::default()), ["a\u{fffd}.txt"]);
+        assert_eq!(named("", "a\u{fffd}.txt", exclude), named("", "", QueryLone::default()));
+        let plan = plan_replace(&root, &q("hello"), "bye", Some(&[]), &|| false).unwrap();
+        assert!(plan.writes.is_empty(), "a list of only paths that held a lone surrogate selects nothing");
     }
 }

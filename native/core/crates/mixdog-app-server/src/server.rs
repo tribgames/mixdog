@@ -354,6 +354,11 @@ impl Shared {
             self.reject(conn, &id, &data);
             return Inbound::Continue;
         }
+        if let Some(data) = merged_keys(&format!("{}.params", spec.method), &request.lone_surrogates) {
+            drop(slot);
+            self.reject(conn, &id, &data);
+            return Inbound::Continue;
+        }
         // The owner decodes its own params from the raw value; the table decode below only
         // validates them and yields the scope and op.
         let params = request.params.clone();
@@ -561,7 +566,7 @@ impl Shared {
         id: &RequestId,
         origin: Origin,
         request: ClientRequest,
-        (params, lone_surrogates): (Value, Vec<String>),
+        (params, lone_surrogates): (Value, Vec<mixdog_app_protocol::rpc::LoneAt>),
         spec: &'static MethodSpec,
         after: &AfterAnswer,
     ) -> Dispatch {
@@ -665,7 +670,7 @@ impl Shared {
         conn: &Connection,
         origin: Origin,
         spec: &'static MethodSpec,
-        (params, lone_surrogates): (Value, Vec<String>),
+        (params, lone_surrogates): (Value, Vec<mixdog_app_protocol::rpc::LoneAt>),
         op: Option<OpId>,
         after: &AfterAnswer,
     ) -> Dispatch {
@@ -873,7 +878,11 @@ impl Shared {
         let Some(session) = conn.session() else {
             return;
         };
-        let JsonRpcResponse { id, result } = response;
+        if let Some(data) = merged_keys("result", &response.lone_surrogates) {
+            let _ = conn.sink.send_control(error_notification_frame(&data));
+            return;
+        }
+        let JsonRpcResponse { id, result, .. } = response;
         let Err(Ok(result)) = conn.complete_host_request(&id, Ok(result)) else {
             return;
         };
@@ -926,6 +935,10 @@ impl Shared {
         if spec.method == "initialized" {
             return Inbound::Continue;
         }
+        if let Some(data) = merged_keys(&format!("{}.params", spec.method), &notification.lone_surrogates) {
+            let _ = conn.sink.send_control(error_notification_frame(&data));
+            return Inbound::Continue;
+        }
         let Some(domain) = self.core.domain_for(spec.method) else {
             return Inbound::Continue;
         };
@@ -935,6 +948,16 @@ impl Shared {
             Admit::Pause(resume) => Inbound::Pause(resume),
         }
     }
+}
+
+/// The refusal of a payload whose object held keys distinct on the wire that the core reads as one (lone surrogates read as
+/// U+FFFD): Node kept each key with its value, the core's object would keep one, so the message is refused instead of acted on
+/// with a value silently dropped (decisions.md "frame-lone-surrogate").
+fn merged_keys(what: &str, lone: &[mixdog_app_protocol::rpc::LoneAt]) -> Option<ErrorData> {
+    lone.iter().find(|at| matches!(at, mixdog_app_protocol::rpc::LoneAt::MergedKey(_))).map(|at| ErrorData::InvalidParams {
+        path: format!("{what}{}", at.pointer()),
+        expected: "keys that differ: these differ only in unpaired surrogates, which read as one U+FFFD".into(),
+    })
 }
 
 /// The answer for a method no service claims.

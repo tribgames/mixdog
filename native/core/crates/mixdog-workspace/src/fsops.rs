@@ -89,6 +89,9 @@ pub struct Unpaired {
     pub content: bool,
     /// The file's name on a paired device's save: refused where Node authorizes the open file (`inplace::open_authorized_rw`).
     pub name: bool,
+    /// The expected content: Node's lone unit equals no text decoded from disk, so the save is refused as stale
+    /// (project-files.ts:320, :581) and nothing is written, where the core's U+FFFD could equal a real one ([`expected_text`]).
+    pub expected: bool,
 }
 
 /// Node's `encodeProjectText` (project-files.ts:96): a save of content holding a lone surrogate is refused, the file untouched.
@@ -201,8 +204,9 @@ fn check_content(content: &str, expected: &str) -> WsResult<()> {
 }
 
 /// The current text of an open file, checked as a save's precondition: lossless
-/// text equal to `expected`.
-fn expected_text(file: &mut File, expected: &str, label: &str) -> WsResult<(Vec<u8>, Decoded)> {
+/// text equal to `expected`. `expected_lone`: the expected text held a lone surrogate on the wire, which no text
+/// on disk equals ([`Unpaired::expected`]).
+fn expected_text(file: &mut File, expected: &str, expected_lone: bool, label: &str) -> WsResult<(Vec<u8>, Decoded)> {
     let meta = file.metadata()?;
     if !meta.is_file() {
         return Err(WsError::new(Reason::NotAFile, "Not a file."));
@@ -218,7 +222,7 @@ fn expected_text(file: &mut File, expected: &str, label: &str) -> WsResult<(Vec<
             "File has invalid text encoding. Convert or repair it in an external editor before saving.",
         ));
     }
-    if decoded.binary || decoded.content != expected {
+    if decoded.binary || expected_lone || decoded.content != expected {
         return Err(WsError::precondition(expected, &decoded.content));
     }
     Ok((bytes, decoded))
@@ -258,7 +262,7 @@ impl ProjectFs {
         let mut opened = open_authorized_rw(&file, root, unpaired.name)?;
         let _claim = self.identities.lock(vec![opened.id.key()]);
         path_names_file(root, rel, &opened)?;
-        let (original, decoded) = expected_text(&mut opened.file, expected, rel)?;
+        let (original, decoded) = expected_text(&mut opened.file, expected, unpaired.expected, rel)?;
         check_paired(unpaired)?;
         let bytes = text::encode(
             content,
@@ -302,7 +306,7 @@ impl ProjectFs {
         let mut staged = Vec::new();
         for (index, (rel, write)) in normalized.iter().enumerate() {
             path_names_file(root, rel, &opened[index])?;
-            let (before, decoded) = expected_text(&mut opened[index].file, &write.expected_content, rel)?;
+            let (before, decoded) = expected_text(&mut opened[index].file, &write.expected_content, write.unpaired.expected, rel)?;
             check_paired(write.unpaired)?;
             let after = text::encode(&write.content, decoded.encoding, decoded.has_bom);
             staged.push(Staged { rel: rel.clone(), before, after });
@@ -459,7 +463,10 @@ pub fn rename_destination_rel(rel: &str, new_name: &str) -> WsResult<String> {
     Ok(if dir.is_empty() { trimmed.to_owned() } else { format!("{dir}/{trimmed}") })
 }
 
-pub fn rename_entry(root: &Path, rel: &str, new_name: &str) -> WsResult<()> {
+/// `lone`: the path or the new name held an unpaired surrogate escape on the wire (now U+FFFD). Node compares the strings
+/// (project-files.ts:999-1006): its lone unit equals no other path and no name read from disk, so the rename is neither a
+/// no-op nor a case-only rename onto an existing entry, which is refused.
+pub fn rename_entry(root: &Path, rel: &str, new_name: &str, lone: bool) -> WsResult<()> {
     let destination_rel = rename_destination_rel(rel, new_name)?;
     let trimmed = new_name.trim();
     let from = project_entry_path(root, rel)?;
@@ -468,7 +475,7 @@ pub fn rename_entry(root: &Path, rel: &str, new_name: &str) -> WsResult<()> {
     }
     let destination = project_entry_path(root, &destination_rel)?;
     fs::symlink_metadata(&from).at("lstat", &from)?;
-    if from == destination {
+    if !lone && from == destination {
         return Ok(());
     }
     if entry_exists(&destination)? {
@@ -476,7 +483,8 @@ pub fn rename_entry(root: &Path, rel: &str, new_name: &str) -> WsResult<()> {
         let names: Vec<String> =
             fs::read_dir(parent).at("scandir", parent)?.filter_map(Result::ok).map(|e| e.file_name().to_string_lossy().into_owned()).collect();
         let base = from.file_name().unwrap_or_default().to_string_lossy().into_owned();
-        let case_only = base.to_lowercase() == trimmed.to_lowercase()
+        let case_only = !lone
+            && base.to_lowercase() == trimmed.to_lowercase()
             && names.contains(&base)
             && !names.iter().any(|n| n == trimmed);
         if !case_only {
@@ -733,7 +741,7 @@ mod tests {
     #[test]
     fn a_save_of_content_that_held_a_lone_surrogate_is_refused_and_the_file_kept() {
         let (_d, root, fs_) = fixture();
-        let content = Unpaired { content: true, name: false };
+        let content = Unpaired { content: true, ..Unpaired::default() };
         let refused = fs_.write_text(&root, "utf8.txt", "x\u{fffd}", "héllo\nworld\n", None, content).unwrap_err();
         assert_eq!(refused.message, "File content contains unpaired Unicode surrogates.");
         assert_eq!(fs::read_to_string(root.join("utf8.txt")).unwrap(), "héllo\nworld\n");
@@ -759,7 +767,7 @@ mod tests {
     #[test]
     fn a_paired_devices_open_of_a_name_that_held_a_lone_surrogate_is_refused() {
         let (_d, root, fs_) = fixture();
-        let name = Unpaired { content: false, name: true };
+        let name = Unpaired { name: true, ..Unpaired::default() };
         let changed = "The file changed while it was opened.";
         assert_eq!(fs_.write_text(&root, "utf8.txt", "x", "héllo\nworld\n", None, name).unwrap_err().message, changed);
         let batch = vec![
@@ -775,12 +783,43 @@ mod tests {
         assert!(read_text_authorized(&root, "missing.txt", true).unwrap_err().message.starts_with("ENOENT"));
     }
 
+    /// An expected content that held a lone surrogate equals no text on disk (Node's lone unit: project-files.ts:320, :581),
+    /// even a file holding a real U+FFFD: the save is refused as stale and nothing is written.
+    #[test]
+    fn an_expected_content_that_held_a_lone_surrogate_never_matches() {
+        let (_d, root, fs_) = fixture();
+        fs::write(root.join("r.txt"), "\u{fffd}").unwrap();
+        let expected = Unpaired { expected: true, ..Unpaired::default() };
+        let stale = fs_.write_text(&root, "r.txt", "new", "\u{fffd}", None, expected).unwrap_err();
+        assert!(matches!(stale.reason, Reason::PreconditionFailed { .. }), "{stale:?}");
+        let batch = [BatchFile { rel_path: "r.txt".into(), content: "new".into(), expected_content: "\u{fffd}".into(), unpaired: expected }];
+        assert!(matches!(fs_.write_batch(&root, &batch, true).unwrap_err().reason, Reason::PreconditionFailed { .. }));
+        assert_eq!(fs::read_to_string(root.join("r.txt")).unwrap(), "\u{fffd}");
+        fs_.write_text(&root, "r.txt", "new", "\u{fffd}", None, Unpaired::default()).unwrap();
+        assert_eq!(fs::read_to_string(root.join("r.txt")).unwrap(), "new");
+    }
+
+    /// A rename whose new name held a lone surrogate is no case-only rename onto the entry whose name holds a real U+FFFD (Node
+    /// compares the strings, project-files.ts:1003-1006): refused as an existing entry, nothing renamed.
+    #[test]
+    fn a_rename_to_a_name_that_held_a_lone_surrogate_is_never_case_only() {
+        let (_d, root, _fs) = fixture();
+        fs::write(root.join("x\u{fffd}.txt"), "x").unwrap();
+        if !root.join("X\u{fffd}.txt").exists() {
+            // A case-sensitive file system: no entry to clash with, the rename is Node's too.
+            return;
+        }
+        assert_eq!(rename_entry(&root, "x\u{fffd}.txt", "X\u{fffd}.txt", true).unwrap_err().message, EXISTS);
+        assert!(fs::read_dir(&root).unwrap().any(|e| e.unwrap().file_name() == "x\u{fffd}.txt"));
+        rename_entry(&root, "x\u{fffd}.txt", "X\u{fffd}.txt", false).unwrap();
+    }
+
     #[test]
     fn tree_mutations() {
         let (_d, root, _fs) = fixture();
         create_entry(&root, "dir", "sub", true).unwrap();
         assert_eq!(create_entry(&root, "dir", "a/../b", false).unwrap_err().message, "Entry name is invalid.");
-        rename_entry(&root, "dir/inner.txt", "renamed.txt").unwrap();
+        rename_entry(&root, "dir/inner.txt", "renamed.txt", false).unwrap();
         move_entry(&root, "dir/renamed.txt", "dir/sub").unwrap();
         assert_eq!(copy_entry(&root, "crlf.txt", "dir").unwrap(), "crlf.txt");
         assert_eq!(copy_entry(&root, "crlf.txt", "dir").unwrap(), "crlf copy.txt");
