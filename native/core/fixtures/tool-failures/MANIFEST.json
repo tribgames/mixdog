@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 36567,
+      "bytes": 36587,
       "path": "golden.json",
-      "sha256": "9d38e66909da0867cd1776d95fea87cb53d5f332abd7391d18bd60922c6c5ec5"
+      "sha256": "164c5be499cbdc2948839e4330dd97c44b5fae09a505cfa1366b62cee4a67565"
     }
   ],
   "node": "v22.20.0",
@@ -35,9 +35,9 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-tool-failures.mjs",
-  "recorderSha256": "d2d119f9c90cbefbf37703d27ffbfd30498392c6b7839cb13974a898cfd6094f",
+  "recorderSha256": "0fe99c468733c3056e196665b2880e496b27f8ebffaafe5056c0e144d294b208",
   "rows": 20,
-  "rowsLibSha256": "1141c351da24d8fb378b55630833eb5e8a2393ee8b76920acb1b87353c64cc6b",
+  "rowsLibSha256": "2fa148908ccfdcf099648f072663378e44f7888b29d6dc8acff9abed536c75ac",
   "scenariosSha256": "08cc29de5bfa19b5bffe75ceeb8dc5c012e102c0cb0a96fe1b469e0ba9a6b9e2",
   "set": "tool-failures",
   "syntheticInputs": {
@@ -209,5 +209,5 @@
       "fx-mcp.mjs": "9e696362b216516f7ddcd1517bb67cb04870e48a98c7f5fc6bb4652fc23baaf9"
     }
   },
-  "totalBytes": 36567
+  "totalBytes": 36587
 }
