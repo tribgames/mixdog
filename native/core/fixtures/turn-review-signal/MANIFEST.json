@@ -8,9 +8,9 @@
       "sha256": "334135a08989adc621e2135115842bc1c0cd06554956c325248fa8da8e50c0ea"
     },
     {
-      "bytes": 623725,
+      "bytes": 677529,
       "path": "scenarios.json",
-      "sha256": "ef90da042ea36fbba7c615087ad3c282fd03e3ee165f3e8b902c17743aefd5df"
+      "sha256": "312d6ac05ebe176ea50ddc1d09d4e073524f8b789bee8c507feb6975d98bec47"
     }
   ],
   "listenerScenarios": 4,
@@ -35,5 +35,5 @@
   "recorder": "benchmarks/rust-core/recorders/record-turn-review-signal.mjs",
   "scenarios": 4,
   "set": "turn-review-signal",
-  "totalBytes": 630229
+  "totalBytes": 684033
 }

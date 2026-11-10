@@ -43,6 +43,12 @@ impl TurnReview {
         let worktrees = Arc::new(ScmWorktrees::new(shadow));
         Self::new(Config::from_env(env), tokens.cpu_interactive, data_dir, disk, git, worktrees, bases)
     }
+
+    /// Resolves once every review signal raised so far has reached its listeners.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn review_signal_settled(&self) {
+        self.inner.worktrees.review_signal_settled().await;
+    }
 }
 
 /// `runGitOffThread` over the scm engine's git runner.
@@ -126,5 +132,10 @@ impl ReviewWorktrees for ScmWorktrees {
 
     fn canonical_path(&self, path: &str) -> String {
         canonical_path(path)
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    async fn review_signal_settled(&self) {
+        self.shadow.review_signal_settled().await;
     }
 }

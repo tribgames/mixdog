@@ -89,6 +89,8 @@ mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-rt = { workspace = true, features = ["test-support"] }
 # The real session directory (`held_runs_tests`: the approval predicate over real threads and connections).
 mixdog-core-session = { workspace = true, features = ["test-support"] }
+# The replay of Node's review-signal recording (`compose::review_restart_tests`).
+mixdog-core-review = { workspace = true, features = ["test-support"] }
 # The op scopes of the remote access service in the composed test (support::testing::scopes).
 mixdog-core-base = { workspace = true, features = ["test-support"] }
 tempfile = { workspace = true }

@@ -64,6 +64,10 @@ pub trait ReviewWorktrees: Send + Sync {
     /// `canonicalPath(path)`: the path with the symlinks of its nearest existing ancestor
     /// resolved, spelled the way Git reports the root.
     fn canonical_path(&self, path: &str) -> String;
+    /// Resolves once every review signal raised so far has reached its listeners (what a Node caller gets from one `await` after the
+    /// signal's task). Only a worktree port that dispatches signals has anything to wait for.
+    #[cfg(any(test, feature = "test-support"))]
+    async fn review_signal_settled(&self) {}
 }
 
 pub struct GitRun {
