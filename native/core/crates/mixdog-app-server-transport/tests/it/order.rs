@@ -156,15 +156,31 @@ async fn replay_recorded_windows(scenario: &str, ordered: bool) {
                     if frame["id"] == run["cause"] || frame["id"] == run["marker"] { "answer" } else { "event" }
                 })
                 .collect();
-            let (_hub, mut peer) = hub_and_peer(mode.ends_with("prompt"));
+            let prompt = mode.ends_with("prompt");
+            let (_hub, mut peer) = hub_and_peer(prompt);
             let events = live_lane(&mut peer, scenario, ordered, Arc::new(NoRecovery)).await;
-            // Queued in Node's queue order.
-            for (frame, kind) in frames.iter().zip(&kinds) {
-                if *kind == "event" {
+            let queue = |peer: &Peer, frame: &String, kind: &str| {
+                if kind == "event" {
                     push(&events, frame);
                 } else {
-                    answer(&peer, frame);
+                    answer(peer, frame);
                 }
+            };
+            // Queued in Node's queue order.
+            let mut window = frames.iter().zip(&kinds);
+            if !prompt {
+                // The recorder's barrier on Node's socket write: the writer holds the window's first frame at a
+                // socket that takes nothing (confirmed, not assumed) while the rest queues behind it.
+                while peer.held.try_recv().is_ok() {}
+                let (frame, kind) = window.next().expect("a first frame");
+                queue(&peer, frame, kind);
+                tokio::time::timeout(DEADLINE, peer.held.recv())
+                    .await
+                    .unwrap_or_else(|_| panic!("{scenario} {mode}: the writer did not reach the withheld socket with the window's first frame within {DEADLINE:?}"))
+                    .expect("the socket");
+            }
+            for (frame, kind) in window {
+                queue(&peer, frame, kind);
             }
             let wire = texts(until_marker(&mut peer, frames.last().expect("a last frame")).await);
             assert_eq!(wire, frames, "{scenario} {mode}: the writer's order is not the order Node's phone got");
@@ -358,8 +374,9 @@ fn room_filling_frames() -> Vec<Bytes> {
 }
 
 /// A peer that takes no write: ordered events queue until they hold the whole ordered room
-/// (72 MiB, Node's assembly pool) and the connection is still open; the next event closes it with
-/// 4000. The stall is the socket's write completion withheld, not time.
+/// (8 MiB, Node's leg budget: `admitFrame`, `relay-transport.mjs:301-314`, cuts a leg at
+/// `queued > 0 && queued + size > 8 MiB`) and the connection is still open; the next event closes
+/// it with 4000. The stall is the socket's write completion withheld, not time.
 #[tokio::test]
 async fn a_peer_that_does_not_drain_is_closed_at_the_ordered_room_and_not_before() {
     let (_hub, mut peer) = hub_and_peer(false);
@@ -394,7 +411,7 @@ async fn an_answer_and_a_ping_still_queue_when_the_ordered_room_is_full() {
     let mut expected = vec![Wire::Ping];
     expected.extend(frames.iter().map(as_text));
     expected.push(Wire::Text("answer".to_owned()));
-    // Each item by its kind and first 16 characters, so a mismatch prints without 72 MiB of text.
+    // Each item by its kind and first 16 characters, so a mismatch prints without 8 MiB of text.
     let short = |wire: &[Wire]| -> Vec<String> {
         wire.iter()
             .map(|item| match item {

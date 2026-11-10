@@ -19,13 +19,13 @@
 //! events Node's phone path never drops, `remote-relay-push-lanes.ts:103-176`) are never dropped
 //! or merged. Answers and server requests hold the control reserve (`controlReserveBytes`), so
 //! they and pings (which hold nothing) still queue while events fill their own room. Ordered
-//! lanes' frames hold the ordered event room (`orderedQueueBytes`, 72 MiB): an empty room admits
+//! lanes' frames hold the ordered event room (`orderedQueueBytes`, 8 MiB): an empty room admits
 //! one frame of any size (no single event closes a connection; `lsp:` and `fs:` frames have no
 //! size bound in the core, nor in Node), and behind it frames queue while the held bytes stay
-//! within the room. This is Node's `REMOTE_TRANSPORT_ASSEMBLY_POOL_BYTES`
-//! (`remote-transport.ts:251-258`: its largest message, 64 MiB, plus the 8 MiB it lets queue for
-//! a phone that is not draining). A frame that finds the room full means the peer has not taken
-//! 72 MiB of events: the connection closes with 4000 `slowConsumer`, as Node ends the phone's
+//! within the room. This is Node's admission for a phone's leg (`admitFrame`,
+//! `relay-transport.mjs:301-314`: `queued > 0 && queued + size > budget` cuts the leg, budget
+//! 8 MiB, `:198`, `remote-transport.ts:90`). A frame that finds the room passed means the peer has
+//! not taken 8 MiB of events: the connection closes with 4000 `slowConsumer`, as Node ends the phone's
 //! session rather than drop one (`coordinator.ts:1181`, `remote-relay-delivery.ts:208`). An
 //! ordered lane may lag only before anything of it was written (its first snapshot is then taken
 //! again); after that a lag closes the connection.
