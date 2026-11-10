@@ -161,6 +161,7 @@ fn stepped_rig(processes: Arc<Stepped>, adjust: impl FnOnce(&mut ExecConfig)) ->
     adjust(&mut config);
     rig.runtime = ExecRuntime::new(config);
     rig.manager = processes;
+    rig.task = TaskTool::new(rig.runtime.clone());
     let shell = ShellTool::new(rig.runtime.clone());
     (rig, shell, clock)
 }
@@ -171,70 +172,66 @@ fn windows_powershell(config: &mut ExecConfig) {
     config.shell = Arc::new(FixedShell("powershell.exe".into()));
 }
 
-/// `bash-tool-cwd-env.test.mjs`: the launcher directory and files of the runtime Node recorded, and the model shell's PATH over
-/// the daemon's `PATH=A;B` with that directory first; the session cwd rides along.
-#[test]
-fn the_skill_launcher_directory_leads_the_shell_path_as_in_node() {
-    let case = scenario("launcher-path");
-    let runtime = &case["runtime"];
-    let rt = SkillRuntime {
+/// The skill runtime Node's recorder ran under (`spawn-env`), the one its launchers and skill function name.
+fn recorded_skill_runtime() -> SkillRuntime {
+    let runtime = &scenario("spawn-env")["runtime"];
+    SkillRuntime {
         platform: runtime["platform"].as_str().unwrap().into(),
         interpreter: runtime["interpreter"].as_str().unwrap().into(),
         entry: runtime["entry"].as_str().unwrap().into(),
         electron: runtime["electron"].as_bool().unwrap(),
-    };
-    let dir = skill_launcher_dir(&rt, case["dataDir"].as_str().unwrap());
-    assert_eq!(dir, case["dir"].as_str().unwrap());
-    let files: Vec<JsonValue> = super::super::invocation::skill_launcher_files(&rt)
-        .into_iter()
-        .map(|(name, content)| serde_json::json!({ "name": name, "exists": true, "content": content }))
-        .collect();
-    assert_eq!(JsonValue::Array(files), case["files"]);
-    let daemon = vec![("PATH".to_owned(), case["daemonEnv"]["PATH"].as_str().unwrap().to_owned())];
-    let env = super::super::env::shell_env(
-        &daemon,
-        &super::super::env::ShellEnv {
-            cwd: "C:\\x",
-            windows: rt.platform == "win32",
-            scratch_dir: None,
-            skill_launcher_dir: Some(std::path::Path::new(&dir)),
-        },
-    );
-    let get = |name: &str| env.set.iter().find(|(k, _)| k == name).map(|(_, v)| JsonValue::from(v.as_str()));
-    assert_eq!(get("PATH"), Some(case["PATH"].clone()));
-    assert_eq!(get("MIXDOG_SESSION_CWD"), Some(case["sessionCwd"].clone()));
-    // The daemon's own variables are an input, never changed (Node: `daemonPathKept`).
-    assert_eq!(case["daemonPathKept"], true);
-    assert_eq!(daemon[0].1, case["daemonEnv"]["PATH"].as_str().unwrap());
+    }
 }
 
-/// `bash-tool-cwd-env.test.mjs`, through the tool: a run writes the launchers Node writes for the same runtime into the data
-/// dir's launcher directory and puts that directory first on the child's PATH.
+/// `bash-tool-cwd-env.test.mjs`, both tests through the tool: with the daemon env replaced by each recorded one, a run in the
+/// test's cwd hands the shell Node's whole env (the daemon env minus what is removed, plus what is set), leaves the daemon env
+/// as it was, and writes Node's launchers. `<WORK>` in the recording is this rig's directory.
+#[cfg(windows)]
 #[tokio::test]
-async fn a_shell_run_writes_nodes_launchers_and_leads_its_path_with_them() {
-    let case = scenario("launcher-path");
-    let runtime = &case["runtime"];
-    let rt = SkillRuntime {
-        platform: runtime["platform"].as_str().unwrap().into(),
-        interpreter: runtime["interpreter"].as_str().unwrap().into(),
-        entry: runtime["entry"].as_str().unwrap().into(),
-        electron: runtime["electron"].as_bool().unwrap(),
-    };
+async fn the_shell_env_is_nodes_whole_env_for_each_daemon_env() {
+    let case = scenario("spawn-env");
     let processes = Stepped::new(|_| vec![(None, Vec::new(), 0)]);
     let (rig, shell, _) = stepped_rig(processes.clone(), |config| {
         windows_powershell(config);
-        config.skill_runtime = Some(rt.clone());
+        config.skill_runtime = Some(recorded_skill_runtime());
     });
-    shell.call(&ctx(&rig, "l1"), serde_json::json!({"command": "echo hi"})).await.unwrap();
-    let data = rig.dir.path().join("data");
-    let dir = skill_launcher_dir(&rt, &data.to_string_lossy());
-    for file in case["files"].as_array().unwrap() {
-        let written = std::fs::read_to_string(std::path::Path::new(&dir).join(file["name"].as_str().unwrap())).unwrap();
-        assert_eq!(written, file["content"].as_str().unwrap());
+    let work = rig.dir.path().to_string_lossy().into_owned();
+    let at_work = |v: &JsonValue| -> JsonValue { serde_json::from_str(&v.to_string().replace("<WORK>", &work.replace('\\', "\\\\"))).unwrap() };
+    for (n, run) in case["cases"].as_array().unwrap().iter().enumerate() {
+        let base = at_work(&run["base"]);
+        let base = base.as_object().unwrap();
+        // SAFETY: the test runner (nextest) runs each test in a process of its own; nothing else reads the environment
+        // while it is replaced.
+        for (key, _) in std::env::vars_os() {
+            unsafe { std::env::remove_var(key) };
+        }
+        for (key, value) in base {
+            unsafe { std::env::set_var(key, value.as_str().unwrap()) };
+        }
+        let cwd = run["cwd"].as_array().unwrap().iter().fold(rig.dir.path().to_path_buf(), |p, s| p.join(s.as_str().unwrap()));
+        std::fs::create_dir_all(&cwd).unwrap();
+        let mut call = ctx(&rig, &format!("e{n}"));
+        call.cwd = AbsPath::new(&cwd).unwrap();
+        shell.call(&call, serde_json::json!({"command": "echo hi"})).await.unwrap();
+        let (_, spec, _) = processes.spawned.lock().unwrap()[n].clone();
+        assert!(spec.inherit);
+        let mut env = base.clone();
+        env.retain(|key, _| !spec.remove.contains(key));
+        for (key, value) in &spec.set {
+            env.insert(key.clone(), value.as_str().into());
+        }
+        assert_eq!(JsonValue::Object(env), at_work(&run["env"]), "case {n}");
+        let after: serde_json::Map<String, JsonValue> = std::env::vars().map(|(k, v)| (k, v.into())).collect();
+        assert_eq!(JsonValue::from(&after == base), run["daemonEnvKept"], "case {n}");
     }
-    let (_, env, _) = processes.spawned.lock().unwrap()[0].clone();
-    let path = env.set.iter().find(|(k, _)| k.eq_ignore_ascii_case("PATH")).map(|(_, v)| v.clone()).unwrap();
-    assert_eq!(path.split(';').next(), Some(dir.as_str()));
+    let dir = std::path::PathBuf::from(at_work(&case["dir"]).as_str().unwrap());
+    let mut names: Vec<String> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name().into_string().unwrap()).collect();
+    names.sort();
+    let files: Vec<JsonValue> = names
+        .into_iter()
+        .map(|name| serde_json::json!({ "name": name, "content": std::fs::read_to_string(dir.join(&name)).unwrap() }))
+        .collect();
+    assert_eq!(JsonValue::Array(files), case["files"]);
 }
 
 /// `script-transport.slow.test.mjs`: a pipeline nested in a group (or behind a script block) gets no filter tee; a plain
@@ -248,16 +245,27 @@ fn filter_tee_plans_are_made_for_the_pipelines_node_plans() {
     }
 }
 
-/// `display-command.test.mjs`: a piped PowerShell command started in the background runs wrapped (the producer-exit tee) and
-/// its task is labelled with the caller's text.
+/// The producer-exit tee's random token as `<T>` and its file's directory (the host temp dir) as `<TMP>`.
+fn tee_neutral(script: &str) -> String {
+    let token = regex::Regex::new(r"__mixdogProducerExit([0-9A-Za-z]+)").unwrap();
+    let Some(found) = token.captures(script) else { return script.to_owned() };
+    let script = script.replace(&found[1], "<T>");
+    regex::Regex::new(r"'[^']*mixdog-tee-<T>\.log'").unwrap().replace_all(&script, r"'<TMP>\mixdog-tee-<T>.log'").into_owned()
+}
+
+/// `display-command.test.mjs`: a piped PowerShell command started in the background runs as Node's whole wrapped script (the
+/// producer-exit tee behind the UTF-8 preamble and skill function), and its task is labelled with the caller's text.
 #[tokio::test]
 async fn a_wrapped_powershell_pipeline_keeps_the_callers_text_as_its_label() {
     let case = scenario("display-command");
     let processes = Stepped::quiet();
-    let (rig, shell, _) = stepped_rig(processes.clone(), windows_powershell);
+    let (rig, shell, _) = stepped_rig(processes.clone(), |config| {
+        windows_powershell(config);
+        config.skill_runtime = Some(recorded_skill_runtime());
+    });
     let command = case["command"].as_str().unwrap();
     shell.call(&ctx(&rig, "d1"), serde_json::json!({"command": command, "background": true})).await.unwrap();
-    assert_eq!(JsonValue::from(processes.script(0).contains("__mixdogProducerExit")), case["wrapped"]);
+    assert_eq!(tee_neutral(&processes.script(0)), tee_neutral(case["ran"].as_str().unwrap()));
     let shown = rig.runtime.get(&ThreadId::from("t"), "task-d1").unwrap().render(false, None);
     let label = format!("label: {}", case["displayCommand"].as_str().unwrap());
     assert!(shown.lines().any(|line| line == label), "{shown}");
@@ -357,9 +365,10 @@ async fn live_integration_runs_answer_nodes_text() {
     }
 }
 
-/// `shell-output-silence.test.mjs`: a running background task's silence warning at each recorded read, output on stderr
-/// alone resetting the clock.
-#[tokio::test]
+/// `shell-output-silence.test.mjs`, its first two tests, each on a background job of its own: at each recorded step the
+/// silence note is the `task list` entry of the job (absent for Node's null; a list consumes no output), and the progress
+/// digest is the body of a `task wait` on it (the text between the task header and the wait-ceiling note).
+#[tokio::test(start_paused = true)]
 async fn the_silence_warning_follows_output_on_either_stream_as_in_node() {
     let case = scenario("output-silence");
     const MIN: u64 = 60_000;
@@ -368,17 +377,37 @@ async fn the_silence_warning_follows_output_on_either_stream_as_in_node() {
     let base = golden_ms();
     // Node's threshold in the recording is its default (the agent stall budget), the one Rust reads with no override.
     assert_eq!(case["warnMs"].as_u64(), Some(10 * MIN));
-    shell.call(&ctx(&rig, "s1"), serde_json::json!({"command": "slow test", "background": true})).await.unwrap();
-    let job = rig.runtime.get(&ThreadId::from("t"), "task-s1").unwrap();
-    for step in case["steps"].as_array().unwrap() {
-        if let Some(stream) = step["output"].as_str() {
-            clock.store(base + step["minute"].as_u64().unwrap() * MIN, SeqCst);
-            let stream = if stream == "stderr" { OutputStream::Stderr } else { OutputStream::Stdout };
-            processes.output("task-s1", stream, b"x\n").await;
-        } else {
-            let at = base + step["read"].as_u64().unwrap() * MIN;
-            assert_eq!(job.silence_note(at).map(JsonValue::from).unwrap_or(JsonValue::Null), step["note"], "{step}");
+    for (n, job) in case["jobs"].as_array().unwrap().iter().enumerate() {
+        clock.store(base, SeqCst);
+        let call = format!("s{n}");
+        let id = format!("task-{call}");
+        shell.call(&ctx(&rig, &call), serde_json::json!({"command": "slow test", "background": true})).await.unwrap();
+        for (k, step) in job["steps"].as_array().unwrap().iter().enumerate() {
+            if let Some(stream) = step["output"].as_str() {
+                clock.store(base + step["minute"].as_u64().unwrap() * MIN, SeqCst);
+                let stream = if stream == "stderr" { OutputStream::Stderr } else { OutputStream::Stdout };
+                processes.output(&id, stream, b"x\n").await;
+                continue;
+            }
+            let at = step["note"].as_u64().or(step["digest"].as_u64()).unwrap();
+            clock.store(base + at * MIN, SeqCst);
+            let c = ctx(&rig, &format!("{call}-{k}"));
+            let got = if step["note"].is_u64() {
+                let listed = body(rig.task.call(&c, serde_json::json!({"action": "list"})).await);
+                let entry = format!("- {id} ");
+                listed
+                    .split_once("[output silence]\n")
+                    .and_then(|(_, quiet)| quiet.lines().find_map(|l| l.strip_prefix(&entry)))
+                    .map_or(JsonValue::Null, JsonValue::from)
+            } else {
+                let waited = body(
+                    rig.task.call(&c, serde_json::json!({"action": "wait", "task_id": id, "timeout_ms": 1000})).await,
+                );
+                let (_, rest) = waited.split_once("\n\n").unwrap_or_else(|| panic!("{waited}"));
+                JsonValue::from(rest.rsplit_once("\n\nWait ceiling reached").map_or(rest, |(b, _)| b))
+            };
+            assert_eq!(got, step["text"], "{} step {k}", job["name"]);
         }
+        processes.exit(&id, ExitStatus::Code(0), None);
     }
-    processes.exit("task-s1", ExitStatus::Code(0), None);
 }
