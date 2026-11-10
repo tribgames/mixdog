@@ -17,7 +17,6 @@ use futures::StreamExt;
 use futures::stream::FuturesUnordered;
 use mixdog_core_api::domain::provider::Content;
 use mixdog_core_api::domain::provider::ToolCall;
-use mixdog_core_api::domain::tool::ToolSpec;
 use mixdog_rt::TaskClass;
 use serde_json::json;
 
@@ -36,9 +35,10 @@ use crate::run::Run;
 use crate::tools::CallEnv;
 use crate::tools::CallFuture;
 use crate::tools::Executed;
+use crate::tools::Projection;
+use crate::barriers::is_mutation;
 use crate::tools::arg_shape;
 use crate::tools::call_signature;
-use crate::tools::conflicts;
 use crate::tools::execute_call;
 use crate::tools::failure_signature;
 use crate::tools::intra_turn_duplicates;
@@ -48,6 +48,12 @@ const CROSS_TURN_CAP: usize = 500;
 const NON_PROGRESS_TOOLS: [&str; 9] = [
     "Skill", "recall", "agent", "task", "cwd", "session", "load_tool", "tool_search", "todo",
 ];
+
+/// A call started while the response streams.
+pub(crate) struct EagerStarted {
+    id: String,
+    read_only: bool,
+}
 
 struct Receipt {
     count: u32,
@@ -217,6 +223,7 @@ impl Run {
             guards: Arc::clone(&self.env.guards),
             tool_env: self.tool_env.clone(),
             cancel: self.cancel.clone(),
+            signal: self.config.signal.clone().unwrap_or_else(|| crate::cancel::Cancel::from_token(&self.cancel)),
             clock: Arc::clone(&self.env.clock),
             mcp: self.env.mcp.clone(),
         })
@@ -234,22 +241,50 @@ impl Run {
         if self.turn_limit_noticed
             || self.config.limits.is_some_and(|l| l.max_tool_calls.is_some() || l.wrap_up_at_ms.is_some())
             || call.id.is_empty()
-            || self.eager.contains_key(&call.id)
+            || self.eager_started.iter().any(|e| e.id == call.id)
         {
             return;
         }
-        let name = self.tools.canonical(&call.name);
-        if !self.tools.read_only(&name) {
+        let canonical = ToolCall { name: self.tools.canonical(&call.name), ..call.clone() };
+        // A call whose arguments did not parse is not projected (it names no target).
+        let invalid_args = crate::tools::is_invalid_args_marker(&call.arguments);
+        // A streamed `call_tool` is admitted, ordered and run as its target; one that names no tool is
+        // answered by the serial batch.
+        let (exec, bridged) = if invalid_args {
+            (canonical, false)
+        } else {
+            match self.tools.project(&self.tool_env.thread_id, &canonical) {
+                Projection::Plain => (canonical, false),
+                Projection::Target(target) => (target, true),
+                Projection::Refused(_) => return,
+            }
+        };
+        let name = exec.name.clone();
+        // The single-call slot is taken before anything can refuse the call (`admit`, `admission.mjs:55`): an invalid
+        // first `computer` call still leaves no slot for a later one.
+        if is_single_call_per_turn_tool(&name) {
+            match self.eager_single.get(&name) {
+                Some(first) if *first != call.id => return,
+                Some(_) => {}
+                None => {
+                    self.eager_single.insert(name.clone(), call.id.clone());
+                }
+            }
+        }
+        // Never admitted for an eager run (`admit`): the batch answers it with the retry notice.
+        if invalid_args {
             return;
         }
-        let exec = ToolCall { name: name.clone(), ..call.clone() };
-        let gate_call = GateCall::new(name.clone(), call.arguments.clone());
+        let gate_call = GateCall::new(name.clone(), exec.arguments.clone());
         if self.env.gate.pre_dispatch_deny(&gate_call).is_some() || self.carry.repeat.could_fire(0) {
             return;
         }
-        if self.tools.dedup_eligible(&name) {
-            let sig = call_signature(&name, &call.arguments);
-            if !self.eager_sigs.insert(sig.clone()) || self.cross_turn.has(&sig) {
+        // Admission classifies a call by the session's tool list plus the definitions of bridged targets
+        // (`bridgeClassificationTools`, `tool-call-resolution.mjs:90`): a deferred tool called by its name is not on it.
+        let dedup = self.tools.dedup_eligible(&name) && (bridged || self.tools.get(&name).is_some());
+        if dedup {
+            let sig = call_signature(&name, &exec.arguments);
+            if !self.eager_sigs.insert(sig.clone()) {
                 return;
             }
             if let Some(reuse) = self.env.reuse.clone()
@@ -261,34 +296,62 @@ impl Run {
         let env = self.call_env();
         let id = call.id.clone();
         let (observer, early_id) = (Arc::clone(&self.env.observer), id.clone());
+        // Every executable call starts as it streams, a write, an MCP call or one that asks for approval included
+        // (`isParallelDispatchable`, `loop/tool-helpers.mjs:52`); a call that one of Node's barriers holds back
+        // waits for the calls it depends on (`eager-dispatch/barriers.mjs`).
+        let cwd = self.tool_env.cwd.as_path().to_path_buf();
+        let preceding = self.barriers.preceding_for(&name, &exec.arguments, &cwd);
+        let (finished, done) = tokio::sync::watch::channel(false);
+        let failed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        self.barriers.register(&id, &name, &exec.arguments, &cwd, done, failed.clone());
         let handle = mixdog_rt::spawn("agent.eager", TaskClass::Work, async move {
-            let executed = execute_call(exec, env).await;
+            let dispatch_started_at = env.clock.now_ms();
+            let executed = match preceding.wait(&exec.name).await {
+                Some(text) => crate::tools::stamp_timing(Executed::skipped(&exec.id, text), dispatch_started_at, env.clock.as_ref()),
+                None => execute_call(exec, env).await,
+            };
+            failed.store(executed.failed, std::sync::atomic::Ordering::Release);
             // The instant this streamed call settles, whatever consumes it later (call order) or nothing does.
             observer.event(RunEvent::EarlyResult(early_result(&early_id, &executed)));
+            finished.send_replace(true);
             executed
         });
+        self.eager_started.push(EagerStarted { id: id.clone(), read_only: self.tools.read_only(&name) });
         self.eager.insert(id, handle);
     }
 
-    /// Eager results of a dead attempt or an unused call are dropped; the
-    /// tools were read-only, and their tokens wind them down.
+    /// Eager results of a dead attempt are dropped before the next attempt. A read is wound down; a write that started
+    /// is not stopped, as Node leaves it (its cancel token ends it with the run).
     pub(crate) fn drop_eager(&mut self) {
-        for (_, handle) in self.eager.drain() {
-            handle.abort();
+        for (id, handle) in self.eager.drain() {
+            if self.eager_started.iter().any(|e| e.id == id && e.read_only) {
+                handle.abort();
+            }
         }
         self.eager_sigs.clear();
+        self.eager_started.clear();
+        self.barriers.clear();
+        self.eager_single.clear();
+        self.streamed_ids.clear();
     }
 
-    /// The batch is over. A streamed call no listed call consumed (the provider ran a text-recovered call and then
-    /// returned the native call that repeats it) is left to finish: Node does not stop it, and its result is
-    /// never stored.
+    /// The batch is over, or its turn was cancelled. A started call no listed call consumed (the provider ran a
+    /// text-recovered call and then returned the native call that repeats it, or the cancel ended the batch first) is
+    /// left to finish and tell the host it settled: Node stops none of them (a call waiting for its hook, its approval or
+    /// a barrier ends itself with the abort's text, `execute_gated`), and its result is never stored.
     fn release_eager(&mut self) {
         self.eager.clear();
         self.eager_sigs.clear();
+        self.eager_started.clear();
+        self.barriers.clear();
+        self.eager_single.clear();
+        self.streamed_ids.clear();
     }
 
-    pub(crate) fn eager_dispatched(&self, id: &str) -> bool {
-        self.eager.contains_key(id)
+    /// Whether the stream of the request in flight handed this complete call over (Node's `relayWitness.dispatchedToolCallIds`,
+    /// `send-instrumentation.mjs:146`: every call given to `onToolCall`, admitted for an eager run or not).
+    pub(crate) fn stream_dispatched(&self, id: &str) -> bool {
+        self.streamed_ids.contains(id)
     }
 
     /// What one call is, in Node's order: surface denial, one-per-turn tools,
@@ -302,7 +365,15 @@ impl Run {
         ct_sig: Option<&str>,
         sig: &str,
         shape_sig: &str,
+        unprojected: Option<&String>,
     ) -> Decision {
+        // A `call_tool` that names no tool answers its wire id with the bridge error; it never meets a guard.
+        if let Some(text) = unprojected {
+            return Decision::Skip(AgentMessage::tool_text(&call.id, text.clone(), ToolKind::Error));
+        }
+        if crate::tools::is_invalid_args_marker(&call.arguments) {
+            return Decision::Run;
+        }
         let gate_call = GateCall::new(call.name.clone(), call.arguments.clone());
         if let Some(text) = self.env.gate.pre_dispatch_deny(&gate_call) {
             return Decision::Skip(AgentMessage::tool_text(&call.id, text, ToolKind::Error));
@@ -414,13 +485,35 @@ impl Run {
         cacheable
     }
 
+    /// The execution view (`resolveExecutionToolCalls`): typo aliases and case variants canonicalized,
+    /// and a `call_tool` of a bridge session replaced by its target, so that every layer below sees the
+    /// target itself. The wire calls stay what the transcript holds. Also, per call, whether it was
+    /// bridged and the refusal of a `call_tool` that names no usable target.
+    pub(crate) fn execution_view(&self, wire_calls: &[ToolCall]) -> (Vec<ToolCall>, Vec<bool>, Vec<Option<String>>) {
+        let n = wire_calls.len();
+        let mut unprojected: Vec<Option<String>> = vec![None; n];
+        let mut bridged = vec![false; n];
+        let mut calls: Vec<ToolCall> = Vec::with_capacity(n);
+        for (index, wire) in wire_calls.iter().enumerate() {
+            let canonical = ToolCall { name: self.tools.canonical(&wire.name), ..wire.clone() };
+            calls.push(match self.tools.project(&self.tool_env.thread_id, &canonical) {
+                Projection::Plain => canonical,
+                Projection::Target(target) => {
+                    bridged[index] = true;
+                    target
+                }
+                Projection::Refused(text) => {
+                    unprojected[index] = Some(text);
+                    canonical
+                }
+            });
+        }
+        (calls, bridged, unprojected)
+    }
+
     pub(crate) async fn process_tool_batch(&mut self, wire_calls: &[ToolCall], allowed: u64) -> Result<(), AgentError> {
         let n = wire_calls.len();
-        // The execution view: typo aliases and case variants canonicalized.
-        let calls: Vec<ToolCall> = wire_calls
-            .iter()
-            .map(|c| ToolCall { name: self.tools.canonical(&c.name), ..c.clone() })
-            .collect();
+        let (calls, bridged, unprojected) = self.execution_view(wire_calls);
         let dups = intra_turn_duplicates(&calls, &self.tools);
         let mut single_first: HashMap<String, String> = HashMap::new();
         let mut single_of: Vec<Option<String>> = vec![None; n];
@@ -436,10 +529,6 @@ impl Run {
             }
         }
         let groups = edit_groups(&calls);
-        let specs: Vec<Option<ToolSpec>> = calls
-            .iter()
-            .map(|c| self.tools.get(&c.name).map(|t| t.spec().clone()))
-            .collect();
         let wrap_up = self.turn_limits().and_then(|l| l.wrap_up_at_ms);
         let cwd = self.tool_env.cwd.as_path().to_path_buf();
 
@@ -449,6 +538,9 @@ impl Run {
         let mut evaluated = vec![false; n];
         let mut finished = vec![false; n];
         let mut started = vec![false; n];
+        // Calls answered without a run (a denial, a stub, a guard, a refused call_tool): Node records no mutation for them,
+        // so a read streamed ahead of one stays usable.
+        let mut skipped = vec![false; n];
         let mut ready: Vec<bool> = vec![false; n];
         let mut recorded = 0usize;
         let mut was_executed = vec![false; n];
@@ -489,10 +581,11 @@ impl Run {
                     break;
                 }
                 evaluated[j] = true;
-                match self.decide(call, dups.get(&j), single_of[j].as_ref(), ct_sig.as_deref(), &sig, &shape_sig).await {
+                match self.decide(call, dups.get(&j), single_of[j].as_ref(), ct_sig.as_deref(), &sig, &shape_sig, unprojected[j].as_ref()).await {
                     Decision::Skip(message) => {
                         staged[j] = Some(message);
                         finished[j] = true;
+                        skipped[j] = true;
                     }
                     Decision::Run => {
                         sigs[j] = (sig, shape_sig);
@@ -517,23 +610,32 @@ impl Run {
             if recorded == n {
                 break;
             }
-            // 3. Start what is ready and not held back by an earlier conflicting call.
+            // 3. Start what is ready. The first live call starts the rest of the batch, as a provider that streamed
+            // nothing leaves it to the batch (`startEagerRun`, `tool-batch/execute-call.mjs:112`): the calls after it do not
+            // wait for the guards to learn what the calls before it came to, and run together but for Node's barriers.
+            // A call no eager run took (a guard, a cached body, a streamed read thrown away) is run in its turn, once every
+            // call before it is done (`executeSerially`).
             for j in 0..n {
                 if !ready[j] || started[j] {
                     continue;
                 }
-                let blocked = (0..j).any(|i| {
-                    !finished[i]
-                        && match (&specs[i], &specs[j]) {
-                            (Some(a), Some(b)) => conflicts(a, b),
-                            _ => false,
-                        }
-                });
-                if blocked {
+                for k in j..n {
+                    if !dups.contains_key(&k) {
+                        self.try_eager(&wire_calls[k]).await;
+                    }
+                }
+                let call = calls[j].clone();
+                // A streamed read is only usable when no earlier call of the batch could have changed what it read.
+                // Classified by the session's tools and the definitions of the batch's bridged targets (`bridgeClassificationTools`):
+                // a deferred tool called by its name is not on the list, so it is never thrown away.
+                let read_only = self.tools.get(&call.name).is_some_and(|t| t.spec().annotations.read_only_hint == Some(true))
+                    || (bridged[j] && self.tools.read_only(&call.name));
+                let kept = self.eager.contains_key(&call.id)
+                    && (!read_only || (0..j).all(|i| skipped[i] || !is_mutation(&calls[i].name, &calls[i].arguments)));
+                if !kept && !(0..j).all(|i| finished[i]) {
                     continue;
                 }
                 started[j] = true;
-                let call = calls[j].clone();
                 let hit = match self.env.reuse.clone() {
                     Some(reuse) => reuse.lookup(&call, true).await,
                     None => None,
@@ -548,10 +650,13 @@ impl Run {
                     finished[j] = true;
                     continue;
                 }
-                // A streamed read-only result is only usable when no earlier
-                // call of the batch could have changed what it read.
                 let eager = self.eager.remove(&call.id);
-                let eager = eager.filter(|_| (0..j).all(|i| specs[i].as_ref().is_none_or(|s| s.parallel_safe)));
+                // A streamed result thrown away is not announced again by its re-run: Node's serial path never notifies.
+                if eager.is_some() {
+                    streamed.insert(j);
+                }
+                // A write is never run twice: only a streamed read is thrown away, and only when it may be stale.
+                let eager = eager.filter(|_| kept);
                 if let Some(handle) = eager {
                     streamed.insert(j);
                     let id = call.id.clone();
@@ -568,8 +673,9 @@ impl Run {
                 }
             }
             if running.is_empty() {
-                // Everything left was decided without a run.
-                if (0..n).all(|k| finished[k]) {
+                // Everything decided so far was answered without a run; the calls after it are decided next,
+                // once the outcomes before them are recorded.
+                if (0..n).all(|k| !evaluated[k] || finished[k]) {
                     continue;
                 }
                 break;
@@ -585,7 +691,8 @@ impl Run {
                     // it settles (`notifyEarlyResult`), a failed run included; one early-result path feeds the UI's
                     // live row and the interrupted-turn finalizer. A call decided without a run (stub, cache hit,
                     // refusal) never reaches this arm.
-                    if !streamed.contains(&idx) {
+                    // (Node answers an unparsed call in its turn, instantly: `markInstant`, no early notice.)
+                    if !streamed.contains(&idx) && !crate::tools::is_invalid_args_marker(&calls[idx].arguments) {
                         self.emit(RunEvent::EarlyResult(early_result(&calls[idx].id, &result)));
                     }
                     executed[idx] = Some(result);
@@ -593,25 +700,27 @@ impl Run {
                 }
             }
         }
-        drop(running);
+        self.release_eager();
+        // A cancelled batch commits nothing: Node checks the abort after each call (`processToolBatch`, `tool-batch.mjs:36`) and throws
+        // before `flushBatch`, so the results staged so far never reach the transcript; the host's interruption closes the turn from
+        // what the calls told it as they settled (`EarlyResult`). Node awaits the call it was taking before that check, and that call's
+        // tool goes on; here the turn ends at once (as Node's turn does, the recording's `turnEnded`) and the calls in flight are left
+        // to settle on their own, as the eager runs are (`release_eager`).
         if aborted {
-            self.drop_eager();
-        } else {
-            self.release_eager();
+            if !running.is_empty() {
+                mixdog_rt::spawn("agent.batch.cancelled", TaskClass::Work, async move { while running.next().await.is_some() {} });
+            }
+            return Err(AgentError::Aborted);
         }
+        drop(running);
 
-        if !aborted {
-            self.finalize_results(&calls, &mut staged, &was_executed, &cacheable, &outputs).await;
-        }
+        self.finalize_results(&calls, &mut staged, &was_executed, &cacheable, &outputs).await;
         // Results commit in the assistant's call order.
         for message in staged.into_iter().flatten() {
             if let (Some(id), Some(kind)) = (message.tool_call_id(), message.tool_kind) {
                 self.emit(RunEvent::ToolResult { call_id: id.to_owned(), kind });
             }
             self.push(message).await?;
-        }
-        if aborted {
-            return Err(AgentError::Aborted);
         }
         for message in follow_ups {
             self.push(message).await?;
@@ -707,10 +816,13 @@ impl Run {
 /// gate denial the executor returns as text (`Executed.returned`), is not a thrown call.
 pub(crate) fn early_result(call_id: &str, result: &Executed) -> AgentMessage {
     if result.failed && !result.returned {
-        return AgentMessage::tool_text(call_id, result.message.text(), ToolKind::Error);
+        let mut early = AgentMessage::tool_text(call_id, result.message.text(), ToolKind::Error);
+        early.tool_timing = result.message.tool_timing;
+        return early;
     }
     let mut early = AgentMessage::tool_text(call_id, result.message.text(), ToolKind::Normal);
     early.tool_kind = None;
+    early.tool_timing = result.message.tool_timing;
     early
 }
 

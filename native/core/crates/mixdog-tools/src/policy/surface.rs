@@ -66,9 +66,22 @@ fn readonly_tool_spec(spec: Option<&Value>) -> bool {
     }
 }
 
+/// `resolveDeferredSelectMode(session) !== null`: the session's `toolSpec` names a tool mode.
+fn tool_mode_resolved(spec: Option<&Value>) -> bool {
+    match spec {
+        Some(Value::String(spec)) => matches!(spec.as_str(), "readonly" | "full" | "mcp"),
+        Some(Value::Array(items)) => !items.is_empty(),
+        _ => false,
+    }
+}
+
 /// The session's tool policy as the session actor holds it.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct SessionSurface {
+    /// The session's `toolSpec` names a tool mode (`resolveDeferredSelectMode` is not null).
+    pub mode_resolved: bool,
+    /// The last MCP snapshot of the connected tools (`deferredMcpToolNames`); none before the first.
+    pub mcp_names: Option<Vec<String>>,
     /// The persisted schema allowlist (also the execution allowlist).
     pub schema_allowed: Option<Vec<String>>,
     /// Tools the session denies.
@@ -81,6 +94,9 @@ pub struct SessionSurface {
     pub project_disabled: bool,
     /// A read-only session.
     pub readonly: bool,
+    /// The session's persisted deferred surface is read-only (`deferredSurfaceMode`), whatever its tool mode: the deferred-call guard
+    /// counts it with `readonly` (`isBridgeReadonlySession`, `tool-bridge.mjs:187`).
+    pub deferred_readonly: bool,
     /// Names of the session's active tools.
     pub active_tools: Vec<String>,
     /// Names in the deferred catalog.
@@ -256,10 +272,13 @@ impl SessionSurface {
         let text = |key: &str| header.get(key).and_then(Value::as_str).unwrap_or("");
         let overlay = header.get("workflowOverlay");
         Self {
+            mode_resolved: tool_mode_resolved(header.get("toolSpec")),
+            mcp_names: names("deferredMcpToolNames"),
             schema_allowed: names("schemaAllowedTools"),
             disallowed,
             feature_denied: names("featureDeniedTools").unwrap_or_default(),
             readonly: readonly_tool_spec(header.get("toolSpec")),
+            deferred_readonly: text("deferredSurfaceMode") == "readonly",
             active_tools: tool_names("tools"),
             catalog_tools,
             bridge: text("toolExposureMode") == BRIDGE_EXPOSURE,
@@ -280,6 +299,29 @@ impl SessionSurface {
             project_disabled: false,
             mcp_scope: Some(mixdog_js::js_trim(&text("mcpScopeId")).to_owned()).filter(|scope| !scope.is_empty()),
         }
+    }
+
+    /// `prepareDeferredToolCallThrough` on a bridge session, which runs after the hooks and the
+    /// approval and before the tool: a connector tool outside the last MCP snapshot is unavailable, and
+    /// a deferred catalog tool that is not read-only selectable never runs without a tool mode or in a
+    /// read-only one. `annotations` are the called tool's own.
+    pub fn deferred_call_refusal(&self, name: &str, annotations: &ToolAnnotations) -> Option<String> {
+        if !self.bridge {
+            return None;
+        }
+        if name.starts_with("mcp__") && self.mcp_names.as_ref().is_some_and(|names| !names.iter().any(|known| known == name)) {
+            return Some(format!("Error: MCP tool \"{name}\" is unavailable in the current session catalog; no call was sent."));
+        }
+        if !listed(&self.catalog_tools, name) || listed(&self.active_tools, name) || INACTIVE_INFRA.contains(&name) {
+            return None;
+        }
+        if readonly_selectable(name, annotations) {
+            return None;
+        }
+        if !self.mode_resolved {
+            return Some(format!("Error: tool \"{name}\" is deferred and cannot be auto-loaded without a resolved tool mode; no call was sent."));
+        }
+        (self.readonly || self.deferred_readonly).then(|| format!("Error: tool \"{name}\" is not available in readonly mode"))
     }
 
     /// A read-only session runs only what its surfaces offer: active tools,
@@ -440,6 +482,13 @@ mod tests {
                 .readonly
                 == false
         );
+        // deferredSurfaceMode: readonly under a full tool mode: the deferred-call guard refuses what is not read-only selectable.
+        let persisted = SessionSurface::from_header(
+            &header(serde_json::json!({"toolSpec": "full", "deferredSurfaceMode": "readonly", "toolExposureMode": "bridge-v1", "deferredToolCatalog": [{"name": "odd"}]})),
+            vec![],
+        );
+        assert!(!persisted.readonly && persisted.deferred_readonly);
+        assert_eq!(persisted.deferred_call_refusal("odd", &ToolAnnotations::default()).as_deref(), Some("Error: tool \"odd\" is not available in readonly mode"));
         // call_tool is never dispatched itself on a bridge session.
         assert_eq!(
             text(surface.refusal("call_tool", None)),

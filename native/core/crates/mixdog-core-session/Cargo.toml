@@ -53,7 +53,7 @@ tempfile = { workspace = true, optional = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [features]
-test-support = ["dep:tempfile", "dep:mixdog-core-review", "mixdog-core-review/test-support", "mixdog-core-api/mock", "mixdog-rt/test-support"]
+test-support = ["dep:tempfile", "dep:mixdog-core-review", "mixdog-core-review/test-support", "mixdog-core-api/mock", "mixdog-rt/test-support", "mixdog-store/test-support"]
 
 [dev-dependencies]
 mixdog-js = { workspace = true, features = ["fixture-tools"] }
@@ -68,3 +68,4 @@ mixdog-rt = { workspace = true, features = ["test-support"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
 mixdog-core-review = { workspace = true, features = ["test-support"] }
 mixdog-core-base = { workspace = true, features = ["test-support"] }
+mixdog-store = { workspace = true, features = ["test-support"] }

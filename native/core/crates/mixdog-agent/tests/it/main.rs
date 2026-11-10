@@ -1,6 +1,7 @@
 #[macro_use]
 mod compact_support;
 mod agent_tool;
+mod bridge_calls;
 mod compact_commit;
 mod compact_context_status;
 mod compact_dropped;

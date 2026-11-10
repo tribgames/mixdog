@@ -2879,6 +2879,129 @@
       ],
       "type": "object"
     },
+    "DownloadSource": {
+      "description": "What a paired phone asks to download (`transfer/authorizeRead`).",
+      "oneOf": [
+        {
+          "description": "A file of the conversation's project, by its path in the project. The project is the host catalog's, never the caller's.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "file"
+              ],
+              "type": "string"
+            },
+            "rel": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "rel"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A file the conversation names, by its absolute path or its path in the conversation's folder.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "sessionFile"
+              ],
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "path"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A media asset of the host's media store, by its id; the conversation must still be in the catalog.",
+          "properties": {
+            "assetId": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "mediaAsset"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "assetId",
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A link the conversation shows, by its `href` as written (decoded by the core as the desktop decodes it); `itemId` names the row.",
+          "properties": {
+            "href": {
+              "type": "string"
+            },
+            "itemId": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "link"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "href",
+            "itemId",
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An attachment the conversation's transcript names, by its content hash.",
+          "properties": {
+            "attachmentId": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "attachment"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "attachmentId",
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A folder the conversation names (absolute, or in its folder), served as a zip of its work files.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "folder"
+              ],
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "path"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "FastSetParams": {
       "additionalProperties": false,
       "description": "Params of `fast/set`.",
@@ -10725,6 +10848,28 @@
       ],
       "type": "object"
     },
+    "TransferAuthorizeReadParams": {
+      "description": "Params of `transfer/authorizeRead`: the first stage of a phone's download, a grant that expires.",
+      "properties": {
+        "purpose": {
+          "description": "`save`, `share` or `open`.",
+          "type": "string"
+        },
+        "sessionId": {
+          "description": "The conversation the phone names: the grant and the transfer it becomes end with it (Node's `Grant.sessionId`).",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/definitions/DownloadSource"
+        }
+      },
+      "required": [
+        "purpose",
+        "sessionId",
+        "source"
+      ],
+      "type": "object"
+    },
     "TransferBeginReadParams": {
       "properties": {
         "source": {
@@ -10811,7 +10956,19 @@
       "type": "object"
     },
     "TransferEndReadParams": {
-      "description": "Params of `transfer/endRead`.",
+      "description": "Params of `transfer/endRead`: the transfer, or the unredeemed grant, to release.",
+      "properties": {
+        "transferId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "transferId"
+      ],
+      "type": "object"
+    },
+    "TransferFinishReadParams": {
+      "description": "Params of `transfer/finishRead`.",
       "properties": {
         "transferId": {
           "type": "string"
@@ -10870,11 +11027,30 @@
             "string",
             "null"
           ]
+        },
+        "version": {
+          "description": "A phone's read names the version it leased; another is `changed`.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
         "length",
         "offset"
+      ],
+      "type": "object"
+    },
+    "TransferRedeemGrantParams": {
+      "description": "Params of `transfer/redeemGrant`: the second stage, which consumes the grant once into a transfer.",
+      "properties": {
+        "grantId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "grantId"
       ],
       "type": "object"
     },
@@ -20143,6 +20319,75 @@
         },
         "params": {
           "$ref": "#/definitions/TransferReadRangeParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A paired phone's download, first stage: opens the file and answers a grant that expires.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "transfer/authorizeRead"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/TransferAuthorizeReadParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A paired phone's download, second stage: consumes the grant once into a transfer.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "transfer/redeemGrant"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/TransferRedeemGrantParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A paired phone's download is done: the file must still be the leased version; the transfer ends either way.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "transfer/finishRead"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/TransferFinishReadParams"
         }
       },
       "required": [

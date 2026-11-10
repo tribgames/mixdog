@@ -1,0 +1,164 @@
+{
+ "manifest": {
+  "exact": true,
+  "node": "v24.22.1",
+  "undici": "7.30.1",
+  "electron": "43.8.4",
+  "harness": {
+   "node-method-capture.mjs": "698c3eedcffd7f1dd115334e33cc0b407728ae40fe828fb45441e4a299eb2a42"
+  }
+ },
+ "methods": [
+  {
+   "method": "GET",
+   "wrote": "GET"
+  },
+  {
+   "method": "get",
+   "wrote": "GET"
+  },
+  {
+   "method": "Get",
+   "wrote": "GET"
+  },
+  {
+   "method": "post",
+   "wrote": "POST"
+  },
+  {
+   "method": "Post",
+   "wrote": "POST"
+  },
+  {
+   "method": "put",
+   "wrote": "PUT"
+  },
+  {
+   "method": "delete",
+   "wrote": "DELETE"
+  },
+  {
+   "method": "head",
+   "wrote": "HEAD"
+  },
+  {
+   "method": "options",
+   "wrote": "OPTIONS"
+  },
+  {
+   "method": "patch",
+   "wrote": "patch"
+  },
+  {
+   "method": "Patch",
+   "wrote": "Patch"
+  },
+  {
+   "method": "PATCH",
+   "wrote": "PATCH"
+  },
+  {
+   "method": "query",
+   "wrote": "query"
+  },
+  {
+   "method": "purge",
+   "wrote": "purge"
+  },
+  {
+   "method": "connect",
+   "error": {
+    "name": "TypeError",
+    "message": "'connect' HTTP method is unsupported."
+   }
+  },
+  {
+   "method": "Connect",
+   "error": {
+    "name": "TypeError",
+    "message": "'Connect' HTTP method is unsupported."
+   }
+  },
+  {
+   "method": "CONNECT",
+   "error": {
+    "name": "TypeError",
+    "message": "'CONNECT' HTTP method is unsupported."
+   }
+  },
+  {
+   "method": "trace",
+   "error": {
+    "name": "TypeError",
+    "message": "'trace' HTTP method is unsupported."
+   }
+  },
+  {
+   "method": "Trace",
+   "error": {
+    "name": "TypeError",
+    "message": "'Trace' HTTP method is unsupported."
+   }
+  },
+  {
+   "method": "TRACE",
+   "error": {
+    "name": "TypeError",
+    "message": "'TRACE' HTTP method is unsupported."
+   }
+  },
+  {
+   "method": "track",
+   "error": {
+    "name": "TypeError",
+    "message": "'track' HTTP method is unsupported."
+   }
+  },
+  {
+   "method": "TRACK",
+   "error": {
+    "name": "TypeError",
+    "message": "'TRACK' HTTP method is unsupported."
+   }
+  },
+  {
+   "method": "bad method",
+   "error": {
+    "name": "TypeError",
+    "message": "'bad method' is not a valid HTTP method."
+   }
+  },
+  {
+   "method": "Query",
+   "wrote": "Query"
+  },
+  {
+   "method": "GE(T",
+   "error": {
+    "name": "TypeError",
+    "message": "'GE(T' is not a valid HTTP method."
+   }
+  },
+  {
+   "method": "GÉT",
+   "error": {
+    "name": "TypeError",
+    "message": "'GÉT' is not a valid HTTP method."
+   }
+  },
+  {
+   "method": "GĀT",
+   "error": {
+    "name": "TypeError",
+    "message": "Cannot convert argument to a ByteString because the character at index 1 has a value of 256 which is greater than 255."
+   }
+  },
+  {
+   "method": "",
+   "error": {
+    "name": "TypeError",
+    "message": "'' is not a valid HTTP method."
+   }
+  }
+ ]
+}

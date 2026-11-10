@@ -49,7 +49,7 @@ impl NextRequestSource {
         let header = handle.live_header().header();
         let surface = handle.surface().borrow().clone();
         let prior = directory.model_context(thread).read().await.ok()?;
-        let (provider, request) = parts.next_request(thread, &header, &surface, prior, handle.thread_window()).await?;
+        let (provider, request) = parts.next_request(thread, &header, &surface, prior).await?;
         Some((header, SideMaterial { request, provider }))
     }
 
