@@ -56,6 +56,8 @@ mod tests {
     /// The failure that comes first in time is the one reported, at once; the slower read is left to finish.
     #[tokio::test]
     async fn the_first_failure_in_time_is_reported_and_the_other_read_runs_on() {
+        // `leave_running` spawns on the runtime the core installs.
+        mixdog_rt::testing::tokens();
         let release = Arc::new(Notify::new());
         let finished = Arc::new(Notify::new());
         let slow = {
