@@ -194,6 +194,45 @@ async fn a_web_search_read_after_the_refresh_completed_and_the_re_warm_landed_an
     assert_eq!(driven, 2, "the recording holds both families' reads after the refresh completed and the re-warm landed");
 }
 
+// The fourth ordering (`*-after-catalog-refresh-completed-while-rewarm-loads`): as the third, but the re-warm's load was held
+// at its start (`loadProviderModelsFresh`) and the web-search read made while it was in flight, the caches dropped, then the
+// load released. Driven here in the same order: the refresh and its invalidation, the secrets-carrying warm started and
+// held at its first step (its keychain read, the vault gate closed), the read, then the release and the load's end.
+#[tokio::test]
+async fn a_web_search_read_while_the_re_warm_loads_answers_as_nodes() {
+    let recording = super::model_list_node_tests::recording();
+    let mut driven = 0;
+    for node in recording["scenarios"].as_array().unwrap() {
+        let calls = node["calls"].as_array().unwrap();
+        let actions: Vec<&str> = calls.iter().map(|c| c["action"].as_str().unwrap()).collect();
+        if actions != ["listProviderModels", "listProviderModels", "statuslineUsageWarmup", "catalogRefreshCompletedRewarmHeld", "listWebSearchModels", "rewarmReleased"] {
+            continue;
+        }
+        let name = node["name"].as_str().unwrap();
+        let built = built_from(node.clone(), &recording["seeds"], NO_DELAY).await;
+        let rig = &built.rig;
+        let service = rig.service.clone();
+        assert!(rig.readiness.bind_invalidation(Arc::new(move || service.invalidate())).is_ok(), "{name}: the invalidation is bound once");
+        assert_rows(&format!("{name}: quick"), &rig.service.rows(false, true).await.unwrap(), &calls[0]["value"]);
+        rig.host.settle_warm().await;
+        assert_rows(&format!("{name}: full"), &rig.service.rows(false, false).await.unwrap(), &calls[1]["value"]);
+        built.warm.start();
+        within(&format!("{name}: the warm-up's provider preparation"), built.warm.settle()).await;
+        within(&format!("{name}: the catalog refresh and its invalidation"), rig.readiness.refresh_catalogs()).await;
+        rig.vault_gate.send_replace(false);
+        rig.service.warm_cache(true);
+        within(&format!("{name}: the re-warm reaching its keychain read"), rig.vault_arrived.acquire()).await.unwrap().forget();
+        assert!(rig.host.load_in_flight() && !rig.service.cache_loaded(), "{name}: the re-warm is in flight over dropped caches");
+        let found = within(&format!("{name}: the web-search read while the re-warm loads"), web_search(rig).list(None, false)).await.unwrap();
+        assert_rows(&format!("{name}: web search"), found.as_array().unwrap(), &calls[4]["value"]);
+        rig.vault_gate.send_replace(true);
+        within(&format!("{name}: the released re-warm"), rig.service.settle_warm()).await;
+        assert!(rig.service.cache_loaded(), "{name}: the re-warm landed");
+        driven += 1;
+    }
+    assert_eq!(driven, 2, "the recording holds both families' reads while the re-warm loads");
+}
+
 #[tokio::test]
 async fn the_boot_warm_up_makes_the_reads_node_recorded() {
     let mut built = built(NO_DELAY).await;

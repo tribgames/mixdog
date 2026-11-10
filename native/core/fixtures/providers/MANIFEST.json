@@ -42,6 +42,7 @@
       "source": "WP-AI-OPENAI, by hand (added in 3af96f66f2)"
     }
   ],
+  "externalFixturesNote": "The 8 externalFixtures are hand-made and are not recordings: no recorder writes them and no Node run produced them; the product commit above covers every other file of the set only.",
   "fileCount": 85,
   "files": [
     {
@@ -521,27 +522,27 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/record-action-input-union.mjs",
-      "sha256": "3dc9773aca9764189bbc55c811f6ea20dc1fc5cc184a84a4cceef9dd2256e0cb"
+      "sha256": "1dba7f4a6c0b9ff4bd24640e1db81ce3e44ad174a9a11b8b9a8420c573190200"
     },
     {
       "path": "benchmarks/rust-core/recorders/record-compat-tool-exclusion.mjs",
-      "sha256": "7487e0208462d97be08a80a6d67b950dbb6ec2d22b0ad18e723b8a6a7ab79cc4"
+      "sha256": "db65ae372b4fe192fd44d7c64804f6fe1fcfe31a876a30be7e9c70228c3668b2"
     },
     {
       "path": "benchmarks/rust-core/recorders/record-cursor-tool-choice.mjs",
-      "sha256": "81bb182729ad06a879d6305031c87f71db6256b40dfa5351af408a2668a81f61"
+      "sha256": "f95d100b2c96a08292c1b865271d38f3daabf65e5acd799f82fee1b709021505"
     },
     {
       "path": "benchmarks/rust-core/recorders/record-cursor-tools.mjs",
-      "sha256": "bd3887ed0ddb92d4721320dc6c2588397f0ba2b0bc578365e7d8f43b75774820"
+      "sha256": "12bd8e0f687ca5e2509b022a3e8d3fa355f8a47381db7f9c86ef5747d6ea74e3"
     },
     {
       "path": "benchmarks/rust-core/recorders/record-gemini-tool-schema.mjs",
-      "sha256": "2aae0557f26d293121676c8479957a32bce41f3f9fb6578cd0511ca1d1030bd9"
+      "sha256": "c652935bd4ea17b18da31e175cf6a89a966b5747d3289769fc3c6a893fd041c2"
     },
     {
       "path": "benchmarks/rust-core/recorders/record-schema-wording.mjs",
-      "sha256": "9581af2ed28f6e268b61e4a40a611198af842505ee75892ade9eebf7fefcb5ce"
+      "sha256": "00ad4655292faac3554fb68582b8cb2df79abbfcad71b07ae47ce1a88ea49e04"
     },
     {
       "path": "benchmarks/rust-core/recorders/record-model-meta.mjs",
@@ -589,7 +590,7 @@
     "oracles/xai-tool-search-head-parity.json": "src/runtime/agent/orchestrator/providers/xai-tool-search-head-parity.json"
   },
   "recorder": "benchmarks/rust-core/recorders/record-providers.mjs",
-  "recorderSha256": "a412f167e3c4783d5eac0547c023a816a18adf51d6f1dce0f528ad939e1a23ca",
+  "recorderSha256": "3c3f9386cb9a27b26b6c2e046e7cf3b31ecf4b64dece7944e4ae2f5e51643ecc",
   "scenarios": [
     "anthropic/cache-write-1h",
     "anthropic/error-400",
