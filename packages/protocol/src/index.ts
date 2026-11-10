@@ -64,7 +64,12 @@ export type AccountLoginOAuthProviderParams = { opId: OpId, threadId?: ThreadId,
 /**
  * Params of `account/refreshProviderSetup`.
  */
-export type AccountRefreshProviderSetupParams = { opId: OpId, force?: boolean, refresh?: boolean, unlockKeychain?: boolean, recheckKeychain?: boolean, };
+export type AccountRefreshProviderSetupParams = { opId: OpId, force?: boolean, refresh?: boolean, unlockKeychain?: boolean, recheckKeychain?: boolean,
+/**
+ * A provider id whose current account's OAuth token is refreshed now unless it lasts
+ * `minimumValidityMs` more (the host preflight of a benchmark run); needs `minimumValidityMs`.
+ */
+renewCredential?: string, minimumValidityMs?: number, };
 
 /**
  * Params of `account/removeCustomProvider`.
@@ -2981,13 +2986,17 @@ export type ProxyErrorKind = "overloaded" | "rateLimited" | "quotaExhausted" | "
 /**
  * One stream event of an attempt (`StreamEvent`).
  */
-export type ProxyEvent = { "type": "itemStart", item: ProxyItemKind, phase: ProxyPhase | null, } | { "type": "textDelta", text: string, } | { "type": "reasoningDelta", text: string, } | { "type": "reasoningReplay", replay: ProxyReplay, } | { "type": "toolCallStart", id: string, name: string, } | { "type": "toolCallArgsDelta", id: string, delta: string, } | { "type": "toolCallDone", call: ProxyToolCall, } | { "type": "usage", usage: ProxyUsage, } | { "type": "refusal", text: string, } | { "type": "citation", value: JsonValue, } | { "type": "serverToolBlock", value: JsonValue, } | { "type": "providerKeepalive" } | { "type": "progress", kind: ProxyProgress, } | { "type": "chunkProgress", kind: ProxyProgress | null, } | { "type": "finalContent", text: string, } | { "type": "returnedCalls", calls: Array<ProxyToolCall>, } | { "type": "thinkingBlocks", value: JsonValue, } | { "type": "providerState", state: JsonValue, } | { "type": "completed", stop: ProxyStop | null, pricingModel: string | null, requestMs: number | null, } | { "type": "attemptDiscarded" } | { "type": "attemptAbandoned", usage: ProxyUsage, model: string | null, };
+export type ProxyEvent = { "type": "itemStart", item: ProxyItemKind, phase: ProxyPhase | null, } | { "type": "textDelta", text: string, } | { "type": "reasoningDelta", text: string, } | { "type": "reasoningReplay", replay: ProxyReplay, } | { "type": "toolCallStart", id: string, name: string, } | { "type": "toolCallArgsDelta", id: string, delta: string, } | { "type": "toolCallDone", call: ProxyToolCall, } | { "type": "usage", usage: ProxyUsage, } | { "type": "refusal", text: string, } | { "type": "citation", value: JsonValue, } | { "type": "serverToolBlock", value: JsonValue, } | { "type": "providerKeepalive" } | { "type": "progress", kind: ProxyProgress, } | { "type": "chunkProgress", kind: ProxyProgress | null, } | { "type": "finalContent", text: string, } | { "type": "returnedCalls", calls: Array<ProxyToolCall>, } | { "type": "thinkingBlocks", value: JsonValue, } | { "type": "providerState", state: JsonValue, } | { "type": "notice", message: string, warn: boolean, } | { "type": "servedModel", model: string, } | { "type": "completed", stop: ProxyStop | null, pricingModel: string | null, requestMs: number | null, } | { "type": "attemptDiscarded" } | { "type": "attemptAbandoned", usage: ProxyUsage, model: string | null, };
 
 /**
  * A failed call as the sender's retry and recovery read it (the classified `ProviderError`);
  * credential-shaped text in the message is redacted and nothing else of the PC leaves it.
  */
-export type ProxyFailure = { outcome: ProxyOutcome, kind: ProxyErrorKind, code: string | null, status: number | null, retryAfterMs: number | null, resetAtMs: number | null, quotaScope: ProxyQuotaScope | null, reauthRequired: boolean, shouldRetry: boolean | null, textEmitted: boolean, toolDispatched: boolean, toolInputCut: boolean, delivery: ProxyDelivery, transport: ProxyFault | null, message: string, partialUsage: ProxyUsage | null, partialModel: string | null, verificationUrl: string | null, rejectedTool: string | null, accountBlocked: boolean, unsafeToRetry: boolean, quotaLimit: string | null, };
+export type ProxyFailure = { outcome: ProxyOutcome, kind: ProxyErrorKind, code: string | null, status: number | null, retryAfterMs: number | null, resetAtMs: number | null, quotaScope: ProxyQuotaScope | null, reauthRequired: boolean, shouldRetry: boolean | null, textEmitted: boolean, toolDispatched: boolean, toolInputCut: boolean, delivery: ProxyDelivery, transport: ProxyFault | null, message: string, partialUsage: ProxyUsage | null, partialModel: string | null, verificationUrl: string | null, rejectedTool: string | null, accountBlocked: boolean, unsafeToRetry: boolean, quotaLimit: string | null,
+/**
+ * The display-only notices the failed call raised before it failed (`ProviderError::notices`).
+ */
+notices: Array<ProxyNotice>, };
 
 export type ProxyFault = { "fault": "connect", osCode: number | null, } | { "fault": "dns" } | { "fault": "reset" } | { "fault": "closed" } | { "fault": "tls" } | { "fault": "h2GoAway", code: number, } | { "fault": "h2RstStream", code: number, } | { "fault": "wsClose", code: number | null, } | { "fault": "keepaliveExpired", transport: ProxyTransportKind, } | { "fault": "truncatedStream" } | { "fault": "io", osCode: number | null, };
 
@@ -3047,6 +3056,11 @@ aliasTarget: string | null,
  * The wire id(s) the picker id is sent under.
  */
 wire: string | { [level: string]: string } | null, picker: ProxyPicker, firstResponseBudget: ProxyBudget | null, };
+
+/**
+ * One display-only transcript notice (`StreamEvent::Notice`).
+ */
+export type ProxyNotice = { message: string, warn: boolean, };
 
 /**
  * `RequestOptions` field for field. The connection scope and the model's output ceiling are the
@@ -4272,7 +4286,17 @@ live?: boolean, };
 /**
  * Params of `tools/toolsStatus`.
  */
-export type ToolsToolsStatusParams = { threadId?: ThreadId, query?: string, };
+export type ToolsToolsStatusParams = { threadId?: ThreadId, query?: string,
+/**
+ * `true`: the reply also carries `requestSnapshot`, the provider request the thread's next send
+ * would carry (needs `threadId`).
+ */
+snapshot?: boolean,
+/**
+ * With snapshot: the user message the snapshot's request carries as its last turn, as the send of that message would;
+ * a thread with no user turn yet cannot be encoded by every provider (Gemini refuses a request with nothing to send).
+ */
+snapshotUserMessage?: string, };
 
 /**
  * Params of `transfer/abort`.

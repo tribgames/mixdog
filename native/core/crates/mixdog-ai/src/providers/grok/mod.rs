@@ -9,6 +9,7 @@
 
 pub mod auth;
 pub mod listing;
+mod tool_schema;
 #[cfg(test)]
 mod listing_tests;
 
@@ -77,6 +78,9 @@ impl Rewriter for GrokRewriter {
         add("x-grok-turn-idx", opts.iteration.to_string());
         if let Some(user) = self.credential.user_id() {
             add("x-grok-user-id", user);
+        }
+        if let Some(body) = tool_schema::flatten_body(&wire.body) {
+            wire.body = body;
         }
         Ok(wire)
     }

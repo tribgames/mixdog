@@ -56,7 +56,7 @@ jobs:
           echo "TMPDIR=$tmp" >> "$GITHUB_ENV"
 
       - name: Unit tests
-        run: cargo test -p mixdog-app-server-daemon --lib -- ownership:: barrier:: verdict:: discovery::
+        run: "cargo test -p mixdog-app-server-daemon --lib -- ownership:: barrier:: verdict:: discovery::"
 
       - name: Tag tree
         run: |
@@ -70,13 +70,13 @@ jobs:
       # Gate 4 suspends the core for 61 s and waits for its contenders: allow well over 3 minutes.
       - name: Tag gates 1, 2, 4 and 5
         timeout-minutes: 15
-        run: cargo test -p mixdog-app-server-daemon --lib verdict::tag_gates:: -- --ignored --test-threads=1 --skip gate_3
+        run: "cargo test -p mixdog-app-server-daemon --lib verdict::tag_gates:: -- --ignored --test-threads=1 --skip gate_3"
 
       - name: Tag gates 3a and 3b at 200 repetitions
         timeout-minutes: 60
         env:
           MIXDOG_TAG_GATE_REPS: "200"
-        run: cargo test -p mixdog-app-server-daemon --lib verdict::tag_gates::gate_3 -- --ignored --test-threads=1 --nocapture
+        run: "cargo test -p mixdog-app-server-daemon --lib verdict::tag_gates::gate_3 -- --ignored --test-threads=1 --nocapture"
 
       # The bundled Postgres runtime, from the release the manifest names (the same asset `ensure_runtime` would download), checked against the manifest's hash.
       - name: Postgres runtime

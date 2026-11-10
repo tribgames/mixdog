@@ -1710,6 +1710,48 @@
           "type": "object"
         },
         {
+          "description": "A display-only transcript notice raised while preparing the request (`StreamEvent::Notice`).",
+          "properties": {
+            "message": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "notice"
+              ],
+              "type": "string"
+            },
+            "warn": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "message",
+            "type",
+            "warn"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The model that answered when it is not the one the request named (`StreamEvent::ServedModel`).",
+          "properties": {
+            "model": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "servedModel"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "model",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
           "description": "`pricing_model`: the catalog model the send bills as when it differs from the one sent. `request_ms`: the request's wall time as the usage ledger measured it (Node `usageDurationMs`).",
           "properties": {
             "pricing_model": {
