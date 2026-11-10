@@ -277,16 +277,6 @@
       ],
       "type": "object"
     },
-    "BrowserFrameParams": {
-      "description": "The `browser/frame` push (Node's `browserRemoteFrame` event): one frame of a session the phone streams (`DesktopRemoteBrowserStreamFrame`: `sessionId`, `seq`, `documentId`, the page facts and, unless withheld, `image` `{mimeType, data}` as base64). At most one is unacknowledged per subscription; the newest frame goes next, after the phone's `browser/streamAck` or 1.5 s.",
-      "properties": {
-        "frame": true
-      },
-      "required": [
-        "frame"
-      ],
-      "type": "object"
-    },
     "BrowserWebrtcSignalParams": {
       "description": "A phone's live-view signal (`browser/webrtcSignal` request, Node's `browserRemoteWebrtcSignal` call) and the core's signal to that phone (the `browser/webrtcSignal` push, Node's `browserRemoteWebrtc` event). `signal` is the validated wire object of `mixdog-remote::webrtc::signal` (`ClientSignal` / `DesktopSignal`).",
       "properties": {
@@ -6222,9 +6212,7 @@
           ],
           "type": "string"
         },
-        "params": {
-          "$ref": "#/definitions/BrowserFrameParams"
-        }
+        "params": true
       },
       "required": [
         "method",

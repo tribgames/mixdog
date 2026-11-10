@@ -1,12 +1,26 @@
 {
   "command": "node --experimental-transform-types --import benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-browser-streams.mjs --tree <tree>",
   "exact": true,
+  "excluded": [
+    {
+      "what": "the relay's calls into the window process: `forward` (remote-relay.ts:383-399, the window's `webrtcSignal`), `viewerLeft` (:400-401, `webrtcViewerLeft`), `screenAuthorized`, `screenDisplays`, `resolveIceServers`",
+      "why": "scripted here (`forward`/`viewerLeft` resolve, no screen access, no displays, no ICE servers): in the core that window is the live view's own host (live_view.rs `LiveHost`), with no boundary to compare; its signals are recorded where they leave the relay (`browserRemoteWebrtc` pushes)"
+    },
+    {
+      "what": "the relay-client call dispatch's other methods and its host/method table (`host: {}`, `methods: {}`, `browserTabs`)",
+      "why": "only the live-view calls (`browserRemoteStream`, `browserRemoteStreamAck`) are driven; nothing else is called"
+    },
+    {
+      "what": "a push to a phone no longer in the relay client registry",
+      "why": "not recorded, as `sendEncryptedFrame` delivers none (remote-relay-delivery.ts:90-93): the phone receives nothing"
+    }
+  ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 108511,
+      "bytes": 191372,
       "path": "streams.json",
-      "sha256": "7d49e612f299624eb8ce3e40c1f0967ed5b1e59c9a469f1834c5614095d00146"
+      "sha256": "d031fe42fd1c933432fecb16f7f9f3d54ec95c2ac96d004cbf48d0127a2b150d"
     }
   ],
   "inputs": {
@@ -53,6 +67,62 @@
       {
         "name": "a phone that left is dropped at the next frame or its lapse",
         "steps": 11
+      },
+      {
+        "name": "a phone that left with a frame in flight is sent nothing more",
+        "steps": 10
+      },
+      {
+        "name": "an unpaired phone is dropped at once, its frame in flight and its resend with it",
+        "steps": 12
+      },
+      {
+        "name": "an unpaired phone that alone streams a session stops the desktop view",
+        "steps": 7
+      },
+      {
+        "name": "the relay closing ends every subscription and every resend",
+        "steps": 11
+      },
+      {
+        "name": "a stale ack after a resend is ignored",
+        "steps": 10
+      },
+      {
+        "name": "a resend pending when the phone unsubscribes is not sent",
+        "steps": 7
+      },
+      {
+        "name": "a phone joining during a pending resend gets the newest frame at once",
+        "steps": 10
+      },
+      {
+        "name": "a fit that failed, then a renewal: the take-over watches unfitted",
+        "steps": 13
+      },
+      {
+        "name": "gate: a lapse, then a fresh subscribe",
+        "steps": 3
+      },
+      {
+        "name": "gate: a resend, then an unsubscribe",
+        "steps": 5
+      },
+      {
+        "name": "gate: an ack, then a newer frame resent",
+        "steps": 6
+      },
+      {
+        "name": "gate: a resend, then a phone joins",
+        "steps": 5
+      },
+      {
+        "name": "gate: a fit failure, then a renewal",
+        "steps": 3
+      },
+      {
+        "name": "a settled metadata frame over a settled picture ends a take-over wait",
+        "steps": 12
       }
     ],
     "sessions": [
@@ -80,7 +150,26 @@
   },
   "productCommit": "b6f10295a2f698afc85332467192de28500bd146",
   "recorder": "benchmarks/rust-core/recorders/record-browser-streams.mjs",
-  "recorderSha256": "326e607137ce8de7842729f68a508f60003457bb74d7e446c23a3da0b6ee1bff",
+  "recorderFiles": [
+    {
+      "path": "benchmarks/rust-core/recorders/record-browser-streams.mjs",
+      "sha256": "e7fa01c9b5143606fc9e6b5812bf40ac31b81d4a2d6e27b880eb3b902f8c5630"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "9d85c23ce17a8eb56ca50b848fd8f7e39dadc23c258277510b0bfd67885739f5"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/ts-register.mjs",
+      "sha256": "065ba6e7ea82d1d6dffe0903454d63df7569c656ceeb025875d945f96b58c276"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/ts-resolve-hooks.mjs",
+      "sha256": "d8e596c1bcd597ee71ad7007dcd2362605a2ca5d87a77801cba8b3cdc2c22ac6"
+    }
+  ],
+  "recorderSha256": "e7fa01c9b5143606fc9e6b5812bf40ac31b81d4a2d6e27b880eb3b902f8c5630",
+  "replayProjections": [],
   "set": "browser-streams",
-  "totalBytes": 108511
+  "totalBytes": 191372
 }

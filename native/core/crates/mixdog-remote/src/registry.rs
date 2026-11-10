@@ -192,6 +192,12 @@ impl DeviceRegistry {
         matches!(inner.connections.get(&connection), Some(Link::Relay { peer_id, .. }) if inner.screen_revoked.contains(peer_id))
     }
 
+    /// Whether `connection` is a relay connection whose peer is attached (past its handshake, not yet closed by the relay).
+    pub fn peer_attached(&self, connection: u64) -> bool {
+        let inner = self.inner();
+        matches!(inner.connections.get(&connection), Some(Link::Relay { peer_id, .. }) if inner.peers.contains_key(peer_id))
+    }
+
     /// Every connection of the paired credential still attached.
     pub fn connections_of(&self, credential: &str) -> Vec<u64> {
         let inner = self.inner();
