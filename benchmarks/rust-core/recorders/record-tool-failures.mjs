@@ -46,7 +46,7 @@ if (process.argv[2] === '--child') {
   const { workflowHelpers } = await imp('src/session-runtime/boot/shared.mjs');
   const { makeInvalidToolArgsMarker } = await imp(`${S}providers/lib/openai-tool-args.mjs`);
   const { setInternalToolsProvider } = await imp(`${S}internal-tools.mjs`);
-  const { connectMcpServers, disconnectAll } = await imp(`${S}mcp/client.mjs`);
+  const { connectMcpServers } = await imp(`${S}mcp/client.mjs`);
   const { stopOwnedPgForShutdown } = await imp('src/runtime/memory/lib/pg/supervisor.mjs');
   const { createStandaloneAgent } = await imp('src/session-runtime/services/agent-tool.mjs');
   const cfgMod = await imp(`${S}config.mjs`);
@@ -149,7 +149,8 @@ if (process.argv[2] === '--child') {
         outcome = { threw: error.message.split(sessionId).join('<session>') };
       }
       for (const dispose of disposers) dispose();
-      if (scenario.full) await disconnectAll();
+      // The MCP servers stay connected until this process exits, as at the product's daemon exit, where `disconnectAll` has no caller
+      // (daemon.mjs shutdown; the core's runtime_stop_steps, compose_flip.rs, states the same): what they do at the exit is recorded.
     });
     const toolMessages = sends.slice(1).map((messages) => {
       const lastAssistant = messages.map((m) => m.role).lastIndexOf('assistant');

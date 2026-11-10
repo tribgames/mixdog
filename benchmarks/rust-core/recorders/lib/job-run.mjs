@@ -3,16 +3,18 @@
 // command line names. The job is held by a PowerShell host that joins it before starting the program with exactly the given
 // environment. The job reports every process that joins or leaves it to the host's completion port, in the order it happened; the
 // host follows those reports until the program's own exit, and every member other than itself that had joined and not left by then
-// is left behind, whether or not it ends by itself afterwards. Reports to a completion port are notifications the system may drop,
-// so the host then checks them against the job's own accounting (TotalProcesses, ActiveProcesses): a join it was not told of fails
-// the run instead of being missed. The host then ends every remaining member (TerminateJobObject, which ends the host as well, after
+// is left behind, whether or not it ends by itself afterwards. Reports to a completion port are notifications the system may drop
+// (and a member ended through a job of its own, as the core's extension workers are, is not reported leaving this one), so a member
+// with no exit report is read from the handle taken when it joined: it is left behind unless it exited strictly before the program;
+// and the joins are checked against the job's own accounting (TotalProcesses, ActiveProcesses): a join it was not told of fails the
+// run instead of being missed. The host then ends every remaining member (TerminateJobObject, which ends the host as well, after
 // its report is written: the host's own exit code is then not the program's; the report's is). The job is made with
 // KILL_ON_JOB_CLOSE, so ending the host (a deadline, a failure) ends the whole tree.
 //
 //   const child = spawnInJob(file, args, { env, cwd, stdio, report });   // a ChildProcess: the host, with the program's exit code
 //   ... await its exit ...
 //   const { exitCode, program, left } = readJobReport(report);            // left: [{ pid, name, parentPid, parent, commandLine }]
-//   (names are taken when a member joins; `parent` is the parent's name while it was a member, otherwise null)
+//   (name, parent and command line are taken when a member joins; `parent` is the parent's name while it was a member, otherwise null)
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 
@@ -32,6 +34,9 @@ public static class JobRun {
   [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr CreateIoCompletionPort(IntPtr file, IntPtr existing, UIntPtr key, uint threads);
   [DllImport("kernel32.dll", SetLastError = true)] static extern bool GetQueuedCompletionStatus(IntPtr port, out uint message, out UIntPtr key, out IntPtr detail, uint ms);
   [DllImport("kernel32.dll")] static extern IntPtr GetCurrentProcess();
+  [DllImport("kernel32.dll", SetLastError = true)] static extern uint WaitForSingleObject(IntPtr handle, uint ms);
+  [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);
+  [DllImport("kernel32.dll", SetLastError = true)] static extern bool GetProcessTimes(IntPtr process, out long created, out long exited, out long kernel, out long user);
   [DllImport("ntdll.dll")] static extern int NtQueryInformationProcess(IntPtr process, int infoClass, IntPtr info, int length, IntPtr returned);
   static IntPtr job, port;
   // Every process that has joined the job and not left it, in the order the job reported their joins, and how many joins it reported.
@@ -39,6 +44,9 @@ public static class JobRun {
   static long joins;
   public static readonly Dictionary<long, string> names = new Dictionary<long, string>();
   static readonly Dictionary<long, long> parents = new Dictionary<long, long>();
+  static readonly Dictionary<long, string> commandLines = new Dictionary<long, string>();
+  static readonly Dictionary<long, IntPtr> members = new Dictionary<long, IntPtr>();
+  public static string CommandLineOf(long pid) { string line; return commandLines.TryGetValue(pid, out line) ? line : null; }
   public static string NameOf(long pid) { string name; return names.TryGetValue(pid, out name) ? name : null; }
   /** The parent's name when the parent was a member of the job (a name taken while it ran), otherwise null. */
   public static string ParentNameOf(long pid) { long parent; return parents.TryGetValue(pid, out parent) ? NameOf(parent) : null; }
@@ -81,12 +89,25 @@ public static class JobRun {
         try {
           System.Diagnostics.Process member = System.Diagnostics.Process.GetProcessById((int)pid);
           names[pid] = member.ProcessName;
+          // A handle of its own (SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION), kept so its exit time can be read when its exit
+          // report is missing (AtProgramExit).
+          IntPtr own = OpenProcess(0x101000, false, (uint)pid);
+          if (own != IntPtr.Zero) members[pid] = own;
           // PROCESS_BASIC_INFORMATION (class 0, 48 bytes on x64): InheritedFromUniqueProcessId at 40.
           IntPtr basic = Marshal.AllocHGlobal(48);
           try {
             if (NtQueryInformationProcess(member.Handle, 0, basic, 48, IntPtr.Zero) == 0) parents[pid] = Marshal.ReadInt64(basic, 40);
           } finally {
             Marshal.FreeHGlobal(basic);
+          }
+          // ProcessCommandLineInformation (class 60): a UNICODE_STRING (Length at 0, Buffer at 8) followed by its text.
+          IntPtr line = Marshal.AllocHGlobal(65536);
+          try {
+            if (NtQueryInformationProcess(member.Handle, 60, line, 65536, IntPtr.Zero) == 0) {
+              commandLines[pid] = Marshal.PtrToStringUni(Marshal.ReadIntPtr(line, 8), (ushort)Marshal.ReadInt16(line, 0) / 2);
+            }
+          } finally {
+            Marshal.FreeHGlobal(line);
           }
         } catch (ArgumentException) {
         } catch (InvalidOperationException) {
@@ -99,7 +120,33 @@ public static class JobRun {
     }
     List<long> left = new List<long>(alive);
     left.Remove(host);
+    left.Remove(program);
+    return AtProgramExit(left, program);
+  }
+  /** A process ended through a job of its own (a nested job's TerminateJobObject) is not reported leaving this one, and the system
+   *  may drop any exit report: a member reported joining but not leaving is read from the handle taken when it joined. It was in the
+   *  job when the program exited unless it had exited strictly before the program did; a member with no handle is not guessed. */
+  static long[] AtProgramExit(List<long> unreported, long program) {
+    IntPtr self;
+    if (!members.TryGetValue(program, out self)) throw new Exception("the program's own handle was not taken when it joined");
+    if (WaitForSingleObject(self, 0xFFFFFFFF) != 0) throw new Exception("waiting for the program's handle failed: " + Marshal.GetLastWin32Error());
+    long programExit = ExitTimeOf(self);
+    List<long> left = new List<long>();
+    foreach (long pid in unreported) {
+      IntPtr member;
+      if (!members.TryGetValue(pid, out member)) throw new Exception("member " + pid + " (" + NameOf(pid) + ") had no handle when it joined and no exit was reported: whether it outlived the program is unknown");
+      // WAIT_OBJECT_0: it has exited; WAIT_TIMEOUT (0x102): it still runs.
+      uint state = WaitForSingleObject(member, 0);
+      if (state != 0 && state != 0x102) throw new Exception("reading member " + pid + "'s state failed: " + Marshal.GetLastWin32Error());
+      if (state == 0 && ExitTimeOf(member) < programExit) continue;
+      left.Add(pid);
+    }
     return left.ToArray();
+  }
+  static long ExitTimeOf(IntPtr process) {
+    long created, exited, kernel, user;
+    if (!GetProcessTimes(process, out created, out exited, out kernel, out user)) throw new Exception("GetProcessTimes failed: " + Marshal.GetLastWin32Error());
+    return exited;
   }
   /** With no member left behind, the job's accounting must agree with its reports: every process it ever held was reported joining,
    *  and the host is its only member. A disagreement means a report was dropped, and membership at the program's exit is unknown. */
@@ -139,9 +186,8 @@ $unreported = $null
 if ($stayed.Count -eq 0) { $unreported = [JobRun]::Unreported() }
 $left = @()
 foreach ($id in $stayed) {
-  # A member may have ended since the program's exit: it is left behind all the same, named when it still runs.
-  $cim = Get-CimInstance Win32_Process -Filter "ProcessId=$id"
-  $left += [pscustomobject]@{ pid = [int]$id; name = [JobRun]::NameOf($id); parentPid = [JobRun]::ParentOf($id); parent = [JobRun]::ParentNameOf($id); commandLine = $(if ($cim) { $cim.CommandLine } else { $null }) }
+  # A member may have ended since the program's exit: it is left behind all the same, named as it was when it joined.
+  $left += [pscustomobject]@{ pid = [int]$id; name = [JobRun]::NameOf($id); parentPid = [JobRun]::ParentOf($id); parent = [JobRun]::ParentNameOf($id); commandLine = [JobRun]::CommandLineOf($id) }
 }
 [System.IO.File]::WriteAllText($report, (ConvertTo-Json -Compress -Depth 4 @{ exitCode = $code; program = $program.Id; left = @($left); unreported = $unreported; complete = $true }))
 # Ending the job ends this host too (it is a member): the report is written first.

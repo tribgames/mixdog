@@ -784,11 +784,13 @@ impl Run {
         // `classifyExecuted` (`execute-call.mjs:17-20,187-194`): a call that returned text reading as an error (the
         // delegated-agent, skill and MCP tools answer `Error: …` instead of failing) is an error call, decided on the tool's
         // own return before anything below rewrites it; that kind stays the result's through the offload, the failure log,
-        // the cache write and the transcript (`finalize.mjs:174-177,238,292`).
+        // the cache write and the transcript (`finalize.mjs:174-177,238,292`). Only a text return is read: a structured one
+        // (parts, an image among them) is normal (`classifyResultKind` of a non-string, result-classification.mjs:75).
         for i in &indices {
             if let Some(m) = staged[*i].as_mut()
                 && m.tool_kind == Some(ToolKind::Normal)
-                && crate::result_kind::classify_result_kind(&m.text(), &calls[*i].name) == crate::result_kind::ResultKind::Error
+                && let Content::Text(text) = &m.message.content
+                && crate::result_kind::classify_result_kind(text, &calls[*i].name) == crate::result_kind::ResultKind::Error
             {
                 m.tool_kind = Some(ToolKind::Error);
             }
@@ -850,7 +852,7 @@ impl Run {
                         tool_ms: tool_ms[i],
                         tool_args: calls[i].arguments.clone(),
                         model: self.model.clone(),
-                        result_text: m.text(),
+                        result_text: trace_text(&m.message.content),
                     });
                 }
             } else if cacheable[i]
@@ -860,6 +862,22 @@ impl Run {
             }
         }
     }}
+
+/// `toolTraceText(result)` (agent-trace-format.mjs:360-370), the text a failure row is cut from: a text as it is, a structured
+/// result's text parts joined by newlines, its images and other parts left out.
+fn trace_text(content: &Content) -> String {
+    match content {
+        Content::Text(text) => text.clone(),
+        Content::Parts(parts) => parts
+            .iter()
+            .filter_map(|part| match part {
+                mixdog_core_api::domain::provider::ContentPart::Text(text, _) => Some(text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+    }
+}
 
 /// `notifyEarlyResult` (`eager-dispatch/entry.mjs`): what a call that settled before the stop tells the host. The
 /// model-visible text; `error` only when the call threw (`isError: !settled.ok`, the executor's `Err`). A thrown
