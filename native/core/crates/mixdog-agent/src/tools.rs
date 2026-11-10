@@ -1209,7 +1209,11 @@ impl Run {
         }
         // The audit records what runs: a bridged `call_tool` as its target (the wire calls stay the transcript's).
         let (execution, _, _) = self.execution_view(&calls);
-        self.emit(RunEvent::ToolBatch(tool_batch(self.iterations, &execution)));
+        let batch = tool_batch(self.iterations, &execution);
+        if let Some(log) = &self.env.failures {
+            log.batch(&batch);
+        }
+        self.emit(RunEvent::ToolBatch(batch));
         self.emit(RunEvent::ToolCalls {
             iteration: self.iterations,
             calls: calls.clone(),
