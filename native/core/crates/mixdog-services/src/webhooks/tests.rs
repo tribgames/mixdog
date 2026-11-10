@@ -185,6 +185,23 @@ async fn content_type_json_and_self_comment_gates() {
     assert_eq!((reply.status, reply.body), (400, json!({"error":"invalid JSON"})));
 }
 
+/// Node parses `rawBody.toString('utf8')`: Latin-1 bytes inside JSON become U+FFFD and the
+/// delivery is accepted, and a probe marker in such a body still counts.
+#[tokio::test]
+async fn json_with_invalid_utf8_is_accepted_with_replacement_characters() {
+    let f = fx(WebhookConfig::default());
+    let body = b"{\"name\":\"caf\xe9\"}";
+    let h = headers(&[JSON_CT, ("x-hub-signature-256", &sign("s3", body))]);
+    let reply = f.svc.handle_post("/webhook/hook", &h, body).await;
+    assert_eq!((reply.status, reply.body["status"].clone()), (200, json!("accepted")));
+    assert_eq!(f.dispatched.0.lock().unwrap().clone(), vec![("hook".to_string(), json!({"name": "caf\u{FFFD}"}))]);
+
+    let probe = b"{\"mixdogWebhookTest\":true,\"x\":\"\xff\"}";
+    let h = headers(&[JSON_CT, ("x-hub-signature-256", &sign("s3", probe)), ("x-mixdog-webhook-test", "1")]);
+    let reply = f.svc.handle_post("/webhook/hook", &h, probe).await;
+    assert_eq!((reply.status, reply.body), (200, json!({"status":"verified","test":true})));
+}
+
 #[test]
 fn transport_collector_joins_chunks_and_caps_the_wire_body() {
     // Chunks split inside a multi-byte character join byte for byte.
