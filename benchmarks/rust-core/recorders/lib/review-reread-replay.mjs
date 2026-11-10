@@ -273,26 +273,31 @@ const open = async ({ session, checkpoint, window, kind }, rust) => {
   await windows.open({ session, checkpoint, window, api: appWindows.get(window) });
 };
 
+/** A composed core's feed also carries sections that are not the subject; only the review tells are counted. */
+const isTell = (frame) => frame.method === 'review/diff/updated';
+
 /** Frames sent one after the other to every live connection that does not hold them yet, nothing run between them but the client
  *  folding each; the desktop's relay flushes once after the last. A device's count of told frames is raised once its client folded them. */
 const deliverFrames = async (frames) => {
   const fresh = main.live ? frames.filter((frame) => frame.feed.seq > main.seq) : [];
   if (fresh.length) {
-    const folded = main.folds.reach(main.folds.n + fresh.length);
+    const tells = fresh.filter(isTell).length;
+    const folded = main.folds.reach(main.folds.n + tells);
     for (const frame of fresh) main.socket.serverSend(frame);
     main.seq = fresh.at(-1).feed.seq;
-    await within(`the client folding ${fresh.length} review/diff/updated frame(s) (from seq ${fresh[0].feed.seq})`, folded);
-    counts.set('desktop', (counts.get('desktop') ?? 0) + fresh.length);
+    await within(`the client folding ${tells} review/diff/updated frame(s) (from seq ${fresh[0].feed.seq})`, folded);
+    counts.set('desktop', (counts.get('desktop') ?? 0) + tells);
     await relayTick();
   }
   for (const [name, phone] of phones) {
     const mine = phone.live ? frames.filter((frame) => frame.feed.seq > phone.seq) : [];
     if (!mine.length) continue;
-    const folded = phone.folds.reach(phone.folds.n + mine.length);
+    const tells = mine.filter(isTell).length;
+    const folded = phone.folds.reach(phone.folds.n + tells);
     for (const frame of mine) phone.socket.serverSend(frame);
     phone.seq = mine.at(-1).feed.seq;
-    await within(`the phone ${name} folding ${mine.length} review/diff/updated frame(s) (from seq ${mine[0].feed.seq})`, folded);
-    counts.set(name, (counts.get(name) ?? 0) + mine.length);
+    await within(`the phone ${name} folding ${tells} review/diff/updated frame(s) (from seq ${mine[0].feed.seq})`, folded);
+    counts.set(name, (counts.get(name) ?? 0) + tells);
     await kit.act(async () => {});
   }
 };
@@ -317,7 +322,7 @@ for (const [index, op] of input.ops.entries()) {
     // The tells the core made while the link was down reach the desktop as the one tell its snapshot carries (a newer revision of
     // `reviewDiff` than the store holds), not as frames: Node's deliveries of the operation are that one.
     windows.deliveries += Math.min(1, rust.deliveries.length);
-    counts.set('desktop', rust.deliveries.flat().length);
+    counts.set('desktop', rust.deliveries.flat().filter(isTell).length);
     delivered = rust.deliveries.length;
   }
   if (op.op === 'coreReconnect' || op.coreLinkDown) await reconnectMain(rust.snapshot);

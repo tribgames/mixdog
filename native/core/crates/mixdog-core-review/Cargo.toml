@@ -31,10 +31,12 @@ sha2 = { workspace = true }
 tokio = { workspace = true, features = ["sync", "rt", "macros", "time"] }
 tokio-util = { workspace = true }
 mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core"], optional = true }
+tempfile = { workspace = true, optional = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [features]
-test-support = ["dep:mixdog-spawn", "mixdog-rt/test-support"]
+# signal_replay (the replay of Node's review-signal recording against a core) is shared with the daemon's composed-core test.
+test-support = ["dep:mixdog-spawn", "dep:tempfile", "mixdog-rt/test-support", "mixdog-core-api/mock", "tokio/process"]
 
 [dev-dependencies]
 bytes = { workspace = true }

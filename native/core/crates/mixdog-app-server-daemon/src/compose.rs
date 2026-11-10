@@ -753,12 +753,15 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
 }
 
 #[cfg(test)]
+mod review_restart_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
     /// The config every test composes with: a fresh `Outgoing` (no desktop connected), the mock ownership, the fixture JS runtime, the shared data directory
     /// (`compose_test_support`: the PostgreSQL runtime is installed into it once). The caller holds `compose_test_support::exclusive()`.
-    fn config(dir: &Path, log: crate::daemon_log::DaemonLog, stop: tokio_util::sync::CancellationToken) -> ComposeConfig {
+    pub(super) fn config(dir: &Path, log: crate::daemon_log::DaemonLog, stop: tokio_util::sync::CancellationToken) -> ComposeConfig {
         ComposeConfig {
             data_dir: crate::compose_test_support::data_dir().to_path_buf(),
             user_data_dir: dir.join("userdata"),

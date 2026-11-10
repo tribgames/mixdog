@@ -268,6 +268,14 @@ async function runScenario(scenario) {
   for (const [index, op] of scenario.ops.entries()) {
     sent = [];
     windows.startOperation();
+    if (op.coreRestart) {
+      // The runtime starts again over the data it left: everything it held in memory is gone (the turns, the trackers, the loaded records,
+      // the shadow states, the retained baselines), what it wrote stays. Its listeners are the desktop service's, which the windows keep.
+      store._setTurnSnapshotStoreRootForTest(join(data, 'turn-snapshots'));
+      snapshot._resetTurnSnapshotForTest();
+      tokens.clear();
+      revisions.clear();
+    }
     const result = await run(op);
     // The windows answer in the order they asked; an answer may raise the next delivery, which is a microtask behind it.
     await null;
@@ -371,27 +379,37 @@ const scenarios = [
   },
   {
     name: 'a desktop whose link to the core is down when the review changes, and a core that restarts',
-    // Its own session name, as for the scenarios above. Node's runtime is in the desktop's own process: it has no link to lose and no
-    // core to restart, so `coreLinkDown`, `coreRestart` and `coreReconnect` change nothing here, and every change of the review is
-    // told to the windows when it is made. The Rust replay has the desktop's connection down during an operation flagged
-    // `coreLinkDown` (the desktop dials again with the core's snapshot at its end), and runs an operation flagged `coreRestart`
-    // against a new core process: a feed of its own, numbered from the start, under another epoch.
+    // Its own session names, as for the scenarios above. Node's runtime is in the desktop's own process: it has no link to lose, so
+    // `coreLinkDown` and `coreReconnect` change nothing here, and every change of the review is told to the windows when it is made.
+    // An operation flagged `coreRestart` runs after the runtime started again over the data it left (the recorder drops everything the
+    // runtime held in memory), so what it answers is what the runtime rebuilds from what it persisted: a turn that was not sealed is
+    // gone with the process (Node writes a turn's record when it seals: turn-snapshot.mjs persistTurnSnapshotRecord), a sealed one is
+    // read back. The Rust replay has the desktop's connection down during an operation flagged `coreLinkDown` (the desktop dials again with the core's snapshot at its end),
+    // and runs an operation flagged `coreRestart` against a core composed again over the same data directory (the daemon's composition,
+    // stopped and composed once more): a feed of its own, under another epoch, under another epoch.
     ops: [
       { op: 'git', ws: 'w1' },
       { op: 'file', ws: 'w1', path: 'a.txt', content: T(lines('x', 'y')) },
       { op: 'client', session: 'k1', ws: 'w1', checkpoint: 'cp1', window: 'K' },
+      { op: 'client', session: 'k2', ws: 'w1', checkpoint: 'cp2', window: 'K' },
       { op: 'begin', ws: 'w1', session: 'k1', checkpoint: 'cp1' },
       // The window attached before any review change, and the first change is made while its link is down.
       { op: 'edit', ws: 'w1', session: 'k1', path: 'a.txt', old: 'y', new: 'Y', coreLinkDown: true },
       { op: 'edit', ws: 'w1', session: 'k1', path: 'a.txt', old: 'Y', new: 'Z' },
-      // The core restarts: its first tell has a lower revision than the one the window holds ...
-      { op: 'edit', ws: 'w1', session: 'k1', path: 'a.txt', old: 'x', new: 'X', coreLinkDown: true, coreRestart: true },
-      // ... and an equal one.
-      { op: 'edit', ws: 'w1', session: 'k1', path: 'a.txt', old: 'X', new: 'W', coreLinkDown: true, coreRestart: true },
+      // The turn ends: its review is sealed and recorded, which is what a restarted core rebuilds it from.
+      { op: 'complete', session: 'k1' },
+      // The core restarts; the other session starts a turn and changes a file, all while the link is down. The first tell of the
+      // restarted core has a lower revision than the one the window holds, and the pane of k1 reads the review its first core recorded.
+      { op: 'begin', ws: 'w1', session: 'k2', checkpoint: 'cp2', coreLinkDown: true, coreRestart: true },
+      { op: 'edit', ws: 'w1', session: 'k2', path: 'a.txt', old: 'x', new: 'X', coreLinkDown: true },
+      // ... and an equal one (the window holds the first tell of the core before).
+      { op: 'begin', ws: 'w1', session: 'k2', checkpoint: 'cp3', coreLinkDown: true, coreRestart: true },
+      { op: 'edit', ws: 'w1', session: 'k2', path: 'a.txt', old: 'X', new: 'W', coreLinkDown: true },
       // A restart with no change at all, then a reconnect to the same core with none: nothing to read.
       { op: 'coreReconnect', coreRestart: true },
       { op: 'coreReconnect' },
-      { op: 'edit', ws: 'w1', session: 'k1', path: 'a.txt', old: 'Z', new: 'Q' },
+      { op: 'begin', ws: 'w1', session: 'k2', checkpoint: 'cp4' },
+      { op: 'edit', ws: 'w1', session: 'k2', path: 'a.txt', old: 'Z', new: 'Q' },
     ],
   },
   {
