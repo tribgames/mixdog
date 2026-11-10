@@ -1190,6 +1190,16 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         Arc::new(crate::domain_seams::channel_stack::ServerListener::new(webhook_service.clone(), tunnels)),
     ));
     let channel_runtime = mixdog_services::channels::runtime::ChannelRuntime::new(scheduler, schedules.clone(), webhook_automation, channel_agent_runtime);
+    // A `channels`/`voice` edit from anywhere (another process's write included) reloads the runtime, as the worker's config watch does.
+    let reloaded = channel_runtime.clone();
+    let _channels_config_watch = crate::domain_seams::channel_stack::watch_channels_config(
+        config.clone(),
+        move || {
+            let runtime = reloaded.clone();
+            async move { runtime.reload_runtime().await }
+        },
+        b.cancel.child_token(),
+    );
     let channel_admin = mixdog_services::channels::ChannelAdmin::new(mixdog_services::channels::AdminDeps {
         schedules: schedules.clone(),
         webhooks: webhooks.clone(),

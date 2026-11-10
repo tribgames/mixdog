@@ -77,6 +77,64 @@ async fn the_receivers_secret_and_opt_in_come_from_the_section() {
     assert_eq!(settings.webhook().await.unwrap(), WebhookSettings { enabled: true, port: json!(5000), domain: None });
 }
 
+/// config-reload-watch.test.mjs: every edit another process makes to the file reloads the channels
+/// runtime (heard through the real file watch); an edit outside `channels`/`voice` does not, a
+/// `voice` edit does, and a stopped watch reloads nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_external_channels_edit_reloads_the_runtime_and_other_sections_do_not() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("mixdog-config.json");
+    std::fs::write(&path, r#"{"channels":{"revision":0}}"#).unwrap();
+    let config = open(dir.path(), None).await;
+    let _watcher = mixdog_core_config::config::ConfigWatcher::start(config.clone()).unwrap();
+    let reloads = Arc::new(AtomicUsize::new(0));
+    let counted = reloads.clone();
+    let cancel = CancellationToken::new();
+    let watch = watch_channels_config(
+        config.clone(),
+        move || {
+            counted.fetch_add(1, Ordering::SeqCst);
+            async { Ok(()) }
+        },
+        cancel.clone(),
+    );
+    let reached = |want: usize| {
+        let reloads = reloads.clone();
+        async move {
+            tokio::time::timeout(Duration::from_secs(10), async {
+                while reloads.load(Ordering::SeqCst) < want {
+                    tokio::time::sleep(Duration::from_millis(25)).await;
+                }
+            })
+            .await
+            .is_ok()
+        }
+    };
+    for revision in 1..=3 {
+        std::fs::write(&path, format!(r#"{{"channels":{{"revision":{revision}}}}}"#)).unwrap();
+        assert!(reached(revision).await, "external write {revision} reloaded");
+    }
+    std::fs::write(&path, r#"{"channels":{"revision":3},"agent":{"promptCacheWarming":false}}"#).unwrap();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while config.get("agent.promptCacheWarming").is_none() {
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .expect("the agent edit was heard");
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    assert_eq!(reloads.load(Ordering::SeqCst), 3, "an agent setting leaves the webhook server running");
+    std::fs::write(&path, r#"{"channels":{"revision":3},"agent":{"promptCacheWarming":false},"voice":{"language":"ko"}}"#).unwrap();
+    assert!(reached(4).await, "a voice change reloads");
+    cancel.cancel();
+    watch.await.unwrap();
+    std::fs::write(&path, r#"{"channels":{"revision":5}}"#).unwrap();
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    assert_eq!(reloads.load(Ordering::SeqCst), 4, "a stopped watch reloads nothing");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_public_base_exists_once_a_tunnel_persisted_an_identity() {
     let dir = tempfile::tempdir().unwrap();
