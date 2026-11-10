@@ -2404,7 +2404,7 @@ async fn a_rename_leaves_the_rows_times_alone() {
     assert!(before.iter().all(Option::is_some), "a started thread is stamped {before:?}");
     rig.clock.0.store(9_000, std::sync::atomic::Ordering::SeqCst);
     handle.request(request("thread/name/set", json!({ "threadId": handle.id, "opId": "op-t", "title": "renamed" }), "op-t")).await.expect("name/set");
-    eventually(|| (handle.cell.view.load_full().state.title.as_deref() == Some("renamed")).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || (handle.cell.view.load_full().state.title.as_deref() == Some("renamed")).then_some(())).await;
     assert_eq!(times(&handle), before);
 }
 
