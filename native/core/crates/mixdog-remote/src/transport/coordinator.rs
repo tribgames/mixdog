@@ -223,6 +223,19 @@ pub struct SendOptions {
     pub stream: Option<String>,
     /// Asks the host for `relay_meter` with the bytes of each relay message of this payload.
     pub meter: Option<u64>,
+    /// A write the phone may be refused at (the live view's, `DeviceRegistry::write_view`): all its records are sealed in one step
+    /// under the gate, or none, and the sealed ones enter the stream as the window admits them.
+    pub gate: Option<WriteGate>,
+}
+
+/// Runs a write (its argument) only while it is allowed, in one step with what ends the permission; false when it refused.
+#[derive(Clone)]
+pub struct WriteGate(pub std::sync::Arc<dyn Fn(&mut dyn FnMut()) -> bool + Send + Sync>);
+
+impl std::fmt::Debug for WriteGate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("WriteGate")
+    }
 }
 
 pub enum Sent {
@@ -369,6 +382,9 @@ struct Outgoing {
     wire_bytes: usize,
     meter: Option<u64>,
     ticket: u64,
+    gate: Option<WriteGate>,
+    /// A gated message's records, all sealed once its gate allowed it; they enter the stream as the window admits them.
+    sealed: Vec<Vec<u8>>,
 }
 
 struct Held {
@@ -1525,12 +1541,19 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
                 // Dropping happens here, BEFORE sealing, never after.
                 let droppable = {
                     let item = &self.queue[0];
-                    item.index == 0 && (item.droppable || item.stream.is_some())
+                    item.index == 0 && item.sealed.is_empty() && (item.droppable || item.stream.is_some())
                 };
                 if droppable {
                     if let Some(item) = self.queue.pop_front() {
                         self.host.send_settled(item.ticket, Ok(None));
                     }
+                    continue;
+                }
+                self.pumping = false;
+                return;
+            }
+            if self.queue[0].gate.is_some() {
+                if self.write_gated(&admission) {
                     continue;
                 }
                 self.pumping = false;
@@ -1544,6 +1567,97 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
             self.jobs.push_back(Job::Encrypted(result));
             return;
         }
+    }
+
+    /// The head message is asked about at its write (`SendOptions::gate`) and its next record was admitted. Each record enters in
+    /// one step under the gate. At the first, all its records are sealed in that step (the seal is synchronous here): their
+    /// sequences are taken then, so a phone whose permission ended gets no part of it and the stream has no hole. The sealed records
+    /// then enter as the window admits them, ahead of anything else (nothing else is sealed meanwhile), so a message larger than the
+    /// window still arrives whole; once the permission ended none enters, the message is abandoned and the session ends
+    /// ([`view_revoked`](Self::view_revoked)). False: the session ended.
+    fn write_gated(&mut self, admission: &Admission<'_>) -> bool {
+        let first = self.queue[0].sealed.is_empty();
+        let Self { queue, channel, sender, .. } = self;
+        let item = &mut queue[0];
+        let gate = item.gate.clone().expect("a gated message");
+        let (mut fault, mut pushed) = (None, None);
+        let allowed = (gate.0)(&mut || {
+            if first {
+                for piece in &item.pieces {
+                    match channel.encrypt_binary(piece) {
+                        Ok(box_bytes) => item.sealed.push(box_bytes),
+                        Err(error) => {
+                            fault = Some(error);
+                            return;
+                        }
+                    }
+                }
+            }
+            let box_bytes = std::mem::take(&mut item.sealed[item.index]);
+            let length = box_bytes.len();
+            pushed = Some(sender.push(box_bytes, admission).map(|sequence| (sequence, length)));
+        });
+        match (allowed, fault, pushed) {
+            (false, _, _) if first => {
+                if let Some(item) = self.queue.pop_front() {
+                    self.host.send_settled(item.ticket, Ok(None));
+                }
+                true
+            }
+            (false, _, _) => {
+                self.fail(EndReason::Revoked);
+                false
+            }
+            // A size refusal of the first record runs before its sequence is assigned: nothing was consumed.
+            (true, Some(SealFault::Oversize), _) if self.queue[0].sealed.is_empty() => {
+                if let Some(item) = self.queue.pop_front() {
+                    self.host.send_settled(item.ticket, Err(SendError::Range));
+                }
+                true
+            }
+            (true, None, Some(Ok((sequence, length)))) => {
+                self.entered(sequence, length);
+                true
+            }
+            _ => {
+                self.fail(EndReason::SealFailed);
+                false
+            }
+        }
+    }
+
+    /// The phone's permission to view ended (an unpair): a live-view message at the head whose first record already entered cannot
+    /// be finished, and the phone cannot reassemble half of it, so it is abandoned and the session ends (`revoked`). Its unsent
+    /// records were sealed on this session's own channel, which ends with it. The gate is asked, so a call while the write is still
+    /// allowed changes nothing.
+    pub fn view_revoked(&mut self) {
+        let Some(gate) = self.queue.front().filter(|item| !self.closed && !item.sealed.is_empty()).and_then(|item| item.gate.clone()) else {
+            return;
+        };
+        if !(gate.0)(&mut || {}) {
+            self.fail(EndReason::Revoked);
+        }
+    }
+
+    /// The head message's next record is in the stream as `sequence`.
+    fn entered(&mut self, sequence: u64, box_len: usize) {
+        let Some(item) = self.queue.front_mut() else { return };
+        if let Some(token) = item.meter {
+            self.relay_writers.insert(sequence, token);
+        }
+        item.wire_bytes += record_wire_bytes(box_len);
+        item.index += 1;
+        if item.index == item.pieces.len()
+            && let Some(item) = self.queue.pop_front()
+        {
+            if let Some(call_id) = item.call_id {
+                self.call_ids.insert(sequence, call_id);
+            }
+            self.host.send_settled(item.ticket, Ok(Some(item.wire_bytes)));
+        }
+        let at = self.host.now();
+        self.note_outstanding(at);
+        self.flush_carrier();
     }
 
     fn on_encrypted(&mut self, result: Result<Vec<u8>, SealFault>) {
@@ -1582,26 +1696,11 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
                 return;
             }
         };
-        let Some(item) = self.queue.front_mut() else {
+        if self.queue.is_empty() {
             self.pumping = false;
             return;
-        };
-        if let Some(token) = item.meter {
-            self.relay_writers.insert(sequence, token);
         }
-        item.wire_bytes += record_wire_bytes(box_bytes.len());
-        item.index += 1;
-        if item.index == item.pieces.len()
-            && let Some(item) = self.queue.pop_front()
-        {
-            if let Some(call_id) = item.call_id {
-                self.call_ids.insert(sequence, call_id);
-            }
-            self.host.send_settled(item.ticket, Ok(Some(item.wire_bytes)));
-        }
-        let at = self.host.now();
-        self.note_outstanding(at);
-        self.flush_carrier();
+        self.entered(sequence, box_bytes.len());
         self.pump_loop();
     }
 
@@ -1644,6 +1743,8 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
             wire_bytes: 0,
             meter: options.meter,
             ticket,
+            gate: options.gate,
+            sealed: Vec::new(),
         });
         self.pump_outbound();
         Sent::Queued(ticket)

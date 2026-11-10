@@ -5,17 +5,15 @@
 import { hostname } from 'node:os';
 
 import type { ActivityRailPinsState } from '../../shared/activity-rail-pins';
-import type { DesktopRemoteClientInfo, DesktopSettings } from '../../shared/contract';
-import {
-  type ConversationNotificationOverride,
-  NOTIFICATION_PC_DEVICE_ID,
-  type NotificationDeviceSummary,
-  type NotificationPreferencesState,
-} from '../../shared/contract-notifications';
+import type { DesktopSettings } from '../../shared/contract';
+import type { NotificationPreferencesState } from '../../shared/contract-notifications';
 import type { DesktopSectionsSnapshot } from '../../shared/contract-sections';
-import { notificationDeviceName, pairedDeviceInfo } from '../notification-center';
-import { activeOverrides } from '../notification-decision';
-import { devicePreferencesIn, storedOverride, storedPreferences } from '../notification-preferences';
+import {
+  activeOverrides,
+  migratedAtOf,
+  notificationPreferencesStateOf,
+  storedOverrides,
+} from '../../shared/notification-state';
 import { desktopSettingsFromConfig, storedPinsState } from '../settings-store';
 import { markdownDefaultViewSetting } from '../../shared/editor-settings';
 import { terminalActivityRows } from '../../shared/terminal-protocol';
@@ -67,46 +65,12 @@ export function readMarkdownDefaultView(snapshot: DesktopSectionsSnapshot) {
   return markdownDefaultViewSetting(record(configTree(snapshot, 'desktop').editor).markdownDefaultView);
 }
 
-/** The stored overrides, as Node's store reads them (an entry that does not validate is dropped). */
-function storedOverrides(notifications: Record<string, unknown>): ConversationNotificationOverride[] {
-  const list = Array.isArray(notifications.overrides) ? notifications.overrides : [];
-  return list.map(storedOverride).filter((entry): entry is ConversationNotificationOverride => entry !== null);
-}
-
 /** `listConversationNotifications`: the overrides in force now (an expired mute is not listed). */
 export function listConversationNotifications(snapshot: DesktopSectionsSnapshot, now: number) {
   return activeOverrides(storedOverrides(configTree(snapshot, 'notifications')), now);
 }
 
-const text = (value: unknown): string => (typeof value === 'string' ? value : '');
-
-/** A paired device as `remote.clients` lists it. */
-function pairedClients(remote: Record<string, unknown>): DesktopRemoteClientInfo[] {
-  const list = Array.isArray(remote.clients) ? remote.clients : [];
-  return list
-    .map(record)
-    .filter((client) => typeof client.id === 'string' && client.id !== '')
-    .map((client) => ({
-      id: client.id as string,
-      name: text(client.name),
-      platform: text(client.platform),
-      browser: text(client.browser),
-      createdAt: Number(client.createdAt),
-      lastSeenAt: Number(client.lastSeenAt),
-      online: client.online === true,
-      ...(client.pendingRemoval === true ? { pendingRemoval: true } : {}),
-      ...(typeof client.alias === 'string' && client.alias ? { alias: client.alias } : {}),
-    }));
-}
-
-/** The store's `migratedAt`. With no document at all Node's store writes one stamped `now` on its first load
- *  (`notification-preferences.ts:228`): a device paired before this moment gets the plain default. A document
- *  without a valid stamp reads 0 (`:120`). */
-export function migratedAtOf(subtree: unknown, now = Date.now()): number {
-  if (subtree === undefined) return now;
-  const stamp = record(subtree).migratedAt;
-  return Number.isSafeInteger(stamp) ? (stamp as number) : 0;
-}
+export { migratedAtOf };
 
 /** `notificationPreferencesState(currentDeviceId, pcCanNotify | null)`: this PC, then the paired devices (the
  *  Connection tab's list, `remote.clients`), each with its stored preferences or the default its kind and pairing
@@ -118,40 +82,17 @@ export async function notificationPreferencesState(
   host: Partial<OperationHost>
 ): Promise<NotificationPreferencesState> {
   const [currentDeviceId, pcCanNotify] = args;
-  const remote = record(held(snapshot, 'remote', null));
-  const notifications = configTree(snapshot, 'notifications');
-  const hostName = host.hostName ?? DEFAULT_OPERATION_HOST.hostName;
   let supported: boolean;
   if (typeof pcCanNotify === 'boolean') supported = pcCanNotify;
   else if (host.pcNotificationsSupported) supported = await host.pcNotificationsSupported();
   else throw new TypeError('notificationPreferencesState needs pcCanNotify: this connection has no host to ask.');
-  const registered = new Set(Array.isArray(remote.pushRegistered) ? remote.pushRegistered : []);
-  const paired = pairedClients(remote).filter((client) => !client.pendingRemoval);
-  const pcName = (text(record(remote.settings).name) || hostName()).slice(0, 80);
-  const devices: NotificationDeviceSummary[] = [
-    { id: NOTIFICATION_PC_DEVICE_ID, name: pcName, kind: 'pc', online: true, canNotify: supported },
-    ...paired.map((client) => ({
-      id: client.id,
-      name: notificationDeviceName(client),
-      kind: pairedDeviceInfo(client).kind,
-      online: client.online,
-      canNotify: registered.has(client.id),
-    })),
-  ];
-  const infos = new Map([
-    [NOTIFICATION_PC_DEVICE_ID, { kind: 'pc' as const }],
-    ...paired.map((client) => [client.id, pairedDeviceInfo(client)] as const),
-  ]);
-  const stored = {
-    migratedAt: migratedAtOf(held(snapshot, 'config', 'notifications')),
-    devices: Object.fromEntries(
-      Object.entries(record(notifications.devices)).map(([id, preferences]) => [id, storedPreferences(preferences)])
-    ),
-  };
-  const preferences = Object.fromEntries(
-    devices.map((device) => [device.id, devicePreferencesIn(stored, device.id, infos.get(device.id))])
-  );
-  return { devices, preferences, currentDeviceId: String(currentDeviceId ?? '') };
+  return notificationPreferencesStateOf({
+    remote: held(snapshot, 'remote', null),
+    notifications: held(snapshot, 'config', 'notifications'),
+    currentDeviceId: String(currentDeviceId ?? ''),
+    pcCanNotify: supported,
+    hostName: host.hostName ?? DEFAULT_OPERATION_HOST.hostName,
+  });
 }
 
 /** `visualizeRemoteViewing(sessionId)`: whether a paired device shows the session (Node's `relay.viewsSessionLane`). The core

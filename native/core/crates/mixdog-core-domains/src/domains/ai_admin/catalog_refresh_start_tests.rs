@@ -137,11 +137,16 @@ async fn replay_overtaking(name: &str, overtaking: Option<usize>) {
     let (rig, observer) = bound(&recording, node).await;
     let mut log = rig.requests();
     let sent = |log: &tokio::sync::watch::Receiver<Vec<Value>>| log.borrow().len();
+    let hold_of = |step: &Value| -> Vec<String> {
+        step["hold"].as_array().map(|h| h.iter().map(|p| p.as_str().unwrap().to_owned()).collect()).unwrap_or_default()
+    };
     for (index, step) in node["steps"].as_array().unwrap().iter().enumerate() {
         let what = format!("{name} step {index} ({})", step["do"].as_str().unwrap());
+        // A held path is waited for among the requests this step makes.
+        let from = sent(&log);
         let observed = match step["do"].as_str().unwrap() {
             "ready" => {
-                let hold: Vec<&str> = step["hold"].as_array().map(|h| h.iter().map(|p| p.as_str().unwrap()).collect()).unwrap_or_default();
+                let hold = hold_of(step);
                 if !hold.is_empty() {
                     rig.gate.send_replace(false);
                 }
@@ -159,10 +164,7 @@ async fn replay_overtaking(name: &str, overtaking: Option<usize>) {
                     Ok(()) => Map::from_iter([("ok".to_owned(), json!(true))]),
                     Err(error) => Map::from_iter([("ok".to_owned(), json!(false)), ("error".to_owned(), json!(error.message))]),
                 };
-                for path in &hold {
-                    let url = format!("__BASE_URL__{path}");
-                    within(&format!("{what}: the held request to {path}"), log.wait_for(|log| log.iter().any(|r| r["url"] == url.as_str()))).await.unwrap();
-                }
+                held(&mut log, &what, &hold, from).await;
                 let mut observed = result;
                 observed.insert("observed".into(), observer.state(&rig, (!hold.is_empty()).then(|| sent(&log)), Map::new()));
                 observed
@@ -176,21 +178,43 @@ async fn replay_overtaking(name: &str, overtaking: Option<usize>) {
                 Map::from_iter([("observed".to_owned(), observer.state(&rig, Some(sent(&log)), Map::new()))])
             }
             "read" => {
-                let rows = within(&what, rig.service.rows(false, false)).await.unwrap();
+                let force = step["force"].as_bool() == Some(true);
+                let rows = within(&what, rig.service.rows_for(force, false, step["provider"].as_str())).await.unwrap();
                 let extra = Map::from_iter([("rows".to_owned(), Value::Array(rows))]);
                 Map::from_iter([("observed".to_owned(), observer.state(&rig, Some(sent(&log)), extra))])
+            }
+            "disable" => {
+                let removed = rig.registry.disable(step["disable"].as_str().unwrap());
+                Map::from_iter([
+                    ("removed".to_owned(), json!(removed)),
+                    ("observed".to_owned(), observer.state(&rig, Some(sent(&log)), Map::new())),
+                ])
+            }
+            "init" => {
+                let providers = ensure_provider_enabled(&rig.loaded.get(), step["enable"].as_str().unwrap());
+                within(&what, rig.registry.init_providers(&providers)).await.expect("the registry initializes");
+                Map::from_iter([("observed".to_owned(), observer.state(&rig, Some(sent(&log)), Map::new()))])
+            }
+            "refresh" => {
+                within(&what, rig.readiness.refresh_catalogs()).await;
+                Map::from_iter([("observed".to_owned(), observer.state(&rig, Some(sent(&log)), Map::new()))])
             }
             "serve" => {
                 rig.serve(&step["stub"]);
                 Map::from_iter([("observed".to_owned(), observer.state(&rig, Some(sent(&log)), Map::new()))])
             }
             "advance" => {
+                let hold = hold_of(step);
+                if !hold.is_empty() {
+                    rig.gate.send_replace(false);
+                }
                 let before = rig.readiness.catalog_timer_fires();
                 tokio::time::advance(Duration::from_millis(step["ms"].as_u64().unwrap())).await;
                 // The timer that fell due runs its task (Node runs the callback inside the advance).
                 tokio::task::yield_now().await;
+                held(&mut log, &what, &hold, from).await;
                 let fired = Map::from_iter([("timersFired".to_owned(), json!(rig.readiness.catalog_timer_fires() - before))]);
-                Map::from_iter([("observed".to_owned(), observer.state(&rig, None, fired))])
+                Map::from_iter([("observed".to_owned(), observer.state(&rig, (!hold.is_empty()).then(|| sent(&log)), fired))])
             }
             "settleTimer" => {
                 settle(&rig, &what).await;
@@ -209,6 +233,15 @@ async fn replay_overtaking(name: &str, overtaking: Option<usize>) {
     assert_eq!(header_names_folded(&sent), header_names_folded(&node["requests"]), "{name}: every request the endpoint received, in order");
 }
 
+/// Waits for a request to each of `paths` among those the endpoint received from the `from`th on.
+async fn held(log: &mut tokio::sync::watch::Receiver<Vec<Value>>, what: &str, paths: &[String], from: usize) {
+    for path in paths {
+        let url = format!("__BASE_URL__{path}");
+        let arrived = log.wait_for(|log| log.iter().skip(from).any(|r| r["url"] == url.as_str()));
+        within(&format!("{what}: the held request to {path}"), arrived).await.unwrap();
+    }
+}
+
 /// The requests with every header name lowercased: names are case-insensitive (RFC 9110 §5.1) and the core's HTTP
 /// stack sends them lowercased whatever case the adapter wrote.
 fn header_names_folded(requests: &Value) -> Value {
@@ -222,7 +255,7 @@ fn header_names_folded(requests: &Value) -> Value {
 }
 
 /// The scenarios, in the recording's order; each runs as its own test.
-const SCENARIOS: [&str; 7] = [
+const SCENARIOS: [&str; 14] = [
     "a-ready-call-starts-the-refresh-and-its-completion-rewarms",
     "a-second-ready-call-during-a-running-refresh-joins-it",
     "a-provider-set-change-during-a-running-refresh-starts-another",
@@ -230,6 +263,13 @@ const SCENARIOS: [&str; 7] = [
     "a-failed-refresh-after-a-good-one",
     "providers-without-credentials",
     "the-catalog-timer-at-its-boundary",
+    "a-ready-call-and-a-read-after-a-disable",
+    "a-forced-refresh-after-a-disable",
+    "a-forced-read-of-the-disabled-provider",
+    "the-catalog-timer-after-a-disable",
+    "a-disable-during-a-running-refresh",
+    "the-catalog-timer-after-an-enable",
+    "an-enable-during-a-running-refresh",
 ];
 
 #[test]
@@ -272,6 +312,41 @@ async fn providers_without_credentials() {
 #[tokio::test(start_paused = true)]
 async fn the_catalog_timer_at_its_boundary() {
     replay(SCENARIOS[6]).await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_ready_call_and_a_read_after_a_disable() {
+    replay(SCENARIOS[7]).await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_forced_refresh_after_a_disable() {
+    replay(SCENARIOS[8]).await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_forced_read_of_the_disabled_provider() {
+    replay(SCENARIOS[9]).await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_catalog_timer_after_a_disable() {
+    replay(SCENARIOS[10]).await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_disable_during_a_running_refresh() {
+    replay(SCENARIOS[11]).await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_catalog_timer_after_an_enable() {
+    replay(SCENARIOS[12]).await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_enable_during_a_running_refresh() {
+    replay(SCENARIOS[13]).await;
 }
 
 // The interleavings Node cannot have, because there a check and the change it decides run in one synchronous step: each
