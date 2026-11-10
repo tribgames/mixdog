@@ -9,7 +9,8 @@ import { assertNoPowerShellProfile, isolatedProfile } from '../../../../benchmar
 import { mkdirSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import WebSocket from 'ws';
-import { DEADLINE_MS, bounded, openClockSocket, stopCore } from './remote-protocol-terminal-deadlines.mjs';
+import { DEADLINE_MS, bounded, openClockSocket } from './remote-protocol-terminal-deadlines.mjs';
+import { endCore } from '../../../../benchmarks/rust-core/recorders/lib/core-stop.mjs';
 import { createPhoneWorld, protocolDialect } from '../../../../benchmarks/rust-core/recorders/lib/phone-world.mjs';
 import { immediateScript, play, record, sizeClaimScript, terminalScript } from '../../../../benchmarks/rust-core/recorders/lib/phone-terminal-script.mjs';
 
@@ -53,10 +54,10 @@ async function startCore() {
     }, 'the core to publish its serving discovery record (daemon.json)', CORE_START_DEADLINE_MS);
   } catch (error) {
     // The core is running by now: a start that fails ends it before the failure is reported.
-    await stopCore({ child }).catch((left) => console.error(left.message));
+    await endCore({ exe: BIN, child, env, dataDir: join(CORE_ROOT, 'data') }).catch((left) => console.error(left.message));
     throw error;
   }
-  return { child, url: `ws://127.0.0.1:${record.core.rpc.port}/rpc`, token: record.endpoints.session.token };
+  return { exe: BIN, child, env, dataDir: join(CORE_ROOT, 'data'), url: `ws://127.0.0.1:${record.core.rpc.port}/rpc`, token: record.endpoints.session.token };
 }
 
 // A cold debug core measured about 50 s from spawn to its serving record (store migration), and twice passed 60 s in three runs.
@@ -295,7 +296,7 @@ async function main() {
     throw error;
   } finally {
     // A teardown that fails is reported unless the run already failed: its error is the one that explains.
-    await stopCore(core).catch((error) => {
+    await endCore(core).catch((error) => {
       if (!failed) throw error;
       console.error(error.message);
     });
