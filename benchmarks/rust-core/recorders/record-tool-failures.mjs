@@ -199,8 +199,8 @@ async function record(label, run, workspace) {
 /**
  * One scenario in its own profile under the run's folder. The child runs in a job object of its own (lib/job-run.mjs): every process
  * it or its tools start is a member. What was still a member when the child exited is part of the recording (lib/tool-failure-rows.mjs
- * `leftAtExit`: Node's own helpers are named and set aside there); the job is then ended. The child is ended only through the handle
- * held here, which ends the job.
+ * `leftAtExit`: Node's own helpers are named and set aside there); the job is then ended. On a deadline the child's host is ended
+ * through the handle held here, which closes the job and ends its members.
  */
 async function recordScenario(label, index, run, workspace) {
   const sandbox = join(run, `profile-${label}`);
@@ -224,7 +224,7 @@ async function recordScenario(label, index, run, workspace) {
     throw new Error(`${error.message}\n${output}`);
   }
   const job = readJobReport(report);
-  if (result.code !== 0 && !job.left.length) throw new Error(`recording ${label}'s job host failed (${result.code ?? result.signal}):\n${output}`);
+  if (result.code !== job.exitCode) throw new Error(`recording ${label}'s job host failed (${result.code ?? result.signal}, the program's ${job.exitCode}):\n${output}`);
   if (job.exitCode !== 0) throw new Error(`recording ${label} failed (${job.exitCode}):\n${output}`);
   const results = JSON.parse(readFileSync(join(env.MIXDOG_DATA_DIR, 'results.json'), 'utf8'));
   const sessions = results.map((r) => r?.session ?? null);
@@ -233,7 +233,7 @@ async function recordScenario(label, index, run, workspace) {
   // Each recording's own session ids, workspace and data folder become placeholders; what is left must be what the other recording wrote.
   const rows = rowsByScenario(text, sessions, workspace, env.MIXDOG_DATA_DIR);
   const masked = results.map((r, i) => (r === null ? null : JSON.parse(maskWorkspace(maskWorkspace(JSON.stringify({ ...r, session: undefined }), workspace), env.MIXDOG_DATA_DIR, '<DATA>').split(sessions[i]).join(`<session:${i}>`))));
-  return { rows, results: masked, left: leftAtExit(job, { nodeHelpers: true }) };
+  return { rows, results: masked, left: leftAtExit(job, { nodeHelpers: true, workspace, dataDir: env.MIXDOG_DATA_DIR }) };
 }
 
 // The run's own folder: both profiles and the workspace (`<run>\ws`, whose path and length are part of the rows) live in it, and it is
@@ -276,7 +276,7 @@ try {
         featureDisallowedTools: [],
         laidOver: 'a headless scenario: skipSkills true and workflow { id: headless, delegatesAgents: false }',
       },
-      leftAtExit: 'what each scenario\'s Node process left running in its job when it exited (lib/job-run.mjs), Node\'s own helpers set aside (lib/tool-failure-rows.mjs NODE_HELPERS: mixdog-spawn-*, mixdog-patch-* and their console hosts)',
+      leftAtExit: 'what each scenario\'s Node process left running in its job when it exited (lib/job-run.mjs), Node\'s own helpers set aside (lib/tool-failure-rows.mjs NODE_HELPERS: mixdog-spawn-*, mixdog-patch-* and their console hosts); each as its image name, its parent and its command line (lib/tool-failure-rows.mjs leftAtExit)',
       scenarios: all.map((s) => ({ name: s.name, replies: s.replies.length, hook: s.hook ?? null, approval: s.approval ?? null, full: s.full === true, abortWhenFile: s.abortWhenFile ?? null })),
       hookDecisions: all.filter((s) => s.hook).map((s) => ({ scenario: s.name, ...s.hook })),
       approvalAnswers: all.filter((s) => s.approval).map((s) => ({ scenario: s.name, ...s.approval })),
@@ -290,7 +290,7 @@ try {
       identity,
       extra: {
         rows: a.rows.flat().length,
-        normalised: ['session_id', 'ts', 'tool_ms', 'workspace', 'data folder (with result_bytes_est counted on the masked text)'],
+        normalised: ['session_id', 'ts', 'tool_ms', 'workspace', 'data folder (with result_bytes_est counted on the masked text)', 'leftAtExit: process ids dropped (a parent named by its place in the list), the workspace and the data folder in a command line as in the rows'],
         node: process.version,
         recorderSha256: sha256(SELF),
         scenariosSha256: sha256(SCENARIOS_FILE),

@@ -198,7 +198,7 @@ async function runScenario(scenario, root, ws, bin) {
     if (job.exitCode !== 0) throw new Error(`the core exited with ${job.exitCode}`);
     const file = join(p.data, 'history', 'tool-failures.jsonl');
     // What the job still held when the core exited (ended since by the job host), compared with Node's by the caller.
-    return { threadId, dataDir: p.data, text: existsSync(file) ? readFileSync(file, 'utf8') : '', left: leftAtExit(job), rawLeft: job.left, requests };
+    return { threadId, dataDir: p.data, text: existsSync(file) ? readFileSync(file, 'utf8') : '', left: leftAtExit(job, { workspace: ws, dataDir: p.data }), rawLeft: job.left, requests };
   } finally {
     writeFileSync(join(root, 'requests.json'), JSON.stringify(requests, null, 1));
     // Every step of the teardown is bounded and runs; the first that failed fails the scenario (after a failure of its own, that one).

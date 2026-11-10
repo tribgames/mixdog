@@ -39,12 +39,15 @@ const NODE_HELPERS = [/^mixdog-spawn-\d+\.\d+\.\d+$/, /^mixdog-patch-\d+\.\d+\.\
 const isNodeHelper = (name) => NODE_HELPERS.some((pattern) => pattern.test(name ?? ''));
 
 /**
- * What a run's job still held when its program exited (lib/job-run.mjs report), in join order, as `{ name, parent }`: the image name,
- * and its parent as `#k` (the k-th entry of this list), `<runtime>` (the program itself, or for Node one of its helpers: Node's shell
- * host starts a command where the core starts it itself), or null (any other process). Process ids are each run's own and are
- * dropped. With `nodeHelpers`, Node's own helpers and the console host whose parent is one of them are set aside (NODE_HELPERS).
+ * What a run's job still held when its program exited (lib/job-run.mjs report), in join order, as `{ name, parent, commandLine }`: the
+ * image name; its parent as `#k` (the k-th entry of this list), `<runtime>` (the program itself, or for Node one of its helpers: Node's
+ * shell host starts a command where the core starts it itself), or null (any other process); and its command line with the run's own
+ * folders written as the rows write them (`workspace` as `<WS>`, `dataDir` as `<DATA>`, maskWorkspace). Process ids are each run's
+ * own and are dropped. With `nodeHelpers`, Node's own helpers and the console host whose parent is one of them are set aside
+ * (NODE_HELPERS).
  */
-export function leftAtExit({ program, left }, { nodeHelpers = false } = {}) {
+export function leftAtExit({ program, left }, { nodeHelpers = false, workspace, dataDir }) {
+  const ownFolders = (line) => (typeof line === 'string' ? maskWorkspace(maskWorkspace(line, dataDir, '<DATA>'), workspace) : line);
   const kept = nodeHelpers ? left.filter((m) => !isNodeHelper(m.name) && !(m.name === 'conhost' && isNodeHelper(m.parent))) : left;
   const parentOf = (m) => {
     const k = kept.findIndex((other) => other.pid === m.parentPid);
@@ -52,7 +55,7 @@ export function leftAtExit({ program, left }, { nodeHelpers = false } = {}) {
     if (m.parentPid === program || (nodeHelpers && isNodeHelper(m.parent))) return '<runtime>';
     return null;
   };
-  return kept.map((m) => ({ name: m.name, parent: parentOf(m) }));
+  return kept.map((m) => ({ name: m.name, parent: parentOf(m), commandLine: ownFolders(m.commandLine) }));
 }
 
 /**

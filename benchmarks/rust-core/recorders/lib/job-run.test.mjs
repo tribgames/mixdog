@@ -11,20 +11,50 @@ import { readJobReport, spawnInJob } from './job-run.mjs';
 
 const scratch = process.env.MIXDOG_RECORDER_SCRATCH || tmpdir();
 
-/** Runs `node -e program` in a job; resolves with the host's report and the run folder. Bounded: the host is ended after 60 s. */
-async function run(program) {
+/** Runs `node -e program` in a job; resolves with the host's report file and the run folder. Bounded: the host is ended after 60 s. */
+async function start(program, testHooks) {
   const dir = mkdtempSync(join(scratch, 'job-run-'));
   const report = join(dir, 'job.json');
-  const host = spawnInJob(process.execPath, ['-e', program], { env: { ...process.env, JOB_TEST_DIR: dir }, cwd: dir, stdio: ['ignore', 'ignore', 'inherit'], report });
+  const host = spawnInJob(process.execPath, ['-e', program], { env: { ...process.env, JOB_TEST_DIR: dir }, cwd: dir, stdio: ['ignore', 'ignore', 'inherit'], report, testHooks });
   const deadline = setTimeout(() => host.kill(), 60_000);
   const [code] = await once(host, 'exit');
   clearTimeout(deadline);
   assert.notEqual(code, null, 'the job host did not end within 60 s');
+  return { report, dir };
+}
+
+/** As `start`, with the report read. */
+async function run(program, testHooks) {
+  const { report, dir } = await start(program, testHooks);
   return { job: readJobReport(report), dir };
 }
 
 // Starts a child whose stdin is a pipe from its parent and which exits when that pipe ends; `then` runs in the child before it exits.
 const PIPED = (then) => `process.stdin.resume(); process.stdin.on('end', () => { ${then} });`;
+// A child that runs until the job is ended: a listening socket keeps it alive with no timer.
+const STAYS = `require('net').createServer().listen(0, '127.0.0.1');`;
+// The program: starts one STAYS child per name in order, writes each one's pid to <name>.pid in the run folder, and exits. The
+// children are detached: libuv ends a parent's attached children when it exits (its own KILL_ON_JOB_CLOSE job); a detached one stays
+// in this job (it allows no breakaway).
+const LEAVES = (...children) => `const cp = require('child_process'), fs = require('fs'), path = require('path');
+  for (const name of ${JSON.stringify(children)}) {
+    const c = cp.spawn(process.execPath, ['-e', ${JSON.stringify(STAYS)}], { stdio: 'ignore', detached: true, windowsHide: true });
+    fs.writeFileSync(path.join(process.env.JOB_TEST_DIR, name + '.pid'), String(c.pid));
+  }
+  process.exit(0);`;
+
+test('a join the job reported only after the program exit report is read before membership is fixed', async () => {
+  // The second join report (B's) is held back and posted again after the program's exit report.
+  const { job, dir } = await run(LEAVES('b'), { lateJoin: 2 });
+  assert.equal(job.exitCode, 0);
+  assert.deepEqual(job.left.map((m) => m.pid), [Number(readFileSync(join(dir, 'b.pid'), 'utf8'))]);
+});
+
+test('a lost join report fails the run even when another member was left behind', async () => {
+  // The job reports P, B and C joining; C's report (the third) is dropped. B is left behind all the same.
+  const { report } = await start(LEAVES('b', 'c'), { dropJoin: 3 });
+  assert.throws(() => readJobReport(report), /the job held 3 processes but reported 2 joins/);
+});
 
 test('a process the program leaves running is left behind even when it ends by itself after the program', async () => {
   // P starts B and exits; B outlives P only until P's end of its stdin closes, then starts C (after P's exit) and exits itself.
