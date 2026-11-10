@@ -95,7 +95,7 @@ mixdog-rt = { workspace = true, features = ["test-support"] }
 # The unpair replay drives the downloads' clock by file, which only a build with this feature reads.
 mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", "replay-controls"] }
 # The real session directory (`held_runs_tests`: the approval predicate over real threads and connections).
-mixdog-core-session = { workspace = true, features = ["test-support"] }
+mixdog-core-session = { workspace = true, features = ["crash-gates", "test-support"] }
 # The op scopes of the remote access service in the composed test (support::testing::scopes).
 mixdog-core-base = { workspace = true, features = ["test-support"] }
 tempfile = { workspace = true }
