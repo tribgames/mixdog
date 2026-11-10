@@ -523,6 +523,89 @@ async fn a_stop_gives_up_on_an_opening_that_ignores_the_cancel_after_six_seconds
     stopped.expect("stop goes on without the opening");
 }
 
+/// The cycles' host seams, none of which a held run calls.
+fn idle_cycles() -> crate::memory::boot::CycleBoot {
+    struct Off;
+    impl crate::memory::cycles::CycleConfig for Off {
+        fn memory_section(&self) -> serde_json::Value {
+            json!({})
+        }
+        fn cycles_enabled(&self) -> bool {
+            false
+        }
+        fn maintenance_preset(&self) -> Option<serde_json::Value> {
+            None
+        }
+    }
+    struct NoAgent;
+    #[async_trait::async_trait]
+    impl crate::memory::cycles::Cycle1Llm for NoAgent {
+        async fn call(&self, _request: &crate::memory::cycles::Cycle1Request, _cancel: &tokio_util::sync::CancellationToken, _prompt: &str) -> Result<String, String> {
+            Err("no agent in this test".to_owned())
+        }
+    }
+    struct NeverFires;
+    impl crate::bots::delivery::env::RetryTimer for NeverFires {
+        fn arm(&self, _delay: std::time::Duration, _fire: Box<dyn FnOnce() + Send>) {}
+    }
+    crate::memory::boot::CycleBoot { config: Arc::new(Off), llm: Arc::new(NoAgent), timer: Arc::new(NeverFires) }
+}
+
+/// A stack over `dir` whose opening published a cluster (its `postmaster.pid` names a port, its runtime has no `pg_ctl`: the release's `pg_ctl stop` runs and
+/// fails, so the stop's error says it ran) and whose cycle run is held until the returned sender sends.
+async fn opened_stack_with_a_held_cycle(dir: &std::path::Path) -> (Arc<MemoryStack>, tokio::sync::oneshot::Sender<()>) {
+    let mut boot = boot_over(dir, PgRuntimeSource::Dir(dir.join("runtime")));
+    boot.cycles = Some(idle_cycles());
+    let stack = MemoryStack::start(boot).await.expect("built");
+    let pgdata = dir.join("pgdata");
+    std::fs::create_dir_all(&pgdata).expect("pgdata");
+    pid_file(&pgdata, std::process::id(), 55_999);
+    let lane = mixdog_rt::testing::tokens().durability_io;
+    let cluster = crate::memory::pg::cluster::PgCluster::over(crate::memory::pg::cluster::PgRuntime::new(dir.join("runtime")), dir, 55_999, lane, crate::tidy::process::Processes::for_tests());
+    stack.opened_over(cluster);
+    let release = stack.cycles().expect("cycles").hold_run();
+    (stack, release)
+}
+
+/// Node asks PostgreSQL to stop at `PG_FORCED_STOP_AT_MS` (4.2 s, `daemon-stop-budget.mjs:18`) into the shutdown whatever teardown still runs
+/// (`daemon-pg-stop.mjs:36-41`): with a cycle run that never ends, the stop is pending at 4.199 s, and at 4.2 s, with the clock not moved again, the cycle is
+/// abandoned (its run aborted) and `pg_ctl stop` has run.
+#[tokio::test(start_paused = true)]
+async fn a_cycle_that_never_ends_holds_the_postgres_stop_only_until_nodes_forced_stop_point() {
+    let dir = tempfile::tempdir().expect("dir");
+    let (stack, mut release) = opened_stack_with_a_held_cycle(dir.path()).await;
+    let begun = tokio::time::Instant::now();
+    let mut stopping = Box::pin(stack.stop());
+    let waiting = futures::poll!(&mut stopping).is_pending();
+    tokio::time::advance(std::time::Duration::from_millis(4_199)).await;
+    let pending_before = futures::poll!(&mut stopping).is_pending();
+    tokio::time::advance(std::time::Duration::from_millis(1)).await;
+    let stopped = awaiting("the stop past the forced point", stopping).await;
+    // The aborted run drops what it held.
+    awaiting("the abandoned cycle run to be aborted", release.closed()).await;
+    let at = tokio::time::Instant::now() - begun;
+    assert!(waiting && pending_before, "the stop waits for the cycle until the forced point");
+    assert_eq!(at, std::time::Duration::from_millis(4_200), "the PostgreSQL stop ran at the forced point");
+    assert!(message(stopped).contains("pg_ctl failed"), "the release ran `pg_ctl stop`");
+}
+
+/// A teardown that ends before the forced point changes nothing: the cycle run ends at 1 s and the stop goes straight on to `pg_ctl stop`, at 1 s.
+#[tokio::test(start_paused = true)]
+async fn a_teardown_that_ends_early_stops_postgres_without_waiting_for_the_forced_point() {
+    let dir = tempfile::tempdir().expect("dir");
+    let (stack, release) = opened_stack_with_a_held_cycle(dir.path()).await;
+    let begun = tokio::time::Instant::now();
+    let mut stopping = Box::pin(stack.stop());
+    let waiting = futures::poll!(&mut stopping).is_pending();
+    tokio::time::advance(std::time::Duration::from_secs(1)).await;
+    release.send(()).expect("the run is held");
+    let stopped = awaiting("the stop after the cycle ended", stopping).await;
+    let at = tokio::time::Instant::now() - begun;
+    assert!(waiting, "the stop waits for the cycle run");
+    assert_eq!(at, std::time::Duration::from_secs(1), "the stop did not wait for the forced point");
+    assert!(message(stopped).contains("pg_ctl failed"), "the release ran `pg_ctl stop`");
+}
+
 /// A stop while the opening waits for an alive postmaster that does not answer (the cluster step of a restart after the core was killed): the wait observes the
 /// cancel, so the stop returns at once instead of after the wait's 30 s, and the postmaster that is not ours is left alone. The "postmaster" is a listener that
 /// takes the probe's connections and drops them; its third connection is the recovery wait's first question (the two reuse checks come before it).

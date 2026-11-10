@@ -49,8 +49,15 @@ use crate::model_install::{ProgressSink, fsio};
 use crate::tidy::process::Processes;
 use tokio_util::sync::CancellationToken;
 
-/// `pg_ctl stop -m fast -t`: how long a shutdown waits for the postmaster.
+/// `pg_ctl stop -m fast -t` after a failed opening: `stopPg`'s default (`process.mjs:524`).
 const STOP_SECONDS: u64 = 15;
+
+/// `PG_STOP_TIMEOUT_MS` (`daemon.mjs:256`): the shutdown's `pg_ctl stop -m fast -t` (`stopOwnedPgForShutdown({ timeoutMs })`, `daemon-pg-stop.mjs:28`).
+const PG_STOP_TIMEOUT: Duration = Duration::from_millis(6_000);
+
+/// `PG_FORCED_STOP_AT_MS` (`daemon-stop-budget.mjs:18`): the launcher's wait for the daemon's exit, `IN_TREE_DAEMON_STOP_GRACE_MS` 5 000 (`:9`), less
+/// `PG_STOP_SIGNAL_MARGIN_MS` 800 (`:13`) for `pg_ctl stop`'s spawn and signal. The teardown before the PostgreSQL stop runs at most this long.
+const PG_FORCED_STOP_AT: Duration = Duration::from_millis(5_000 - 800);
 
 /// What memory start reads from the host.
 pub struct MemoryBoot {
@@ -430,14 +437,22 @@ impl MemoryStack {
         Err(REFUSED_AFTER_STOP.to_owned())
     }
 
-    /// The pools close and, unless this is a secondary process, the postmaster stops.
+    /// The pools close and, unless this is a secondary process, the postmaster stops, within the shutdown's bound.
     async fn release(&self, opened: &Opened) -> Result<()> {
         opened.memory_db.close();
         opened.search_db.close();
         if self.flags.secondary {
             return Ok(());
         }
-        opened.cluster.stop(Duration::from_secs(STOP_SECONDS)).await
+        opened.cluster.stop(PG_STOP_TIMEOUT).await
+    }
+
+    /// The stack as an opening that published `cluster` with handles that never connect leaves it: what the stop's teardown and release act on, without
+    /// a postmaster.
+    #[cfg(test)]
+    pub(crate) fn opened_over(&self, cluster: PgCluster) {
+        let (memory_db, search_db) = (Db::unconnected(cluster.port(), Schema::Memory), Db::unconnected(cluster.port(), Schema::SessionSearch));
+        assert!(self.opened.set(Opened { cluster, memory_db, search_db }).is_ok(), "one opening");
     }
 
     async fn open(&self) -> Result<Opened> {
@@ -603,6 +618,51 @@ impl MemoryStack {
             opening.flight.as_ref().map(|(_, flight)| flight.clone())
         };
         self.cancel.cancel();
+        // Node's order (`shutdownOwnedPg`, `adapter.mjs:603-627`): the work that writes through the database ends first, within the point at which Node asks
+        // PostgreSQL to stop whatever teardown still runs (`PG_FORCED_STOP_AT`, `daemon-pg-stop.mjs:36-41`); then the opening in flight is waited for;
+        // then the pools close and PostgreSQL stops. An opening still in flight publishes nothing after the stop began, so it starts no background work.
+        let background = self.background.lock().expect("background").take();
+        let watcher = self.watcher.lock().expect("watcher").take();
+        let teardown = async {
+            if let Some(background) = background {
+                background.abort();
+                let _ = background.await;
+            }
+            // `_stopBackgroundWork`: the watcher stops arming, the reindex ends, then the ingests
+            // still running finish and the offsets are written before the pools drain.
+            // The backfill is a low-priority one-shot: it ends with the stack.
+            self.backfill_cancel.cancel();
+            let backfill = self.backfill.lock().expect("backfill").take();
+            if let Some(backfill) = backfill {
+                // Derived rows: the next run's backfill restores whatever this one did not reach.
+                backfill.abort();
+                let _ = backfill.await;
+            }
+            if let Some(cycles) = &self.cycles {
+                cycles.shutdown().await;
+            }
+            if let Some(watcher) = &watcher {
+                watcher.stop();
+            }
+            self.reindex.stop().await;
+            if let Some(watcher) = &watcher {
+                if let Err(error) = watcher.finished().await {
+                    tracing::warn!(%error, "[transcript-watch] shutdown");
+                }
+                self.transcripts.persist_transcript_offsets().await;
+            }
+        };
+        if tokio::time::timeout(PG_FORCED_STOP_AT, teardown).await.is_err() {
+            // Node's fallback log line (`daemon-pg-stop.mjs:38`); what the teardown had not finished is ended, and PostgreSQL is asked to stop anyway.
+            tracing::warn!("teardown still running {}ms into shutdown; stopping postgres before the launcher's kill", PG_FORCED_STOP_AT.as_millis());
+            if let Some(cycles) = &self.cycles {
+                cycles.abandon();
+            }
+            self.reindex.abandon();
+            if let Some(watcher) = &watcher {
+                watcher.abandon();
+            }
+        }
         // The opening task is joined for at most `OPENING_JOIN` (`stopOwnedPgForShutdown`'s race, `supervisor.mjs:790-800`): it was cancelled, so it normally
         // ends at once, and one that does not goes on alone as Node's does: it publishes nothing after this point and stops what it opened itself if the
         // process lives that long. A postmaster started by an opening admitted before the stop and still coming up at 6 s is left as Node leaves it (its
@@ -611,35 +671,6 @@ impl MemoryStack {
             let _ = tokio::time::timeout(OPENING_JOIN, flight).await;
         }
         let opened = self.opened.get();
-        let background = self.background.lock().expect("background").take();
-        if let Some(background) = background {
-            background.abort();
-            let _ = background.await;
-        }
-        // `_stopBackgroundWork`: the watcher stops arming, the reindex ends, then the ingests
-        // still running finish and the offsets are written before the pools drain.
-        // The backfill is a low-priority one-shot: it ends with the stack.
-        self.backfill_cancel.cancel();
-        let backfill = self.backfill.lock().expect("backfill").take();
-        if let Some(backfill) = backfill {
-            // Derived rows: the next run's backfill restores whatever this one did not reach.
-            backfill.abort();
-            let _ = backfill.await;
-        }
-        if let Some(cycles) = &self.cycles {
-            cycles.shutdown().await;
-        }
-        let watcher = self.watcher.lock().expect("watcher").take();
-        if let Some(watcher) = &watcher {
-            watcher.stop();
-        }
-        self.reindex.stop().await;
-        if let Some(watcher) = &watcher {
-            if let Err(error) = watcher.finished().await {
-                tracing::warn!(%error, "[transcript-watch] shutdown");
-            }
-            self.transcripts.persist_transcript_offsets().await;
-        }
         if let Some(runtime) = &self.runtime {
             runtime.shutdown();
         }
