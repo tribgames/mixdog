@@ -4969,6 +4969,7 @@ dependencies = [
  "displaydoc",
  "errno",
  "fastrand",
+ "flate2",
  "foldhash",
  "form_urlencoded",
  "futures",
@@ -5048,6 +5049,7 @@ dependencies = [
  "zeroize",
  "zerotrie",
  "zerovec",
+ "zlib-rs",
 ]
 
 [[package]]

@@ -7,6 +7,8 @@ import { mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+// The longest one recording of the scenarios may take; a recording past it is a failure of the recorder, not a hang.
+const RECORDING_DEADLINE_MS = 300_000;
 const here = dirname(fileURLToPath(import.meta.url));
 const tree = process.argv[2];
 const arg = (name) => process.argv[process.argv.indexOf(name) + 1];
@@ -16,7 +18,8 @@ mkdirSync(dir, { recursive: true });
 
 const record = (name) => {
   const out = join(dir, name);
-  const run = spawnSync(process.execPath, [join(here, 'node-wire-capture.mjs'), tree, '--node-commit', commit, '--session', join(here, 'fixtures/session.json'), '--scenarios', join(here, 'scenarios.json'), '--out', out, '--keep-random'], { stdio: 'inherit' });
+  const run = spawnSync(process.execPath, [join(here, 'node-wire-capture.mjs'), tree, '--node-commit', commit, '--session', join(here, 'fixtures/session.json'), '--scenarios', join(here, 'scenarios.json'), '--out', out, '--keep-random'], { stdio: 'inherit', timeout: RECORDING_DEADLINE_MS, killSignal: 'SIGKILL' });
+  if (run.error) throw new Error(`recording ${name} did not finish within ${RECORDING_DEADLINE_MS} ms: ${run.error.message}`);
   if (run.status !== 0) throw new Error(`recording ${name} failed with status ${run.status}`);
   return JSON.parse(readFileSync(out, 'utf8'));
 };

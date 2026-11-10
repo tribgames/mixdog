@@ -22,6 +22,7 @@ crossbeam-utils = { version = "0.8" }
 crypto-common = { version = "0.1", default-features = false, features = ["getrandom", "std"] }
 digest = { version = "0.10", features = ["mac", "oid", "std"] }
 fastrand = { version = "2" }
+flate2 = { version = "1", features = ["zlib-rs"] }
 foldhash = { version = "0.2" }
 form_urlencoded = { version = "1" }
 futures = { version = "0.3" }
@@ -83,6 +84,7 @@ zerofrom = { version = "0.1", default-features = false, features = ["alloc", "de
 zeroize = { version = "1", features = ["zeroize_derive"] }
 zerotrie = { version = "0.2", default-features = false, features = ["alloc", "yoke", "zerofrom"] }
 zerovec = { version = "0.11", default-features = false, features = ["alloc", "derive", "yoke"] }
+zlib-rs = { version = "0.6" }
 
 [build-dependencies]
 aho-corasick = { version = "1" }
