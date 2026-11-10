@@ -253,6 +253,9 @@ fn spawn_failure(error: ProcessError, program: &str) -> ScmFailure {
         ProcessError::ProgramNotFound { .. } => ScmFailure::Unavailable {
             capability: program.to_owned(),
         },
+        // CreateProcess answers ERROR_BAD_EXE_FORMAT (193) or ERROR_EXE_MACHINE_TYPE_MISMATCH (216, what this Windows answers for a
+        // text file named git.exe) for a file the loader cannot run; libuv has no name for either.
+        ProcessError::Io { os_code: Some(193 | 216) } if cfg!(windows) => ScmFailure::Spawn { code: "UNKNOWN" },
         ProcessError::Io { os_code } => ScmFailure::Io {
             os_code,
             message: format!("could not start {program}"),

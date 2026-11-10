@@ -36,8 +36,18 @@ fn main() {
                 }
             }
         }
+        // PHONE_SCM_FAIL_FILE: four lines - a word, an exit code, a stderr text and how many times it is written. A git given that
+        // word as an argument fails with that code and stderr without running (a git that cannot do what the call asks).
+        if let Ok(text) = std::fs::read_to_string(std::env::var("PHONE_SCM_FAIL_FILE").unwrap_or_default()) {
+            let mut lines = text.lines();
+            let (word, code, message, repeat) = (lines.next().unwrap_or(""), lines.next().unwrap_or("1"), lines.next().unwrap_or(""), lines.next().unwrap_or("1"));
+            if !word.is_empty() && args.iter().any(|arg| arg == word) {
+                std::io::stderr().write_all(message.repeat(repeat.parse().unwrap()).as_bytes()).unwrap();
+                exit(code.parse().unwrap());
+            }
+        }
         let real = std::env::var("PHONE_SCM_REAL_GIT").unwrap();
-        let status = Command::new(&real).args(&args).status().unwrap();
+        let status =Command::new(&real).args(&args).status().unwrap();
         // PHONE_SCM_AFTER_FILE: three lines - the leading arguments of the git to follow, the arguments of another git to run
         // when it has ended with a scratch index (GIT_INDEX_FILE set: a commit's index refresh), and the file that gets that
         // other git's exit code and stderr. It is another process using the repository inside the refresh's lock window,

@@ -35,6 +35,10 @@ pub enum ScmFailure {
     Unavailable { capability: String },
     /// A read-only git child was cut off at its run limit: its answer is unknown.
     /// `command` is the program and its arguments as Node's runner worded them (`git status -z`).
+    /// The operating system refused to start the program for a reason other than its absence; Node threw `spawn <CODE>` with that
+    /// libuv code (`UNKNOWN` for a file the loader cannot run).
+    #[error("spawn {code}")]
+    Spawn { code: &'static str },
     #[error("{command} timed out after {millis}ms")]
     TimedOut { command: String, millis: u64 },
     #[error("{command} exceeded {limit} output bytes")]
@@ -179,6 +183,12 @@ impl From<ScmFailure> for CoreError {
             ScmFailure::Unavailable { capability } => CoreError::CapabilityUnavailable {
                 capability: capability.into(),
                 detail: Arc::from(""),
+            },
+            ScmFailure::Spawn { code } => CoreError::DomainError {
+                domain: GIT_DOMAIN.into(),
+                code: Some(code.into()),
+                message: Some(format!("spawn {code}").into()),
+                detail: None,
             },
             ScmFailure::TimedOut { command, millis } => CoreError::DomainError {
                 domain: GIT_DOMAIN.into(),
