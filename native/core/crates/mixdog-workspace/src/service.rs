@@ -123,7 +123,7 @@ impl LspFeeds {
     fn with<R>(&self, project: &str, f: impl FnOnce(&mut LspProject) -> R) -> R {
         let mut projects = self.by_project.lock().expect("lsp feeds");
         let entry = projects.entry(project.to_owned()).or_insert_with(|| LspProject {
-            publisher: Publisher::create(self.feeds.as_ref(), &format!("lsp:{project}"), json!({})),
+            publisher: Publisher::create_ordered(self.feeds.as_ref(), &format!("lsp:{project}"), json!({})),
             revisions: HashMap::new(),
             state: json!({}),
         });
@@ -984,7 +984,7 @@ impl WorkspaceService {
                 let Some(given) = params.get("path").and_then(Value::as_str) else { return Err(WsError::invalid("path must be a string.")) };
                 let path = crate::pathguard::absolute_local_path(given)?;
                 let recursive = opt_bool(params, "recursive");
-                let publisher = Arc::new(Publisher::create(self.search_feeds(), &format!("fs:{id}"), json!({})));
+                let publisher = Arc::new(Publisher::create_ordered(self.search_feeds(), &format!("fs:{id}"), json!({})));
                 self.router.fs.lock().expect("fs watches").insert(id.clone(), publisher.clone());
                 let (watcher, watch_id, watch_path) = (self.watcher.clone(), id.clone(), path.clone());
                 let attached = run_fallible(self.lanes.interactive, &cancel, move || watcher.watch(&watch_id, &watch_path, recursive)).await;

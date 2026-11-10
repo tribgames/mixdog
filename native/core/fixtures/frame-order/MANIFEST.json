@@ -1,0 +1,35 @@
+{
+  "command": "node --experimental-transform-types --import ./benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-frame-order.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146 with node_modules> --work <scratch dir> --runs 10",
+  "desktopLinkNotRecorded": "Node's desktop link has no order between an answer and an event: each call is its own HTTP /call answered on its own socket (src/standalone/session-transport/call-route.mjs:118-136), events are SSE frames written at once or, on a stalled stream, merged latest-wins per key (src/standalone/session-frame-stream.mjs:199-291, desktop-service-registry.mjs:31-49).",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 151155,
+      "path": "golden.json",
+      "sha256": "76e619fc121428b215fdc6b1ddc40d4360f5dfb9a4823a0273a63f948119e59d"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-frame-order.mjs",
+  "recorderSha256": "969eee3b127f32d342be6e6695eac5214827f8f6400f75398eb53a9a033981af",
+  "runsPerMode": 10,
+  "set": "frame-order",
+  "totalBytes": 151155
+}
