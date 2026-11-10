@@ -6,8 +6,10 @@
 //   node benchmarks/rust-core/recorders/record-result-classification.mjs --tree <exact export of b6f10295a with node_modules>
 //
 // Output: native/core/fixtures/result-classification/golden.json (+ MANIFEST.json).
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
 const recorder = 'benchmarks/rust-core/recorders/record-result-classification.mjs';
@@ -90,6 +92,18 @@ cases.push({ tool: 'read', text: null, kind: classifyResultKind(null, false, 're
 const finalDir = join(FIXTURES_ROOT, 'result-classification');
 const stage = stageSet(finalDir);
 writeJson(join(stage, 'golden.json'), { note: 'classifyResultKind(text, false, tool) at b6f10295a', cases });
-writeSetManifest(stage, { set: 'result-classification', recorder, command: `node ${recorder} --tree <exact export of ${NODE_COMMIT}>`, identity, extra: { cases: cases.length } });
+writeSetManifest(stage, {
+  set: 'result-classification',
+  recorder,
+  command: `node ${recorder} --tree <exact export of ${NODE_COMMIT}>`,
+  identity,
+  extra: {
+    cases: cases.length,
+    node: process.version,
+    recorderSha256: createHash('sha256').update(readFileSync(fileURLToPath(import.meta.url))).digest('hex'),
+    // Everything Node was given: the texts and tool names of this recorder (TEXTS x TOOLS, the generated grid, the null result).
+    syntheticInputs: { texts: TEXTS.length, tools: TOOLS, gridCases: grid.length, neighbours: NEIGHBOURS, phrases: PHRASES },
+  },
+});
 commitStage(stage, finalDir);
 console.log(`cases=${cases.length} error=${cases.filter((c) => c.kind === 'error').length} zero=${cases.filter((c) => c.kind === 'zero-match').length}`);

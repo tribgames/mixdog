@@ -158,7 +158,7 @@ async fn file_tools_match_golden_fixtures_on_disk() {
 /// recorded on Windows, where the paths in the texts are written with backslashes.
 #[cfg(windows)]
 #[tokio::test]
-async fn edit_read_failures_are_answered_as_node_answers_them() {
+async fn edit_read_failures_are_answered_as_node_answers_them_on_windows() {
     let dir = tempfile::tempdir().unwrap();
     let ws = dir.path().join("ws");
     std::fs::create_dir_all(ws.join("sub")).unwrap();
@@ -169,6 +169,7 @@ async fn edit_read_failures_are_answered_as_node_answers_them() {
         &std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/tool-arg-answers/answers.json")).unwrap(),
     )
     .unwrap();
+    assert_eq!(answers["platform"], "win32", "the answers compared here are the Windows recording");
     let edit = EditTool::new();
     let mut failures = Vec::new();
     let mut compared = 0;

@@ -5,9 +5,11 @@
 //   node benchmarks/rust-core/recorders/record-tool-arg-answers.mjs --tree <exact export of b6f10295a with node_modules>
 //
 // Output: native/core/fixtures/tool-arg-answers/answers.json (+ MANIFEST.json). The workspace root is written as <ROOT>.
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { FIXTURES_ROOT, commitStage, exactProductIdentity, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 
 const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
@@ -99,7 +101,20 @@ writeJson(join(stage, 'answers.json'), {
   tree: 'b6f10295a',
   cases: recorded,
 });
-writeSetManifest(stage, { set: 'tool-arg-answers', recorder, command: `node ${recorder} --tree <exact export of ${NODE_COMMIT}>`, identity, extra: { cases: recorded.length } });
+writeSetManifest(stage, {
+  set: 'tool-arg-answers',
+  recorder,
+  command: `node ${recorder} --tree <exact export of ${NODE_COMMIT}>`,
+  identity,
+  extra: {
+    cases: recorded.length,
+    node: process.version,
+    platform: process.platform,
+    recorderSha256: createHash('sha256').update(readFileSync(fileURLToPath(import.meta.url))).digest('hex'),
+    // Everything Node was given: the cases' arguments (in answers.json) and this workspace.
+    syntheticInputs: { workspace: { 'a.txt': 'hello\n', 'sub/': 'a directory' } },
+  },
+});
 commitStage(stage, finalDir);
 rmSync(work, { recursive: true, force: true });
 console.log(`recorded ${recorded.length} cases`);

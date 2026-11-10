@@ -181,7 +181,12 @@ async function runScenario(scenario, root, ws, bin) {
     }
     await client.close();
     client = null;
-    const stopped = await fetch(`http://127.0.0.1:${doc.core.control.port}/mgmt/stop`, { method: 'POST', headers: { authorization: `Bearer ${doc.endpoints.session.token}`, 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'whenIdle', reason: 'quit' }), signal: AbortSignal.timeout(30_000) });
+    const stopping = new AbortController();
+    const stopped = await deadline(
+      fetch(`http://127.0.0.1:${doc.core.control.port}/mgmt/stop`, { method: 'POST', headers: { authorization: `Bearer ${doc.endpoints.session.token}`, 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'whenIdle', reason: 'quit' }), signal: stopping.signal }),
+      30_000,
+      'the core answering /mgmt/stop',
+    ).finally(() => stopping.abort());
     if (!stopped.ok) throw new Error(`/mgmt/stop answered ${stopped.status}`);
     await deadline(exited, 30_000, 'the core exiting');
     const file = join(p.data, 'history', 'tool-failures.jsonl');
