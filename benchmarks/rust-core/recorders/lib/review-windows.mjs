@@ -33,9 +33,13 @@ export class ReviewWindows {
   deliveries = 0;
 
   /** `respond({ session, request })` answers one capability request with the value the bar reads. */
-  constructor(kit, respond) {
+  #stamp;
+
+  /** `stamp(session)` is called when a pane invokes a read; what it answers travels with the request as `told`. */
+  constructor(kit, respond, stamp) {
     this.#kit = kit;
     this.#respond = respond;
+    this.#stamp = stamp;
     Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', { configurable: true, writable: true, value: true });
   }
 
@@ -52,7 +56,7 @@ export class ReviewWindows {
   /** The window's end of `invokeCapability`: the request waits here until `settle` answers it. The bar reads `window.mixdogDesktop`
    *  again at each call, so the bridge reached is the last one mounted and the session is the request's own. */
   invoke(request) {
-    return new Promise((resolve) => this.#pending.push({ session: request.sessionId, request, resolve, after: this.deliveries }));
+    return new Promise((resolve) => this.#pending.push({ session: request.sessionId, request, resolve, after: this.deliveries, told: this.#stamp?.(request.sessionId) }));
   }
 
   /** Makes `window` the document the page's code sees as `window` / `document` (the bar reads them when its effects subscribe). */
