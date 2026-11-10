@@ -45,9 +45,15 @@ test("a core call that is never answered fails with Node's text after Node's pro
   router.call('termProfiles', []).catch((error) => (failure = { error: error.message, at: clock - sentAt }));
   // The call reaches the core and its frame leaves before any timer is due.
   for (let turn = 0; turn < 100 && sentAt === null; turn += 1) await new Promise((resolve) => setImmediate(resolve));
-  assert.notEqual(sentAt, null, 'the call reached the core');
+  assert.notEqual(sentAt, null, `the call had not reached the core after 100 turns; timers pending: ${timers.size}`);
   await new Promise((resolve) => setImmediate(resolve));
-  while (failure === null && timers.size > 0) {
+  // Node's deadline fires a handful of timers (golden.steps); a timer that keeps re-arming itself is a failure, not a longer wait.
+  const ROUNDS = 100;
+  for (let round = 0; failure === null && timers.size > 0; round += 1) {
+    if (round === ROUNDS) {
+      const pending = [...timers.values()].map((timer) => `at ${timer.at - sentAt} ms`).join(', ');
+      assert.fail(`the call had not failed after ${ROUNDS} timer rounds; still pending: ${pending}; probes so far: ${JSON.stringify(steps)}`);
+    }
     const [id, next] = [...timers].reduce((a, b) => (b[1].at < a[1].at ? b : a));
     timers.delete(id);
     clock = next.at;

@@ -1,4 +1,5 @@
 {
+  "disposalPairEvidence": "A 20-run recording with this recorder (the script before 17658be467: 116 entries, runs.json sha256 fe8fe7060db1b780fc67c4507b06f97a91911e6a7db3253b2f830d153dea03fb, not kept in the repository) had a running/null pair after the dispose answer on term_ph2a in 25 of 60 disposals, term_ph2_l1 2/20, term_ph2_l2 5/20, term_ph2_l4 2/20, term_ph2_l5 6/20, term_ph2_l6 3/20, term_ph2_i1 3/20, term_ph2_i2 0/20, and never on a non-PowerShell tab; the mechanism (PSConsoleHostReadLine C marker against the console close) is the same on every PowerShell tab at its prompt.",
   "command": "node benchmarks/rust-core/recorders/record-phone-terminal.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 (src, apps) with node_modules>",
   "entries": 110,
   "fileCount": 3,
@@ -37,6 +38,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-phone-terminal.mjs",
+  "scriptSha256": "354cd07cbff8f4e7ad7fccf4668f6f0f7a83b255f6341c3cf389cae8e327ad82",
   "set": "phone-terminal",
   "settled": "Output no answered call causes (a resize re-render, a prompt after idle, a closing output against the next dispose) is waited for before the next call: its place among later calls is call latency, 0 ms in this in-process recorder and a socket round trip for a phone. The immediate part keeps the answer-ordered sequences (ensure then first output, dispose then closing output) unsettled.",
   "totalBytes": 1146951

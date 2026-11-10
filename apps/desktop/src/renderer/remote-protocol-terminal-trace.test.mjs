@@ -3,15 +3,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { isDeepStrictEqual } from 'node:util';
-import { compareTraces, ownActivityFirst } from './remote-protocol-terminal-compare.mjs';
+import { compareTraces } from './remote-protocol-terminal-compare.mjs';
 
-// The runs as the comparison places their frames (a frame before its own tab's directly preceding activity changes): the comparison is
-// the same on them, and a stretch found here is a stretch there.
-const runs = JSON.parse(readFileSync(new URL('../../../mobile/fixtures/phone-terminal/runs.json', import.meta.url), 'utf8')).map((run) => ({
-  order: ownActivityFirst(run.order),
-  claims: { order: ownActivityFirst(run.claims.order) },
-  immediate: { order: ownActivityFirst(run.immediate.order) },
-}));
+const runs = JSON.parse(readFileSync(new URL('../../../mobile/fixtures/phone-terminal/runs.json', import.meta.url), 'utf8'));
 const copy = (run = runs[0]) => JSON.parse(JSON.stringify(run));
 const isData = (entry) => entry.push === 'termData';
 const PARTS = [['order'], ['claims', 'order'], ['immediate', 'order']];
@@ -66,6 +60,19 @@ test("two tabs' frames swapped is a different trace", () => {
   const trace = copy();
   const list = listOf(trace, path);
   [list[i], list[j]] = [list[j], list[i]];
+  assert.throws(() => compareTraces(trace, runs), /output/);
+});
+
+test("a tab's frame moved before its own activity change that every run sends first is a different trace", () => {
+  const { path, i } = find(
+    (list, i) => isData(list[i]) && list[i - 1]?.push === 'activity' && list[i - 1].event.id === list[i].event.id,
+    'output frame right after its own tab’s activity change',
+  );
+  const before = (run) => listOf(run, path)[i - 1];
+  assert.ok(runs.every((run) => isDeepStrictEqual(before(run), before(runs[0]))), 'every run sends the activity change first');
+  const trace = copy();
+  const list = listOf(trace, path);
+  [list[i - 1], list[i]] = [list[i], list[i - 1]];
   assert.throws(() => compareTraces(trace, runs), /output/);
 });
 
