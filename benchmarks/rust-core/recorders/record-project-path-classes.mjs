@@ -2,8 +2,10 @@
 // What Node does with each class of path at the places the Rust workspace resolves a project path, recorded from an exact export of
 // b6f10295a on this Windows host with the real project store (src/runtime/shared/projects.mjs) and the real registry:
 //   known   DesktopProjectRegistry.knownPath (desktop-project-registry.ts:179): the registered project a path names, else the refusal;
-//           the shape of `project/read`, `project/recoveryDirectory`, every project root and `transfer/trash/info` (ipc-server-files.ts:132
+//           the shape of `project/recoveryDirectory`, every relay project root and `transfer/trash/info` (ipc-server-files.ts:132
 //           takes `projectDirectory` first, which is `knownPath`)
+//   inspect project-catalog.mjs `inspectProjectPath` (`resolveProjectPath`, projects.mjs:251, then an existence and folder check): what
+//           `project/read` answers the TUI for any path
 //   ensure  project-catalog.mjs `ensureProjectDirectory` (`ensureDir`, projects.mjs:239): the folder made and the absolute path it answers
 //   add     SessionHost.canonicalDirectory (session-host.ts:575), what `addProject` registers (session-host.ts:674): `realpath` and a folder check
 // The folder under test is a real project in a temporary folder that is the working directory; each input is a template (`{proj}`, `{tmp}`,
@@ -48,7 +50,7 @@ const expand = (template) => template.replace(/\{(\w+)\}/g, (_, name) => fill[na
 // The folder as an answer spells it: as is, upper-cased (an answer that echoes an upper-case input) and as a JS string literal (an error
 // message that quotes the path). The folder under test goes first: the temporary folder holds it.
 const escaped = (text) => text.replaceAll('\\', '\\\\');
-const tokens = [[proj, '{proj}'], [escaped(proj), '{proj}'], [proj.toUpperCase(), '{PROJ}'], [tmp, '{tmp}'], [escaped(tmp), '{tmp}'], [tmp.toUpperCase(), '{TMP}']];
+const tokens = [[proj, '{proj}'], [escaped(proj), '{proj}'], [proj.toUpperCase(), '{PROJ}'], [escaped(proj.toUpperCase()), '{PROJ}'], [tmp, '{tmp}'], [escaped(tmp), '{tmp}'], [tmp.toUpperCase(), '{TMP}'], [escaped(tmp.toUpperCase()), '{TMP}']];
 const tokenize = (text) => tokens.reduce((out, [folder, token]) => out.replaceAll(folder, token), text);
 
 const inputs = [
@@ -83,8 +85,12 @@ const answer = async (run, template) => {
 };
 const operations = {
   known: (text) => registry.knownPath(text),
+  // project-catalog.mjs `inspectProjectPath` (the TUI's new-project prompt, settings-prompts.mjs:48): any path, registered or not, as
+  // `{path, exists, directory}` in JSON. Before `ensure`, which makes the folders the later inputs name.
+  inspect: async (text) => JSON.stringify(await catalog.inspectProjectPath({ path: text })),
   ensure: async (text) => (await catalog.ensureProjectDirectory({ path: text })).path,
   add: (text) => SessionHost.prototype.canonicalDirectory.call(null, requiredString(text, 'projectPath')),
+
 };
 const answers = {};
 for (const [name, run] of Object.entries(operations)) {
@@ -127,7 +133,7 @@ process.cwd = windowsCwd;
 
 const out = stageSet(FIXTURES);
 writeJson(join(out, 'golden.json'), {
-  note: "What Node answers per class of project path, on a Windows host with the working directory on the project's parent: `known` (the registry's lookup), `ensure` (the folder the catalog makes) and `add` (the real path `addProject` registers); `{proj}` is the registered folder, `{tmp}` its parent. Answers are in the order of `inputs`.",
+  note: "What Node answers per class of project path, on a Windows host with the working directory on the project's parent: `known` (the registry's lookup), `inspect` (the catalog's answer for any path, JSON), `ensure` (the folder the catalog makes) and `add` (the real path `addProject` registers); `{proj}` is the registered folder, `{tmp}` its parent. Answers are in the order of `inputs`.",
   inputs,
   answers,
   posix: {

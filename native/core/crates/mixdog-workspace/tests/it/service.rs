@@ -614,7 +614,9 @@ async fn project_paths_are_read_as_nodes_registry_reads_them() {
 
     let inputs = golden["inputs"].as_array().unwrap();
     let mut replayed = 0;
-    for (operation, method) in [("known", "project/read"), ("trash", "transfer/trash/info"), ("ensure", "project/ensureDirectory"), ("add", "project/create")] {
+    // In the recording's order: `inspect` before `ensure`, which makes the folders later inputs name. `known` is the registry's lookup behind
+    // `project/directory` (the registered folder is its own real path here).
+    for (operation, method) in [("known", "project/directory"), ("inspect", "project/read"), ("trash", "transfer/trash/info"), ("ensure", "project/ensureDirectory"), ("add", "project/create")] {
         // Node's lookup answers the trash call too: its `projectDirectory` is the registry's lookup, then a folder.
         let recorded = golden["answers"][if operation == "trash" { "known" } else { operation }].as_array().unwrap();
         for (input, answer) in inputs.iter().zip(recorded) {
@@ -626,6 +628,10 @@ async fn project_paths_are_read_as_nodes_registry_reads_them() {
                     let got = got.unwrap_or_else(|error| panic!("{name}: Node answered {want}, got {error:?}"));
                     if operation == "trash" {
                         assert!(got.get("available").is_some(), "{name}: {got}");
+                    } else if operation == "inspect" {
+                        let mut want: Value = serde_json::from_str(want.as_str().unwrap()).unwrap();
+                        want["path"] = json!(expand(want["path"].as_str().unwrap()));
+                        assert_eq!(got, want, "{name}");
                     } else {
                         let path = if operation == "add" { &got["project"]["path"] } else { &got["path"] };
                         assert_eq!(path.as_str().unwrap(), expand(want.as_str().unwrap()), "{name}");
@@ -646,7 +652,7 @@ async fn project_paths_are_read_as_nodes_registry_reads_them() {
             replayed += 1;
         }
     }
-    assert_eq!(replayed, inputs.len() * 4);
+    assert_eq!(replayed, inputs.len() * 5);
 }
 
 #[tokio::test(flavor = "multi_thread")]
