@@ -71,24 +71,20 @@ where
     F: Future<Output = T> + Send + 'static,
 {
     let key: Key = (credential.to_owned(), TypeId::of::<T>());
-    let flight = {
+    let (flight, start) = {
         let mut map = flights();
         match map
             .get(&key)
             .and_then(|(_, slot)| slot.downcast_ref::<Shared<BoxFuture<'static, Result<T, Expired>>>>())
         {
-            Some(running) => running.clone(),
+            Some(running) => (running.clone(), None),
             None => {
                 let identity = Arc::new(());
                 let landed = Landed { key: key.clone(), identity: identity.clone() };
-                let task = tokio::spawn(async move {
-                    // An expired flight leaves the map like a finished one, and every joiner
-                    // gets the same typed failure instead of a dead flight.
-                    let result = REFRESH_FLIGHT.bound_head(refresh).await;
-                    drop(landed);
-                    result
-                });
+                let (started, task) = tokio::sync::oneshot::channel::<tokio::task::JoinHandle<Result<T, Expired>>>();
                 let shared = async move {
+                    // The task is handed over right after the flight is in the map (below).
+                    let Ok(task) = task.await else { panic!("the refresh flight was never started") };
                     match task.await {
                         Ok(result) => result,
                         Err(error) if error.is_panic() => std::panic::resume_unwind(error.into_panic()),
@@ -98,10 +94,23 @@ where
                 .boxed()
                 .shared();
                 map.insert(key, (identity, Box::new(shared.clone())));
-                shared
+                (shared, Some((landed, started)))
             }
         }
     };
+    // Spawned once the map's lock is released: a runtime that has shut down drops a task where it is spawned,
+    // and that drop takes the flight out of the map (`Landed`), which needs the lock.
+    if let Some((landed, started)) = start {
+        let task = tokio::spawn(async move {
+            // An expired flight leaves the map like a finished one, and every joiner
+            // gets the same typed failure instead of a dead flight.
+            let result = REFRESH_FLIGHT.bound_head(refresh).await;
+            drop(landed);
+            result
+        });
+        // The flight's own receiver lives in the map's entry or in a caller; with both gone nobody waits.
+        let _ = started.send(task);
+    }
     flight.await
 }
 
@@ -211,13 +220,37 @@ mod tests {
         let runtime = || tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         let first = runtime();
         first.block_on(async {
-            let mut caller = Box::pin(refresh_once(path, std::future::pending::<u32>()));
+            let (running, run) = tokio::sync::oneshot::channel();
+            let refresh = async move {
+                running.send(()).ok();
+                std::future::pending::<u32>().await
+            };
+            let mut caller = Box::pin(refresh_once(path, refresh));
             assert!((&mut caller).now_or_never().is_none(), "the refresh is under way");
-            // The refresh's own task runs up to its wait, so what the runtime drops is a refresh in flight.
-            tokio::task::yield_now().await;
+            // The refresh's own task says it runs, so what the runtime drops is a refresh in flight.
+            let deadline = std::time::Duration::from_secs(60);
+            assert!(matches!(tokio::time::timeout(deadline, run).await, Ok(Ok(()))), "the refresh's task ran");
         });
         drop(first);
         assert_eq!(runtime().block_on(refresh_once(path, async { 7u32 })), Ok(7));
+    }
+
+    // A runtime that has shut down drops a task where it is spawned. The flight's end takes the map's lock, so the
+    // spawn is made with the lock released: the caller on the dead runtime gets the flight's end, and the map is
+    // free for the next caller.
+    #[test]
+    fn a_refresh_started_on_a_runtime_that_has_shut_down_leaves_the_map_free() {
+        let path = Path::new("closed-oauth.json");
+        let runtime = || tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let closed = runtime();
+        let handle = closed.handle().clone();
+        drop(closed);
+        let attempt = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _context = handle.enter();
+            refresh_once(path, async { 1u32 }).now_or_never()
+        }));
+        assert!(attempt.is_err(), "the caller on the dead runtime is told its refresh was cancelled");
+        assert_eq!(runtime().block_on(refresh_once(path, async { 8u32 })), Ok(8));
     }
 
     #[tokio::test(start_paused = true)]
