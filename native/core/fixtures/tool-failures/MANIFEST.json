@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 32201,
+      "bytes": 34609,
       "path": "golden.json",
-      "sha256": "cb6ff1cc5853690f4b69f40c9e6f84011c4d96e2ce97ae9dca5f5f5082fb0a3f"
+      "sha256": "fe18b530ebc8d95b3d08293139416799818c084c13e21fa68e28d1488e0fb39c"
     }
   ],
   "node": "v22.20.0",
@@ -34,10 +34,10 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-tool-failures.mjs",
-  "recorderSha256": "f25354ef617f6facf0eb141a51c79a70bc899148476712dff215734d9dc0a9ac",
+  "recorderSha256": "3633b8b673829e7d3f990857bedee048a1279e9a3a7cd382d22f0f82eba902cf",
   "rows": 19,
-  "rowsLibSha256": "c5ba1f81dafe10cbf0b821bcd04d704d01e891e90c8db366f875808a99774f8f",
-  "scenariosSha256": "3ec3d3dac6b3418a8ac429ea80a495e6fcea4195bcca0e5e3e021e04b48f6e01",
+  "rowsLibSha256": "fc327040e62e1c062ec1543c4a52332d16ce4c3d6f7d57ec4f4797d488ca276b",
+  "scenariosSha256": "57c3c350d6f49105f51e8d8d3fc33db673a938035228f9b5cdeb53300a9eb9c0",
   "set": "tool-failures",
   "syntheticInputs": {
     "approvalAnswers": [
@@ -59,9 +59,10 @@
         "scenario": "a call whose approval is denied"
       }
     ],
+    "leftAtExit": "what each scenario's Node process left running in its job when it exited (lib/job-run.mjs), Node's own helpers set aside (lib/tool-failure-rows.mjs NODE_HELPERS: mixdog-spawn-*, mixdog-patch-* and their console hosts)",
     "mcpServer": {
       "file": "fx-mcp.mjs",
-      "sha256": "ac70ce5538f80300f0255b1ff6fae8b2c4beb7847cd43df44e8217082a3c3a57",
+      "sha256": "9e696362b216516f7ddcd1517bb67cb04870e48a98c7f5fc6bb4652fc23baaf9",
       "tools": [
         "fail",
         "boom",
@@ -159,20 +160,32 @@
         "hook": null,
         "name": "a returned error that is offloaded",
         "replies": 2
+      },
+      {
+        "abortWhenFile": null,
+        "approval": null,
+        "full": true,
+        "hook": null,
+        "name": "MCP results that carry an image",
+        "replies": 2
       }
     ],
-    "sessionIdentity": {
-      "agent": "lead",
-      "lane": "cli",
-      "owner": "cli",
-      "source": "session-options.mjs:88-103 for a Lead with no session profile",
-      "sourceName": "main",
-      "sourceType": "lead"
+    "sessionBuilderInputs": {
+      "builder": "sessionOptions (src/session-runtime/session-create/session-options.mjs), with the product workflowHelpers.activeWorkflowContext",
+      "featureDisallowedTools": [],
+      "laidOver": "a headless scenario: skipSkills true and workflow { id: headless, delegatesAgents: false }",
+      "rt": {
+        "config": {},
+        "coreMemoryContext": null,
+        "mode": "full",
+        "sessionProfile": null,
+        "toolProfile": "interactive for a full scenario, headless otherwise"
+      }
     },
     "workspaceFiles": {
       "a.txt": "e2150a7049a28067b28de40c77c5e632d37fe6bfa5f858830b3abcdf187d20cc",
-      "fx-mcp.mjs": "ac70ce5538f80300f0255b1ff6fae8b2c4beb7847cd43df44e8217082a3c3a57"
+      "fx-mcp.mjs": "9e696362b216516f7ddcd1517bb67cb04870e48a98c7f5fc6bb4652fc23baaf9"
     }
   },
-  "totalBytes": 32201
+  "totalBytes": 34609
 }
