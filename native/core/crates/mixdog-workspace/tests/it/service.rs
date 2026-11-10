@@ -579,6 +579,76 @@ async fn watch_refuses_every_input_node_refuses_with_nodes_message() {
     assert_eq!(env.service.open_os_watches(), 0);
 }
 
+/// Every class of project path answered as Node answers it (apps/mobile/fixtures/project-path-classes/golden.json, recorded by
+/// record-project-path-classes.mjs from the real registry, the real store and `addProject`): the registry's lookup (`project/read`, and
+/// `transfer/trash/info`, which Node hands `projectDirectory`), the folder `project/ensureDirectory` makes and the path `project/create`
+/// registers. The working directory is the project's parent, as in the recording; the test needs a process of its own (nextest runs one).
+#[cfg(windows)]
+#[tokio::test(flavor = "multi_thread")]
+async fn project_paths_are_read_as_nodes_registry_reads_them() {
+    let golden: Value = serde_json::from_str(include_str!("../../../../../../apps/mobile/fixtures/project-path-classes/golden.json")).unwrap();
+    let env = env();
+    let tmp = env.root.parent().unwrap().to_path_buf();
+    let proj = tmp.join("proj");
+    std::fs::create_dir(&proj).unwrap();
+    let row = mixdog_store::state::ProjectRow { path: proj.to_string_lossy().into_owned(), alias: None, hidden: false, hidden_rank: None, last_used_at: None, name: None };
+    env.state.write(move |tx| tx.put_project(&row)).await.unwrap();
+    std::env::set_current_dir(&tmp).unwrap();
+
+    let text = |path: &std::path::Path| path.to_string_lossy().into_owned();
+    let (proj_text, tmp_text) = (text(&proj), text(&tmp));
+    let rooted = tmp_text[2..].to_owned();
+    let fill: Vec<(&str, String)> = vec![
+        ("{proj}", proj_text.clone()),
+        ("{tmp}", tmp_text.clone()),
+        ("{PROJ}", proj_text.to_uppercase()),
+        ("{TMP}", tmp_text.to_uppercase()),
+        ("{projSlash}", proj_text.replace('\\', "/")),
+        ("{projUpper}", proj_text.to_uppercase()),
+        ("{tmpName}", tmp.file_name().unwrap().to_string_lossy().into_owned()),
+        ("{drive}", tmp_text[..2].to_owned()),
+        ("{tmpRooted}", rooted.clone()),
+        ("{tmpRootedSlash}", rooted.replace('\\', "/")),
+    ];
+    let expand = |template: &str| fill.iter().fold(template.to_owned(), |text, (token, value)| text.replace(token, value));
+
+    let inputs = golden["inputs"].as_array().unwrap();
+    let mut replayed = 0;
+    for (operation, method) in [("known", "project/read"), ("trash", "transfer/trash/info"), ("ensure", "project/ensureDirectory"), ("add", "project/create")] {
+        // Node's lookup answers the trash call too: its `projectDirectory` is the registry's lookup, then a folder.
+        let recorded = golden["answers"][if operation == "trash" { "known" } else { operation }].as_array().unwrap();
+        for (input, answer) in inputs.iter().zip(recorded) {
+            let given = expand(input["template"].as_str().unwrap());
+            let got = call(&env, method, json!({ "path": given })).await;
+            let name = format!("{operation} {}: {given:?}", input["name"]);
+            match answer.get("result") {
+                Some(want) => {
+                    let got = got.unwrap_or_else(|error| panic!("{name}: Node answered {want}, got {error:?}"));
+                    if operation == "trash" {
+                        assert!(got.get("available").is_some(), "{name}: {got}");
+                    } else {
+                        let path = if operation == "add" { &got["project"]["path"] } else { &got["path"] };
+                        assert_eq!(path.as_str().unwrap(), expand(want.as_str().unwrap()), "{name}");
+                    }
+                }
+                None => {
+                    let message = answer["error"]["message"].as_str().unwrap();
+                    let error = got.err().unwrap_or_else(|| panic!("{name}: Node refused it with {message:?}"));
+                    // Node's own wording where the answer is Node's (the registry and the catalog); an operating-system error of a path Node
+                    // never reached (`ENOENT ... realpath`, a NUL) is a refusal here as well.
+                    if answer["error"].get("code").and_then(Value::as_str) == Some("PROJECT_UNAVAILABLE") {
+                        assert!(unavailable::<Value>(&Err(error)), "{name}");
+                    } else if !message.starts_with("ENOENT") && !message.starts_with("The argument 'path'") {
+                        assert!(format!("{error:?}").contains(message), "{name}: Node says {message:?}, got {error:?}");
+                    }
+                }
+            }
+            replayed += 1;
+        }
+    }
+    assert_eq!(replayed, inputs.len() * 4);
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn watch_pushes_batched_changes_and_connection_close_drops_the_os_watch() {
     let env = env();
