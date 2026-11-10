@@ -68,6 +68,13 @@ pub struct Machine {
     /// Service calls in flight (Node's `inFlightWork().activeCalls`, `daemon.mjs:444-449`): they keep the core from stopping itself with
     /// nobody attached, but are not listed as running work and do not hold an explicit stop.
     calls: usize,
+    /// New-task requests in flight (`thread/start` of a task with its first prompt): host logic in Node (`submitNewTask` runs in the
+    /// desktop service's `SessionHost`), counted as a call by the self-shutdown (Node's `activeCalls` holds the `desktop.invoke`), but
+    /// not waited for once a stop is requested: Node's `/stop` shuts down without `drainDeferral` (`routes.mjs:200-209` → SIGTERM →
+    /// `daemon.mjs:272 shutdown`; `drainDeferral` is consulted by `maybeSelfShutdown` only, `daemon.mjs:533-536`).
+    new_tasks: usize,
+    /// A stop was requested: the new-task attempts were cut ([`Effect::CutNewTasks`]) and their requests no longer hold the drain.
+    new_tasks_cut: bool,
     next_id: u64,
     activities: BTreeMap<u64, Running>,
     /// Node's self-shutdown text for the work that ends last, by activity id (absent: [`BUSY_WORK_SETTLED`]).
@@ -88,6 +95,8 @@ impl Machine {
             clients: 0,
             client_seen: false,
             calls: 0,
+            new_tasks: 0,
+            new_tasks_cut: false,
             next_id: 1,
             activities: BTreeMap::new(),
             settle_texts: BTreeMap::new(),
@@ -152,6 +161,32 @@ impl Machine {
         self.calls = self.calls.saturating_sub(1);
         self.seq += 1;
         self.settle(SERVICE_CALLS_SETTLED);
+    }
+
+    pub fn new_task_started(&mut self) {
+        self.new_tasks += 1;
+        self.seq += 1;
+    }
+
+    /// As [`Machine::call_ended`], for a new-task request.
+    pub fn new_task_ended(&mut self) {
+        self.new_tasks = self.new_tasks.saturating_sub(1);
+        self.seq += 1;
+        self.settle(SERVICE_CALLS_SETTLED);
+    }
+
+    /// Node's host dispose at a stop request: the new-task attempts are cut first (each ends at the call it was awaiting), once.
+    fn cut_new_tasks(&mut self) {
+        if !self.new_tasks_cut {
+            self.new_tasks_cut = true;
+            self.seq += 1;
+            self.effects.push(Effect::CutNewTasks);
+        }
+    }
+
+    /// Calls a drain waits for: every call, and the new-task requests until a stop request cut them.
+    fn calls_in_flight(&self) -> bool {
+        self.calls > 0 || (self.new_tasks > 0 && !self.new_tasks_cut)
     }
 
     /// `kind` is the registry the client was in: the last one leaving names Node's self-shutdown text.
@@ -248,12 +283,19 @@ impl Machine {
         match &self.phase {
             Phase::Booting | Phase::Blocked(_) | Phase::Serving => match mode {
                 StopMode::WhenIdle => {
+                    self.cut_new_tasks();
                     self.commit_drain(reason);
                     Ok(())
                 }
                 StopMode::AbortConfirmed => Err(CommandError::NotDraining),
             },
             Phase::Migrating(_) => Err(CommandError::Migrating),
+            Phase::Draining(_) if matches!(mode, StopMode::WhenIdle) => {
+                // A stop requested in a self-shutdown's drain: the new-task requests it waited for are cut now.
+                self.cut_new_tasks();
+                self.settle("");
+                Ok(())
+            }
             Phase::Draining(drain) => match mode {
                 StopMode::WhenIdle => Ok(()),
                 StopMode::AbortConfirmed => {
@@ -264,6 +306,7 @@ impl Machine {
                     if drain.releasing || drain.aborting {
                         return Ok(());
                     }
+                    self.cut_new_tasks();
                     let running = self.running();
                     if let Phase::Draining(drain) = &mut self.phase {
                         drain.aborting = true;
@@ -468,7 +511,8 @@ impl Machine {
     /// `trigger` is Node's text of what made the core idle with nobody attached (`ClientKind::node_text`, `BUSY_WORK_SETTLED`).
     fn settle(&mut self, trigger: &'static str) {
         // A service call in flight defers a drain like busy work does (`drainDeferral`, `daemon-drain-policy.mjs`: calls, then busy).
-        let busy = self.calls > 0 || self.activities.values().any(|a| a.kind.blocks_idle());
+        let calls = self.calls_in_flight();
+        let busy = calls || self.activities.values().any(|a| a.kind.blocks_idle());
         match &mut self.phase {
             Phase::Draining(drain) if !drain.releasing && !busy => {
                 drain.releasing = true;
@@ -484,7 +528,7 @@ impl Machine {
                 self.begin_release(cause);
             }
             Phase::Serving
-                if self.client_seen && self.clients == 0 && self.activities.is_empty() && self.calls == 0 =>
+                if self.client_seen && self.clients == 0 && self.activities.is_empty() && !calls =>
             {
                 self.effects.push(Effect::NodeTrigger(trigger));
                 self.commit_drain(StopReason::NoClients);

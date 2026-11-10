@@ -243,11 +243,17 @@ impl NewTaskReceipts {
     /// before or after a write that outlives `bound`). The callers in flight and later requests get no answer ([`unanswered`]).
     /// `Err` when a write outlived `bound`.
     pub async fn shutdown(&self, bound: std::time::Duration) -> Result<(), String> {
-        self.closing.cancel();
+        self.cut();
         match tokio::time::timeout(bound, self.alive.write()).await {
             Ok(_) => Ok(()),
             Err(_) => Err(format!("a new-task receipt write did not end within {bound:?} of shutdown; its receipt holds the phase before or after it")),
         }
+    }
+
+    /// The stop request (Node's host dispose): every attempt in flight ends now, as [`Self::shutdown`] ends it, and no new one starts;
+    /// the writes they begin are waited for by [`Self::shutdown`].
+    pub fn cut(&self) {
+        self.closing.cancel();
     }
 
     /// Cancelled when the receipts shut down.
@@ -464,6 +470,11 @@ impl Request {
     }
 }
 
+/// Whether `thread/start` params are a new task (`submitNewTask`): a task with its first prompt.
+pub fn starts_new_task(params: &Value) -> bool {
+    params.get("kind").and_then(Value::as_str) == Some("task") && params.get("initialInput").is_some_and(|input| !input.is_null())
+}
+
 /// The id of a new-task request and the content it is signed over (`submitNewTask`): `id` is the client's submission id, else a
 /// random one; the input is `{ prompt, options: { ...options, id, submittedAt: undefined }, draft }` with a worktree choice signed as
 /// `{}` (acknowledging a large repository resends the same submission).
@@ -545,14 +556,16 @@ impl SessionDirectory {
             }
         };
         let Some(started) = started else {
-            // Shutdown, as Node's quit: the disposed daemon client fails the call in flight and every later one
-            // (desktop-service-client.ts `dispose` → `rejectPending`), and `createNewTask` goes on from the call that failed.
-            // The creation (`client.create`, session-host-lifecycle.ts:824) fails before the `try` that refuses (:835): the
-            // receipt stays as it is, whatever the creation had already persisted. The draft's route (`setRoute`, :779) is awaited
-            // inside the `try` while unsent: refused, wherever in the core's creation call it is adopted. The commit of `configured` is the host's own
-            // file write, which the disposal does not fail: the next call fails, the worktree's inside the `try` while unsent
-            // (:955 `if (unsent) await request.reset()`), else the submit after `unsent = false`. The worktree's own call is
-            // inside the `try`. Nobody is answered (the gate sends no outcome once it is closing).
+            // A stop request, as Node's quit (the app's `/stop {force:true}`, session-client.mjs:667-707, runs the daemon's
+            // `shutdown`, daemon.mjs:272): the session service is closed first (session-service.mjs:257) and the host is disposed
+            // (session-host.ts:1210), so the call the attempt awaits fails as it settles (`assertAvailable`, session-action.mjs:111,
+            // entries/lifecycle.mjs:36-39) and every later one fails at once (session-host-transport.ts:87), and `createNewTask` goes
+            // on from the call that failed. The creation (`client.create`, session-host-lifecycle.ts:824) fails before the `try` that
+            // refuses (:835): the receipt stays as it is. The draft's route (`setRoute`, :779) is awaited inside the `try` while
+            // unsent: refused, wherever in the core's creation call it is adopted. The commit of `configured` is the host's own file
+            // write, which completes: the next call fails, the worktree's inside the `try` while unsent (:955 `if (unsent) await
+            // request.reset()`), else the submit after `unsent = false`. Nobody is answered (the gate sends no outcome once it is
+            // closing).
             let refused = first
                 && match step {
                     Step::Creating | Step::Sending => false,
@@ -561,9 +574,11 @@ impl SessionDirectory {
                 };
             if refused {
                 let _ = request.reset().await;
-                if !self.holds_user_conversation(&id).await.unwrap_or(true) {
-                    self.discard(&id).await;
-                }
+            }
+            // The reservation lives in the daemon's memory (session-views.mjs:31-45, `reservedOnly`) and ends with it
+            // (daemon.mjs:412): the record the core made for it earlier than Node would is not left behind.
+            if !matches!(step, Step::Sending) && !self.holds_user_conversation(&id).await.unwrap_or(true) {
+                self.discard(&id).await;
             }
             return Err(failed("session", "The new task request ended with the shutdown."));
         };
