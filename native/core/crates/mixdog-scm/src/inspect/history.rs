@@ -322,8 +322,10 @@ pub async fn show(
         let (git, cancel, cwd) = (git.clone(), cancel.clone(), cwd.to_path_buf());
         let args: Vec<String> = args.iter().map(|arg| (*arg).to_owned()).collect();
         async move { git.read(&cancel, &cwd, &args.iter().map(String::as_str).collect::<Vec<_>>()).await }
-    };    let ((metadata, status_raw), numstat_raw) =
-        crate::promise_all::all2(crate::promise_all::all2(read(&metadata_args), read(&status_args)), read(&numstat_args)).await?;    let mut fields = metadata.trim().split('\u{1f}');
+    };
+    let ((metadata, status_raw), numstat_raw) =
+        crate::promise_all::all2(crate::promise_all::all2(read(&metadata_args), read(&status_args)), read(&numstat_args)).await?;
+    let mut fields = metadata.trim().split('\u{1f}');
     let full_hash = fields.next().unwrap_or(hash).to_owned();
     let short_hash = fields
         .next()

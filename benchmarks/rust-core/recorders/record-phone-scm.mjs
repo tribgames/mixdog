@@ -20,6 +20,7 @@
 // clock's steps, and the ordering scenario.
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs, { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import net from 'node:net';
@@ -313,7 +314,39 @@ const methods = createRemoteMethods({ host });
 
 // ── scratch repositories ──
 const git = (cwd, ...gitArgs) => boundedSync(realGit, ['-c', 'core.autocrlf=false', '-c', 'commit.gpgsign=false', ...gitArgs], { cwd, encoding: 'utf8', stdio: 'pipe' }).stdout;
-const write = (root, rel, text) => {
+/** What a call left in the repositories, read with the real git after the call ended: HEAD, every ref (by the commit's tree, author,
+ *  message and history length: a commit's id carries its time, which differs between two runs), the staged index, the working tree
+ *  (every file's content hash), the stashes, the local config, and the refs of the remote. Compared case by case: Node's answer is
+ *  not the only thing a call leaves behind. */
+function repoState(root, remote) {
+  const read = (cwd, ...args) => git(cwd, '--no-optional-locks', ...args);
+  // A status that is not an answer (unborn HEAD, detached HEAD) is an empty value, not a failure.
+  const soft = (...args) => {
+    const result = spawnSync(realGit, ['--no-optional-locks', ...args], { cwd: root, encoding: 'utf8', timeout: CHILD_BOUND_MS, killSignal: 'SIGKILL' });
+    assert.ok(!result.error, `${args.join(' ')}: ${result.error?.message}`);
+    return result.status === 0 ? result.stdout.trim() : '';
+  };
+  const refsOf = (cwd) =>
+    read(cwd, 'for-each-ref', '--format=%(refname)%00%(objecttype)%00%(objectname)').split('\n').filter(Boolean).map((line) => {
+      const [name, type, id] = line.split('\0');
+      return type === 'commit'
+        ? { name, tree: read(cwd, 'rev-parse', `${id}^{tree}`).trim(), message: read(cwd, 'log', '-1', '--format=%an%n%ae%n%B', id), length: read(cwd, 'rev-list', '--count', id).trim() }
+        : { name, type };
+    });
+  return {
+    headTree: soft('rev-parse', '--verify', '-q', 'HEAD^{tree}'),
+    branch: soft('symbolic-ref', '-q', 'HEAD'),
+    refs: refsOf(root),
+    remoteRefs: refsOf(remote),
+    index: read(root, 'ls-files', '-s').split('\n').filter(Boolean).map((line) => line.replace(/^(\d+) \S+ /, '$1 ')),
+    tree: read(root, 'ls-files', '-co', '--exclude-standard', '-z').split('\0').filter(Boolean).map((file) => {
+      const path = join(root, file);
+      return [file, existsSync(path) ? createHash('sha256').update(readFileSync(path)).digest('hex') : null];
+    }),
+    stashes: read(root, 'stash', 'list', '--format=%gs').split('\n').filter(Boolean),
+    config: read(root, 'config', '--local', '--list').split('\n').filter(Boolean),
+  };
+}const write = (root, rel, text) => {
   mkdirSync(join(root, rel, '..'), { recursive: true });
   writeFileSync(join(root, rel), text);
 };
@@ -875,6 +908,9 @@ async function rec(name, call, params, note, during) {
     if (!isDeepStrictEqual([...rust, ...js], wanted)) differ('attempts', wanted, [...rust, ...js]);
     const operations = opsDifference(recorded.ops, replay.wires);
     if (operations) differ('operations', operations.node, operations.core);
+    // What the call left in the repository, read after the core's answer and every child it started ended.
+    const left = repoState(R, ORIGIN);
+    if (!isDeepStrictEqual(left, recorded.repository)) differ('repository', recorded.repository, left);
     replay.compared.push(name);
     if (!isDeepStrictEqual(core, recorded.frame)) replay.differences.push({ name, node: recorded.frame, core });
     return core;
@@ -903,6 +939,7 @@ async function rec(name, call, params, note, during) {
     ...(events.length ? { events: clone(events) } : {}),
     ...(processes.length ? { processes: clone(processes) } : {}),
     ...(steps.length ? { clock: clone(steps) } : {}),
+    repository: repoState(R, ORIGIN),
     world: clone(world),
   });
   return answer;
@@ -1274,7 +1311,11 @@ await rec('ghPrView-string-number', 'ghPrView', [R, '12']);
 await rec('ghPrView-missing', 'ghPrView', [R, 404]);
 await rec('ghPrView-bad-number', 'ghPrView', [R, 'x']);
 await rec('ghPrView-no-number', 'ghPrView', [R]);
+// The pull request's head on the origin (what gh fetches), then the checkout it makes in the repository.
+git(R, 'push', '-q', 'origin', 'unmerged:refs/pull/12/head');
 await rec('ghPrCheckout', 'ghPrCheckout', [R, 12]);
+git(R, 'checkout', '-q', 'main');
+git(R, 'branch', '-q', '-D', 'retry');
 await rec('ghPrCheckout-missing', 'ghPrCheckout', [R, 404]);
 await rec('ghPrCheckout-zero', 'ghPrCheckout', [R, 0]);
 await rec('ghPrMerge-default-method', 'ghPrMerge', [R, 12]);

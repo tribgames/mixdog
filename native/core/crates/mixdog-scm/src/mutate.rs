@@ -58,11 +58,8 @@ impl Repo {
         // `gitStatus(cwd)`: Node's own read of the directory the call was given (git-branches.ts assertCleanWorktree).
         let status = crate::inspect::status::node_status(&self.scm.git, self.scm.lane, &self.cancel, &self.cwd, false, false).await?;
         if !status.repository {
-            // Node reads "no repository" as an empty list; every caller of this core has been told why instead (a git that could
-            // not start, a folder that is no repository), so that answer is kept: the inspector's read names the cause.
-            let repo = self.repo_ref()?;
-            let scan = self.scm.inspector.scan(self.scm.lane, repo).await.map_err(scm_error)?;
-            return Ok(scan.json.files.iter().map(|file| file.path.clone()).collect());
+            // git-branches.ts:92: Node reads "no repository" as an empty list.
+            return Ok(Vec::new());
         }
         Ok(status.files.iter().map(|file| file.path.clone()).collect())
     }
@@ -123,13 +120,18 @@ impl Repo {
             return Ok(());
         }
         let _scope = self.write_scope().await?;
-        let mut args = if self.has_head().await? {
-            vec!["restore", "--staged", "--"]
-        } else {
-            vec!["rm", "--cached", "-r", "--ignore-unmatch", "--"]
-        };
+        let with_head = self.has_head().await?;
+        let mut args = if with_head { vec!["restore", "--staged", "--"] } else { vec!["rm", "--cached", "-r", "--ignore-unmatch", "--"] };
         args.extend(paths.iter().map(String::as_str));
-        self.run(&args).await.map(drop)
+        match self.run(&args).await {
+            // git-mutations.ts:75-79: a git without `restore` falls back to `reset HEAD`.
+            Err(_) if with_head => {
+                let mut reset = vec!["reset", "HEAD", "--"];
+                reset.extend(paths.iter().map(String::as_str));
+                self.run(&reset).await.map(drop)
+            }
+            other => other.map(drop),
+        }
     }
 
     pub async fn apply_patch(&self, path: &str, patch: &str, reverse: bool) -> Result<(), ScmFailure> {
@@ -245,7 +247,11 @@ impl Repo {
             return self.run(&["clean", "-f", "-d", "--", path]).await.map(drop);
         }
         if !whole {
-            return self.run(&["restore", "--worktree", "--", path]).await.map(drop);
+            // git-mutations.ts:195-200: a git without `restore` falls back to `checkout --`.
+            return match self.run(&["restore", "--worktree", "--", path]).await {
+                Err(_) => self.run(&["checkout", "--", path]).await.map(drop),
+                other => other.map(drop),
+            };
         }
         if self.has_head().await? {
             return self
@@ -398,7 +404,8 @@ impl Repo {
         commit: &str,
         failure: ScmFailure,
     ) -> ScmFailure {
-        if self.operation() != Some(operation) {
+        // git-mutations.ts:321 `sequencerFailure`: a diagnostic naming a conflict counts as one even with no operation in progress.
+        if !failure.to_string().to_lowercase().contains("conflict") && self.operation() != Some(operation) {
             return failure;
         }
         let files = self.conflicted_paths().await;
