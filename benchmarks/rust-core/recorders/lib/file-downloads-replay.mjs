@@ -1,28 +1,34 @@
-// The replay of benchmarks/rust-core/recorders/record-file-downloads.mjs: every phone call of Node's recording (native/core/fixtures/
-// file-downloads/file-downloads.json, b6f10295a) sent through the phone's router and the files adapter
-// (apps/desktop/src/renderer/remote-protocol-files.ts) over a paired phone's relay connection to a freshly started, built mixdogd, its reply
-// compared whole, in order, with the frame Node's phone received. Nothing is filtered or skipped: a call this harness cannot make, or
-// a step the core cannot be given, is a listed difference that fails the run, naming whose it is.
+// The replay of benchmarks/rust-core/recorders/record-file-downloads.mjs: every step of Node's recording (native/core/fixtures/
+// file-downloads/file-downloads.json, b6f10295a) played against a freshly started mixdogd, and every phone call of it sent through the
+// phone's router and the files adapter (apps/desktop/src/renderer/remote-protocol-files.ts) over a paired phone's relay connection, its reply
+// compared whole with the frame Node's phone received. Nothing is filtered or skipped: a step this harness cannot make is a listed difference.
 //
-// The world: each scenario runs on devices of its own (a paired credential each, so what an earlier scenario left held is another
-// device's) over two conversations of the core (s1 in a registered project, s2 a task conversation); a deleted conversation is a deleted
-// thread, a publication of the catalog a `thread/list`. The recording's clock moves only by its `advance` steps: the core reads the
-// instant from the file named by `MIXDOG_DOWNLOAD_CLOCK_FILE` (a debug build only), which this replay writes. An unpair is the desktop's
-// `remoteAccess/revokeClient` against a relay that does not confirm it (the phone's connection stays, without the device's grants).
+// The core must be built with the `replay-controls` feature (an explicit opt-in forwarded to mixdog-workspace; no ordinary build has it):
+//   cargo build -p mixdog-cli --bin mixdogd --features replay-controls
+// It is told a folder (`MIXDOG_DOWNLOAD_REPLAY_DIR`) it talks to this harness through (native/core/crates/mixdog-workspace/src/
+// replay_controls.rs): the harness writes the clock and the holds, the core writes how many files its downloads hold open, where the
+// 15 s sweeper counts from and the tick it has swept at. So the recording's clock moves only by its `advance` steps, a call is held inside
+// the core while the recording's event happens, and every `handles` step is compared with the core's own count of the files it holds.
 //
-// What a spawned core cannot show is proved elsewhere and counted here: a call held in the middle of the core while something else
-// happens (`hold` steps) and the files it holds open (`handles` steps) are replayed by the workspace crate's
-// `transfer::replay` test on the production service dispatch, which holds a call at the point it names and counts the held files.
+// The world: each scenario runs on devices of its own (a paired credential each) over two conversations of the core (s1 in a registered
+// project, s2 a task conversation); a deleted conversation is a deleted thread, a publication of the catalog a `thread/list`. An unpair is
+// the desktop's `remoteAccess/revokeClient` against a relay that does not confirm it (the phone's connection stays, without the device's
+// grants). The core has no event for "every device revoked" or "the relay leg closed" (Node's `revokeAll`, remote-relay.ts:643/:652):
+// the recording's `revokeAll` is played as the unpair of each device of the scenario, the only event the core has.
 import { spawn, spawnSync } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, truncateSync, watch, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, truncateSync, watch, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { REPO_ROOT } from './common.mjs';
 
 const WORLDS = 'D:\\mixdog-build\\tmp\\w25-downloads-replay';
+const REQUESTS_FILE = join(REPO_ROOT, 'native', 'core', 'fixtures', 'file-download-requests', 'core-requests.json');
 const here = (path) => import(pathToFileURL(join(REPO_ROOT, path)).href);
 const RELAY_CAPABILITIES = { textFrames: 1, maxFrameBytes: 1048576 };
+const SWEEP_INTERVAL = 15_000;
+/** The point of the core's download call each of Node's test gates is held at. */
+const POINTS = { read: 'read.read', stat: 'begin.verify', afterResolve: 'authorize.resolved' };
 
 /** A wait on something the replay needs to happen: it ends, after `ms` of real time, in an error naming what did not happen. */
 const within = (promise, what, ms = 60_000) =>
@@ -34,11 +40,15 @@ const within = (promise, what, ms = 60_000) =>
     );
   });
 
-const killTree = (child) => void spawnSync('taskkill', ['/T', '/F', '/PID', String(child.pid)], { stdio: 'ignore', timeout: 30_000 });
+/** Ends a process and everything it started; a process that is already gone is fine, any other failure is an error. */
+const killTree = (child) => {
+  const ended = spawnSync('taskkill', ['/T', '/F', '/PID', String(child.pid)], { stdio: 'ignore', timeout: 30_000 });
+  if (ended.error || (ended.status !== 0 && ended.status !== 128)) throw new Error(`could not end the core (pid ${child.pid}): ${ended.error?.message ?? `taskkill exited ${ended.status}`}`);
+};
 
-/** The core, started on a data dir of its own with the relay it dials and the clock file it reads; up when it has written its discovery file. */
-async function startCore(exe, root, relayPort, clockFile) {
-  rmSync(root, { recursive: true, force: true });
+/** The core, started on a data dir of its own with the relay it dials and the folder it talks to this replay through; up when it has
+ *  written its discovery file and the controls' first answer (a core built without them never writes one). */
+async function startCore(exe, root, relayPort, talk) {
   for (const dir of ['runtime', 'data', 'home', 'config']) mkdirSync(join(root, dir), { recursive: true });
   const env = { ...process.env };
   for (const key of Object.keys(env)) if (key.startsWith('MIXDOG_')) delete env[key];
@@ -47,7 +57,7 @@ async function startCore(exe, root, relayPort, clockFile) {
     MIXDOG_DATA_DIR: join(root, 'data'),
     MIXDOG_HOME: join(root, 'home'),
     MIXDOG_CONFIG_DIR: join(root, 'config'),
-    MIXDOG_DOWNLOAD_CLOCK_FILE: clockFile,
+    MIXDOG_DOWNLOAD_REPLAY_DIR: talk.dir,
     MIXDOG_RELAY_URL: `ws://127.0.0.1:${relayPort}`,
   });
   writeFileSync(join(root, 'data', 'remote-activated.json'), '{"activatedAt":1}');
@@ -58,46 +68,71 @@ async function startCore(exe, root, relayPort, clockFile) {
   let stderr = '';
   child.stderr.on('data', (chunk) => (stderr += chunk));
   const file = join(root, 'runtime', 'daemon.json');
-  let stirred = false;
-  let wake = null;
-  const stir = () => {
-    stirred = true;
-    wake?.();
+  const up = () => {
+    if (child.exitCode !== null) throw new Error(`mixdogd exited ${child.exitCode}:\n${stderr}`);
+    if (talk.read('held') === null) return undefined;
+    try {
+      return { child, endpoint: parseDiscovery(readFileSync(file, 'utf8')), dataDir: join(root, 'data') };
+    } catch {
+      return undefined;
+    }
   };
-  const watcher = watch(join(root, 'runtime'), stir);
-  child.once('exit', stir);
+  child.once('exit', () => talk.poke());
   try {
-    return await within(
-      (async () => {
-        for (;;) {
-          stirred = false;
-          if (child.exitCode !== null) throw new Error(`mixdogd exited ${child.exitCode}:\n${stderr}`);
-          try {
-            return { child, endpoint: parseDiscovery(readFileSync(file, 'utf8')), dataDir: join(root, 'data') };
-          } catch {
-            if (!stirred) await new Promise((resolve) => (wake = resolve));
-          }
-        }
-      })(),
-      'the core to write its discovery file',
-      120_000
-    );
+    return await talk.waitFor('the core to write its discovery file and the replay controls\' first answer (is mixdogd built with mixdog-workspace/replay-controls?)', up, 120_000, [join(root, 'runtime')]);
   } catch (error) {
     killTree(child);
     throw error;
-  } finally {
-    watcher.close();
   }
 }
 
+/** The folder the replay and the core talk through, and the waits on it: a wait is a watch of the folder (and any other named) that
+ *  looks again at each change, with its own deadline. */
+function talkFolder(dir) {
+  mkdirSync(dir, { recursive: true });
+  const waiting = new Set();
+  const poke = () => waiting.forEach((look) => look());
+  return {
+    dir,
+    poke,
+    read: (name) => (existsSync(join(dir, name)) ? readFileSync(join(dir, name), 'utf8').trim() : null),
+    write: (name, text) => writeFileSync(join(dir, name), String(text)),
+    remove: (name) => rmSync(join(dir, name), { force: true }),
+    async waitFor(what, check, ms = 30_000, also = []) {
+      const watchers = [];
+      try {
+        return await within(
+          new Promise((resolve, reject) => {
+            const look = () => {
+              try {
+                const found = check();
+                if (found !== undefined) resolve(found);
+              } catch (error) {
+                reject(error);
+              }
+            };
+            waiting.add(look);
+            for (const place of [dir, ...also]) watchers.push(watch(place, look));
+            look();
+          }),
+          what,
+          ms
+        );
+      } finally {
+        for (const watcher of watchers) watcher.close();
+      }
+    },
+  };
+}
+
 /** A relay the core dials: the desktop leg, with a roster of the paired devices, that does not confirm an unpair (the phone's connection
- *  stays, as in Node's recording where `revokeDevice` ended nothing but the device's downloads). */
-async function startRelay(clients) {
+ *  stays, as in Node's recording where `revokeDevice` ended nothing but the device's downloads). The server exists when this returns, so
+ *  the caller can close it whatever `ready` does. */
+function startRelay(clients) {
   const { WebSocketServer } = createRequire(join(REPO_ROOT, 'apps', 'desktop', 'package.json'))('ws');
-  const E2EE = await here('apps/desktop/src/shared/remote-e2ee.ts');
   const server = new WebSocketServer({ port: 0, host: '127.0.0.1' });
-  await within(new Promise((resolve) => server.once('listening', resolve)), 'the relay to listen', 30_000);
   const state = { socket: null, phones: new Map(), legWaiters: [] };
+  const ready = within(new Promise((resolve) => server.once('listening', resolve)), 'the relay to listen', 30_000);
   server.on('connection', (socket) => {
     state.socket = socket;
     socket.send(JSON.stringify({ type: 'relay-capabilities', ...RELAY_CAPABILITIES }));
@@ -110,7 +145,7 @@ async function startRelay(clients) {
     });
   });
   /** One phone behind the relay as `credential`: client-open, challenge, hello, ready; then a `Connector` over the sealed channel. */
-  async function openPhone(clientId, credential, pairing) {
+  async function openPhone(E2EE, clientId, credential, pairing) {
     const inbox = [];
     const waiting = [];
     state.phones.set(clientId, {
@@ -120,20 +155,21 @@ async function startRelay(clients) {
         else inbox.push(frame);
       },
     });
-    const take = () => within(inbox.length ? Promise.resolve(inbox.shift()) : new Promise((resolve) => waiting.push(resolve)), `a frame for the phone ${clientId} from the core`);
+    const next = () => (inbox.length ? Promise.resolve(inbox.shift()) : new Promise((resolve) => waiting.push(resolve)));
+    const take = () => within(next(), `a frame for the phone ${clientId} from the core`);
     state.socket.send(JSON.stringify({ type: 'client-open', clientId, browserClientId: credential }));
     const challenge = JSON.parse((await take()).data);
     const { hello, channel } = await E2EE.createRelayE2EEClientHandshake(pairing, challenge);
     state.socket.send(JSON.stringify({ type: 'frame', clientId, data: JSON.stringify(hello) }));
-    const ready = await channel.decryptJson((await take()).data);
-    if (ready?.type !== 'e2ee-ready') throw new Error(`the core did not answer the hello with e2ee-ready: ${JSON.stringify(ready)}`);
+    const answer = await channel.decryptJson((await take()).data);
+    if (answer?.type !== 'e2ee-ready') throw new Error(`the core did not answer the hello with e2ee-ready: ${JSON.stringify(answer)}`);
     let sending = Promise.resolve();
     return {
       async open(_target, sink) {
         let receiving = Promise.resolve();
         void (async () => {
           for (;;) {
-            const frame = await new Promise((resolve) => (inbox.length ? resolve(inbox.shift()) : waiting.push(resolve)));
+            const frame = await next();
             if (frame.type === 'close-client') return sink.closed(1000, frame.reason ?? '');
             receiving = receiving.then(async () => sink.frame(JSON.stringify(await channel.decryptJson(frame.data))));
           }
@@ -148,7 +184,8 @@ async function startRelay(clients) {
     };
   }
   return {
-    port: server.address().port,
+    ready,
+    port: () => server.address().port,
     leg: () => (state.socket ? Promise.resolve() : within(new Promise((resolve) => state.legWaiters.push(resolve)), 'the core to dial the relay', 120_000)),
     openPhone,
     close: () => server.close(),
@@ -168,6 +205,11 @@ class Tokens {
     if (node && typeof node === 'object') return Object.fromEntries(Object.entries(node).map(([key, value]) => [key, this.resolve(value)]));
     return node;
   }
+  /** The recorded token of a value this run bound, if it is one. */
+  tokenOf(value) {
+    for (const [token, bound] of this.bound) if (bound === value) return token;
+    return undefined;
+  }
   /** The paths at which `got` is not what was `recorded`. */
   differences(recorded, got, path = '') {
     if (Tokens.is(recorded)) {
@@ -185,11 +227,14 @@ class Tokens {
 let opCount = 0;
 const opId = () => `018f0000-0000-7000-8000-${(++opCount).toString(16).padStart(12, '0')}`;
 
-/** @returns {Promise<number>} the exit code: 0 when every step is as Node's */
-export async function replayDownloads({ exe, recording }) {
+/** @returns {Promise<number>} the exit code: 0 when every step is as Node's. `writeRequests`: record the requests the adapter makes of
+ *  the core as the golden the workspace crate's replay sends (otherwise they are compared with it). */
+export async function replayDownloads({ exe, recording, writeRequests = false }) {
   rmSync(WORLDS, { recursive: true, force: true });
   mkdirSync(WORLDS, { recursive: true });
-  const clockFile = join(WORLDS, 'download-clock');
+  const talk = talkFolder(join(WORLDS, 'talk'));
+  talk.write('clock', recording.clockStart);
+  const golden = writeRequests ? { domain: 'file-download-requests', scenarios: [] } : JSON.parse(readFileSync(REQUESTS_FILE, 'utf8'));
   const credentials = [];
   const credential = (n, who) => {
     const id = `${who === 'phone' ? 'a' : who === 'tablet' ? 'b' : 'c'}${n.toString(16).padStart(7, '0')}`;
@@ -201,18 +246,21 @@ export async function replayDownloads({ exe, recording }) {
     scenario,
     devices: Object.fromEntries([...new Set(scenario.steps.flatMap((step) => [step.device].filter(Boolean)))].map((device) => [device, credential(n, device.startsWith('connection') ? 'connection' : device)])),
   }));
-  const relay = await startRelay(credentials);
+  const relay = startRelay(credentials);
   let core = null;
   const clients = [];
   const problems = [];
-  const accounted = { calls: 0, held: 0, handles: 0 };
+  const accounted = { calls: 0, held: 0, handles: 0, skipped: 0 };
+  // Every recorded call carries the id of its request: one counter, one id per call sent, in the recording's order, none skipped.
+  let expectedId = null;
   try {
-    core = await startCore(exe, join(WORLDS, 'core'), relay.port, clockFile);
+    await relay.ready;
+    core = await startCore(exe, join(WORLDS, 'core'), relay.port(), talk);
     await relay.leg();
+    const E2EE = await here('apps/desktop/src/shared/remote-e2ee.ts');
     const { adapter } = await here('apps/desktop/src/renderer/remote-protocol-files.ts');
     const { connect, sessionReducer } = await here('packages/protocol-client/src/index.ts');
     const { createWsConnector } = await here('apps/desktop/src/main/protocol/ws-connector.ts');
-    const { relayE2EEPairingMaterial } = await here('apps/desktop/src/shared/remote-e2ee.ts');
     globalThis.window = { setTimeout: () => 0, clearTimeout() {} };
     const { createProtocolRouter } = await here('apps/desktop/src/renderer/remote-shim-protocol.ts');
     const base = (connector, kind, name) => ({
@@ -224,7 +272,7 @@ export async function replayDownloads({ exe, recording }) {
       clock: { sleep: () => Promise.reject(new Error('the replay dropped its connection')) },
       random: Math.random,
     });
-    const pairing = relayE2EEPairingMaterial(JSON.parse(readFileSync(join(core.dataDir, 'relay-e2ee.json'), 'utf8')));
+    const pairing = E2EE.relayE2EEPairingMaterial(JSON.parse(readFileSync(join(core.dataDir, 'relay-e2ee.json'), 'utf8')));
     // The desktop: registers projects, starts and deletes conversations, publishes the catalog, unpairs.
     const desktop = await connect(base(createWsConnector(async () => core.endpoint), 'desktop', 'mixdog-replay-desktop'));
     clients.push(desktop);
@@ -232,17 +280,26 @@ export async function replayDownloads({ exe, recording }) {
 
     for (const [n, { scenario, devices }] of plan.entries()) {
       const label = scenario.name;
+      const steps = scenario.steps;
+      const callsOf = steps.filter((step) => step.op === 'call' || step.op === 'send').length;
+      if (scenario.platform && scenario.platform !== process.platform) {
+        // A recording of this host's own path rules is not a statement about another host's: counted, not replayed.
+        accounted.skipped += callsOf;
+        if (expectedId !== null) expectedId += callsOf;
+        console.log(`file-downloads ${label}: recorded on ${scenario.platform}, not applicable on ${process.platform} (${callsOf} calls)`);
+        continue;
+      }
       const world = realpathSync.native(mkdtempSync(join(WORLDS, 'w-')));
       for (const folder of ['project', 'task', 'outside']) mkdirSync(join(world, folder), { recursive: true });
-      writeFileSync(clockFile, String(recording.clockStart));
-      let elapsed = 0;
+      talk.write('clock', recording.clockStart);
+      let now = recording.clockStart;
       await ask('project/create', { opId: opId(), path: join(world, 'project') });
       // A conversation needs a main model on its route (no provider is signed in here): the draft names one, which is never called.
       const route = { provider: 'openai', model: 'gpt-5' };
       // A conversation the recording had published in a catalog before its first call is a row of the core's catalog: a name makes the empty
       // conversation one, as a turn does, and only a listed conversation can be seen gone.
-      const publishedFirst = scenario.steps.findIndex((step) => step.op === 'sessions');
-      const firstCall = scenario.steps.findIndex((step) => step.op === 'call' || step.op === 'hold');
+      const publishedFirst = steps.findIndex((step) => step.op === 'sessions');
+      const firstCall = steps.findIndex((step) => step.op === 'call' || step.op === 'hold');
       const listed = publishedFirst !== -1 && publishedFirst < firstCall;
       const started = async (kind, extra) => {
         const id = (await ask('thread/start', { opId: opId(), kind, draft: { route }, ...extra })).thread.id;
@@ -256,40 +313,66 @@ export async function replayDownloads({ exe, recording }) {
         if (node && typeof node === 'object') return Object.fromEntries(Object.entries(node).map(([key, value]) => [key, key === 'sessionId' && conversations[value] ? conversations[value] : sessionOf(value)]));
         return node;
       };
+      const tokens = new Tokens();
+      const forward = (text) => text.replaceAll('\\', '/');
+      /** A request the adapter made, in the recording's terms: its conversations, its tokens, its folder. */
+      const normalized = (node) => {
+        if (Array.isArray(node)) return node.map(normalized);
+        if (node && typeof node === 'object') return Object.fromEntries(Object.entries(node).map(([key, value]) => [key, normalized(value)]));
+        if (typeof node !== 'string') return node;
+        const session = Object.entries(conversations).find(([, id]) => id === node);
+        if (session) return session[0];
+        return tokens.tokenOf(node) ?? forward(node).replaceAll(forward(world), '<dir>');
+      };
       const routers = new Map();
+      const requested = [];
       const gaps = [];
       for (const [device, id] of Object.entries(devices)) {
         // A `connection:*` device is a relay connection the relay named no credential for: its own device (Node's `downloadRequester`).
         const named = device.startsWith('connection') ? '' : id;
         let client;
         try {
-          client = await connect(base(await relay.openPhone(`p${n}-${device}`, named, pairing), 'phone', 'mixdog-phone'));
+          client = await connect(base(await relay.openPhone(E2EE, `p${n}-${device}`, named, pairing), 'phone', 'mixdog-phone'));
         } catch (error) {
           gaps.push(`${device}: ${error.message}`);
           continue;
         }
         clients.push(client);
+        const call = client.call.bind(client);
+        client.call = (method, params) => (requested.push({ method, params: normalized(params) }), call(method, params));
         const host = { ctx: { browserId: `p${n}-${device}` }, client: () => client, declareLane() {} };
         routers.set(device, createProtocolRouter([adapter], { host, started: async () => {}, synced: async () => {}, probe() {}, silentSince: () => false }));
       }
-      const tokens = new Tokens();
       const unexpected = [...gaps];
-      const swapDir = (node) => (typeof node === 'string' ? node.replaceAll('<dir>', world.replaceAll('\\', '/')) : Array.isArray(node) ? node.map(swapDir) : node && typeof node === 'object' ? Object.fromEntries(Object.entries(node).map(([k, v]) => [k, swapDir(v)])) : node);
-      const frameOf = async (device, method, params) => {
-        try {
-          const value = await within(routers.get(device).call(method, sessionOf(swapDir(tokens.resolve(params)))), `the answer to ${method}`);
-          return { ok: true, value: value === undefined ? null : JSON.parse(JSON.stringify(value)) };
-        } catch (error) {
-          return { ok: false, error: error.message, ...(typeof error.code === 'string' && error.code ? { errorCode: error.code } : {}) };
+      const swapDir = (node) => (typeof node === 'string' ? node.replaceAll('<dir>', forward(world)) : Array.isArray(node) ? node.map(swapDir) : node && typeof node === 'object' ? Object.fromEntries(Object.entries(node).map(([k, v]) => [k, swapDir(v)])) : node);
+      const goldenSteps = [];
+      const sendFrame = (device, method, params) => {
+        const sent = within(routers.get(device).call(method, sessionOf(swapDir(tokens.resolve(params)))), `the answer to ${method}`);
+        return sent.then(
+          (value) => ({ ok: true, value: value === undefined ? null : JSON.parse(JSON.stringify(value)) }),
+          (error) => ({ ok: false, error: error.message, ...(typeof error.code === 'string' && error.code ? { errorCode: error.code } : {}) })
+        );
+      };
+      /** One call: the id it takes, the requests it makes, the frame it gets. */
+      const issue = (step, recordedId) => {
+        if (expectedId === null) expectedId = recordedId;
+        if (recordedId !== expectedId) unexpected.push(`#${index} ${step.method}: the recording gives this call id ${recordedId}, the replay's next call is ${expectedId} (a call was skipped or repeated)`);
+        expectedId += 1;
+        return requested.length;
+      };
+      const settleRequests = (from, at) => {
+        const made = requested.slice(from);
+        goldenSteps[at] = made;
+        if (!writeRequests) {
+          const wanted = golden.scenarios.find((entry) => entry.name === label)?.steps[at];
+          if (JSON.stringify(wanted) !== JSON.stringify(made)) unexpected.push(`#${at + 1} the adapter's requests: recorded ${JSON.stringify(wanted)}, made ${JSON.stringify(made)}`);
         }
       };
-      const compare = async (step, recorded, index) => {
-        if (!routers.has(step.device)) return void unexpected.push(`#${index} ${step.method}: no connection for ${step.device}`);
-        const got = await frameOf(step.device, step.method, step.params);
+      const compare = (step, recorded, got, at) => {
         const { id: _id, ...node } = recorded;
         const found = tokens.differences(node, got);
         accounted.calls += 1;
-        if (found.length) unexpected.push(`#${index} ${step.device} ${step.method}: ${found.join('; ')}`);
+        if (found.length) unexpected.push(`#${at + 1} ${step.device} ${step.method}: ${found.join('; ')}`);
       };
       const publish = async (ids) => {
         for (const id of [...alive]) {
@@ -297,93 +380,161 @@ export async function replayDownloads({ exe, recording }) {
           alive.delete(id);
           await ask('thread/delete', { threadId: conversations[id], opId: opId() });
         }
-        const listed = await ask('thread/list', {});
-        if (process.env.DL_DEBUG) console.log('LIST', listed.data.map((row) => row.id), Object.values(conversations));
+        await ask('thread/list', {});
       };
       // The relay does not confirm, so the call is refused after the core ended the device's downloads (`unpaired` runs first).
-      const unpair = (step) => ask('remoteAccess/revokeClient', { opId: opId(), clientId: plan[n].devices[step.device] }).catch(() => undefined);
-      const steps = scenario.steps;
+      const unpair = (device) => ask('remoteAccess/revokeClient', { opId: opId(), clientId: plan[n].devices[device] }).catch(() => undefined);
+      /** Files and folders: the same operations the recorder made. */
+      const fileOp = (step) => {
+        const at = (name) => join(world, name);
+        if (step.op === 'write') (mkdirSync(join(at(step.file), '..'), { recursive: true }), writeFileSync(at(step.file), step.text));
+        else if (step.op === 'append') appendFileSync(at(step.file), step.text);
+        else if (step.op === 'size') truncateSync(at(step.file), step.bytes);
+        else if (step.op === 'remove') rmSync(at(step.file), { force: true });
+        else if (step.op === 'mkdir') mkdirSync(at(step.file), { recursive: true });
+        else if (step.op === 'rename') renameSync(at(step.file), at(step.to));
+        else if (step.op === 'junction') (rmSync(at(step.file), { recursive: true, force: true }), symlinkSync(at(step.target), at(step.file), 'junction'));
+        else return false;
+        return true;
+      };
+      /** The clock moves to `now + ms`, one sweeper tick at a time as Node's virtual queue ran them: to a tick, wait for the core to have
+       *  swept at it, on; the last leg is plain time. */
+      const advance = async (ms) => {
+        const target = now + ms;
+        for (;;) {
+          const anchorText = talk.read('anchor');
+          const anchor = anchorText === 'none' || anchorText === null ? null : Number(anchorText);
+          const tick = anchor === null ? null : anchor + SWEEP_INTERVAL * (Math.floor((now - anchor) / SWEEP_INTERVAL) + 1);
+          if (tick === null || tick > target) {
+            talk.write('clock', target);
+            now = target;
+            return;
+          }
+          talk.remove('swept');
+          talk.write('clock', tick);
+          now = tick;
+          await talk.waitFor(`the core's sweeper to sweep at ${tick}`, () => (talk.read('swept') === String(tick) ? true : undefined));
+        }
+      };
+      let retiring = false;
+      const held = async (expected) => {
+        // The core ends a deleted conversation's downloads on a task it spawns when the catalog is published, so right after a
+        // publication its count is awaited (a count that never arrives is reported as the count it stays at); every other count is
+        // read as it stands.
+        if (retiring) await talk.waitFor(`the core to hold ${expected} files after the catalog was published`, () => (Number(talk.read('held')) === expected ? true : undefined), 5_000).catch(() => undefined);
+        retiring = false;
+        return Number(talk.read('held'));
+      };
       let index = 0;
       try {
-      for (let at = 0; at < steps.length; at += 1) {
-        const step = steps[at];
-        index = at + 1;
-        switch (step.op) {
-          case 'write':
-            mkdirSync(join(world, step.file, '..'), { recursive: true });
-            writeFileSync(join(world, step.file), step.text);
-            break;
-          case 'append':
-            appendFileSync(join(world, step.file), step.text);
-            break;
-          case 'size':
-            truncateSync(join(world, step.file), step.bytes);
-            break;
-          case 'remove':
-            rmSync(join(world, step.file), { force: true });
-            break;
-          case 'mkdir':
-            mkdirSync(join(world, step.file), { recursive: true });
-            break;
-          case 'advance':
-            elapsed += step.ms;
-            writeFileSync(clockFile, String(recording.clockStart + elapsed));
-            break;
-          case 'revokeDevice':
-            await unpair(step);
-            break;
-          case 'revokeAll':
-            unexpected.push(`#${index} revokeAll: the core has no event for the relay leg closing or every device being revoked, so a revoke-all ends no download (owner: mixdog-remote RemoteEvents / domain_seams/remote DeviceCleanup, Node remote-relay.ts:643 and :652)`);
-            break;
-          case 'sessions':
-            await publish(step.ids);
-            break;
-          case 'handles':
-            accounted.handles += 1;
-            break;
-          case 'call':
-            await compare(step, step.frame, index);
-            break;
-          case 'hold': {
-            // hold, send, the event, release, answer: a spawned core cannot be held inside a call, so the event happens and the held
-            // call's own reply is proved by the workspace crate's transfer::replay; what the event leaves behind is compared here.
-            accounted.held += 1;
-            const event = steps[at + 2];
-            if (event.op === 'revokeDevice') await unpair(event);
-            else if (event.op === 'sessions') await publish(event.ids);
-            else throw new Error(`${label} #${index}: a held call's event ${event.op}`);
-            at += 4;
-            break;
+        for (let at = 0; at < steps.length; at += 1) {
+          const step = steps[at];
+          index = at + 1;
+          if (fileOp(step)) {
+            goldenSteps[at] = null;
+            continue;
           }
-          default:
-            throw new Error(`${label} #${index}: an unknown step ${step.op}`);
+          goldenSteps[at] = null;
+          switch (step.op) {
+            case 'advance':
+              await advance(step.ms);
+              break;
+            case 'revokeDevice':
+              await unpair(step.device);
+              break;
+            case 'revokeAll':
+              for (const device of Object.keys(devices)) if (!device.startsWith('connection')) await unpair(device);
+              break;
+            case 'sessions':
+              await publish(step.ids);
+              retiring = true;
+              break;
+            case 'handles': {
+              const open = await held(step.open);
+              accounted.handles += 1;
+              if (open !== step.open) unexpected.push(`#${index} handles: Node held ${step.open} files open, the core holds ${open}`);
+              break;
+            }
+            case 'call': {
+              if (!routers.has(step.device)) {
+                unexpected.push(`#${index} ${step.method}: no connection for ${step.device}`);
+                break;
+              }
+              const from = issue(step, step.frame.id);
+              compare(step, step.frame, await sendFrame(step.device, step.method, step.params), at);
+              settleRequests(from, at);
+              break;
+            }
+            case 'hold': {
+              // hold, send, the event, release, answer: the call is held inside the core at the point the gate names while the event happens.
+              const [sent, event, release, answered] = [steps[at + 1], steps[at + 2], steps[at + 3], steps[at + 4]];
+              if (sent.op !== 'send' || release.op !== 'release' || answered.op !== 'answer') throw new Error(`${label} #${index}: a hold is not followed by send, event, release, answer`);
+              const point = POINTS[step.gate];
+              accounted.held += 1;
+              talk.write(`hold-${point}`, '1');
+              const from = issue(sent, answered.frame.id);
+              const pending = sendFrame(sent.device, sent.method, sent.params);
+              await talk.waitFor(`a call to reach ${point} in the core`, () => (talk.read(`reached-${point}`) !== null ? true : undefined));
+              settleRequests(from, at + 1);
+              if (event.op === 'revokeDevice') await unpair(event.device);
+              else if (event.op === 'sessions') (await publish(event.ids), (retiring = true));
+              else if (!fileOp(event)) throw new Error(`${label} #${index}: a held call's event ${event.op}`);
+              talk.remove(`hold-${point}`);
+              compare(sent, answered.frame, await pending, at + 4);
+              for (let i = 2; i <= 4; i += 1) goldenSteps[at + i] = null;
+              at += 4;
+              break;
+            }
+            default:
+              throw new Error(`${label} #${index}: an unknown step ${step.op}`);
+          }
         }
-      }
       } catch (error) {
         unexpected.push(`#${index} the replay stopped: ${error.message}`);
       }
-      // What the scenario made in the core goes with it, so the next one starts as light as the first.
-      for (const id of alive) await desktop.call('thread/delete', { threadId: conversations[id], opId: opId() }).catch(() => undefined);
-      await desktop.call('project/delete', { path: join(world, 'project'), opId: opId() }).catch(() => undefined);
+      // What the scenario made in the core goes with it: every device unpaired and its connections closed, the core's count back to
+      // nothing held and its sweeper stopped, so the next scenario starts as the first did.
+      for (const device of Object.keys(devices)) if (!device.startsWith('connection')) await unpair(device);
+      for (const id of alive) await ask('thread/delete', { threadId: conversations[id], opId: opId() });
+      // A relay connection without a credential cannot be unpaired (Node's `downloadRequester`): what it holds ends by its lease, so the
+      // clock moves past the transfer lease's absolute lifetime (30 minutes), tick by tick.
+      if (Number(talk.read('held')) > 0) await advance(31 * 60_000).catch((error) => unexpected.push(`the replay stopped: ${error.message}`));
+      await ask('thread/list', {}); // the core ends a deleted conversation's downloads when the catalog is published
+      await ask('project/delete', { path: join(world, 'project'), opId: opId() });
+      for (const client of clients.splice(1)) client.close?.();
+      await talk
+        .waitFor('the core to hold nothing and stop its sweeper', () => (talk.read('held') === '0' && talk.read('anchor') === 'none' ? true : undefined), 15_000)
+        .catch(() => unexpected.push(`the scenario left the core holding ${talk.read('held')} files (sweeper ${talk.read('anchor')})`));
+      if (writeRequests) golden.scenarios.push({ name: label, steps: goldenSteps });
       console.log(`file-downloads ${label}: ${steps.length} steps, ${unexpected.length} unexpected`);
       for (const line of unexpected) console.log(`  DIFF ${line}`);
       problems.push(...unexpected.map((line) => `${label} ${line}`));
     }
+    if (writeRequests) {
+      mkdirSync(join(REQUESTS_FILE, '..'), { recursive: true });
+      writeFileSync(REQUESTS_FILE, `${JSON.stringify(golden, null, 2)}\n`);
+    }
   } finally {
+    // The core is ended first and its exit awaited, then the relay closed, then the work folder removed once: a failure of any is an error.
+    const failures = [];
     for (const client of clients) client.close?.();
-    if (core) {
-      const gone = new Promise((resolve) => (core.child.exitCode === null ? core.child.once('exit', resolve) : resolve()));
-      killTree(core.child);
-      await within(gone, 'the core to exit', 30_000);
+    try {
+      if (core) {
+        const gone = new Promise((resolve) => (core.child.exitCode === null ? core.child.once('exit', resolve) : resolve()));
+        killTree(core.child);
+        await within(gone, 'the core to exit', 30_000);
+      }
+    } catch (error) {
+      failures.push(error);
     }
     relay.close();
-    // The database the core started may outlive it a moment: the folder is removed by the next run's start, which clears it first.
     try {
-      rmSync(WORLDS, { recursive: true, force: true, maxRetries: 5 });
-    } catch {
-      /* removed at the next run's start */
+      rmSync(WORLDS, { recursive: true, force: true });
+    } catch (error) {
+      failures.push(error);
     }
+    if (failures.length) throw new AggregateError(failures, `cleanup of the replay failed: ${failures.map((error) => error.message).join('; ')}`);
   }
-  console.log(`file-downloads replay over ${exe}: ${accounted.calls} calls compared, ${accounted.held} held calls and ${accounted.handles} handle counts proved by the workspace crate's transfer::replay, ${problems.length} unexpected`);
+  console.log(`file-downloads replay over ${exe}: ${accounted.calls} calls compared, ${accounted.held} held calls, ${accounted.handles} handle counts, ${accounted.skipped} calls recorded on another platform, ${problems.length} unexpected`);
   return problems.length ? 1 : 0;
 }

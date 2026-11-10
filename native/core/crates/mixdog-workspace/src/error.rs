@@ -24,7 +24,7 @@ pub enum Reason {
     /// The file or folder changed under a transfer or a save.
     Changed,
     Expired,
-    /// A download the host no longer holds (Node's FileDownloadError('expired'), whose code is ile-download:expired).
+    /// A download the host no longer holds (Node's FileDownloadError('expired'), whose code is file-download:expired).
     DownloadExpired,
     /// Any other refusal of a phone's download (Node's `FileDownloadError`); the value is the whole code, `file-download:<reason>`.
     Download(&'static str),

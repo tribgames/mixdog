@@ -2944,6 +2944,23 @@ impl mixdog_workspace::grants::SessionCatalog for CatalogSessions {
             .map(|row| row.is_some())
             .map_err(|error| mixdog_workspace::error::WsError::new(mixdog_workspace::error::Reason::Io, error.to_string()))
     }
+
+    /// Node's `listSessions()` entry of the conversation: its classification, project and folder as its list row states them.
+    async fn row(&self, session_id: &str) -> mixdog_workspace::error::WsResult<Option<mixdog_workspace::grants::SessionRow>> {
+        let io = |error: String| mixdog_workspace::error::WsError::new(mixdog_workspace::error::Reason::Io, error);
+        let Some(summary) = self.0.summary(session_id).await.map_err(|error| io(error.to_string()))? else { return Ok(None) };
+        // Only the three fields a download needs: the stored row is a JSON object, whose other fields are not this seam's to interpret.
+        let row: serde_json::Value = serde_json::from_str(&summary).map_err(|error| io(error.to_string()))?;
+        let text = |key: &str| row.get(key).and_then(serde_json::Value::as_str).map(str::to_owned);
+        // Node's list row (`_desktopSessionSummary`) states the classification and the project under `desktopSession`.
+        let desktop = row.get("desktopSession");
+        let in_desktop = |key: &str| desktop.and_then(|d| d.get(key)).and_then(serde_json::Value::as_str).map(str::to_owned);
+        Ok(Some(mixdog_workspace::grants::SessionRow {
+            project: in_desktop("classification").as_deref() == Some("project"),
+            project_path: in_desktop("projectPath"),
+            cwd: text("cwd").unwrap_or_default(),
+        }))
+    }
 }
 
 #[cfg(test)]

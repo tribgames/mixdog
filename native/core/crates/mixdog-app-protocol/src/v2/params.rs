@@ -4809,15 +4809,10 @@ pub struct TransferEndReadParams {
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum DownloadSource {
-    /// A file of a conversation's project, by its path in the project.
-    File { root: String, rel: String },
-    /// A file a conversation names, by its absolute path; `projectPath` is the conversation's project, if it has one.
-    #[serde(rename_all = "camelCase")]
-    SessionFile {
-        path: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        project_path: Option<String>,
-    },
+    /// A file of the conversation's project, by its path in the project. The project is the host catalog's, never the caller's.
+    File { rel: String },
+    /// A file the conversation names, by its absolute path or its path in the conversation's folder.
+    SessionFile { path: String },
 }
 
 /// Params of `transfer/authorizeRead`: the first stage of a phone's download, a grant that expires.
