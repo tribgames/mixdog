@@ -12,8 +12,9 @@ static CREDENTIAL_READS: AtomicU64 = AtomicU64::new(0);
 static PROVIDERS_BUILT: AtomicU64 = AtomicU64::new(0);
 static PROVIDER_LOADS: AtomicU64 = AtomicU64::new(0);
 
-/// One read of a credential, key or token from disk or the OS store. `pub` for the callers of this crate that read one
-/// themselves (`KeychainVault::get`, the OAuth describe loader), so their reads move the same counter.
+/// One read of a credential, key or token, counted by the function that performs it (a credential file, the roster, a key
+/// variable); never by a caller of that function. The keychain and the private secrets file are counted inside
+/// `mixdog-secrets`. `pub` for the OAuth describe loader, which reads a credential file itself.
 pub fn credential_read() {
     CREDENTIAL_READS.fetch_add(1, Ordering::Relaxed);
 }
@@ -28,9 +29,9 @@ pub(crate) fn providers_loaded() {
 
 /// Credential reads since the process started: a credential file (`oauth::store`), the account roster
 /// (`accounts::file::read_roster`, which holds the custom key ids), the gcloud login file, a keychain read, a key
-/// variable read.
+/// variable read, and the reads the secret stores perform (`mixdog_secrets::work`).
 pub fn credential_reads() -> u64 {
-    CREDENTIAL_READS.load(Ordering::Relaxed)
+    CREDENTIAL_READS.load(Ordering::Relaxed) + mixdog_secrets::work::secret_reads()
 }
 
 /// Provider adapters constructed (the constructors of `AnthropicAdapter`, `OpenAiAdapter`, `CompatAdapter`, `HttpAdapter`,

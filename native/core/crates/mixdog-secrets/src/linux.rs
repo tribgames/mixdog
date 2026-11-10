@@ -122,6 +122,8 @@ impl SecretServiceStore {
 }
 
 async fn lookup(account: &str) -> Result<Option<String>, SecretError> {
+    #[cfg(feature = "count-work")]
+    crate::work::secret_read();
     let service = connect("lookup").await?;
     let found = service.search_items(attributes(account)).await.map_err(|e| failure("lookup", &e))?;
     let Some(item) = found.unlocked.iter().chain(found.locked.iter()).next() else { return Ok(None) };

@@ -203,9 +203,7 @@ impl ApiUsageService {
     }
 
     fn env_text(&self, name: &str) -> Option<String> {
-        #[cfg(feature = "count-work")]
-        crate::work::credential_read();
-        self.env.var(name).filter(|v| !v.is_empty())
+        self.env.key_var(name).filter(|v| !v.is_empty())
     }
 
     /// `getAgentApiKey`: the environment key, else the stored one (never in the remote-client mode).
@@ -220,8 +218,6 @@ impl ApiUsageService {
                 return Some(value);
             }
         }
-        #[cfg(feature = "count-work")]
-        crate::work::credential_read();
         self.vault.get(OPENAI_USAGE_SESSION_KEY_ACCOUNT).await.ok().flatten().filter(|v| !v.is_empty())
     }
 
@@ -567,7 +563,7 @@ impl ApiUsageService {
 
     async fn xai(&self) -> Lookup {
         let key = self.env_text("XAI_MANAGEMENT_API_KEY");
-        let team = self.env_text("XAI_TEAM_ID");
+        let team = self.env.var("XAI_TEAM_ID").filter(|v| !v.is_empty());
         let (Some(key), Some(team)) = (key, team) else {
             return Ok(Some(match self.xai_public().await {
                 Some(snapshot) => snapshot,

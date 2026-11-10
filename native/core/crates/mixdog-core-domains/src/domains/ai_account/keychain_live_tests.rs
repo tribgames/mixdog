@@ -72,6 +72,20 @@ fn live_ok() -> (HolderLive, Arc<StatusTracker>, Arc<Keyring>) {
     (live, tracker, keyring)
 }
 
+/// The retry's one lookup goes straight to a `SecretStore`, not through the vault: the store counts it, once.
+#[tokio::test]
+async fn an_interactive_retry_is_one_credential_read_and_a_refused_one_reads_nothing() {
+    let tracker = StatusTracker::new(true, Arc::new(|| {}));
+    let tracked = Arc::new(TrackedStore::new(Arc::new(mixdog_secrets::MemoryStore::default()), Arc::clone(&tracker)));
+    let live = HolderLive::new(Arc::clone(&tracker), tracked, mixdog_rt::testing::tokens().durability_io, std::env::temp_dir());
+    tracker.note_failure("the keyring is locked", FailureCode::Other);
+    let before = mixdog_ai::work::credential_reads();
+    assert!(!live.retry(false).await);
+    assert_eq!(mixdog_ai::work::credential_reads() - before, 0, "a retry that may not prompt asks nothing");
+    assert!(live.retry(true).await, "the lookup answered");
+    assert_eq!(mixdog_ai::work::credential_reads() - before, 1, "one lookup, one read");
+}
+
 #[tokio::test]
 async fn an_interactive_retry_asks_the_keyring_again_and_reports_whether_it_recovered() {
     let (live, tracker, keyring) = live(true, vec![Err(SecretError::new("the keyring is locked")), Ok(None)]);

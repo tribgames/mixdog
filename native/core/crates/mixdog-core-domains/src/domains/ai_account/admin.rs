@@ -633,7 +633,7 @@ impl ProviderAdmin {
         if !valid {
             return Err(Failure::type_error("environment variable name is invalid"));
         }
-        Ok(json!({ "found": std::env::var_os(name).is_some_and(|v| !v.is_empty()) }))
+        Ok(json!({ "found": mixdog_ai::registry::keys::process_key_var_os(name).is_some_and(|v| !v.is_empty()) }))
     }
 
     /// `consumeCodexRateLimitResetCredit`: the server decides the outcome; the dashboard rebuild
