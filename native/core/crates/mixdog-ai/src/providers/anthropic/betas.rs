@@ -12,6 +12,8 @@ const EFFORT: &str = "effort-2025-11-24";
 const SERVER_SIDE_FALLBACK: &str = "server-side-fallback-2026-07-01";
 const MID_CONVERSATION_EFFORT: &str = super::effort_updates::BETA;
 const THINKING_DISPLAY_UPDATES: &str = "thinking-display-updates-2026-08-18";
+/// Turn-scoped mid-conversation system messages (`clear_at`), sent only when the request body carries one.
+const TURN_SCOPED_SYSTEM: &str = "mid-conversation-system-clear-at-2026-08-21";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct BetaFeatures {
@@ -23,6 +25,8 @@ pub(crate) struct BetaFeatures {
     /// The body carries adaptive thinking with `output_config` effort support.
     pub effort: bool,
     pub thinking_display_updates: bool,
+    /// The messages carry a turn-scoped `clear_at` system message.
+    pub turn_scoped_system: bool,
     /// The history carries mid-conversation effort updates.
     pub mid_conversation_effort: bool,
 }
@@ -53,6 +57,9 @@ pub(crate) fn beta_header(flavor: Flavor, features: BetaFeatures) -> String {
     }
     if features.thinking_display_updates {
         names.push(THINKING_DISPLAY_UPDATES);
+    }
+    if features.turn_scoped_system {
+        names.push(TURN_SCOPED_SYSTEM);
     }
     if mid && flavor == Flavor::ApiKey {
         names.push(MID_CONVERSATION_EFFORT);
