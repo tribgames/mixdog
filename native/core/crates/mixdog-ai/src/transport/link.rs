@@ -644,6 +644,8 @@ pub trait WsSocket: Send {
     fn ending(&self) -> Option<super::ws::WsEnding> {
         None
     }
+    /// Closes the socket for good with `code` and `reason`; by default it is dropped.
+    fn close(self: Box<Self>, _code: u16, _reason: &str) {}
 }
 
 #[async_trait]
@@ -662,6 +664,10 @@ impl WsSocket for WsConnection {
 
     fn ending(&self) -> Option<super::ws::WsEnding> {
         WsConnection::ending(self)
+    }
+
+    fn close(self: Box<Self>, code: u16, reason: &str) {
+        WsConnection::close(*self, code, reason);
     }
 }
 

@@ -679,6 +679,11 @@ impl ProviderAdapter for OpenAiAdapter {
         self.pool.release_session(session_id);
     }
 
+    /// `disposeTransportScope`: the scope's sockets are closed with `transport_scope_disposed`.
+    fn release_transport_scope(&self, scope: &str) {
+        self.pool.release_scope(scope, "transport_scope_disposed");
+    }
+
     /// One attempt. On a WebSocket codec in `auto` mode the attempt may move
     /// to HTTP/SSE inside itself, as Node's send does ([`switch`]): at once
     /// for a refused upgrade, a 426 or a server close 1009, and when the

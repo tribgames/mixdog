@@ -184,6 +184,24 @@ impl WsPool {
         self.state().failures.get(key).is_some_and(|(n, switchable)| *switchable && *n + 1 >= attempts)
     }
 
+    /// Closes a scope's sockets for good with `reason` and drops its transport state (`closeOpenaiWsPoolForSession`:
+    /// `_shutdownEntry(entry, reason)`, `socket.close(1000, reason)`).
+    pub fn release_scope(&self, key: &str, reason: &str) {
+        let gone = {
+            let mut state = self.state();
+            state.fresh.remove(key);
+            state.http.remove(key);
+            state.failures.remove(key);
+            state.idle.remove(key)
+        };
+        for parked in gone.into_iter().flatten() {
+            parked.socket.close(1000, reason);
+        }
+        if let Some(events) = &self.events {
+            events.session_closed(key);
+        }
+    }
+
     /// Drops a session's sockets and transport state (the session ended).
     pub fn release_session(&self, key: &str) {
         let gone = {
