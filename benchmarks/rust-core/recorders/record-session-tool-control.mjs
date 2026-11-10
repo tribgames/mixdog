@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Records Node's `session` tool answers for the cross-session actions a model triggers (list, read), success and each
-// refusal: the real `createWorkspaceToolHandlers(...).session` over the real `createSessionControl`, for a caller record
+// Records Node's `session` tool answers for the actions a model triggers (list, read, compact), success and each
+// refusal, and the compactions a call leaves scheduled:the real `createWorkspaceToolHandlers(...).session` over the real `createSessionControl`, for a caller record
 // (its scope decides what a list shows). Only the session service's two reads are stood in, each over the scenario's
 // data through Node's own code:
 //  - `listSessionCatalog({ page })`: the scenario's catalog rows (already in catalog order, as the store answers them)
@@ -40,7 +40,31 @@ const { readTranscriptRange } = await importFrom(tree, 'src/standalone/session-s
 const { registerSessionSidebarHost } = await importFrom(tree, 'src/runtime/shared/session-sidebar-host.mjs');
 const { hasPendingAgentWork, sessionsWithPendingWork } = await importFrom(tree, 'src/runtime/shared/pending-agent-work.mjs');
 
+const { runSessionCompaction } = await importFrom(tree, 'src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs');
+const { saveSessionAsync, loadSession } = await importFrom(tree, 'src/runtime/agent/orchestrator/session/store.mjs');
+const { readStoredSessionTranscript } = await importFrom(tree, 'src/runtime/agent/orchestrator/session/store-summary-reader.mjs');
+
 const clone = (value) => JSON.parse(JSON.stringify(value ?? null));
+
+// A session compacted for real: stored through Node's session store, compacted by `runSessionCompaction` as
+// `compactSessionMessages` runs it (manual, forced), saved, and read back through the store reader the daemon's session
+// service reads stored sessions with (`daemon-stored-session-views.mjs`: `readStoredSessionTranscript`). The summary
+// model is the one stand-in: its answer is the summary text.
+const COMPACTED_ID = 'sess_compacted';
+async function compactForReal() {
+  const messages = [{ role: 'system', content: 'You are the Lead.' }];
+  for (let i = 0; i < 6; i += 1) {
+    messages.push({ role: 'user', content: `question ${i} ${'q'.repeat(24_000)}` });
+    messages.push({ role: 'assistant', content: `answer ${i}` });
+  }
+  await saveSessionAsync({ id: COMPACTED_ID, provider: 'summary-model', model: 'summary-model', messages, createdAt: T0, updatedAt: T0, lastUsedAt: T0, owner: 'cli', sourceType: 'lead', contextWindow: 200_000 });
+  const session = loadSession(COMPACTED_ID);
+  const summarizer = { name: 'summary-model', send: async () => ({ content: 'Summary: six questions were asked and answered.', usage: { inputTokens: 10, outputTokens: 8 } }) };
+  const result = await runSessionCompaction(session, { mode: 'manual', force: true, filterOldHistoryForIngest: true, provider: summarizer, sessionId: COMPACTED_ID });
+  if (result?.changed !== true) throw new Error(`recorder: the compaction changed nothing (${JSON.stringify(result)})`);
+  await saveSessionAsync(session, { expectedGeneration: session.generation });
+  return { result, items: (await readStoredSessionTranscript(COMPACTED_ID, { transcriptItemLimit: 1000 })).items };
+}
 
 // ---- data
 const T0 = 1_760_000_000_000;
@@ -140,15 +164,6 @@ const TOOL_KINDS = [
   tool('k27', 'list', { args: 'not json' }),
 ];
 
-// What a real compaction leaves in the display transcript: the divider of the archived history and
-// the command's done row.
-const COMPACTED = [
-  { kind: 'user', id: 'cu1', text: 'before compaction' },
-  { kind: 'statusdone', id: 'arch1_divider', status: 'compacted', label: 'Earlier conversation compacted', at: T0 + 100 },
-  { kind: 'statusdone', id: 'cd1', status: 'compacted', label: 'Compact complete', detail: '42k → 6k tokens', elapsedMs: 900 },
-  { kind: 'assistant', id: 'ca1', text: 'after compaction' },
-];
-
 // Credential-shaped text a transcript may hold; the read quotes it as stored.
 const SENSITIVE = [
   { kind: 'user', id: 'se1', text: 'my key is sk-DUMMY-abcdefghijklmnopqrstuvwxyz0123 and password=hunter2' },
@@ -157,6 +172,7 @@ const SENSITIVE = [
 
 const ROOM_MEMBER = { id: 'sess_rmem_abcdef_ann', sourceType: 'exec' };
 
+const compacted = await compactForReal();
 const base = {
   caller: HUMAN,
   catalog: CATALOG,
@@ -169,7 +185,7 @@ const base = {
     sess_closed: SHORT,
     sess_empty: [],
     sess_tools: TOOL_KINDS,
-    sess_compacted: COMPACTED,
+    [COMPACTED_ID]: compacted.items,
     sess_sensitive: SENSITIVE,
   },
 };
@@ -272,6 +288,15 @@ const SCENARIOS = [
   { name: 'read-page-oldest', args: { action: 'read', session_id: 'sess_b', offset: 26, limit: 10 } },
   { name: 'read-page-middle', args: { action: 'read', session_id: 'sess_b', offset: 20, limit: 6 } },
   { name: 'read-page-at-end', args: { action: 'read', session_id: 'sess_b', offset: 35, limit: 5 } },
+  // No session service (Node's `getSessionService()` answers null): what a list gets before the catalog is there.
+  { name: 'list-no-service', noService: true, args: { action: 'list' } },
+  // One window of a session of a million rows (`generated`: `r<i>` / `row <i>`, oldest first).
+  { name: 'longread-window', generated: { sess_long: 1_000_000 }, args: { action: 'read', session_id: 'sess_long', offset: 40, limit: 10 } },
+  // `compact`: the Lead schedules its own session's compaction (`pendingCompactSessionIds`); any other caller or target is refused.
+  { name: 'compact-lead', args: { action: 'compact' } },
+  { name: 'compact-own-id', args: { action: 'compact', session_id: 'sess_lead1' } },
+  { name: 'compact-other-session', args: { action: 'compact', session_id: 'sess_b' } },
+  { name: 'compact-worker', callerSessionId: 'sess_worker1', args: { action: 'compact' } },
 ].map((scenario) => ({ ...base, ...scenario }));
 
 // ---- the session service's two reads over a scenario
@@ -286,8 +311,11 @@ function serviceOf(scenario) {
     },
     async readSession(params) {
       if (!params.transcriptRange) throw new Error('recorder: only transcript ranges are read');
-      const readStoredSession = async (id) => {
-        const items = scenario.transcripts[id];
+      const readStoredSession = async (id, options) => {
+        // The compacted session is read as the daemon reads it: from the store.
+        if (id === COMPACTED_ID) return readStoredSessionTranscript(id, options);
+        const generated = scenario.generated?.[id];
+        const items = generated ? Array.from({ length: generated }, (_, i) => ({ kind: 'assistant', id: `r${i}`, text: `row ${i}` })) : scenario.transcripts[id];
         return items ? { items: clone(items), transcriptHasOlder: false } : null;
       };
       return { range: await readTranscriptRange(null, params.sessionId, readStoredSession, params.transcriptRange) };
@@ -308,17 +336,21 @@ async function record(scenario) {
     }
     const live = { own, agents: new Set([...agentWorking, ...sessionsWithPendingWork(pool)]) };
     const executeSessionControl = createSessionControl({
-      getSessionService: () => serviceOf(scenario),
+      getSessionService: () => (scenario.noService ? null : serviceOf(scenario)),
       listBots: async () => clone(BOTS),
       liveWork: async () => live,
       readRow: async (id) => clone(scenario.catalog.find((entry) => entry.id === id) ?? null),
     });
     const rt = { session: clone(scenario.caller), config: {} };
     const { session } = createWorkspaceToolHandlers({ rt, executeSessionControl, listBots: async () => clone(BOTS) });
+    // A caller other than the runtime's session (`callerSessionId`) is a worker running in the Lead's runtime.
+    const callerCtx = { callerSessionId: scenario.callerSessionId ?? scenario.caller.id };
+    // The compactions the call left scheduled (`takePendingCompact` runs them once the turn settles).
+    const scheduled = () => [...(rt.pendingCompactSessionIds ?? [])];
     try {
-      return { ok: true, text: await session(clone(scenario.args), { callerCtx: { callerSessionId: scenario.caller.id }, callerCwd: 'C:/proj' }) };
+      return { ok: true, text: await session(clone(scenario.args), { callerCtx, callerCwd: 'C:/proj' }), pendingCompact: scheduled() };
     } catch (error) {
-      return { ok: false, text: String(error?.message ?? error) };
+      return { ok: false, text: String(error?.message ?? error), pendingCompact: scheduled() };
     }
   } finally {
     unregister();
@@ -334,7 +366,7 @@ if (only) {
 } else {
   const finalDir = join(FIXTURES_ROOT, 'session-tool-control');
   const stage = stageSet(finalDir);
-  writeJson(join(stage, 'golden.json'), { domain: 'session-tool-control', recorder: RECORDER, bots: BOTS, scenarios });
+  writeJson(join(stage, 'golden.json'), { domain: 'session-tool-control', recorder: RECORDER, bots: BOTS, compaction: compacted.result, scenarios });
   writeSetManifest(stage, {
     set: 'session-tool-control',
     recorder: RECORDER,
@@ -346,6 +378,7 @@ if (only) {
         'The session service is stood in for its catalog page and transcript range reads only (see the recorder header); every other step is the product code.',
         "storedLiveWork's own reads (inFlightSessionActivity, listStoredAgentWorkersAsync, Date.now) are the scenario's live sources; its merge runs line for line over Node's hasPendingAgentWork and sessionsWithPendingWork.",
         'Room sends, members and asks are not recorded (out of scope).',
+        "The compacted session's summary model answers a fixed summary text (the one stand-in of its real compaction). Its display archive is not published at this commit for a log-stored session (the archive fence looks for a `<id>.json` record), so the stored read Node answers holds no divider; the recording keeps what Node answered.",
       ],
       scenarios: scenarios.length,
     },

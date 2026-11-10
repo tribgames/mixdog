@@ -592,7 +592,6 @@ async fn the_sidebar_flags_and_the_control_actions_become_thread_requests() {
     assert_eq!(p.port.control(control("cancel")).await, Ok(json!({ "sessionId": "sess_x", "aborted": true })));
     assert_eq!(p.port.control(control("delete")).await, Ok(json!({ "sessionId": "sess_x", "deleted": true })));
     assert!(matches!(p.port.control(control("send")).await, Err(PortError::Unavailable { .. })));
-    assert!(matches!(p.port.schedule_compact(&thread("sess_a")).await, Err(PortError::Unavailable { .. })));
 }
 
 #[tokio::test]

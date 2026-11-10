@@ -266,6 +266,13 @@ pub(crate) enum UnwindAt {
     Delete,
 }
 
+/// What waits on a scheduled compaction: the requests asked meanwhile, in arrival order, and
+/// whether the settled turn's Goal continues.
+pub(super) struct AfterCompaction {
+    waiting: Vec<(CoreRequest, Waiter)>,
+    goal_active: bool,
+}
+
 /// Results of lane jobs the actor submitted.
 pub(crate) enum JobDone {
     Encoded {
@@ -336,6 +343,8 @@ pub(crate) enum JobDone {
     Compacted { op: Option<OpId>, tx: Waiter, result: Value, recover: bool },
     /// A manual compaction ended (its answer follows).
     CompactionEnded,
+    /// The compaction the session tool scheduled answered.
+    ScheduledCompactionEnded,
     /// The claim window of the desktop request `id` ended.
     SetupUiExpired(String),
     /// `retainedRetryInput()` for a `turn/retryFailed` that passed its first gates.
@@ -679,6 +688,11 @@ pub(crate) struct SessionActor {
     quota_answered: Option<u64>,
     /// `state.commandBusy` / `flags.autoClearRunning`: compactions running.
     compactions: u32,
+    /// `pendingCompactSessionIds` holds this session: the session tool scheduled a compaction for
+    /// when the turn settles.
+    compact_scheduled: bool,
+    /// The scheduled compaction runs (`createCompactionGate`'s tail).
+    after_compaction: Option<AfterCompaction>,
     /// The next run's input row is already on screen (a retained retry's `suppressDisplay`).
     retry_hidden: bool,
     /// The transcript was rewritten (a compaction, a rewind, a clear, a restarted context) since its lineage
@@ -973,6 +987,8 @@ impl SessionActor {
             quota_pending: None,
             quota_answered: None,
             compactions: 0,
+            compact_scheduled: false,
+            after_compaction: None,
             retry_hidden: false,
             transcript_rewritten: false,
             retry_provenance: None,
@@ -1521,6 +1537,10 @@ impl SessionActor {
                 if self.deleting {
                     return;
                 }
+                // A compaction the model scheduled runs once the turn is over, before what follows it.
+                if std::mem::take(&mut self.compact_scheduled) {
+                    return self.run_scheduled_compaction(active);
+                }
                 self.start_next_queued();
                 if active {
                     self.schedule_goal_continuation();
@@ -1553,6 +1573,7 @@ impl SessionActor {
             JobDone::Replied { op, tx, result } => self.replied(op, tx, result),
             JobDone::Compacted { op, tx, result, recover } => self.compacted(op, tx, result, recover),
             JobDone::CompactionEnded => self.compactions = self.compactions.saturating_sub(1),
+            JobDone::ScheduledCompactionEnded => self.scheduled_compaction_ended(),
             JobDone::SetupUiExpired(id) => self.setup_ui_settled(&id),
             JobDone::RetryChecked { op, tx, key, retained, provenance } => self.retry_checked(op, tx, key, retained, provenance),
             JobDone::QuotaFireChecked { generation, tx, retained, provenance } => self.quota_fire_checked(generation, tx, retained, provenance),
@@ -4058,6 +4079,13 @@ impl SessionActor {
                 thread_id: self.id.clone(),
             };
             return fail(error, tx, &mut self.ops);
+        }
+        // `afterCompaction`: a turn, clear, rewind or compaction waits for the scheduled compaction.
+        if let Some(after) = &mut self.after_compaction
+            && matches!(req.method.as_str(), "turn/start" | "thread/clear" | "thread/rewind" | "thread/compact/start")
+        {
+            after.waiting.push((req, tx));
+            return Ok(());
         }
         // The `/goal` route (`goalControl`): the Goal runtime answers; no record of its own.
         if matches!(req.method.as_str(), "thread/goal/set" | "thread/goal/clear" | "thread/goal/control") {
