@@ -392,6 +392,16 @@ impl ComposedCore {
         self.real.start_heartbeat();
     }
 
+    pub fn open_memory_in_background(&self) {
+        self.real.open_memory_in_background();
+    }
+
+    /// The memory database handle, for the readiness test that makes a first use.
+    #[cfg(test)]
+    pub fn memory_db(&self) -> Arc<mixdog_services::memory::pg::db::Db> {
+        self.real.memory.db()
+    }
+
     /// The idle sweep's store (`Real::sweep_store`).
     pub fn sweep_store(&self, data_dir: &std::path::Path, stop: tokio_util::sync::CancellationToken) -> Arc<crate::sweep_store::DirectorySweepStore> {
         self.real.sweep_store(data_dir, stop)
@@ -548,6 +558,9 @@ pub struct ComposeConfig {
     pub stop: tokio_util::sync::CancellationToken,
     /// The catalog's HTTP client (models.dev and LiteLLM fetches): the real one in the daemon (catalog::production_http), a client that cannot connect in tests.
     pub catalog_http: Arc<dyn mixdog_ai::transport::http::HttpSend>,
+    /// Compiled for tests only (the daemon always runs the bundled runtime's download). What runs when the memory database is first used to bring the PostgreSQL runtime: None in the daemon (the bundled runtime's download, nsureRuntime), a held or failing install in a test.
+    #[cfg(test)]
+    pub pg_install: Option<mixdog_services::memory::boot::PgInstall>,
 }
 
 /// `process.env` as the services read it.
@@ -575,7 +588,7 @@ pub async fn compose(tokens: &LaneTokens, config: ComposeConfig) -> Result<Compo
 /// [`compose`], whose slow waits (the PostgreSQL install and start) end when `interrupt` is cancelled: `serve` cancels it when a stop arrives meanwhile. A composition that
 /// fails, interrupted or not, gives back what it had acquired before it returns the error (`Acquired`), so no PostgreSQL is left running.
 pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, interrupt: tokio_util::sync::CancellationToken) -> Result<ComposedCore, ComposeError> {
-    let ComposeConfig { data_dir, user_data_dir, js_runtime, ort_library, outgoing, ownership, log, stop, catalog_http } = config;
+    let ComposeConfig { data_dir, user_data_dir, js_runtime, ort_library, outgoing, ownership, log, stop, catalog_http, #[cfg(test)] pg_install } = config;
     let data_dir = data_dir.as_path();
     let state_dir = data_dir.join("state");
     create_dir(tokens, state_dir.clone()).await.map_err(ComposeError::StateDir)?;
@@ -653,6 +666,8 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
         user_data_dir,
         package_root: js_runtime.package_root.clone(),
         js_runtime,
+        #[cfg(test)]
+        pg_install,
         env: process_env(),
         app_feed: app_feed.clone(),
         scoped_feeds,
@@ -771,6 +786,8 @@ mod tests {
             log,
             stop,
             catalog_http: crate::compose_test_support::offline_http(),
+            #[cfg(test)]
+            pg_install: None,
         }
     }
 

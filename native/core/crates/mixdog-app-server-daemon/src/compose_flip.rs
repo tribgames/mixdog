@@ -36,6 +36,8 @@ pub struct Built {
     pub user_data_dir: std::path::PathBuf,
     pub package_root: std::path::PathBuf,
     pub js_runtime: crate::compose::JsRuntime,
+    #[cfg(test)]
+    pub pg_install: Option<mixdog_services::memory::boot::PgInstall>,
     pub env: mixdog_core::run_host::run_seams::EnvReader,
     pub app_feed: Arc<mixdog_core_base::feed::CoreFeed>,
     pub scoped_feeds: Arc<dyn mixdog_core_api::feed::ScopedFeeds>,
@@ -192,6 +194,11 @@ impl Real {
     }
 }
 impl Real {
+    /// After ready: a data directory that already holds a PostgreSQL cluster starts it off the request path (Node's `startPostgresInBackground`).
+    pub fn open_memory_in_background(&self) {
+        self.memory.open_in_background();
+    }
+
     /// Mixy's heartbeat on its timers (daemon.mjs:1212, `startMixyHeartbeat`: first check after `FIRST_TICK`, then every `TICK`). Idempotent: a second call starts nothing.
     pub fn start_heartbeat(&self) {
         self.heartbeat_run.get_or_init(|| mixdog_services::bots::beat::start_mixy_heartbeat(self.heartbeat.clone(), mixdog_services::bots::beat::FIRST_TICK, mixdog_services::bots::beat::TICK));
@@ -1433,24 +1440,30 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             .map_err(|e| ComposeError::CatalogIndex(e.to_string()))?
     };
     // The bundled PostgreSQL runtime (downloaded first when the active one is missing or damaged, `ensureRuntime`), then the memory stack.
+    // Node installs the runtime inside the memory start (`supervisor.mjs:484`), which runs at the first memory use and never at daemon boot: so the install is handed to the
+    // stack as what it runs when the database is first opened, not awaited here (a fresh profile downloads about 22 MB and runs `initdb`).
     let pg_runtime = {
         use mixdog_services::memory::pg::runtime_install as pg;
-        pg::ensure_runtime(
-            &pg::InstallOptions {
-                data_dir: b.data_dir.clone(),
-                manifest: pg::Manifest::bundled().map_err(|e| ComposeError::MemoryRuntime(e.to_string()))?,
-                platform: pg::Platform::current(),
-                release_repositories: pg::repositories_env(|name| (b.env)(name)),
-                durability: b.tokens.durability_io,
-                bulk: b.tokens.cpu_bulk,
-                now: now_ms.clone(),
-                progress: None,
-            },
-            &b.cancel,
-        )
-        .await
-        .map_err(|e| ComposeError::MemoryRuntime(e.to_string()))?
-        .runtime_dir
+        let (data_dir, release_repositories, durability, bulk, now) = (b.data_dir.clone(), pg::repositories_env(|name| (b.env)(name)), b.tokens.durability_io, b.tokens.cpu_bulk, now_ms.clone());
+        let production: mixdog_services::memory::boot::PgInstall = Arc::new(move |cancel| {
+            let (data_dir, release_repositories, now) = (data_dir.clone(), release_repositories.clone(), now.clone());
+            Box::pin(async move {
+                let options = pg::InstallOptions {
+                    data_dir,
+                    manifest: pg::Manifest::bundled().map_err(|e| mixdog_services::memory::error::MemoryError::Runtime(e.to_string()))?,
+                    platform: pg::Platform::current(),
+                    release_repositories,
+                    durability,
+                    bulk,
+                    now,
+                    progress: None,
+                };
+                pg::ensure_runtime(&options, &cancel).await.map(|installed| installed.runtime_dir).map_err(|e| mixdog_services::memory::error::MemoryError::Runtime(e.to_string()))
+            })
+        });
+        #[cfg(test)]
+        let production = b.pg_install.clone().unwrap_or(production);
+        mixdog_services::memory::boot::PgRuntimeSource::Install(production)
     };
     let store_threads = Arc::new(mixdog_core_session::session::StoreThreads::new(
         &b.data_dir,
@@ -1494,7 +1507,6 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     .await
     .map_err(|e| ComposeError::MemoryRuntime(e.to_string()))?;
     // Every later failure of this composition stops the stack, PostgreSQL last (`memoryRuntime.stop`, `daemon.mjs:377,383`); a composed core stops it in its own stop step.
-    let memory = Arc::new(memory);
     b.acquired.on_release("memory", {
         let (memory, log) = (memory.clone(), b.log.clone());
         async move {
@@ -1971,6 +1983,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 auto_resume: auto_resume.clone(),
             };
             let session_surface = surface_generation.clone();
+            let store_threads = store_threads.clone();
             let task_workspace: Arc<dyn mixdog_core_session::session::TaskWorkspace> = agents.clone();
             let new_place = late_new_place.clone();
             let gateway_usage = gateway_usage.clone();
@@ -2428,7 +2441,11 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // (`MemberRelay`). The republish closures of the daemon port read `RoomSummaries`, which is built after the rooms (a cycle through `ThreadListService`): the late cell `LateRoomSummaries`.
     let late_room_summaries = Arc::new(crate::late_session::LateRoomSummaries::default());
     let rooms = Arc::new(mixdog_core_rooms::rooms::records::Rooms::new(mixdog_core_rooms::rooms::store::StateRoomStore::new(b.core_state.clone())));
-    let room_sessions = Arc::new(mixdog_core::run_host::directory_sessions::DirectorySessions::new(directory.clone(), threads.clone()));
+    // Node's one `lastArchiveStamp`, which the host's archive and the rooms' share (`ArchiveStamps`).
+    let archive_stamps: Arc<mixdog_core_session::session::thread_settings::ArchiveStamps> = Arc::default();
+    let room_sessions = Arc::new(
+        mixdog_core::run_host::directory_sessions::DirectorySessions::new(directory.clone(), threads.clone()).with_archive_stamps(archive_stamps.clone()),
+    );
     let maintainer = Arc::new(mixdog_core_rooms::rooms::maintainer::RouteMaintainer::new(Arc::new(mixdog_core::run_host::summary_routes::SummaryRoutes::new(
         summaries.host(&mixdog_core_api::ids::ThreadId::from("room-supervisor"), &mixdog_store::schema::record::Header::new()),
     ))));
@@ -2482,7 +2499,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let bot_work = Arc::new(mixdog_services::task_reports::host::BotWork::new({ let summaries = bot_summaries.clone(); Arc::new(move |session: &str| summaries.changed(session)) }));
     let list_overlay = Arc::new(mixdog_core_session::session::thread_list::LiveListOverlay::new(directory.clone(), bot_work)); // wp-session-37: the overlay reads the directory's handles and `bot_work.by_session()`
     let catalog_handle = Arc::new(catalog_index.clone()); // the handle the idle sweep and the heartbeat's catalog read (Node listSessionCatalog)
-    let thread_list = Arc::new(mixdog_core_session::session::thread_list::ThreadListService::new(catalog_handle.clone(), list_overlay.clone(), room_rows));
+    let thread_list = Arc::new(mixdog_core_session::session::thread_list::ThreadListService::new(catalog_handle.clone(), list_overlay.clone(), room_rows, agents.clone()));
+    thread_list.fence(store_threads.clone()); // a list is never older than a write whose reply or notification has gone out
     thread_list.observe(phone_grants.clone()); // a session counts as seen when a published catalog lists it (Node's retainSessions)
     let heartbeat = mixdog_core::run_host::heartbeat_parts::production_heartbeat(mixdog_core::run_host::heartbeat_parts::HeartbeatHolds {
         clock: channel_clock.clone(),
@@ -2502,14 +2520,11 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     });
     bot_summaries.bind(thread_list.clone(), b.sections.clone()).map_err(|_| ComposeError::AlreadyBound("bot work summaries"))?;
     // The index writer's row writes reach the app feed: `thread/started`, `thread/summary/updated`, `thread/deleted` (Node's roster push).
-    catalog_index
-        .observe_rows(mixdog_core_session::session::thread_edges::ThreadEdges::start(mixdog_core_session::session::thread_edges::ThreadEdgePublisher::new(thread_list.clone(), b.sections.clone(), agents.clone())))
-        .map_err(|_| ComposeError::AlreadyBound("thread edges"))?;
-    let room_summaries = mixdog_core_session::session::thread_list::RoomSummaries::new(thread_list.clone(), b.sections.clone(), directory.clone());
+    let room_publication = mixdog_core::run_host::room_publication::wire(thread_list.clone(), b.sections.clone(), agents.clone(), &catalog_index, directory.clone(), room_sessions.clone()).map_err(|_| ComposeError::AlreadyBound("thread edges"))?;
+    let (room_summaries, room_host) = (room_publication.summaries, room_publication.host);
     late_room_summaries.bind(room_summaries.clone()).map_err(|_| ComposeError::AlreadyBound("room summaries"))?;
     room_approvals.bind_summaries(room_summaries.clone()).map_err(|_| ComposeError::AlreadyBound("room approvals summaries"))?;
     let republish: Arc<dyn Fn() + Send + Sync> = { let s = room_summaries.clone(); Arc::new(move || s.republish()) };
-    let room_host = Arc::new(mixdog_core_rooms::rooms::sessions::SessionRoomHost::new(agents.clone(), room_sessions.clone(), republish.clone()));
     // Start-up recover (flip-rooms-4): rooms whose exchange a dead process left running are marked interrupted; their summaries are republished.
     if !live_rooms.start(&rooms).await.map_err(|e| ComposeError::Rooms(format!("{e:?}")))?.is_empty() {
         republish();
@@ -2521,6 +2536,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         room_host.clone(),
         room_runner.clone(),
         domain_inputs.scopes.scopes("room").map_err(ComposeError::ComposeDomains)?,
+        definition_names.clone(),
     )))?;
     // A room member's tool approval (wp-session-36) is wired through the ports above: `SessionRoomApprovals` is `RoomPorts.approvals` (`answer_member_approval`) and publishes the
     // decorated view (`RoomSummaries::publish_room`, `thread/roomView/updated`), `DirectoryRoomDaemon::read_snapshot` carries `member_approval` as the snapshot's `toolApproval`, and
@@ -2708,6 +2724,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             app: b.sections.clone(),
             ops: domain_inputs.scopes.scopes("thread").map_err(ComposeError::ComposeDomains)?,
             surface: surface_generation.clone(),
+            archive_stamps: archive_stamps.clone(),
         },
     )))?;
     // `thread/setWorkflow`, `thread/setOrchestrationMode`, `thread/setOutputStyle`, `thread/switchContext` (`compose-seams.md` "wu-thread-settings", landing wu-thread-settings-3; flip-brief A16): the context switch

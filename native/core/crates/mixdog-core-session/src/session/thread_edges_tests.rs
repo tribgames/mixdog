@@ -64,17 +64,12 @@ impl super::thread_list::ListOverlay for Idle {
 }
 
 /// Node's complete roster row as the protocol's `ThreadSummary`: the same fields under their protocol names
-/// (`inheritedFromSessionId` is `forkedFromId`), plus the archived flag the app feed's row always carries (`archived` is announced by
-/// `thread/archived`, not by the roster).
+/// (`inheritedFromSessionId` is `forkedFromId`).
 fn thread_of_row(row: &Value) -> Value {
     let mut out = row.as_object().expect("roster row").clone();
     if let Some(from) = out.shift_remove("inheritedFromSessionId") {
         out.insert("forkedFromId".into(), from);
     }
-    out.insert("archived".into(), Value::Bool(false));
-    // The list row's own fields, which a header-only row gives the same value: the session mode and the last message's preview.
-    out.insert("sessionMode".into(), Value::String("coding".into()));
-    out.insert("lastMessagePreview".into(), Value::String(String::new()));
     Value::Object(out)
 }
 
@@ -120,7 +115,8 @@ async fn the_notifications_are_the_changes_of_nodes_roster_for_every_trigger() {
     let source: Arc<dyn FeedSource> = feed.clone();
     let attached = mixdog_core_api::feed::subscribe(&source, "app".into(), mixdog_core_api::feed::Window::Fixed, None, &app).unwrap();
     mixdog_core_api::sink::ConnectionSink::send_control_release(&app, bytes::Bytes::from_static(b"{}"), attached.release).unwrap();
-    let list = Arc::new(ThreadListService::new(store.clone(), Arc::new(Idle), Arc::new(NoRooms)));
+    // What the subscription itself sent is not part of what the writes announce.
+    drop(app.drain_text());
     let section = Arc::new(mixdog_core_base::state::SectionFeedState::new(feed));
 
     let mut published = 0;
@@ -128,6 +124,7 @@ async fn the_notifications_are_the_changes_of_nodes_roster_for_every_trigger() {
         let name = trigger["name"].as_str().expect("name");
         // A host that has resolved nothing yet, as Node's `canonicalTaskWorkspace` starts.
         let workspace = Arc::new(Workspace::default());
+        let list = Arc::new(ThreadListService::new(store.clone(), Arc::new(Idle), Arc::new(NoRooms), workspace.clone()));
         let publisher = ThreadEdgePublisher::new(list.clone(), section.clone(), workspace.clone());
         let mut roster: Vec<Value> = Vec::new();
         let mut seen = String::new();
@@ -146,7 +143,6 @@ async fn the_notifications_are_the_changes_of_nodes_roster_for_every_trigger() {
             let sent: Vec<(String, Value)> = app
                 .drain_text()
                 .into_iter()
-                .filter(|text| text.contains("thread/"))
                 .map(|text| serde_json::from_str::<Value>(&text[text.find('{').expect("json body")..]).unwrap_or_else(|error| panic!("{error}: {text}")))
                 .map(|frame| (frame["method"].as_str().unwrap_or_default().to_owned(), frame["params"].clone()))
                 .collect();
