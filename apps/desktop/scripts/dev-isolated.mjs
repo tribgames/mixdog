@@ -26,11 +26,10 @@ import { parseArgs } from 'node:util';
 
 import { refreshStaleLocalBinaries } from '../../../scripts/native-release-status.mjs';
 import { electronBinary } from './electron-binary.mjs';
-import {
-  expiryFromAccessToken,
-  normalizeExpiresAtMs,
-} from '../../../src/runtime/agent/orchestrator/providers/lib/oauth-token-utils.mjs';
-import { ONBOARDING_VERSION } from '../../../src/session-runtime/quick-web-search-models.mjs';
+import { expiryFromAccessToken, normalizeExpiresAtMs } from './oauth-token-expiry.mjs';
+
+// The onboarding marker version mixdogd writes (native/core/crates/mixdog-core-config/src/workflow/onboarding.rs).
+const ONBOARDING_VERSION = 1;
 
 import {
   assertDebugPortAvailable,
@@ -289,7 +288,7 @@ async function instanceRootPids(lease) {
 }
 
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
-const DAEMON_COMMAND = /standalone[\\/]daemon\.mjs/;
+const DAEMON_COMMAND = /[\\/]mixdogd(\.exe)?(?=["\s]|$)/i;
 
 /** Kill the whole tree until nothing survives (a dying main can still spawn a daemon). */
 export async function killInstanceProcesses(lease, { list = listProcesses } = {}) {

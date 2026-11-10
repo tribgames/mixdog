@@ -14,7 +14,6 @@ import {
   toolResult,
 } from './core/office-core.mjs';
 import { resolveSession } from './core/office-sessions.mjs';
-import { officeWriteChanges, runWithOfficeWriteLedger } from './core/office-write-ledger.mjs';
 
 // Office work is minutes of real application time, and guessing which action carries it is how
 // tuning goes wrong. MIXDOG_OFFICE_TRACE writes one line per call so a slow run maps itself; it
@@ -27,32 +26,10 @@ const OFFICE_TRACE = process.env.MIXDOG_OFFICE_TRACE || '';
 // qa with autoFix repairs the document, so it is excluded at the call site.
 const READ_ONLY_ACTIONS = new Set(['snapshot', 'get', 'query', 'issues', 'validate', 'describe', 'render', 'qa']);
 
+// The caller owns the write ledger and its turn review (src/ext-host/methods.mjs `officeRun`; the core records the
+// changes it reports).
 export async function executeOfficeTool(args = {}, context = {}) {
-  const sessionId = String(context.sessionId || '');
-  if (!sessionId) return await tracedOfficeTool(args, context);
-  const cwd = context.cwd || process.cwd();
-  const { ledger, run } = runWithOfficeWriteLedger({ cwd, dataDir: context.dataDir || defaultOfficeDataDir() }, () =>
-    tracedOfficeTool(args, context)
-  );
-  try {
-    return await run;
-  } finally {
-    await recordOfficeWrites(ledger, sessionId, cwd);
-  }
-}
-
-// The files this call's write routes reported join the session's turn review
-// as its own changes (counted, and undoable where their bytes were captured).
-// The recorder is loaded on first use; recording never affects the result.
-async function recordOfficeWrites(ledger, sessionId, cwd) {
-  try {
-    const changes = officeWriteChanges(ledger);
-    if (changes.length === 0) return;
-    const { recordToolFileChanges } = await import('../agent/orchestrator/tools/patch/ui-diff.mjs');
-    recordToolFileChanges({ sessionId, basePath: cwd, changes });
-  } catch {
-    /* best-effort review channel */
-  }
+  return await tracedOfficeTool(args, context);
 }
 
 async function tracedOfficeTool(args, context) {

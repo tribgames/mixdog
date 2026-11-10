@@ -89,7 +89,7 @@ test('the instance root carries the runtime package.json the SSH server payload 
   await prepareAppDir(instanceDir);
   const repoPackage = await readFile(new URL('../../../package.json', import.meta.url), 'utf8');
   assert.equal(await readFile(join(instanceDir, 'package.json'), 'utf8'), repoPackage);
-  assert.ok(existsSync(join(instanceDir, 'src', 'standalone', 'daemon.mjs')));
+  assert.ok(existsSync(join(instanceDir, 'src', 'defaults', 'plugin.json')));
   assert.ok(existsSync(join(instanceDir, 'app', 'desktop', 'package.json')));
 });
 
@@ -565,7 +565,7 @@ test('process matching: the instance tree and its daemon, never a reused or unre
   const processes = [
     { pid: 10, ppid: 1, cmd: `node electron-vite.js dev --outDir ${instanceDir}\\app\\desktop\\out` },
     { pid: 11, ppid: 10, cmd: `electron.exe ${instanceDir}\\app\\desktop` },
-    { pid: 12, ppid: 11, cmd: 'electron.exe C:\\repo\\src\\standalone\\daemon.mjs' },
+    { pid: 12, ppid: 11, cmd: 'C:\\repo\\target\\mixdogd.exe serve' },
     { pid: 13, ppid: 12, cmd: 'node memory\\index.mjs' },
     { pid: 20, ppid: 1, cmd: 'electron.exe C:\\iso\\instances\\a-123456-ffffff\\app\\desktop' },
     { pid: 30, ppid: 1, cmd: 'electron.exe --remote-debugging-port=9342 .' },
@@ -628,10 +628,15 @@ test('stop kills the whole tree, an orphaned daemon included, and deletes the in
   );
   const treeReady = new Promise((resolve) => tree.stdout.once('data', resolve));
   // A daemon whose parent is gone: found only through the profile's daemon.json.
-  const daemonDir = join(root, 'repo', 'src', 'standalone');
+  const daemonDir = join(root, 'repo', 'target');
   await mkdir(daemonDir, { recursive: true });
-  await writeFile(join(daemonDir, 'daemon.mjs'), 'setInterval(() => {}, 1000);');
-  const daemon = spawn(process.execPath, [join(daemonDir, 'daemon.mjs')], { stdio: 'ignore', detached: true });
+  // A stand-in for the core binary: a script whose path ends in `mixdogd`, as the core's command line does.
+  await writeFile(join(daemonDir, 'mixdogd'), 'setInterval(() => {}, 1000);');
+  const daemon = spawn(process.execPath, [join(daemonDir, 'mixdogd')], {
+    stdio: 'ignore',
+    detached: true,
+    windowsHide: true,
+  });
   daemon.unref();
   await writeFile(join(profile, 'runtime', 'daemon.json'), JSON.stringify({ pid: daemon.pid }));
   t.after(() => {

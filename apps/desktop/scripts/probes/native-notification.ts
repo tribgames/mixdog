@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { app, BrowserWindow, Notification } from 'electron';
 import { createDesktopTurnNotifier } from '../../src/main/desktop-turn-notifier';
 import { sessionFinalAnswer } from '../../src/main/session-final-answer';
-import { restoreTranscriptItems } from '../../../../src/runtime/agent/orchestrator/session/transcript-restore/restore.mjs';
 import { openDesktopNotificationSession } from '../../src/main/notification-window';
 import { desktopIdentity } from '../../src/main/desktop-identity';
 
@@ -53,13 +52,23 @@ async function main() {
       sessionFinalAnswer(
         {
           busy: false,
-          items: restoreTranscriptItems([
+          // The rows a stored assistant answer with a done completion restores to (Node's restoreTranscriptItems).
+          items: [
             {
-              role: 'assistant',
-              content: '**백그라운드 작업 완료** — [결과 확인](https://example.com). `file.ts` 검사 통과.',
-              meta: { transcript: { at: answerAt, completion: { status: 'done', elapsedMs: 1_000 } } },
+              kind: 'assistant',
+              id: 'hist_session_0_1',
+              text: '**백그라운드 작업 완료** — [결과 확인](https://example.com). `file.ts` 검사 통과.',
+              at: answerAt,
             },
-          ]),
+            {
+              kind: 'turndone',
+              id: 'hist_session_0_2',
+              status: 'done',
+              elapsedMs: 1_000,
+              finalAssistantId: 'hist_session_0_1',
+              at: answerAt,
+            },
+          ],
         } as Parameters<typeof sessionFinalAnswer>[0],
         since
       ),

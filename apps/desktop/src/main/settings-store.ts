@@ -1,5 +1,4 @@
 import {
-  NOTIFICATION_VOLUME_DEFAULT,
   isSessionRetentionDays,
   isSessionRetentionSettingKey,
   type DesktopSettingKey,
@@ -7,7 +6,6 @@ import {
   type SessionRetentionSettingKey,
 } from '../shared/contract';
 import {
-  DEFAULT_ACTIVITY_RAIL_PINS,
   normalizeActivityRailPins,
   storedPinsState,
   type ActivityRailPinsState,
