@@ -1,0 +1,2935 @@
+{
+  "note": "classifyResultKind(text, false, tool) at b6f10295a",
+  "cases": [
+    {
+      "tool": "",
+      "text": "",
+      "kind": "normal"
+    },
+    {
+      "tool": "",
+      "text": "ok",
+      "kind": "normal"
+    },
+    {
+      "tool": "",
+      "text": "Error: it broke",
+      "kind": "error"
+    },
+    {
+      "tool": "",
+      "text": "error: lower",
+      "kind": "error"
+    },
+    {
+      "tool": "",
+      "text": "ERROR: upper",
+      "kind": "error"
+    },
+    {
+      "tool": "",
+      "text": "Error : spaced colon",
+      "kind": "error"
+    },
+    {
+      "tool": "",
+      "text": "Error [code 2]: structured",
+      "kind": "error"
+    },
+    {
+      "tool": "",
+      "text": "Error [code",
+      "kind": "error"
+    },
+    {
+      "tool": "",
+      "text": "Errors: plural",
+      "kind": "normal"
+    },
+    {
+      "tool": "",
+      "text": "Error without colon",
+      "kind": "normal"
+    },
+    {
+      "tool": "",
+      "text": "   \n\tError: leading whitespace",
+      "kind": "error"
+    },
+    {
+      "tool": "",
+      "text": "[error something]",
+      "kind": "error"
+    },
+    {
+      "tool": "",
+      "text": "[ERROR x]",
+      "kind": "error"
+    },
+    {
+      "tool": "",
+      "text": "[errors]",
+      "kind": "error"
+    },
+    {
+      "tool": "",
+      "text": "prefix then Error: not at the start",
+      "kind": "normal"
+    },
+    {
+      "tool": "",
+      "text": "Error: [shell-tool-failed] x",
+      "kind": "error"
+    },
+    {
+      "tool": "",
+      "text": "Error: [shell-run-failed] x",
+      "kind": "error"
+    },
+    {
+      "tool": "",
+      "text": "[exit code: 3]\nExit three",
+      "kind": "normal"
+    },
+    {
+      "tool": "",
+      "text": "(no matches)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "",
+      "text": "(no files found)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "",
+      "text": "(no symbol matches for x)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "",
+      "text": "(no symbols)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "",
+      "text": "(no references)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "",
+      "text": "(no callers)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "",
+      "text": "(no call sites)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "",
+      "text": "(no imports)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "",
+      "text": "(no dependents)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "",
+      "text": "(no entries match filter)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "",
+      "text": "(no lines in range 9-12)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "",
+      "text": "  (no matches)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "",
+      "text": "(No matches)",
+      "kind": "normal"
+    },
+    {
+      "tool": "",
+      "text": "Error: ENOENT: no such file or directory",
+      "kind": "error"
+    },
+    {
+      "tool": "",
+      "text": "Error: path does not exist: /x",
+      "kind": "error"
+    },
+    {
+      "tool": "",
+      "text": "Error: directory does not exist",
+      "kind": "error"
+    },
+    {
+      "tool": "",
+      "text": "Error: no such file",
+      "kind": "error"
+    },
+    {
+      "tool": "",
+      "text": "Error: file not found",
+      "kind": "error"
+    },
+    {
+      "tool": "",
+      "text": "Error: not found at this path",
+      "kind": "error"
+    },
+    {
+      "tool": "",
+      "text": "Error: symbol \"x\" not found in a.rs",
+      "kind": "error"
+    },
+    {
+      "tool": "",
+      "text": "Error: ENOTDIR",
+      "kind": "error"
+    },
+    {
+      "tool": "",
+      "text": "Error: EACCES: permission denied, ENOENT",
+      "kind": "error"
+    },
+    {
+      "tool": "",
+      "text": "Error: operation not permitted: no such file",
+      "kind": "error"
+    },
+    {
+      "tool": "",
+      "text": "Error: access is denied: path does not exist",
+      "kind": "error"
+    },
+    {
+      "tool": "",
+      "text": "Error: EPERM no such path",
+      "kind": "error"
+    },
+    {
+      "tool": "",
+      "text": "skill \"x\" not found",
+      "kind": "normal"
+    },
+    {
+      "tool": "",
+      "text": "Error: agent: unknown type \"bogus\"",
+      "kind": "error"
+    },
+    {
+      "tool": "read",
+      "text": "",
+      "kind": "normal"
+    },
+    {
+      "tool": "read",
+      "text": "ok",
+      "kind": "normal"
+    },
+    {
+      "tool": "read",
+      "text": "Error: it broke",
+      "kind": "error"
+    },
+    {
+      "tool": "read",
+      "text": "error: lower",
+      "kind": "error"
+    },
+    {
+      "tool": "read",
+      "text": "ERROR: upper",
+      "kind": "error"
+    },
+    {
+      "tool": "read",
+      "text": "Error : spaced colon",
+      "kind": "error"
+    },
+    {
+      "tool": "read",
+      "text": "Error [code 2]: structured",
+      "kind": "error"
+    },
+    {
+      "tool": "read",
+      "text": "Error [code",
+      "kind": "error"
+    },
+    {
+      "tool": "read",
+      "text": "Errors: plural",
+      "kind": "normal"
+    },
+    {
+      "tool": "read",
+      "text": "Error without colon",
+      "kind": "normal"
+    },
+    {
+      "tool": "read",
+      "text": "   \n\tError: leading whitespace",
+      "kind": "error"
+    },
+    {
+      "tool": "read",
+      "text": "[error something]",
+      "kind": "error"
+    },
+    {
+      "tool": "read",
+      "text": "[ERROR x]",
+      "kind": "error"
+    },
+    {
+      "tool": "read",
+      "text": "[errors]",
+      "kind": "error"
+    },
+    {
+      "tool": "read",
+      "text": "prefix then Error: not at the start",
+      "kind": "normal"
+    },
+    {
+      "tool": "read",
+      "text": "Error: [shell-tool-failed] x",
+      "kind": "error"
+    },
+    {
+      "tool": "read",
+      "text": "Error: [shell-run-failed] x",
+      "kind": "error"
+    },
+    {
+      "tool": "read",
+      "text": "[exit code: 3]\nExit three",
+      "kind": "normal"
+    },
+    {
+      "tool": "read",
+      "text": "(no matches)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "read",
+      "text": "(no files found)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "read",
+      "text": "(no symbol matches for x)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "read",
+      "text": "(no symbols)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "read",
+      "text": "(no references)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "read",
+      "text": "(no callers)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "read",
+      "text": "(no call sites)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "read",
+      "text": "(no imports)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "read",
+      "text": "(no dependents)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "read",
+      "text": "(no entries match filter)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "read",
+      "text": "(no lines in range 9-12)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "read",
+      "text": "  (no matches)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "read",
+      "text": "(No matches)",
+      "kind": "normal"
+    },
+    {
+      "tool": "read",
+      "text": "Error: ENOENT: no such file or directory",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "read",
+      "text": "Error: path does not exist: /x",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "read",
+      "text": "Error: directory does not exist",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "read",
+      "text": "Error: no such file",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "read",
+      "text": "Error: file not found",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "read",
+      "text": "Error: not found at this path",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "read",
+      "text": "Error: symbol \"x\" not found in a.rs",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "read",
+      "text": "Error: ENOTDIR",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "read",
+      "text": "Error: EACCES: permission denied, ENOENT",
+      "kind": "error"
+    },
+    {
+      "tool": "read",
+      "text": "Error: operation not permitted: no such file",
+      "kind": "error"
+    },
+    {
+      "tool": "read",
+      "text": "Error: access is denied: path does not exist",
+      "kind": "error"
+    },
+    {
+      "tool": "read",
+      "text": "Error: EPERM no such path",
+      "kind": "error"
+    },
+    {
+      "tool": "read",
+      "text": "skill \"x\" not found",
+      "kind": "normal"
+    },
+    {
+      "tool": "read",
+      "text": "Error: agent: unknown type \"bogus\"",
+      "kind": "error"
+    },
+    {
+      "tool": "READ",
+      "text": "",
+      "kind": "normal"
+    },
+    {
+      "tool": "READ",
+      "text": "ok",
+      "kind": "normal"
+    },
+    {
+      "tool": "READ",
+      "text": "Error: it broke",
+      "kind": "error"
+    },
+    {
+      "tool": "READ",
+      "text": "error: lower",
+      "kind": "error"
+    },
+    {
+      "tool": "READ",
+      "text": "ERROR: upper",
+      "kind": "error"
+    },
+    {
+      "tool": "READ",
+      "text": "Error : spaced colon",
+      "kind": "error"
+    },
+    {
+      "tool": "READ",
+      "text": "Error [code 2]: structured",
+      "kind": "error"
+    },
+    {
+      "tool": "READ",
+      "text": "Error [code",
+      "kind": "error"
+    },
+    {
+      "tool": "READ",
+      "text": "Errors: plural",
+      "kind": "normal"
+    },
+    {
+      "tool": "READ",
+      "text": "Error without colon",
+      "kind": "normal"
+    },
+    {
+      "tool": "READ",
+      "text": "   \n\tError: leading whitespace",
+      "kind": "error"
+    },
+    {
+      "tool": "READ",
+      "text": "[error something]",
+      "kind": "error"
+    },
+    {
+      "tool": "READ",
+      "text": "[ERROR x]",
+      "kind": "error"
+    },
+    {
+      "tool": "READ",
+      "text": "[errors]",
+      "kind": "error"
+    },
+    {
+      "tool": "READ",
+      "text": "prefix then Error: not at the start",
+      "kind": "normal"
+    },
+    {
+      "tool": "READ",
+      "text": "Error: [shell-tool-failed] x",
+      "kind": "error"
+    },
+    {
+      "tool": "READ",
+      "text": "Error: [shell-run-failed] x",
+      "kind": "error"
+    },
+    {
+      "tool": "READ",
+      "text": "[exit code: 3]\nExit three",
+      "kind": "normal"
+    },
+    {
+      "tool": "READ",
+      "text": "(no matches)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "READ",
+      "text": "(no files found)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "READ",
+      "text": "(no symbol matches for x)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "READ",
+      "text": "(no symbols)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "READ",
+      "text": "(no references)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "READ",
+      "text": "(no callers)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "READ",
+      "text": "(no call sites)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "READ",
+      "text": "(no imports)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "READ",
+      "text": "(no dependents)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "READ",
+      "text": "(no entries match filter)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "READ",
+      "text": "(no lines in range 9-12)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "READ",
+      "text": "  (no matches)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "READ",
+      "text": "(No matches)",
+      "kind": "normal"
+    },
+    {
+      "tool": "READ",
+      "text": "Error: ENOENT: no such file or directory",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "READ",
+      "text": "Error: path does not exist: /x",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "READ",
+      "text": "Error: directory does not exist",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "READ",
+      "text": "Error: no such file",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "READ",
+      "text": "Error: file not found",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "READ",
+      "text": "Error: not found at this path",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "READ",
+      "text": "Error: symbol \"x\" not found in a.rs",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "READ",
+      "text": "Error: ENOTDIR",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "READ",
+      "text": "Error: EACCES: permission denied, ENOENT",
+      "kind": "error"
+    },
+    {
+      "tool": "READ",
+      "text": "Error: operation not permitted: no such file",
+      "kind": "error"
+    },
+    {
+      "tool": "READ",
+      "text": "Error: access is denied: path does not exist",
+      "kind": "error"
+    },
+    {
+      "tool": "READ",
+      "text": "Error: EPERM no such path",
+      "kind": "error"
+    },
+    {
+      "tool": "READ",
+      "text": "skill \"x\" not found",
+      "kind": "normal"
+    },
+    {
+      "tool": "READ",
+      "text": "Error: agent: unknown type \"bogus\"",
+      "kind": "error"
+    },
+    {
+      "tool": "grep",
+      "text": "",
+      "kind": "normal"
+    },
+    {
+      "tool": "grep",
+      "text": "ok",
+      "kind": "normal"
+    },
+    {
+      "tool": "grep",
+      "text": "Error: it broke",
+      "kind": "error"
+    },
+    {
+      "tool": "grep",
+      "text": "error: lower",
+      "kind": "error"
+    },
+    {
+      "tool": "grep",
+      "text": "ERROR: upper",
+      "kind": "error"
+    },
+    {
+      "tool": "grep",
+      "text": "Error : spaced colon",
+      "kind": "error"
+    },
+    {
+      "tool": "grep",
+      "text": "Error [code 2]: structured",
+      "kind": "error"
+    },
+    {
+      "tool": "grep",
+      "text": "Error [code",
+      "kind": "error"
+    },
+    {
+      "tool": "grep",
+      "text": "Errors: plural",
+      "kind": "normal"
+    },
+    {
+      "tool": "grep",
+      "text": "Error without colon",
+      "kind": "normal"
+    },
+    {
+      "tool": "grep",
+      "text": "   \n\tError: leading whitespace",
+      "kind": "error"
+    },
+    {
+      "tool": "grep",
+      "text": "[error something]",
+      "kind": "error"
+    },
+    {
+      "tool": "grep",
+      "text": "[ERROR x]",
+      "kind": "error"
+    },
+    {
+      "tool": "grep",
+      "text": "[errors]",
+      "kind": "error"
+    },
+    {
+      "tool": "grep",
+      "text": "prefix then Error: not at the start",
+      "kind": "normal"
+    },
+    {
+      "tool": "grep",
+      "text": "Error: [shell-tool-failed] x",
+      "kind": "error"
+    },
+    {
+      "tool": "grep",
+      "text": "Error: [shell-run-failed] x",
+      "kind": "error"
+    },
+    {
+      "tool": "grep",
+      "text": "[exit code: 3]\nExit three",
+      "kind": "normal"
+    },
+    {
+      "tool": "grep",
+      "text": "(no matches)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "grep",
+      "text": "(no files found)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "grep",
+      "text": "(no symbol matches for x)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "grep",
+      "text": "(no symbols)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "grep",
+      "text": "(no references)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "grep",
+      "text": "(no callers)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "grep",
+      "text": "(no call sites)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "grep",
+      "text": "(no imports)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "grep",
+      "text": "(no dependents)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "grep",
+      "text": "(no entries match filter)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "grep",
+      "text": "(no lines in range 9-12)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "grep",
+      "text": "  (no matches)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "grep",
+      "text": "(No matches)",
+      "kind": "normal"
+    },
+    {
+      "tool": "grep",
+      "text": "Error: ENOENT: no such file or directory",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "grep",
+      "text": "Error: path does not exist: /x",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "grep",
+      "text": "Error: directory does not exist",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "grep",
+      "text": "Error: no such file",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "grep",
+      "text": "Error: file not found",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "grep",
+      "text": "Error: not found at this path",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "grep",
+      "text": "Error: symbol \"x\" not found in a.rs",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "grep",
+      "text": "Error: ENOTDIR",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "grep",
+      "text": "Error: EACCES: permission denied, ENOENT",
+      "kind": "error"
+    },
+    {
+      "tool": "grep",
+      "text": "Error: operation not permitted: no such file",
+      "kind": "error"
+    },
+    {
+      "tool": "grep",
+      "text": "Error: access is denied: path does not exist",
+      "kind": "error"
+    },
+    {
+      "tool": "grep",
+      "text": "Error: EPERM no such path",
+      "kind": "error"
+    },
+    {
+      "tool": "grep",
+      "text": "skill \"x\" not found",
+      "kind": "normal"
+    },
+    {
+      "tool": "grep",
+      "text": "Error: agent: unknown type \"bogus\"",
+      "kind": "error"
+    },
+    {
+      "tool": "find",
+      "text": "",
+      "kind": "normal"
+    },
+    {
+      "tool": "find",
+      "text": "ok",
+      "kind": "normal"
+    },
+    {
+      "tool": "find",
+      "text": "Error: it broke",
+      "kind": "error"
+    },
+    {
+      "tool": "find",
+      "text": "error: lower",
+      "kind": "error"
+    },
+    {
+      "tool": "find",
+      "text": "ERROR: upper",
+      "kind": "error"
+    },
+    {
+      "tool": "find",
+      "text": "Error : spaced colon",
+      "kind": "error"
+    },
+    {
+      "tool": "find",
+      "text": "Error [code 2]: structured",
+      "kind": "error"
+    },
+    {
+      "tool": "find",
+      "text": "Error [code",
+      "kind": "error"
+    },
+    {
+      "tool": "find",
+      "text": "Errors: plural",
+      "kind": "normal"
+    },
+    {
+      "tool": "find",
+      "text": "Error without colon",
+      "kind": "normal"
+    },
+    {
+      "tool": "find",
+      "text": "   \n\tError: leading whitespace",
+      "kind": "error"
+    },
+    {
+      "tool": "find",
+      "text": "[error something]",
+      "kind": "error"
+    },
+    {
+      "tool": "find",
+      "text": "[ERROR x]",
+      "kind": "error"
+    },
+    {
+      "tool": "find",
+      "text": "[errors]",
+      "kind": "error"
+    },
+    {
+      "tool": "find",
+      "text": "prefix then Error: not at the start",
+      "kind": "normal"
+    },
+    {
+      "tool": "find",
+      "text": "Error: [shell-tool-failed] x",
+      "kind": "error"
+    },
+    {
+      "tool": "find",
+      "text": "Error: [shell-run-failed] x",
+      "kind": "error"
+    },
+    {
+      "tool": "find",
+      "text": "[exit code: 3]\nExit three",
+      "kind": "normal"
+    },
+    {
+      "tool": "find",
+      "text": "(no matches)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "find",
+      "text": "(no files found)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "find",
+      "text": "(no symbol matches for x)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "find",
+      "text": "(no symbols)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "find",
+      "text": "(no references)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "find",
+      "text": "(no callers)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "find",
+      "text": "(no call sites)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "find",
+      "text": "(no imports)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "find",
+      "text": "(no dependents)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "find",
+      "text": "(no entries match filter)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "find",
+      "text": "(no lines in range 9-12)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "find",
+      "text": "  (no matches)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "find",
+      "text": "(No matches)",
+      "kind": "normal"
+    },
+    {
+      "tool": "find",
+      "text": "Error: ENOENT: no such file or directory",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "find",
+      "text": "Error: path does not exist: /x",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "find",
+      "text": "Error: directory does not exist",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "find",
+      "text": "Error: no such file",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "find",
+      "text": "Error: file not found",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "find",
+      "text": "Error: not found at this path",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "find",
+      "text": "Error: symbol \"x\" not found in a.rs",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "find",
+      "text": "Error: ENOTDIR",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "find",
+      "text": "Error: EACCES: permission denied, ENOENT",
+      "kind": "error"
+    },
+    {
+      "tool": "find",
+      "text": "Error: operation not permitted: no such file",
+      "kind": "error"
+    },
+    {
+      "tool": "find",
+      "text": "Error: access is denied: path does not exist",
+      "kind": "error"
+    },
+    {
+      "tool": "find",
+      "text": "Error: EPERM no such path",
+      "kind": "error"
+    },
+    {
+      "tool": "find",
+      "text": "skill \"x\" not found",
+      "kind": "normal"
+    },
+    {
+      "tool": "find",
+      "text": "Error: agent: unknown type \"bogus\"",
+      "kind": "error"
+    },
+    {
+      "tool": "glob",
+      "text": "",
+      "kind": "normal"
+    },
+    {
+      "tool": "glob",
+      "text": "ok",
+      "kind": "normal"
+    },
+    {
+      "tool": "glob",
+      "text": "Error: it broke",
+      "kind": "error"
+    },
+    {
+      "tool": "glob",
+      "text": "error: lower",
+      "kind": "error"
+    },
+    {
+      "tool": "glob",
+      "text": "ERROR: upper",
+      "kind": "error"
+    },
+    {
+      "tool": "glob",
+      "text": "Error : spaced colon",
+      "kind": "error"
+    },
+    {
+      "tool": "glob",
+      "text": "Error [code 2]: structured",
+      "kind": "error"
+    },
+    {
+      "tool": "glob",
+      "text": "Error [code",
+      "kind": "error"
+    },
+    {
+      "tool": "glob",
+      "text": "Errors: plural",
+      "kind": "normal"
+    },
+    {
+      "tool": "glob",
+      "text": "Error without colon",
+      "kind": "normal"
+    },
+    {
+      "tool": "glob",
+      "text": "   \n\tError: leading whitespace",
+      "kind": "error"
+    },
+    {
+      "tool": "glob",
+      "text": "[error something]",
+      "kind": "error"
+    },
+    {
+      "tool": "glob",
+      "text": "[ERROR x]",
+      "kind": "error"
+    },
+    {
+      "tool": "glob",
+      "text": "[errors]",
+      "kind": "error"
+    },
+    {
+      "tool": "glob",
+      "text": "prefix then Error: not at the start",
+      "kind": "normal"
+    },
+    {
+      "tool": "glob",
+      "text": "Error: [shell-tool-failed] x",
+      "kind": "error"
+    },
+    {
+      "tool": "glob",
+      "text": "Error: [shell-run-failed] x",
+      "kind": "error"
+    },
+    {
+      "tool": "glob",
+      "text": "[exit code: 3]\nExit three",
+      "kind": "normal"
+    },
+    {
+      "tool": "glob",
+      "text": "(no matches)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "glob",
+      "text": "(no files found)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "glob",
+      "text": "(no symbol matches for x)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "glob",
+      "text": "(no symbols)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "glob",
+      "text": "(no references)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "glob",
+      "text": "(no callers)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "glob",
+      "text": "(no call sites)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "glob",
+      "text": "(no imports)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "glob",
+      "text": "(no dependents)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "glob",
+      "text": "(no entries match filter)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "glob",
+      "text": "(no lines in range 9-12)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "glob",
+      "text": "  (no matches)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "glob",
+      "text": "(No matches)",
+      "kind": "normal"
+    },
+    {
+      "tool": "glob",
+      "text": "Error: ENOENT: no such file or directory",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "glob",
+      "text": "Error: path does not exist: /x",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "glob",
+      "text": "Error: directory does not exist",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "glob",
+      "text": "Error: no such file",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "glob",
+      "text": "Error: file not found",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "glob",
+      "text": "Error: not found at this path",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "glob",
+      "text": "Error: symbol \"x\" not found in a.rs",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "glob",
+      "text": "Error: ENOTDIR",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "glob",
+      "text": "Error: EACCES: permission denied, ENOENT",
+      "kind": "error"
+    },
+    {
+      "tool": "glob",
+      "text": "Error: operation not permitted: no such file",
+      "kind": "error"
+    },
+    {
+      "tool": "glob",
+      "text": "Error: access is denied: path does not exist",
+      "kind": "error"
+    },
+    {
+      "tool": "glob",
+      "text": "Error: EPERM no such path",
+      "kind": "error"
+    },
+    {
+      "tool": "glob",
+      "text": "skill \"x\" not found",
+      "kind": "normal"
+    },
+    {
+      "tool": "glob",
+      "text": "Error: agent: unknown type \"bogus\"",
+      "kind": "error"
+    },
+    {
+      "tool": "list",
+      "text": "",
+      "kind": "normal"
+    },
+    {
+      "tool": "list",
+      "text": "ok",
+      "kind": "normal"
+    },
+    {
+      "tool": "list",
+      "text": "Error: it broke",
+      "kind": "error"
+    },
+    {
+      "tool": "list",
+      "text": "error: lower",
+      "kind": "error"
+    },
+    {
+      "tool": "list",
+      "text": "ERROR: upper",
+      "kind": "error"
+    },
+    {
+      "tool": "list",
+      "text": "Error : spaced colon",
+      "kind": "error"
+    },
+    {
+      "tool": "list",
+      "text": "Error [code 2]: structured",
+      "kind": "error"
+    },
+    {
+      "tool": "list",
+      "text": "Error [code",
+      "kind": "error"
+    },
+    {
+      "tool": "list",
+      "text": "Errors: plural",
+      "kind": "normal"
+    },
+    {
+      "tool": "list",
+      "text": "Error without colon",
+      "kind": "normal"
+    },
+    {
+      "tool": "list",
+      "text": "   \n\tError: leading whitespace",
+      "kind": "error"
+    },
+    {
+      "tool": "list",
+      "text": "[error something]",
+      "kind": "error"
+    },
+    {
+      "tool": "list",
+      "text": "[ERROR x]",
+      "kind": "error"
+    },
+    {
+      "tool": "list",
+      "text": "[errors]",
+      "kind": "error"
+    },
+    {
+      "tool": "list",
+      "text": "prefix then Error: not at the start",
+      "kind": "normal"
+    },
+    {
+      "tool": "list",
+      "text": "Error: [shell-tool-failed] x",
+      "kind": "error"
+    },
+    {
+      "tool": "list",
+      "text": "Error: [shell-run-failed] x",
+      "kind": "error"
+    },
+    {
+      "tool": "list",
+      "text": "[exit code: 3]\nExit three",
+      "kind": "normal"
+    },
+    {
+      "tool": "list",
+      "text": "(no matches)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "list",
+      "text": "(no files found)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "list",
+      "text": "(no symbol matches for x)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "list",
+      "text": "(no symbols)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "list",
+      "text": "(no references)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "list",
+      "text": "(no callers)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "list",
+      "text": "(no call sites)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "list",
+      "text": "(no imports)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "list",
+      "text": "(no dependents)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "list",
+      "text": "(no entries match filter)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "list",
+      "text": "(no lines in range 9-12)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "list",
+      "text": "  (no matches)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "list",
+      "text": "(No matches)",
+      "kind": "normal"
+    },
+    {
+      "tool": "list",
+      "text": "Error: ENOENT: no such file or directory",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "list",
+      "text": "Error: path does not exist: /x",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "list",
+      "text": "Error: directory does not exist",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "list",
+      "text": "Error: no such file",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "list",
+      "text": "Error: file not found",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "list",
+      "text": "Error: not found at this path",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "list",
+      "text": "Error: symbol \"x\" not found in a.rs",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "list",
+      "text": "Error: ENOTDIR",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "list",
+      "text": "Error: EACCES: permission denied, ENOENT",
+      "kind": "error"
+    },
+    {
+      "tool": "list",
+      "text": "Error: operation not permitted: no such file",
+      "kind": "error"
+    },
+    {
+      "tool": "list",
+      "text": "Error: access is denied: path does not exist",
+      "kind": "error"
+    },
+    {
+      "tool": "list",
+      "text": "Error: EPERM no such path",
+      "kind": "error"
+    },
+    {
+      "tool": "list",
+      "text": "skill \"x\" not found",
+      "kind": "normal"
+    },
+    {
+      "tool": "list",
+      "text": "Error: agent: unknown type \"bogus\"",
+      "kind": "error"
+    },
+    {
+      "tool": "code_graph",
+      "text": "",
+      "kind": "normal"
+    },
+    {
+      "tool": "code_graph",
+      "text": "ok",
+      "kind": "normal"
+    },
+    {
+      "tool": "code_graph",
+      "text": "Error: it broke",
+      "kind": "error"
+    },
+    {
+      "tool": "code_graph",
+      "text": "error: lower",
+      "kind": "error"
+    },
+    {
+      "tool": "code_graph",
+      "text": "ERROR: upper",
+      "kind": "error"
+    },
+    {
+      "tool": "code_graph",
+      "text": "Error : spaced colon",
+      "kind": "error"
+    },
+    {
+      "tool": "code_graph",
+      "text": "Error [code 2]: structured",
+      "kind": "error"
+    },
+    {
+      "tool": "code_graph",
+      "text": "Error [code",
+      "kind": "error"
+    },
+    {
+      "tool": "code_graph",
+      "text": "Errors: plural",
+      "kind": "normal"
+    },
+    {
+      "tool": "code_graph",
+      "text": "Error without colon",
+      "kind": "normal"
+    },
+    {
+      "tool": "code_graph",
+      "text": "   \n\tError: leading whitespace",
+      "kind": "error"
+    },
+    {
+      "tool": "code_graph",
+      "text": "[error something]",
+      "kind": "error"
+    },
+    {
+      "tool": "code_graph",
+      "text": "[ERROR x]",
+      "kind": "error"
+    },
+    {
+      "tool": "code_graph",
+      "text": "[errors]",
+      "kind": "error"
+    },
+    {
+      "tool": "code_graph",
+      "text": "prefix then Error: not at the start",
+      "kind": "normal"
+    },
+    {
+      "tool": "code_graph",
+      "text": "Error: [shell-tool-failed] x",
+      "kind": "error"
+    },
+    {
+      "tool": "code_graph",
+      "text": "Error: [shell-run-failed] x",
+      "kind": "error"
+    },
+    {
+      "tool": "code_graph",
+      "text": "[exit code: 3]\nExit three",
+      "kind": "normal"
+    },
+    {
+      "tool": "code_graph",
+      "text": "(no matches)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "code_graph",
+      "text": "(no files found)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "code_graph",
+      "text": "(no symbol matches for x)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "code_graph",
+      "text": "(no symbols)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "code_graph",
+      "text": "(no references)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "code_graph",
+      "text": "(no callers)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "code_graph",
+      "text": "(no call sites)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "code_graph",
+      "text": "(no imports)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "code_graph",
+      "text": "(no dependents)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "code_graph",
+      "text": "(no entries match filter)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "code_graph",
+      "text": "(no lines in range 9-12)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "code_graph",
+      "text": "  (no matches)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "code_graph",
+      "text": "(No matches)",
+      "kind": "normal"
+    },
+    {
+      "tool": "code_graph",
+      "text": "Error: ENOENT: no such file or directory",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "code_graph",
+      "text": "Error: path does not exist: /x",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "code_graph",
+      "text": "Error: directory does not exist",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "code_graph",
+      "text": "Error: no such file",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "code_graph",
+      "text": "Error: file not found",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "code_graph",
+      "text": "Error: not found at this path",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "code_graph",
+      "text": "Error: symbol \"x\" not found in a.rs",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "code_graph",
+      "text": "Error: ENOTDIR",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "code_graph",
+      "text": "Error: EACCES: permission denied, ENOENT",
+      "kind": "error"
+    },
+    {
+      "tool": "code_graph",
+      "text": "Error: operation not permitted: no such file",
+      "kind": "error"
+    },
+    {
+      "tool": "code_graph",
+      "text": "Error: access is denied: path does not exist",
+      "kind": "error"
+    },
+    {
+      "tool": "code_graph",
+      "text": "Error: EPERM no such path",
+      "kind": "error"
+    },
+    {
+      "tool": "code_graph",
+      "text": "skill \"x\" not found",
+      "kind": "normal"
+    },
+    {
+      "tool": "code_graph",
+      "text": "Error: agent: unknown type \"bogus\"",
+      "kind": "error"
+    },
+    {
+      "tool": "edit",
+      "text": "",
+      "kind": "normal"
+    },
+    {
+      "tool": "edit",
+      "text": "ok",
+      "kind": "normal"
+    },
+    {
+      "tool": "edit",
+      "text": "Error: it broke",
+      "kind": "error"
+    },
+    {
+      "tool": "edit",
+      "text": "error: lower",
+      "kind": "error"
+    },
+    {
+      "tool": "edit",
+      "text": "ERROR: upper",
+      "kind": "error"
+    },
+    {
+      "tool": "edit",
+      "text": "Error : spaced colon",
+      "kind": "error"
+    },
+    {
+      "tool": "edit",
+      "text": "Error [code 2]: structured",
+      "kind": "error"
+    },
+    {
+      "tool": "edit",
+      "text": "Error [code",
+      "kind": "error"
+    },
+    {
+      "tool": "edit",
+      "text": "Errors: plural",
+      "kind": "normal"
+    },
+    {
+      "tool": "edit",
+      "text": "Error without colon",
+      "kind": "normal"
+    },
+    {
+      "tool": "edit",
+      "text": "   \n\tError: leading whitespace",
+      "kind": "error"
+    },
+    {
+      "tool": "edit",
+      "text": "[error something]",
+      "kind": "error"
+    },
+    {
+      "tool": "edit",
+      "text": "[ERROR x]",
+      "kind": "error"
+    },
+    {
+      "tool": "edit",
+      "text": "[errors]",
+      "kind": "error"
+    },
+    {
+      "tool": "edit",
+      "text": "prefix then Error: not at the start",
+      "kind": "normal"
+    },
+    {
+      "tool": "edit",
+      "text": "Error: [shell-tool-failed] x",
+      "kind": "error"
+    },
+    {
+      "tool": "edit",
+      "text": "Error: [shell-run-failed] x",
+      "kind": "error"
+    },
+    {
+      "tool": "edit",
+      "text": "[exit code: 3]\nExit three",
+      "kind": "normal"
+    },
+    {
+      "tool": "edit",
+      "text": "(no matches)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "edit",
+      "text": "(no files found)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "edit",
+      "text": "(no symbol matches for x)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "edit",
+      "text": "(no symbols)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "edit",
+      "text": "(no references)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "edit",
+      "text": "(no callers)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "edit",
+      "text": "(no call sites)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "edit",
+      "text": "(no imports)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "edit",
+      "text": "(no dependents)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "edit",
+      "text": "(no entries match filter)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "edit",
+      "text": "(no lines in range 9-12)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "edit",
+      "text": "  (no matches)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "edit",
+      "text": "(No matches)",
+      "kind": "normal"
+    },
+    {
+      "tool": "edit",
+      "text": "Error: ENOENT: no such file or directory",
+      "kind": "error"
+    },
+    {
+      "tool": "edit",
+      "text": "Error: path does not exist: /x",
+      "kind": "error"
+    },
+    {
+      "tool": "edit",
+      "text": "Error: directory does not exist",
+      "kind": "error"
+    },
+    {
+      "tool": "edit",
+      "text": "Error: no such file",
+      "kind": "error"
+    },
+    {
+      "tool": "edit",
+      "text": "Error: file not found",
+      "kind": "error"
+    },
+    {
+      "tool": "edit",
+      "text": "Error: not found at this path",
+      "kind": "error"
+    },
+    {
+      "tool": "edit",
+      "text": "Error: symbol \"x\" not found in a.rs",
+      "kind": "error"
+    },
+    {
+      "tool": "edit",
+      "text": "Error: ENOTDIR",
+      "kind": "error"
+    },
+    {
+      "tool": "edit",
+      "text": "Error: EACCES: permission denied, ENOENT",
+      "kind": "error"
+    },
+    {
+      "tool": "edit",
+      "text": "Error: operation not permitted: no such file",
+      "kind": "error"
+    },
+    {
+      "tool": "edit",
+      "text": "Error: access is denied: path does not exist",
+      "kind": "error"
+    },
+    {
+      "tool": "edit",
+      "text": "Error: EPERM no such path",
+      "kind": "error"
+    },
+    {
+      "tool": "edit",
+      "text": "skill \"x\" not found",
+      "kind": "normal"
+    },
+    {
+      "tool": "edit",
+      "text": "Error: agent: unknown type \"bogus\"",
+      "kind": "error"
+    },
+    {
+      "tool": "shell",
+      "text": "",
+      "kind": "normal"
+    },
+    {
+      "tool": "shell",
+      "text": "ok",
+      "kind": "normal"
+    },
+    {
+      "tool": "shell",
+      "text": "Error: it broke",
+      "kind": "error"
+    },
+    {
+      "tool": "shell",
+      "text": "error: lower",
+      "kind": "error"
+    },
+    {
+      "tool": "shell",
+      "text": "ERROR: upper",
+      "kind": "error"
+    },
+    {
+      "tool": "shell",
+      "text": "Error : spaced colon",
+      "kind": "error"
+    },
+    {
+      "tool": "shell",
+      "text": "Error [code 2]: structured",
+      "kind": "error"
+    },
+    {
+      "tool": "shell",
+      "text": "Error [code",
+      "kind": "error"
+    },
+    {
+      "tool": "shell",
+      "text": "Errors: plural",
+      "kind": "normal"
+    },
+    {
+      "tool": "shell",
+      "text": "Error without colon",
+      "kind": "normal"
+    },
+    {
+      "tool": "shell",
+      "text": "   \n\tError: leading whitespace",
+      "kind": "error"
+    },
+    {
+      "tool": "shell",
+      "text": "[error something]",
+      "kind": "error"
+    },
+    {
+      "tool": "shell",
+      "text": "[ERROR x]",
+      "kind": "error"
+    },
+    {
+      "tool": "shell",
+      "text": "[errors]",
+      "kind": "error"
+    },
+    {
+      "tool": "shell",
+      "text": "prefix then Error: not at the start",
+      "kind": "normal"
+    },
+    {
+      "tool": "shell",
+      "text": "Error: [shell-tool-failed] x",
+      "kind": "error"
+    },
+    {
+      "tool": "shell",
+      "text": "Error: [shell-run-failed] x",
+      "kind": "error"
+    },
+    {
+      "tool": "shell",
+      "text": "[exit code: 3]\nExit three",
+      "kind": "normal"
+    },
+    {
+      "tool": "shell",
+      "text": "(no matches)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "shell",
+      "text": "(no files found)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "shell",
+      "text": "(no symbol matches for x)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "shell",
+      "text": "(no symbols)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "shell",
+      "text": "(no references)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "shell",
+      "text": "(no callers)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "shell",
+      "text": "(no call sites)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "shell",
+      "text": "(no imports)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "shell",
+      "text": "(no dependents)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "shell",
+      "text": "(no entries match filter)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "shell",
+      "text": "(no lines in range 9-12)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "shell",
+      "text": "  (no matches)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "shell",
+      "text": "(No matches)",
+      "kind": "normal"
+    },
+    {
+      "tool": "shell",
+      "text": "Error: ENOENT: no such file or directory",
+      "kind": "error"
+    },
+    {
+      "tool": "shell",
+      "text": "Error: path does not exist: /x",
+      "kind": "error"
+    },
+    {
+      "tool": "shell",
+      "text": "Error: directory does not exist",
+      "kind": "error"
+    },
+    {
+      "tool": "shell",
+      "text": "Error: no such file",
+      "kind": "error"
+    },
+    {
+      "tool": "shell",
+      "text": "Error: file not found",
+      "kind": "error"
+    },
+    {
+      "tool": "shell",
+      "text": "Error: not found at this path",
+      "kind": "error"
+    },
+    {
+      "tool": "shell",
+      "text": "Error: symbol \"x\" not found in a.rs",
+      "kind": "error"
+    },
+    {
+      "tool": "shell",
+      "text": "Error: ENOTDIR",
+      "kind": "error"
+    },
+    {
+      "tool": "shell",
+      "text": "Error: EACCES: permission denied, ENOENT",
+      "kind": "error"
+    },
+    {
+      "tool": "shell",
+      "text": "Error: operation not permitted: no such file",
+      "kind": "error"
+    },
+    {
+      "tool": "shell",
+      "text": "Error: access is denied: path does not exist",
+      "kind": "error"
+    },
+    {
+      "tool": "shell",
+      "text": "Error: EPERM no such path",
+      "kind": "error"
+    },
+    {
+      "tool": "shell",
+      "text": "skill \"x\" not found",
+      "kind": "normal"
+    },
+    {
+      "tool": "shell",
+      "text": "Error: agent: unknown type \"bogus\"",
+      "kind": "error"
+    },
+    {
+      "tool": "agent",
+      "text": "",
+      "kind": "normal"
+    },
+    {
+      "tool": "agent",
+      "text": "ok",
+      "kind": "normal"
+    },
+    {
+      "tool": "agent",
+      "text": "Error: it broke",
+      "kind": "error"
+    },
+    {
+      "tool": "agent",
+      "text": "error: lower",
+      "kind": "error"
+    },
+    {
+      "tool": "agent",
+      "text": "ERROR: upper",
+      "kind": "error"
+    },
+    {
+      "tool": "agent",
+      "text": "Error : spaced colon",
+      "kind": "error"
+    },
+    {
+      "tool": "agent",
+      "text": "Error [code 2]: structured",
+      "kind": "error"
+    },
+    {
+      "tool": "agent",
+      "text": "Error [code",
+      "kind": "error"
+    },
+    {
+      "tool": "agent",
+      "text": "Errors: plural",
+      "kind": "normal"
+    },
+    {
+      "tool": "agent",
+      "text": "Error without colon",
+      "kind": "normal"
+    },
+    {
+      "tool": "agent",
+      "text": "   \n\tError: leading whitespace",
+      "kind": "error"
+    },
+    {
+      "tool": "agent",
+      "text": "[error something]",
+      "kind": "error"
+    },
+    {
+      "tool": "agent",
+      "text": "[ERROR x]",
+      "kind": "error"
+    },
+    {
+      "tool": "agent",
+      "text": "[errors]",
+      "kind": "error"
+    },
+    {
+      "tool": "agent",
+      "text": "prefix then Error: not at the start",
+      "kind": "normal"
+    },
+    {
+      "tool": "agent",
+      "text": "Error: [shell-tool-failed] x",
+      "kind": "error"
+    },
+    {
+      "tool": "agent",
+      "text": "Error: [shell-run-failed] x",
+      "kind": "error"
+    },
+    {
+      "tool": "agent",
+      "text": "[exit code: 3]\nExit three",
+      "kind": "normal"
+    },
+    {
+      "tool": "agent",
+      "text": "(no matches)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "agent",
+      "text": "(no files found)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "agent",
+      "text": "(no symbol matches for x)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "agent",
+      "text": "(no symbols)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "agent",
+      "text": "(no references)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "agent",
+      "text": "(no callers)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "agent",
+      "text": "(no call sites)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "agent",
+      "text": "(no imports)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "agent",
+      "text": "(no dependents)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "agent",
+      "text": "(no entries match filter)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "agent",
+      "text": "(no lines in range 9-12)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "agent",
+      "text": "  (no matches)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "agent",
+      "text": "(No matches)",
+      "kind": "normal"
+    },
+    {
+      "tool": "agent",
+      "text": "Error: ENOENT: no such file or directory",
+      "kind": "error"
+    },
+    {
+      "tool": "agent",
+      "text": "Error: path does not exist: /x",
+      "kind": "error"
+    },
+    {
+      "tool": "agent",
+      "text": "Error: directory does not exist",
+      "kind": "error"
+    },
+    {
+      "tool": "agent",
+      "text": "Error: no such file",
+      "kind": "error"
+    },
+    {
+      "tool": "agent",
+      "text": "Error: file not found",
+      "kind": "error"
+    },
+    {
+      "tool": "agent",
+      "text": "Error: not found at this path",
+      "kind": "error"
+    },
+    {
+      "tool": "agent",
+      "text": "Error: symbol \"x\" not found in a.rs",
+      "kind": "error"
+    },
+    {
+      "tool": "agent",
+      "text": "Error: ENOTDIR",
+      "kind": "error"
+    },
+    {
+      "tool": "agent",
+      "text": "Error: EACCES: permission denied, ENOENT",
+      "kind": "error"
+    },
+    {
+      "tool": "agent",
+      "text": "Error: operation not permitted: no such file",
+      "kind": "error"
+    },
+    {
+      "tool": "agent",
+      "text": "Error: access is denied: path does not exist",
+      "kind": "error"
+    },
+    {
+      "tool": "agent",
+      "text": "Error: EPERM no such path",
+      "kind": "error"
+    },
+    {
+      "tool": "agent",
+      "text": "skill \"x\" not found",
+      "kind": "normal"
+    },
+    {
+      "tool": "agent",
+      "text": "Error: agent: unknown type \"bogus\"",
+      "kind": "error"
+    },
+    {
+      "tool": "Skill",
+      "text": "",
+      "kind": "normal"
+    },
+    {
+      "tool": "Skill",
+      "text": "ok",
+      "kind": "normal"
+    },
+    {
+      "tool": "Skill",
+      "text": "Error: it broke",
+      "kind": "error"
+    },
+    {
+      "tool": "Skill",
+      "text": "error: lower",
+      "kind": "error"
+    },
+    {
+      "tool": "Skill",
+      "text": "ERROR: upper",
+      "kind": "error"
+    },
+    {
+      "tool": "Skill",
+      "text": "Error : spaced colon",
+      "kind": "error"
+    },
+    {
+      "tool": "Skill",
+      "text": "Error [code 2]: structured",
+      "kind": "error"
+    },
+    {
+      "tool": "Skill",
+      "text": "Error [code",
+      "kind": "error"
+    },
+    {
+      "tool": "Skill",
+      "text": "Errors: plural",
+      "kind": "normal"
+    },
+    {
+      "tool": "Skill",
+      "text": "Error without colon",
+      "kind": "normal"
+    },
+    {
+      "tool": "Skill",
+      "text": "   \n\tError: leading whitespace",
+      "kind": "error"
+    },
+    {
+      "tool": "Skill",
+      "text": "[error something]",
+      "kind": "error"
+    },
+    {
+      "tool": "Skill",
+      "text": "[ERROR x]",
+      "kind": "error"
+    },
+    {
+      "tool": "Skill",
+      "text": "[errors]",
+      "kind": "error"
+    },
+    {
+      "tool": "Skill",
+      "text": "prefix then Error: not at the start",
+      "kind": "normal"
+    },
+    {
+      "tool": "Skill",
+      "text": "Error: [shell-tool-failed] x",
+      "kind": "error"
+    },
+    {
+      "tool": "Skill",
+      "text": "Error: [shell-run-failed] x",
+      "kind": "error"
+    },
+    {
+      "tool": "Skill",
+      "text": "[exit code: 3]\nExit three",
+      "kind": "normal"
+    },
+    {
+      "tool": "Skill",
+      "text": "(no matches)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "Skill",
+      "text": "(no files found)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "Skill",
+      "text": "(no symbol matches for x)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "Skill",
+      "text": "(no symbols)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "Skill",
+      "text": "(no references)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "Skill",
+      "text": "(no callers)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "Skill",
+      "text": "(no call sites)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "Skill",
+      "text": "(no imports)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "Skill",
+      "text": "(no dependents)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "Skill",
+      "text": "(no entries match filter)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "Skill",
+      "text": "(no lines in range 9-12)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "Skill",
+      "text": "  (no matches)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "Skill",
+      "text": "(No matches)",
+      "kind": "normal"
+    },
+    {
+      "tool": "Skill",
+      "text": "Error: ENOENT: no such file or directory",
+      "kind": "error"
+    },
+    {
+      "tool": "Skill",
+      "text": "Error: path does not exist: /x",
+      "kind": "error"
+    },
+    {
+      "tool": "Skill",
+      "text": "Error: directory does not exist",
+      "kind": "error"
+    },
+    {
+      "tool": "Skill",
+      "text": "Error: no such file",
+      "kind": "error"
+    },
+    {
+      "tool": "Skill",
+      "text": "Error: file not found",
+      "kind": "error"
+    },
+    {
+      "tool": "Skill",
+      "text": "Error: not found at this path",
+      "kind": "error"
+    },
+    {
+      "tool": "Skill",
+      "text": "Error: symbol \"x\" not found in a.rs",
+      "kind": "error"
+    },
+    {
+      "tool": "Skill",
+      "text": "Error: ENOTDIR",
+      "kind": "error"
+    },
+    {
+      "tool": "Skill",
+      "text": "Error: EACCES: permission denied, ENOENT",
+      "kind": "error"
+    },
+    {
+      "tool": "Skill",
+      "text": "Error: operation not permitted: no such file",
+      "kind": "error"
+    },
+    {
+      "tool": "Skill",
+      "text": "Error: access is denied: path does not exist",
+      "kind": "error"
+    },
+    {
+      "tool": "Skill",
+      "text": "Error: EPERM no such path",
+      "kind": "error"
+    },
+    {
+      "tool": "Skill",
+      "text": "skill \"x\" not found",
+      "kind": "normal"
+    },
+    {
+      "tool": "Skill",
+      "text": "Error: agent: unknown type \"bogus\"",
+      "kind": "error"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "",
+      "kind": "normal"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "ok",
+      "kind": "normal"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "Error: it broke",
+      "kind": "error"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "error: lower",
+      "kind": "error"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "ERROR: upper",
+      "kind": "error"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "Error : spaced colon",
+      "kind": "error"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "Error [code 2]: structured",
+      "kind": "error"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "Error [code",
+      "kind": "error"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "Errors: plural",
+      "kind": "normal"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "Error without colon",
+      "kind": "normal"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "   \n\tError: leading whitespace",
+      "kind": "error"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "[error something]",
+      "kind": "error"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "[ERROR x]",
+      "kind": "error"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "[errors]",
+      "kind": "error"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "prefix then Error: not at the start",
+      "kind": "normal"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "Error: [shell-tool-failed] x",
+      "kind": "error"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "Error: [shell-run-failed] x",
+      "kind": "error"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "[exit code: 3]\nExit three",
+      "kind": "normal"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "(no matches)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "(no files found)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "(no symbol matches for x)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "(no symbols)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "(no references)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "(no callers)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "(no call sites)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "(no imports)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "(no dependents)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "(no entries match filter)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "(no lines in range 9-12)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "  (no matches)",
+      "kind": "zero-match"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "(No matches)",
+      "kind": "normal"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "Error: ENOENT: no such file or directory",
+      "kind": "error"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "Error: path does not exist: /x",
+      "kind": "error"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "Error: directory does not exist",
+      "kind": "error"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "Error: no such file",
+      "kind": "error"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "Error: file not found",
+      "kind": "error"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "Error: not found at this path",
+      "kind": "error"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "Error: symbol \"x\" not found in a.rs",
+      "kind": "error"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "Error: ENOTDIR",
+      "kind": "error"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "Error: EACCES: permission denied, ENOENT",
+      "kind": "error"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "Error: operation not permitted: no such file",
+      "kind": "error"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "Error: access is denied: path does not exist",
+      "kind": "error"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "Error: EPERM no such path",
+      "kind": "error"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "skill \"x\" not found",
+      "kind": "normal"
+    },
+    {
+      "tool": "mcp__fx__fail",
+      "text": "Error: agent: unknown type \"bogus\"",
+      "kind": "error"
+    },
+    {
+      "tool": "read",
+      "text": null,
+      "kind": "normal"
+    }
+  ]
+}
