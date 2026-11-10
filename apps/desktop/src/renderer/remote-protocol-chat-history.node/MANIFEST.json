@@ -1,0 +1,87 @@
+{
+  "count": 18,
+  "commit": "b6f10295a2f698afc85332467192de28500bd146",
+  "recordings": [
+    {
+      "file": "01.json",
+      "sha256": "e97fc6a3f38db37cb7e8ee4a11b25e154f7ba1247d06ff0300c016fc0f80ce56"
+    },
+    {
+      "file": "02.json",
+      "sha256": "d2da031769571f0ca115c74b2b65e340d71c9956ed979192c1a52397cce6f63a"
+    },
+    {
+      "file": "03.json",
+      "sha256": "cc08e699ff3cc11f48c06f21e1932b10b3ba857b6d808a6f51ccbdef1d50167f"
+    },
+    {
+      "file": "04.json",
+      "sha256": "87f40446ce48331719bfef8562cbf1cc058f51e6da7d5eb97eae31eee6557183"
+    },
+    {
+      "file": "05.json",
+      "sha256": "6e96a044a8b76d7f1503144a60c524be3b65253dff96998bf81995b808728ffb"
+    },
+    {
+      "file": "06.json",
+      "sha256": "03abc251a377f9416a82d50a57cc6db19554e752d28353bcec9897a5b0533bb8"
+    },
+    {
+      "file": "07.json",
+      "sha256": "3f8fd8ea7468b1899dc0fce8b602015d65df20c83abb25818f63f974ff023948"
+    },
+    {
+      "file": "08.json",
+      "sha256": "f0fe58992137828331b5c96f80492644b0a13112e5a9ad9e060f1c6f124586e0"
+    },
+    {
+      "file": "09.json",
+      "sha256": "0e542bf14d7b5f217e40a1cec153117bc610b58c280d2a30e33e834ae62f0723"
+    },
+    {
+      "file": "10.json",
+      "sha256": "34ab0217c29caf16dc26153d70d55c0ca6e35e4301bfd310d572355fd4a5108b"
+    },
+    {
+      "file": "11.json",
+      "sha256": "321b7644314e0d524c93248af340c9e726432c5e1ea5cebdd736865358e72ff5"
+    },
+    {
+      "file": "12.json",
+      "sha256": "cbf0d3bb178dcb12bea4f17b33e2ac4d36e49bf3c5d7e2faa93e93f06bc6b6c6"
+    },
+    {
+      "file": "13.json",
+      "sha256": "99cc5b7667294ccbc529292d1108eab78af1755893dce41a0d6131e45ee0c374"
+    },
+    {
+      "file": "14.json",
+      "sha256": "87eeb28f5552ce19471cd3f38670f4396a0b73dfa0f502ad744c1fa30fcf0e4d"
+    },
+    {
+      "file": "15.json",
+      "sha256": "0168753eaea2ec8fa9967cfc216a19d1913184d2b2076cf5f71f9ffa6b27d9ba"
+    },
+    {
+      "file": "16.json",
+      "sha256": "61249713611d4b11a431508aad66b957be63c8a91aa9022b3685ebb06f3148ce"
+    },
+    {
+      "file": "17.json",
+      "sha256": "d8f4c2e9c1a6d46fd7a81b501ebb47e47f841b56734c37818bd0fa47fcfa4815"
+    },
+    {
+      "file": "18.json",
+      "sha256": "7a46679780657fea3d060e2d58c46283679e6261a377fb785b14acab3da49e00"
+    }
+  ],
+  "recorder": {
+    "remote-protocol-chat-history.record.mjs": "207f643bb99a18d414d15174b849845ff2b8de0d1d7a9f6e829442e3b4b92055",
+    "remote-protocol-chat-history-loader.mjs": "d025fc9dc5155f57927448718ed9fb05b8e829ea49785829672fabf8d62f2236",
+    "remote-protocol-chat-vclock.mjs": "dfe7dd086dfe64dec8decdfa11c79593aa4291eed655f90941f541f2dfdff065",
+    "remote-protocol-chat-node-export.mjs": "08d480506f1e812e28d95b3882fa73f7fa38d14ef16d53ac8478d9b974062bde",
+    "remote-protocol-chat-abort-cases.mjs": "b85d5676c9001e4a5f0fe647d65e389a1afa39d07affeef2b3073833b5543964",
+    "remote-protocol-chat-abort-provider.mjs": "b07237a01a51f3ca2386c1d6b9f1bb712e90f266b7b8de18cc490e92825e58a7",
+    "remote-protocol-chat-abort-procs.mjs": "2283528c6a2dc4c5e8ce0b1f9f251fdb1e873ee06bcbf4cbff4a832ae4125f61"
+  }
+}
