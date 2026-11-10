@@ -3,7 +3,7 @@
 //! mints a token, the first Chat Completions send is refused (a 401, a 429 answered as a JSON array, a 529) and the
 //! next answers. Every request (token grants included) is compared with Node's bytes; a refusal the adapter does not
 //! recover itself is retried as the loop's decider rules under the policy the adapter names for the model, with the
-//! wait Node slept; the answer, its usage and pricing id are compared with Node's result.
+//! wait Node slept; the decoded answer is compared whole with Node's result.
 
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -18,7 +18,6 @@ use mixdog_core_api::domain::provider::ProviderAdapter;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::RequestOptions;
 use mixdog_core_api::domain::provider::Role;
-use mixdog_core_api::domain::provider::StreamEvent;
 use mixdog_core_api::domain::provider::TransportFault;
 use mixdog_core_api::domain::provider::WireRequest;
 use mixdog_core_api::domain::retry::JitterSamples;
@@ -33,9 +32,10 @@ use super::auth::vertex::VertexAuth;
 use super::auth::vertex::parse_adc;
 use super::serving::VertexPlace;
 use super::traits::CatalogGoogleTraits;
+use crate::providers::wire_fixtures::assert_same_result;
+use crate::providers::wire_fixtures::core_result;
 use crate::providers::wire_fixtures::load;
-use crate::providers::wire_fixtures::node_answer;
-use crate::providers::wire_fixtures::rust_answer;
+use crate::providers::wire_fixtures::node_result;
 use crate::providers::wire_fixtures::scenarios;
 use crate::retry::StandardRetryDecider;
 use crate::transport::BodyStream;
@@ -110,7 +110,7 @@ async fn an_open_model_is_sent_refreshed_and_retried_as_node_does() {
         let auth = VertexAuth::new(http.clone(), parse_adc(adc, "adc.json").unwrap(), Box::new(now));
         let identity = auth.identity().to_owned();
         let auth: Arc<dyn RequestAuth> = Arc::new(auth);
-        let adapter = super::vertex(VertexPlace::project("fixture-project", Some("global"), None), auth, identity, http.clone(), Arc::new(CatalogGoogleTraits(Vec::new())));
+        let adapter = super::vertex(VertexPlace::project("fixture-project", Some("global"), None), auth, identity, http.clone(), Arc::new(CatalogGoogleTraits(Vec::new())), Arc::new(|_| None));
         let model = recorded.input["model"].as_str().unwrap();
         let request = Arc::new(ModelRequest {
             model: model.to_owned(),
@@ -146,11 +146,6 @@ async fn an_open_model_is_sent_refreshed_and_retried_as_node_does() {
             assert_eq!(got.url, format!("{}{}", want["origin"].as_str().unwrap(), want["path"].as_str().unwrap()), "{name} #{i}: url");
             assert_eq!(String::from_utf8(got.body.clone()).unwrap(), want["bodyText"].as_str().unwrap(), "{name} #{i}: body");
         }
-        assert_eq!(rust_answer(&events, model), node_answer(&recorded.result), "{name}: answer");
-        let pricing = events.iter().find_map(|e| match e {
-            StreamEvent::Completed { pricing_model, .. } => pricing_model.clone(),
-            _ => None,
-        });
-        assert_eq!(pricing.as_deref(), recorded.result["ok"]["pricingModel"].as_str(), "{name}: pricing model");
+        assert_same_result(&core_result(&events, model), &node_result(&recorded.result), &format!("{name}: result"));
     }
 }

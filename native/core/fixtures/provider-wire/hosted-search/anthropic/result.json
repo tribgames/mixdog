@@ -5,12 +5,44 @@
     "stopReason": "end_turn",
     "hasThinkingContent": false,
     "contentBlockTypes": [
+      "input_json_delta",
+      "citations_delta",
       "text_delta"
     ],
     "assistantBlocks": [
       {
+        "type": "server_tool_use",
+        "id": "srvtoolu_1",
+        "name": "web_search",
+        "input": {
+          "query": "find x"
+        }
+      },
+      {
+        "type": "web_search_tool_result",
+        "tool_use_id": "srvtoolu_1",
+        "content": [
+          {
+            "type": "web_search_result",
+            "url": "https://a.com/x",
+            "title": "A page",
+            "encrypted_content": "enc-a",
+            "page_age": null
+          }
+        ]
+      },
+      {
         "type": "text",
-        "text": "The answer is 42."
+        "text": "The answer is 42.",
+        "citations": [
+          {
+            "type": "web_search_result_location",
+            "cited_text": "x is 42",
+            "url": "https://a.com/x",
+            "title": "A page",
+            "encrypted_index": "ei-a"
+          }
+        ]
       }
     ],
     "providerReplay": {
@@ -18,8 +50,38 @@
       "provider": "anthropic",
       "items": [
         {
+          "type": "server_tool_use",
+          "id": "srvtoolu_1",
+          "name": "web_search",
+          "input": {
+            "query": "find x"
+          }
+        },
+        {
+          "type": "web_search_tool_result",
+          "tool_use_id": "srvtoolu_1",
+          "content": [
+            {
+              "type": "web_search_result",
+              "url": "https://a.com/x",
+              "title": "A page",
+              "encrypted_content": "enc-a",
+              "page_age": null
+            }
+          ]
+        },
+        {
           "type": "text",
-          "text": "The answer is 42."
+          "text": "The answer is 42.",
+          "citations": [
+            {
+              "type": "web_search_result_location",
+              "cited_text": "x is 42",
+              "url": "https://a.com/x",
+              "title": "A page",
+              "encrypted_index": "ei-a"
+            }
+          ]
         }
       ]
     },
@@ -30,9 +92,15 @@
       "cachedTokens": 0,
       "cacheWriteTokens": 0,
       "promptTokens": 20,
+      "serverToolUse": {
+        "webSearchRequests": 1
+      },
       "raw": {
         "input_tokens": 20,
-        "output_tokens": 8
+        "output_tokens": 8,
+        "server_tool_use": {
+          "web_search_requests": 1
+        }
       }
     }
   },

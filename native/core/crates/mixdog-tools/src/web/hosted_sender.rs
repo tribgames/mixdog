@@ -173,9 +173,9 @@ pub fn usage_object(usage: &Usage, input_inclusive: bool) -> Value {
 }
 
 /// What the stream answered: the text, the last usage, and the sources the
-/// family's result carries (Node's Anthropic result has none; the others have
-/// citations and the search calls).
-fn fold(events: &[StreamEvent], family: SearchFamily) -> (String, Option<Usage>, Option<String>, Vec<Value>, Vec<Value>) {
+/// result carries (Node's Anthropic result has none: its decoder reports no
+/// citation or search call; the others report both).
+fn fold(events: &[StreamEvent]) -> (String, Option<Usage>, Option<String>, Vec<Value>, Vec<Value>) {
     let (mut content, mut usage, mut pricing) = (String::new(), None, None);
     let (mut citations, mut calls) = (Vec::new(), Vec::new());
     for event in events {
@@ -183,10 +183,8 @@ fn fold(events: &[StreamEvent], family: SearchFamily) -> (String, Option<Usage>,
             StreamEvent::TextDelta(text) => content.push_str(text),
             StreamEvent::Usage(reported) => usage = Some(reported.clone()),
             StreamEvent::Completed { pricing_model, .. } => pricing = pricing_model.clone(),
-            StreamEvent::Citation(citation) if family != SearchFamily::Anthropic => citations.push(citation.clone()),
-            StreamEvent::ServerToolBlock(block)
-                if family != SearchFamily::Anthropic && block.get("type").and_then(Value::as_str) == Some("web_search_call") =>
-            {
+            StreamEvent::Citation(citation) => citations.push(citation.clone()),
+            StreamEvent::ServerToolBlock(block) if block.get("type").and_then(Value::as_str) == Some("web_search_call") => {
                 calls.push(block.clone());
             }
             _ => {}
@@ -244,7 +242,7 @@ impl HostedSearchSender for ProviderSearchSender {
         let ended_at = (self.deps.now)();
         let last_usage = sink.last_usage().cloned();
         let events = sink.events().to_vec();
-        let (content, usage, pricing_model, citations, web_search_calls) = fold(&events, candidate.family);
+        let (content, usage, pricing_model, citations, web_search_calls) = fold(&events);
         let outcome_error = match &sent {
             Ok(_) => None,
             Err(SendError::Provider(error) | SendError::Exhausted(error)) => Some(error.clone()),

@@ -2,6 +2,22 @@
   "ok": {
     "content": "The answer is 42.",
     "model": "gemini-3-pro",
+    "citations": [
+      {
+        "title": "a.com",
+        "url": "https://a.com/x",
+        "snippet": "",
+        "source": "gemini-grounding",
+        "provider": "gemini"
+      },
+      {
+        "title": "b.com",
+        "url": "https://b.com/y",
+        "snippet": "",
+        "source": "gemini-grounding",
+        "provider": "gemini"
+      }
+    ],
     "providerReplay": {
       "version": 1,
       "provider": "antigravity",

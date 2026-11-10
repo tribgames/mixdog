@@ -1,0 +1,16 @@
+{
+  "provider": "openrouter",
+  "model": "openai/gpt-5",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a fixture assistant."
+    },
+    {
+      "role": "user",
+      "content": "Hello"
+    }
+  ],
+  "tools": null,
+  "opts": {}
+}

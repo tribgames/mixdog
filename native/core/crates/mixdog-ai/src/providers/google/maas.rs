@@ -183,8 +183,7 @@ pub fn decoder(request: &ModelRequest, model: &VertexModel) -> MaasDecoder {
     let known = body_tool_names(&engine, &sent, ToolNames::Chat);
     MaasDecoder {
         inner: ChatDecoder::new(engine.profile().clone(), mixdog_protocol::ProviderId::from("vertex-ai"))
-            .with_known_tools(known)
-            .reporting_served_model(),
+            .with_known_tools(known),
         pricing_model: model.qualified(),
     }
 }

@@ -1,7 +1,8 @@
 //! Anthropic's server-side fallback against Node's recordings (`fixtures/provider-wire/anthropic-fallback`, recorded by
 //! `benchmarks/rust-core/recorders/record-provider-wire.mjs`): the subscription adapter sends the turn, the recorded stream
-//! (a `fallback` block before any output, or after some) comes back, and the request bytes, the answer (text, the model
-//! that answered, the usage) and the ledger row the accounting writes are compared with Node's.
+//! (a `fallback` block before any output, after some, or naming a snapshot of the requested model) comes back, and the
+//! request bytes, the whole result (the model that answered and the fallback record included) and the ledger row the
+//! accounting writes are compared with Node's.
 
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -26,9 +27,10 @@ use super::tests::MemoryStore;
 use super::tests::cpu_bulk;
 use crate::providers::google::wire_tests::Rows;
 use crate::providers::google::wire_tests::empty_pricing;
+use crate::providers::wire_fixtures::assert_same_result;
+use crate::providers::wire_fixtures::core_result;
 use crate::providers::wire_fixtures::load;
-use crate::providers::wire_fixtures::node_answer;
-use crate::providers::wire_fixtures::rust_answer;
+use crate::providers::wire_fixtures::node_result;
 use crate::providers::wire_fixtures::scenarios;
 use crate::registry::accounted::AccountOf;
 use crate::registry::accounted::AccountedAdapter;
@@ -98,7 +100,7 @@ fn a_turn_the_fallback_model_answers_is_booked_and_reported_as_node_does() {
 
 async fn replay_fallbacks() {
     let names = scenarios("anthropic-fallback");
-    assert_eq!(names, ["before-output", "mid-output"]);
+    assert_eq!(names, ["before-output", "mid-output", "snapshot-target"]);
     for name in names {
         let recorded = load("anthropic-fallback", &name);
         let input = &recorded.input;
@@ -156,7 +158,7 @@ async fn replay_fallbacks() {
         let sent_posts: Vec<_> = sent.iter().filter(|r| r.method == "POST").collect();
         assert_eq!(sent_posts.len(), posts.len(), "{name}: sends");
         assert_eq!(String::from_utf8(sent_posts[0].body.clone()).unwrap(), posts[0]["bodyText"].as_str().unwrap(), "{name}: request body");
-        assert_eq!(rust_answer(&events, model), node_answer(&recorded.result), "{name}: answer");
+        assert_same_result(&core_result(&events, model), &node_result(&recorded.result), &format!("{name}: result"));
         assert_eq!(without_ttft(&Value::Array(rows.0.lock().unwrap().clone())), without_ttft(&recorded.result["rows"]), "{name}: usage rows");
     }
 }

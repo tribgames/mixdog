@@ -1,7 +1,8 @@
 //! A provider's own web search on the wire, per provider, against Node's recordings (`fixtures/provider-wire/hosted-search`):
 //! the request `sendCandidate` makes (native-web-search.mjs:63-77) is built as the hosted sender builds it, with the tool
 //! read by the production reader ([`super::hosted::web_search_from_node`]), encoded by the provider's real codec and
-//! compared with the bytes Node sent; the recorded answer is decoded by the same codec and folded.
+//! compared with the bytes Node sent; the recorded answer (the search call, its sources and a citation as each wire
+//! reports them) is decoded by the same codec and compared whole with Node's result.
 
 use std::sync::Arc;
 
@@ -32,7 +33,10 @@ use super::openai::config::ModelFactsSource;
 use super::openai::config::OpenAiConfig;
 use super::openai::config::WireContext;
 use super::wire_fixtures::Recorded;
+use super::wire_fixtures::assert_same_result;
+use super::wire_fixtures::core_result;
 use super::wire_fixtures::load;
+use super::wire_fixtures::node_result;
 use super::wire_fixtures::scenarios;
 
 struct Ctx;
@@ -168,17 +172,11 @@ fn request(recorded: &Recorded) -> ModelRequest {
     }
 }
 
-fn folded_text(codec: &dyn WireCodec, request: &ModelRequest, served: &str) -> String {
+fn decoded(codec: &dyn WireCodec, request: &ModelRequest, served: &str) -> Vec<StreamEvent> {
     let mut decoder = codec.decoder(request);
     let mut events = decoder.feed(served.as_bytes()).expect("recorded stream");
     events.extend(decoder.finish().expect("recorded stream ends"));
     events
-        .iter()
-        .filter_map(|event| match event {
-            StreamEvent::TextDelta(text) => Some(text.as_str()),
-            _ => None,
-        })
-        .collect()
 }
 
 /// The JSON of a body with the given top-level keys removed, for the fields a send draws at random.
@@ -210,7 +208,7 @@ fn every_provider_sends_its_hosted_search_as_node_does() {
             "antigravity-oauth" => assert_eq!(without(&sent, &["requestId"]), without(node, &["requestId"]), "{name}: body"),
             _ => assert_eq!(sent, node, "{name}: body bytes"),
         }
-        let served = post["served"].as_str().unwrap();
-        assert_eq!(folded_text(codec.as_ref(), &request, served), recorded.result["ok"]["content"].as_str().unwrap(), "{name}: answer");
+        let events = decoded(codec.as_ref(), &request, post["served"].as_str().unwrap());
+        assert_same_result(&core_result(&events, &request.model), &node_result(&recorded.result), &format!("{name}: result"));
     }
 }

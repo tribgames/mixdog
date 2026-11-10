@@ -28,6 +28,8 @@ pub mod listing_row;
 pub mod local;
 pub mod openai;
 #[cfg(test)]
+mod served_model_wire_tests;
+#[cfg(test)]
 pub(crate) mod wire_fixtures;
 
 /// Node's stream progress kinds (`golden/stream_progress.json`, recorded from Node's real decoders by

@@ -218,6 +218,8 @@ pub struct GeminiDecoder {
     /// The answer text of the whole response (`rawContent`) and what of it was relayed.
     raw: String,
     shown: String,
+    /// The model the replay envelope is bound to (`requestContext.model`), when the decoder knows the request.
+    model: Option<String>,
 }
 
 /// `geminiChunkProgressKind(chunk)`: the one kind a chunk reports for all its parts, `None` for transport only.
@@ -259,7 +261,15 @@ impl GeminiDecoder {
             chunk_text: String::new(),
             raw: String::new(),
             shown: String::new(),
+            model: None,
         }
+    }
+
+    /// Binds the replay envelope to the model that produced it (Node's `requestContext.model`): a later turn replays its
+    /// signed parts only to the same model.
+    pub fn for_model(mut self, model: &str) -> Self {
+        self.model = Some(model.to_owned());
+        self
     }
 
     /// Recover tool calls leaked into the answer text, naming only these tools (the request's).
@@ -522,10 +532,11 @@ impl GeminiDecoder {
             self.parts.clear();
         }
         if !self.parts.is_empty() {
-            out.push(StreamEvent::ReasoningReplay(ProviderReplay {
-                owner: self.dialect.owner.clone(),
-                items: json!({ "parts": std::mem::take(&mut self.parts) }),
-            }));
+            let mut items = json!({ "parts": std::mem::take(&mut self.parts) });
+            if let Some(model) = &self.model {
+                items["model"] = json!(model);
+            }
+            out.push(StreamEvent::ReasoningReplay(ProviderReplay { owner: self.dialect.owner.clone(), items }));
         }
         out.extend(self.citations.drain(..).map(StreamEvent::Citation));
         if let Some(um) = &self.usage {

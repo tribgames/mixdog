@@ -1,0 +1,50 @@
+{
+  "ok": {
+    "content": "The answer is 42.",
+    "model": "muse-fixture-served",
+    "stopReason": null,
+    "providerReplay": {
+      "version": 1,
+      "provider": "compat-responses:muse-code-oauth",
+      "items": [
+        {
+          "type": "message",
+          "id": "m1",
+          "role": "assistant",
+          "content": [
+            {
+              "type": "output_text",
+              "text": "The answer is 42."
+            }
+          ]
+        }
+      ]
+    },
+    "providerState": {
+      "compatResponses": {
+        "previousResponseId": null,
+        "responseId": "resp_x",
+        "store": false,
+        "owner": "compat-responses:muse-code-oauth",
+        "encryptedReasoningItems": [],
+        "encryptedReasoningHistory": [],
+        "seenMessageCount": 2,
+        "model": "muse-fixture",
+        "updatedAt": 1700000000000
+      }
+    },
+    "usage": {
+      "inputTokens": 20,
+      "outputTokens": 8,
+      "cachedTokens": 0,
+      "cacheWriteTokens": 0,
+      "promptTokens": 20,
+      "raw": {
+        "input_tokens": 20,
+        "output_tokens": 8,
+        "total_tokens": 28
+      }
+    }
+  },
+  "dispatchedToolCalls": []
+}

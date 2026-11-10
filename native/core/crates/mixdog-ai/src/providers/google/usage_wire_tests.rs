@@ -1,7 +1,7 @@
 //! Gemini usage with each field missing in turn, against Node's recordings (`fixtures/provider-wire/gemini-usage`,
 //! recorded by `benchmarks/rust-core/recorders/record-provider-wire.mjs` through the Gemini API and Vertex AI express):
-//! the real codec encodes the turn (compared with the bytes Node sent) and decodes the recorded stream; the answer and
-//! its usage are compared with Node's result.
+//! the real codec encodes the turn (compared with the bytes Node sent) and decodes the recorded stream, compared whole
+//! with Node's result.
 
 use std::sync::Arc;
 
@@ -16,9 +16,10 @@ use super::codec::GEMINI_ORIGIN;
 use super::codec::GoogleCodec;
 use super::serving::VertexPlace;
 use super::traits::CatalogGoogleTraits;
+use crate::providers::wire_fixtures::assert_same_result;
+use crate::providers::wire_fixtures::core_result;
 use crate::providers::wire_fixtures::load;
-use crate::providers::wire_fixtures::node_answer;
-use crate::providers::wire_fixtures::rust_answer;
+use crate::providers::wire_fixtures::node_result;
 use crate::providers::wire_fixtures::scenarios;
 
 #[test]
@@ -51,6 +52,6 @@ fn every_usage_shape_reads_as_node_reads_it() {
         let mut decoder = codec.decoder(&request);
         let mut events = decoder.feed(posts[0]["served"].as_str().unwrap().as_bytes()).unwrap_or_else(|e| panic!("{name}: {e:?}"));
         events.extend(decoder.finish().unwrap_or_else(|e| panic!("{name}: {e:?}")));
-        assert_eq!(rust_answer(&events, model), node_answer(&recorded.result), "{name}");
+        assert_same_result(&core_result(&events, model), &node_result(&recorded.result), &format!("{name}"));
     }
 }

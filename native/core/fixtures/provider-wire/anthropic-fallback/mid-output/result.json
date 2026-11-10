@@ -74,6 +74,35 @@
     "generationMs": 0,
     "requestServiceTier": ""
   },
+  "committed": {
+    "role": "assistant",
+    "content": "Partial answer.",
+    "providerReplay": {
+      "version": 1,
+      "provider": "anthropic",
+      "items": [
+        {
+          "type": "text",
+          "text": "Partial "
+        },
+        {
+          "type": "text",
+          "text": "answer."
+        }
+      ]
+    },
+    "providerMetadata": {
+      "anthropicFallbacks": [
+        {
+          "trigger": "refusal",
+          "originalModel": "claude-opus-5",
+          "fallbackModel": "claude-opus-4-8",
+          "category": "cyber"
+        }
+      ]
+    },
+    "stopReason": "end_turn"
+  },
   "dispatchedToolCalls": [],
   "rows": [
     {
