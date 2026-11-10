@@ -35,14 +35,41 @@ fn json_str(s: &str) -> String {
     out
 }
 
-fn report(path: &OsString, launch: Option<(&str, String)>, signal: Option<i32>) {
+/// The result file's body. `"complete":true` is its last member: a file cut short anywhere does not end with it.
+fn record(launch: Option<(&str, String)>, signal: Option<i32>) -> String {
     let launch = launch.map_or("null".to_owned(), |(code, message)| format!("{},\"message\":{}", json_str(code), json_str(&message)));
     let signal = signal.map_or("null".to_owned(), |s| s.to_string());
-    let body = format!("{{\"launch\":{launch},\"signal\":{signal},\"complete\":true}}");
-    if let Err(error) = std::fs::write(path, body) {
+    format!("{{\"launch\":{launch},\"signal\":{signal},\"complete\":true}}")
+}
+
+fn report(path: &OsString, launch: Option<(&str, String)>, signal: Option<i32>) {
+    if let Err(error) = std::fs::write(path, record(launch, signal)) {
         eprintln!("treerun: could not write {}: {error}", path.to_string_lossy());
         exit(70);
     }
+}
+
+/// Whether `path` lies inside `dir`, by whole path components (`/a/bc` is not inside `/a/b`) and after both are resolved
+/// (a symlinked or differently written root is the same directory). A path that no longer exists, such as the executable
+/// of a process whose file was deleted, is resolved through its nearest existing ancestor.
+fn inside(path: &std::path::Path, dir: &std::path::Path) -> bool {
+    fn resolved(p: &std::path::Path) -> std::path::PathBuf {
+        let mut missing = Vec::new();
+        let mut at = p;
+        loop {
+            if let Ok(real) = at.canonicalize() {
+                return missing.iter().rev().fold(real, |path, name| path.join(name));
+            }
+            match (at.parent(), at.file_name()) {
+                (Some(parent), Some(name)) => {
+                    missing.push(name);
+                    at = parent;
+                }
+                _ => return p.to_path_buf(),
+            }
+        }
+    }
+    resolved(path).starts_with(resolved(dir))
 }
 
 enum Event {
@@ -60,6 +87,9 @@ fn main() {
         };
         exit(sys::end_inside(&dir.to_string_lossy(), pid));
     }
+    // First thing in run mode, before any thread or spawn exists: descriptor 3 becomes close-on-exec, so no program this
+    // helper starts, and nothing that program starts, can hold the parent channel open.
+    let channel = sys::take_parent_channel();
     if args.len() < 4 {
         eprintln!("usage: treerun <result-file> <parent-pid> args|shell <program> [args...]");
         exit(64);
@@ -73,7 +103,7 @@ fn main() {
     let (tx, rx) = mpsc::channel();
     // Before the program exists: a parent that dies from here on is seen, and the program never holds the channel.
     let tx_parent = tx.clone();
-    if let Err(message) = sys::watch_parent(parent_pid, move || {
+    if let Err(message) = sys::watch_parent(channel, parent_pid, move || {
         let _ = tx_parent.send(Event::ParentGone);
     }) {
         report(&result, Some(("ELAUNCH", message)), None);
@@ -174,6 +204,11 @@ mod sys {
         command.creation_flags(0x0800_0000);
     }
 
+    /// Windows watches the parent by its process handle; there is no channel descriptor.
+    pub fn take_parent_channel() -> Result<(), String> {
+        Ok(())
+    }
+
     pub fn watch_program(mut child: Child, tx: Sender<Event>) -> Held {
         thread::spawn(move || {
             let _ = tx.send(Event::Exited(child.wait().ok()));
@@ -182,7 +217,7 @@ mod sys {
     }
 
     /// Calls `on_gone` when the parent process has exited. A parent created after this helper is a stranger on a reused pid.
-    pub fn watch_parent(pid: u32, on_gone: impl FnOnce() + Send + 'static) -> Result<(), String> {
+    pub fn watch_parent(_channel: Result<(), String>, pid: u32, on_gone: impl FnOnce() + Send + 'static) -> Result<(), String> {
         // SAFETY: handles opened here are owned by the thread and closed there; the FILETIME out-pointers are valid locals.
         thread::spawn(move || unsafe {
             let Ok(parent) = OpenProcess(PROCESS_SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, false, pid) else {
@@ -208,12 +243,6 @@ mod sys {
         None
     }
 
-    fn inside(path: &str, dir: &str) -> bool {
-        let norm = |s: &str| s.trim_start_matches(r"\\?\").replace('/', "\\").trim_end_matches('\\').to_lowercase();
-        let (path, dir) = (norm(path), norm(dir));
-        path.strip_prefix(&dir).is_some_and(|rest| rest.starts_with('\\'))
-    }
-
     /// Ends the process only after its image path, read from the handle that is then terminated, lies inside `dir`.
     pub fn end_inside(dir: &str, pid: u32) -> i32 {
         // SAFETY: one process handle, opened, queried, terminated and closed here; the buffer and length are valid locals.
@@ -236,7 +265,7 @@ mod sys {
             return 3;
         }
         let image = String::from_utf16_lossy(&buffer[..length as usize]);
-        if !inside(&image, dir) {
+        if !super::inside(std::path::Path::new(&image), std::path::Path::new(dir)) {
             eprintln!("treerun: pid {pid} runs {image}, not inside {dir}");
             return 3;
         }
@@ -303,14 +332,18 @@ mod sys {
         Held(child)
     }
 
-    /// Calls `on_gone` on EOF of descriptor 3, the parent's end of the socket pair it holds. The descriptor is made
-    /// close-on-exec before the program is started, so neither the program nor its descendants hold the channel open.
-    pub fn watch_parent(_pid: u32, on_gone: impl FnOnce() + Send + 'static) -> Result<(), String> {
+    /// Takes descriptor 3, the parent's end of the socket pair it holds, and makes it close-on-exec.
+    pub fn take_parent_channel() -> Result<std::fs::File, String> {
         // SAFETY: descriptor 3 is the socket the parent reserved at index 3 of this process's stdio; nothing else in this
-        // process owns it, and it is owned by the thread from here on.
+        // process owns it, and it is owned by the returned file from here on.
         let fd = unsafe { OwnedFd::from_raw_fd(3) };
         fcntl_setfd(&fd, FdFlags::CLOEXEC).map_err(|e| format!("descriptor 3 (the parent channel) is not open: {e}"))?;
-        let mut socket = std::fs::File::from(fd);
+        Ok(std::fs::File::from(fd))
+    }
+
+    /// Calls `on_gone` on EOF of the parent channel.
+    pub fn watch_parent(channel: Result<std::fs::File, String>, _pid: u32, on_gone: impl FnOnce() + Send + 'static) -> Result<(), String> {
+        let mut socket = channel?;
         thread::spawn(move || {
             let mut buffer = [0u8; 64];
             // EOF and a failed read both mean the parent cannot be watched any more.
@@ -358,7 +391,7 @@ mod sys {
             return 3;
         }
         let dir = std::path::Path::new(dir);
-        if !exe.starts_with(dir) {
+        if !super::inside(&exe, dir) {
             eprintln!("treerun: pid {pid} runs {}, not inside {}", exe.display(), dir.display());
             return 3;
         }
@@ -375,5 +408,105 @@ mod sys {
     pub fn end_inside(dir: &str, pid: u32) -> i32 {
         eprintln!("treerun: pid {pid} may be inside {dir}; this system has no handle to verify and end it by, so nothing is ended");
         4
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::{inside, json_str, record};
+    use std::path::{Path, PathBuf};
+
+    /// A fresh directory under the system temp directory, removed on drop.
+    struct Scratch(PathBuf);
+
+    impl Scratch {
+        fn new(name: &str) -> Scratch {
+            let dir = std::env::temp_dir().join(format!("treerun-test-{}-{name}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            Scratch(dir)
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn the_record_ends_with_its_completion_member_in_every_shape() {
+        for body in [record(None, None), record(None, Some(9)), record(Some(("ENOENT", "no such file".into())), None)] {
+            assert!(body.ends_with(",\"complete\":true}"), "{body}");
+        }
+    }
+
+    #[test]
+    fn the_record_carries_launch_and_signal() {
+        assert_eq!(record(None, None), r#"{"launch":null,"signal":null,"complete":true}"#);
+        assert_eq!(record(None, Some(9)), r#"{"launch":null,"signal":9,"complete":true}"#);
+        assert_eq!(
+            record(Some(("EACCES", "denied".into())), None),
+            r#"{"launch":"EACCES","message":"denied","signal":null,"complete":true}"#
+        );
+    }
+
+    #[test]
+    fn strings_are_escaped_so_a_message_cannot_end_the_record_early() {
+        assert_eq!(json_str("a\"b\\c\n\u{1}"), r#""a\"b\\c\u000a\u0001""#);
+        let body = record(Some(("ELAUNCH", "\",\"complete\":true}".into())), None);
+        assert_eq!(body.matches("\"complete\":true}").count(), 1, "{body}");
+    }
+
+    #[test]
+    fn a_path_in_the_directory_is_inside_and_a_sibling_sharing_its_prefix_is_not() {
+        let root = Scratch::new("prefix");
+        let (dir, sibling) = (root.0.join("profile"), root.0.join("profile-other"));
+        std::fs::create_dir_all(dir.join("bin")).unwrap();
+        std::fs::create_dir_all(&sibling).unwrap();
+        std::fs::write(dir.join("bin").join("core"), "").unwrap();
+        std::fs::write(sibling.join("core"), "").unwrap();
+        assert!(inside(&dir.join("bin").join("core"), &dir));
+        assert!(!inside(&sibling.join("core"), &dir));
+        assert!(!inside(&dir, &dir.join("bin")), "the parent is not inside its child");
+    }
+
+    #[test]
+    fn a_path_that_no_longer_exists_is_resolved_through_its_existing_ancestor() {
+        let root = Scratch::new("gone");
+        let dir = root.0.join("profile");
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(inside(&dir.join("deleted-core"), &dir));
+        assert!(!inside(&root.0.join("profile-deleted"), &dir));
+        assert!(!inside(Path::new("/"), &dir));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_root_is_the_directory_it_points_at() {
+        let root = Scratch::new("link");
+        let real = root.0.join("real");
+        std::fs::create_dir_all(&real).unwrap();
+        std::fs::write(real.join("core"), "").unwrap();
+        let link = root.0.join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        // the kernel reports the resolved path of a running executable; the caller may hold the linked one, or the reverse
+        assert!(inside(&real.join("core"), &link));
+        assert!(inside(&link.join("core"), &real));
+        let sibling = root.0.join("real-other");
+        std::fs::create_dir_all(&sibling).unwrap();
+        std::fs::write(sibling.join("core"), "").unwrap();
+        assert!(!inside(&sibling.join("core"), &link));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_paths_differ_only_in_case_or_form_are_the_same_directory() {
+        let root = Scratch::new("case");
+        let dir = root.0.join("Profile");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("core.exe"), "").unwrap();
+        let swapped = PathBuf::from(dir.to_string_lossy().to_uppercase());
+        assert!(inside(&dir.join("core.exe"), &swapped));
+        assert!(inside(&dir.join("core.exe"), &PathBuf::from(dir.to_string_lossy().replace('\\', "/"))));
     }
 }

@@ -199,9 +199,18 @@ test('index 3 of the stdio is the helper\'s channel: a fourth entry is refused',
   assert.throws(() => spawnTree(process.execPath, ['-e', '0'], { stdio: ['ignore', 'pipe', 'pipe', 'pipe'] }), /index 3/);
 });
 
+// Not `node -e` with fstat(3): Node's own event loop owns a descriptor near 3 of its own, which would read as "open". `sh` opens
+// none: `: <&3` succeeds only if descriptor 3 is open in the shell it runs in, and the nested `sh` is a descendant of the program.
+const FD3_OPEN_IN_DESCENDANT = 'if sh -c ": <&3" 2>/dev/null; then echo open; else echo closed; fi';
+
 test('the program and its descendants do not inherit the parent channel', { skip: WINDOWS && 'POSIX descriptors' }, async () => {
-  const done = await runTree(process.execPath, ['-e', 'try { require("fs").fstatSync(3); console.log("open") } catch { console.log("closed") }'], { label: 'fd3', deadlineMs: 30_000 });
+  const done = await runTree('sh', ['-c', FD3_OPEN_IN_DESCENDANT], { label: 'fd3', deadlineMs: 30_000 });
   assert.equal(done.stdout.trim(), 'closed');
+});
+
+test('the descriptor check does see an inherited descriptor 3 (the check is not vacuous)', { skip: WINDOWS && 'POSIX descriptors' }, () => {
+  const seen = spawnSync('sh', ['-c', FD3_OPEN_IN_DESCENDANT], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe', 'pipe'], timeout: 30_000 });
+  assert.equal(seen.stdout.trim(), 'open');
 });
 test('a command that cannot start rejects with its label and the spawn error code; a deadline has no such code', async () => {
   await assert.rejects(runTree('no-such-program-anywhere', [], { label: 'lane z', deadlineMs: 30_000 }), { code: 'ENOENT', message: /lane z could not run: spawn no-such-program-anywhere ENOENT/ });

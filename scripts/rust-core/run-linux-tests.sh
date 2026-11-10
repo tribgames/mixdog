@@ -4,7 +4,8 @@
 # The repository is mounted read-only at /repo; the build output and a writable copy of the scripts live in the container's
 # own /work (a tmpfs-free anonymous volume), so nothing is written to the checkout. Exit status is the test run's.
 # Needs: a running Docker; pulls the stock images node:22-bookworm and rust:1.99.1-bookworm (about 1.5 GB) on the first run.
-# Expect about 3-5 minutes (the helper builds in about a minute; the tests take about two) and under 1.5 GB of memory.
+# Measured on the first run: image build about 3 minutes (cached after), the run about 100 s. The helper's own unit tests run first.
+# Memory stays under the 2g the container is given.
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$here/../.." && pwd)
