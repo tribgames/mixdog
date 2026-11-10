@@ -4956,6 +4956,7 @@ version = "0.1.0"
 dependencies = [
  "aho-corasick",
  "bitflags 2.13.2",
+ "brotli",
  "byteorder",
  "cc",
  "chrono",
