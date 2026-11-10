@@ -240,21 +240,27 @@ impl Run {
         if self.turn_limit_noticed
             || self.config.limits.is_some_and(|l| l.max_tool_calls.is_some() || l.wrap_up_at_ms.is_some())
             || call.id.is_empty()
-            // Never admitted for an eager run (`admit`): the batch answers it with the retry notice.
-            || crate::tools::is_invalid_args_marker(&call.arguments)
             || self.eager_started.iter().any(|e| e.id == call.id)
         {
             return;
         }
         let canonical = ToolCall { name: self.tools.canonical(&call.name), ..call.clone() };
+        // A call whose arguments did not parse is not projected (it names no target).
+        let invalid_args = crate::tools::is_invalid_args_marker(&call.arguments);
         // A streamed `call_tool` is admitted, ordered and run as its target; one that names no tool is
         // answered by the serial batch.
-        let (exec, bridged) = match self.tools.project(&self.tool_env.thread_id, &canonical) {
-            Projection::Plain => (canonical, false),
-            Projection::Target(target) => (target, true),
-            Projection::Refused(_) => return,
+        let (exec, bridged) = if invalid_args {
+            (canonical, false)
+        } else {
+            match self.tools.project(&self.tool_env.thread_id, &canonical) {
+                Projection::Plain => (canonical, false),
+                Projection::Target(target) => (target, true),
+                Projection::Refused(_) => return,
+            }
         };
         let name = exec.name.clone();
+        // The single-call slot is taken before anything can refuse the call (`admit`, `admission.mjs:55`): an invalid
+        // first `computer` call still leaves no slot for a later one.
         if is_single_call_per_turn_tool(&name) {
             match self.eager_single.get(&name) {
                 Some(first) if *first != call.id => return,
@@ -263,6 +269,10 @@ impl Run {
                     self.eager_single.insert(name.clone(), call.id.clone());
                 }
             }
+        }
+        // Never admitted for an eager run (`admit`): the batch answers it with the retry notice.
+        if invalid_args {
+            return;
         }
         let gate_call = GateCall::new(name.clone(), exec.arguments.clone());
         if self.env.gate.pre_dispatch_deny(&gate_call).is_some() || self.carry.repeat.could_fire(0) {
