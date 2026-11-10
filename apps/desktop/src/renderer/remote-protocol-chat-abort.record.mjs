@@ -10,7 +10,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { ABORT_CASES } from './remote-protocol-chat-abort-cases.mjs';
+import { ABORT_CASES, PROJECT_FILE } from './remote-protocol-chat-abort-cases.mjs';
 import { startAbortProvider } from './remote-protocol-chat-abort-provider.mjs';
 
 const [exportDir, outFile, harness] = process.argv.slice(2);
@@ -45,6 +45,7 @@ rmSync(envPaths.envRoot, { recursive: true, force: true });
 for (const d of [envPaths.dataDir, envPaths.runtimeRoot, envPaths.appData, envPaths.localAppData, envPaths.tmp, envPaths.workspace]) mkdirSync(d, { recursive: true });
 const project = join(envPaths.workspace, 'a');
 mkdirSync(project, { recursive: true });
+writeFileSync(join(project, PROJECT_FILE.name), PROJECT_FILE.text);
 // Everything started is ended on every path: the model endpoint, the host and the daemon are closed by `end`, whichever step failed.
 let deadline;
 let discovery;

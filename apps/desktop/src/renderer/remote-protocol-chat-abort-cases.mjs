@@ -4,6 +4,8 @@
 // steering prompt), `pasted` rides the first prompt, `stop` is what the phone sends, and `again` stops a second time once the first Stop settled.
 import { PARTIAL } from './remote-protocol-chat-abort-provider.mjs';
 
+/** The file the tool-call case's read finds, written in each project folder before the cases run. */
+export const PROJECT_FILE = { name: 'package.json', text: '{"name":"abort-project"}\n' };
 export const PASTED = { 1: { id: 1, text: 'a pasted block' } };
 export const ABORT_CASES = [
   { name: 'running-no-output', prompt: 'HOLD-EMPTY write the file', stop: {} },
@@ -11,5 +13,6 @@ export const ABORT_CASES = [
   { name: 'running-keep-prompt', prompt: 'HOLD-EMPTY keep this prompt', stop: { restorePrompt: false } },
   { name: 'running-steering-queued', prompt: 'HOLD-EMPTY first prompt', then: 'and also this', stop: {} },
   { name: 'running-pasted-text', prompt: 'HOLD-EMPTY with a paste', pasted: PASTED, stop: {} },
+  { name: 'running-after-tool-call', prompt: 'HOLD-TOOL read the file', stop: {} },
   { name: 'running-then-stopped-again', prompt: 'HOLD-EMPTY stop me twice', stop: {}, again: {} },
 ];

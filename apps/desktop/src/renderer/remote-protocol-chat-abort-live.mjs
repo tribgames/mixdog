@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import WebSocket from 'ws';
 import { uuidv7 } from '../../../../packages/protocol-client/src/client.ts';
-import { ABORT_CASES } from './remote-protocol-chat-abort-cases.mjs';
+import { ABORT_CASES, PROJECT_FILE } from './remote-protocol-chat-abort-cases.mjs';
 import { startAbortProvider } from './remote-protocol-chat-abort-provider.mjs';
 
 export async function runAbortLive() {
@@ -31,6 +31,7 @@ export async function runAbortLive() {
   for (const d of [paths.dataDir, paths.runtimeRoot, paths.appData, paths.localAppData, paths.tmp, paths.workspace]) mkdirSync(d, { recursive: true });
   const project = join(paths.workspace, 'a');
   mkdirSync(project, { recursive: true });
+  writeFileSync(join(project, PROJECT_FILE.name), PROJECT_FILE.text);
   seedPgRuntime(paths.dataDir);
 
   const notes = [];
