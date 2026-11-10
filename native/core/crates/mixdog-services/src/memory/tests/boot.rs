@@ -126,6 +126,58 @@ async fn a_stack_installs_and_starts_nothing_until_the_database_is_used() {
     stack.stop().await.expect("a stack that never opened has nothing to stop");
 }
 
+/// Two first uses while the runtime is still downloading share the one install (Node's callers all await the one `initPromise`, `http-router.mjs:34-46`), wait for
+/// it rather than fail, and both see its outcome; a stop while it is held ends it and starts nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn two_first_uses_share_one_install_and_a_stop_ends_it() {
+    use crate::memory::boot::PgRuntimeSource;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let installs = Arc::new(AtomicUsize::new(0));
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let dir = tempfile::tempdir().expect("dir");
+    let (counted, signal) = (installs.clone(), entered.clone());
+    let stack = MemoryStack::start(MemoryBoot {
+        data_dir: dir.path().to_owned(),
+        // The install is held until the stack's own cancel (what `stop` raises) releases it, as a download in progress is.
+        pg_runtime: PgRuntimeSource::Install(Arc::new(move |cancel| {
+            counted.fetch_add(1, Ordering::SeqCst);
+            signal.notify_waiters();
+            Box::pin(async move {
+                cancel.cancelled().await;
+                Err(crate::memory::error::MemoryError::Runtime("cancelled".to_owned()))
+            })
+        })),
+        embedder: None,
+        embedding_provider: None,
+        flags: RuntimeFlags::default(),
+        progress: None,
+        sensitive: Arc::new(SensitiveStore::default()),
+        lane: mixdog_rt::testing::tokens().durability_io,
+        maintenance: mixdog_rt::testing::tokens().maintenance_io,
+        transcripts: None,
+        cycles: None,
+        backfill: None,
+        processes: crate::tidy::process::Processes::for_tests(),
+        cancel: tokio_util::sync::CancellationToken::new(),
+    })
+    .await
+    .expect("stack");
+    let waiting = entered.notified();
+    tokio::pin!(waiting);
+    waiting.as_mut().enable();
+    let (first, second) = (stack.db(), stack.db());
+    let one = tokio::spawn(async move { first.client().await.is_err() });
+    let two = tokio::spawn(async move { second.client().await.is_err() });
+    waiting.await;
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    assert!(!one.is_finished() && !two.is_finished(), "both uses wait for the install");
+    assert_eq!(installs.load(Ordering::SeqCst), 1, "one install for two uses");
+    stack.stop().await.expect("stop ends the install in progress");
+    assert!(one.await.unwrap() && two.await.unwrap(), "both uses see the install's end");
+    assert_eq!(installs.load(Ordering::SeqCst), 1);
+    assert!(!dir.path().join("pgdata").join("PG_VERSION").exists(), "a cancelled install initialises nothing");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
 async fn a_started_stack_serves_the_close_ingest_and_the_turn_search_copy() {

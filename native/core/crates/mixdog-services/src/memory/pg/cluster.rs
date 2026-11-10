@@ -175,6 +175,51 @@ async fn healthcheck(port: u16) -> bool {
     tokio::time::timeout(HEALTH_LIMIT, probe).await.unwrap_or(false)
 }
 
+/// How long an alive postmaster that does not answer yet (crash recovery, a start another process began) is waited for (`waitForPostmasterReady`'s `timeoutMs`).
+const RECOVERY_WAIT: Duration = Duration::from_secs(30);
+
+/// `isPostgresPid`: the pid's process is a postgres (a pid a reboot handed to another program is not a postmaster). Where the name cannot be read it is taken as alive.
+async fn is_postgres_pid(processes: &Processes, pid: u32) -> bool {
+    if cfg!(windows) {
+        let args = ["/FI".to_owned(), format!("PID eq {pid}"), "/FO".to_owned(), "CSV".to_owned(), "/NH".to_owned()];
+        let done = processes.run("tasklist", &args, RunOptions { timeout: Duration::from_secs(15), ..RunOptions::new(Path::new(".")) }).await;
+        return done.code != 0 || done.stdout.to_lowercase().contains("postgres");
+    }
+    if cfg!(target_os = "linux") {
+        return std::fs::read_to_string(format!("/proc/{pid}/comm")).map_or(true, |comm| comm.contains("postgres"));
+    }
+    let args = ["-o".to_owned(), "comm=".to_owned(), "-p".to_owned(), pid.to_string()];
+    let done = processes.run("ps", &args, RunOptions { timeout: Duration::from_secs(15), ..RunOptions::new(Path::new(".")) }).await;
+    done.code != 0 || done.stdout.contains("postgres")
+}
+
+/// What Node does with a `postmaster.pid` it finds while the cluster does not answer (`supervisor.mjs:571-613`): a postmaster that is alive owns the data
+/// directory, so it is waited for up to `wait` and attached to when it comes up (recovery after a kill), and a start beside it is refused; the file of a
+/// dead one is removed so the new postmaster does not start over it. `Some(port)` is an attached postmaster; `None` means the directory is free to start.
+async fn settle_leftover_postmaster(lane: DurabilityIo, processes: &Processes, data_dir: &Path, wait: Duration) -> Result<Option<u16>> {
+    let Some(pid) = read_postmaster_pid(lane, data_dir).await else { return Ok(None) };
+    if let Some(port) = read_postmaster_port(lane, data_dir).await
+        && mixdog_statefile::process_exists(pid)
+        && is_postgres_pid(processes, pid).await
+    {
+        mixdog_rt::memory_stderr!("[supervisor-pg] postmaster PID {pid} alive but not ready — awaiting recovery");
+        let deadline = tokio::time::Instant::now() + wait;
+        while mixdog_statefile::process_exists(pid) {
+            if healthcheck(port).await {
+                mixdog_rt::memory_stderr!("[supervisor-pg] attaching to recovered PG pid={pid} port={port}");
+                return Ok(Some(port));
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return Err(MemoryError::Runtime(format!("[supervisor-pg] existing postmaster PID {pid} remains alive but unhealthy; refusing concurrent start")));
+            }
+            tokio::time::sleep(READY_POLL).await;
+        }
+    }
+    mixdog_rt::memory_stderr!("[supervisor-pg] postmaster PID {pid} dead — removing stale postmaster.pid");
+    let _ = fsio::remove_file(lane, &data_dir.join("postmaster.pid")).await;
+    Ok(None)
+}
+
 async fn free_port(preferred: u16) -> Result<u16> {
     let last = preferred.saturating_add(PORT_SPAN);
     for port in preferred..=last {
@@ -263,6 +308,9 @@ impl PgCluster {
             && healthcheck(port).await {
                 return Ok(Self { runtime, data_dir, port, lane, processes });
             }
+        if let Some(port) = settle_leftover_postmaster(lane, &processes, &data_dir, RECOVERY_WAIT).await? {
+            return Ok(Self { runtime, data_dir, port, lane, processes });
+        }
         if !fsio::exists(lane, &data_dir.join("PG_VERSION")).await? {
             Self::init(lane, &processes, &runtime, &data_dir, cancel).await?;
         }
@@ -434,6 +482,60 @@ mod tests {
         reply.extend_from_slice(&body);
         socket.write_all(&reply).await?;
         socket.shutdown().await
+    }
+
+    /// A process whose image is named `postgres` that stays alive and answers nothing.
+    fn fake_postmaster(dir: &Path) -> std::process::Child {
+        let (source, name, args): (&str, _, &[&str]) = if cfg!(windows) { (r"C:\Windows\System32\PING.EXE", "postgres.exe", &["-n", "60", "127.0.0.1"]) } else { ("/bin/sleep", "postgres", &["60"]) };
+        let image = dir.join(name);
+        std::fs::copy(source, &image).expect("copy an image named postgres");
+        std::process::Command::new(image).args(args).stdout(std::process::Stdio::null()).spawn().expect("spawn")
+    }
+
+    async fn silent_port() -> (u16, tokio::task::JoinHandle<()>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = tokio::spawn(async move {
+            while let Ok((socket, _)) = listener.accept().await {
+                let _ = refuse_startup(socket).await;
+            }
+        });
+        (port, server)
+    }
+
+    /// Node waits for an alive postmaster that does not answer and then refuses a concurrent start (`supervisor.mjs:571-600`): it never starts a second one over it
+    /// and never removes the file of a live owner.
+    #[tokio::test]
+    async fn an_alive_postmaster_that_does_not_answer_is_waited_for_and_never_started_over() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut postmaster = fake_postmaster(dir.path());
+        let (port, server) = silent_port().await;
+        std::fs::write(dir.path().join("postmaster.pid"), format!("{}\n{}\n1\n{port}\n", postmaster.id(), dir.path().display())).unwrap();
+        let lane = mixdog_rt::testing::tokens().durability_io;
+        let began = std::time::Instant::now();
+        let refused = settle_leftover_postmaster(lane, &Processes::for_tests(), dir.path(), Duration::from_millis(700)).await;
+        let error = refused.expect_err("an alive but unhealthy postmaster refuses the start");
+        assert!(error.message().contains("refusing concurrent start"), "{}", error.message());
+        assert!(began.elapsed() >= Duration::from_millis(700), "it waited the recovery time first");
+        assert!(dir.path().join("postmaster.pid").exists(), "the file of an alive postmaster stays");
+        postmaster.kill().unwrap();
+        postmaster.wait().unwrap();
+        server.abort();
+    }
+
+    /// A killed core's postmaster that is gone leaves its file: Node removes it, and the start goes on.
+    #[tokio::test]
+    async fn the_file_of_a_dead_postmaster_is_removed() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut gone = fake_postmaster(dir.path());
+        let pid = gone.id();
+        gone.kill().unwrap();
+        gone.wait().unwrap();
+        std::fs::write(dir.path().join("postmaster.pid"), format!("{pid}\n{}\n1\n55999\n", dir.path().display())).unwrap();
+        let lane = mixdog_rt::testing::tokens().durability_io;
+        let settled = settle_leftover_postmaster(lane, &Processes::for_tests(), dir.path(), Duration::from_millis(700)).await.expect("a dead owner does not refuse");
+        assert_eq!(settled, None);
+        assert!(!dir.path().join("postmaster.pid").exists());
     }
 
     #[tokio::test]
