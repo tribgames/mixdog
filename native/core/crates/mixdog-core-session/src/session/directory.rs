@@ -1496,8 +1496,9 @@ fn fold_opened(lane: &InLane<CpuInteractive>, deps: &SessionDeps, log: OpenedLog
 
 impl SessionDirectory {
     /// The `thread/start` thread up to its seated route (`createSession`, `seedToolSurface`, the draft's route): under `id` when one is
-    /// given (a new task's address comes from its receipt), else under a minted one.
-    pub(super) async fn begin_thread(&self, req: &CoreRequest, params: &ThreadStartParams, id: Option<ThreadId>) -> Result<Arc<SessionHandle>, CoreError> {
+    /// given (a new task's address comes from its receipt), else under a minted one. A new task's attempt passes its `step`, which
+    /// enters the draft step where the draft's route is adopted (Node's `setRoute`, awaited after `client.create` returned).
+    pub(super) async fn begin_thread(&self, req: &CoreRequest, params: &ThreadStartParams, id: Option<ThreadId>, step: Option<&mut super::new_task::Step>) -> Result<Arc<SessionHandle>, CoreError> {
         let now = self.inner.deps.clock.now_ms();
         let mut header = Header::new();
         header.insert("createdAt".into(), json!(now));
@@ -1552,6 +1553,10 @@ impl SessionDirectory {
         let route = if control {
             self.inner.deps.new_route.adopt_control(&id).await
         } else {
+            if let (Some(step), Some(_)) = (step, pick.as_ref()) {
+                *step = super::new_task::Step::Configuring;
+                super::new_task::quit_gate("setRoute").await;
+            }
             self.inner.deps.new_route.adopt(&id, pick.as_ref()).await
         }
         .map_err(|message| mixdog_core_base::support::failed("route", message))?;
@@ -1687,7 +1692,7 @@ impl ThreadDirectory for SessionDirectory {
                 if params.kind == ThreadStartKind::Task && params.initial_input.is_some() {
                     return self.start_new_task(req, params).await;
                 }
-                let handle = self.begin_thread(&req, &params, None).await?;
+                let handle = self.begin_thread(&req, &params, None, None).await?;
                 self.enter_draft_worktree(&handle, &req, &params).await?;
                 let mut result = json!({ "thread": handle.cell.view.load_full().summary });
                 if let Some(input) = params.initial_input

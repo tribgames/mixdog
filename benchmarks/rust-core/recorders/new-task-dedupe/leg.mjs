@@ -8,13 +8,18 @@
 //   unsubscribe  an unclaimed reservation is released (session-views.mjs:173-179)
 //   read       a session the daemon does not hold is `session <id> is not available`
 //   configure  the draft's route, workflow and mode: the route's provider is readied in the real provider registry, which
-//              refuses one it does not know with its own error
+//              refuses one it does not know with its own error; the draft's worktree (`requestWorktree` with `provision`) in the
+//              task's folder, which is no git repository, is refused with WORKTREE_UNSUPPORTED_REPO
+//   close      the client is disposed (desktop-service-client.ts:1065-1080 `dispose` → `rejectPending`): the call in flight and every
+//              later one fail with `Mixdog desktop service client is disposed.`
 //
 //   node --import tsx leg.mjs <export dir> <scenario dir> <leg json>      (cwd: <export dir>/apps/desktop)
 //
 // Prints one JSON line per finished step. `crash.at` ends the process (SIGKILL) at a gate: `reserved` / `configured` /
 // `accepted` just after the receipt of that phase was renamed into place, `created` once the daemon made the session and before
-// its answer to `create` is returned, `submitted` as the daemon's answer to the submit is about to be returned.
+// its answer to `create` is returned, `submitted` as the daemon's answer to the submit is about to be returned. A `quit` step holds the
+// daemon's call named by `at` (a `configure` action) unanswered, quits the app as Node does (the host is disposed, which disposes its
+// client), lets the attempt end as Node's control flow ends it, and ends the daemon with the app.
 import fs, { mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync, writeSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
@@ -60,6 +65,11 @@ const model = (() => {
 })();
 const persist = () => writeFileSync(modelFile, JSON.stringify(model));
 let calls = [];
+// The quit step's held call: `at` is the `configure` action held, `reached` is told when it arrives.
+let quitting = null;
+const DISPOSED = 'Mixdog desktop service client is disposed.';
+let disposed = false;
+const inFlight = new Set();
 const full = (sessionId) => ({
   sessionId,
   revision: 1,
@@ -95,6 +105,15 @@ const daemon = {
     return full(args.sessionId);
   },
   configure: async (args) => {
+    if (quitting && args.action === quitting.at) {
+      quitting.reached();
+      return new Promise((_resolve, reject) => inFlight.add(reject));
+    }
+    // A worktree provisioned for a task whose folder is no git repository (the task workspace under the scenario's folder): the
+    // repository probe refuses it (src/runtime/shared/worktrees/git.mjs:181-185).
+    if (args.action === 'requestWorktree') {
+      throw Object.assign(new Error('The project folder is not a git repository.'), { code: 'WORKTREE_UNSUPPORTED_REPO' });
+    }
     // The daemon's `setRoute` readies the route's provider in the provider registry before anything else
     // (set-route.mjs:51 `ensureProvidersReady(ensureProviderEnabled(config, provider))`, provider-readiness.mjs:116 `initProviders`):
     // a provider the registry does not know is refused there, with the registry's own error (registry.mjs:223, wrapped at :366,
@@ -106,7 +125,13 @@ const daemon = {
 };
 const client = new Proxy({}, {
   get: (_target, name) => (name === 'then' ? undefined : async (args = {}) => {
-    if (name === 'close') return undefined;
+    if (name === 'close') {
+      disposed = true;
+      for (const reject of inFlight) reject(new Error(DISPOSED));
+      inFlight.clear();
+      return undefined;
+    }
+    if (disposed) throw new Error(DISPOSED);
     // The catalog list is the host's own background refresh (`void publishCatalogs()`): it lands in whichever step is running.
     if (name !== 'list') calls.push({ method: name, ...(args.sessionId ? { sessionId: args.sessionId } : {}), ...(args.action ? { action: args.action } : {}), ...(args.options?.id ? { submission: args.options.id } : {}) });
     const reply = daemon[name];
@@ -157,6 +182,22 @@ for (const entry of leg.steps) {
     writeFileSync(join(receiptsDir, `${(await import('node:crypto')).createHash('sha256').update(step.id).digest('hex')}.json`), CORRUPT[step.shape]);
   } else if (step.op === 'obstruct') {
     mkdirSync(join(receiptsDir, `${(await import('node:crypto')).createHash('sha256').update(step.id).digest('hex')}.json`), { recursive: true });
+  } else if (step.op === 'quit') {
+    let reached;
+    const held = new Promise((resolve) => (reached = resolve));
+    quitting = { at: step.at, reached };
+    const settled = submit(step);
+    const early = await Promise.race([held.then(() => null), settled]);
+    if (early) throw new Error(`the attempt ended before it awaited ${step.at}: ${JSON.stringify(early)}`);
+    // The app quits (index.ts:1634 `disposeDesktopResources`): its host is disposed (session-host.ts:1207-1228), which closes the host's client.
+    await host.dispose();
+    const ended = await settled;
+    if (ended.ok !== false || ended.error !== DISPOSED) throw new Error(`the attempt held at ${step.at} did not fail with the disposed client: ${JSON.stringify(ended)}`);
+    // The daemon ends with the app (an in-tree daemon, session-transport.ts:700-715, index.ts:1712): a reservation lives in its
+    // memory only (session-views.mjs:31-45, `reservedOnly`), so an unclaimed one is gone; a session that took a prompt is stored.
+    for (const [id, entry] of Object.entries(model.sessions)) if (entry.reserved && entry.prompts.length === 0) delete model.sessions[id];
+    persist();
+    reply = { quit: step.at };
   } else if (step.op === 'crash') {
     leg.crash = { ...leg.crash, armed: true };
     await submit(step);

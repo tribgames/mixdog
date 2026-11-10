@@ -142,11 +142,16 @@ pub(super) fn fresh_session_id() -> String {
     format!("sess_desktop_{}", bytes.iter().map(|byte| format!("{byte:02x}")).collect::<String>())
 }
 
-/// Where an attempt of `createNewTask` stands, which decides what Node's quit leaves when it cuts the attempt there.
+/// Where an attempt of `createNewTask` stands, which decides what Node's quit leaves when it cuts the attempt there. The steps are
+/// Node's await boundaries, not the core's calls: the core adopts the draft's route inside its creation call ([`SessionDirectory::begin_thread`]),
+/// where Node has already returned from `client.create`.
 #[derive(Clone, Copy)]
-enum Step {
+pub(super) enum Step {
     /// `client.create` (session-host-lifecycle.ts:824): the session is being created or opened at the reserved address.
     Creating,
+    /// The draft's route (`configureDraft` → `setRoute`, :779), inside the `try` (:835) after `client.create` returned: the core's
+    /// adoption of the draft route and the rest of its creation call after it.
+    Configuring,
     /// `request.commit('configured')`: the host's own file write.
     Committing,
     /// The draft's worktree (`selectBranch` / `requestWorktree`), inside the `try`.
@@ -194,6 +199,22 @@ pub(super) fn crash_gate(point: &str) {
 
 #[cfg(not(feature = "crash-gates"))]
 pub(super) fn crash_gate(_point: &str) {}
+
+/// A test-only hold at a named call of a new task's draft step (`MIXDOG_NEW_TASK_QUIT_AT`: `setRoute`, `requestWorktree`): the
+/// attempt says on stderr that it is held there and waits until the shutdown cuts it, as Node's quit finds that call in flight.
+/// Compiled only into a build that asks for `crash-gates`.
+#[cfg(feature = "crash-gates")]
+#[allow(clippy::disallowed_methods, reason = "a test build's hold point reads its variable")]
+pub(super) async fn quit_gate(point: &str) {
+    use std::io::Write;
+    if std::env::var("MIXDOG_NEW_TASK_QUIT_AT").is_ok_and(|at| at == point) {
+        let _ = writeln!(std::io::stderr(), "new-task held at {point}");
+        std::future::pending::<()>().await;
+    }
+}
+
+#[cfg(not(feature = "crash-gates"))]
+pub(super) async fn quit_gate(_point: &str) {}
 
 impl NewTaskReceipts {
     pub fn new(user_data: &Path, io: DurabilityIo) -> Arc<Self> {
@@ -527,7 +548,8 @@ impl SessionDirectory {
             // Shutdown, as Node's quit: the disposed daemon client fails the call in flight and every later one
             // (desktop-service-client.ts `dispose` → `rejectPending`), and `createNewTask` goes on from the call that failed.
             // The creation (`client.create`, session-host-lifecycle.ts:824) fails before the `try` that refuses (:835): the
-            // receipt stays as it is, whatever the creation had already persisted. The commit of `configured` is the host's own
+            // receipt stays as it is, whatever the creation had already persisted. The draft's route (`setRoute`, :779) is awaited
+            // inside the `try` while unsent: refused, wherever in the core's creation call it is adopted. The commit of `configured` is the host's own
             // file write, which the disposal does not fail: the next call fails, the worktree's inside the `try` while unsent
             // (:955 `if (unsent) await request.reset()`), else the submit after `unsent = false`. The worktree's own call is
             // inside the `try`. Nobody is answered (the gate sends no outcome once it is closing).
@@ -535,7 +557,7 @@ impl SessionDirectory {
                 && match step {
                     Step::Creating | Step::Sending => false,
                     Step::Committing => enters,
-                    Step::Entering => true,
+                    Step::Configuring | Step::Entering => true,
                 };
             if refused {
                 let _ = request.reset().await;
@@ -573,19 +595,23 @@ impl SessionDirectory {
     async fn new_task_phases(&self, request: &Request, req: &CoreRequest, mut params: ThreadStartParams, submission: &str, id: &ThreadId, step: &mut Step) -> Outcome {
         // `client.create`: the reservation is made again at its address when the session is not there; a session that is there
         // is opened (Node's daemon opens the session at the address it is given, `getOrCreateSessionEntry`). The core's creation
-        // takes the draft's route with it (`begin_thread`: adopted before the record, seated after it).
+        // takes the draft's route with it (`begin_thread`: adopted before the record, seated after it); the attempt is in the draft
+        // step from that adoption on (`begin_thread` moves `step`).
         let handle = if self.try_stored_header(id).await?.is_some() {
             let handle = self.open_handle(id, &req.ctx).await?;
             self.seat_session(id).await?;
             handle
         } else {
-            self.begin_thread(req, &params, Some(id.clone())).await?
+            self.begin_thread(req, &params, Some(id.clone()), Some(&mut *step)).await?
         };
         *step = Step::Committing;
         if request.phase() == Phase::Reserved {
             request.commit(Phase::Configured).await?;
         }
         *step = Step::Entering;
+        if params.draft.as_ref().is_some_and(|draft| draft.worktree.is_some()) {
+            quit_gate("requestWorktree").await;
+        }
         self.enter_draft_worktree(&handle, req, &params).await?;
         *step = Step::Sending;
         let summary = serde_json::to_value(handle.cell.view.load_full().summary.clone()).unwrap_or(Value::Null);
