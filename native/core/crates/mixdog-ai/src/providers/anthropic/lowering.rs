@@ -38,15 +38,30 @@ pub(crate) struct WireMessage {
     /// Set on an effort control message: an empty `system` turn carrying the
     /// `output_config` that takes effect from there.
     pub output_config: Option<Value>,
+    /// A turn-scoped `system` message (`clear_at: "next_user_message"`): a tail reminder that rides the turn it
+    /// was sent with.
+    pub clear_at: bool,
+    /// Assistant only (Node's `TURN_REMINDER` symbol): the tail reminder the request that produced this turn
+    /// carried; the turn-scoped layout re-sends it right before the turn. Never on the wire itself.
+    pub turn_reminder: Option<String>,
 }
 
 impl WireMessage {
-    fn new(role: &'static str, content: WireContent) -> Self {
+    pub(crate) fn new(role: &'static str, content: WireContent) -> Self {
         Self {
             role,
             content,
             output_config: None,
+            clear_at: false,
+            turn_reminder: None,
         }
+    }
+
+    /// A lowered assistant turn, with the reminder its request carried.
+    fn assistant(message: &Message, content: WireContent) -> Self {
+        let mut wire = Self::new("assistant", content);
+        wire.turn_reminder = message.turn_reminder.clone().filter(|text| !text.is_empty());
+        wire
     }
 
     pub(crate) fn to_json(&self) -> Value {
@@ -54,7 +69,11 @@ impl WireMessage {
             WireContent::Text(text) => Value::String(text.clone()),
             WireContent::Blocks(blocks) => Value::Array(blocks.clone()),
         };
-        let mut message = json!({ "role": self.role, "content": content });
+        let mut message = json!({ "role": self.role });
+        if self.clear_at {
+            message["clear_at"] = Value::String("next_user_message".into());
+        }
+        message["content"] = content;
         if let Some(output_config) = &self.output_config {
             message["output_config"] = output_config.clone();
         }
@@ -429,7 +448,7 @@ pub(crate) fn lower_messages(messages: &[Message], cx: &LowerContext<'_>) -> Vec
         if message.role == Role::Assistant
             && let Some(blocks) = assistant_blocks(message, cx, &wire_id)
         {
-            result.push(WireMessage::new("assistant", WireContent::Blocks(blocks)));
+            result.push(WireMessage::assistant(message, WireContent::Blocks(blocks)));
             continue;
         }
         if message.role == Role::Tool {
@@ -494,10 +513,11 @@ pub(crate) fn lower_messages(messages: &[Message], cx: &LowerContext<'_>) -> Vec
             after_dropped_final = true;
             continue;
         }
-        result.push(WireMessage::new(
-            if message.role == Role::Assistant { "assistant" } else { "user" },
-            normalize_content(&message.content),
-        ));
+        result.push(if message.role == Role::Assistant {
+            WireMessage::assistant(message, normalize_content(&message.content))
+        } else {
+            WireMessage::new("user", normalize_content(&message.content))
+        });
     }
     sanitize_content_pairs(result)
 }

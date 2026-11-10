@@ -47,6 +47,8 @@ pub struct Snapshot {
     pub has_first_semantic: bool,
     pub awaiting_user: bool,
     pub last_semantic_kind: Option<SemanticKind>,
+    /// `currentTool`: the last tool call the session made (`entry.lastToolCall`).
+    pub current_tool: Option<String>,
 }
 
 /// The session runtime record (`getSessionRuntime`).

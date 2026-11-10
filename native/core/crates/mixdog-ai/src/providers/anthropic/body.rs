@@ -47,6 +47,10 @@ use super::lowering::LowerContext;
 use super::lowering::WireContent;
 use super::lowering::WireMessage;
 use super::lowering::lower_messages;
+use super::reminders::append_tail_reminder;
+use super::reminders::append_turn_reminder;
+use super::reminders::split_tail_reminder;
+use super::reminders::with_turn_reminders;
 
 /// The first system block of every OAuth request; the subscription pool is
 /// selected by this exact text.
@@ -165,7 +169,7 @@ const SERVER_FALLBACK_FAMILIES: [&str; 2] = ["claude-opus-5", "claude-fable-5"];
 
 /// Node's `supportsAnthropicTurnScopedSystemMessages` (a family floor), unless the model rejected
 /// turn-scoped system messages on this route in this process (`anthropicTurnScopedReminders`).
-fn turn_scoped_model(provider: &str, model: &str) -> bool {
+pub(super) fn turn_scoped_model(provider: &str, model: &str) -> bool {
     claude_floors::supports_turn_scoped_system_messages(model)
         && claude_floors::enabled(claude_floors::Feature::TurnScopedSystem, provider, model)
 }
@@ -293,10 +297,11 @@ fn last_eligible_block(content: &WireContent) -> Option<usize> {
     }
 }
 
+/// A turn-scoped system message rejects `cache_control`, and an effort control has no block to mark.
 fn last_markable_message(messages: &[WireMessage]) -> Option<usize> {
     messages
         .iter()
-        .rposition(|m| last_eligible_block(&m.content).is_some())
+        .rposition(|m| m.role != "system" && last_eligible_block(&m.content).is_some())
 }
 
 /// The breakpoint on the last message that has an eligible block.
@@ -561,8 +566,27 @@ fn max_tokens(cfg: &BodyConfig<'_>, request: &ModelRequest) -> u32 {
         (Some(configured), Some(declared)) => configured.min(declared),
         (Some(configured), None) => configured,
         (None, Some(declared)) => declared.min(MAX_TOKENS_SAFETY_CAP),
-        (None, None) => MAX_TOKENS_FLOOR,
+        (None, None) => family_max_tokens(&request.model).min(MAX_TOKENS_SAFETY_CAP),
     }
+}
+
+/// `fallbackAnthropicMaxTokens`: the limits known before the catalogs existed, for a model no catalog declares
+/// one for (an exact-id table of Node's coincides with these rules and the floor).
+fn family_max_tokens(model: &str) -> u32 {
+    let id = model.to_lowercase();
+    if id.contains("opus") || id.contains("fable") || id.contains("mythos") {
+        return 65536;
+    }
+    if let Some(rest) = id.strip_prefix("claude-sonnet-") {
+        let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+        if let Ok(version) = digits.parse::<u64>() {
+            return if version >= 5 { 65536 } else { 16384 };
+        }
+    }
+    if id.contains("sonnet") {
+        return 16384;
+    }
+    MAX_TOKENS_FLOOR
 }
 
 fn clamp_thinking_budget(desired: u64, max_tokens: u32) -> Option<u64> {
@@ -706,33 +730,40 @@ pub(crate) fn build_body(cfg: &BodyConfig<'_>, request: &ModelRequest) -> Result
             },
         )
     });
-    let lower = |source: &[Message]| match updates {
-        Some(projection) => {
-            let kept: BTreeMap<usize, String> = projection
-                .updates
-                .iter()
-                .filter(|(index, _)| **index < source.len())
-                .map(|(index, effort)| (*index, effort.clone()))
-                .collect();
-            lower_with_updates(source, &kept, &context)
-        }
-        None if cfg.first_party && turn_scoped_model(cfg.provider_name, &request.model) => {
-            turn_scoped_layout(lower_messages(source, &context))
-        }
-        None => lower_messages(source, &context),
+    // The tail reminder rides the request apart from the history: the history is lowered and marked without it,
+    // and it is placed afterwards (turn-scoped on a model that takes `clear_at` messages, else legacy).
+    let (history, reminder) = split_tail_reminder(&request.messages);
+    let turn_scoped = cfg.first_party && turn_scoped_model(cfg.provider_name, &request.model);
+    let lower = |source: &[Message]| {
+        let lowered = match updates {
+            Some(projection) => {
+                let kept: BTreeMap<usize, String> = projection
+                    .updates
+                    .iter()
+                    .filter(|(index, _)| **index < source.len())
+                    .map(|(index, effort)| (*index, effort.clone()))
+                    .collect();
+                lower_with_updates(source, &kept, &context)
+            }
+            None if turn_scoped => turn_scoped_layout(lower_messages(source, &context)),
+            None => lower_messages(source, &context),
+        };
+        if turn_scoped { with_turn_reminders(lowered) } else { lowered }
     };
-    let mut messages = lower(&request.messages);
+    let mut messages = lower(history);
     if let Some(ttl) = cache.messages
         && reserved < MAX_CACHE_BREAKPOINTS
     {
         match request.options.shared_cache_prefix_count.filter(|count| *count > 0) {
             None => mark_message_tail(&mut messages, ttl),
             Some(count) => {
-                let prefix = request.messages.get(..count).map(&lower);
+                let prefix = history.get(..count).map(&lower);
                 mark_shared_prefix(&mut messages, prefix, ttl);
             }
         }
     }
+    let messages = if turn_scoped { append_turn_reminder(messages, &reminder) } else { append_tail_reminder(messages, &reminder) };
+    let turn_scoped_system = messages.iter().any(|m| m.clear_at);
 
     let max_tokens = max_tokens(cfg, request);
     let turn_effort = match updates {
@@ -816,6 +847,7 @@ pub(crate) fn build_body(cfg: &BodyConfig<'_>, request: &ModelRequest) -> Result
             server_fallback: fallback,
             effort: reasoning.effort_beta,
             thinking_display_updates: reasoning.display_updates,
+            turn_scoped_system,
             mid_conversation_effort: updates.is_some(),
         },
     })

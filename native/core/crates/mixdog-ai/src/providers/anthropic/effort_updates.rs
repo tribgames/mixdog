@@ -122,11 +122,9 @@ pub(crate) fn lower_with_updates(
         if *start < end {
             result.extend(lower_messages(&messages[*start..end], cx));
         }
-        result.push(WireMessage {
-            role: "system",
-            content: WireContent::Blocks(Vec::new()),
-            output_config: Some(output_config(effort)),
-        });
+        let mut update = WireMessage::new("system", WireContent::Blocks(Vec::new()));
+        update.output_config = Some(output_config(effort));
+        result.push(update);
         *start = end;
     };
     for (index, message) in messages.iter().enumerate() {

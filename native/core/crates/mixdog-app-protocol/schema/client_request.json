@@ -262,6 +262,14 @@
             "null"
           ]
         },
+        "minimumValidityMs": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "opId": {
           "type": "string"
         },
@@ -274,6 +282,13 @@
         "refresh": {
           "type": [
             "boolean",
+            "null"
+          ]
+        },
+        "renewCredential": {
+          "description": "A provider id whose current account's OAuth token is refreshed now unless it lasts `minimumValidityMs` more (the host preflight of a benchmark run); needs `minimumValidityMs`.",
+          "type": [
+            "string",
             "null"
           ]
         },
@@ -10793,6 +10808,20 @@
       "description": "Params of `tools/toolsStatus`.",
       "properties": {
         "query": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "snapshot": {
+          "description": "`true`: the reply also carries `requestSnapshot`, the provider request the thread's next send would carry (needs `threadId`).",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "snapshotUserMessage": {
+          "description": "With snapshot: the user message the snapshot's request carries as its last turn, as the send of that message would; a thread with no user turn yet cannot be encoded by every provider (Gemini refuses a request with nothing to send).",
           "type": [
             "string",
             "null"

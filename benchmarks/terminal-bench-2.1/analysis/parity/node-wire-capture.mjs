@@ -35,14 +35,17 @@ const session = read(arg('--session'));
 const doc = read(arg('--scenarios'));
 const keepRandom = process.argv.includes('--keep-random');
 const only = process.argv.includes('--only') ? arg('--only') : null;
-/** The scenarios a run records: all, or the one `--only` names with the ones of its conversation before it. */
+/**
+ * The scenarios a run records: all, or the one `--only` names with the ones of its conversation before it: the run of
+ * scenarios of its provider back to the last `fresh` one (a provider's process-wide state, its sockets, caches and
+ * latches, carries from one scenario to the next).
+ */
 function selected(scenarios) {
   if (!only) return scenarios;
   const at = scenarios.findIndex((s) => s.id === only);
   if (at < 0) throw new Error(`no scenario ${only}`);
-  if (scenarios[at].provider !== 'openai-oauth') return [scenarios[at]];
   let start = at;
-  while (start > 0 && !scenarios[start].fresh && scenarios[start - 1].provider === 'openai-oauth') start -= 1;
+  while (start > 0 && !scenarios[start].fresh && scenarios[start - 1].provider === scenarios[at].provider) start -= 1;
   return scenarios.slice(start, at + 1);
 }
 
@@ -117,6 +120,10 @@ writeFileSync(join(dataDir, 'openai-oauth-models.json'), JSON.stringify({ versio
 const sha256 = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
 const load = (path) => within(`loading ${path}`, import(pathToFileURL(join(root, path)).href));
 const P = 'src/runtime/agent/orchestrator/providers/';
+// The Anthropic catalog Node would hold after it listed the models: the scenarios' model by id only (no capability
+// fields, so the request builder decides as with no catalog). A reply naming a model the catalog lacks makes Node
+// refresh the catalog in the background (`anthropic-oauth.mjs:994`), a request no scenario scripts.
+(await load(P + 'anthropic-model-resolve.mjs'))._setInMemoryCatalog([{ id: ROUTES.find((r) => r.provider === 'anthropic-oauth').model }]);
 const providerOf = {
   gemini: async () => new (await load(P + 'gemini.mjs')).GeminiProvider({ apiKey: FAKE }),
   'grok-oauth': async () => new (await load(P + 'grok-oauth.mjs')).GrokOAuthProvider({ preconnect: false }),
@@ -130,6 +137,25 @@ const { _clearWebSocketPoolForTest } = await load(P + 'openai-ws-pool.mjs');
 const { captureSideQuestionRequest } = await load('src/runtime/agent/orchestrator/session/side-question-store.mjs');
 const { summarizeOnSharedPrefix } = await load('src/runtime/agent/orchestrator/session/compact/forked-summary.mjs');
 const { disposeTransportScope } = await load(P + 'transport-scope.mjs');
+const { getLlmDispatcher } = await load('src/runtime/shared/llm/http-agent.mjs');
+/**
+ * Taps the dispatches of the global dispatcher every provider fetch rides (the proxy-policy router `getLlmDispatcher`
+ * installs; a first provider request installed it already): `traffic.dispatched(opts)` runs right after each dispatch.
+ * Installed by the first scenario that needs it, so no scenario before it rides anything but Node's own dispatcher.
+ */
+let tapped = false;
+function tapDispatches() {
+  if (tapped) return;
+  tapped = true;
+  getLlmDispatcher();
+  const dispatcher = globalThis[Symbol.for('undici.globalDispatcher.1')];
+  const dispatch = dispatcher.dispatch;
+  dispatcher.dispatch = function tappedDispatch(opts, handler) {
+    const accepted = dispatch.call(this, opts, handler);
+    traffic.dispatched?.(opts);
+    return accepted;
+  };
+}
 
 const tools = session.tools.map(({ name, description, inputSchema }) => ({ name, description, inputSchema }));
 if (session.system.length !== 4) throw new Error(`the session document holds ${session.system.length} system texts; Node's session seeds four (base rules, stable context, session marker, environment)`);
@@ -144,6 +170,10 @@ let openaiProvider = null;
 /** The latest send of the run and its reply: what a compaction scenario forks. */
 let lastSend = null;
 for (const scenario of selected(doc.scenarios)) {
+  // The event loop turns once between scenarios, as it does between two turns of a session: undici gives a socket
+  // whose answer ended back to its pool one `setImmediate` later (`client-h1.js:842-846`), so a scenario started in the
+  // same turn as the previous one ended would find the connections that turn finished busy.
+  await new Promise((resolve) => setImmediate(resolve));
   const route = { ...ROUTES.find((r) => r.provider === scenario.provider) };
   if (scenario.model) route.model = scenario.model;
   const entry = { id: scenario.id, provider: scenario.provider, model: route.model };
@@ -151,6 +181,8 @@ for (const scenario of selected(doc.scenarios)) {
   for (const name of ENV_NAMES) delete process.env[name];
   Object.assign(process.env, scenario.env || {});
   traffic.sink = [];
+  traffic.order = 0;
+  traffic.dispatched = null;
   traffic.script = { dials: structuredClone(scenario.dials || []), replies: structuredClone(scenario.ws || []), http: structuredClone(scenario.http || []) };
   const controller = new AbortController();
   // `abortWhenHeld`: the turn is cancelled (the session's abort signal) once the server has written a held reply.
@@ -219,6 +251,35 @@ for (const scenario of selected(doc.scenarios)) {
     const scope = opts.transportScope || opts.sessionId;
     traffic.held = () => disposeTransportScope(scope, provider);
   }
+  // `sendWhenHeld`: once the server withholds an answer, the same provider sends the scenario's request once more,
+  // alongside the send still waiting, and the withheld answer is written when that second send has ended; it must
+  // succeed.
+  let second = null;
+  if (scenario.sendWhenHeld) {
+    traffic.held = () => {
+      second = provider.send(messages, route.model, tools, opts).finally(() => server.release());
+      second.catch(() => {});
+    };
+  }
+  // `extraWithResend`: when the scenario's `at`-th POST is dispatched (a refused request's plain resend), `count` more
+  // requests to its origin (GET /parity/extra, through the global dispatcher the providers' fetch rides,
+  // `getLlmDispatcher` in http-agent.mjs) are dispatched beside it, back to back: with `gap: 'none'` in the same turn of
+  // the event loop as the resend, with `gap: 'immediate'` one `setImmediate` later. Each takes the next scripted answer;
+  // the scenario lasts until every one has been read.
+  let extras = null;
+  if (scenario.extraWithResend) {
+    const { at, gap, count = 1 } = scenario.extraWithResend;
+    let posts = 0;
+    traffic.dispatched = (opts) => {
+      if (String(opts.method).toUpperCase() !== 'POST' || ++posts !== at) return;
+      traffic.dispatched = null;
+      const origin = new URL(String(opts.origin)).origin;
+      const send = () => Array.from({ length: count }, () => fetch(`${origin}/parity/extra`).then((res) => res.text()));
+      extras = gap === 'none' ? Promise.all(send()) : new Promise((resolve) => setImmediate(resolve)).then(() => Promise.all(send()));
+      extras.catch(() => {});
+    };
+    tapDispatches();
+  }
   try {
     if (scenario.compaction) {
       // The compaction summary as Node's compaction sends it (`summarizeOnSharedPrefix`, forked-summary.mjs): a fork of the
@@ -239,6 +300,14 @@ for (const scenario of selected(doc.scenarios)) {
     if (error instanceof Deadline) throw error;
     if (!scenario.expectError) throw error;
     entry.outcome = entry.unanswered ? 'unanswered' : 'error';  }
+  if (scenario.sendWhenHeld) {
+    if (!second) throw new Error(`${scenario.id}: no answer was withheld, so the second send never went out`);
+    await within(`the second send of ${scenario.id}`, second);
+  }
+  if (scenario.extraWithResend) {
+    if (!extras) throw new Error(`${scenario.id}: the POST the extra requests go out with was never dispatched`);
+    await within(`the extra requests of ${scenario.id}`, extras);
+  }
   if (!scenario.expectError && entry.unanswered) throw new Error(`${scenario.id}: a ${entry.unanswered} request had no scripted answer`);
   if (traffic.script.dials.length || traffic.script.replies.length || traffic.script.http.length) throw new Error(`${scenario.id}: the script was not consumed (${JSON.stringify(traffic.script).slice(0, 200)})`);
   if (scenario.awaitClose === 'first') {

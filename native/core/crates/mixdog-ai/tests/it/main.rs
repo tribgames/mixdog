@@ -18,6 +18,7 @@ mod openai_policy;
 mod openai_profiles;
 mod openai_switch;
 mod openai_ws_pool;
+mod process_state;
 mod retry;
 mod tls_hello;
 mod transport;

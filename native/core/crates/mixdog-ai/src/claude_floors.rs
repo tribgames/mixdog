@@ -120,6 +120,9 @@ pub fn threads_support_model(model: &str) -> bool {
 pub enum Feature {
     ProgressUpdates,
     TurnScopedSystem,
+    /// Switched off by the threads' own rejection classifier (`anthropic-message-threads.mjs` `disableModel`), never
+    /// by [`rejection`].
+    MessageThreads,
 }
 
 impl Feature {
@@ -127,6 +130,7 @@ impl Feature {
         match self {
             Self::ProgressUpdates => "progressUpdates",
             Self::TurnScopedSystem => "turnScopedSystem",
+            Self::MessageThreads => "messageThreads",
         }
     }
 }
