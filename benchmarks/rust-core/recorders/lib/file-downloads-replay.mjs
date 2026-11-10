@@ -231,29 +231,31 @@ const opId = () => `018f0000-0000-7000-8000-${(++opCount).toString(16).padStart(
 export async function replayDownloads({ exe, recording }) {
   // A folder of this run's own, removed once at the end, after the processes that use it have ended.
   const WORLDS = realpathSync.native(mkdtempSync(join(tmpdir(), 'downloads-replay-')));
-  const talk = talkFolder(join(WORLDS, 'talk'));
-  talk.write('clock', recording.clockStart);
-  const credentials = [];
-  const credential = (n, who) => {
-    const id = `${who === 'phone' ? 'a' : who === 'tablet' ? 'b' : 'c'}${n.toString(16).padStart(7, '0')}`;
-    credentials.push({ id, name: `${who} ${n}`, browser: 'Chrome' });
-    return id;
-  };
-  // The roster is read when the core's relay leg opens: every device any scenario uses is listed up front.
-  const plan = recording.scenarios.map((scenario, n) => ({
-    scenario,
-    devices: Object.fromEntries([...new Set(scenario.steps.flatMap((step) => [step.device].filter(Boolean)))].map((device) => [device, credential(n, device.startsWith('connection') ? 'connection' : device)])),
-  }));
-  const relay = startRelay(credentials);
+  // Everything from the allocation on is inside the one protected region, so a throw anywhere after it still removes the folder.
+  let relay = null;
   let core = null;
   const clients = [];
   const problems = [];
   const accounted = { calls: 0, held: 0, handles: 0 };
   /** The scenarios recorded for another system: not run here, and said so. */
   const notRun = [];
-  // Every recorded call carries the id of its request: one counter, one id per call sent, in the recording's order, none skipped.
-  let expectedId = null;
   try {
+    const talk = talkFolder(join(WORLDS, 'talk'));
+    talk.write('clock', recording.clockStart);
+    const credentials = [];
+    const credential = (n, who) => {
+      const id = `${who === 'phone' ? 'a' : who === 'tablet' ? 'b' : 'c'}${n.toString(16).padStart(7, '0')}`;
+      credentials.push({ id, name: `${who} ${n}`, browser: 'Chrome' });
+      return id;
+    };
+    // The roster is read when the core's relay leg opens: every device any scenario uses is listed up front.
+    const plan = recording.scenarios.map((scenario, n) => ({
+      scenario,
+      devices: Object.fromEntries([...new Set(scenario.steps.flatMap((step) => [step.device].filter(Boolean)))].map((device) => [device, credential(n, device.startsWith('connection') ? 'connection' : device)])),
+    }));
+    relay = startRelay(credentials);
+    // Every recorded call carries the id of its request: one counter, one id per call sent, in the recording's order, none skipped.
+    let expectedId = null;
     await relay.ready;
     core = await startCore(exe, join(WORLDS, 'core'), relay.port(), talk);
     await relay.leg();
@@ -525,7 +527,7 @@ export async function replayDownloads({ exe, recording }) {
     } catch (error) {
       failures.push(error);
     }
-    relay.close();
+    relay?.close();
     try {
       rmSync(WORLDS, { recursive: true, force: true });
     } catch (error) {

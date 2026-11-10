@@ -96,6 +96,8 @@ pub struct GrantStore {
     seen: Mutex<HashSet<String>>,
     /// Told the credential of a device that unpaired, so what else the device holds ends in the same step (the downloads).
     unpaired: std::sync::OnceLock<Arc<dyn Fn(&str) + Send + Sync>>,
+    /// Told the conversations each publication lists, in the step it is published (the downloads' catalog membership).
+    listed: std::sync::OnceLock<Arc<dyn Fn(&[&str]) + Send + Sync>>,
 }
 
 /// `selectedFileGrantKey`.
@@ -124,7 +126,12 @@ fn required(value: &str, name: &str, maximum: usize) -> WsResult<String> {
 
 impl GrantStore {
     pub fn new(clock: Arc<dyn IdleClock>, catalog: Arc<dyn SessionCatalog>) -> Self {
-        Self { clock, catalog, devices: Mutex::default(), bound: Mutex::default(), seen: Mutex::default(), unpaired: std::sync::OnceLock::new() }
+        Self { clock, catalog, devices: Mutex::default(), bound: Mutex::default(), seen: Mutex::default(), unpaired: std::sync::OnceLock::new(), listed: std::sync::OnceLock::new() }
+    }
+
+    /// Connects what is told the conversations each catalog publication lists. Set once.
+    pub fn on_listed(&self, hook: Arc<dyn Fn(&[&str]) + Send + Sync>) {
+        let _ = self.listed.set(hook);
     }
 
     /// Connects what else ends when a device unpairs. Set once.
@@ -254,6 +261,9 @@ impl mixdog_core_api::state::CatalogObserver for GrantStore {
     /// A catalog publication: every session in it is seen from now on.
     fn published(&self, session_ids: &[&str]) {
         self.seen.lock().expect("grant sessions").extend(session_ids.iter().map(|id| (*id).to_owned()));
+        if let Some(listed) = self.listed.get() {
+            listed(session_ids);
+        }
     }
 }
 

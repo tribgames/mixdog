@@ -14,6 +14,7 @@ test('the files adapter replays every call of the downloads recording over a rea
   assert.equal(child.status, 0, `replay failed (${child.status}):\n${child.stdout.slice(-6000)}\n${child.stderr.slice(-2000)}`);
   const match = child.stdout.match(/file-downloads replay .*: \d+ calls compared, \d+ held calls, \d+ handle counts, 0 unexpected, not run on this system: (.*)/);
   assert.ok(match, child.stdout.slice(-2000));
-  // Where a scenario was recorded for this system none is left out; elsewhere exactly the scenarios recorded on Windows alone are.`n  assert.deepEqual(JSON.parse(match[1]), process.platform === 'win32' ? [] : ['windows path names']);
+  // Where a scenario was recorded for this system none is left out; elsewhere exactly the scenarios recorded on Windows alone are.
+  assert.deepEqual(JSON.parse(match[1]), process.platform === 'win32' ? [] : ['windows path names']);
 });
 
