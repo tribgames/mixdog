@@ -1,7 +1,7 @@
 {
   "calls": 62,
   "cases": 554,
-  "command": "node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-phone-scm.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with benchmarks/rust-core/recorders/node-patches/node-fix-relay-optional-args.patch applied, with node_modules>",
+  "command": "node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-phone-scm.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with benchmarks/rust-core/recorders/node-patches/node-fix-relay-optional-args.patch applied, with node_modules> --patch benchmarks/rust-core/recorders/node-patches/node-fix-relay-optional-args.patch",
   "entry": {
     "clock": "Date.now, new Date() and the run-limit timeouts are virtual; every other timer of the code under test is real and is printed, by delay, at the end of a recording",
     "featureGit": "MIXDOG_FEATURE_GIT is unset, as in the product: no production code sets it (read at builtin-features.mjs:70,219)",
@@ -22,9 +22,9 @@
       "sha256": "8b63c7e51d857b2c89d826722e34efdb5c7c34485b33f69dd19a5ade73364257"
     },
     {
-      "bytes": 1884930,
+      "bytes": 1885000,
       "path": "golden.json",
-      "sha256": "fbdbca758284d69294ad0329fde79a1e6614c6edf6264496104d4a22515d6df9"
+      "sha256": "aa13df3bfaf5b67944697db75d10f6e8ee639c7e4cca68ef54de7e5e1746521b"
     }
   ],
   "groups": {
@@ -58,22 +58,24 @@
   },
   "product": {
     "appsSha256": "841fa7c35d344615b8c4d139f864e24916cc50a69a289456cc94232a23d2c85d",
-    "base": "b6f10295a2f698afc85332467192de28500bd146",
-    "commit": "35c272b4d86c8b7b76c235adf4da177add34c46a",
-    "comparedAgainst": "35c272b4d86c8b7b76c235adf4da177add34c46a",
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
     "exact": true,
     "files": 9140,
-    "patches": [
-      {
-        "path": "benchmarks/rust-core/recorders/node-patches/node-fix-relay-optional-args.patch",
-        "sha256": "65b71087d1e63e4a62f4285f746d0a75ddf25feec6f98d7e9e5d3ef9b306a923"
-      }
-    ],
+    "patch": {
+      "file": "benchmarks/rust-core/recorders/node-patches/node-fix-relay-optional-args.patch",
+      "paths": [
+        "apps/desktop/src/main/remote-methods-optional-args.test.mjs",
+        "apps/desktop/src/main/remote-methods.ts"
+      ],
+      "sha256": "65b71087d1e63e4a62f4285f746d0a75ddf25feec6f98d7e9e5d3ef9b306a923"
+    },
     "refComparison": {
-      "closestCommit": "35c272b4d86c8b7b76c235adf4da177add34c46a",
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 0,
-      "exact": true,
-      "filesDifferingFromCommit": 0
+      "exact": false,
+      "filesDifferingFromCommit": 2
     },
     "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
     "tree": "product tree loaded by the recorder",
@@ -84,11 +86,11 @@
   "recorderFiles": [
     {
       "path": "benchmarks/rust-core/recorders/record-phone-scm.mjs",
-      "sha256": "b2b4cf2f387d488e3214a9c46250c75a3ea54a24877c05772c769a1254702902"
+      "sha256": "1bb41466efe27b53b33cf9ddcfb0976371bc5d9d883c9bba37534329a776a24d"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "ee181f0d13811791f619d21aabceb9bbd4a44894aea84109a8d6c85df3dc136a"
+      "sha256": "1effe442db273be9927f41e9dcba0e2ceb356dc84d14a57c27aeee4a0bc3aeaa"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/phone-scm-world.mjs",
@@ -783,5 +785,5 @@
       }
     ]
   },
-  "totalBytes": 1910411
+  "totalBytes": 1910481
 }
