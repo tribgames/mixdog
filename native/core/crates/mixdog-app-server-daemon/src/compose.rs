@@ -394,6 +394,12 @@ impl ComposedCore {
         self.real.open_memory_in_background();
     }
 
+    /// The memory database handle, for the readiness test that makes a first use.
+    #[cfg(test)]
+    pub fn memory_db(&self) -> Arc<mixdog_services::memory::pg::db::Db> {
+        self.real.memory.db()
+    }
+
     /// The idle sweep's store (`Real::sweep_store`).
     pub fn sweep_store(&self, data_dir: &std::path::Path, stop: tokio_util::sync::CancellationToken) -> Arc<crate::sweep_store::DirectorySweepStore> {
         self.real.sweep_store(data_dir, stop)
