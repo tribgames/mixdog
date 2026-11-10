@@ -9,7 +9,13 @@
 // deadline). The handshake itself is not part of the trace: Rust's client starts from an authenticated link. The
 // golden holds the script and the whole trace Node gave; Rust's client must replay each script to the same trace.
 //
-//   (cd <tree>/apps/desktop && node --import tsx <repo>/benchmarks/rust-core/recorders/record-screen-control-client.mjs --tree <tree> [--only <scenario>])
+// Each connection is a socket of its own (A, B, ... in the order they are opened). A socket the scenario's world
+// names in `held` answers the client's hello only when the script says (`answer`), so a connect can be given up and
+// replaced while its handshake runs, and the given-up socket can then deliver its late data, error or close. Recorded
+// from b6f10295a with node-fix-helper-stale-socket.patch applied (a late event of a socket that is no longer the
+// client's connection changes nothing; the same fix is built into Rust).
+//
+//   (cd <tree>/apps/desktop && node --import tsx <repo>/benchmarks/rust-core/recorders/record-screen-control-client.mjs --tree <tree> --patch <node-fix-helper-stale-socket.patch> [--only <scenario>])
 import { VirtualTime, checkpoint, importTs, openTree, record } from './record-screen-control-lib.mjs';
 
 const { tree, identity, only } = openTree();
@@ -29,6 +35,8 @@ const connected = [{ op: 'connect', as: 'connect' }, { op: 'await', call: 'conne
 const send = (as, what, extra = {}) => ({ op: 'send', as, what, ...extra });
 const written = (n, error) => ({ op: 'written', n, ...(error ? { error } : {}) });
 const done = (call) => ({ op: 'await', call });
+const listen = { op: 'listen' };
+const giveUpA = [listen, { op: 'connect', as: 'a' }, settle, { op: 'close' }, { op: 'connect', as: 'b' }, settle];
 
 const SCENARIOS = [
   {
@@ -138,6 +146,48 @@ const SCENARIOS = [
       settle,
     ],
   },
+  {
+    name: 'close, then the connection’s own close: close is still emitted and the session stays ended',
+    steps: [...connected, listen, { op: 'close' }, { op: 'peerClose' }, settle, read],
+  },
+  {
+    name: 'a late close of a socket given up in its handshake leaves the connection that replaced it connected and usable',
+    world: { held: ['A'] },
+    steps: [
+      ...giveUpA,
+      done('a'),
+      done('b'),
+      read,
+      { op: 'peerClose', socket: 'A' },
+      settle,
+      read,
+      send('input', 'input', { event: KEY }),
+      settle,
+      written(0),
+      done('input'),
+    ],
+  },
+  {
+    name: 'late data of a socket given up in its handshake does not reach the handshake of the connect that replaced it',
+    world: { held: ['A', 'B'] },
+    steps: [...giveUpA, { op: 'answer', socket: 'A' }, settle, { op: 'answer', socket: 'B' }, done('b'), done('a'), read],
+  },
+  {
+    name: 'a late error of a socket given up in its handshake does not fail the connect that replaced it',
+    world: { held: ['A', 'B'] },
+    steps: [
+      ...giveUpA,
+      { op: 'peerError', socket: 'A', error: 'read ECONNRESET' },
+      settle,
+      { op: 'answer', socket: 'B' },
+      done('b'),
+      done('a'),
+      read,
+      { op: 'peerClose', socket: 'A' },
+      settle,
+      read,
+    ],
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -147,16 +197,32 @@ const clone = (value) => JSON.parse(JSON.stringify(value ?? null));
 async function play(scenario) {
   const log = [];
   const writes = [];
-  let peer = null;
+  const held = new Set(scenario.world?.held ?? []);
+  const peers = new Map();
+  let latest = null;
+  const peerOf = (step) => {
+    const peer = peers.get(step.socket ?? latest);
+    if (!peer) throw new Error(`${scenario.name}: no socket ${step.socket ?? latest}`);
+    return peer;
+  };
   const createConnection = () => {
+    const socket = String.fromCharCode(65 + peers.size);
+    latest = socket;
     const handlers = { data: [], error: [], close: [] };
     const parser = new FrameParser();
     let authenticated = false;
+    let heldAuth = null;
     const deliver = (message) => queueMicrotask(() => handlers.data.forEach((handler) => handler(encodeControl(message))));
-    peer = {
+    peers.set(socket, {
       send: deliver,
+      answer: () => {
+        if (!heldAuth) throw new Error(`${scenario.name}: socket ${socket} has no held answer`);
+        deliver(heldAuth);
+      },
+      error: (message) => handlers.error.forEach((handler) => handler(new Error(message))),
       close: () => handlers.close.forEach((handler) => handler()),
-    };
+    });
+    log.push({ ev: 'open', socket });
     return {
       on(event, handler) {
         handlers[event].push(handler);
@@ -168,7 +234,8 @@ async function play(scenario) {
           if (!authenticated) {
             if (message.type === 'client-hello') {
               const mac = serverAuthTag(SECRET, decodeNonce(message.clientNonce), decodeNonce(SERVER_NONCE));
-              deliver({ type: 'server-auth', protocol: 4, serverNonce: SERVER_NONCE, mac });
+              heldAuth = { type: 'server-auth', protocol: 4, serverNonce: SERVER_NONCE, mac };
+              if (!held.has(socket)) deliver(heldAuth);
             } else if (message.type === 'client-auth') {
               authenticated = true;
               deliver(HELLO);
@@ -176,13 +243,13 @@ async function play(scenario) {
             queueMicrotask(() => callback?.());
             continue;
           }
-          log.push({ ev: 'write', n: writes.length, message: clone(message) });
+          log.push({ ev: 'write', socket, n: writes.length, message: clone(message) });
           writes.push(callback);
         }
         return true;
       },
-      end: () => log.push({ ev: 'end' }),
-      destroy: () => log.push({ ev: 'destroy' }),
+      end: () => log.push({ ev: 'end', socket }),
+      destroy: () => log.push({ ev: 'destroy', socket }),
     };
   };
   const time = new VirtualTime(1_800_000_000_000);
@@ -194,7 +261,7 @@ async function play(scenario) {
     promise.then(
       (value) => {
         entry.done = true;
-        log.push({ ev: 'done', call: as, ok: true, value: as === 'connect' ? 'hello' : clone(value) });
+        log.push({ ev: 'done', call: as, ok: true, value: clone(value) });
       },
       (error) => {
         entry.done = true;
@@ -214,7 +281,8 @@ async function play(scenario) {
           log.push({ ev: 'session', session: clone(client.session()) });
           break;
         case 'connect':
-          start(step.as, client.connect());
+          // The hello is what the session read gives; a connect's outcome is only that it was made.
+          start(step.as, client.connect().then(() => 'hello'));
           break;
         case 'send':
           if (step.what === 'input') start(step.as, client.sendInput(clone(step.event)));
@@ -240,10 +308,16 @@ async function play(scenario) {
           client.on('close', () => log.push({ ev: 'close' }));
           break;
         case 'peer':
-          peer.send(step.message);
+          peerOf(step).send(step.message);
           break;
         case 'peerClose':
-          peer.close();
+          peerOf(step).close();
+          break;
+        case 'peerError':
+          peerOf(step).error(step.error);
+          break;
+        case 'answer':
+          peerOf(step).answer();
           break;
         case 'close':
           client.close();
