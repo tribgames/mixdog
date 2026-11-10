@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import wrapAnsi from 'wrap-ansi';
 import stringWidth from 'string-width';
-import { buildContextMap } from '../../runtime/shared/context-inspection.mjs';
+import { buildContextMap } from '../../../packages/protocol-client/src/rows/context-inspection.mjs';
 import { theme } from '../theme.mjs';
 
 const COLORS = {

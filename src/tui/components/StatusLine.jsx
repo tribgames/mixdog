@@ -32,6 +32,7 @@ function StatusLineView({
   agentWorkers = [],
   agentJobs = [],
   activeTools = null,
+  shellJobs = null,
   initialLine = '',
   workflow = null,
   themeEpoch = 0,
@@ -56,6 +57,7 @@ function StatusLineView({
     agentWorkers,
     agentJobs,
     activeTools,
+    shellJobs,
     initialLine,
     themeEpoch,
   });

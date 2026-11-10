@@ -3,7 +3,7 @@
  * Hook / approval denials are user-actionable and must stay visible in the TUI.
  */
 
-import { parseToolArgs } from '../runtime/shared/tool-surface.mjs';
+import { parseToolArgs } from '../../packages/protocol-client/src/rows/tool-surface.mjs';
 
 // Anchor to the orchestrator's actual denial envelope:
 //   `Error: tool "<name>" denied by hook[: ...]`

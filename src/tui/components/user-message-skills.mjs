@@ -7,7 +7,7 @@
  * the runtime and desktop use — and adds one applied-skills line under the
  * text. The row-height estimate counts that same line.
  */
-import { skillMentions } from '../../runtime/shared/skill-mentions.mjs';
+import { skillMentions } from '../../../packages/protocol-client/src/rows/skill-mentions.mjs';
 
 /** The applied skill names of a row value: non-empty strings only. */
 function appliedSkillNames(value) {

@@ -6,7 +6,7 @@ import { Box, Text, useInput } from 'ink';
 import stringWidth from 'string-width';
 import { theme } from '../theme.mjs';
 import { truncatePanelText as truncate, padPanelCells as padCells } from './panel-cell-text.mjs';
-import { compactNumber, money } from '../../session-runtime/services/usage-dashboard-model.mjs';
+import { compactNumber, money } from '../lib/usage-format.mjs';
 
 const PROVIDER_LABEL_WIDTH = 28;
 const CREDIT_LABEL = 'Credit';

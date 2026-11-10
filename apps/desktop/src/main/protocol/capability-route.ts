@@ -2,7 +2,7 @@
 // and `readCapabilities` become `<namespace>/<action>` with the positional arguments as the method's named params, and
 // the session the call is addressed to as `threadId`. A call without a session is the control session's (Node's
 // `invokeCapability`/`readCapabilities`): the control thread is named as `threadId` for every op that takes one.
-// The routing table is the TUI's (`src/standalone/protocol-session`); only actions the TUI does not route are added.
+// The routing table is the TUI's (`packages/protocol-client/src/actions`); only actions the TUI does not route are added.
 // The control session is a real thread of the core, started on first need.
 import {
   approvalSurface,

@@ -5,7 +5,7 @@ import { Box, Text } from 'ink';
 import stringWidth from 'string-width';
 import { theme, TURN_MARKER, AGENT_CALL_MARKER, AGENT_RESPONSE_MARKER } from '../../theme.mjs';
 import { BULLET_OPERATOR } from '../../figures.mjs';
-import { deriveToolCardModel } from '../../../runtime/shared/tool-card-model.mjs';
+import { deriveToolCardModel } from '../../../../packages/protocol-client/src/rows/tool-card-model.mjs';
 import {
   resultLineMaxChars,
   SUMMARY_MAX_CHARS,

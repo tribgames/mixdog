@@ -71,8 +71,15 @@ export function createSettingsPicker({
     // the same getters engine-side and answers once.
     const gate = heavyGateOf(settingsHeavyCacheRef);
     const freshWritesAtStart = gate.freshWrites;
-    const snapshot = (await store.getSettingsSnapshot?.({ heavy: !heavyCache })) || {};
-    const view = readSettingsView({ snapshot, heavyCache, state }); // A superseded build (newer open/refresh) or one whose panel was already
+    // Voice's On/Off is the core's `voice.enabled`; a failed read shows Off.
+    const [snapshot, voiceOn] = await Promise.all([
+      Promise.resolve(store.getSettingsSnapshot?.({ heavy: !heavyCache })).then((value) => value || {}),
+      Promise.resolve(store.getVoiceStatus?.()).then(
+        (status) => status?.enabled === true,
+        () => false
+      ),
+    ]);
+    const view = readSettingsView({ snapshot, heavyCache, state, voiceOn }); // A superseded build (newer open/refresh) or one whose panel was already
     // closed with Esc must never paint, clear prompts or write the cache: an
     // older response settling late would otherwise roll the cache back for
     // every later light refresh.

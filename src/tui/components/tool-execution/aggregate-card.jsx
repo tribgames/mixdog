@@ -5,7 +5,7 @@ import { Box, Text } from 'ink';
 import stringWidth from 'string-width';
 import { theme, TURN_MARKER } from '../../theme.mjs';
 import { BULLET_OPERATOR } from '../../figures.mjs';
-import { formatAggregateHeader } from '../../../runtime/shared/tool-surface.mjs';
+import { formatAggregateHeader } from '../../../../packages/protocol-client/src/rows/tool-surface.mjs';
 import { safeInlineText, truncateToWidth, resultTerminalStatus, displayTerminalStatus } from './text-format.mjs';
 import { toolStatusColor } from './surface-detail.mjs';
 import { ResultBody } from './ResultBody.jsx';

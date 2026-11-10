@@ -1,0 +1,14 @@
+{
+ "recordedFrom": "b6f10295a2f698afc85332467192de28500bd146",
+ "T0": 1800000000000,
+ "scenarios": [
+  {
+   "name": "lifecycle: a models.dev name appears only once the model list has loaded",
+   "expected": [
+    "\u001b[1mRoster Name\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26%",
+    "\u001b[1mRoster Name\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26%",
+    "\u001b[1mReview Catalog Name\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26%"
+   ]
+  }
+ ]
+}

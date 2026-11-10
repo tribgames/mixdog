@@ -9,7 +9,7 @@ import { build } from 'esbuild';
 import React from 'react';
 import { render } from 'ink';
 import stringWidth from 'string-width';
-import { waitUntil } from '../runtime/shared/wait-until.test-support.mjs';
+import { waitUntil } from './test-support/wait-until.test-support.mjs';
 
 test('TUI inspector navigates metadata, fetches on Enter, and bounds narrow previews', async (context) => {
   // The bundle is written inside the project so its imports resolve against

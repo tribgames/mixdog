@@ -1,0 +1,331 @@
+{
+ "recordedFrom": "b6f10295a2f698afc85332467192de28500bd146",
+ "providers": [
+  {
+   "row": {
+    "id": "openai",
+    "type": "api-key",
+    "enabled": true,
+    "authenticated": true,
+    "stored": true,
+    "env": false
+   },
+   "usable": true,
+   "glyph": "●",
+   "text": "API key · Set"
+  },
+  {
+   "row": {
+    "id": "anthropic",
+    "type": "api-key",
+    "enabled": true,
+    "authenticated": false,
+    "stored": false,
+    "env": false
+   },
+   "usable": false,
+   "glyph": "○",
+   "text": "API key · Set"
+  },
+  {
+   "row": {
+    "id": "gemini",
+    "type": "api-key",
+    "enabled": false,
+    "authenticated": false,
+    "stored": false,
+    "env": false
+   },
+   "usable": false,
+   "glyph": "○",
+   "text": "API key · Off"
+  },
+  {
+   "row": {
+    "id": "deepseek",
+    "type": "api-key",
+    "enabled": true,
+    "authenticated": true,
+    "stored": false,
+    "env": true
+   },
+   "usable": true,
+   "glyph": "●",
+   "text": "API key · Set"
+  },
+  {
+   "row": {
+    "id": "anthropic-oauth",
+    "type": "oauth",
+    "enabled": true,
+    "authenticated": true,
+    "usable": true,
+    "reauthRequired": false
+   },
+   "usable": true,
+   "glyph": "●",
+   "text": "OAuth · Set"
+  },
+  {
+   "row": {
+    "id": "grok-oauth",
+    "type": "oauth",
+    "enabled": true,
+    "authenticated": true,
+    "usable": false,
+    "reauthRequired": false
+   },
+   "usable": false,
+   "glyph": "○",
+   "text": "OAuth · Set"
+  },
+  {
+   "row": {
+    "id": "openai-oauth",
+    "type": "oauth",
+    "enabled": false,
+    "authenticated": false,
+    "usable": false,
+    "reauthRequired": true
+   },
+   "usable": false,
+   "glyph": "○",
+   "text": "OAuth · Off"
+  },
+  {
+   "row": {
+    "id": "cursor-oauth",
+    "type": "oauth",
+    "enabled": true,
+    "authenticated": false,
+    "usable": false,
+    "reauthRequired": true
+   },
+   "usable": false,
+   "glyph": "○",
+   "text": "OAuth · Set"
+  },
+  {
+   "row": {
+    "id": "mixdog-local",
+    "type": "local",
+    "enabled": true,
+    "detected": true,
+    "authenticated": true,
+    "usable": true
+   },
+   "usable": true,
+   "glyph": "●",
+   "text": "Local endpoint · Set"
+  },
+  {
+   "row": {
+    "id": "mixdog-local",
+    "type": "local",
+    "enabled": false,
+    "detected": true,
+    "authenticated": true,
+    "usable": false
+   },
+   "usable": false,
+   "glyph": "○",
+   "text": "Local endpoint · Set"
+  },
+  {
+   "row": {
+    "id": "mixdog-local",
+    "type": "local",
+    "enabled": true,
+    "detected": false,
+    "authenticated": false,
+    "usable": false
+   },
+   "usable": false,
+   "glyph": "○",
+   "text": "Local endpoint · Set"
+  },
+  {
+   "row": {
+    "id": "custom-0b7e1c2a-3d4f-4a5b-8c6d-7e8f9a0b1c2d",
+    "name": "Broken",
+    "protocol": "openai-chat",
+    "baseURL": "https://gw.example.com/v1",
+    "models": [],
+    "custom": true,
+    "group": "api",
+    "type": "api-key",
+    "enabled": true,
+    "authenticated": false,
+    "stored": false,
+    "env": false,
+    "envName": null,
+    "status": "Invalid config",
+    "detail": "modelOverrides[m].contextWindow must be a positive integer",
+    "schemaVersion": 2,
+    "auth": "none",
+    "discovery": {
+     "newModelsHidden": false
+    },
+    "modelOverrides": {
+     "m": {
+      "contextWindow": "4096"
+     }
+    },
+    "configError": "modelOverrides[m].contextWindow must be a positive integer",
+    "usable": false,
+    "ready": false
+   },
+   "usable": false,
+   "glyph": "○",
+   "text": "API key · Invalid config · modelOverrides[m].contextWindow must be a positive integer"
+  },
+  {
+   "row": {
+    "id": "custom-0b7e1c2a-3d4f-4a5b-8c6d-7e8f9a0b1c2d",
+    "name": "Broken",
+    "protocol": "openai-chat",
+    "baseURL": "https://gw.example.com/v1",
+    "models": [],
+    "custom": true,
+    "group": "api",
+    "type": "api-key",
+    "enabled": true,
+    "authenticated": true,
+    "stored": false,
+    "env": false,
+    "envName": null,
+    "status": "Keyless",
+    "detail": "no API key required",
+    "schemaVersion": 2,
+    "auth": "none",
+    "discovery": {
+     "newModelsHidden": false
+    },
+    "modelOverrides": {
+     "m": {
+      "contextWindow": 4096
+     }
+    }
+   },
+   "usable": true,
+   "glyph": "●",
+   "text": "API key · Keyless · no API key required"
+  }
+ ],
+ "flows": [
+  {
+   "name": "a pasted callback posts exactly one sign-in completion notice",
+   "plain": {
+    "opened": "oauth-code",
+    "accepted": true,
+    "promptAfter": null,
+    "notices": [
+     [
+      "Sign in to srv: https://auth.example/a",
+      "info"
+     ],
+     [
+      "MCP srv login complete",
+      "info"
+     ]
+    ]
+   },
+   "composed": {
+    "opened": "oauth-code",
+    "accepted": true,
+    "promptAfter": null,
+    "notices": [
+     [
+      "mcp sign-in started: srv",
+      "info"
+     ],
+     [
+      "Sign in to srv: https://auth.example/a",
+      "info"
+     ],
+     [
+      "MCP srv login complete",
+      "info"
+     ]
+    ]
+   }
+  },
+  {
+   "name": "a sign-in completed by stored tokens posts exactly one completion notice",
+   "plain": {
+    "promptAfter": null,
+    "notices": [
+     [
+      "MCP sign-in complete for srv",
+      "info"
+     ]
+    ]
+   },
+   "composed": {
+    "promptAfter": null,
+    "notices": [
+     [
+      "MCP sign-in complete for srv",
+      "info"
+     ]
+    ]
+   }
+  },
+  {
+   "name": "a flow the status poll sees complete posts one completion notice and closes the prompt",
+   "plain": {
+    "opened": "oauth-code",
+    "promptAfter": null,
+    "notices": [
+     [
+      "Sign in to srv: https://auth.example/c",
+      "info"
+     ],
+     [
+      "MCP sign-in complete for srv",
+      "info"
+     ]
+    ]
+   },
+   "composed": {
+    "opened": "oauth-code",
+    "promptAfter": null,
+    "notices": [
+     [
+      "mcp sign-in started: srv",
+      "info"
+     ],
+     [
+      "Sign in to srv: https://auth.example/c",
+      "info"
+     ],
+     [
+      "MCP sign-in complete for srv",
+      "info"
+     ]
+    ]
+   }
+  },
+  {
+   "name": "a failed sign-in start posts its failure and opens no prompt",
+   "plain": {
+    "promptAfter": null,
+    "notices": [
+     [
+      "MCP sign-in failed for srv: server refused",
+      "error"
+     ]
+    ]
+   },
+   "composed": {
+    "promptAfter": null,
+    "notices": [
+     [
+      "MCP sign-in failed for srv: server refused",
+      "error"
+     ]
+    ]
+   }
+  }
+ ]
+}

@@ -3,8 +3,6 @@
 // concern — routing/model first, then session behavior, integrations, voice,
 // system — and must stay in sync with desktop SETTINGS_ITEMS (tui-parity
 // test, minus system-shell).
-import { isVoiceEnabled } from '../../../runtime/channels/lib/voice-setup.mjs';
-
 const boolLabel = (enabled) => (enabled ? 'On' : 'Off');
 
 const profileMeta = (profile) => {
@@ -34,10 +32,11 @@ const updateMeta = (upd = {}) => {
 
 /** What one Settings build reads from the snapshot (and the heavy cache on a
  *  light refresh): the values every row and toggle works from. */
-export function readSettingsView({ snapshot, heavyCache, state }) {
+export function readSettingsView({ snapshot, heavyCache, state, voiceOn = false }) {
   const autoClear = snapshot.autoClear || {};
   const toolModules = snapshot.toolModules || {};
   return {
+    voiceOn,
     autoClear,
     autoClearEnabled: autoClear.enabled !== false,
     compaction: snapshot.compaction || {},
@@ -63,7 +62,7 @@ export function buildSettingsItems({
   workflowDisplayName,
 }) {
   const { autoClear, autoClearEnabled, compaction, webSearchOn, memoryToolsOn, systemShell, outputStyle } = view;
-  const { workflow, mcp, plugins, skills } = view;
+  const { workflow, mcp, plugins, skills, voiceOn } = view;
   const outputStyleLabel =
     outputStyle?.current?.label || outputStyle?.current?.id || outputStyle?.configured || 'Default';
   let autoClearSource = ` (${autoClear.provider || 'default'} default)`;
@@ -178,7 +177,7 @@ export function buildSettingsItems({
     {
       value: 'voice',
       label: 'Voice',
-      meta: boolLabel(isVoiceEnabled()),
+      meta: boolLabel(voiceOn),
       description: 'Transcribe voice input (managed Whisper runtime).',
       _action: 'voice',
     },

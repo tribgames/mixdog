@@ -2,7 +2,7 @@
 import { Box, Text } from 'ink';
 import { theme, surfaceBackground } from '../../theme.mjs';
 import { centerLine } from '../app-format.mjs';
-import { localPackageVersion } from '../../../runtime/shared/update-checker.mjs';
+import { localPackageVersion } from '../../lib/package-version.mjs';
 
 const LOGO_ROWS = [
   ['███╗   ███╗██╗██╗  ██╗██████╗  ██████╗  ██████╗ ', false],

@@ -9,17 +9,17 @@ import {
   normalizeToolName,
   parseToolArgs,
   summarizeAgentSurfaceBrief,
-} from '../../runtime/shared/tool-surface.mjs';
-import { isBackgroundErrorOnlyBody } from '../../runtime/shared/err-text.mjs';
-import { isBackgroundTaskResponseArgs } from '../../runtime/shared/tool-card-model.mjs';
-import { SKILL_SURFACE_NAMES, isAgentResponseResult } from '../../runtime/shared/tool-card-model/agent-surface.mjs';
+} from '../../../packages/protocol-client/src/rows/tool-surface.mjs';
+import { isBackgroundErrorOnlyBody } from '../../../packages/protocol-client/src/rows/err-text.mjs';
+import { isBackgroundTaskResponseArgs } from '../../../packages/protocol-client/src/rows/tool-card-model.mjs';
+import { SKILL_SURFACE_NAMES, isAgentResponseResult } from '../../../packages/protocol-client/src/rows/tool-card-model/agent-surface.mjs';
 import {
   isBackgroundTaskTool,
   parseBackgroundTaskResult,
-} from '../../runtime/shared/tool-card-model/background-task.mjs';
-import { isShellTool } from '../../runtime/shared/tool-card-model/shell-surface.mjs';
-import { stripLeadingStatusMarkerFromText } from '../../runtime/shared/tool-card-model/terminal-status.mjs';
-import { readRowsForDisplay } from '../../runtime/shared/read-row-numbers.mjs';
+} from '../../../packages/protocol-client/src/rows/tool-card-model/background-task.mjs';
+import { isShellTool } from '../../../packages/protocol-client/src/rows/tool-card-model/shell-surface.mjs';
+import { stripLeadingStatusMarkerFromText } from '../../../packages/protocol-client/src/rows/tool-card-model/terminal-status.mjs';
+import { readRowsForDisplay } from '../../../packages/protocol-client/src/rows/read-row-numbers.mjs';
 import { appliedSkillsLine } from '../components/user-message-skills.mjs';
 import { aggregateRawResultForDisplay } from '../session/tool-result-status.mjs';
 import { formatExpandedResult, wrapExpandedResultLines } from '../components/tool-output-format.mjs';

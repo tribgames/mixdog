@@ -9,7 +9,7 @@
  * for 30s. One builder, one answer.
  */
 
-import { quietProgressLabel, quietProgressParts } from '../runtime/shared/quiet-progress.mjs';
+import { quietProgressLabel, quietProgressParts } from '../../packages/protocol-client/src/rows/quiet-progress.mjs';
 
 const compactNumberFormatter = new Intl.NumberFormat('en-US', {
   notation: 'compact',
