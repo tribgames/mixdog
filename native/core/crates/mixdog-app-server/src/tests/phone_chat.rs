@@ -14,6 +14,7 @@ use mixdog_core_api::ids::ThreadId;
 use mixdog_core_session::session::RunOutcome;
 use mixdog_core_session::session::SessionDirectory;
 use mixdog_core_session::session::testing::Rig as SessionRig;
+use mixdog_core_session::session::testing::awaiting;
 use mixdog_store::schema::record::Record;
 use serde_json::Value;
 use serde_json::json;
@@ -125,7 +126,7 @@ impl World {
     }
 
     /// The first `thread/promptRestore` frames the thread publishes: waits on the feeds' own signal (registered before each
-    /// check, so a frame published in between wakes it), under a virtual deadline that fires only when nothing can publish one.
+    /// check, so a frame published in between wakes it), under a deadline on the machine's clock that leaves the paused one alone.
     async fn published_prompt_restores(&self) -> Vec<Value> {
         let published = self.session.feeds.published.clone();
         let wait = async {
@@ -140,7 +141,7 @@ impl World {
                 notified.await;
             }
         };
-        tokio::time::timeout(std::time::Duration::from_secs(60), wait).await.expect("promptRestore was published")
+        awaiting("the thread/promptRestore frame", wait).await
     }
 
     /// The `thread/promptRestore` state frames the thread published, oldest first.
