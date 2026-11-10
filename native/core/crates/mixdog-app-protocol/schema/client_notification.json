@@ -994,10 +994,14 @@
           ]
         },
         "sessionIds": {
+          "description": "Absent only from a paired phone stating one of the other fields alone (Node's `setForeground` or `setVisualizePanels`): its last set stays. A UI's notification without it changes nothing.",
           "items": {
             "type": "string"
           },
-          "type": "array"
+          "type": [
+            "array",
+            "null"
+          ]
         },
         "visualizeSessionIds": {
           "items": {
@@ -1009,9 +1013,6 @@
           ]
         }
       },
-      "required": [
-        "sessionIds"
-      ],
       "type": "object"
     },
     "UiTerminalRunClaimedParams": {

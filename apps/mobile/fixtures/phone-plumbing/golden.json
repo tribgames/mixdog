@@ -1,0 +1,480 @@
+{
+  "note": "Node relay's handling of a paired phone's setForeground, setScreenSessions, setVisualizePanels, remotePerfPaint and reportConnectionTimeline: per call what the phone received (frames), the sessions the phone counts as viewing a visualize panel of (viewing), and the sessions a push is held back for, for its credential (credential) and per browser id (browser). pcLog is what Node wrote to its own log.",
+  "credential": "cred-a",
+  "sessions": [
+    "s1",
+    "s2",
+    "s3",
+    "7",
+    "123",
+    "bad id!"
+  ],
+  "browsers": [
+    "browser-a",
+    "browser-b",
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  ],
+  "steps": [
+    {
+      "call": "setScreenSessions",
+      "params": [
+        [
+          "s1"
+        ]
+      ],
+      "frames": [],
+      "viewing": [],
+      "credential": [
+        "s1"
+      ],
+      "browser": {
+        "browser-a": [],
+        "browser-b": [],
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [],
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": []
+      }
+    },
+    {
+      "call": "setForeground",
+      "params": [
+        true,
+        "browser-a"
+      ],
+      "frames": [],
+      "viewing": [],
+      "credential": [
+        "s1"
+      ],
+      "browser": {
+        "browser-a": [
+          "s1"
+        ],
+        "browser-b": [],
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [],
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": []
+      }
+    },
+    {
+      "call": "setVisualizePanels",
+      "params": [
+        [
+          "s2"
+        ]
+      ],
+      "frames": [],
+      "viewing": [
+        "s2"
+      ],
+      "credential": [
+        "s1"
+      ],
+      "browser": {
+        "browser-a": [
+          "s1"
+        ],
+        "browser-b": [],
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [],
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": []
+      }
+    },
+    {
+      "call": "setForeground",
+      "params": [
+        false
+      ],
+      "frames": [],
+      "viewing": [],
+      "credential": [],
+      "browser": {
+        "browser-a": [],
+        "browser-b": [],
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [],
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": []
+      }
+    },
+    {
+      "call": "setScreenSessions",
+      "params": [
+        [
+          "s1",
+          "s3"
+        ]
+      ],
+      "frames": [],
+      "viewing": [],
+      "credential": [],
+      "browser": {
+        "browser-a": [],
+        "browser-b": [],
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [],
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": []
+      }
+    },
+    {
+      "call": "setForeground",
+      "params": [],
+      "frames": [],
+      "viewing": [
+        "s2"
+      ],
+      "credential": [
+        "s1",
+        "s3"
+      ],
+      "browser": {
+        "browser-a": [
+          "s1",
+          "s3"
+        ],
+        "browser-b": [],
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [],
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": []
+      }
+    },
+    {
+      "call": "setScreenSessions",
+      "params": [],
+      "frames": [],
+      "viewing": [
+        "s2"
+      ],
+      "credential": [],
+      "browser": {
+        "browser-a": [],
+        "browser-b": [],
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [],
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": []
+      }
+    },
+    {
+      "call": "setScreenSessions",
+      "params": [
+        [
+          "s1",
+          "s1",
+          "bad id!",
+          123,
+          null,
+          "",
+          "s2"
+        ]
+      ],
+      "frames": [],
+      "viewing": [
+        "s2"
+      ],
+      "credential": [
+        "s1",
+        "s2",
+        "123"
+      ],
+      "browser": {
+        "browser-a": [
+          "s1",
+          "s2",
+          "123"
+        ],
+        "browser-b": [],
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [],
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": []
+      }
+    },
+    {
+      "call": "setVisualizePanels",
+      "params": [],
+      "frames": [],
+      "viewing": [],
+      "credential": [
+        "s1",
+        "s2",
+        "123"
+      ],
+      "browser": {
+        "browser-a": [
+          "s1",
+          "s2",
+          "123"
+        ],
+        "browser-b": [],
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [],
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": []
+      }
+    },
+    {
+      "call": "setVisualizePanels",
+      "params": [
+        [
+          "s2",
+          7,
+          "s3",
+          "bad id!"
+        ]
+      ],
+      "frames": [],
+      "viewing": [
+        "s2",
+        "s3",
+        "7"
+      ],
+      "credential": [
+        "s1",
+        "s2",
+        "123"
+      ],
+      "browser": {
+        "browser-a": [
+          "s1",
+          "s2",
+          "123"
+        ],
+        "browser-b": [],
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [],
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": []
+      }
+    },
+    {
+      "call": "setForeground",
+      "params": [
+        true,
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      ],
+      "frames": [],
+      "viewing": [
+        "s2",
+        "s3",
+        "7"
+      ],
+      "credential": [
+        "s1",
+        "s2",
+        "123"
+      ],
+      "browser": {
+        "browser-a": [],
+        "browser-b": [],
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+          "s1",
+          "s2",
+          "123"
+        ],
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": []
+      }
+    },
+    {
+      "call": "setForeground",
+      "params": [
+        true,
+        5
+      ],
+      "frames": [],
+      "viewing": [
+        "s2",
+        "s3",
+        "7"
+      ],
+      "credential": [
+        "s1",
+        "s2",
+        "123"
+      ],
+      "browser": {
+        "browser-a": [],
+        "browser-b": [],
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+          "s1",
+          "s2",
+          "123"
+        ],
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": []
+      }
+    },
+    {
+      "call": "setForeground",
+      "params": [
+        "no"
+      ],
+      "frames": [],
+      "viewing": [
+        "s2",
+        "s3",
+        "7"
+      ],
+      "credential": [
+        "s1",
+        "s2",
+        "123"
+      ],
+      "browser": {
+        "browser-a": [],
+        "browser-b": [],
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+          "s1",
+          "s2",
+          "123"
+        ],
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": []
+      }
+    },
+    {
+      "call": "setForeground",
+      "params": [
+        null
+      ],
+      "frames": [],
+      "viewing": [
+        "s2",
+        "s3",
+        "7"
+      ],
+      "credential": [
+        "s1",
+        "s2",
+        "123"
+      ],
+      "browser": {
+        "browser-a": [],
+        "browser-b": [],
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+          "s1",
+          "s2",
+          "123"
+        ],
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": []
+      }
+    },
+    {
+      "call": "setScreenSessions",
+      "params": [
+        "s1"
+      ],
+      "frames": [],
+      "viewing": [
+        "s2",
+        "s3",
+        "7"
+      ],
+      "credential": [],
+      "browser": {
+        "browser-a": [],
+        "browser-b": [],
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [],
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": []
+      }
+    },
+    {
+      "call": "remotePerfPaint",
+      "params": [
+        "s1:1",
+        12.5
+      ],
+      "frames": [],
+      "viewing": [
+        "s2",
+        "s3",
+        "7"
+      ],
+      "credential": [],
+      "browser": {
+        "browser-a": [],
+        "browser-b": [],
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [],
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": []
+      }
+    },
+    {
+      "call": "reportConnectionTimeline",
+      "params": [
+        "phase=open@0 state=ready@12 issue=none@3"
+      ],
+      "frames": [],
+      "viewing": [
+        "s2",
+        "s3",
+        "7"
+      ],
+      "credential": [],
+      "browser": {
+        "browser-a": [],
+        "browser-b": [],
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [],
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": []
+      }
+    },
+    {
+      "call": "reportConnectionTimeline",
+      "params": [],
+      "frames": [],
+      "viewing": [
+        "s2",
+        "s3",
+        "7"
+      ],
+      "credential": [],
+      "browser": {
+        "browser-a": [],
+        "browser-b": [],
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [],
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": []
+      }
+    },
+    {
+      "call": "setForeground",
+      "params": [
+        false,
+        "browser-a"
+      ],
+      "frames": [],
+      "viewing": [],
+      "credential": [],
+      "browser": {
+        "browser-a": [],
+        "browser-b": [],
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [],
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": []
+      }
+    },
+    {
+      "call": "setVisualizePanels",
+      "params": [
+        [
+          "s1"
+        ]
+      ],
+      "frames": [],
+      "viewing": [],
+      "credential": [],
+      "browser": {
+        "browser-a": [],
+        "browser-b": [],
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [],
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": []
+      }
+    },
+    {
+      "call": "setForeground",
+      "params": [
+        true,
+        "browser-b"
+      ],
+      "frames": [],
+      "viewing": [
+        "s1"
+      ],
+      "credential": [],
+      "browser": {
+        "browser-a": [],
+        "browser-b": [],
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [],
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": []
+      }
+    }
+  ],
+  "pcLog": [
+    {
+      "step": 16,
+      "line": "[mixdog-remote-timeline] client=client-a phase=open@0 state=ready@12 issue=none@3"
+    }
+  ],
+  "envelopes": []
+}

@@ -4687,7 +4687,12 @@ export type UiProviderModelsChangedParams = { origin: string, };
  * visualize panel (`hostState` key `remoteViewing`) only while attached, in the foreground and
  * with that session in `visualizeSessionIds` (Node's `clientViewsSessionLane`).
  */
-export type UiScreenSessionsChangedParams = { sessionIds: Array<string>, browserId?: string, visualizeSessionIds?: Array<string>, foreground?: boolean, };
+export type UiScreenSessionsChangedParams = {
+/**
+ * Absent only from a paired phone stating one of the other fields alone (Node's `setForeground` or `setVisualizePanels`):
+ * its last set stays. A UI's notification without it changes nothing.
+ */
+sessionIds?: Array<string>, browserId?: string, visualizeSessionIds?: Array<string>, foreground?: boolean, };
 
 /**
  * `ui/settings/changed` (app feed) and `ui/settings/announce`: Node's `settings-changed` desktop event, which reached

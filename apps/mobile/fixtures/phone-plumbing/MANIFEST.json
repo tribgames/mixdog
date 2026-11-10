@@ -1,0 +1,61 @@
+{
+  "command": "node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-phone-plumbing.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "comparison": {
+    "notCompared": {
+      "emptyBrowserId": "a browser id '' is no push subscription's key (a subscription is keyed by the id the phone generated), so it is not asked",
+      "pcLog": "Node's own log lines (the timeline report): the core writes no such line, and the phone sees none"
+    },
+    "pushRule": "the push columns ask legShowsSession of a live leg; Node's legacy leg rule (remote-relay-session-wiring.ts legacyLegShows: !background && screenSessionIds.has) is the same answer",
+    "replay": "each step whole except the push columns: the call, the frames the phone received and viewing (hostState.remoteViewing, read by a local connection once the phone has had an answer to a later request)",
+    "rustTest": "credential, browser and viewing per step: mixdog-core-domains notify::screen::tests::the_phones_plumbing_calls_decide_what_nodes_relay_decided, on the core registry"
+  },
+  "entry": {
+    "notRun": "the relay transport (encryption, admission: the client's channel is set as the handshake leaves it) and the method table: none of these calls reaches it but remotePerfPaint, which has no id and is no method, so the empty table answers it as the full one does (executeRemoteFrame: no id, no answer)",
+    "runs": "createRelayClientCallDispatch (remote-relay-client-calls.ts) over a client state of createRelayClientRegistry (remote-relay-clients.ts), the paint probe tracker of shared/remote-performance.ts (perf flag off), clientViewsSessionLane and legShowsSession (remote-transport/foreground.ts)"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 11066,
+      "path": "golden.json",
+      "sha256": "dd62e708a2d5979ba5274c83ba3f836cb2b0fc99c7812ac17b1de47b3c2109f8"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/phone-files-replay.mjs",
+      "sha256": "40f5c454fe4c5b5dfd0fbd01e1f19cb23712fca185ca05993c7a05e94f6fbe2b"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/phone-relay-core.mjs",
+      "sha256": "eec41958569e2413fba9721c3e6241758b0ea4dc65c9da84c5a9fa752bfb4ddc"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-phone-plumbing.mjs",
+  "recorderSha256": "b595af5c522e04cad6a9c3f24b6b787b15a780245153ee9f0b0beff827b9c16c",
+  "set": "phone-plumbing",
+  "steps": 21,
+  "totalBytes": 11066
+}
