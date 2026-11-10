@@ -290,24 +290,70 @@ pub(super) trait InstallerPort: Send + Sync {
     fn run_key_op(&self, op: KeyOp) -> BoxFuture<Result<i32, String>>;
 }
 
-/// Time for the installer: the report deadline's timer, and a place to drive a launched elevation to its end
-/// when no request is waiting on it any more.
+/// Time for screen control: a clock, timers, and a place to run work that goes on whether or not its caller
+/// still waits (a launched elevation, a request, a queued input step), as Node's promises do.
 pub(super) trait Timers: Send + Sync {
-    /// Completes after `ms`; dropping the future cancels the timer.
-    fn sleep(&self, ms: u64) -> BoxFuture<()>;
+    /// Milliseconds on a monotonic clock (Node reads `Date.now()` only for differences).
+    fn now_ms(&self) -> f64;
+    /// Completes after `after`; dropping the future cancels the timer.
+    fn sleep(&self, after: std::time::Duration) -> BoxFuture<()>;
     fn spawn(&self, task: BoxFuture<()>);
+    /// Runs `callback` after `after` unless the handle is cleared first (Node's `setTimeout`).
+    fn set_timeout(&self, after: std::time::Duration, callback: Box<dyn FnOnce() + Send>) -> TimerHandle;
 }
 
 /// Timers on the tokio runtime the caller is in.
-pub(super) struct TokioTimers;
+pub(super) struct TokioTimers {
+    origin: tokio::time::Instant,
+}
+
+impl TokioTimers {
+    pub(super) fn new() -> Self {
+        Self { origin: tokio::time::Instant::now() }
+    }
+}
 
 impl Timers for TokioTimers {
-    fn sleep(&self, ms: u64) -> BoxFuture<()> {
-        Box::pin(tokio::time::sleep(std::time::Duration::from_millis(ms)))
+    fn now_ms(&self) -> f64 {
+        self.origin.elapsed().as_secs_f64() * 1e3
+    }
+
+    fn sleep(&self, after: std::time::Duration) -> BoxFuture<()> {
+        Box::pin(tokio::time::sleep(after))
     }
 
     fn spawn(&self, task: BoxFuture<()>) {
         drop(tokio::spawn(task));
+    }
+
+    fn set_timeout(&self, after: std::time::Duration, callback: Box<dyn FnOnce() + Send>) -> TimerHandle {
+        let cleared = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let armed = cleared.clone();
+        let task = tokio::spawn(async move {
+            tokio::time::sleep(after).await;
+            if !armed.load(std::sync::atomic::Ordering::SeqCst) {
+                callback();
+            }
+        });
+        TimerHandle::new(move || {
+            cleared.store(true, std::sync::atomic::Ordering::SeqCst);
+            task.abort();
+        })
+    }
+}
+
+/// A timer armed with [`Timers::set_timeout`]; `clear` stops it from running (Node's `clearTimeout`), at once.
+pub(super) struct TimerHandle {
+    clear: Box<dyn FnOnce() + Send>,
+}
+
+impl TimerHandle {
+    pub(super) fn new(clear: impl FnOnce() + Send + 'static) -> Self {
+        Self { clear: Box::new(clear) }
+    }
+
+    pub(super) fn clear(self) {
+        (self.clear)();
     }
 }
 
@@ -448,7 +494,7 @@ impl Core {
             delegated: None,
         };
         let launched = self.launch(op);
-        let timer = self.timers.sleep(self.report_after_ms);
+        let timer = self.timers.sleep(std::time::Duration::from_millis(self.report_after_ms));
         let settled = tokio::select! {
             biased;
             exit = launched.clone() => Some(exit),
