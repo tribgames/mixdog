@@ -263,6 +263,7 @@ pub(crate) fn run_limit(own: Option<Duration>, attempt: &Attempt) -> (Option<Dur
 }
 
 /// A work-tree file's identity as a recording's scratch repositories scripted it (see the module doc), or the real one.
+#[allow(clippy::disallowed_methods, reason = "debug builds only: a recording's scripted identity, read where the caller has just read the file's real one")]
 pub(crate) fn file_identity(path: &std::path::Path, real: (i128, i128, u64)) -> (i128, i128, u64) {
     #[cfg(debug_assertions)]
     if let Some(root) = std::env::var_os("MIXDOG_SCM_DEBUG_IDENTITY_ROOT")

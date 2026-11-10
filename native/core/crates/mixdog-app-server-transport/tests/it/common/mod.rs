@@ -31,10 +31,15 @@ pub struct TestWrite {
     out: mpsc::UnboundedSender<Wire>,
     /// A write takes one permit first: a stalled peer is a semaphore with no permits.
     gate: Arc<Semaphore>,
+    /// Told each time a write finds no permit: the writer holds that frame at the socket.
+    held: mpsc::UnboundedSender<()>,
 }
 
 impl TestWrite {
     async fn put(&mut self, wire: Wire) -> Result<(), SocketClosed> {
+        if self.gate.available_permits() == 0 {
+            let _ = self.held.send(());
+        }
         let permit = self.gate.acquire().await.map_err(|_| SocketClosed)?;
         permit.forget();
         self.out.send(wire).map_err(|_| SocketClosed)
@@ -71,6 +76,7 @@ impl TestWrite {
         Self {
             out: mpsc::unbounded_channel().0,
             gate: Arc::new(Semaphore::new(0)),
+            held: mpsc::unbounded_channel().0,
         }
     }
 }
@@ -87,6 +93,8 @@ pub struct Peer {
     pub wire: mpsc::UnboundedReceiver<Wire>,
     pub send: mpsc::UnboundedSender<Incoming>,
     pub gate: Arc<Semaphore>,
+    /// One item per write the socket withheld (no permit when the writer reached it).
+    pub held: mpsc::UnboundedReceiver<()>,
 }
 
 impl Peer {
@@ -133,6 +141,7 @@ pub fn connect(hub: &ConnectionHub, origin: ConnectionOrigin, writable: bool) ->
     let (wire_tx, wire) = mpsc::unbounded_channel();
     let (send, read_rx) = mpsc::unbounded_channel();
     let gate = Arc::new(Semaphore::new(if writable { Semaphore::MAX_PERMITS } else { 0 }));
+    let (held_tx, held) = mpsc::unbounded_channel();
     let connection = hub
         .attach(
             origin,
@@ -140,6 +149,7 @@ pub fn connect(hub: &ConnectionHub, origin: ConnectionOrigin, writable: bool) ->
             TestWrite {
                 out: wire_tx,
                 gate: Arc::clone(&gate),
+                held: held_tx,
             },
         )
         .expect("below the connection limit");
@@ -148,6 +158,7 @@ pub fn connect(hub: &ConnectionHub, origin: ConnectionOrigin, writable: bool) ->
         wire,
         send,
         gate,
+        held,
     }
 }
 

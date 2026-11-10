@@ -1,0 +1,5789 @@
+{
+  "scenarios": [
+    {
+      "name": "a start admits a paired viewer, locks the geometry, shows the indicator and decides live",
+      "world": {},
+      "steps": [
+        {
+          "op": "start",
+          "as": "start"
+        },
+        {
+          "op": "await",
+          "call": "start"
+        },
+        {
+          "op": "query"
+        },
+        {
+          "op": "listDisplays"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "helper",
+          "call": "installState",
+          "key": null
+        },
+        {
+          "ev": "pcAccess",
+          "call": "accountIsAdmin"
+        },
+        {
+          "ev": "deps",
+          "call": "createInputHost"
+        },
+        {
+          "ev": "host",
+          "call": "start"
+        },
+        {
+          "ev": "indicator",
+          "call": "show",
+          "clientLabel": "Phone",
+          "controlling": true,
+          "screenId": "7"
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "start",
+            "clientId": "phone-1",
+            "screenId": "7"
+          }
+        },
+        {
+          "ev": "done",
+          "call": "start",
+          "ok": true,
+          "value": {
+            "plan": {
+              "sourceId": "screen:0:0",
+              "width": 1920,
+              "height": 1080,
+              "maxFrameRate": 30
+            },
+            "geometry": {
+              "generation": 1,
+              "cssWidth": 1280,
+              "cssHeight": 720,
+              "deviceScaleFactor": 1.5,
+              "pixelWidth": 1920,
+              "pixelHeight": 1080
+            },
+            "status": {
+              "state": "live",
+              "helper": "missing",
+              "control": true,
+              "helperInfo": {
+                "offer": "install",
+                "outcome": null,
+                "detail": null,
+                "issue": null,
+                "secure": null
+              }
+            }
+          }
+        },
+        {
+          "ev": "query",
+          "running": true,
+          "geometry": {
+            "generation": 1,
+            "cssWidth": 1280,
+            "cssHeight": 720,
+            "deviceScaleFactor": 1.5,
+            "pixelWidth": 1920,
+            "pixelHeight": 1080
+          },
+          "plan": {
+            "sourceId": "screen:0:0",
+            "width": 1920,
+            "height": 1080,
+            "maxFrameRate": 30
+          },
+          "status": {
+            "state": "live",
+            "helper": "missing",
+            "control": true,
+            "helperInfo": {
+              "offer": "install",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": null
+            }
+          },
+          "videoPath": "capture",
+          "cursor": null
+        },
+        {
+          "ev": "displays",
+          "list": [
+            {
+              "screenId": "7",
+              "label": "Display 1",
+              "primary": true,
+              "pixelWidth": 1920,
+              "pixelHeight": 1080,
+              "scaleFactor": 1.5
+            }
+          ]
+        },
+        {
+          "ev": "credentials",
+          "wiped": []
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "a second start while running is refused",
+      "world": {},
+      "steps": [
+        {
+          "op": "start",
+          "as": "start"
+        },
+        {
+          "op": "await",
+          "call": "start"
+        },
+        {
+          "op": "start",
+          "as": "again"
+        },
+        {
+          "op": "await",
+          "call": "again"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "helper",
+          "call": "installState",
+          "key": null
+        },
+        {
+          "ev": "pcAccess",
+          "call": "accountIsAdmin"
+        },
+        {
+          "ev": "deps",
+          "call": "createInputHost"
+        },
+        {
+          "ev": "host",
+          "call": "start"
+        },
+        {
+          "ev": "indicator",
+          "call": "show",
+          "clientLabel": "Phone",
+          "controlling": true,
+          "screenId": "7"
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "start",
+            "clientId": "phone-1",
+            "screenId": "7"
+          }
+        },
+        {
+          "ev": "done",
+          "call": "start",
+          "ok": true,
+          "value": {
+            "plan": {
+              "sourceId": "screen:0:0",
+              "width": 1920,
+              "height": 1080,
+              "maxFrameRate": 30
+            },
+            "geometry": {
+              "generation": 1,
+              "cssWidth": 1280,
+              "cssHeight": 720,
+              "deviceScaleFactor": 1.5,
+              "pixelWidth": 1920,
+              "pixelHeight": 1080
+            },
+            "status": {
+              "state": "live",
+              "helper": "missing",
+              "control": true,
+              "helperInfo": {
+                "offer": "install",
+                "outcome": null,
+                "detail": null,
+                "issue": null,
+                "secure": null
+              }
+            }
+          }
+        },
+        {
+          "ev": "done",
+          "call": "again",
+          "ok": false,
+          "error": "remote screen denied: already-started"
+        },
+        {
+          "ev": "credentials",
+          "wiped": []
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "a start is refused while the viewer is unpaired",
+      "world": {
+        "paired": false
+      },
+      "steps": [
+        {
+          "op": "start",
+          "as": "unpaired"
+        },
+        {
+          "op": "await",
+          "call": "unpaired"
+        },
+        {
+          "op": "start",
+          "as": "again"
+        },
+        {
+          "op": "await",
+          "call": "again"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "log",
+          "event": {
+            "type": "denied",
+            "clientId": "phone-1",
+            "screenId": "7",
+            "reason": "unauthorized"
+          }
+        },
+        {
+          "ev": "done",
+          "call": "unpaired",
+          "ok": false,
+          "error": "remote screen denied: unauthorized"
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "denied",
+            "clientId": "phone-1",
+            "screenId": "7",
+            "reason": "unauthorized"
+          }
+        },
+        {
+          "ev": "done",
+          "call": "again",
+          "ok": false,
+          "error": "remote screen denied: unauthorized"
+        },
+        {
+          "ev": "credentials",
+          "wiped": []
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "a start whose display is gone is refused",
+      "world": {
+        "displays": []
+      },
+      "steps": [
+        {
+          "op": "start",
+          "as": "start"
+        },
+        {
+          "op": "await",
+          "call": "start"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "done",
+          "call": "start",
+          "ok": false,
+          "error": "remote screen denied: display-removed"
+        },
+        {
+          "ev": "credentials",
+          "wiped": []
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "a host that cannot start stops the session with error",
+      "world": {
+        "hostStartFails": "host_unavailable"
+      },
+      "steps": [
+        {
+          "op": "start",
+          "as": "start"
+        },
+        {
+          "op": "await",
+          "call": "start"
+        },
+        {
+          "op": "query"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "helper",
+          "call": "installState",
+          "key": null
+        },
+        {
+          "ev": "pcAccess",
+          "call": "accountIsAdmin"
+        },
+        {
+          "ev": "deps",
+          "call": "createInputHost"
+        },
+        {
+          "ev": "host",
+          "call": "start"
+        },
+        {
+          "ev": "status",
+          "status": {
+            "state": "stopped",
+            "reason": "error",
+            "helper": "not-needed",
+            "control": false,
+            "helperInfo": {
+              "offer": "none",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": null
+            }
+          }
+        },
+        {
+          "ev": "stopped",
+          "reason": "error"
+        },
+        {
+          "ev": "indicator",
+          "call": "hide"
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "stop",
+            "clientId": "phone-1",
+            "screenId": "7",
+            "reason": "error"
+          }
+        },
+        {
+          "ev": "helper",
+          "call": "setActive",
+          "active": false
+        },
+        {
+          "ev": "host",
+          "call": "stop"
+        },
+        {
+          "ev": "done",
+          "call": "start",
+          "ok": false,
+          "error": "host_unavailable"
+        },
+        {
+          "ev": "query",
+          "running": false,
+          "geometry": {
+            "generation": 1,
+            "cssWidth": 1280,
+            "cssHeight": 720,
+            "deviceScaleFactor": 1.5,
+            "pixelWidth": 1920,
+            "pixelHeight": 1080
+          },
+          "plan": null,
+          "status": {
+            "state": "stopped",
+            "reason": "error",
+            "helper": "not-needed",
+            "control": false,
+            "helperInfo": {
+              "offer": "none",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": null
+            }
+          },
+          "videoPath": "capture",
+          "cursor": null
+        },
+        {
+          "ev": "credentials",
+          "wiped": []
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "the secure desktop without a helper blocks: input rejected, status secure-desktop, an install offered",
+      "world": {
+        "installState": "not-installed",
+        "helper": {
+          "installed": false
+        }
+      },
+      "steps": [
+        {
+          "op": "start",
+          "as": "start"
+        },
+        {
+          "op": "await",
+          "call": "start"
+        },
+        {
+          "op": "hostDesktop",
+          "local": {
+            "inputDesktop": null,
+            "consent": true,
+            "logonUi": false
+          }
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "input",
+          "as": "move",
+          "input": {
+            "type": "screen-pointer",
+            "action": "move",
+            "x": 10,
+            "y": 10
+          },
+          "generation": 1
+        },
+        {
+          "op": "await",
+          "call": "move"
+        },
+        {
+          "op": "query"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "helper",
+          "call": "installState",
+          "key": null
+        },
+        {
+          "ev": "pcAccess",
+          "call": "accountIsAdmin"
+        },
+        {
+          "ev": "deps",
+          "call": "createInputHost"
+        },
+        {
+          "ev": "host",
+          "call": "start"
+        },
+        {
+          "ev": "indicator",
+          "call": "show",
+          "clientLabel": "Phone",
+          "controlling": true,
+          "screenId": "7"
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "start",
+            "clientId": "phone-1",
+            "screenId": "7"
+          }
+        },
+        {
+          "ev": "done",
+          "call": "start",
+          "ok": true,
+          "value": {
+            "plan": {
+              "sourceId": "screen:0:0",
+              "width": 1920,
+              "height": 1080,
+              "maxFrameRate": 30
+            },
+            "geometry": {
+              "generation": 1,
+              "cssWidth": 1280,
+              "cssHeight": 720,
+              "deviceScaleFactor": 1.5,
+              "pixelWidth": 1920,
+              "pixelHeight": 1080
+            },
+            "status": {
+              "state": "live",
+              "helper": "missing",
+              "control": true,
+              "helperInfo": {
+                "offer": "install",
+                "outcome": null,
+                "detail": null,
+                "issue": null,
+                "secure": null
+              }
+            }
+          }
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "secure-desktop",
+            "clientId": "phone-1",
+            "screenId": "7",
+            "state": "secure-desktop"
+          }
+        },
+        {
+          "ev": "indicator",
+          "call": "update",
+          "controlling": false
+        },
+        {
+          "ev": "status",
+          "status": {
+            "state": "secure-desktop",
+            "reason": "uac",
+            "helper": "missing",
+            "control": false,
+            "helperInfo": {
+              "offer": "install",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": "uac"
+            }
+          }
+        },
+        {
+          "ev": "done",
+          "call": "move",
+          "ok": true,
+          "value": "rejected"
+        },
+        {
+          "ev": "query",
+          "running": true,
+          "geometry": {
+            "generation": 1,
+            "cssWidth": 1280,
+            "cssHeight": 720,
+            "deviceScaleFactor": 1.5,
+            "pixelWidth": 1920,
+            "pixelHeight": 1080
+          },
+          "plan": {
+            "sourceId": "screen:0:0",
+            "width": 1920,
+            "height": 1080,
+            "maxFrameRate": 30
+          },
+          "status": {
+            "state": "secure-desktop",
+            "reason": "uac",
+            "helper": "missing",
+            "control": false,
+            "helperInfo": {
+              "offer": "install",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": "uac"
+            }
+          },
+          "videoPath": "capture",
+          "cursor": null
+        },
+        {
+          "ev": "credentials",
+          "wiped": []
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "the helper takes over the secure desktop: activated before the switch, frames located, control after video",
+      "world": {
+        "installState": "installed",
+        "helper": {
+          "installed": true,
+          "connected": true,
+          "desktop": "Winlogon",
+          "session": 1,
+          "locked": false
+        }
+      },
+      "steps": [
+        {
+          "op": "start",
+          "as": "start"
+        },
+        {
+          "op": "await",
+          "call": "start"
+        },
+        {
+          "op": "input",
+          "as": "key-down",
+          "input": {
+            "type": "screen-key",
+            "action": "down",
+            "vk": 65,
+            "scan": 30,
+            "extended": false
+          },
+          "generation": 1
+        },
+        {
+          "op": "await",
+          "call": "key-down"
+        },
+        {
+          "op": "hostDesktop",
+          "local": {
+            "inputDesktop": null,
+            "consent": true,
+            "logonUi": false
+          }
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "helperFrame",
+          "frame": {
+            "width": 2000,
+            "height": 1200,
+            "stride": 8000,
+            "originX": -40,
+            "originY": -60
+          }
+        },
+        {
+          "op": "input",
+          "as": "denied",
+          "input": {
+            "type": "screen-key",
+            "action": "down",
+            "vk": 66,
+            "scan": 48,
+            "extended": false
+          },
+          "generation": 1
+        },
+        {
+          "op": "await",
+          "call": "denied"
+        },
+        {
+          "op": "setHelperVideo",
+          "value": true
+        },
+        {
+          "op": "input",
+          "as": "allowed",
+          "input": {
+            "type": "screen-key",
+            "action": "down",
+            "vk": 66,
+            "scan": 48,
+            "extended": false
+          },
+          "generation": 1
+        },
+        {
+          "op": "await",
+          "call": "allowed"
+        },
+        {
+          "op": "setHelperVideo",
+          "value": false
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "hostDesktop",
+          "local": {
+            "inputDesktop": "Default",
+            "consent": false,
+            "logonUi": false
+          }
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "query"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "helper",
+          "call": "installState",
+          "key": null
+        },
+        {
+          "ev": "pcAccess",
+          "call": "accountIsAdmin"
+        },
+        {
+          "ev": "deps",
+          "call": "createInputHost"
+        },
+        {
+          "ev": "host",
+          "call": "start"
+        },
+        {
+          "ev": "indicator",
+          "call": "show",
+          "clientLabel": "Phone",
+          "controlling": true,
+          "screenId": "7"
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "start",
+            "clientId": "phone-1",
+            "screenId": "7"
+          }
+        },
+        {
+          "ev": "done",
+          "call": "start",
+          "ok": true,
+          "value": {
+            "plan": {
+              "sourceId": "screen:0:0",
+              "width": 1920,
+              "height": 1080,
+              "maxFrameRate": 30
+            },
+            "geometry": {
+              "generation": 1,
+              "cssWidth": 1280,
+              "cssHeight": 720,
+              "deviceScaleFactor": 1.5,
+              "pixelWidth": 1920,
+              "pixelHeight": 1080
+            },
+            "status": {
+              "state": "live",
+              "helper": "active",
+              "control": true,
+              "helperInfo": {
+                "offer": "none",
+                "outcome": null,
+                "detail": null,
+                "issue": null,
+                "secure": null
+              }
+            }
+          }
+        },
+        {
+          "ev": "host",
+          "call": "command",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "key-down",
+          "ok": true,
+          "value": "applied"
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "secure-desktop",
+            "clientId": "phone-1",
+            "screenId": "7",
+            "state": "secure-desktop"
+          }
+        },
+        {
+          "ev": "indicator",
+          "call": "update",
+          "controlling": false
+        },
+        {
+          "ev": "status",
+          "status": {
+            "state": "secure-desktop",
+            "reason": "uac",
+            "helper": "active",
+            "control": false,
+            "helperInfo": {
+              "offer": "none",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": "uac"
+            }
+          }
+        },
+        {
+          "ev": "videoPath",
+          "path": "helper"
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "release-dropped",
+            "clientId": "phone-1",
+            "screenId": "7",
+            "backend": "desktop",
+            "count": 1
+          }
+        },
+        {
+          "ev": "helper",
+          "call": "setActive",
+          "active": true
+        },
+        {
+          "ev": "frame",
+          "picture": {
+            "bytes": 8640000,
+            "width": 2000,
+            "height": 1080,
+            "stride": 8000,
+            "source": {
+              "x": 40,
+              "y": 0,
+              "width": 1920,
+              "height": 1080
+            },
+            "target": {
+              "x": 0,
+              "y": 0,
+              "width": 1920,
+              "height": 1080
+            }
+          }
+        },
+        {
+          "ev": "done",
+          "call": "denied",
+          "ok": true,
+          "value": "rejected"
+        },
+        {
+          "ev": "indicator",
+          "call": "update",
+          "controlling": true
+        },
+        {
+          "ev": "status",
+          "status": {
+            "state": "secure-desktop",
+            "reason": "uac",
+            "helper": "active",
+            "control": true,
+            "helperInfo": {
+              "offer": "none",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": "uac"
+            }
+          }
+        },
+        {
+          "ev": "helper",
+          "call": "sendInput",
+          "command": {
+            "op": "key",
+            "vk": 66,
+            "scan": 48,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "allowed",
+          "ok": true,
+          "value": "applied"
+        },
+        {
+          "ev": "indicator",
+          "call": "update",
+          "controlling": false
+        },
+        {
+          "ev": "status",
+          "status": {
+            "state": "secure-desktop",
+            "reason": "uac",
+            "helper": "active",
+            "control": false,
+            "helperInfo": {
+              "offer": "none",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": "uac"
+            }
+          }
+        },
+        {
+          "ev": "helper",
+          "call": "sendInput",
+          "command": {
+            "op": "key",
+            "vk": 66,
+            "scan": 48,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "indicator",
+          "call": "update",
+          "controlling": true
+        },
+        {
+          "ev": "status",
+          "status": {
+            "state": "live",
+            "helper": "active",
+            "control": true,
+            "helperInfo": {
+              "offer": "none",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": null
+            }
+          }
+        },
+        {
+          "ev": "videoPath",
+          "path": "capture"
+        },
+        {
+          "ev": "helper",
+          "call": "setActive",
+          "active": false
+        },
+        {
+          "ev": "query",
+          "running": true,
+          "geometry": {
+            "generation": 1,
+            "cssWidth": 1280,
+            "cssHeight": 720,
+            "deviceScaleFactor": 1.5,
+            "pixelWidth": 1920,
+            "pixelHeight": 1080
+          },
+          "plan": {
+            "sourceId": "screen:0:0",
+            "width": 1920,
+            "height": 1080,
+            "maxFrameRate": 30
+          },
+          "status": {
+            "state": "live",
+            "helper": "active",
+            "control": true,
+            "helperInfo": {
+              "offer": "none",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": null
+            }
+          },
+          "videoPath": "capture",
+          "cursor": null
+        },
+        {
+          "ev": "credentials",
+          "wiped": []
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "the lock screen and an in-place elevation prompt: reasons, the warm helper and control",
+      "world": {
+        "installState": "installed",
+        "helper": {
+          "installed": true,
+          "connected": true,
+          "desktop": "Winlogon",
+          "session": 1,
+          "locked": true
+        }
+      },
+      "steps": [
+        {
+          "op": "start",
+          "as": "start"
+        },
+        {
+          "op": "await",
+          "call": "start"
+        },
+        {
+          "op": "hostDesktop",
+          "local": {
+            "inputDesktop": "Winlogon",
+            "consent": false,
+            "logonUi": true
+          }
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "hostDesktop",
+          "local": {
+            "inputDesktop": "Default",
+            "consent": true,
+            "logonUi": false
+          }
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "helper",
+          "fields": {
+            "connected": false
+          },
+          "changed": true
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "hostDesktop",
+          "local": {
+            "inputDesktop": "Default",
+            "consent": false,
+            "logonUi": false
+          }
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "query"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "helper",
+          "call": "installState",
+          "key": null
+        },
+        {
+          "ev": "pcAccess",
+          "call": "accountIsAdmin"
+        },
+        {
+          "ev": "deps",
+          "call": "createInputHost"
+        },
+        {
+          "ev": "host",
+          "call": "start"
+        },
+        {
+          "ev": "indicator",
+          "call": "show",
+          "clientLabel": "Phone",
+          "controlling": true,
+          "screenId": "7"
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "start",
+            "clientId": "phone-1",
+            "screenId": "7"
+          }
+        },
+        {
+          "ev": "helper",
+          "call": "setActive",
+          "active": true
+        },
+        {
+          "ev": "done",
+          "call": "start",
+          "ok": true,
+          "value": {
+            "plan": {
+              "sourceId": "screen:0:0",
+              "width": 1920,
+              "height": 1080,
+              "maxFrameRate": 30
+            },
+            "geometry": {
+              "generation": 1,
+              "cssWidth": 1280,
+              "cssHeight": 720,
+              "deviceScaleFactor": 1.5,
+              "pixelWidth": 1920,
+              "pixelHeight": 1080
+            },
+            "status": {
+              "state": "elevation-prompt",
+              "reason": "lock",
+              "helper": "active",
+              "control": true,
+              "helperInfo": {
+                "offer": "none",
+                "outcome": null,
+                "detail": null,
+                "issue": null,
+                "secure": "lock"
+              }
+            }
+          }
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "secure-desktop",
+            "clientId": "phone-1",
+            "screenId": "7",
+            "state": "secure-desktop"
+          }
+        },
+        {
+          "ev": "indicator",
+          "call": "update",
+          "controlling": false
+        },
+        {
+          "ev": "status",
+          "status": {
+            "state": "secure-desktop",
+            "reason": "lock",
+            "helper": "active",
+            "control": false,
+            "helperInfo": {
+              "offer": "none",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": "lock"
+            }
+          }
+        },
+        {
+          "ev": "videoPath",
+          "path": "helper"
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "secure-desktop",
+            "clientId": "phone-1",
+            "screenId": "7",
+            "state": "elevation-prompt"
+          }
+        },
+        {
+          "ev": "indicator",
+          "call": "update",
+          "controlling": true
+        },
+        {
+          "ev": "status",
+          "status": {
+            "state": "elevation-prompt",
+            "reason": "lock",
+            "helper": "active",
+            "control": true,
+            "helperInfo": {
+              "offer": "none",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": "lock"
+            }
+          }
+        },
+        {
+          "ev": "videoPath",
+          "path": "capture"
+        },
+        {
+          "ev": "indicator",
+          "call": "update",
+          "controlling": false
+        },
+        {
+          "ev": "status",
+          "status": {
+            "state": "elevation-prompt",
+            "reason": "lock",
+            "helper": "starting",
+            "control": false,
+            "helperInfo": {
+              "offer": "none",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": "lock"
+            }
+          }
+        },
+        {
+          "ev": "query",
+          "running": true,
+          "geometry": {
+            "generation": 1,
+            "cssWidth": 1280,
+            "cssHeight": 720,
+            "deviceScaleFactor": 1.5,
+            "pixelWidth": 1920,
+            "pixelHeight": 1080
+          },
+          "plan": {
+            "sourceId": "screen:0:0",
+            "width": 1920,
+            "height": 1080,
+            "maxFrameRate": 30
+          },
+          "status": {
+            "state": "elevation-prompt",
+            "reason": "lock",
+            "helper": "starting",
+            "control": false,
+            "helperInfo": {
+              "offer": "none",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": "lock"
+            }
+          },
+          "videoPath": "capture",
+          "cursor": null
+        },
+        {
+          "ev": "credentials",
+          "wiped": []
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "a stopped service is started at start and when the helper is activated unconnected; a failed start shows failed",
+      "world": {
+        "installState": "installed",
+        "helper": {
+          "installed": true,
+          "connected": false
+        },
+        "ensure": [
+          {
+            "installed": true,
+            "running": false
+          },
+          "reject",
+          {
+            "installed": true,
+            "running": true
+          }
+        ]
+      },
+      "steps": [
+        {
+          "op": "start",
+          "as": "start"
+        },
+        {
+          "op": "await",
+          "call": "start"
+        },
+        {
+          "op": "hostDesktop",
+          "local": {
+            "inputDesktop": null,
+            "consent": true,
+            "logonUi": false
+          }
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "hostDesktop",
+          "local": {
+            "inputDesktop": "Default",
+            "consent": false,
+            "logonUi": false
+          }
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "hostDesktop",
+          "local": {
+            "inputDesktop": null,
+            "consent": true,
+            "logonUi": false
+          }
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "helper",
+          "fields": {
+            "connected": true,
+            "desktop": "Winlogon",
+            "session": 1
+          },
+          "changed": true
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "query"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "helper",
+          "call": "installState",
+          "key": null
+        },
+        {
+          "ev": "pcAccess",
+          "call": "accountIsAdmin"
+        },
+        {
+          "ev": "deps",
+          "call": "createInputHost"
+        },
+        {
+          "ev": "host",
+          "call": "start"
+        },
+        {
+          "ev": "helper",
+          "call": "ensureRunning"
+        },
+        {
+          "ev": "indicator",
+          "call": "show",
+          "clientLabel": "Phone",
+          "controlling": true,
+          "screenId": "7"
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "start",
+            "clientId": "phone-1",
+            "screenId": "7"
+          }
+        },
+        {
+          "ev": "done",
+          "call": "start",
+          "ok": true,
+          "value": {
+            "plan": {
+              "sourceId": "screen:0:0",
+              "width": 1920,
+              "height": 1080,
+              "maxFrameRate": 30
+            },
+            "geometry": {
+              "generation": 1,
+              "cssWidth": 1280,
+              "cssHeight": 720,
+              "deviceScaleFactor": 1.5,
+              "pixelWidth": 1920,
+              "pixelHeight": 1080
+            },
+            "status": {
+              "state": "live",
+              "helper": "failed",
+              "control": true,
+              "helperInfo": {
+                "offer": "none",
+                "outcome": null,
+                "detail": null,
+                "issue": null,
+                "secure": null
+              }
+            }
+          }
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "secure-desktop",
+            "clientId": "phone-1",
+            "screenId": "7",
+            "state": "secure-desktop"
+          }
+        },
+        {
+          "ev": "indicator",
+          "call": "update",
+          "controlling": false
+        },
+        {
+          "ev": "status",
+          "status": {
+            "state": "secure-desktop",
+            "reason": "uac",
+            "helper": "failed",
+            "control": false,
+            "helperInfo": {
+              "offer": "none",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": "uac"
+            }
+          }
+        },
+        {
+          "ev": "helper",
+          "call": "ensureRunning"
+        },
+        {
+          "ev": "helper",
+          "call": "setActive",
+          "active": true
+        },
+        {
+          "ev": "indicator",
+          "call": "update",
+          "controlling": true
+        },
+        {
+          "ev": "status",
+          "status": {
+            "state": "live",
+            "helper": "failed",
+            "control": true,
+            "helperInfo": {
+              "offer": "none",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": null
+            }
+          }
+        },
+        {
+          "ev": "helper",
+          "call": "setActive",
+          "active": false
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "secure-desktop",
+            "clientId": "phone-1",
+            "screenId": "7",
+            "state": "secure-desktop"
+          }
+        },
+        {
+          "ev": "indicator",
+          "call": "update",
+          "controlling": false
+        },
+        {
+          "ev": "status",
+          "status": {
+            "state": "secure-desktop",
+            "reason": "uac",
+            "helper": "failed",
+            "control": false,
+            "helperInfo": {
+              "offer": "none",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": "uac"
+            }
+          }
+        },
+        {
+          "ev": "helper",
+          "call": "ensureRunning"
+        },
+        {
+          "ev": "helper",
+          "call": "setActive",
+          "active": true
+        },
+        {
+          "ev": "indicator",
+          "call": "update",
+          "controlling": false
+        },
+        {
+          "ev": "status",
+          "status": {
+            "state": "secure-desktop",
+            "reason": "uac",
+            "helper": "starting",
+            "control": false,
+            "helperInfo": {
+              "offer": "none",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": "uac"
+            }
+          }
+        },
+        {
+          "ev": "indicator",
+          "call": "update",
+          "controlling": false
+        },
+        {
+          "ev": "status",
+          "status": {
+            "state": "secure-desktop",
+            "reason": "uac",
+            "helper": "active",
+            "control": false,
+            "helperInfo": {
+              "offer": "none",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": "uac"
+            }
+          }
+        },
+        {
+          "ev": "videoPath",
+          "path": "helper"
+        },
+        {
+          "ev": "query",
+          "running": true,
+          "geometry": {
+            "generation": 1,
+            "cssWidth": 1280,
+            "cssHeight": 720,
+            "deviceScaleFactor": 1.5,
+            "pixelWidth": 1920,
+            "pixelHeight": 1080
+          },
+          "plan": {
+            "sourceId": "screen:0:0",
+            "width": 1920,
+            "height": 1080,
+            "maxFrameRate": 30
+          },
+          "status": {
+            "state": "secure-desktop",
+            "reason": "uac",
+            "helper": "active",
+            "control": false,
+            "helperInfo": {
+              "offer": "none",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": "uac"
+            }
+          },
+          "videoPath": "helper",
+          "cursor": null
+        },
+        {
+          "ev": "credentials",
+          "wiped": []
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "a helper issue shows while the helper is active, ends at a change, and grant_expired ends with the next relayed grant",
+      "world": {
+        "installState": "installed",
+        "helper": {
+          "installed": true,
+          "connected": true,
+          "desktop": "Winlogon",
+          "session": 1,
+          "locked": false
+        }
+      },
+      "steps": [
+        {
+          "op": "start",
+          "as": "start"
+        },
+        {
+          "op": "await",
+          "call": "start"
+        },
+        {
+          "op": "helperIssue",
+          "code": "grant_expired"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "hostDesktop",
+          "local": {
+            "inputDesktop": null,
+            "consent": true,
+            "logonUi": false
+          }
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "helperIssue",
+          "code": "not_a_reported_code"
+        },
+        {
+          "op": "helperIssue",
+          "code": "grant_expired"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "grant",
+          "grant": {
+            "epoch": 1,
+            "challenge": "AAAAAAAAAAAAAAAAAAAAAA==",
+            "signature": "s"
+          }
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "helperIssue",
+          "code": "grant_key_missing"
+        },
+        {
+          "op": "helper",
+          "fields": {},
+          "changed": true
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "helper",
+          "fields": {
+            "connected": false
+          },
+          "changed": true
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "query"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "helper",
+          "call": "installState",
+          "key": null
+        },
+        {
+          "ev": "pcAccess",
+          "call": "accountIsAdmin"
+        },
+        {
+          "ev": "deps",
+          "call": "createInputHost"
+        },
+        {
+          "ev": "host",
+          "call": "start"
+        },
+        {
+          "ev": "indicator",
+          "call": "show",
+          "clientLabel": "Phone",
+          "controlling": true,
+          "screenId": "7"
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "start",
+            "clientId": "phone-1",
+            "screenId": "7"
+          }
+        },
+        {
+          "ev": "done",
+          "call": "start",
+          "ok": true,
+          "value": {
+            "plan": {
+              "sourceId": "screen:0:0",
+              "width": 1920,
+              "height": 1080,
+              "maxFrameRate": 30
+            },
+            "geometry": {
+              "generation": 1,
+              "cssWidth": 1280,
+              "cssHeight": 720,
+              "deviceScaleFactor": 1.5,
+              "pixelWidth": 1920,
+              "pixelHeight": 1080
+            },
+            "status": {
+              "state": "live",
+              "helper": "active",
+              "control": true,
+              "helperInfo": {
+                "offer": "none",
+                "outcome": null,
+                "detail": null,
+                "issue": null,
+                "secure": null
+              }
+            }
+          }
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "secure-desktop",
+            "clientId": "phone-1",
+            "screenId": "7",
+            "state": "secure-desktop"
+          }
+        },
+        {
+          "ev": "indicator",
+          "call": "update",
+          "controlling": false
+        },
+        {
+          "ev": "status",
+          "status": {
+            "state": "secure-desktop",
+            "reason": "uac",
+            "helper": "active",
+            "control": false,
+            "helperInfo": {
+              "offer": "none",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": "uac"
+            }
+          }
+        },
+        {
+          "ev": "videoPath",
+          "path": "helper"
+        },
+        {
+          "ev": "helper",
+          "call": "setActive",
+          "active": true
+        },
+        {
+          "ev": "indicator",
+          "call": "update",
+          "controlling": false
+        },
+        {
+          "ev": "status",
+          "status": {
+            "state": "secure-desktop",
+            "reason": "uac",
+            "helper": "active",
+            "control": false,
+            "helperInfo": {
+              "offer": "none",
+              "outcome": null,
+              "detail": null,
+              "issue": "grant_expired",
+              "secure": "uac"
+            }
+          }
+        },
+        {
+          "ev": "helper",
+          "call": "sendGrant",
+          "grant": {
+            "epoch": 1,
+            "challenge": "AAAAAAAAAAAAAAAAAAAAAA==",
+            "signature": "s"
+          }
+        },
+        {
+          "ev": "indicator",
+          "call": "update",
+          "controlling": false
+        },
+        {
+          "ev": "status",
+          "status": {
+            "state": "secure-desktop",
+            "reason": "uac",
+            "helper": "active",
+            "control": false,
+            "helperInfo": {
+              "offer": "none",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": "uac"
+            }
+          }
+        },
+        {
+          "ev": "indicator",
+          "call": "update",
+          "controlling": false
+        },
+        {
+          "ev": "status",
+          "status": {
+            "state": "secure-desktop",
+            "reason": "uac",
+            "helper": "active",
+            "control": false,
+            "helperInfo": {
+              "offer": "none",
+              "outcome": null,
+              "detail": null,
+              "issue": "grant_key_missing",
+              "secure": "uac"
+            }
+          }
+        },
+        {
+          "ev": "indicator",
+          "call": "update",
+          "controlling": false
+        },
+        {
+          "ev": "status",
+          "status": {
+            "state": "secure-desktop",
+            "reason": "uac",
+            "helper": "starting",
+            "control": false,
+            "helperInfo": {
+              "offer": "none",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": "uac"
+            }
+          }
+        },
+        {
+          "ev": "videoPath",
+          "path": "capture"
+        },
+        {
+          "ev": "query",
+          "running": true,
+          "geometry": {
+            "generation": 1,
+            "cssWidth": 1280,
+            "cssHeight": 720,
+            "deviceScaleFactor": 1.5,
+            "pixelWidth": 1920,
+            "pixelHeight": 1080
+          },
+          "plan": {
+            "sourceId": "screen:0:0",
+            "width": 1920,
+            "height": 1080,
+            "maxFrameRate": 30
+          },
+          "status": {
+            "state": "secure-desktop",
+            "reason": "uac",
+            "helper": "starting",
+            "control": false,
+            "helperInfo": {
+              "offer": "none",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": "uac"
+            }
+          },
+          "videoPath": "capture",
+          "cursor": null
+        },
+        {
+          "ev": "credentials",
+          "wiped": []
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "the phone’s install request: the outcome, detail and new offer land in the status; a later request wins",
+      "world": {
+        "installState": "not-installed",
+        "helper": {
+          "installed": false
+        },
+        "deferInstall": true
+      },
+      "steps": [
+        {
+          "op": "start",
+          "as": "start"
+        },
+        {
+          "op": "await",
+          "call": "start"
+        },
+        {
+          "op": "hostDesktop",
+          "local": {
+            "inputDesktop": null,
+            "consent": true,
+            "logonUi": false
+          }
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "install",
+          "key": "controller-key"
+        },
+        {
+          "op": "install",
+          "key": "controller-key"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "finishInstall",
+          "n": 0,
+          "result": {
+            "outcome": "declined",
+            "state": "not-installed"
+          }
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "finishInstall",
+          "n": 1,
+          "result": {
+            "outcome": "failed",
+            "state": "not-installed",
+            "detail": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          }
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "install",
+          "key": "controller-key"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "finishInstall",
+          "n": 2,
+          "reject": "launch failed"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "query"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "helper",
+          "call": "installState",
+          "key": null
+        },
+        {
+          "ev": "pcAccess",
+          "call": "accountIsAdmin"
+        },
+        {
+          "ev": "deps",
+          "call": "createInputHost"
+        },
+        {
+          "ev": "host",
+          "call": "start"
+        },
+        {
+          "ev": "indicator",
+          "call": "show",
+          "clientLabel": "Phone",
+          "controlling": true,
+          "screenId": "7"
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "start",
+            "clientId": "phone-1",
+            "screenId": "7"
+          }
+        },
+        {
+          "ev": "done",
+          "call": "start",
+          "ok": true,
+          "value": {
+            "plan": {
+              "sourceId": "screen:0:0",
+              "width": 1920,
+              "height": 1080,
+              "maxFrameRate": 30
+            },
+            "geometry": {
+              "generation": 1,
+              "cssWidth": 1280,
+              "cssHeight": 720,
+              "deviceScaleFactor": 1.5,
+              "pixelWidth": 1920,
+              "pixelHeight": 1080
+            },
+            "status": {
+              "state": "live",
+              "helper": "missing",
+              "control": true,
+              "helperInfo": {
+                "offer": "install",
+                "outcome": null,
+                "detail": null,
+                "issue": null,
+                "secure": null
+              }
+            }
+          }
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "secure-desktop",
+            "clientId": "phone-1",
+            "screenId": "7",
+            "state": "secure-desktop"
+          }
+        },
+        {
+          "ev": "indicator",
+          "call": "update",
+          "controlling": false
+        },
+        {
+          "ev": "status",
+          "status": {
+            "state": "secure-desktop",
+            "reason": "uac",
+            "helper": "missing",
+            "control": false,
+            "helperInfo": {
+              "offer": "install",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": "uac"
+            }
+          }
+        },
+        {
+          "ev": "helper",
+          "call": "requestInstall",
+          "key": "controller-key"
+        },
+        {
+          "ev": "helper",
+          "call": "requestInstall",
+          "key": "controller-key"
+        },
+        {
+          "ev": "indicator",
+          "call": "update",
+          "controlling": false
+        },
+        {
+          "ev": "status",
+          "status": {
+            "state": "secure-desktop",
+            "reason": "uac",
+            "helper": "missing",
+            "control": false,
+            "helperInfo": {
+              "offer": "install",
+              "outcome": "failed",
+              "detail": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "issue": null,
+              "secure": "uac"
+            }
+          }
+        },
+        {
+          "ev": "helper",
+          "call": "requestInstall",
+          "key": "controller-key"
+        },
+        {
+          "ev": "indicator",
+          "call": "update",
+          "controlling": false
+        },
+        {
+          "ev": "status",
+          "status": {
+            "state": "secure-desktop",
+            "reason": "uac",
+            "helper": "missing",
+            "control": false,
+            "helperInfo": {
+              "offer": "install",
+              "outcome": "failed",
+              "detail": "launch failed",
+              "issue": null,
+              "secure": "uac"
+            }
+          }
+        },
+        {
+          "ev": "query",
+          "running": true,
+          "geometry": {
+            "generation": 1,
+            "cssWidth": 1280,
+            "cssHeight": 720,
+            "deviceScaleFactor": 1.5,
+            "pixelWidth": 1920,
+            "pixelHeight": 1080
+          },
+          "plan": {
+            "sourceId": "screen:0:0",
+            "width": 1920,
+            "height": 1080,
+            "maxFrameRate": 30
+          },
+          "status": {
+            "state": "secure-desktop",
+            "reason": "uac",
+            "helper": "missing",
+            "control": false,
+            "helperInfo": {
+              "offer": "install",
+              "outcome": "failed",
+              "detail": "launch failed",
+              "issue": null,
+              "secure": "uac"
+            }
+          },
+          "videoPath": "capture",
+          "cursor": null
+        },
+        {
+          "ev": "credentials",
+          "wiped": []
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "the phone’s password request goes through PC access once at a time; the answer is forced into the status",
+      "world": {
+        "installState": "not-installed",
+        "helper": {
+          "installed": false
+        },
+        "accountIsAdmin": false,
+        "deferCredential": true
+      },
+      "steps": [
+        {
+          "op": "start",
+          "as": "start"
+        },
+        {
+          "op": "await",
+          "call": "start"
+        },
+        {
+          "op": "credential",
+          "key": "controller-key",
+          "credential": {
+            "user": "pc-user",
+            "password": "pc-password"
+          }
+        },
+        {
+          "op": "credential",
+          "key": "controller-key",
+          "credential": {
+            "password": "second"
+          }
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "finishCredential",
+          "n": 0,
+          "result": {
+            "outcome": "bad-credentials",
+            "state": "not-installed",
+            "detail": "wrong pc-password"
+          }
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "credential",
+          "key": "controller-key",
+          "credential": {
+            "password": "third"
+          }
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "finishCredential",
+          "n": 1,
+          "result": {
+            "outcome": "delegation-denied",
+            "state": "installed"
+          }
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "credential",
+          "key": "controller-key",
+          "credential": {
+            "password": "fourth"
+          }
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "finishCredential",
+          "n": 2,
+          "reject": "echo fourth"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "query"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "helper",
+          "call": "installState",
+          "key": null
+        },
+        {
+          "ev": "pcAccess",
+          "call": "accountIsAdmin"
+        },
+        {
+          "ev": "deps",
+          "call": "createInputHost"
+        },
+        {
+          "ev": "host",
+          "call": "start"
+        },
+        {
+          "ev": "indicator",
+          "call": "show",
+          "clientLabel": "Phone",
+          "controlling": true,
+          "screenId": "7"
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "start",
+            "clientId": "phone-1",
+            "screenId": "7"
+          }
+        },
+        {
+          "ev": "done",
+          "call": "start",
+          "ok": true,
+          "value": {
+            "plan": {
+              "sourceId": "screen:0:0",
+              "width": 1920,
+              "height": 1080,
+              "maxFrameRate": 30
+            },
+            "geometry": {
+              "generation": 1,
+              "cssWidth": 1280,
+              "cssHeight": 720,
+              "deviceScaleFactor": 1.5,
+              "pixelWidth": 1920,
+              "pixelHeight": 1080
+            },
+            "status": {
+              "state": "live",
+              "helper": "missing",
+              "control": true,
+              "helperInfo": {
+                "offer": "install",
+                "outcome": null,
+                "detail": null,
+                "issue": null,
+                "accountIsAdmin": false,
+                "secure": null
+              }
+            }
+          }
+        },
+        {
+          "ev": "pcAccess",
+          "call": "approveWithCredential",
+          "clientId": "phone-1",
+          "publicKey": "controller-key",
+          "credential": {
+            "user": "pc-user",
+            "password": "pc-password"
+          }
+        },
+        {
+          "ev": "credentialAfter",
+          "credential": {
+            "user": "pc-user",
+            "password": "pc-password"
+          }
+        },
+        {
+          "ev": "credentialAfter",
+          "credential": {
+            "password": ""
+          }
+        },
+        {
+          "ev": "indicator",
+          "call": "update",
+          "controlling": true
+        },
+        {
+          "ev": "status",
+          "status": {
+            "state": "live",
+            "helper": "missing",
+            "control": true,
+            "helperInfo": {
+              "offer": "install",
+              "outcome": "bad-credentials",
+              "detail": "the request failed",
+              "issue": null,
+              "accountIsAdmin": false,
+              "secure": null
+            }
+          }
+        },
+        {
+          "ev": "pcAccess",
+          "call": "approveWithCredential",
+          "clientId": "phone-1",
+          "publicKey": "controller-key",
+          "credential": {
+            "password": "third"
+          }
+        },
+        {
+          "ev": "credentialAfter",
+          "credential": {
+            "password": "third"
+          }
+        },
+        {
+          "ev": "indicator",
+          "call": "update",
+          "controlling": true
+        },
+        {
+          "ev": "status",
+          "status": {
+            "state": "live",
+            "helper": "missing",
+            "control": true,
+            "helperInfo": {
+              "offer": "none",
+              "outcome": "failed",
+              "detail": null,
+              "issue": null,
+              "accountIsAdmin": false,
+              "secure": null
+            }
+          }
+        },
+        {
+          "ev": "pcAccess",
+          "call": "approveWithCredential",
+          "clientId": "phone-1",
+          "publicKey": "controller-key",
+          "credential": {
+            "password": "fourth"
+          }
+        },
+        {
+          "ev": "credentialAfter",
+          "credential": {
+            "password": "fourth"
+          }
+        },
+        {
+          "ev": "indicator",
+          "call": "update",
+          "controlling": true
+        },
+        {
+          "ev": "status",
+          "status": {
+            "state": "live",
+            "helper": "missing",
+            "control": true,
+            "helperInfo": {
+              "offer": "none",
+              "outcome": "failed",
+              "detail": "the request could not be completed",
+              "issue": null,
+              "accountIsAdmin": false,
+              "secure": null
+            }
+          }
+        },
+        {
+          "ev": "query",
+          "running": true,
+          "geometry": {
+            "generation": 1,
+            "cssWidth": 1280,
+            "cssHeight": 720,
+            "deviceScaleFactor": 1.5,
+            "pixelWidth": 1920,
+            "pixelHeight": 1080
+          },
+          "plan": {
+            "sourceId": "screen:0:0",
+            "width": 1920,
+            "height": 1080,
+            "maxFrameRate": 30
+          },
+          "status": {
+            "state": "live",
+            "helper": "missing",
+            "control": true,
+            "helperInfo": {
+              "offer": "none",
+              "outcome": "failed",
+              "detail": "the request could not be completed",
+              "issue": null,
+              "accountIsAdmin": false,
+              "secure": null
+            }
+          },
+          "videoPath": "capture",
+          "cursor": null
+        },
+        {
+          "ev": "credentials",
+          "wiped": [
+            {
+              "password": ""
+            },
+            {
+              "password": ""
+            },
+            {
+              "password": ""
+            }
+          ]
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "a password request without PC access is unavailable",
+      "world": {
+        "noPcAccess": true
+      },
+      "steps": [
+        {
+          "op": "start",
+          "as": "start"
+        },
+        {
+          "op": "await",
+          "call": "start"
+        },
+        {
+          "op": "credential",
+          "key": "controller-key",
+          "credential": {
+            "password": "p"
+          }
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "query"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "helper",
+          "call": "installState",
+          "key": null
+        },
+        {
+          "ev": "deps",
+          "call": "createInputHost"
+        },
+        {
+          "ev": "host",
+          "call": "start"
+        },
+        {
+          "ev": "indicator",
+          "call": "show",
+          "clientLabel": "Phone",
+          "controlling": true,
+          "screenId": "7"
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "start",
+            "clientId": "phone-1",
+            "screenId": "7"
+          }
+        },
+        {
+          "ev": "done",
+          "call": "start",
+          "ok": true,
+          "value": {
+            "plan": {
+              "sourceId": "screen:0:0",
+              "width": 1920,
+              "height": 1080,
+              "maxFrameRate": 30
+            },
+            "geometry": {
+              "generation": 1,
+              "cssWidth": 1280,
+              "cssHeight": 720,
+              "deviceScaleFactor": 1.5,
+              "pixelWidth": 1920,
+              "pixelHeight": 1080
+            },
+            "status": {
+              "state": "live",
+              "helper": "missing",
+              "control": true,
+              "helperInfo": {
+                "offer": "install",
+                "outcome": null,
+                "detail": null,
+                "issue": null,
+                "secure": null
+              }
+            }
+          }
+        },
+        {
+          "ev": "indicator",
+          "call": "update",
+          "controlling": true
+        },
+        {
+          "ev": "status",
+          "status": {
+            "state": "live",
+            "helper": "missing",
+            "control": true,
+            "helperInfo": {
+              "offer": "install",
+              "outcome": "unavailable",
+              "detail": null,
+              "issue": null,
+              "secure": null
+            }
+          }
+        },
+        {
+          "ev": "credentialAfter",
+          "credential": {
+            "password": ""
+          }
+        },
+        {
+          "ev": "query",
+          "running": true,
+          "geometry": {
+            "generation": 1,
+            "cssWidth": 1280,
+            "cssHeight": 720,
+            "deviceScaleFactor": 1.5,
+            "pixelWidth": 1920,
+            "pixelHeight": 1080
+          },
+          "plan": {
+            "sourceId": "screen:0:0",
+            "width": 1920,
+            "height": 1080,
+            "maxFrameRate": 30
+          },
+          "status": {
+            "state": "live",
+            "helper": "missing",
+            "control": true,
+            "helperInfo": {
+              "offer": "install",
+              "outcome": "unavailable",
+              "detail": null,
+              "issue": null,
+              "secure": null
+            }
+          },
+          "videoPath": "capture",
+          "cursor": null
+        },
+        {
+          "ev": "credentials",
+          "wiped": []
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "a password request outstanding when the session stops is aborted and its answer dropped",
+      "world": {
+        "deferCredential": true
+      },
+      "steps": [
+        {
+          "op": "start",
+          "as": "start"
+        },
+        {
+          "op": "await",
+          "call": "start"
+        },
+        {
+          "op": "credential",
+          "key": "controller-key",
+          "credential": {
+            "password": "p"
+          }
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "stop",
+          "as": "stop",
+          "reason": "user"
+        },
+        {
+          "op": "await",
+          "call": "stop"
+        },
+        {
+          "op": "finishCredential",
+          "n": 0,
+          "result": {
+            "outcome": "enrolled",
+            "state": "installed"
+          }
+        },
+        {
+          "op": "settle"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "helper",
+          "call": "installState",
+          "key": null
+        },
+        {
+          "ev": "pcAccess",
+          "call": "accountIsAdmin"
+        },
+        {
+          "ev": "deps",
+          "call": "createInputHost"
+        },
+        {
+          "ev": "host",
+          "call": "start"
+        },
+        {
+          "ev": "indicator",
+          "call": "show",
+          "clientLabel": "Phone",
+          "controlling": true,
+          "screenId": "7"
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "start",
+            "clientId": "phone-1",
+            "screenId": "7"
+          }
+        },
+        {
+          "ev": "done",
+          "call": "start",
+          "ok": true,
+          "value": {
+            "plan": {
+              "sourceId": "screen:0:0",
+              "width": 1920,
+              "height": 1080,
+              "maxFrameRate": 30
+            },
+            "geometry": {
+              "generation": 1,
+              "cssWidth": 1280,
+              "cssHeight": 720,
+              "deviceScaleFactor": 1.5,
+              "pixelWidth": 1920,
+              "pixelHeight": 1080
+            },
+            "status": {
+              "state": "live",
+              "helper": "missing",
+              "control": true,
+              "helperInfo": {
+                "offer": "install",
+                "outcome": null,
+                "detail": null,
+                "issue": null,
+                "secure": null
+              }
+            }
+          }
+        },
+        {
+          "ev": "pcAccess",
+          "call": "approveWithCredential",
+          "clientId": "phone-1",
+          "publicKey": "controller-key",
+          "credential": {
+            "password": "p"
+          }
+        },
+        {
+          "ev": "credentialAfter",
+          "credential": {
+            "password": "p"
+          }
+        },
+        {
+          "ev": "pcAccess",
+          "call": "aborted"
+        },
+        {
+          "ev": "status",
+          "status": {
+            "state": "stopped",
+            "reason": "user",
+            "helper": "missing",
+            "control": false,
+            "helperInfo": {
+              "offer": "install",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": null
+            }
+          }
+        },
+        {
+          "ev": "stopped",
+          "reason": "user"
+        },
+        {
+          "ev": "indicator",
+          "call": "hide"
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "stop",
+            "clientId": "phone-1",
+            "screenId": "7",
+            "reason": "user"
+          }
+        },
+        {
+          "ev": "helper",
+          "call": "setActive",
+          "active": false
+        },
+        {
+          "ev": "host",
+          "call": "stop"
+        },
+        {
+          "ev": "done",
+          "call": "stop",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "credentials",
+          "wiped": [
+            {
+              "password": ""
+            }
+          ]
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "challenges, holds, runs and grants pass while running and paired",
+      "world": {
+        "installState": "installed",
+        "helper": {
+          "installed": true,
+          "connected": true,
+          "desktop": "Winlogon",
+          "session": 1,
+          "locked": false
+        }
+      },
+      "steps": [
+        {
+          "op": "helperChallenge",
+          "challenge": {
+            "nonce": "AAAAAAAAAAAAAAAAAAAAAA==",
+            "challenge": "AAAAAAAAAAAAAAAAAAAAAA=="
+          }
+        },
+        {
+          "op": "start",
+          "as": "start"
+        },
+        {
+          "op": "await",
+          "call": "start"
+        },
+        {
+          "op": "helperChallenge",
+          "challenge": {
+            "nonce": "AAAAAAAAAAAAAAAAAAAAAA==",
+            "challenge": "AAAAAAAAAAAAAAAAAAAAAA=="
+          }
+        },
+        {
+          "op": "helperHold"
+        },
+        {
+          "op": "setVideoRun",
+          "epoch": 4
+        },
+        {
+          "op": "nextVideoRun"
+        },
+        {
+          "op": "grant",
+          "grant": {
+            "epoch": 4,
+            "challenge": "AAAAAAAAAAAAAAAAAAAAAA==",
+            "signature": "s"
+          }
+        },
+        {
+          "op": "unpair",
+          "reason": "revoked"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "helperChallenge",
+          "challenge": {
+            "nonce": "AAAAAAAAAAAAAAAAAAAAAA==",
+            "challenge": "AAAAAAAAAAAAAAAAAAAAAA=="
+          }
+        },
+        {
+          "op": "grant",
+          "grant": {
+            "epoch": 4,
+            "challenge": "AAAAAAAAAAAAAAAAAAAAAA==",
+            "signature": "s"
+          }
+        },
+        {
+          "op": "setVideoRun",
+          "epoch": 5
+        }
+      ],
+      "trace": [
+        {
+          "ev": "helper",
+          "call": "installState",
+          "key": null
+        },
+        {
+          "ev": "pcAccess",
+          "call": "accountIsAdmin"
+        },
+        {
+          "ev": "deps",
+          "call": "createInputHost"
+        },
+        {
+          "ev": "host",
+          "call": "start"
+        },
+        {
+          "ev": "indicator",
+          "call": "show",
+          "clientLabel": "Phone",
+          "controlling": true,
+          "screenId": "7"
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "start",
+            "clientId": "phone-1",
+            "screenId": "7"
+          }
+        },
+        {
+          "ev": "done",
+          "call": "start",
+          "ok": true,
+          "value": {
+            "plan": {
+              "sourceId": "screen:0:0",
+              "width": 1920,
+              "height": 1080,
+              "maxFrameRate": 30
+            },
+            "geometry": {
+              "generation": 1,
+              "cssWidth": 1280,
+              "cssHeight": 720,
+              "deviceScaleFactor": 1.5,
+              "pixelWidth": 1920,
+              "pixelHeight": 1080
+            },
+            "status": {
+              "state": "live",
+              "helper": "active",
+              "control": true,
+              "helperInfo": {
+                "offer": "none",
+                "outcome": null,
+                "detail": null,
+                "issue": null,
+                "secure": null
+              }
+            }
+          }
+        },
+        {
+          "ev": "challenge",
+          "challenge": {
+            "nonce": "AAAAAAAAAAAAAAAAAAAAAA==",
+            "challenge": "AAAAAAAAAAAAAAAAAAAAAA=="
+          }
+        },
+        {
+          "ev": "hold"
+        },
+        {
+          "ev": "helper",
+          "call": "setVideoRun",
+          "epoch": 4
+        },
+        {
+          "ev": "helper",
+          "call": "mintVideoRun",
+          "epoch": 1
+        },
+        {
+          "ev": "nextVideoRun",
+          "epoch": 1
+        },
+        {
+          "ev": "helper",
+          "call": "sendGrant",
+          "grant": {
+            "epoch": 4,
+            "challenge": "AAAAAAAAAAAAAAAAAAAAAA==",
+            "signature": "s"
+          }
+        },
+        {
+          "ev": "status",
+          "status": {
+            "state": "stopped",
+            "reason": "revoked",
+            "helper": "active",
+            "control": false,
+            "helperInfo": {
+              "offer": "none",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": null
+            }
+          }
+        },
+        {
+          "ev": "stopped",
+          "reason": "revoked"
+        },
+        {
+          "ev": "indicator",
+          "call": "hide"
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "stop",
+            "clientId": "phone-1",
+            "screenId": "7",
+            "reason": "revoked"
+          }
+        },
+        {
+          "ev": "helper",
+          "call": "setActive",
+          "active": false
+        },
+        {
+          "ev": "host",
+          "call": "stop"
+        },
+        {
+          "ev": "credentials",
+          "wiped": []
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "input: pointer mapping, the geometry generation, keys, a combo, text, release and an out-of-bounds point",
+      "world": {},
+      "steps": [
+        {
+          "op": "start",
+          "as": "start"
+        },
+        {
+          "op": "await",
+          "call": "start"
+        },
+        {
+          "op": "input",
+          "as": "move",
+          "input": {
+            "type": "screen-pointer",
+            "action": "move",
+            "x": 640,
+            "y": 360
+          },
+          "generation": 1
+        },
+        {
+          "op": "await",
+          "call": "move"
+        },
+        {
+          "op": "input",
+          "as": "stale",
+          "input": {
+            "type": "screen-pointer",
+            "action": "move",
+            "x": 1,
+            "y": 1
+          },
+          "generation": 2
+        },
+        {
+          "op": "await",
+          "call": "stale"
+        },
+        {
+          "op": "input",
+          "as": "down",
+          "input": {
+            "type": "screen-pointer",
+            "action": "down",
+            "button": "left",
+            "x": 1920,
+            "y": 1080
+          },
+          "generation": 1
+        },
+        {
+          "op": "await",
+          "call": "down"
+        },
+        {
+          "op": "input",
+          "as": "up-stale",
+          "input": {
+            "type": "screen-pointer",
+            "action": "up",
+            "button": "left",
+            "x": 1,
+            "y": 1
+          },
+          "generation": 9
+        },
+        {
+          "op": "await",
+          "call": "up-stale"
+        },
+        {
+          "op": "input",
+          "as": "outside",
+          "input": {
+            "type": "screen-pointer",
+            "action": "move",
+            "x": 1921,
+            "y": 0
+          },
+          "generation": 1
+        },
+        {
+          "op": "await",
+          "call": "outside"
+        },
+        {
+          "op": "input",
+          "as": "wheel",
+          "input": {
+            "type": "screen-wheel",
+            "x": 5,
+            "y": 5,
+            "deltaX": 0,
+            "deltaY": -120
+          },
+          "generation": 1
+        },
+        {
+          "op": "await",
+          "call": "wheel"
+        },
+        {
+          "op": "input",
+          "as": "wheel-zero",
+          "input": {
+            "type": "screen-wheel",
+            "x": 5,
+            "y": 5,
+            "deltaX": 0,
+            "deltaY": 0
+          },
+          "generation": 1
+        },
+        {
+          "op": "await",
+          "call": "wheel-zero"
+        },
+        {
+          "op": "input",
+          "as": "combo",
+          "input": {
+            "type": "screen-keys",
+            "keys": [
+              {
+                "vk": 17,
+                "scan": 29,
+                "extended": false
+              },
+              {
+                "vk": 67,
+                "scan": 46,
+                "extended": false
+              }
+            ]
+          },
+          "generation": 1
+        },
+        {
+          "op": "await",
+          "call": "combo"
+        },
+        {
+          "op": "input",
+          "as": "text",
+          "input": {
+            "type": "screen-text",
+            "text": "hé"
+          },
+          "generation": 1
+        },
+        {
+          "op": "await",
+          "call": "text"
+        },
+        {
+          "op": "input",
+          "as": "key",
+          "input": {
+            "type": "screen-key",
+            "action": "down",
+            "vk": 16,
+            "scan": 42,
+            "extended": false
+          },
+          "generation": 1
+        },
+        {
+          "op": "await",
+          "call": "key"
+        },
+        {
+          "op": "input",
+          "as": "release",
+          "input": {
+            "type": "screen-release"
+          },
+          "generation": 1
+        },
+        {
+          "op": "await",
+          "call": "release"
+        },
+        {
+          "op": "hostFails",
+          "value": "host_unavailable"
+        },
+        {
+          "op": "input",
+          "as": "failed",
+          "input": {
+            "type": "screen-key",
+            "action": "down",
+            "vk": 65,
+            "scan": 30,
+            "extended": false
+          },
+          "generation": 1
+        },
+        {
+          "op": "await",
+          "call": "failed"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "helper",
+          "call": "installState",
+          "key": null
+        },
+        {
+          "ev": "pcAccess",
+          "call": "accountIsAdmin"
+        },
+        {
+          "ev": "deps",
+          "call": "createInputHost"
+        },
+        {
+          "ev": "host",
+          "call": "start"
+        },
+        {
+          "ev": "indicator",
+          "call": "show",
+          "clientLabel": "Phone",
+          "controlling": true,
+          "screenId": "7"
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "start",
+            "clientId": "phone-1",
+            "screenId": "7"
+          }
+        },
+        {
+          "ev": "done",
+          "call": "start",
+          "ok": true,
+          "value": {
+            "plan": {
+              "sourceId": "screen:0:0",
+              "width": 1920,
+              "height": 1080,
+              "maxFrameRate": 30
+            },
+            "geometry": {
+              "generation": 1,
+              "cssWidth": 1280,
+              "cssHeight": 720,
+              "deviceScaleFactor": 1.5,
+              "pixelWidth": 1920,
+              "pixelHeight": 1080
+            },
+            "status": {
+              "state": "live",
+              "helper": "missing",
+              "control": true,
+              "helperInfo": {
+                "offer": "install",
+                "outcome": null,
+                "detail": null,
+                "issue": null,
+                "secure": null
+              }
+            }
+          }
+        },
+        {
+          "ev": "host",
+          "call": "command",
+          "command": {
+            "op": "move",
+            "x": 640,
+            "y": 360
+          }
+        },
+        {
+          "ev": "done",
+          "call": "move",
+          "ok": true,
+          "value": "applied"
+        },
+        {
+          "ev": "done",
+          "call": "stale",
+          "ok": true,
+          "value": "rejected"
+        },
+        {
+          "ev": "host",
+          "call": "command",
+          "command": {
+            "op": "button",
+            "button": "left",
+            "down": true,
+            "at": {
+              "x": 1919,
+              "y": 1079
+            }
+          }
+        },
+        {
+          "ev": "done",
+          "call": "down",
+          "ok": true,
+          "value": "applied"
+        },
+        {
+          "ev": "host",
+          "call": "command",
+          "command": {
+            "op": "button",
+            "button": "left",
+            "down": false
+          }
+        },
+        {
+          "ev": "done",
+          "call": "up-stale",
+          "ok": true,
+          "value": "applied"
+        },
+        {
+          "ev": "done",
+          "call": "outside",
+          "ok": true,
+          "value": "rejected"
+        },
+        {
+          "ev": "host",
+          "call": "command",
+          "command": {
+            "op": "wheel",
+            "x": 5,
+            "y": 5,
+            "dx": 0,
+            "dy": -120
+          }
+        },
+        {
+          "ev": "done",
+          "call": "wheel",
+          "ok": true,
+          "value": "applied"
+        },
+        {
+          "ev": "done",
+          "call": "wheel-zero",
+          "ok": true,
+          "value": "rejected"
+        },
+        {
+          "ev": "host",
+          "call": "command",
+          "command": {
+            "op": "key",
+            "vk": 17,
+            "scan": 29,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "host",
+          "call": "command",
+          "command": {
+            "op": "key",
+            "vk": 67,
+            "scan": 46,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "host",
+          "call": "command",
+          "command": {
+            "op": "key",
+            "vk": 67,
+            "scan": 46,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "host",
+          "call": "command",
+          "command": {
+            "op": "key",
+            "vk": 17,
+            "scan": 29,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "done",
+          "call": "combo",
+          "ok": true,
+          "value": "applied"
+        },
+        {
+          "ev": "host",
+          "call": "command",
+          "command": {
+            "op": "text",
+            "text": "hé"
+          }
+        },
+        {
+          "ev": "done",
+          "call": "text",
+          "ok": true,
+          "value": "applied"
+        },
+        {
+          "ev": "host",
+          "call": "command",
+          "command": {
+            "op": "key",
+            "vk": 16,
+            "scan": 42,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "key",
+          "ok": true,
+          "value": "applied"
+        },
+        {
+          "ev": "host",
+          "call": "command",
+          "command": {
+            "op": "key",
+            "vk": 16,
+            "scan": 42,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "done",
+          "call": "release",
+          "ok": true,
+          "value": "applied"
+        },
+        {
+          "ev": "host",
+          "call": "command",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "failed",
+          "ok": true,
+          "value": "rejected"
+        },
+        {
+          "ev": "credentials",
+          "wiped": []
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "cursor sampling: once per frame interval, mapped to video pixels, published on change; none on the helper",
+      "world": {
+        "sampleCursor": true,
+        "maxFrameRate": 30,
+        "cursor": [
+          [
+            "960",
+            "540"
+          ],
+          [
+            "960",
+            "540"
+          ],
+          [
+            "0",
+            "0"
+          ],
+          [
+            "5000",
+            "5000"
+          ],
+          [
+            "bad"
+          ]
+        ],
+        "installState": "installed",
+        "helper": {
+          "installed": true,
+          "connected": true,
+          "desktop": "Winlogon",
+          "session": 1,
+          "locked": false
+        }
+      },
+      "steps": [
+        {
+          "op": "start",
+          "as": "start"
+        },
+        {
+          "op": "await",
+          "call": "start"
+        },
+        {
+          "op": "advance",
+          "ms": 34
+        },
+        {
+          "op": "advance",
+          "ms": 34
+        },
+        {
+          "op": "advance",
+          "ms": 34
+        },
+        {
+          "op": "advance",
+          "ms": 34
+        },
+        {
+          "op": "advance",
+          "ms": 34
+        },
+        {
+          "op": "query"
+        },
+        {
+          "op": "hostDesktop",
+          "local": {
+            "inputDesktop": null,
+            "consent": true,
+            "logonUi": false
+          }
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "advance",
+          "ms": 34
+        },
+        {
+          "op": "query"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "helper",
+          "call": "installState",
+          "key": null
+        },
+        {
+          "ev": "pcAccess",
+          "call": "accountIsAdmin"
+        },
+        {
+          "ev": "deps",
+          "call": "createInputHost"
+        },
+        {
+          "ev": "host",
+          "call": "start"
+        },
+        {
+          "ev": "indicator",
+          "call": "show",
+          "clientLabel": "Phone",
+          "controlling": true,
+          "screenId": "7"
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "start",
+            "clientId": "phone-1",
+            "screenId": "7"
+          }
+        },
+        {
+          "ev": "done",
+          "call": "start",
+          "ok": true,
+          "value": {
+            "plan": {
+              "sourceId": "screen:0:0",
+              "width": 1920,
+              "height": 1080,
+              "maxFrameRate": 30
+            },
+            "geometry": {
+              "generation": 1,
+              "cssWidth": 1280,
+              "cssHeight": 720,
+              "deviceScaleFactor": 1.5,
+              "pixelWidth": 1920,
+              "pixelHeight": 1080
+            },
+            "status": {
+              "state": "live",
+              "helper": "active",
+              "control": true,
+              "helperInfo": {
+                "offer": "none",
+                "outcome": null,
+                "detail": null,
+                "issue": null,
+                "secure": null
+              }
+            }
+          }
+        },
+        {
+          "ev": "host",
+          "call": "command",
+          "command": {
+            "op": "cursor"
+          }
+        },
+        {
+          "ev": "cursor",
+          "cursor": {
+            "x": 960,
+            "y": 540,
+            "generation": 1
+          }
+        },
+        {
+          "ev": "advance",
+          "ms": 34,
+          "ran": 1
+        },
+        {
+          "ev": "host",
+          "call": "command",
+          "command": {
+            "op": "cursor"
+          }
+        },
+        {
+          "ev": "advance",
+          "ms": 34,
+          "ran": 1
+        },
+        {
+          "ev": "host",
+          "call": "command",
+          "command": {
+            "op": "cursor"
+          }
+        },
+        {
+          "ev": "cursor",
+          "cursor": {
+            "x": 0,
+            "y": 0,
+            "generation": 1
+          }
+        },
+        {
+          "ev": "advance",
+          "ms": 34,
+          "ran": 1
+        },
+        {
+          "ev": "host",
+          "call": "command",
+          "command": {
+            "op": "cursor"
+          }
+        },
+        {
+          "ev": "advance",
+          "ms": 34,
+          "ran": 1
+        },
+        {
+          "ev": "host",
+          "call": "command",
+          "command": {
+            "op": "cursor"
+          }
+        },
+        {
+          "ev": "advance",
+          "ms": 34,
+          "ran": 1
+        },
+        {
+          "ev": "query",
+          "running": true,
+          "geometry": {
+            "generation": 1,
+            "cssWidth": 1280,
+            "cssHeight": 720,
+            "deviceScaleFactor": 1.5,
+            "pixelWidth": 1920,
+            "pixelHeight": 1080
+          },
+          "plan": {
+            "sourceId": "screen:0:0",
+            "width": 1920,
+            "height": 1080,
+            "maxFrameRate": 30
+          },
+          "status": {
+            "state": "live",
+            "helper": "active",
+            "control": true,
+            "helperInfo": {
+              "offer": "none",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": null
+            }
+          },
+          "videoPath": "capture",
+          "cursor": {
+            "x": 0,
+            "y": 0,
+            "generation": 1
+          }
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "secure-desktop",
+            "clientId": "phone-1",
+            "screenId": "7",
+            "state": "secure-desktop"
+          }
+        },
+        {
+          "ev": "indicator",
+          "call": "update",
+          "controlling": false
+        },
+        {
+          "ev": "status",
+          "status": {
+            "state": "secure-desktop",
+            "reason": "uac",
+            "helper": "active",
+            "control": false,
+            "helperInfo": {
+              "offer": "none",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": "uac"
+            }
+          }
+        },
+        {
+          "ev": "videoPath",
+          "path": "helper"
+        },
+        {
+          "ev": "helper",
+          "call": "setActive",
+          "active": true
+        },
+        {
+          "ev": "advance",
+          "ms": 34,
+          "ran": 1
+        },
+        {
+          "ev": "query",
+          "running": true,
+          "geometry": {
+            "generation": 1,
+            "cssWidth": 1280,
+            "cssHeight": 720,
+            "deviceScaleFactor": 1.5,
+            "pixelWidth": 1920,
+            "pixelHeight": 1080
+          },
+          "plan": {
+            "sourceId": "screen:0:0",
+            "width": 1920,
+            "height": 1080,
+            "maxFrameRate": 30
+          },
+          "status": {
+            "state": "secure-desktop",
+            "reason": "uac",
+            "helper": "active",
+            "control": false,
+            "helperInfo": {
+              "offer": "none",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": "uac"
+            }
+          },
+          "videoPath": "helper",
+          "cursor": null
+        },
+        {
+          "ev": "credentials",
+          "wiped": []
+        }
+      ],
+      "final": {
+        "elapsedMs": 204,
+        "pendingTimers": 1
+      }
+    },
+    {
+      "name": "a display change renews the geometry; an unchanged one does nothing; a removed display stops the session",
+      "world": {},
+      "steps": [
+        {
+          "op": "start",
+          "as": "start"
+        },
+        {
+          "op": "await",
+          "call": "start"
+        },
+        {
+          "op": "displays",
+          "list": [
+            {
+              "screenId": "7",
+              "label": "Display 1",
+              "primary": true,
+              "scaleFactor": 1.5,
+              "bounds": {
+                "x": 0,
+                "y": 0,
+                "width": 1280,
+                "height": 720
+              },
+              "physical": {
+                "x": 0,
+                "y": 0,
+                "width": 1920,
+                "height": 1080
+              },
+              "captureSourceId": "screen:0:0"
+            }
+          ]
+        },
+        {
+          "op": "displays",
+          "list": [
+            {
+              "screenId": "7",
+              "label": "Display 1",
+              "primary": true,
+              "scaleFactor": 1.5,
+              "bounds": {
+                "x": 0,
+                "y": 0,
+                "width": 1280,
+                "height": 720
+              },
+              "physical": {
+                "x": -1920,
+                "y": 0,
+                "width": 1920,
+                "height": 1080
+              },
+              "captureSourceId": "screen:0:0"
+            }
+          ]
+        },
+        {
+          "op": "input",
+          "as": "stale",
+          "input": {
+            "type": "screen-pointer",
+            "action": "move",
+            "x": 1,
+            "y": 1
+          },
+          "generation": 1
+        },
+        {
+          "op": "await",
+          "call": "stale"
+        },
+        {
+          "op": "input",
+          "as": "fresh",
+          "input": {
+            "type": "screen-pointer",
+            "action": "move",
+            "x": 1,
+            "y": 1
+          },
+          "generation": 2
+        },
+        {
+          "op": "await",
+          "call": "fresh"
+        },
+        {
+          "op": "displays",
+          "list": []
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "query"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "helper",
+          "call": "installState",
+          "key": null
+        },
+        {
+          "ev": "pcAccess",
+          "call": "accountIsAdmin"
+        },
+        {
+          "ev": "deps",
+          "call": "createInputHost"
+        },
+        {
+          "ev": "host",
+          "call": "start"
+        },
+        {
+          "ev": "indicator",
+          "call": "show",
+          "clientLabel": "Phone",
+          "controlling": true,
+          "screenId": "7"
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "start",
+            "clientId": "phone-1",
+            "screenId": "7"
+          }
+        },
+        {
+          "ev": "done",
+          "call": "start",
+          "ok": true,
+          "value": {
+            "plan": {
+              "sourceId": "screen:0:0",
+              "width": 1920,
+              "height": 1080,
+              "maxFrameRate": 30
+            },
+            "geometry": {
+              "generation": 1,
+              "cssWidth": 1280,
+              "cssHeight": 720,
+              "deviceScaleFactor": 1.5,
+              "pixelWidth": 1920,
+              "pixelHeight": 1080
+            },
+            "status": {
+              "state": "live",
+              "helper": "missing",
+              "control": true,
+              "helperInfo": {
+                "offer": "install",
+                "outcome": null,
+                "detail": null,
+                "issue": null,
+                "secure": null
+              }
+            }
+          }
+        },
+        {
+          "ev": "geometry",
+          "renewal": {
+            "plan": {
+              "sourceId": "screen:0:0",
+              "width": 1920,
+              "height": 1080,
+              "maxFrameRate": 30
+            },
+            "geometry": {
+              "generation": 2,
+              "cssWidth": 1280,
+              "cssHeight": 720,
+              "deviceScaleFactor": 1.5,
+              "pixelWidth": 1920,
+              "pixelHeight": 1080
+            }
+          }
+        },
+        {
+          "ev": "done",
+          "call": "stale",
+          "ok": true,
+          "value": "rejected"
+        },
+        {
+          "ev": "host",
+          "call": "command",
+          "command": {
+            "op": "move",
+            "x": -1919,
+            "y": 1
+          }
+        },
+        {
+          "ev": "done",
+          "call": "fresh",
+          "ok": true,
+          "value": "applied"
+        },
+        {
+          "ev": "status",
+          "status": {
+            "state": "stopped",
+            "reason": "display-removed",
+            "helper": "missing",
+            "control": false,
+            "helperInfo": {
+              "offer": "install",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": null
+            }
+          }
+        },
+        {
+          "ev": "stopped",
+          "reason": "display-removed"
+        },
+        {
+          "ev": "indicator",
+          "call": "hide"
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "stop",
+            "clientId": "phone-1",
+            "screenId": "7",
+            "reason": "display-removed"
+          }
+        },
+        {
+          "ev": "helper",
+          "call": "setActive",
+          "active": false
+        },
+        {
+          "ev": "host",
+          "call": "stop"
+        },
+        {
+          "ev": "query",
+          "running": false,
+          "geometry": {
+            "generation": 2,
+            "cssWidth": 1280,
+            "cssHeight": 720,
+            "deviceScaleFactor": 1.5,
+            "pixelWidth": 1920,
+            "pixelHeight": 1080
+          },
+          "plan": null,
+          "status": {
+            "state": "stopped",
+            "reason": "display-removed",
+            "helper": "missing",
+            "control": false,
+            "helperInfo": {
+              "offer": "install",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": null
+            }
+          },
+          "videoPath": "capture",
+          "cursor": null
+        },
+        {
+          "ev": "credentials",
+          "wiped": []
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "a lost authorization stops the session with its reason",
+      "world": {},
+      "steps": [
+        {
+          "op": "start",
+          "as": "start"
+        },
+        {
+          "op": "await",
+          "call": "start"
+        },
+        {
+          "op": "unpair",
+          "reason": "viewer-left"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "query"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "helper",
+          "call": "installState",
+          "key": null
+        },
+        {
+          "ev": "pcAccess",
+          "call": "accountIsAdmin"
+        },
+        {
+          "ev": "deps",
+          "call": "createInputHost"
+        },
+        {
+          "ev": "host",
+          "call": "start"
+        },
+        {
+          "ev": "indicator",
+          "call": "show",
+          "clientLabel": "Phone",
+          "controlling": true,
+          "screenId": "7"
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "start",
+            "clientId": "phone-1",
+            "screenId": "7"
+          }
+        },
+        {
+          "ev": "done",
+          "call": "start",
+          "ok": true,
+          "value": {
+            "plan": {
+              "sourceId": "screen:0:0",
+              "width": 1920,
+              "height": 1080,
+              "maxFrameRate": 30
+            },
+            "geometry": {
+              "generation": 1,
+              "cssWidth": 1280,
+              "cssHeight": 720,
+              "deviceScaleFactor": 1.5,
+              "pixelWidth": 1920,
+              "pixelHeight": 1080
+            },
+            "status": {
+              "state": "live",
+              "helper": "missing",
+              "control": true,
+              "helperInfo": {
+                "offer": "install",
+                "outcome": null,
+                "detail": null,
+                "issue": null,
+                "secure": null
+              }
+            }
+          }
+        },
+        {
+          "ev": "status",
+          "status": {
+            "state": "stopped",
+            "reason": "viewer-left",
+            "helper": "missing",
+            "control": false,
+            "helperInfo": {
+              "offer": "install",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": null
+            }
+          }
+        },
+        {
+          "ev": "stopped",
+          "reason": "viewer-left"
+        },
+        {
+          "ev": "indicator",
+          "call": "hide"
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "stop",
+            "clientId": "phone-1",
+            "screenId": "7",
+            "reason": "viewer-left"
+          }
+        },
+        {
+          "ev": "helper",
+          "call": "setActive",
+          "active": false
+        },
+        {
+          "ev": "host",
+          "call": "stop"
+        },
+        {
+          "ev": "query",
+          "running": false,
+          "geometry": {
+            "generation": 1,
+            "cssWidth": 1280,
+            "cssHeight": 720,
+            "deviceScaleFactor": 1.5,
+            "pixelWidth": 1920,
+            "pixelHeight": 1080
+          },
+          "plan": null,
+          "status": {
+            "state": "stopped",
+            "reason": "viewer-left",
+            "helper": "missing",
+            "control": false,
+            "helperInfo": {
+              "offer": "install",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": null
+            }
+          },
+          "videoPath": "capture",
+          "cursor": null
+        },
+        {
+          "ev": "credentials",
+          "wiped": []
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "the indicator’s stop button stops the session as user",
+      "world": {},
+      "steps": [
+        {
+          "op": "start",
+          "as": "start"
+        },
+        {
+          "op": "await",
+          "call": "start"
+        },
+        {
+          "op": "indicatorStop"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "query"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "helper",
+          "call": "installState",
+          "key": null
+        },
+        {
+          "ev": "pcAccess",
+          "call": "accountIsAdmin"
+        },
+        {
+          "ev": "deps",
+          "call": "createInputHost"
+        },
+        {
+          "ev": "host",
+          "call": "start"
+        },
+        {
+          "ev": "indicator",
+          "call": "show",
+          "clientLabel": "Phone",
+          "controlling": true,
+          "screenId": "7"
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "start",
+            "clientId": "phone-1",
+            "screenId": "7"
+          }
+        },
+        {
+          "ev": "done",
+          "call": "start",
+          "ok": true,
+          "value": {
+            "plan": {
+              "sourceId": "screen:0:0",
+              "width": 1920,
+              "height": 1080,
+              "maxFrameRate": 30
+            },
+            "geometry": {
+              "generation": 1,
+              "cssWidth": 1280,
+              "cssHeight": 720,
+              "deviceScaleFactor": 1.5,
+              "pixelWidth": 1920,
+              "pixelHeight": 1080
+            },
+            "status": {
+              "state": "live",
+              "helper": "missing",
+              "control": true,
+              "helperInfo": {
+                "offer": "install",
+                "outcome": null,
+                "detail": null,
+                "issue": null,
+                "secure": null
+              }
+            }
+          }
+        },
+        {
+          "ev": "status",
+          "status": {
+            "state": "stopped",
+            "reason": "user",
+            "helper": "missing",
+            "control": false,
+            "helperInfo": {
+              "offer": "install",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": null
+            }
+          }
+        },
+        {
+          "ev": "stopped",
+          "reason": "user"
+        },
+        {
+          "ev": "indicator",
+          "call": "hide"
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "stop",
+            "clientId": "phone-1",
+            "screenId": "7",
+            "reason": "user"
+          }
+        },
+        {
+          "ev": "helper",
+          "call": "setActive",
+          "active": false
+        },
+        {
+          "ev": "host",
+          "call": "stop"
+        },
+        {
+          "ev": "query",
+          "running": false,
+          "geometry": {
+            "generation": 1,
+            "cssWidth": 1280,
+            "cssHeight": 720,
+            "deviceScaleFactor": 1.5,
+            "pixelWidth": 1920,
+            "pixelHeight": 1080
+          },
+          "plan": null,
+          "status": {
+            "state": "stopped",
+            "reason": "user",
+            "helper": "missing",
+            "control": false,
+            "helperInfo": {
+              "offer": "install",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": null
+            }
+          },
+          "videoPath": "capture",
+          "cursor": null
+        },
+        {
+          "ev": "credentials",
+          "wiped": []
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "a host that exits on its own stops the session with error",
+      "world": {},
+      "steps": [
+        {
+          "op": "start",
+          "as": "start"
+        },
+        {
+          "op": "await",
+          "call": "start"
+        },
+        {
+          "op": "hostExit"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "query"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "helper",
+          "call": "installState",
+          "key": null
+        },
+        {
+          "ev": "pcAccess",
+          "call": "accountIsAdmin"
+        },
+        {
+          "ev": "deps",
+          "call": "createInputHost"
+        },
+        {
+          "ev": "host",
+          "call": "start"
+        },
+        {
+          "ev": "indicator",
+          "call": "show",
+          "clientLabel": "Phone",
+          "controlling": true,
+          "screenId": "7"
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "start",
+            "clientId": "phone-1",
+            "screenId": "7"
+          }
+        },
+        {
+          "ev": "done",
+          "call": "start",
+          "ok": true,
+          "value": {
+            "plan": {
+              "sourceId": "screen:0:0",
+              "width": 1920,
+              "height": 1080,
+              "maxFrameRate": 30
+            },
+            "geometry": {
+              "generation": 1,
+              "cssWidth": 1280,
+              "cssHeight": 720,
+              "deviceScaleFactor": 1.5,
+              "pixelWidth": 1920,
+              "pixelHeight": 1080
+            },
+            "status": {
+              "state": "live",
+              "helper": "missing",
+              "control": true,
+              "helperInfo": {
+                "offer": "install",
+                "outcome": null,
+                "detail": null,
+                "issue": null,
+                "secure": null
+              }
+            }
+          }
+        },
+        {
+          "ev": "status",
+          "status": {
+            "state": "stopped",
+            "reason": "error",
+            "helper": "missing",
+            "control": false,
+            "helperInfo": {
+              "offer": "install",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": null
+            }
+          }
+        },
+        {
+          "ev": "stopped",
+          "reason": "error"
+        },
+        {
+          "ev": "indicator",
+          "call": "hide"
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "stop",
+            "clientId": "phone-1",
+            "screenId": "7",
+            "reason": "error"
+          }
+        },
+        {
+          "ev": "helper",
+          "call": "setActive",
+          "active": false
+        },
+        {
+          "ev": "host",
+          "call": "stop"
+        },
+        {
+          "ev": "query",
+          "running": false,
+          "geometry": {
+            "generation": 1,
+            "cssWidth": 1280,
+            "cssHeight": 720,
+            "deviceScaleFactor": 1.5,
+            "pixelWidth": 1920,
+            "pixelHeight": 1080
+          },
+          "plan": null,
+          "status": {
+            "state": "stopped",
+            "reason": "error",
+            "helper": "missing",
+            "control": false,
+            "helperInfo": {
+              "offer": "install",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": null
+            }
+          },
+          "videoPath": "capture",
+          "cursor": null
+        },
+        {
+          "ev": "credentials",
+          "wiped": []
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "stop: input cancelled, released through the queue, the backends closed; idempotent",
+      "world": {
+        "installState": "installed",
+        "helper": {
+          "installed": true,
+          "connected": true,
+          "desktop": "Winlogon",
+          "session": 1,
+          "locked": false
+        }
+      },
+      "steps": [
+        {
+          "op": "start",
+          "as": "start"
+        },
+        {
+          "op": "await",
+          "call": "start"
+        },
+        {
+          "op": "input",
+          "as": "key",
+          "input": {
+            "type": "screen-key",
+            "action": "down",
+            "vk": 65,
+            "scan": 30,
+            "extended": false
+          },
+          "generation": 1
+        },
+        {
+          "op": "await",
+          "call": "key"
+        },
+        {
+          "op": "stop",
+          "as": "stop",
+          "reason": "user"
+        },
+        {
+          "op": "stop",
+          "as": "again",
+          "reason": "revoked"
+        },
+        {
+          "op": "await",
+          "call": "stop"
+        },
+        {
+          "op": "await",
+          "call": "again"
+        },
+        {
+          "op": "released",
+          "as": "released"
+        },
+        {
+          "op": "await",
+          "call": "released"
+        },
+        {
+          "op": "input",
+          "as": "after",
+          "input": {
+            "type": "screen-key",
+            "action": "down",
+            "vk": 65,
+            "scan": 30,
+            "extended": false
+          },
+          "generation": 1
+        },
+        {
+          "op": "await",
+          "call": "after"
+        },
+        {
+          "op": "query"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "helper",
+          "call": "installState",
+          "key": null
+        },
+        {
+          "ev": "pcAccess",
+          "call": "accountIsAdmin"
+        },
+        {
+          "ev": "deps",
+          "call": "createInputHost"
+        },
+        {
+          "ev": "host",
+          "call": "start"
+        },
+        {
+          "ev": "indicator",
+          "call": "show",
+          "clientLabel": "Phone",
+          "controlling": true,
+          "screenId": "7"
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "start",
+            "clientId": "phone-1",
+            "screenId": "7"
+          }
+        },
+        {
+          "ev": "done",
+          "call": "start",
+          "ok": true,
+          "value": {
+            "plan": {
+              "sourceId": "screen:0:0",
+              "width": 1920,
+              "height": 1080,
+              "maxFrameRate": 30
+            },
+            "geometry": {
+              "generation": 1,
+              "cssWidth": 1280,
+              "cssHeight": 720,
+              "deviceScaleFactor": 1.5,
+              "pixelWidth": 1920,
+              "pixelHeight": 1080
+            },
+            "status": {
+              "state": "live",
+              "helper": "active",
+              "control": true,
+              "helperInfo": {
+                "offer": "none",
+                "outcome": null,
+                "detail": null,
+                "issue": null,
+                "secure": null
+              }
+            }
+          }
+        },
+        {
+          "ev": "host",
+          "call": "command",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "key",
+          "ok": true,
+          "value": "applied"
+        },
+        {
+          "ev": "status",
+          "status": {
+            "state": "stopped",
+            "reason": "user",
+            "helper": "active",
+            "control": false,
+            "helperInfo": {
+              "offer": "none",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": null
+            }
+          }
+        },
+        {
+          "ev": "stopped",
+          "reason": "user"
+        },
+        {
+          "ev": "indicator",
+          "call": "hide"
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "stop",
+            "clientId": "phone-1",
+            "screenId": "7",
+            "reason": "user"
+          }
+        },
+        {
+          "ev": "host",
+          "call": "command",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "helper",
+          "call": "setActive",
+          "active": false
+        },
+        {
+          "ev": "host",
+          "call": "stop"
+        },
+        {
+          "ev": "done",
+          "call": "stop",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "done",
+          "call": "again",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "done",
+          "call": "released",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "done",
+          "call": "after",
+          "ok": true,
+          "value": "rejected"
+        },
+        {
+          "ev": "query",
+          "running": false,
+          "geometry": {
+            "generation": 1,
+            "cssWidth": 1280,
+            "cssHeight": 720,
+            "deviceScaleFactor": 1.5,
+            "pixelWidth": 1920,
+            "pixelHeight": 1080
+          },
+          "plan": null,
+          "status": {
+            "state": "stopped",
+            "reason": "user",
+            "helper": "active",
+            "control": false,
+            "helperInfo": {
+              "offer": "none",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": null
+            }
+          },
+          "videoPath": "capture",
+          "cursor": null
+        },
+        {
+          "ev": "credentials",
+          "wiped": []
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "a hung host: the stop deadline kills it, abandons the queue and counts the dropped releases",
+      "world": {
+        "shutdownDeadlineMs": 1000
+      },
+      "steps": [
+        {
+          "op": "start",
+          "as": "start"
+        },
+        {
+          "op": "await",
+          "call": "start"
+        },
+        {
+          "op": "input",
+          "as": "key",
+          "input": {
+            "type": "screen-key",
+            "action": "down",
+            "vk": 65,
+            "scan": 30,
+            "extended": false
+          },
+          "generation": 1
+        },
+        {
+          "op": "await",
+          "call": "key"
+        },
+        {
+          "op": "hostHangs"
+        },
+        {
+          "op": "stop",
+          "as": "stop",
+          "reason": "user"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "advance",
+          "ms": 999
+        },
+        {
+          "op": "stop",
+          "as": "shorter",
+          "reason": "user",
+          "deadlineMs": 500
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "advance",
+          "ms": 499
+        },
+        {
+          "op": "advance",
+          "ms": 1
+        },
+        {
+          "op": "await",
+          "call": "stop"
+        },
+        {
+          "op": "await",
+          "call": "shorter"
+        },
+        {
+          "op": "query"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "helper",
+          "call": "installState",
+          "key": null
+        },
+        {
+          "ev": "pcAccess",
+          "call": "accountIsAdmin"
+        },
+        {
+          "ev": "deps",
+          "call": "createInputHost"
+        },
+        {
+          "ev": "host",
+          "call": "start"
+        },
+        {
+          "ev": "indicator",
+          "call": "show",
+          "clientLabel": "Phone",
+          "controlling": true,
+          "screenId": "7"
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "start",
+            "clientId": "phone-1",
+            "screenId": "7"
+          }
+        },
+        {
+          "ev": "done",
+          "call": "start",
+          "ok": true,
+          "value": {
+            "plan": {
+              "sourceId": "screen:0:0",
+              "width": 1920,
+              "height": 1080,
+              "maxFrameRate": 30
+            },
+            "geometry": {
+              "generation": 1,
+              "cssWidth": 1280,
+              "cssHeight": 720,
+              "deviceScaleFactor": 1.5,
+              "pixelWidth": 1920,
+              "pixelHeight": 1080
+            },
+            "status": {
+              "state": "live",
+              "helper": "missing",
+              "control": true,
+              "helperInfo": {
+                "offer": "install",
+                "outcome": null,
+                "detail": null,
+                "issue": null,
+                "secure": null
+              }
+            }
+          }
+        },
+        {
+          "ev": "host",
+          "call": "command",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "key",
+          "ok": true,
+          "value": "applied"
+        },
+        {
+          "ev": "status",
+          "status": {
+            "state": "stopped",
+            "reason": "user",
+            "helper": "missing",
+            "control": false,
+            "helperInfo": {
+              "offer": "install",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": null
+            }
+          }
+        },
+        {
+          "ev": "stopped",
+          "reason": "user"
+        },
+        {
+          "ev": "indicator",
+          "call": "hide"
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "stop",
+            "clientId": "phone-1",
+            "screenId": "7",
+            "reason": "user"
+          }
+        },
+        {
+          "ev": "host",
+          "call": "command",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "advance",
+          "ms": 999,
+          "ran": 0
+        },
+        {
+          "ev": "host",
+          "call": "kill"
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "release-dropped",
+            "clientId": "phone-1",
+            "screenId": "7",
+            "backend": "desktop",
+            "count": 1
+          }
+        },
+        {
+          "ev": "helper",
+          "call": "setActive",
+          "active": false
+        },
+        {
+          "ev": "host",
+          "call": "stop"
+        },
+        {
+          "ev": "done",
+          "call": "stop",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "done",
+          "call": "shorter",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "advance",
+          "ms": 499,
+          "ran": 1
+        },
+        {
+          "ev": "advance",
+          "ms": 1,
+          "ran": 0
+        },
+        {
+          "ev": "query",
+          "running": false,
+          "geometry": {
+            "generation": 1,
+            "cssWidth": 1280,
+            "cssHeight": 720,
+            "deviceScaleFactor": 1.5,
+            "pixelWidth": 1920,
+            "pixelHeight": 1080
+          },
+          "plan": null,
+          "status": {
+            "state": "stopped",
+            "reason": "user",
+            "helper": "missing",
+            "control": false,
+            "helperInfo": {
+              "offer": "install",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": null
+            }
+          },
+          "videoPath": "capture",
+          "cursor": null
+        },
+        {
+          "ev": "credentials",
+          "wiped": []
+        }
+      ],
+      "final": {
+        "elapsedMs": 1499,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "a host whose graceful stop never ends is killed at the deadline",
+      "world": {
+        "shutdownDeadlineMs": 1000,
+        "hostStopHangs": true
+      },
+      "steps": [
+        {
+          "op": "start",
+          "as": "start"
+        },
+        {
+          "op": "await",
+          "call": "start"
+        },
+        {
+          "op": "stop",
+          "as": "stop",
+          "reason": "user"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "advance",
+          "ms": 999
+        },
+        {
+          "op": "advance",
+          "ms": 1
+        },
+        {
+          "op": "await",
+          "call": "stop"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "helper",
+          "call": "installState",
+          "key": null
+        },
+        {
+          "ev": "pcAccess",
+          "call": "accountIsAdmin"
+        },
+        {
+          "ev": "deps",
+          "call": "createInputHost"
+        },
+        {
+          "ev": "host",
+          "call": "start"
+        },
+        {
+          "ev": "indicator",
+          "call": "show",
+          "clientLabel": "Phone",
+          "controlling": true,
+          "screenId": "7"
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "start",
+            "clientId": "phone-1",
+            "screenId": "7"
+          }
+        },
+        {
+          "ev": "done",
+          "call": "start",
+          "ok": true,
+          "value": {
+            "plan": {
+              "sourceId": "screen:0:0",
+              "width": 1920,
+              "height": 1080,
+              "maxFrameRate": 30
+            },
+            "geometry": {
+              "generation": 1,
+              "cssWidth": 1280,
+              "cssHeight": 720,
+              "deviceScaleFactor": 1.5,
+              "pixelWidth": 1920,
+              "pixelHeight": 1080
+            },
+            "status": {
+              "state": "live",
+              "helper": "missing",
+              "control": true,
+              "helperInfo": {
+                "offer": "install",
+                "outcome": null,
+                "detail": null,
+                "issue": null,
+                "secure": null
+              }
+            }
+          }
+        },
+        {
+          "ev": "status",
+          "status": {
+            "state": "stopped",
+            "reason": "user",
+            "helper": "missing",
+            "control": false,
+            "helperInfo": {
+              "offer": "install",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": null
+            }
+          }
+        },
+        {
+          "ev": "stopped",
+          "reason": "user"
+        },
+        {
+          "ev": "indicator",
+          "call": "hide"
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "stop",
+            "clientId": "phone-1",
+            "screenId": "7",
+            "reason": "user"
+          }
+        },
+        {
+          "ev": "helper",
+          "call": "setActive",
+          "active": false
+        },
+        {
+          "ev": "host",
+          "call": "stop"
+        },
+        {
+          "ev": "advance",
+          "ms": 999,
+          "ran": 0
+        },
+        {
+          "ev": "host",
+          "call": "kill"
+        },
+        {
+          "ev": "done",
+          "call": "stop",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "advance",
+          "ms": 1,
+          "ran": 1
+        },
+        {
+          "ev": "credentials",
+          "wiped": []
+        }
+      ],
+      "final": {
+        "elapsedMs": 1000,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "another session holds the helper: in-use, and a hold passes when it lets go",
+      "world": {
+        "installState": "installed",
+        "helper": {
+          "installed": true,
+          "connected": true,
+          "desktop": "Winlogon",
+          "session": 1,
+          "locked": false,
+          "ownedElsewhere": true
+        }
+      },
+      "steps": [
+        {
+          "op": "start",
+          "as": "start"
+        },
+        {
+          "op": "await",
+          "call": "start"
+        },
+        {
+          "op": "hostDesktop",
+          "local": {
+            "inputDesktop": null,
+            "consent": true,
+            "logonUi": false
+          }
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "helper",
+          "fields": {
+            "ownedElsewhere": false
+          },
+          "changed": true
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "query"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "helper",
+          "call": "installState",
+          "key": null
+        },
+        {
+          "ev": "pcAccess",
+          "call": "accountIsAdmin"
+        },
+        {
+          "ev": "deps",
+          "call": "createInputHost"
+        },
+        {
+          "ev": "host",
+          "call": "start"
+        },
+        {
+          "ev": "indicator",
+          "call": "show",
+          "clientLabel": "Phone",
+          "controlling": true,
+          "screenId": "7"
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "start",
+            "clientId": "phone-1",
+            "screenId": "7"
+          }
+        },
+        {
+          "ev": "done",
+          "call": "start",
+          "ok": true,
+          "value": {
+            "plan": {
+              "sourceId": "screen:0:0",
+              "width": 1920,
+              "height": 1080,
+              "maxFrameRate": 30
+            },
+            "geometry": {
+              "generation": 1,
+              "cssWidth": 1280,
+              "cssHeight": 720,
+              "deviceScaleFactor": 1.5,
+              "pixelWidth": 1920,
+              "pixelHeight": 1080
+            },
+            "status": {
+              "state": "live",
+              "helper": "in-use",
+              "control": true,
+              "helperInfo": {
+                "offer": "none",
+                "outcome": null,
+                "detail": null,
+                "issue": null,
+                "secure": null
+              }
+            }
+          }
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "secure-desktop",
+            "clientId": "phone-1",
+            "screenId": "7",
+            "state": "secure-desktop"
+          }
+        },
+        {
+          "ev": "indicator",
+          "call": "update",
+          "controlling": false
+        },
+        {
+          "ev": "status",
+          "status": {
+            "state": "secure-desktop",
+            "reason": "uac",
+            "helper": "in-use",
+            "control": false,
+            "helperInfo": {
+              "offer": "none",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": "uac"
+            }
+          }
+        },
+        {
+          "ev": "helper",
+          "call": "setActive",
+          "active": true
+        },
+        {
+          "ev": "indicator",
+          "call": "update",
+          "controlling": false
+        },
+        {
+          "ev": "status",
+          "status": {
+            "state": "secure-desktop",
+            "reason": "uac",
+            "helper": "active",
+            "control": false,
+            "helperInfo": {
+              "offer": "none",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": "uac"
+            }
+          }
+        },
+        {
+          "ev": "videoPath",
+          "path": "helper"
+        },
+        {
+          "ev": "query",
+          "running": true,
+          "geometry": {
+            "generation": 1,
+            "cssWidth": 1280,
+            "cssHeight": 720,
+            "deviceScaleFactor": 1.5,
+            "pixelWidth": 1920,
+            "pixelHeight": 1080
+          },
+          "plan": {
+            "sourceId": "screen:0:0",
+            "width": 1920,
+            "height": 1080,
+            "maxFrameRate": 30
+          },
+          "status": {
+            "state": "secure-desktop",
+            "reason": "uac",
+            "helper": "active",
+            "control": false,
+            "helperInfo": {
+              "offer": "none",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": "uac"
+            }
+          },
+          "videoPath": "helper",
+          "cursor": null
+        },
+        {
+          "ev": "credentials",
+          "wiped": []
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0
+      }
+    }
+  ]
+}

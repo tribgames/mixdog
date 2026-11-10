@@ -123,3 +123,25 @@ pub fn random_uuid() -> String {
         &hex[20..32]
     )
 }
+
+#[cfg(test)]
+mod tests {
+    /// Node's `crypto.randomUUID()` (RFC 9562 version 4): 36 characters, lower-case hex in groups 8-4-4-4-12, version
+    /// nibble `4`, variant nibble one of `8 9 a b`, all four of which occur.
+    #[test]
+    fn random_uuid_has_the_form_of_nodes_random_uuid() {
+        let mut variants = std::collections::BTreeSet::new();
+        for _ in 0..256 {
+            let id = super::random_uuid();
+            assert_eq!(id.len(), 36, "{id}");
+            let groups: Vec<&str> = id.split('-').collect();
+            assert_eq!(groups.iter().map(|g| g.len()).collect::<Vec<_>>(), [8, 4, 4, 4, 12], "{id}");
+            assert!(groups.concat().chars().all(|c| matches!(c, '0'..='9' | 'a'..='f')), "{id}");
+            assert_eq!(&id[14..15], "4", "{id}");
+            let variant = id.as_bytes()[19] as char;
+            assert!(matches!(variant, '8' | '9' | 'a' | 'b'), "{id}");
+            variants.insert(variant);
+        }
+        assert_eq!(variants.len(), 4, "every variant nibble Node draws occurs");
+    }
+}

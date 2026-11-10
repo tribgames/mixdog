@@ -24,6 +24,21 @@ pub enum SectionFeed {
     Ports,
 }
 
+impl SectionFeed {
+    /// Whether the feed is of the ordered class (Lead decision 2026-11-11): its events are ones
+    /// Node's phone path never drops, so a lane of it never lags once live.
+    /// - `App`: settings, models, updater, notices, review, terminal activity and the browser /
+    ///   visualize state are non-droppable pushes (`remote-relay-push-lanes.ts:119-168`), and
+    ///   the session and agent rosters it carries are never droppable
+    ///   (`remote-relay-catalog.ts:79-90`).
+    /// - `Lsp`: `lspDiagnostics` / `lspStatus` (`remote-relay-push-lanes.ts:171-174`).
+    /// - `Git`, `Media`, `Ports`: replace polls (re-reads after `folder-changed`, P9, P11), which
+    ///   Node's phone path never pushed; merged latest-wins state.
+    pub const fn ordered(self) -> bool {
+        matches!(self, SectionFeed::App | SectionFeed::Lsp)
+    }
+}
+
 macro_rules! sections {
     ($($(#[doc = $doc:literal])* $variant:ident => $wire:literal, $method:literal, $feed:ident, keyed: $keyed:literal;)*) => {
         /// Every section name. The registry is closed: adding one is a contract change.

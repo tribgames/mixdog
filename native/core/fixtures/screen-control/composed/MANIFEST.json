@@ -1,0 +1,55 @@
+{
+  "command": "(cd <tree>/apps/desktop && node --import tsx benchmarks/rust-core/recorders/record-screen-control-composed.mjs --tree <tree> --patch node-fix-helper-stale-socket.patch)",
+  "common": "benchmarks/rust-core/recorders/lib/common.mjs",
+  "commonSha256": "d4d0064b5b40d5fcb833a69fb3d68a69b1c1317606b5fe341c3445d5d0bbefd4",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 28164,
+      "path": "scenarios.json",
+      "sha256": "47c5e993a488d063889eed3276fee4d56f29f62d6cb1674a4789a13f9d38ab91"
+    }
+  ],
+  "inputs": {
+    "scenarios": [
+      "a UAC prompt with the helper installed: activated, dialled, granted, and input and Ctrl+Alt+Delete reach the helper’s pipe",
+      "a UAC prompt without the helper installed: blocked, the install is offered, and input is refused",
+      "disposed while the helper’s handshake runs, which then succeeds: the connection is ended at once and nothing more reaches the helper",
+      "disposed while the helper’s handshake runs, which then fails: the connection is ended at once and nothing more reaches the helper"
+    ],
+    "tree": "export of b6f10295a2f698afc85332467192de28500bd146 with node-fix-helper-stale-socket.patch (sha256 35d457764abeceaf0b64b5a4e3d7f05b8ff5149ffa8c9eed0e5e4e2e7bafc5b2) applied"
+  },
+  "lib": "benchmarks/rust-core/recorders/record-screen-control-lib.mjs",
+  "libSha256": "2773fb248d6b5f2f60686f18c6fece766ebb8e4de65db58b3f728be860216fb5",
+  "node": "v22.20.0",
+  "product": {
+    "appsSha256": "18993e38af8ff30e2c3db944433187c7c9ab55f9ab560239caddd40ac6dcaf8a",
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "patch": {
+      "file": "node-fix-helper-stale-socket.patch",
+      "paths": [
+        "apps/desktop/src/main/secure-desktop/client.ts",
+        "apps/desktop/src/main/secure-desktop/secure-desktop.test.mjs"
+      ],
+      "sha256": "35d457764abeceaf0b64b5a4e3d7f05b8ff5149ffa8c9eed0e5e4e2e7bafc5b2"
+    },
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 2
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-screen-control-composed.mjs",
+  "recorderSha256": "c1bb48a8abd8ceadeccf525a5899bd3ed73567ada5f77ede7c24908018a30af8",
+  "set": "screen-control/composed",
+  "totalBytes": 28164
+}

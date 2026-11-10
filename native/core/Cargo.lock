@@ -4449,6 +4449,7 @@ dependencies = [
  "mixdog-secrets",
  "mixdog-spawn",
  "mixdog-store",
+ "mixdog-testkit",
  "mixdog-tools",
  "mixdog-trace",
  "mixdog-workspace",
@@ -4538,6 +4539,14 @@ dependencies = [
  "tokio-util",
  "tracing",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "mixdog-fsio"
+version = "1.4.5"
+dependencies = [
+ "mixdog-rt",
+ "mixdog-workspace-hack",
 ]
 
 [[package]]
@@ -4873,6 +4882,7 @@ dependencies = [
  "mixdog-core-api",
  "mixdog-core-base",
  "mixdog-exthost",
+ "mixdog-fsio",
  "mixdog-graph",
  "mixdog-js",
  "mixdog-protocol",
@@ -4936,11 +4946,14 @@ version = "1.4.5"
 dependencies = [
  "base64 0.22.1",
  "libc",
+ "mixdog-fsio",
  "mixdog-js",
  "mixdog-rt",
+ "mixdog-testkit",
  "mixdog-workspace-hack",
  "rand 0.9.5",
  "serde_json",
+ "sha2 0.10.9",
  "tempfile",
  "tokio",
  "tracing",
@@ -4954,6 +4967,7 @@ dependencies = [
  "base64 0.22.1",
  "mixdog-app-protocol",
  "mixdog-core-api",
+ "mixdog-fsio",
  "mixdog-js",
  "mixdog-protocol",
  "mixdog-rt",
@@ -4971,6 +4985,13 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "mixdog-testkit"
+version = "1.4.5"
+dependencies = [
+ "mixdog-workspace-hack",
 ]
 
 [[package]]
