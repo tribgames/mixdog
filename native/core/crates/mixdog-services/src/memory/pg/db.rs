@@ -165,13 +165,16 @@ async fn bootstrap(cluster: &PgCluster) -> Result<()> {
 /// What opens a deferred [`Db`]'s pool: the cluster start, and everything that must precede the first query.
 pub type PoolOpener = Arc<dyn Fn() -> BoxFuture<'static, Result<Pool>> + Send + Sync>;
 
+/// When the opening a deferred [`Db`]'s use waits on was launched (Node's spawn of the memory child, which every request that arrives while it runs shares).
+pub type OpeningSince = Arc<dyn Fn() -> Option<tokio::time::Instant> + Send + Sync>;
+
 /// The pool of a [`Db`]: open from the start, or asked of its opener at every use. A deferred handle keeps no pool of its own: its opener (the memory
 /// stack's) shares one opening among the uses that arrive while it runs, forgets a failed one, and refuses every use once the stack stops, as Node's
 /// pool lookup goes through `ensurePgInstance` (`supervisor.mjs:647-665`).
 #[derive(Clone)]
 enum PoolSource {
     Open(Pool),
-    Deferred(PoolOpener),
+    Deferred(PoolOpener, OpeningSince),
 }
 
 /// A bounded pool of connections with the schema's `search_path`.
@@ -190,29 +193,40 @@ impl Db {
         Ok(Self { pool: PoolSource::Open(pool), schema })
     }
 
-    /// A handle whose pool `opener` hands over at each use.
-    pub fn deferred(schema: Schema, opener: PoolOpener) -> Self {
-        Self { pool: PoolSource::Deferred(opener), schema }
+    /// A handle whose pool `opener` hands over at each use; `since` tells when the opening a use waits on was launched.
+    pub fn deferred(schema: Schema, opener: PoolOpener, since: OpeningSince) -> Self {
+        Self { pool: PoolSource::Deferred(opener, since), schema }
     }
 
     /// The pool of a handle that is already open (what a deferred handle's opener hands over).
     pub(crate) fn opened_pool(&self) -> Pool {
         match &self.pool {
             PoolSource::Open(pool) => pool.clone(),
-            PoolSource::Deferred(_) => unreachable!("only an open handle is handed over"),
+            PoolSource::Deferred(..) => unreachable!("only an open handle is handed over"),
         }
     }
 
     async fn pool(&self) -> Result<Pool> {
         match &self.pool {
             PoolSource::Open(pool) => Ok(pool.clone()),
-            PoolSource::Deferred(open) => open().await,
+            PoolSource::Deferred(open, _) => open().await,
         }
     }
 
-    /// Waits for the handle's pool: a deferred handle's opener has opened the database (or failed to).
-    pub async fn ready(&self) -> Result<()> {
-        self.pool().await.map(drop)
+    /// Waits for the handle's pool until `limit` after the launch of the opening it waits on (opening it when nobody has): `Err` when the opening failed
+    /// or was still running then. The opening itself goes on; a later use finds it open.
+    pub async fn ready_within(&self, limit: std::time::Duration) -> Result<()> {
+        let PoolSource::Deferred(open, since) = &self.pool else { return Ok(()) };
+        let mut opening = open();
+        // The first poll joins or launches the opening, so its launch time is known after it.
+        if let std::task::Poll::Ready(outcome) = futures::poll!(&mut opening) {
+            return outcome.map(drop);
+        }
+        let deadline = since().unwrap_or_else(tokio::time::Instant::now) + limit;
+        match tokio::time::timeout_at(deadline, opening).await {
+            Ok(outcome) => outcome.map(drop),
+            Err(_) => Err(MemoryError::Runtime(format!("the memory database did not open within {} s of its opening", limit.as_secs()))),
+        }
     }
 
     pub fn schema(&self) -> Schema {
@@ -291,5 +305,44 @@ mod tests {
             "the budget ends the checkout, the test timeout does not"
         );
         silent.abort();
+    }
+
+    /// A use waiting for a deferred opening gets the pool when the opening ends inside the limit counted from its launch, and an error at the limit when
+    /// it has not; a use that joins later is held to the same launch.
+    #[tokio::test(start_paused = true)]
+    async fn a_use_waits_for_the_opening_until_the_limit_after_its_launch() {
+        use std::sync::Mutex;
+        const LIMIT: Duration = Duration::from_secs(90);
+        let launched = tokio::time::Instant::now();
+        let gate: Arc<Mutex<Option<tokio::sync::watch::Receiver<bool>>>> = Arc::new(Mutex::new(None));
+        let (open_up, opened) = tokio::sync::watch::channel(false);
+        *gate.lock().unwrap() = Some(opened);
+        let waiting = gate.clone();
+        let opener: PoolOpener = Arc::new(move || {
+            let mut opened = waiting.lock().unwrap().clone().expect("the gate");
+            Box::pin(async move {
+                let _ = opened.wait_for(|open| *open).await;
+                build_pool(config(1, DATABASE, None), 1)
+            })
+        });
+        let db = Db::deferred(Schema::Memory, opener, Arc::new(move || Some(launched)));
+
+        // Inside the limit: the opening ends 1 ms before it, the use gets the pool.
+        let mut first = Box::pin(db.ready_within(LIMIT));
+        assert!(futures::poll!(&mut first).is_pending());
+        tokio::time::advance(LIMIT - Duration::from_millis(1)).await;
+        assert!(futures::poll!(&mut first).is_pending(), "still within the limit");
+        open_up.send(true).unwrap();
+        assert!(matches!(futures::poll!(&mut first), std::task::Poll::Ready(Ok(()))), "the opening ended inside the limit");
+
+        // Past the limit of the same launch: a use that arrives now is not given a new 90 s.
+        open_up.send(false).unwrap();
+        let mut late = Box::pin(db.ready_within(LIMIT));
+        assert!(futures::poll!(&mut late).is_pending());
+        tokio::time::advance(Duration::from_millis(1)).await;
+        match futures::poll!(&mut late) {
+            std::task::Poll::Ready(Err(error)) => assert!(error.message().contains("did not open within 90 s"), "{}", error.message()),
+            other => panic!("the use is answered at the launch's limit: {:?}", other.map(|outcome| outcome.is_ok())),
+        }
     }
 }

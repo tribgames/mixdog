@@ -432,6 +432,40 @@ async fn the_spawn_lock_is_nodes_file_beside_the_cluster() {
 }
 
 /// A stop while the install is held ends it and starts nothing; both waiting uses end with the install's cancellation, and a use after the stop gets Node's text.
+/// Node's proxy answers a call whose memory child is still starting at 90 s after the child's spawn (60 s ready timeout, `daemon-spawn.mjs:62`, then
+/// 30 s for a live port, `:141`), and every call arriving meanwhile shares that spawn (`start.mjs:40-44`): a call waits for a held install until 90 s
+/// after the opening's launch, a call joining 50 s later is answered at the same instant, and the opening goes on.
+#[tokio::test(start_paused = true)]
+async fn a_memory_call_waits_for_a_held_install_until_ninety_seconds_after_its_launch() {
+    use crate::memory::service::RUNTIME_READY_WAIT;
+    let dir = tempfile::tempdir().expect("dir");
+    let (install, installs, mut entered) = install_of(|_, cancel| {
+        Box::pin(async move {
+            cancel.cancelled().await;
+            Err(MemoryError::Runtime("cancelled".to_owned()))
+        })
+    });
+    let stack = stack_over(dir.path(), PgRuntimeSource::Install(install)).await;
+    let module = stack.module();
+    let mut first = Box::pin(module.ready());
+    assert!(futures::poll!(&mut first).is_pending());
+    awaiting_for(std::time::Duration::from_secs(5), "the install to be entered", entered.recv()).await.expect("entered");
+    tokio::time::advance(std::time::Duration::from_secs(50)).await;
+    // A call that arrives 50 s later joins the same opening and its limit.
+    let mut second = Box::pin(module.ready());
+    assert!(futures::poll!(&mut second).is_pending());
+    tokio::time::advance(RUNTIME_READY_WAIT - std::time::Duration::from_secs(50) - std::time::Duration::from_millis(1)).await;
+    let pending_before = futures::poll!(&mut first).is_pending() && futures::poll!(&mut second).is_pending();
+    tokio::time::advance(std::time::Duration::from_millis(1)).await;
+    let (one, two) = (futures::poll!(&mut first), futures::poll!(&mut second));
+    let answered = matches!(one, std::task::Poll::Ready(Err(_))) && matches!(two, std::task::Poll::Ready(Err(_)));
+    let still_installing = installs.load(Ordering::SeqCst) == 1 && !stack.is_open();
+    stack.stop().await.expect("stop");
+    assert!(pending_before, "both calls wait until 90 s after the launch");
+    assert!(answered, "both calls are answered at 90 s after the launch");
+    assert!(still_installing, "the opening itself goes on past the calls' limit");
+}
+
 #[tokio::test]
 async fn a_stop_ends_the_install_the_uses_wait_for() {
     let dir = tempfile::tempdir().expect("dir");

@@ -171,6 +171,45 @@ async fn over_the_pg_module_a_session_less_recall_equals_the_recorded_recall_gol
     assert_eq!(ask(&service, json!({ "query": "zzz unrelated", "args": {} })).await, expected);
 }
 
+/// The first recall on a fresh profile whose runtime is installed (the stack opens the database at that call: `initdb`, the postmaster, the schema) from a new,
+/// empty session answers what Node's answered (`record-memory-first-request.mjs`, the `value` of its `session.configure` result).
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
+async fn the_first_recall_on_a_fresh_profile_answers_as_node() {
+    use crate::memory::boot::{MemoryBoot, MemoryStack, PgRuntimeSource};
+    let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/memory-first-request/golden.json")).expect("golden");
+    let scenario = golden["scenarios"].as_array().expect("scenarios").iter().find(|s| s["name"] == "recall on a fresh profile whose runtime is installed").expect("recorded");
+    let recorded = &scenario["requests"][0];
+    let runtime = std::path::PathBuf::from(std::env::var_os("MIXDOG_PG_RUNTIME").expect("MIXDOG_PG_RUNTIME names a bundled postgres runtime dir"));
+    let dir = tempfile::tempdir().expect("dir");
+    let stack = MemoryStack::start(MemoryBoot {
+        data_dir: dir.path().to_owned(),
+        pg_runtime: PgRuntimeSource::Dir(runtime),
+        embedder: None,
+        embedding_provider: None,
+        flags: crate::memory::runtime::RuntimeFlags::default(),
+        progress: None,
+        sensitive: Arc::new(crate::memory::sensitive::SensitiveStore::default()),
+        lane: mixdog_rt::testing::tokens().durability_io,
+        maintenance: mixdog_rt::testing::tokens().maintenance_io,
+        transcripts: None,
+        cycles: None,
+        backfill: None,
+        processes: crate::tidy::process::Processes::for_tests(),
+        cancel: tokio_util::sync::CancellationToken::new(),
+    })
+    .await
+    .expect("built");
+    let sessions = Sessions { session: Some(SessionData { id: "sess-new".into(), messages: Vec::new() }), cwd: Some(dir.path().join("work").to_string_lossy().into_owned()), title: String::new() };
+    let service = MemoryService::new(stack.module(), Arc::new(sessions));
+    let args = recorded["args"].as_array().expect("args");
+    let answer = futures::FutureExt::catch_unwind(std::panic::AssertUnwindSafe(super::awaiting::awaiting("the first recall", ask(&service, json!({ "query": args[0], "args": args[1] }))))).await;
+    // The postmaster the call started is stopped whatever the call did.
+    stack.stop().await.expect("stops");
+    let answer = answer.unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+    assert_eq!(answer, recorded["answer"]["body"]["result"]["value"].as_str().expect("Node's answer"));
+}
+
 async fn service_db(pg: &TestPg) -> crate::memory::pg::db::Db {
     pg.db(Schema::Memory).await
 }

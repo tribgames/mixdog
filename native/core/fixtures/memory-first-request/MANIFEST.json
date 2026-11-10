@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 1464,
+      "bytes": 2079,
       "path": "golden.json",
-      "sha256": "47de321731fd53b7182891dfa7f2d9b1b273076c325ed4a54710c5da8363917c"
+      "sha256": "4057f0624cde4443f0487194bc562f7faaa4fb96aa9893ef90399b37d3318053"
     }
   ],
   "product": {
@@ -27,5 +27,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-memory-first-request.mjs",
   "set": "memory-first-request",
-  "totalBytes": 1464
+  "totalBytes": 2079
 }
