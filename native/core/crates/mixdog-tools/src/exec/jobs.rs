@@ -1068,6 +1068,8 @@ pub struct ExecRuntime {
     /// Owner thread -> the shells a timeout reap stopped, until the owner's handoff reports them
     /// or its next turn starts (`stoppedJobs`, `turn-reap.mjs`).
     reaped: Mutex<HashMap<String, Vec<String>>>,
+    /// Whether the expired logs of the spill directory were swept.
+    swept: std::sync::atomic::AtomicBool,
 }
 
 /// The owner's user cycle (`currentUserCycle`): how many genuine prompts the session has seen.
@@ -1091,6 +1093,7 @@ impl ExecRuntime {
             snapshots: super::snapshot::Snapshots::default(),
             cycles: OnceLock::new(),
             reaped: Mutex::new(HashMap::new()),
+            swept: std::sync::atomic::AtomicBool::new(false),
         })
     }
 
@@ -1165,6 +1168,10 @@ impl ExecRuntime {
         let cwd = request.cwd.as_path().to_string_lossy().into_owned();
         let stdout_log = self.config.spill_dir.join(format!("{task_id}.stdout.log"));
         let stderr_log = self.config.spill_dir.join(format!("{task_id}.stderr.log"));
+        // The expired logs of earlier runs go once per runtime, when its first job writes logs.
+        if !self.swept.swap(true, std::sync::atomic::Ordering::AcqRel) {
+            spill::sweep_expired(self.config.lanes.maintenance, cancel, &self.config.spill_dir).await;
+        }
         // A log that cannot be created is simply not offered to the model.
         spill::create_logs(self.config.lanes.maintenance, cancel, &stdout_log, &stderr_log).await;
         processes.spawn(request).await?;

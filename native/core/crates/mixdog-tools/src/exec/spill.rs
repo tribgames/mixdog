@@ -29,6 +29,29 @@ pub async fn create_logs(lane: MaintenanceIo, cancel: &CancellationToken, out: &
     let _ = handle.await;
 }
 
+/// How long a job's logs are kept (`SHELL_OUTPUT_RETENTION_MS`): transcripts keep naming them, so
+/// a session resumed days later may still read them.
+pub const RETENTION_MS: u64 = 7 * 24 * 60 * 60 * 1000;
+
+/// Removes the files of `dir` last modified more than `RETENTION_MS` ago, by the system clock the
+/// modification times are written with (`sweepExpiredShellOutput`). Best effort: a file that
+/// cannot be read or removed stays.
+pub async fn sweep_expired(lane: MaintenanceIo, cancel: &CancellationToken, dir: &Path) {
+    let dir = dir.to_owned();
+    let Ok(handle) = lane.submit(cancel, move |_| {
+        let cutoff = std::time::SystemTime::now() - std::time::Duration::from_millis(RETENTION_MS);
+        for entry in std::fs::read_dir(&dir)?.flatten() {
+            if entry.metadata().and_then(|m| m.modified()).is_ok_and(|modified| modified < cutoff) {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+        Ok::<(), std::io::Error>(())
+    }) else {
+        return;
+    };
+    let _ = handle.await;
+}
+
 /// Appends `bytes` to `path`. `false` when the log cannot be written, after which the caller
 /// stops spilling that stream.
 pub async fn append(lane: MaintenanceIo, cancel: &CancellationToken, path: &Path, bytes: Vec<u8>) -> bool {

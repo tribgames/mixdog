@@ -300,6 +300,30 @@ async fn echo_matches_the_golden_fixture() {
     assert_eq!(text, golden["text"].as_str().unwrap());
 }
 
+/// The first job of a runtime removes the logs older than a week (`sweepExpiredShellOutput`);
+/// later jobs sweep nothing.
+#[tokio::test]
+async fn the_first_job_sweeps_the_logs_older_than_a_week_once() {
+    let rig = rig();
+    let logs = rig.dir.path().join("l");
+    std::fs::create_dir_all(&logs).unwrap();
+    let day = std::time::Duration::from_secs(24 * 60 * 60);
+    let now = std::time::SystemTime::now();
+    let aged = |name: &str, age: std::time::Duration| {
+        let path = logs.join(name);
+        std::fs::File::create(&path).unwrap().set_modified(now - age).unwrap();
+        path
+    };
+    let expired = aged("job_old.stdout.log", day * 8);
+    let kept = aged("job_recent.stdout.log", day * 6);
+    let golden = fixture("shell", "shell-echo");
+    rig.shell.call(&ctx(&rig, "c1"), golden["input"].clone()).await.unwrap();
+    assert!(!expired.exists() && kept.exists(), "the week-old log went, the newer one stayed");
+    let later = aged("job_later.stdout.log", day * 8);
+    rig.shell.call(&ctx(&rig, "c2"), golden["input"].clone()).await.unwrap();
+    assert!(later.exists(), "the sweep runs once per runtime");
+}
+
 /// The `task` goldens were recorded from today's Node product (`executeTaskTool`); every text is
 /// asserted byte-equal.
 #[tokio::test]
