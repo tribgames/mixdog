@@ -9,15 +9,16 @@ import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, utimesSync, watch, writeFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { isDeepStrictEqual } from 'node:util';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { REPO_ROOT } from './common.mjs';
 import { FIXED_NOW_MS, filesRelayScript, filesScript, play, treeOf, windowAnswers } from './phone-files-script.mjs';
 import { startRelay } from './phone-relay-core.mjs';
 
-/** The cores' data dirs (postgres included) live on the idle SSD: the shared build disk's queue made postgres's shutdown checkpoint outlast
- *  the core's stop limit (Node's, unchanged). Removed when the replay ends. */
-const REPLAY_WORLDS = 'C:\\Users\\tempe\\.mixdog\\data\\scratch\\rust-core\\replay-worlds\\w5';
+/** The cores' data dirs (postgres included), one folder per checkout: the replay removes it at its start and end, so two checkouts
+ *  replaying at once must not share it (a fixed folder let one slot's replay delete another's live core). `PHONE_FILES_REPLAY_WORLDS`
+ *  moves it, e.g. to an idle SSD when the build disk's queue makes postgres's shutdown checkpoint outlast the core's stop limit. */
+const REPLAY_WORLDS = process.env.PHONE_FILES_REPLAY_WORLDS ?? join('D:\\mixdog-build\\tmp', `${basename(REPO_ROOT)}-phone-files-replay`);
 
 const here = (path) => import(pathToFileURL(join(REPO_ROOT, path)).href);
 const clone = (value) => JSON.parse(JSON.stringify(value ?? null));

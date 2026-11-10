@@ -319,17 +319,24 @@ impl ModelFactsSource for CatalogOpenAiFacts {
             PromptCacheLifetime::None
         };
         let row = json!({ "id": id });
+        let snapshot = self.catalog.snapshot();
+        // The cached Codex roster's row for the exact id (`findCachedCodexModel`).
+        let codex_row = snapshot.models_of(&ProviderId::from("openai-oauth")).iter().find(|r| r.id == model);
+        // `modelSupportsServiceTier` (`model-service-tiers.mjs`): a tier the row lists, a speed tier it adds, or its
+        // default; a model the roster does not hold has none.
+        let codex_tier = |tier: &str| {
+            codex_row.is_some_and(|r| {
+                r.picker.service_tiers.iter().any(|t| t.id == tier)
+                    || r.picker.additional_speed_tiers.iter().any(|t| t == tier)
+                    || r.picker.default_service_tier.as_deref() == Some(tier)
+            })
+        };
         ModelFacts {
             reasoning: Some(reasoning),
-            // `_codexModelSupportsReasoningSummaries`: the cached Codex roster's row for the exact
-            // id (`findCachedCodexModel`); an id it does not hold takes summaries.
-            reasoning_summaries: self
-                .catalog
-                .snapshot()
-                .models_of(&ProviderId::from("openai-oauth"))
-                .iter()
-                .find(|r| r.id == model)
-                .and_then(|r| r.supports_reasoning_summaries),
+            // `_codexModelSupportsReasoningSummaries`: an id the roster does not hold takes summaries.
+            reasoning_summaries: codex_row.and_then(|r| r.supports_reasoning_summaries),
+            codex_fast_tier: codex_tier("priority"),
+            codex_ultrafast_tier: codex_tier("ultrafast"),
             verbosity: Some(at_least(version, 5, 0)),
             native_tool_search: Some(at_least(version, 5, 4)),
             fast_tier: self.catalog.fast_capable("openai", &row, None, &json!({})),

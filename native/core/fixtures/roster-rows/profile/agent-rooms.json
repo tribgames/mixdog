@@ -1,0 +1,32 @@
+{
+  "rooms": {
+    "loywcexka9cf1847": {
+      "name": "Release check",
+      "members": [
+        "gh",
+        "rel"
+      ],
+      "maxRounds": 3,
+      "maxMessages": 8,
+      "shareTools": false,
+      "id": "loywcexka9cf1847",
+      "createdAt": 1700000400000,
+      "cursors": {},
+      "running": null
+    },
+    "loywcgh47094caab": {
+      "name": "Gone log",
+      "members": [
+        "rel",
+        "bench"
+      ],
+      "maxRounds": 3,
+      "maxMessages": 8,
+      "shareTools": false,
+      "id": "loywcgh47094caab",
+      "createdAt": 1700000402000,
+      "cursors": {},
+      "running": null
+    }
+  }
+}
