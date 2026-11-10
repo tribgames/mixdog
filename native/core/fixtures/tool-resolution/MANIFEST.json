@@ -1,11 +1,16 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-tool-resolution.mjs --tree <tree>",
-  "fileCount": 1,
+  "fileCount": 2,
   "files": [
     {
       "bytes": 167761,
       "path": "golden.json",
       "sha256": "dd3d3018b6c4124c5fd86c57608701c42de53a641c1cdc70d5eaced6665ea07f"
+    },
+    {
+      "bytes": 34833,
+      "path": "harness-request.json",
+      "sha256": "06bcc89f23fd8c0f84ab9c4803cab41f622b2f585f66998814dd8b83310eaf70"
     }
   ],
   "inputs": [
@@ -37,7 +42,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-tool-resolution.mjs",
-  "recorderSha256": "a789dfaebdd412a469be56d5dc1d9dba9c2de2dd74802b806c24a777dc5a1b36",
+  "recorderSha256": "5ae6c554c4f28a9f0857253f678a36b2d6332a9cb5727d5c623fe9f3224b18f8",
   "set": "tool-resolution",
-  "totalBytes": 167761
+  "totalBytes": 202594
 }
