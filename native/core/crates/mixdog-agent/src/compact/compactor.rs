@@ -235,6 +235,12 @@ impl Compactor for FreshCompactor {
         })
     }
 
+    async fn preflight_attachments(&self, messages: &[AgentMessage]) -> Option<crate::compact::fresh::Preflight> {
+        self.prepare(messages).await;
+        let native_pdf = self.triggers.as_ref().is_none_or(|t| t.native_pdf);
+        self.parts.attachments.preflight(messages, self.config.context_window, native_pdf).await
+    }
+
     fn request_media(&self, messages: &[AgentMessage]) -> bool {
         self.triggers.as_ref().is_some_and(|t| should_compact_for_request_media(messages, t.native_pdf, &*t.tool_media))
     }

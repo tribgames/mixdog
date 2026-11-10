@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use mixdog_agent::compact::estimate::MediaMeter;
-use mixdog_agent::compact::fresh::AttachmentSeam;
+use mixdog_agent::compact::fresh::{AttachmentSeam, Preflight};
 use mixdog_agent::message::AgentMessage;
 use mixdog_core_api::domain::provider::{BinarySource, Content, ContentPart, DocumentSource, ImageSource, Role};
 
@@ -151,6 +151,20 @@ pub fn is_referencable(part: &ContentPart) -> bool {
     }
 }
 
+/// `ATTACHMENT_INLINE_SHARE`: inline attachments may take at most this share of the model window,
+/// summed over the transcript.
+const ATTACHMENT_INLINE_SHARE: f64 = 0.25;
+/// `PDF_TEXT_MAX_BYTES / 4`: what a PDF costs at most when it lowers to text.
+const PDF_TEXT_MAX_TOKENS: u64 = 256 * 1024 / 4;
+
+fn is_image_part(part: &ContentPart) -> bool {
+    match part {
+        ContentPart::Image(_) => true,
+        ContentPart::File { mime_type, .. } => is_image_mime(mime_type),
+        _ => false,
+    }
+}
+
 /// The compaction seam over the attachment store.
 pub struct ReferencedMedia {
     files: Arc<dyn AttachmentFiles>,
@@ -167,6 +181,41 @@ impl ReferencedMedia {
     /// the part cannot travel by reference (a URL image, a non-PDF file, a store failure).
     pub async fn reference_part(&self, part: &ContentPart) -> Option<ContentPart> {
         self.reference_part_with(part, None).await
+    }
+
+    /// `messageAttachmentTokens`: what a user message's own referencable media cost inline.
+    fn inline_tokens(&self, message: &AgentMessage, native_pdf: bool) -> u64 {
+        let Content::Parts(parts) = &message.message.content else { return 0 };
+        if message.role() != Role::User {
+            return 0;
+        }
+        parts
+            .iter()
+            .filter(|p| is_referencable(p))
+            .map(|p| {
+                let tokens = self.meter.part(p).tokens;
+                if native_pdf || is_image_part(p) { tokens } else { tokens.min(PDF_TEXT_MAX_TOKENS) }
+            })
+            .sum()
+    }
+
+    /// `carriesTextlessScan`: a stored PDF with no text layer lowers to empty text for a provider
+    /// that reads PDFs as text, so inline it says nothing.
+    async fn carries_textless_scan(&self, message: &AgentMessage, native_pdf: bool) -> bool {
+        let Content::Parts(parts) = &message.message.content else { return false };
+        if native_pdf || message.role() != Role::User {
+            return false;
+        }
+        for part in parts.iter().filter(|p| is_referencable(p) && !is_image_part(p)) {
+            if let ContentPart::File { source: BinarySource::AttachmentRef(r), .. } = part
+                && let Some(facts) = self.facts.facts(r).await
+                && facts.page_count.unwrap_or(0) > 0
+                && facts.text_pages == Some(0)
+            {
+                return true;
+            }
+        }
+        false
     }
 
     /// [`Self::reference_part`] with the message's own attachment record of the part (its name as
@@ -269,6 +318,44 @@ impl AttachmentSeam for ReferencedMedia {
     /// `messageHasReferencableMedia`.
     fn has_referencable_media(&self, message: &AgentMessage) -> bool {
         matches!(&message.message.content, Content::Parts(parts) if parts.iter().any(is_referencable))
+    }
+
+    async fn preflight(&self, messages: &[AgentMessage], context_window: u64, native_pdf: bool) -> Option<Preflight> {
+        let budget = (context_window as f64 * ATTACHMENT_INLINE_SHARE).floor() as u64;
+        if budget == 0 {
+            return None;
+        }
+        let mut next = messages.to_vec();
+        // (index, inline tokens) of each message carrying attachments, oldest first.
+        let mut carriers: Vec<(usize, u64)> =
+            next.iter().enumerate().map(|(i, m)| (i, self.inline_tokens(m, native_pdf))).filter(|c| c.1 > 0).collect();
+        let before: u64 = carriers.iter().map(|c| c.1).sum();
+        let mut inline = before;
+        let mut referenced = 0;
+        for pass in [true, false] {
+            for carrier in &mut carriers {
+                let take = if pass {
+                    carrier.1 > budget || self.carries_textless_scan(&next[carrier.0], native_pdf).await
+                } else {
+                    if inline <= budget {
+                        break;
+                    }
+                    carrier.1 > 0
+                };
+                if !take {
+                    continue;
+                }
+                let rewritten = self.reference_media(&next[carrier.0]).await;
+                if rewritten == next[carrier.0] {
+                    continue;
+                }
+                inline = inline.saturating_sub(carrier.1.saturating_sub(self.inline_tokens(&rewritten, native_pdf)));
+                next[carrier.0] = rewritten;
+                carrier.1 = 0;
+                referenced += 1;
+            }
+        }
+        (referenced > 0).then_some(Preflight { messages: next, referenced_messages: referenced, inline_tokens_before: before, budget_tokens: budget })
     }
 
     /// `messageAttachmentBreakdown(message).tokens`: the image and document allowances.
@@ -470,6 +557,121 @@ mod tests {
         let s = seam(&golden);
         let part = ContentPart::File { source: BinarySource::AttachmentRef("bad".into()), mime_type: "application/pdf".into(), filename: Some("a.pdf".into()), text: None };
         assert_eq!(s.reference_part(&part).await, None);
+    }
+
+    /// `attachment-preflight.test.mjs`' parts: a reference `scan:n:pages` is a 5 MB PDF with no
+    /// text layer, `text:n:pages` an 80 KB one with 2,000 characters on every page, and `shot` a
+    /// 2 KB PNG. Facts and prices are Node's (`pdfPartAllowance`, `imagePartAllowance`).
+    struct PdfFacts;
+    fn parsed(reference: &str) -> Option<(&str, u64)> {
+        let mut parts = reference.split(':');
+        let kind = parts.next()?;
+        let pages = parts.nth(1)?.parse().ok()?;
+        Some((kind, pages))
+    }
+    #[async_trait]
+    impl AttachmentFacts for PdfFacts {
+        async fn facts(&self, reference: &str) -> Option<StoredFacts> {
+            if reference == "shot" {
+                return Some(StoredFacts { size_bytes: 2048, ..Default::default() });
+            }
+            Some(match parsed(reference)? {
+                ("scan", pages) => StoredFacts { size_bytes: 5 * 1024 * 1024, page_count: Some(pages), text_pages: Some(0), text_chars: Some(0), ..Default::default() },
+                (_, pages) => StoredFacts { size_bytes: 80_000, page_count: Some(pages), text_pages: Some(pages), text_chars: Some(pages * 2_000), ..Default::default() },
+            })
+        }
+    }
+    struct PdfMeter;
+    impl MediaMeter for PdfMeter {
+        fn part(&self, part: &ContentPart) -> PartMeter {
+            let tokens = match part {
+                ContentPart::File { source: BinarySource::AttachmentRef(r), .. } if r == "shot" => 1_568,
+                ContentPart::File { source: BinarySource::AttachmentRef(r), .. } => match parsed(r) {
+                    Some(("scan", pages)) => pages * 1_568,
+                    Some((_, pages)) => pages * 1_568 + pages * 1_000,
+                    None => 0,
+                },
+                _ => 0,
+            };
+            PartMeter { text: String::new(), tokens }
+        }
+    }
+    fn preflight_seam() -> ReferencedMedia {
+        let golden: Value = serde_json::from_str(include_str!("golden/attachment_reference.json")).unwrap();
+        ReferencedMedia::new(Arc::new(Files(golden)), Arc::new(PdfFacts), Arc::new(PdfMeter))
+    }
+    fn pdf(kind: &str, n: u32, pages: u64) -> ContentPart {
+        let name = if kind == "scan" { format!("scan-{n}.pdf") } else { format!("notes-{n}.pdf") };
+        ContentPart::File { source: BinarySource::AttachmentRef(format!("{kind}:{n}:{pages}")), mime_type: "application/pdf".into(), filename: Some(name), text: None }
+    }
+    fn user(text: &str, media: Vec<ContentPart>) -> AgentMessage {
+        let mut message = AgentMessage::user(text);
+        message.message.content = Content::Parts([vec![ContentPart::Text(text.into(), None)], media].concat());
+        message
+    }
+    fn eight_scans() -> AgentMessage {
+        user("Summarize these contracts.", (1..=8).map(|n| pdf("scan", n, 37)).collect())
+    }
+    fn parts(message: &AgentMessage) -> &[ContentPart] {
+        let Content::Parts(parts) = &message.message.content else { panic!("parts") };
+        parts
+    }
+    fn referenced(part: &ContentPart) -> Option<(&str, &serde_json::Map<String, Value>)> {
+        match part {
+            ContentPart::Text(text, Some(meta)) => Some((text, meta)),
+            _ => None,
+        }
+    }
+
+    #[tokio::test]
+    async fn the_preflight_references_eight_scans_and_is_idempotent() {
+        let s = preflight_seam();
+        for window in [500_000, 900_000] {
+            let messages = vec![AgentMessage::assistant("rules", Vec::new()), eight_scans()];
+            let outcome = s.preflight(&messages, window, true).await.expect("rewritten");
+            assert_eq!(outcome.budget_tokens, window / 4);
+            assert_eq!(outcome.inline_tokens_before, 8 * 37 * 1_568);
+            assert_eq!(outcome.referenced_messages, 1);
+            let latest = parts(&outcome.messages[1]);
+            assert_eq!(latest[0], ContentPart::Text("Summarize these contracts.".into(), None), "the request itself is untouched");
+            assert_eq!(latest.iter().filter(|p| referenced(p).is_some()).count(), 8);
+            let (text, meta) = referenced(&latest[1]).unwrap();
+            assert_eq!(meta["attachmentRef"], "scan:1:37", "the blob stays named, so it is kept");
+            assert!(text.contains("\"scan-1.pdf\" (PDF, 37 pages, no text layer (scanned pages), 5.0 MB)"), "{text}");
+            assert!(text.contains("pages=\"1-5\""));
+            assert_eq!(outcome.messages[0], messages[0]);
+            assert_eq!(s.preflight(&outcome.messages, window, true).await, None, "idempotent");
+        }
+    }
+
+    #[tokio::test]
+    async fn the_preflight_keeps_what_fits_and_takes_the_oldest_first() {
+        let s = preflight_seam();
+        let fits = vec![user("compare", vec![pdf("text", 1, 5), pdf("text", 2, 5)])];
+        assert_eq!(s.preflight(&fits, 200_000, true).await, None, "attachments under the budget stay inline");
+        // 2 x 31,360 against a 50,000 budget: one must go, the older one.
+        let messages = vec![user("first", vec![pdf("scan", 1, 20)]), AgentMessage::assistant("ok", Vec::new()), user("second", vec![pdf("scan", 2, 20)])];
+        let outcome = s.preflight(&messages, 200_000, true).await.unwrap();
+        assert_eq!(outcome.referenced_messages, 1);
+        assert!(referenced(&parts(&outcome.messages[0])[1]).is_some());
+        assert_eq!(outcome.messages[2], messages[2]);
+        assert_eq!(s.preflight(&[], 0, true).await, None, "an unknown window has no budget");
+    }
+
+    #[tokio::test]
+    async fn a_text_only_model_never_gets_a_scan_inline_and_images_share_the_budget() {
+        let s = preflight_seam();
+        let messages = vec![user("read", vec![pdf("scan", 1, 2)])];
+        let outcome = s.preflight(&messages, 1_000_000, false).await.expect("a text-only model");
+        assert!(referenced(&parts(&outcome.messages[0])[1]).unwrap().0.contains("OCR text when the model is text-only"));
+        assert_eq!(s.preflight(&messages, 1_000_000, true).await, None, "a native model reads the scan");
+
+        let image = ContentPart::File { source: BinarySource::AttachmentRef("shot".into()), mime_type: "image/png".into(), filename: Some("shot.png".into()), text: None };
+        let media = [vec![image], (1..=8).map(|n| pdf("scan", n, 37)).collect()].concat();
+        let outcome = s.preflight(&[user("look", media)], 500_000, true).await.unwrap();
+        let (text, meta) = referenced(&parts(&outcome.messages[0])[1]).unwrap();
+        assert!(text.starts_with("[Image kept on disk, not inlined: \"shot.png\" (image/png, 2 KB)"), "{text}");
+        assert_eq!(meta["kind"], "image");
     }
 
     #[tokio::test]

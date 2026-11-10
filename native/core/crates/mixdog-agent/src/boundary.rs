@@ -297,6 +297,16 @@ impl Run {
                 self.cross_turn.clear();
                 self.env.sink.replace(&self.messages, &Rewrite::default());
             }
+            // `preflightAttachments`: attachments that would crowd the window travel by reference
+            // from this send on, written into the transcript so a retried turn never re-sends the
+            // bulk. Runs whether or not automatic compaction is on.
+            if let Some(compactor) = self.env.compactor.clone()
+                && let Some(preflight) = compactor.preflight_attachments(&self.messages).await
+            {
+                self.messages = preflight.messages;
+                self.baseline = None;
+                self.env.sink.replace(&self.messages, &Rewrite::default());
+            }
             let changed = self.pre_send_compact_pass(compact_attempted).await?;
             compact_attempted |= changed;
             if !changed {
