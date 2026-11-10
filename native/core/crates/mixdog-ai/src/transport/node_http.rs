@@ -1,23 +1,22 @@
 //! The HTTP client of every non-streaming-request provider call, written to put on the wire what Node puts there:
 //! the global `fetch` of Node 22 (undici 6.21 for the headers it adds, `http-agent.mjs`' undici 8 `Agent` for the
 //! bytes it writes) over a kept-alive connection pool. The head is written by hand because no HTTP library keeps a
-//! header's letter case or leaves the order to the caller; the response is read with `httparse`.
+//! header's letter case (`h1` says what hyper cannot do); the response is read by `hyper`'s connection client.
 //!
 //! What Node writes, in this order (`client-h1.js` `writeH1`): the request line, `host`, `connection`, the headers
 //! `fetch` hands over (the caller's, in the caller's order and letter case, then `accept`, `accept-language`,
 //! `sec-fetch-mode`, `user-agent` and `accept-encoding` where the caller set none: `fetch/index.js` 10478, 4143,
 //! 10888, 10908), and `content-length` last. A raw `undici.request` (the preconnect) adds none of the `fetch` headers.
 
-use std::collections::HashMap;
+mod decode;
+mod h1;
+mod pool;
+
 use std::io;
-use std::io::Write as _;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::sync::Mutex;
-use std::sync::PoisonError;
 use std::sync::OnceLock;
 use std::time::Duration;
-use std::time::Instant;
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -28,11 +27,10 @@ use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::TransportFault;
 use mixdog_core_api::domain::provider::WireRequest;
 use tokio::io::AsyncRead;
-use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWrite;
-use tokio::io::AsyncWriteExt;
 
 use crate::netproxy::NetworkProxy;
+use crate::netproxy::Subscription;
 use crate::netproxy::tunnel::TunnelError;
 use crate::netproxy::tunnel::open_proxy_tunnel;
 use crate::netproxy::tunnel::tls_code;
@@ -42,6 +40,12 @@ use super::link::BodyStream;
 use super::link::HttpResponse;
 use super::link::Surface;
 use super::tcp;
+use decode::Decoder;
+use h1::BODY_TIMEOUT;
+use h1::H1Body;
+use h1::Reuse;
+use pool::Idle;
+use pool::Pool;
 
 pub trait Io: AsyncRead + AsyncWrite + Unpin + Send {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> Io for T {}
@@ -54,6 +58,10 @@ pub const ALPN: [&[u8]; 2] = [b"http/1.1", b"h2"];
 const KEEP_ALIVE: Duration = Duration::from_secs(60);
 const KEEP_ALIVE_MAX: Duration = Duration::from_secs(90);
 const KEEP_ALIVE_THRESHOLD: Duration = Duration::from_secs(2);
+/// undici's connector timeout for the TCP and TLS handshakes (`connect.js` `timeout`, 10 s), and the agent's
+/// `headersTimeout` (`http-agent.mjs`, 600 s); the body's is [`BODY_TIMEOUT`].
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const HEADERS_TIMEOUT: Duration = Duration::from_secs(600);
 
 // ---------------------------------------------------------------------------
 // The head
@@ -147,301 +155,83 @@ pub fn head(request: &WireRequest, url: &url::Url, writer: Writer) -> (Vec<u8>, 
         Some(port) => format!("{}:{port}", url.host_str().unwrap_or_default()),
         None => url.host_str().unwrap_or_default().to_owned(),
     };
-    let mut text = format!(
+    let text = format!(
         "{} {target} HTTP/1.1\r\nhost: {authority}\r\nconnection: {}\r\n",
         request.method,
         if close { "close" } else { "keep-alive" }
     );
+    // Node writes a header's value as Latin-1 (`check_headers` admits nothing above U+00FF).
+    let mut bytes = text.into_bytes();
     for (name, value) in &headers {
-        text.push_str(&format!("{name}: {value}\r\n"));
+        bytes.extend_from_slice(name.as_bytes());
+        bytes.extend_from_slice(b": ");
+        bytes.extend(value.chars().map(|c| c as u8));
+        bytes.extend_from_slice(b"\r\n");
     }
     let expects_payload = matches!(request.method.as_str(), "POST" | "PUT" | "PATCH");
     if !request.body.is_empty() || expects_payload {
-        text.push_str(&format!("content-length: {}\r\n", request.body.len()));
+        bytes.extend_from_slice(format!("content-length: {}\r\n", request.body.len()).as_bytes());
     }
-    text.push_str("\r\n");
-    (text.into_bytes(), close)
+    bytes.extend_from_slice(b"\r\n");
+    (bytes, close)
 }
 
 // ---------------------------------------------------------------------------
-// The body
+// What undici refuses to send
 // ---------------------------------------------------------------------------
 
-enum Framing {
-    Length(u64),
-    Chunked(Chunk),
-    UntilClose,
-    Empty,
-}
-
-enum Chunk {
-    Size,
-    Data(u64),
-    DataEnd,
-    Trailer,
-}
-
-/// `content-encoding` as `fetch` decodes it (`gzip`, `deflate` (zlib, else raw by the first byte), `br`).
-enum Decoder {
-    Gzip(flate2::write::GzDecoder<Vec<u8>>),
-    Zlib(flate2::write::ZlibDecoder<Vec<u8>>),
-    Raw(flate2::write::DeflateDecoder<Vec<u8>>),
-    Brotli(Box<brotli::DecompressorWriter<Vec<u8>>>),
-    /// `deflate`, not yet told apart.
-    Deflate,
-}
-
-impl Decoder {
-    fn of(encoding: Option<&str>) -> Option<Self> {
-        match encoding?.trim().to_ascii_lowercase().as_str() {
-            "gzip" | "x-gzip" => Some(Self::Gzip(flate2::write::GzDecoder::new(Vec::new()))),
-            "deflate" => Some(Self::Deflate),
-            "br" => Some(Self::Brotli(Box::new(brotli::DecompressorWriter::new(Vec::new(), 4096)))),
-            _ => None,
+/// `core/request.js` `processHeader`: the names and values the dispatcher accepts. Nothing is written for a request
+/// that fails here; a CR, LF or NUL cannot reach the socket, and the headers undici owns (`transfer-encoding`,
+/// `keep-alive`, `upgrade`, `expect`) are not the caller's.
+pub fn check_headers(headers: &[(String, String)]) -> Result<(), String> {
+    let token = |name: &str| !name.is_empty() && hyper::header::HeaderName::from_bytes(name.as_bytes()).is_ok();
+    let (mut host, mut length) = (false, false);
+    for (name, value) in headers {
+        let lower = name.to_ascii_lowercase();
+        if !token(&lower) {
+            return Err("invalid header key".into());
         }
-    }
-
-    fn feed(&mut self, bytes: &[u8]) -> io::Result<Vec<u8>> {
-        if matches!(self, Self::Deflate) {
-            *self = if bytes.first().is_some_and(|b| b & 0x0f == 8) {
-                Self::Zlib(flate2::write::ZlibDecoder::new(Vec::new()))
-            } else {
-                Self::Raw(flate2::write::DeflateDecoder::new(Vec::new()))
-            };
+        // `isValidHeaderValue`: tab, printable ASCII and Latin-1; Node writes the value as Latin-1.
+        if value.chars().any(|c| !(c == '\t' || ('\u{20}'..='\u{7e}').contains(&c) || ('\u{80}'..='\u{ff}').contains(&c))) {
+            return Err(format!("invalid {name} header"));
         }
-        match self {
-            Self::Gzip(d) => {
-                d.write_all(bytes)?;
-                d.flush()?;
-                Ok(std::mem::take(d.get_mut()))
-            }
-            Self::Zlib(d) => {
-                d.write_all(bytes)?;
-                d.flush()?;
-                Ok(std::mem::take(d.get_mut()))
-            }
-            Self::Raw(d) => {
-                d.write_all(bytes)?;
-                d.flush()?;
-                Ok(std::mem::take(d.get_mut()))
-            }
-            Self::Brotli(d) => {
-                d.write_all(bytes)?;
-                d.flush()?;
-                Ok(std::mem::take(d.get_mut()))
-            }
-            Self::Deflate => Ok(Vec::new()),
-        }
-    }
-}
-
-struct H1Body {
-    io: Option<Stream>,
-    buffer: Vec<u8>,
-    framing: Framing,
-    decoder: Option<Decoder>,
-    /// Where the connection goes back to once the body is whole; `None` when the exchange ends it.
-    reuse: Option<(Arc<Pool>, String, Duration, u64)>,
-    /// Set by [`BodyStream::hold_connection`]: the whole body's connection waits for this body to be dropped.
-    hold: bool,
-    parked: Option<(Arc<Pool>, String, Idle)>,
-}
-
-impl Drop for H1Body {
-    fn drop(&mut self) {
-        if let Some((pool, key, idle)) = self.parked.take() {
-            pool.put(key, idle);
-        }
-    }
-}
-
-impl H1Body {
-    /// The body bytes available in `buffer` (framing removed), or `None` when more must be read. `Err` is a framing fault.
-    fn take(&mut self) -> io::Result<Option<Vec<u8>>> {
-        match &mut self.framing {
-            Framing::Empty => Ok(Some(Vec::new())),
-            Framing::UntilClose => Ok((!self.buffer.is_empty()).then(|| std::mem::take(&mut self.buffer))),
-            Framing::Length(left) => {
-                if *left == 0 || self.buffer.is_empty() {
-                    return Ok(None);
-                }
-                let n = (*left as usize).min(self.buffer.len());
-                *left -= n as u64;
-                Ok(Some(self.buffer.drain(..n).collect()))
-            }
-            Framing::Chunked(state) => {
-                let mut out = Vec::new();
-                loop {
-                    match state {
-                        Chunk::Size => {
-                            let Some(end) = self.buffer.windows(2).position(|w| w == b"\r\n") else { break };
-                            let line = String::from_utf8_lossy(&self.buffer[..end]).into_owned();
-                            let size = u64::from_str_radix(line.split(';').next().unwrap_or("").trim(), 16)
-                                .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "bad chunk size"))?;
-                            self.buffer.drain(..end + 2);
-                            *state = if size == 0 { Chunk::Trailer } else { Chunk::Data(size) };
-                        }
-                        Chunk::Data(left) => {
-                            if self.buffer.is_empty() {
-                                break;
-                            }
-                            let n = (*left as usize).min(self.buffer.len());
-                            out.extend(self.buffer.drain(..n));
-                            *left -= n as u64;
-                            if *left == 0 {
-                                *state = Chunk::DataEnd;
-                            }
-                        }
-                        Chunk::DataEnd => {
-                            if self.buffer.len() < 2 {
-                                break;
-                            }
-                            self.buffer.drain(..2);
-                            *state = Chunk::Size;
-                        }
-                        Chunk::Trailer => {
-                            let Some(end) = self.buffer.windows(2).position(|w| w == b"\r\n") else { break };
-                            let empty = end == 0;
-                            self.buffer.drain(..end + 2);
-                            if empty {
-                                self.framing = Framing::Length(0);
-                                break;
-                            }
-                        }
-                    }
-                }
-                Ok((!out.is_empty()).then_some(out))
-            }
-        }
-    }
-
-    fn done(&self) -> bool {
-        matches!(self.framing, Framing::Length(0) | Framing::Empty)
-    }
-
-    /// The exchange is whole: the connection goes back to the pool.
-    fn release(&mut self) {
-        if let (Some(io), Some((pool, key, ttl, born))) = (self.io.take(), self.reuse.take())
-            && self.buffer.is_empty()
-        {
-            let idle = Idle::H1 { io, until: Instant::now() + ttl, born };
-            if self.hold {
-                self.parked = Some((pool, key, idle));
-            } else {
-                pool.put(key, idle);
-            }
-        }
-    }
-}
-
-#[async_trait]
-impl BodyStream for H1Body {
-    fn hold_connection(&mut self) {
-        self.hold = true;
-    }
-
-    async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
-        loop {
-            match self.take() {
-                Err(e) => {
-                    self.io = None;
-                    return Some(Err(fault_from_io(&e, false)));
-                }
-                Ok(Some(raw)) if !raw.is_empty() => {
-                    let out = match self.decoder.as_mut() {
-                        Some(decoder) => match decoder.feed(&raw) {
-                            Ok(out) => out,
-                            Err(e) => {
-                                self.io = None;
-                                return Some(Err(fault_from_io(&e, false)));
-                            }
-                        },
-                        None => raw,
-                    };
-                    if self.done() {
-                        self.release();
-                    }
-                    if out.is_empty() {
-                        continue;
-                    }
-                    return Some(Ok(Bytes::from(out)));
-                }
-                _ => {}
-            }
-            if self.done() {
-                self.release();
-                return None;
-            }
-            let Some(io) = self.io.as_mut() else { return None };
-            let mut chunk = [0u8; 16384];
-            match io.read(&mut chunk).await {
-                Ok(0) => {
-                    self.io = None;
-                    return if matches!(self.framing, Framing::UntilClose) {
-                        None
-                    } else {
-                        Some(Err(TransportFault::Closed))
-                    };
-                }
-                Ok(n) => self.buffer.extend_from_slice(&chunk[..n]),
-                Err(e) => {
-                    self.io = None;
-                    return Some(Err(fault_from_io(&e, false)));
+        match lower.as_str() {
+            "host" => {
+                if std::mem::replace(&mut host, true) {
+                    return Err("duplicate host header".into());
                 }
             }
+            "content-length" => {
+                if std::mem::replace(&mut length, true) {
+                    return Err("duplicate content-length header".into());
+                }
+                if value.is_empty() || !value.bytes().all(|b| b.is_ascii_digit()) {
+                    return Err("invalid content-length header".into());
+                }
+            }
+            "transfer-encoding" | "keep-alive" | "upgrade" => return Err(format!("invalid {lower} header")),
+            "expect" => return Err("expect header not supported".into()),
+            "connection" => {
+                if !value.to_ascii_lowercase().split(',').all(|part| token(part.trim())) {
+                    return Err("invalid connection header".into());
+                }
+            }
+            _ => {}
         }
     }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
-// The pool and the connect
+// The client
 // ---------------------------------------------------------------------------
 
-enum Idle {
-    /// `born` is the connection's creation number: undici's pool hands a request to the first free client in the
-    /// order they were created, so the idle list is kept in that order.
-    H1 { io: Stream, until: Instant, born: u64 },
-    H2(h2::client::SendRequest<Bytes>),
-}
-
-#[derive(Default)]
-struct Pool {
-    idle: Mutex<HashMap<String, Vec<Idle>>>,
-    births: std::sync::atomic::AtomicU64,
-}
-
-impl Pool {
-    fn birth(&self) -> u64 {
-        self.births.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    }
-
-    fn put(&self, key: String, idle: Idle) {
-        let mut all = self.idle.lock().unwrap_or_else(PoisonError::into_inner);
-        let list = all.entry(key).or_default();
-        let at = match &idle {
-            Idle::H1 { born, .. } => list.iter().position(|o| matches!(o, Idle::H1 { born: other, .. } if other > born)).unwrap_or(list.len()),
-            Idle::H2(_) => list.len(),
-        };
-        list.insert(at, idle);
-    }
-
-    /// An idle connection of `key` that is still within its keep-alive; h2 connections stay shared.
-    fn take(&self, key: &str) -> Option<Idle> {
-        let mut idle = self.idle.lock().unwrap_or_else(PoisonError::into_inner);
-        let list = idle.get_mut(key)?;
-        while !list.is_empty() {
-            match list.remove(0) {
-                Idle::H1 { until, .. } if Instant::now() >= until => {}
-                Idle::H2(send) => {
-                    let again = send.clone();
-                    list.insert(0, Idle::H2(send));
-                    return Some(Idle::H2(again));
-                }
-                other => return Some(other),
-            }
-        }
-        None
-    }
+/// A failed exchange. `replay` says that no byte of the request reached the server whole, so it may be sent again on
+/// another connection: the connection was gone before the write, or the write itself failed, or the server refused
+/// the stream (`REFUSED_STREAM`). A request the server may have executed is never replayed.
+struct Failure {
+    error: ProviderError,
+    replay: bool,
 }
 
 /// Test pinning: every connect goes to `addr` and trusts `tls` alone.
@@ -455,6 +245,8 @@ pub struct NodeClient {
     policy: Option<Arc<NetworkProxy>>,
     pinned: Option<Pinned>,
     pool: Arc<Pool>,
+    /// A change of the network proxy setting closes every idle connection (`http-agent.mjs` `onProxyRouteChange`).
+    _retire: Option<Subscription>,
 }
 
 fn tls_config() -> Result<Arc<rustls::ClientConfig>, io::Error> {
@@ -504,12 +296,66 @@ fn io_error(err: &io::Error, connecting: bool, delivery: DeliveryState, surface:
     error
 }
 
+fn chain_error(err: &(dyn std::error::Error + 'static), delivery: DeliveryState, surface: Surface) -> ProviderError {
+    let fault = super::fault::fault_from_chain(err, false);
+    let message = surface.text(|| format!("{fault:?}"));
+    let mut error = ProviderError::transport(fault, delivery);
+    error.message = message;
+    error
+}
+
+/// undici's own timeouts (`UND_ERR_CONNECT_TIMEOUT`, `UND_ERR_HEADERS_TIMEOUT`): they carry a code and no fault.
+fn timed_out(code: &str, text: &str, delivery: DeliveryState, surface: Surface) -> ProviderError {
+    let mut error = ProviderError::new(ErrorKind::Unknown, delivery);
+    error.code = Some(code.to_owned());
+    error.message = surface.text(|| text.to_owned());
+    error
+}
+
+fn refused(text: String, surface: Surface) -> ProviderError {
+    let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent);
+    error.message = surface.text(|| text);
+    error
+}
+
 impl NodeClient {
     pub fn new(tcp: TcpKeepalive, policy: Option<Arc<NetworkProxy>>, pinned: Option<Pinned>) -> Self {
-        Self { tcp, policy, pinned, pool: Arc::new(Pool::default()) }
+        let pool = Arc::new(Pool::default());
+        let retire = policy.as_ref().map(|policy| {
+            let weak = Arc::downgrade(&pool);
+            policy.on_change(Arc::new(move |_| {
+                if let Some(pool) = weak.upgrade() {
+                    pool.clear();
+                }
+            }))
+        });
+        Self { tcp, policy, pinned, pool, _retire: retire }
     }
 
-    async fn dial(&self, url: &url::Url, surface: Surface) -> Result<(Stream, bool), ProviderError> {
+    /// The proxy the request goes through, decided before any pooled connection is looked at.
+    async fn route(&self, url: &url::Url) -> Result<Option<String>, ProviderError> {
+        if self.pinned.is_some() {
+            return Ok(None);
+        }
+        match &self.policy {
+            Some(policy) => policy.route_for_url(url.as_str()).await.map(|route| route.proxy).map_err(|e| {
+                let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent);
+                error.message = e.to_string();
+                error
+            }),
+            None => Ok(None),
+        }
+    }
+
+    /// Everything that routes: the epoch of the proxy setting, the proxy, the origin.
+    fn key(&self, url: &url::Url, proxy: &Option<String>) -> String {
+        let epoch = self.policy.as_ref().map_or(0, |policy| policy.epoch());
+        let https = url.scheme() == "https";
+        let port = url.port_or_known_default().unwrap_or(if https { 443 } else { 80 });
+        format!("{epoch}|{}|{}://{}:{port}", proxy.as_deref().unwrap_or(""), url.scheme(), url.host_str().unwrap_or_default())
+    }
+
+    async fn dial(&self, url: &url::Url, proxy: &Option<String>, surface: Surface) -> Result<(Stream, bool), ProviderError> {
         let host = url.host_str().unwrap_or_default().to_owned();
         let bare = host.trim_start_matches('[').trim_end_matches(']').to_owned();
         let https = url.scheme() == "https";
@@ -518,21 +364,9 @@ impl NodeClient {
             let socket = tcp::connect(pinned.addr, &self.tcp).await.map_err(|e| io_error(&e, true, DeliveryState::NotSent, surface))?;
             Box::new(socket)
         } else {
-            let proxy = match &self.policy {
-                Some(policy) => policy
-                    .route_for_url(url.as_str())
-                    .await
-                    .map_err(|e| {
-                        let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent);
-                        error.message = e.to_string();
-                        error
-                    })?
-                    .proxy,
-                None => None,
-            };
             match proxy {
                 Some(proxy) => Box::new(
-                    open_proxy_tunnel(&proxy, &bare, port, &self.tcp).await.map_err(|e| tunnel_error(e, surface))?,
+                    open_proxy_tunnel(proxy, &bare, port, &self.tcp).await.map_err(|e| tunnel_error(e, surface))?,
                 ),
                 None => {
                     let addrs = tokio::net::lookup_host((bare.as_str(), port))
@@ -579,160 +413,121 @@ impl NodeClient {
         Ok((Box::new(tls), h2))
     }
 
-    /// One request, no redirects. A reused connection that fails before it answers is replaced by a new one once.
+    /// One request, no redirects. A request that provably did not leave whole on a reused connection is sent again
+    /// on another one, once; one the server may have executed is not.
     pub async fn send(&self, request: &WireRequest, writer: Writer, surface: Surface) -> Result<HttpResponse, ProviderError> {
-        let url = url::Url::parse(&request.url).map_err(|e| {
-            let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent);
-            error.message = e.to_string();
-            error
-        })?;
-        let key = format!("{}://{}", url.scheme(), url.authority());
+        let url = url::Url::parse(&request.url).map_err(|e| refused(e.to_string(), surface))?;
+        check_headers(&request.headers).map_err(|text| refused(text, surface))?;
+        hyper::Method::from_bytes(request.method.as_bytes()).map_err(|_| refused(format!("invalid HTTP method {}", request.method), surface))?;
+        let proxy = self.route(&url).await?;
+        let key = self.key(&url, &proxy);
+        let mut replayed = false;
         loop {
-            let reused = self.pool.take(&key);
+            let reused = self.pool.take(&key).await;
             let was_reused = reused.is_some();
             let outcome = match reused {
-                Some(Idle::H1 { io, born, .. }) => self.exchange_h1(io, born, &key, request, &url, writer, surface).await,
-                Some(Idle::H2(send)) => self.exchange_h2(send, request, &url, writer, surface).await,
+                Some(Idle::H1 { conn, .. }) => self.exchange_h1(conn, &key, request, &url, writer, surface).await,
+                Some(Idle::H2 { id, send }) => self.exchange_h2(&key, id, send, request, &url, writer, surface).await,
                 None => {
-                    let (io, h2) = self.dial(&url, surface).await?;
+                    let dialled = tokio::time::timeout(CONNECT_TIMEOUT, self.dial(&url, &proxy, surface))
+                        .await
+                        .map_err(|_| timed_out("UND_ERR_CONNECT_TIMEOUT", "Connect Timeout Error", DeliveryState::NotSent, surface))??;
+                    let (io, h2) = dialled;
                     if h2 {
                         let (send, connection) = h2::client::handshake(io).await.map_err(|e| {
                             let mut error = ProviderError::transport(TransportFault::Tls, DeliveryState::NotSent);
                             error.message = surface.text(|| e.to_string());
                             error
                         })?;
-                        mixdog_rt::spawn("ai.http.h2", mixdog_rt::TaskClass::Work, async move {
+                        let id = self.pool.birth();
+                        let (pool, origin) = (self.pool.clone(), key.clone());
+                        tokio::spawn(async move {
                             let _ = connection.await;
+                            pool.remove_h2(&origin, id);
                         });
-                        self.pool.put(key.clone(), Idle::H2(send.clone()));
-                        self.exchange_h2(send, request, &url, writer, surface).await
+                        self.pool.put_h2(key.clone(), id, send.clone());
+                        self.exchange_h2(&key, id, send, request, &url, writer, surface).await
                     } else {
-                        self.exchange_h1(io, self.pool.birth(), &key, request, &url, writer, surface).await
+                        let conn = h1::Conn::open(io, self.pool.birth())
+                            .await
+                            .map_err(|e| chain_error(&e, DeliveryState::NotSent, surface))?;
+                        self.exchange_h1(conn, &key, request, &url, writer, surface).await
                     }
                 }
             };
             match outcome {
-                Err((_, true)) if was_reused => continue,
-                Err((error, _)) => return Err(error),
+                Err(failure) if was_reused && failure.replay && !replayed => replayed = true,
+                Err(failure) => return Err(failure.error),
                 Ok(response) => return Ok(response),
             }
         }
     }
 
-    /// `Err((error, nothing_came_back))`.
-    #[allow(clippy::too_many_arguments, reason = "one exchange's connection, request and surface")]
     async fn exchange_h1(
         &self,
-        mut io: Stream,
-        born: u64,
+        mut conn: h1::Conn,
         key: &str,
         request: &WireRequest,
         url: &url::Url,
         writer: Writer,
         surface: Surface,
-    ) -> Result<HttpResponse, (ProviderError, bool)> {
+    ) -> Result<HttpResponse, Failure> {
         let (head, close) = head(request, url, writer);
-        let failed = |e: &io::Error, silent: bool| (io_error(e, false, DeliveryState::Ambiguous, surface), silent);
-        io.write_all(&head).await.map_err(|e| failed(&e, true))?;
-        io.write_all(&request.body).await.map_err(|e| failed(&e, true))?;
-        io.flush().await.map_err(|e| failed(&e, true))?;
-        let mut buffer: Vec<u8> = Vec::new();
-        loop {
-            let mut headers = [httparse::EMPTY_HEADER; 128];
-            let mut parsed = httparse::Response::new(&mut headers);
-            let attempt = parsed.parse(&buffer);
-            match attempt {
-                Ok(httparse::Status::Complete(used)) => {
-                    let status = parsed.code.unwrap_or(0);
-                    let list: Vec<(String, String)> = parsed
-                        .headers
-                        .iter()
-                        .map(|h| (h.name.to_owned(), String::from_utf8_lossy(h.value).into_owned()))
-                        .collect();
-                    buffer.drain(..used);
-                    if (100..200).contains(&status) && status != 101 {
-                        continue;
-                    }
-                    return Ok(self.response_h1(io, born, buffer, status, list, key, request, close));
-                }
-                Ok(httparse::Status::Partial) => {}
-                Err(_) => {
-                    let error = io::Error::new(io::ErrorKind::InvalidData, "bad response head");
-                    return Err(failed(&error, false));
-                }
+        conn.ready()
+            .await
+            .map_err(|e| Failure { error: chain_error(&e, DeliveryState::NotSent, surface), replay: true })?;
+        conn.write_request(&head, &request.body)
+            .await
+            .map_err(|e| Failure { error: io_error(&e, false, DeliveryState::Ambiguous, surface), replay: true })?;
+        let answered = tokio::time::timeout(HEADERS_TIMEOUT, conn.response(&request.method, close)).await;
+        let response = match answered {
+            Err(_) => {
+                let error = timed_out("UND_ERR_HEADERS_TIMEOUT", "Headers Timeout Error", DeliveryState::Ambiguous, surface);
+                return Err(Failure { error, replay: false });
             }
-            let mut chunk = [0u8; 16384];
-            match io.read(&mut chunk).await {
-                Ok(0) => {
-                    let error = io::Error::from(io::ErrorKind::UnexpectedEof);
-                    return Err(failed(&error, buffer.is_empty()));
-                }
-                Ok(n) => buffer.extend_from_slice(&chunk[..n]),
-                Err(e) => return Err(failed(&e, buffer.is_empty())),
-            }
-        }
-    }
-
-    #[allow(clippy::too_many_arguments, reason = "the pieces of one parsed response head")]
-    fn response_h1(
-        &self,
-        io: Stream,
-        born: u64,
-        buffer: Vec<u8>,
-        status: u16,
-        headers: Vec<(String, String)>,
-        key: &str,
-        request: &WireRequest,
-        close: bool,
-    ) -> HttpResponse {
-        let find = |name: &str| headers.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str());
-        let framing = if request.method == "HEAD" || status == 204 || status == 304 || status == 101 {
-            Framing::Empty
-        } else if find("transfer-encoding").is_some_and(|v| v.to_ascii_lowercase().contains("chunked")) {
-            Framing::Chunked(Chunk::Size)
-        } else if let Some(length) = find("content-length").and_then(|v| v.trim().parse::<u64>().ok()) {
-            Framing::Length(length)
-        } else {
-            Framing::UntilClose
+            Ok(Err(e)) => return Err(Failure { error: chain_error(&e, DeliveryState::Ambiguous, surface), replay: false }),
+            Ok(Ok(response)) => response,
         };
-        let server_closes = find("connection").is_some_and(|v| v.to_ascii_lowercase().contains("close"));
-        let reusable = !close && !server_closes && !matches!(framing, Framing::UntilClose);
+        let (parts, incoming) = response.into_parts();
+        let status = parts.status.as_u16();
+        let headers: Vec<(String, String)> = parts
+            .headers
+            .iter()
+            .map(|(name, value)| (name.as_str().to_owned(), String::from_utf8_lossy(value.as_bytes()).into_owned()))
+            .collect();
+        let find = |name: &str| headers.iter().find(|(known, _)| known == name).map(|(_, value)| value.as_str());
+        let tokens = |name: &str| find(name).map(str::to_ascii_lowercase).unwrap_or_default();
+        let (connection, old) = (tokens("connection"), parts.version == hyper::Version::HTTP_10);
+        let server_closes = connection.split(',').any(|t| t.trim() == "close") || (old && !connection.contains("keep-alive"));
         // `keep-alive: timeout=N` (`client-h1.js` `onHeadersComplete`): the hint less the threshold, at most the maximum.
         let hint = find("keep-alive")
             .and_then(|v| v.split(',').find_map(|part| part.trim().strip_prefix("timeout=")?.trim().parse::<u64>().ok()))
             .map(Duration::from_secs);
         let ttl = hint.map_or(KEEP_ALIVE, |h| h.saturating_sub(KEEP_ALIVE_THRESHOLD).min(KEEP_ALIVE_MAX));
-        let decoder = Decoder::of(find("content-encoding"));
-        let body = H1Body {
-            io: Some(io),
-            buffer,
-            framing,
-            decoder,
-            reuse: reusable.then(|| (self.pool.clone(), key.to_owned(), ttl, born)),
-            hold: false,
-            parked: None,
-        };
-        let mut body = body;
-        // An empty body is whole already.
-        if body.done() {
-            body.release();
-        }
-        HttpResponse { status, headers, body: Box::new(body) }
+        let bodiless = request.method == "HEAD" || matches!(status, 204 | 304);
+        let decoder = if bodiless { None } else { Decoder::of(find("content-encoding")) };
+        let reuse = (!close && !server_closes).then(|| Reuse { pool: self.pool.clone(), key: key.to_owned(), ttl });
+        Ok(HttpResponse { status, headers, body: Box::new(H1Body::new(incoming, conn, decoder, reuse)) })
     }
 
+    #[allow(clippy::too_many_arguments, reason = "one exchange's connection, request and surface")]
     async fn exchange_h2(
         &self,
+        key: &str,
+        id: u64,
         send: h2::client::SendRequest<Bytes>,
         request: &WireRequest,
         url: &url::Url,
         writer: Writer,
         surface: Surface,
-    ) -> Result<HttpResponse, (ProviderError, bool)> {
-        let failed = |e: &h2::Error| {
+    ) -> Result<HttpResponse, Failure> {
+        // A connection that errs is no longer offered to the next request.
+        let failed = |e: &h2::Error, replay: bool| {
+            self.pool.remove_h2(key, id);
             let fault = super::fault::fault_from_chain(e, false);
-            let mut error = ProviderError::transport(fault, DeliveryState::Ambiguous);
+            let mut error = ProviderError::transport(fault, if replay { DeliveryState::NotSent } else { DeliveryState::Ambiguous });
             error.message = surface.text(|| e.to_string());
-            (error, true)
+            Failure { error, replay: replay || e.reason() == Some(h2::Reason::REFUSED_STREAM) }
         };
         let (headers, _) = match writer {
             Writer::Fetch => fetch_headers(&request.headers, true),
@@ -740,7 +535,7 @@ impl NodeClient {
         };
         let mut builder = hyper::http::Request::builder().method(request.method.as_str()).uri(url.as_str());
         for (name, value) in &headers {
-            if name.eq_ignore_ascii_case("transfer-encoding") || name.eq_ignore_ascii_case("keep-alive") || name.eq_ignore_ascii_case("upgrade") {
+            if name.eq_ignore_ascii_case("host") || name.eq_ignore_ascii_case("connection") || name.eq_ignore_ascii_case("content-length") {
                 continue;
             }
             builder = builder.header(name.as_str(), value.as_str());
@@ -749,24 +544,27 @@ impl NodeClient {
         if !request.body.is_empty() || expects_payload {
             builder = builder.header("content-length", request.body.len().to_string());
         }
-        let built = builder.body(()).map_err(|e| {
-            let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent);
-            error.message = e.to_string();
-            (error, false)
-        })?;
-        let mut send = send.ready().await.map_err(|e| failed(&e))?;
-        let (response, mut stream) = send.send_request(built, request.body.is_empty()).map_err(|e| failed(&e))?;
+        let built = builder.body(()).map_err(|e| Failure { error: refused(e.to_string(), surface), replay: false })?;
+        let mut send = send.ready().await.map_err(|e| failed(&e, true))?;
+        let (response, mut stream) = send.send_request(built, request.body.is_empty()).map_err(|e| failed(&e, true))?;
         if !request.body.is_empty() {
-            stream.send_data(Bytes::from(request.body.clone()), true).map_err(|e| failed(&e))?;
+            stream.send_data(Bytes::from(request.body.clone()), true).map_err(|e| failed(&e, false))?;
         }
-        let response = response.await.map_err(|e| failed(&e))?;
+        let response = match tokio::time::timeout(HEADERS_TIMEOUT, response).await {
+            Err(_) => {
+                let error = timed_out("UND_ERR_HEADERS_TIMEOUT", "Headers Timeout Error", DeliveryState::Ambiguous, surface);
+                return Err(Failure { error, replay: false });
+            }
+            Ok(response) => response.map_err(|e| failed(&e, false))?,
+        };
         let status = response.status().as_u16();
         let list: Vec<(String, String)> = response
             .headers()
             .iter()
-            .filter_map(|(k, v)| Some((k.as_str().to_owned(), v.to_str().ok()?.to_owned())))
+            .map(|(k, v)| (k.as_str().to_owned(), String::from_utf8_lossy(v.as_bytes()).into_owned()))
             .collect();
-        let decoder = Decoder::of(list.iter().find(|(n, _)| n == "content-encoding").map(|(_, v)| v.as_str()));
+        let bodiless = request.method == "HEAD" || matches!(status, 204 | 304);
+        let decoder = if bodiless { None } else { Decoder::of(list.iter().find(|(n, _)| n == "content-encoding").map(|(_, v)| v.as_str())) };
         Ok(HttpResponse { status, headers: list, body: Box::new(H2Body { stream: response.into_body(), decoder }) })
     }
 }
@@ -780,7 +578,19 @@ struct H2Body {
 impl BodyStream for H2Body {
     async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
         loop {
-            let data = self.stream.data().await?;
+            let data = match tokio::time::timeout(BODY_TIMEOUT, self.stream.data()).await {
+                Err(_) => return Some(Err(TransportFault::Io { os_code: None })),
+                Ok(data) => data,
+            };
+            let Some(data) = data else {
+                // The stream ended: a decoder that did not reach the end of its stream is a truncated body.
+                let tail = match self.decoder.take().map(Decoder::finish) {
+                    Some(Err(e)) => return Some(Err(fault_from_io(&e, false))),
+                    Some(Ok(tail)) => tail,
+                    None => Vec::new(),
+                };
+                return (!tail.is_empty()).then(|| Ok(Bytes::from(tail)));
+            };
             let raw = match data {
                 Ok(raw) => raw,
                 Err(e) => return Some(Err(super::fault::fault_from_chain(&e, false))),
