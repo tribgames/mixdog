@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 394,
+      "bytes": 3906,
       "path": "node-recorded.json",
-      "sha256": "be77e9cd34b253189448f2443e04aaf4ea9152435ac23794adfb7a8b18b6fb8c"
+      "sha256": "b7b9118e9fb19a368940220fc56b2757fd7e1a5f393216fe528902a144ed0f4c"
     }
   ],
   "product": {
@@ -26,11 +26,11 @@
     "version": "1.4.5"
   },
   "recorder": "native/core/crates/mixdog-core/src/run_host/snapshot_effects/record.mjs",
-  "recorderSha256": "de986cd388696066c99f4dbf896be3599f26dffaf79ee738903ddb8b0680d583",
+  "recorderSha256": "5e73193c80d383cfe096d3f33e51ee830358757ecb3b453f4bac60bb3ed477ec",
   "runtime": {
     "electron": "43.8.4",
-    "node": "24.22.1"
+    "node": "v24.22.1"
   },
   "set": "request-snapshot-effects",
-  "totalBytes": 394
+  "totalBytes": 3906
 }

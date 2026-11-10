@@ -152,31 +152,11 @@ impl SessionMcp for Mcp {
     }
 }
 
-/// The prompt a rebuild composes: fixed blocks, and the request it was asked for; with how many of the requests came
-/// through its read-only view.
-struct FakePrompt(Mutex<Vec<RebuildRequest>>, std::sync::atomic::AtomicUsize);
-
-/// [`FakePrompt`]'s read-only view: the same composition, counted.
-struct ReadOnlyFake(Arc<FakePrompt>);
-
-#[async_trait]
-impl PromptRebuild for ReadOnlyFake {
-    async fn rebuild(&self, request: RebuildRequest) -> Result<SessionPrompt, String> {
-        self.0.1.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        self.0.rebuild(request).await
-    }
-
-    fn read_only(self: Arc<Self>) -> Arc<dyn PromptRebuild> {
-        self
-    }
-}
+/// The prompt a rebuild composes: fixed blocks, and the request it was asked for.
+struct FakePrompt(Mutex<Vec<RebuildRequest>>);
 
 #[async_trait]
 impl PromptRebuild for FakePrompt {
-    fn read_only(self: Arc<Self>) -> Arc<dyn PromptRebuild> {
-        Arc::new(ReadOnlyFake(self))
-    }
-
     async fn rebuild(&self, request: RebuildRequest) -> Result<SessionPrompt, String> {
         // The identity a rebuild gives back is the one it was asked for (`composeSessionSystem` keeps the session's).
         let identity = request.header.get("promptIdentity").cloned().unwrap_or_else(|| json!({}));
@@ -423,7 +403,7 @@ fn try_rig(g: &Value, setup: Setup) -> Result<Rig, VariantError> {
         pool[at] = Arc::new(Stub(pool[at].spec().clone(), None));
     }
     let threads = Arc::new(Threads { header: Mutex::new(header), patches: Mutex::default() });
-    let prompts = Arc::new(FakePrompt(Mutex::default(), Default::default()));
+    let prompts = Arc::new(FakePrompt(Mutex::default()));
     let connectors = Arc::new(Connectors(Mutex::default()));
     let generation = SurfaceGeneration::default();
     let standalone = standalone.unwrap_or_else(|| internal_tools(&pool).iter().map(tool_doc).collect());
@@ -1070,49 +1050,6 @@ async fn the_first_turn_of_an_empty_thread_rebuilds_it_and_other_threads_are_lef
     TurnSettings::reconcile(&legacy.host, &thread, false).await.expect("no identity");
     assert!(legacy.prompts.0.lock().unwrap().is_empty(), "a session without an identity is never rebuilt");
     assert!(legacy.threads.patches.lock().unwrap().iter().all(|(set, _)| !set.contains_key("promptSettings") && !set.contains_key("disallowedTools")));
-}
-
-/// What a turn start and its first request boundary would store is what `projected` returns, and taking it writes
-/// nothing: not the header, not the reconcile memory (`appliedKeys`, `RECONCILE_STATE`). An empty thread with a prompt
-/// identity (rebuilt whole), a conversation whose settings moved (a staged notice), and one without an identity.
-#[tokio::test]
-async fn a_projected_turn_start_is_what_the_turn_start_stores_and_stores_nothing() {
-    let g = golden();
-    let identity = json!({ "systemPrompt": "", "skipAgentRules": false, "profileSkip": {}, "agent": null });
-    let thread = ThreadId::from("t1");
-    let base = stale_header(&g).await;
-    let conversation = vec![json!({ "role": "user", "content": "hello" })];
-    let mut moved = base.clone();
-    moved.insert("promptIdentity".into(), identity.clone());
-    moved.insert("promptSettings".into(), OwnedSections { core_memory: "# Core Memory\nOld".into(), ..OwnedSections::default() }.record());
-    let mut empty = base.clone();
-    empty.insert("promptIdentity".into(), identity);
-    for (name, header, messages) in [("empty with identity", empty, Vec::new()), ("moved settings", moved, conversation.clone()), ("no identity", base.clone(), conversation)] {
-        let talked = !messages.is_empty();
-        let make = || rig(&g, Setup { header: header.clone(), messages: messages.clone(), denied: vec!["shell".into()], ..setup("full") });
-        let (shown, turned) = (make(), make());
-        let projected = TurnSettings::projected(&shown.host, &thread, talked, &messages).await.expect(name);
-        assert!(shown.threads.patches.lock().unwrap().is_empty(), "{name}: the projection wrote the header");
-        assert_eq!(*shown.threads.header.lock().unwrap(), header, "{name}: the stored header moved");
-        assert!(shown.host.applied.lock().unwrap().is_empty() && shown.host.mcp_state.lock().unwrap().is_empty(), "{name}: the reconcile memory moved");
-        // Every composition the projection makes is the read-only one: no probe cache is used up, no probe started.
-        let composed = shown.prompts.0.lock().unwrap().len();
-        assert_eq!(shown.prompts.1.load(std::sync::atomic::Ordering::SeqCst), composed, "{name}: the projection composed through the probing prompt");
-
-        TurnSettings::reconcile(&turned.host, &thread, talked).await.expect(name);
-        TurnSettings::migrate_exposure(&turned.host, &thread, &messages).await.expect(name);
-        TurnSettings::refresh_mcp(&turned.host, &thread).await.expect(name);
-        let stored = turned.threads.header.lock().unwrap().clone();
-        if name != "no identity" {
-            assert_ne!(stored, header, "{name}: the turn start changes this thread");
-        }
-        assert_eq!(projected, stored, "{name}: the projection is not what the turn start stores");
-    }
-    // A thread holding a switch for its next turn is refused: the switch decides the request.
-    let mut held = base;
-    held.insert("pendingWorkflowId".into(), json!("w2"));
-    let refused = rig(&g, Setup { header: held, ..setup("full") });
-    assert!(TurnSettings::projected(&refused.host, &thread, false, &[]).await.expect_err("held").contains("pendingWorkflowId"));
 }
 
 /// A conversation's prompt settings are compared with the sections as they stand at each turn start

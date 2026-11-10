@@ -5270,6 +5270,141 @@
     }
    ]
   }
- }
+ },
+  {
+   "source": "synthetic-js",
+   "name": "description_own_tostring_true",
+   "input": {"properties":{"x":{"anyOf":[{"type":"string"},{"type":"array"}],"description":{"toString":true}}}}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "description_own_tostring_false",
+   "input": {"properties":{"x":{"anyOf":[{"type":"string"},{"type":"array"}],"description":{"toString":false}}}}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "description_own_tostring_array",
+   "input": {"properties":{"x":{"anyOf":[{"type":"string"},{"type":"array"}],"description":{"toString":[1]}}}}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "description_own_tostring_empty_array",
+   "input": {"properties":{"x":{"anyOf":[{"type":"string"},{"type":"array"}],"description":{"toString":[]}}}}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "description_own_tostring_empty_string",
+   "input": {"properties":{"x":{"anyOf":[{"type":"string"},{"type":"array"}],"description":{"toString":""}}}}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "description_own_tostring_zero",
+   "input": {"properties":{"x":{"anyOf":[{"type":"string"},{"type":"array"}],"description":{"toString":0}}}}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "description_own_valueof_string_with_own_tostring",
+   "input": {"properties":{"x":{"anyOf":[{"type":"string"},{"type":"array"}],"description":{"toString":"s","valueOf":"s"}}}}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "description_own_valueof_string_only",
+   "input": {"properties":{"x":{"anyOf":[{"type":"string"},{"type":"array"}],"description":{"valueOf":"s"}}}}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "description_own_valueof_number_with_own_tostring",
+   "input": {"properties":{"x":{"anyOf":[{"type":"string"},{"type":"array"}],"description":{"toString":5,"valueOf":5}}}}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "description_own_valueof_number_only",
+   "input": {"properties":{"x":{"anyOf":[{"type":"string"},{"type":"array"}],"description":{"valueOf":5}}}}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "description_own_valueof_true_with_own_tostring",
+   "input": {"properties":{"x":{"anyOf":[{"type":"string"},{"type":"array"}],"description":{"toString":true,"valueOf":true}}}}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "description_own_valueof_true_only",
+   "input": {"properties":{"x":{"anyOf":[{"type":"string"},{"type":"array"}],"description":{"valueOf":true}}}}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "description_own_valueof_null_with_own_tostring",
+   "input": {"properties":{"x":{"anyOf":[{"type":"string"},{"type":"array"}],"description":{"toString":null,"valueOf":null}}}}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "description_own_valueof_null_only",
+   "input": {"properties":{"x":{"anyOf":[{"type":"string"},{"type":"array"}],"description":{"valueOf":null}}}}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "description_own_valueof_array_with_own_tostring",
+   "input": {"properties":{"x":{"anyOf":[{"type":"string"},{"type":"array"}],"description":{"toString":[1],"valueOf":[1]}}}}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "description_own_valueof_array_only",
+   "input": {"properties":{"x":{"anyOf":[{"type":"string"},{"type":"array"}],"description":{"valueOf":[1]}}}}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "description_own_valueof_object_with_own_tostring",
+   "input": {"properties":{"x":{"anyOf":[{"type":"string"},{"type":"array"}],"description":{"toString":{},"valueOf":{}}}}}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "description_own_valueof_object_only",
+   "input": {"properties":{"x":{"anyOf":[{"type":"string"},{"type":"array"}],"description":{"valueOf":{}}}}}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "contract_minimum_own_tostring_true",
+   "input": {"oneOf":[{"type":"object","properties":{"action":{"enum":["a"]},"input":{"type":"object","properties":{"n":{"minimum":{"toString":true}}}}}},{"type":"object","properties":{"action":{"enum":["b"]},"input":{"type":"object","properties":{"n":{"minimum":2}}}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "contract_minimum_own_tostring_array",
+   "input": {"oneOf":[{"type":"object","properties":{"action":{"enum":["a"]},"input":{"type":"object","properties":{"n":{"minimum":{"toString":["x"]}}}}}},{"type":"object","properties":{"action":{"enum":["b"]},"input":{"type":"object","properties":{"n":{"minimum":2}}}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "contract_minimum_own_tostring_string",
+   "input": {"oneOf":[{"type":"object","properties":{"action":{"enum":["a"]},"input":{"type":"object","properties":{"n":{"minimum":{"toString":"s"}}}}}},{"type":"object","properties":{"action":{"enum":["b"]},"input":{"type":"object","properties":{"n":{"minimum":2}}}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "contract_minimum_own_valueof_only",
+   "input": {"oneOf":[{"type":"object","properties":{"action":{"enum":["a"]},"input":{"type":"object","properties":{"n":{"minimum":{"valueOf":1}}}}}},{"type":"object","properties":{"action":{"enum":["b"]},"input":{"type":"object","properties":{"n":{"minimum":2}}}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "astral_keys_and_values_kept_whole",
+   "input": {"anyOf":[{"type":"object","properties":{"k😀":{"type":"string","description":"v🎉","enum":["e😀"]}}},{"type":"object","properties":{"k😀":{"type":"string","enum":["f🎉"]}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "nested_properties_string_with_a_pair_merged",
+   "input": {"anyOf":[{"type":"object","properties":{"o":{"type":"object","properties":"😀"}}},{"type":"object","properties":{"o":{"type":"object","properties":"x🎉"}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "nested_properties_string_low_then_high_halves",
+   "input": {"anyOf":[{"type":"object","properties":{"o":{"type":"object","properties":"🎉😀"}}},{"type":"object","properties":{"o":{"type":"object","properties":{"1":{"type":"string"}}}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "astral_description_noted",
+   "input": {"properties":{"x":{"anyOf":[{"type":"string"},{"type":"array"}],"description":"😀 text"}}}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "contract_enum_with_astral_values",
+   "input": {"oneOf":[{"type":"object","properties":{"action":{"enum":["a😀"]},"input":{"type":"object","properties":{"n":{"enum":["x🎉","y"]}}}}},{"type":"object","properties":{"action":{"enum":["b"]},"input":{"type":"object","properties":{"n":{"enum":["z"]}}}}}]}
+  }
 ]
 }

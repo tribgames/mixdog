@@ -40,6 +40,7 @@ pub fn verify_dir(repo: &Path, dir: &Path, recorder: &str) -> Value {
     assert_eq!(manifest["product"]["exact"], true, "the recording is not exact");
     assert_eq!(manifest["product"]["commit"], NODE_COMMIT, "the recording is of another Node commit");
     assert_eq!(manifest["recorder"], recorder, "the manifest names another recorder");
+    assert!(manifest["runtime"]["node"].as_str().is_some_and(|v| !v.is_empty()), "the manifest names no Node runtime version (`runtime.node`)");
     let recorder_bytes = std::fs::read(repo.join(recorder)).unwrap();
     assert_eq!(manifest["recorderSha256"], sha256(&recorder_bytes), "{recorder} changed since the recording (re-record)");
     let listed = manifest["files"].as_array().unwrap();

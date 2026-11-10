@@ -354,12 +354,13 @@ impl HostRunParts {
         surface: &mixdog_tools::policy::SessionSurface,
         prior: Vec<(mixdog_core_api::ids::ItemId, Value)>,
     ) -> Option<(Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>, mixdog_core_api::domain::provider::ModelRequest)> {
-        self.rebuild_request(thread, header, surface, prior, true, false, None).await.map(|(provider, request, _)| (provider, request))
+        self.rebuild_request(thread, header, surface, prior, None).await.map(|(provider, request, _)| (provider, request))
     }
 
-    /// [`Self::next_request`] for a thread that has no conversation yet: the request its first send would
-    /// carry (the system prompt and the tools), which `tools/toolsStatus` with `snapshot` reads.
-    pub async fn first_request(
+    /// [`Self::next_request`] as `nextMainRequest` returns it (`side-question.mjs:64-99`): the tools taken through
+    /// `snapshotProviderRequestTools` (the request boundary's [`boundary_tools`]), and `user_message` appended to the
+    /// transcript. `None` where `nextMainRequest` is null.
+    pub async fn snapshot_request(
         &self,
         thread: &ThreadId,
         header: &Header,
@@ -367,18 +368,9 @@ impl HostRunParts {
         prior: Vec<(mixdog_core_api::ids::ItemId, Value)>,
         user_message: Option<&str>,
     ) -> Option<(Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>, mixdog_core_api::domain::provider::ModelRequest)> {
-        // A real send carries the turn it answers and, after it, the tail reminder its rules give (`Run::build_request`).
-        let (provider, mut request, native) = self.rebuild_request(thread, header, surface, prior, false, true, user_message).await?;
-        // `snapshotProviderRequestTools` at the request boundary, as the turn's boundary takes it (`ThreadMcp::snapshot`).
+        let (provider, mut request, native) = self.rebuild_request(thread, header, surface, prior, user_message).await?;
         request.tools = boundary_tools(header, std::mem::take(&mut request.tools), &native);
         Some((provider, request))
-    }
-
-    /// What the thread's next turn start and its first request boundary would leave in its header, not stored
-    /// ([`super::turn_settings::TurnSettings::projected`]).
-    pub async fn projected_header(&self, thread: &ThreadId, conversation: bool, rows: &[Value]) -> Result<Header, String> {
-        use super::turn_settings::TurnSettings;
-        self.services.turn_settings.projected(thread, conversation, rows).await
     }
 
     async fn rebuild_request(
@@ -387,15 +379,13 @@ impl HostRunParts {
         header: &Header,
         surface: &mixdog_tools::policy::SessionSurface,
         prior: Vec<(mixdog_core_api::ids::ItemId, Value)>,
-        conversation_required: bool,
-        with_reminder: bool,
         user_message: Option<&str>,
     ) -> Option<(Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>, mixdog_core_api::domain::provider::ModelRequest, Vec<Value>)> {
         if super::compaction_world::is_agent_owner(header) {
             return None;
         }
         let rows: Vec<Value> = prior.iter().map(|(_, body)| body.clone()).collect();
-        if conversation_required && !mixdog_core_session::session::route_session::has_user_conversation(&rows) {
+        if !mixdog_core_session::session::route_session::has_user_conversation(&rows) {
             return None;
         }
         let provider_state = header.get("providerState").and_then(|state| serde_json::from_value(state.clone()).ok());
@@ -405,12 +395,11 @@ impl HostRunParts {
         messages.extend(user_message.map(mixdog_agent::message::AgentMessage::user));
         let mut options = parts.options;
         options.iteration = 1;
-        let tail = with_reminder.then(|| self.tail_reminder(header));
         let (request, _) = mixdog_agent::assemble_request(
             text(header, "model"),
             options,
             mixdog_agent::project::project_for_wire(&messages),
-            tail.as_deref(),
+            None,
             parts.tool_set.definitions(),
         );
         Some((parts.provider, request, super::factory::native_searches(&messages)))
