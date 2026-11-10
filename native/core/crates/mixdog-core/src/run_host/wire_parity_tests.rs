@@ -27,7 +27,7 @@ use super::builder_env::builder_env;
 use super::fixture_fs;
 use super::process::HostInfo;
 use super::process_tests::world;
-use super::wire_loopback::{Loopback, Script, RANDOM};
+use mixdog_ai::transport::loopback::{Loopback, Script, RANDOM};
 
 const SESSION: &str = include_str!("../../../../../../benchmarks/terminal-bench-2.1/analysis/parity/fixtures/session.json");
 const SCENARIOS: &str = include_str!("../../../../../../benchmarks/terminal-bench-2.1/analysis/parity/scenarios.json");

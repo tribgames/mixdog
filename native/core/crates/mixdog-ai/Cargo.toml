@@ -7,7 +7,12 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# The loopback TLS server and manifest reader of the wire parity checks (`transport::loopback`, `transport::manifest`).
+test-support = ["dep:rcgen"]
+
 [dependencies]
+rcgen = { workspace = true, optional = true }
 mixdog-rt = { workspace = true }
 mixdog-protocol = { workspace = true }
 mixdog-js = { workspace = true }

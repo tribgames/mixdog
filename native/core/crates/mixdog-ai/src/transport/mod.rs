@@ -16,6 +16,13 @@ pub mod link;
 pub mod tcp;
 pub mod ws;
 
+/// The loopback TLS server and the recording manifest the wire parity checks of every provider share (the Rust half of
+/// `benchmarks/terminal-bench-2.1/analysis/parity/wire-server.mjs`).
+#[cfg(any(test, feature = "test-support"))]
+pub mod loopback;
+#[cfg(any(test, feature = "test-support"))]
+pub mod manifest;
+
 #[cfg(test)]
 pub(crate) mod site_probe;
 
