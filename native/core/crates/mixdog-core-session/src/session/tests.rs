@@ -2302,6 +2302,40 @@ impl super::thread_list::ListRooms for NoRooms {
     }
 }
 
+/// Node's cold heir drops the source's Codex wire identity and mints its own (`cold-heir.mjs:70`, `:143`): a fork of an
+/// `openai-oauth` thread has a UUIDv7 of its own, never its source's; another provider's heir has none.
+#[tokio::test(start_paused = true)]
+async fn a_fork_has_a_codex_wire_identity_of_its_own() {
+    use mixdog_store::schema::record::Header;
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(Arc::new(rig.deps_parts(rig.store.clone())));
+    let source_wire = "0190f0a0-1c2d-7e3f-8a4b-5c6d7e8f9a0d";
+    let fork = |id: &'static str, provider: &'static str| {
+        let directory = &directory;
+        async move {
+            let mut header = Header::new();
+            header.insert("createdAt".into(), json!(1));
+            header.insert("updatedAt".into(), json!(1));
+            header.insert("cwd".into(), json!("/repo"));
+            header.insert("provider".into(), json!(provider));
+            header.insert("codexWireSessionId".into(), json!(source_wire));
+            let thread = ThreadId::from(id.to_owned());
+            directory.create_with_id(thread.clone(), header, json!({})).await.expect("source");
+            let params = json!({ "threadId": id, "opId": format!("op-{id}") });
+            let reply = directory.handle(&thread).expect("loaded").request(request("thread/fork", params, &format!("op-{id}"))).await.expect("thread/fork");
+            let Reply::Value(value) = reply else { panic!("thread/fork answers a value") };
+            let heir = ThreadId::from(value["thread"]["id"].as_str().expect("heir id"));
+            directory.handle(&heir).expect("loaded").cell.header.load_full()
+        }
+    };
+    let oauth = fork("src_oauth", "openai-oauth").await;
+    let minted = oauth["codexWireSessionId"].as_str().expect("the heir carries a wire identity");
+    assert_ne!(minted, source_wire, "not the source's");
+    assert_eq!(uuid::Uuid::parse_str(minted).expect("a uuid").get_version_num(), 7, "a UUIDv7: {minted}");
+    let other = fork("src_other", "anthropic-oauth").await;
+    assert!(other.get("codexWireSessionId").is_none_or(Value::is_null), "no Codex identity for another provider");
+}
+
 /// `notification-bus.test.mjs` "a queued completion wakes its owner session" and
 /// `ask-queue.mjs:87-101`: the completion is the woken turn's input, a task-notification row.
 #[tokio::test(start_paused = true)]

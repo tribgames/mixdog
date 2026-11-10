@@ -169,14 +169,6 @@ impl SessionHandle {
         self.cell.grants.clone()
     }
 
-    /// `RequestThread.window`: `compaction.compactCount` of the acked header, 0 until the first
-    /// compaction (`compactCount`, `store-summary-fields.mjs:70`: a safe non-negative integer).
-    pub fn thread_window(&self) -> u64 {
-        let header = self.cell.header.load();
-        let count = header.get("compaction").and_then(|c| c.get("compactCount")).and_then(Value::as_u64);
-        count.filter(|n| *n <= (1u64 << 53) - 1).unwrap_or(0)
-    }
-
     /// The session's tool-policy surface, republished by the actor whenever it changes.
     pub fn surface(&self) -> watch::Receiver<Arc<SessionSurface>> {
         self.cell.surface.clone()
@@ -498,6 +490,12 @@ impl SessionHandle {
         // fresh classification, never in the source's worktree; an inherit into an existing thread keeps that thread's place.
         if params.into_thread_id.is_none() {
             heir_place(&directory.deps, &mut header).await?;
+        }
+        // The heir owns a Codex wire identity of its own: Node's cold heir drops the source's and mints one (`cold-heir.mjs:70`,
+        // `:143` `ensureCodexWireSessionId`), so the two sessions never share a `session_id` on the wire.
+        header.remove("codexWireSessionId");
+        if header.get("provider").and_then(Value::as_str) == Some("openai-oauth") {
+            header.insert("codexWireSessionId".into(), Value::String(uuid::Uuid::now_v7().to_string()));
         }
         header.insert(
             "inheritedFromSessionId".into(),
