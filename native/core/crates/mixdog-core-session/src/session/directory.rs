@@ -1502,9 +1502,11 @@ fn fold_opened(lane: &InLane<CpuInteractive>, deps: &SessionDeps, log: OpenedLog
 
 impl SessionDirectory {
     /// The `thread/start` thread up to its seated route (`createSession`, `seedToolSurface`, the draft's route): under `id` when one is
-    /// given (a new task's address comes from its receipt), else under a minted one. A new task's attempt passes its `step`, which
-    /// enters the draft step where the draft's route is adopted (Node's `setRoute`, awaited after `client.create` returned).
-    pub(super) async fn begin_thread(&self, req: &CoreRequest, params: &ThreadStartParams, id: Option<ThreadId>, step: Option<&mut super::new_task::Step>) -> Result<Arc<SessionHandle>, CoreError> {
+    /// given (a new task's address comes from its receipt), else under a minted one. A new task's attempt passes its `attempt`, whose
+    /// step enters the draft step where the draft's workflow, orchestration mode (when `configure`: Node's `configureDraft` runs on a
+    /// `reserved` receipt only) and route are applied (Node's `setWorkflow`, `setOrchestrationMode`, `setRoute`, awaited in that order
+    /// after `client.create` returned, session-host-lifecycle.ts:765-779).
+    pub(super) async fn begin_thread(&self, req: &CoreRequest, params: &ThreadStartParams, id: Option<ThreadId>, attempt: Option<(&super::new_task::StepCell, bool)>) -> Result<Arc<SessionHandle>, CoreError> {
         let now = self.inner.deps.clock.now_ms();
         let mut header = Header::new();
         header.insert("createdAt".into(), json!(now));
@@ -1559,9 +1561,31 @@ impl SessionDirectory {
         let route = if control {
             self.inner.deps.new_route.adopt_control(&id).await
         } else {
-            if let (Some(step), Some(_)) = (step, pick.as_ref()) {
-                *step = super::new_task::Step::Configuring;
-                super::new_task::quit_gate("setRoute").await;
+            if let Some((step, configure)) = attempt {
+                let closing = self.inner.deps.new_tasks.closing();
+                let draft = params.draft.as_ref();
+                let settings = &self.inner.deps.draft_settings;
+                if let Some(workflow) = draft.and_then(|draft| draft.workflow_id.as_deref()).filter(|_| configure) {
+                    step.set(super::new_task::Step::Configuring);
+                    super::new_task::quit_gate("setWorkflow", &closing).await;
+                    if let Err(error) = settings.set_workflow(&id, workflow).await {
+                        // A draft can remember a workflow deleted since; it starts on the built-in Default (:770-772).
+                        if !super::new_task::workflow_not_found(&error) {
+                            return Err(error);
+                        }
+                        settings.set_workflow(&id, "default").await?;
+                    }
+                }
+                let mode = draft.and_then(|draft| draft.orchestration_mode).and_then(|mode| serde_json::to_value(mode).ok());
+                if let Some(Value::String(mode)) = mode.filter(|_| configure) {
+                    step.set(super::new_task::Step::Configuring);
+                    super::new_task::quit_gate("setOrchestrationMode", &closing).await;
+                    settings.set_orchestration_mode(&id, &mode).await?;
+                }
+                if pick.is_some() {
+                    step.set(super::new_task::Step::Configuring);
+                    super::new_task::quit_gate("setRoute", &closing).await;
+                }
             }
             self.inner.deps.new_route.adopt(&id, pick.as_ref()).await
         }

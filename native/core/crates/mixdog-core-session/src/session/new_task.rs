@@ -200,21 +200,76 @@ pub(super) fn crash_gate(point: &str) {
 #[cfg(not(feature = "crash-gates"))]
 pub(super) fn crash_gate(_point: &str) {}
 
-/// A test-only hold at a named call of a new task's draft step (`MIXDOG_NEW_TASK_QUIT_AT`: `setRoute`, `requestWorktree`): the
-/// attempt says on stderr that it is held there and waits until the shutdown cuts it, as Node's quit finds that call in flight.
+/// A test-only hold at a named call of a new task's draft step (`MIXDOG_NEW_TASK_QUIT_AT`: `setWorkflow`, `setOrchestrationMode`,
+/// `setRoute`, `requestWorktree`): the attempt says on stderr that it is held there and goes on once the stop request cut the attempts
+/// (`closing`), as Node's recording lets the held call go once the daemon answered the stop request (record-new-task-quit.mjs).
 /// Compiled only into a build that asks for `crash-gates`.
 #[cfg(feature = "crash-gates")]
 #[allow(clippy::disallowed_methods, reason = "a test build's hold point reads its variable")]
-pub(super) async fn quit_gate(point: &str) {
+pub(super) async fn quit_gate(point: &str, closing: &CancellationToken) {
     use std::io::Write;
     if std::env::var("MIXDOG_NEW_TASK_QUIT_AT").is_ok_and(|at| at == point) {
         let _ = writeln!(std::io::stderr(), "new-task held at {point}");
-        std::future::pending::<()>().await;
+        closing.cancelled().await;
     }
 }
 
 #[cfg(not(feature = "crash-gates"))]
-pub(super) async fn quit_gate(_point: &str) {}
+pub(super) async fn quit_gate(_point: &str, _closing: &CancellationToken) {}
+
+/// `/workflow ".*" not found/` on the failure's text (session-host-lifecycle.ts:770).
+pub(super) fn workflow_not_found(error: &CoreError) -> bool {
+    let CoreError::DomainError { message: Some(message), .. } = error else {
+        return false;
+    };
+    message.find("workflow \"").is_some_and(|at| message[at + "workflow \"".len()..].contains("\" not found"))
+}
+
+/// The attempt stopped before its next call once the stop request cut it ([`SessionDirectory::new_task_phases`]).
+const CUT: &str = "new task cut by the stop request";
+
+fn cut() -> CoreError {
+    CoreError::Cancelled { by: CUT.into() }
+}
+
+/// `None` for an attempt the stop request cut.
+fn uncut(outcome: Outcome) -> Option<Outcome> {
+    match &outcome {
+        Err(CoreError::Cancelled { by }) if &**by == CUT => None,
+        _ => Some(outcome),
+    }
+}
+
+/// Whether Node's daemon stored the session of an attempt that ended at `step`. A reservation lives in the daemon's memory only
+/// (session-views.mjs:31-45, `reservedOnly`) and is destroyed by the host's unsubscribe or ends with the daemon (daemon.mjs:412):
+/// Node stores none for an attempt that failed or was cut in its creation or its draft's workflow, mode or route (recorded:
+/// new-task-quit `quit-in-set-route`). Its `requestWorktree` stores the session it binds (recorded: `quit-in-request-worktree`,
+/// the cut attempt's and the refused retry's), and so does an accepted prompt. Where Node stores none, the record the core made
+/// earlier than Node would is not left behind.
+fn stored_by_node(step: Step, enters: bool) -> bool {
+    match step {
+        Step::Sending => true,
+        Step::Entering => enters,
+        Step::Creating | Step::Configuring | Step::Committing => false,
+    }
+}
+
+/// The attempt's [`Step`], shared with the call it is in: read when the attempt is cut while that call runs on.
+pub(super) struct StepCell(std::sync::Mutex<Step>);
+
+impl StepCell {
+    fn new(step: Step) -> Self {
+        Self(std::sync::Mutex::new(step))
+    }
+
+    pub(super) fn set(&self, step: Step) {
+        *self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = step;
+    }
+
+    fn get(&self) -> Step {
+        *self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
 
 impl NewTaskReceipts {
     pub fn new(user_data: &Path, io: DurabilityIo) -> Arc<Self> {
@@ -546,26 +601,34 @@ impl SessionDirectory {
         let first = request.phase() == Phase::Reserved;
         let enters = params.draft.as_ref().is_some_and(|draft| draft.worktree.is_some());
         let closing = self.deps().new_tasks.closing();
-        let mut step = Step::Creating;
+        let step = StepCell::new(Step::Creating);
         let started = {
-            let phases = self.new_task_phases(request, req, params, submission, &id, &mut step);
+            let phases = self.new_task_phases(request, req, params, submission, &id, &step);
+            tokio::pin!(phases);
             tokio::select! {
                 biased;
-                () = closing.cancelled() => None,
-                started = phases => Some(started),
+                // The call the attempt awaits in its draft step settles while Node's daemon shuts down (the session service closes
+                // first, session-service.mjs:257, and its shutdown awaits the session's work, :271-275): it runs to its end here
+                // too, and the attempt stops before its next call ([`Self::new_task_phases`] answers `None` there).
+                () = closing.cancelled() => match step.get() {
+                    Step::Configuring | Step::Entering => uncut(phases.await),
+                    _ => None,
+                },
+                started = &mut phases => uncut(started),
             }
         };
+        let step = step.get();
         let Some(started) = started else {
             // A stop request, as Node's quit (the app's `/stop {force:true}`, session-client.mjs:667-707, runs the daemon's
             // `shutdown`, daemon.mjs:272): the session service is closed first (session-service.mjs:257) and the host is disposed
-            // (session-host.ts:1210), so the call the attempt awaits fails as it settles (`assertAvailable`, session-action.mjs:111,
-            // entries/lifecycle.mjs:36-39) and every later one fails at once (session-host-transport.ts:87), and `createNewTask` goes
-            // on from the call that failed. The creation (`client.create`, session-host-lifecycle.ts:824) fails before the `try` that
-            // refuses (:835): the receipt stays as it is. The draft's route (`setRoute`, :779) is awaited inside the `try` while
-            // unsent: refused, wherever in the core's creation call it is adopted. The commit of `configured` is the host's own file
-            // write, which completes: the next call fails, the worktree's inside the `try` while unsent (:955 `if (unsent) await
-            // request.reset()`), else the submit after `unsent = false`. Nobody is answered (the gate sends no outcome once it is
-            // closing).
+            // (session-host.ts:1210), so the call the attempt awaits settles while the daemon shuts down and the next one fails
+            // (`assertAvailable`, session-action.mjs:111, entries/lifecycle.mjs:36-39; session-host-transport.ts:87), and
+            // `createNewTask` goes on from the call that failed. The creation (`client.create`, session-host-lifecycle.ts:824) fails
+            // before the `try` that refuses (:835): the receipt stays as it is. The draft's workflow, mode and route (:766-779) are
+            // awaited inside the `try` while unsent: refused, wherever in the core's creation call they are applied. The commit of
+            // `configured` is the host's own file write, which completes: the next call fails, the worktree's inside the `try` while
+            // unsent (:955 `if (unsent) await request.reset()`), else the submit after `unsent = false`. Nobody is answered (the gate
+            // sends no outcome once it is closing).
             let refused = first
                 && match step {
                     Step::Creating | Step::Sending => false,
@@ -575,9 +638,7 @@ impl SessionDirectory {
             if refused {
                 let _ = request.reset().await;
             }
-            // The reservation lives in the daemon's memory (session-views.mjs:31-45, `reservedOnly`) and ends with it
-            // (daemon.mjs:412): the record the core made for it earlier than Node would is not left behind.
-            if !matches!(step, Step::Sending) && !self.holds_user_conversation(&id).await.unwrap_or(true) {
+            if !stored_by_node(step, enters) && !self.holds_user_conversation(&id).await.unwrap_or(true) {
                 self.discard(&id).await;
             }
             return Err(failed("session", "The new task request ended with the shutdown."));
@@ -587,7 +648,7 @@ impl SessionDirectory {
             if first && !matches!(step, Step::Sending) {
                 let _ = request.reset().await;
             }
-            if !self.holds_user_conversation(&id).await.unwrap_or(true) {
+            if !stored_by_node(step, enters) && !self.holds_user_conversation(&id).await.unwrap_or(true) {
                 self.discard(&id).await;
             }
             return Err(error.clone());
@@ -606,29 +667,35 @@ impl SessionDirectory {
                     if body.pointer("/meta/transcript/clientSubmissionId").and_then(Value::as_str) == Some(submission))
         }))
     }
-    /// `step` outlives the future: it is read when the attempt fails or is cut ([`Self::new_task`]).
-    async fn new_task_phases(&self, request: &Request, req: &CoreRequest, mut params: ThreadStartParams, submission: &str, id: &ThreadId, step: &mut Step) -> Outcome {
+    /// `step` outlives the future: it is read when the attempt fails or is cut ([`Self::new_task`]). Once the stop request cut the
+    /// attempt (`closing`), the call in flight ends and the attempt stops before its next call ([`cut`]), as Node's next call fails.
+    async fn new_task_phases(&self, request: &Request, req: &CoreRequest, mut params: ThreadStartParams, submission: &str, id: &ThreadId, step: &StepCell) -> Outcome {
+        let closing = &self.deps().new_tasks.closing();
+        let go_on = || if closing.is_cancelled() { Err(cut()) } else { Ok(()) };
         // `client.create`: the reservation is made again at its address when the session is not there; a session that is there
         // is opened (Node's daemon opens the session at the address it is given, `getOrCreateSessionEntry`). The core's creation
-        // takes the draft's route with it (`begin_thread`: adopted before the record, seated after it); the attempt is in the draft
-        // step from that adoption on (`begin_thread` moves `step`).
+        // applies the draft's workflow, mode and route with it (`begin_thread`: before the record, the route seated after it); the
+        // attempt is in the draft step from the first of them on (`begin_thread` moves `step`).
         let handle = if self.try_stored_header(id).await?.is_some() {
             let handle = self.open_handle(id, &req.ctx).await?;
             self.seat_session(id).await?;
             handle
         } else {
-            self.begin_thread(req, &params, Some(id.clone()), Some(&mut *step)).await?
+            self.begin_thread(req, &params, Some(id.clone()), Some((step, request.phase() == Phase::Reserved))).await?
         };
-        *step = Step::Committing;
+        go_on()?;
+        step.set(Step::Committing);
         if request.phase() == Phase::Reserved {
             request.commit(Phase::Configured).await?;
         }
-        *step = Step::Entering;
+        go_on()?;
+        step.set(Step::Entering);
         if params.draft.as_ref().is_some_and(|draft| draft.worktree.is_some()) {
-            quit_gate("requestWorktree").await;
+            quit_gate("requestWorktree", closing).await;
         }
         self.enter_draft_worktree(&handle, req, &params).await?;
-        *step = Step::Sending;
+        go_on()?;
+        step.set(Step::Sending);
         let summary = serde_json::to_value(handle.cell.view.load_full().summary.clone()).unwrap_or(Value::Null);
         let mut input = params.initial_input.take().expect("a new task carries its first prompt");
         input.options.get_or_insert_with(Default::default).client_submission_id = Some(submission.to_owned());

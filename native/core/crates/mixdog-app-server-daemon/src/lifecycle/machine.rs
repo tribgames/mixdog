@@ -69,11 +69,12 @@ pub struct Machine {
     /// nobody attached, but are not listed as running work and do not hold an explicit stop.
     calls: usize,
     /// New-task requests in flight (`thread/start` of a task with its first prompt): host logic in Node (`submitNewTask` runs in the
-    /// desktop service's `SessionHost`), counted as a call by the self-shutdown (Node's `activeCalls` holds the `desktop.invoke`), but
-    /// not waited for once a stop is requested: Node's `/stop` shuts down without `drainDeferral` (`routes.mjs:200-209` → SIGTERM →
-    /// `daemon.mjs:272 shutdown`; `drainDeferral` is consulted by `maybeSelfShutdown` only, `daemon.mjs:533-536`).
+    /// desktop service's `SessionHost`), counted as a call by the self-shutdown (Node's `activeCalls` holds the `desktop.invoke`). A stop
+    /// request does not wait for one: Node's `/stop` shuts down without `drainDeferral` (`routes.mjs:200-209` → SIGTERM →
+    /// `daemon.mjs:272 shutdown`; `drainDeferral` is consulted by `maybeSelfShutdown` only, `daemon.mjs:533-536`), so the attempts are
+    /// cut first ([`Effect::CutNewTasks`]) and their requests no longer hold the drain.
     new_tasks: usize,
-    /// A stop was requested: the new-task attempts were cut ([`Effect::CutNewTasks`]) and their requests no longer hold the drain.
+    /// The new-task attempts were cut ([`Effect::CutNewTasks`] is sent once).
     new_tasks_cut: bool,
     next_id: u64,
     activities: BTreeMap<u64, Running>,
@@ -176,15 +177,31 @@ impl Machine {
     }
 
     /// Node's host dispose at a stop request: the new-task attempts are cut first (each ends at the call it was awaiting), once.
-    fn cut_new_tasks(&mut self) {
-        if !self.new_tasks_cut {
-            self.new_tasks_cut = true;
-            self.seq += 1;
-            self.effects.push(Effect::CutNewTasks);
+    /// Whether attempts in flight were cut now.
+    fn cut_new_tasks(&mut self) -> bool {
+        if self.new_tasks_cut {
+            return false;
         }
+        self.new_tasks_cut = true;
+        if self.new_tasks == 0 {
+            return false;
+        }
+        self.seq += 1;
+        self.effects.push(Effect::CutNewTasks);
+        true
     }
 
-    /// Calls a drain waits for: every call, and the new-task requests until a stop request cut them.
+    /// The cut at a stop request, by who asked. Node's `/stop {force:true}` (the app's quit, `session-client.mjs:667-707` →
+    /// `routes.mjs:200-209` → `shutdown`) skips `drainDeferral`: every management stop but `Quit` is that stop. A `Quit` stop is Node's
+    /// `/shutdown` (`routes.mjs:189-196`) and `NoClients` its last client leaving, both `maybeSelfShutdown`, whose `drainDeferral`
+    /// (`daemon.mjs:533-536`, `daemon-drain-policy.mjs:11-16`) waits for every active service call, a new task's `desktop.invoke` included.
+    fn cut_new_tasks_for(&mut self, reason: StopReason) -> bool {
+        !matches!(reason, StopReason::Quit | StopReason::NoClients) && self.cut_new_tasks()
+    }
+
+    /// Calls a drain waits for: every call, and the new-task requests until a stop request cut them. A cut attempt's call in flight is
+    /// awaited by the release's session shutdown (`NewTaskReceipts::shutdown`), as Node's shutdown awaits the session's work
+    /// (session-service.mjs:271-275); its request is never answered.
     fn calls_in_flight(&self) -> bool {
         self.calls > 0 || (self.new_tasks > 0 && !self.new_tasks_cut)
     }
@@ -283,7 +300,7 @@ impl Machine {
         match &self.phase {
             Phase::Booting | Phase::Blocked(_) | Phase::Serving => match mode {
                 StopMode::WhenIdle => {
-                    self.cut_new_tasks();
+                    let _ = self.cut_new_tasks_for(reason);
                     self.commit_drain(reason);
                     Ok(())
                 }
@@ -292,8 +309,9 @@ impl Machine {
             Phase::Migrating(_) => Err(CommandError::Migrating),
             Phase::Draining(_) if matches!(mode, StopMode::WhenIdle) => {
                 // A stop requested in a self-shutdown's drain: the new-task requests it waited for are cut now.
-                self.cut_new_tasks();
-                self.settle("");
+                if self.cut_new_tasks_for(reason) {
+                    self.settle("");
+                }
                 Ok(())
             }
             Phase::Draining(drain) => match mode {
@@ -820,6 +838,24 @@ mod tests {
         m.stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
         m.mark_stopped();
         assert_eq!(m.stop(StopMode::WhenIdle, StopReason::Quit, None), Err(CommandError::Stopped));
+    }
+
+    /// Node's `/shutdown` waits for a new task's call (`drainDeferral`, `daemon.mjs:533-536`); its `/stop {force:true}` cuts the attempt
+    /// and does not wait for its request.
+    #[test]
+    fn a_quit_stop_waits_for_a_new_task_and_a_user_stop_cuts_it() {
+        let mut m = Machine::new("i".into(), "1".into());
+        m.set_serving().unwrap();
+        m.new_task_started();
+        m.take_effects();
+        m.stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
+        let effects = m.take_effects();
+        assert!(!effects.iter().any(|e| matches!(e, Effect::CutNewTasks)), "{effects:?}");
+        assert_eq!(releases(&effects), 0);
+        m.stop(StopMode::WhenIdle, StopReason::UserStop, None).unwrap();
+        let effects = m.take_effects();
+        assert!(effects.iter().any(|e| matches!(e, Effect::CutNewTasks)), "{effects:?}");
+        assert_eq!(releases(&effects), 1);
     }
 
     #[test]

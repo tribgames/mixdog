@@ -1,0 +1,221 @@
+{
+  "cases": {
+    "draft-missing-workflow": {
+      "case": {
+        "content": {
+          "draft": {
+            "orchestrationMode": "balanced",
+            "route": {
+              "model": "harness-model",
+              "provider": "custom-harness"
+            },
+            "workflowId": "gone"
+          },
+          "options": {
+            "displayText": "write the quarterly report"
+          },
+          "prompt": "write the quarterly report"
+        },
+        "hold": null,
+        "id": "s-missing-workflow",
+        "name": "draft-missing-workflow"
+      },
+      "recorded": [
+        {
+          "receipts": {
+            "803f729ba774342f54674b06239ef1b6cfefacfc3f8589d8bd169805d9d0a20b.json": "{\"signature\":\"d40107966e62fe7c064f12d0dc9770264cd464e9d8e7baed60592278c27befdc\",\"sessionId\":\"sess_desktop_803f729ba774342f54674b06239ef1b6cfefacfc3f8589d8bd169805d9d0a20b\",\"phase\":\"accepted\"}"
+          },
+          "reply": {
+            "accepted": true,
+            "ok": true,
+            "sessionId": "sess_desktop_803f729ba774342f54674b06239ef1b6cfefacfc3f8589d8bd169805d9d0a20b"
+          },
+          "settings": {
+            "orchestrationMode": "balanced",
+            "workflow": {
+              "delegatesAgents": true,
+              "description": "Handle tasks as requested.",
+              "id": "default",
+              "name": "Default",
+              "source": "built-in"
+            }
+          },
+          "stop": {
+            "request": "sent",
+            "stopped": true
+          },
+          "stored": [
+            "sess_desktop_803f729ba774342f54674b06239ef1b6cfefacfc3f8589d8bd169805d9d0a20b"
+          ]
+        }
+      ]
+    },
+    "draft-settings": {
+      "case": {
+        "content": {
+          "draft": {
+            "orchestrationMode": "focused",
+            "route": {
+              "model": "harness-model",
+              "provider": "custom-harness"
+            },
+            "workflowId": "headless"
+          },
+          "options": {
+            "displayText": "write the quarterly report"
+          },
+          "prompt": "write the quarterly report"
+        },
+        "hold": null,
+        "id": "s-settings",
+        "name": "draft-settings"
+      },
+      "recorded": [
+        {
+          "receipts": {
+            "f5cfce6da3546af51b2b76f84ddb8bff5c814d86334301fb4b87716fc5e6a683.json": "{\"signature\":\"ad594e7dcc0296401d4d70586e7fc8b5c324678cad01f9d1f8b4cd47f8b49b68\",\"sessionId\":\"sess_desktop_f5cfce6da3546af51b2b76f84ddb8bff5c814d86334301fb4b87716fc5e6a683\",\"phase\":\"accepted\"}"
+          },
+          "reply": {
+            "accepted": true,
+            "ok": true,
+            "sessionId": "sess_desktop_f5cfce6da3546af51b2b76f84ddb8bff5c814d86334301fb4b87716fc5e6a683"
+          },
+          "settings": {
+            "orchestrationMode": "focused",
+            "workflow": {
+              "delegatesAgents": true,
+              "description": "No user mid-run; requests are approved. Complete, then report.",
+              "id": "headless",
+              "name": "Headless",
+              "source": "built-in"
+            }
+          },
+          "stop": {
+            "request": "sent",
+            "stopped": true
+          },
+          "stored": [
+            "sess_desktop_f5cfce6da3546af51b2b76f84ddb8bff5c814d86334301fb4b87716fc5e6a683"
+          ]
+        }
+      ]
+    },
+    "quit-in-request-worktree": {
+      "case": {
+        "content": {
+          "draft": {
+            "route": {
+              "model": "harness-model",
+              "provider": "custom-harness"
+            },
+            "worktree": {}
+          },
+          "options": {
+            "displayText": "write the quarterly report"
+          },
+          "prompt": "write the quarterly report"
+        },
+        "hold": {
+          "git": "-c core.longpaths=true rev-parse --is-bare-repository",
+          "step": "requestWorktree"
+        },
+        "id": "s-quit-worktree",
+        "name": "quit-in-request-worktree"
+      },
+      "recorded": [
+        {
+          "listed": [],
+          "receipts": {
+            "3977540f1cf82a8b3a854f6fc94f7b114cf2c5381c4fee48748c1699aceac2f5.json": "{\"signature\":\"eddaf5dbdc1db27690d958683f105e50210aceb8b5cab2b8de539a055e5169e6\",\"sessionId\":\"<fresh:1>\",\"phase\":\"reserved\",\"refused\":true}"
+          },
+          "reply": {
+            "error": "Mixdog desktop service client is disposed.",
+            "ok": false
+          },
+          "stop": {
+            "request": "sent",
+            "stopped": true
+          },
+          "stored": [
+            "sess_desktop_3977540f1cf82a8b3a854f6fc94f7b114cf2c5381c4fee48748c1699aceac2f5"
+          ]
+        },
+        {
+          "receipts": {
+            "3977540f1cf82a8b3a854f6fc94f7b114cf2c5381c4fee48748c1699aceac2f5.json": "{\"signature\":\"eddaf5dbdc1db27690d958683f105e50210aceb8b5cab2b8de539a055e5169e6\",\"sessionId\":\"<fresh:2>\",\"phase\":\"reserved\",\"refused\":true}"
+          },
+          "reply": {
+            "code": "WORKTREE_REVISION_CONFLICT",
+            "error": "WORKTREE_REVISION_CONFLICT: This transaction belongs to another session.\n[worktree-details] {\"txId\":\"s-quit-worktree\"}",
+            "name": "Error",
+            "ok": false
+          },
+          "stop": {
+            "request": "sent",
+            "stopped": true
+          },
+          "stored": [
+            "sess_desktop_3977540f1cf82a8b3a854f6fc94f7b114cf2c5381c4fee48748c1699aceac2f5",
+            "<fresh:1>"
+          ]
+        }
+      ]
+    },
+    "quit-in-set-route": {
+      "case": {
+        "content": {
+          "draft": {
+            "route": {
+              "model": "harness-model",
+              "provider": "custom-harness"
+            }
+          },
+          "options": {
+            "displayText": "write the quarterly report"
+          },
+          "prompt": "write the quarterly report"
+        },
+        "hold": {
+          "provider": "HEAD /",
+          "step": "setRoute"
+        },
+        "id": "s-quit-route",
+        "name": "quit-in-set-route"
+      },
+      "recorded": [
+        {
+          "listed": [],
+          "receipts": {
+            "8f5e29ffa28ee57ccbf2b6fda7532ec9cb5fff4cdc84c8afb46924c716f2d99e.json": "{\"signature\":\"4365a1defdbc98248172e5854f007925fde19fc8519841bf59a6ba0d96a99b43\",\"sessionId\":\"<fresh:1>\",\"phase\":\"reserved\",\"refused\":true}"
+          },
+          "reply": {
+            "error": "Mixdog desktop service client is disposed.",
+            "ok": false
+          },
+          "stop": {
+            "request": "sent",
+            "stopped": true
+          },
+          "stored": []
+        },
+        {
+          "receipts": {
+            "8f5e29ffa28ee57ccbf2b6fda7532ec9cb5fff4cdc84c8afb46924c716f2d99e.json": "{\"signature\":\"4365a1defdbc98248172e5854f007925fde19fc8519841bf59a6ba0d96a99b43\",\"sessionId\":\"<fresh:1>\",\"phase\":\"accepted\"}"
+          },
+          "reply": {
+            "accepted": true,
+            "ok": true,
+            "sessionId": "<fresh:1>"
+          },
+          "stop": {
+            "request": "sent",
+            "stopped": true
+          },
+          "stored": [
+            "<fresh:1>"
+          ]
+        }
+      ]
+    }
+  }
+}
