@@ -322,6 +322,14 @@ impl SessionState {
             Record::Run(run) => match run.phase {
                 RunPhase::Started => {
                     self.runs.insert(run.rid.as_str().to_owned(), ());
+                    // `turn.mjs` `runTurn`: the turn begins busy, its spinner requesting (the session's toasts, running tools and
+                    // `setupChanged` stay the session's own).
+                    if let Some(at) = run.at {
+                        let turns = self.context().stats.as_ref().and_then(|stats| stats.get("turns")).and_then(Value::as_u64).unwrap_or(0);
+                        let runtime = self.sections.runtime.get_or_insert_with(ThreadRuntime::default);
+                        runtime.busy = true;
+                        runtime.spinner = Some(super::spinner::started(turns, at));
+                    }
                 }
                 RunPhase::Attempt => {}
                 RunPhase::Completed | RunPhase::Failed | RunPhase::Interrupted => {
