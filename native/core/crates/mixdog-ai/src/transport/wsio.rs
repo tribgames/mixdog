@@ -8,6 +8,7 @@
 //! single-frame data message is deflated with the negotiated window and sent with RSV1 (`sender.js:373-383`,
 //! `permessage-deflate.js` `_compress`). Without the extension this is a plain pass-through.
 
+use std::future::Future;
 use std::io;
 use std::pin::Pin;
 use std::task::Context;
@@ -34,6 +35,9 @@ pub const MAX_PAYLOAD: usize = 16 << 20;
 const TAIL: [u8; 4] = [0x00, 0x00, 0xff, 0xff];
 /// How much room one step of the inflater is given, so that the bound is checked at least this often.
 const STEP: usize = 16 << 10;
+/// How long the close frame of a violation may wait for the socket to be writable before the connection is given up:
+/// ws's closeTimeout (websocket.js CLOSE_TIMEOUT, 30 s), the time it allows a closing handshake.
+const CLOSE_FLUSH: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// What the server accepted of the offer `permessage-deflate; client_max_window_bits`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -174,19 +178,26 @@ impl Head {
     }
 }
 
-/// The head of the frame at the start of `bytes`, once all of it has arrived.
-fn parse(bytes: &[u8]) -> Result<Option<Head>, Fault> {
+/// The length a frame's header declares, and how many bytes of the header it takes beyond the first two, once those
+/// bytes are in.
+fn declared(bytes: &[u8]) -> Option<(usize, u64)> {
     if bytes.len() < 2 {
-        return Ok(None);
+        return None;
     }
+    match bytes[1] & 0x7f {
+        126 if bytes.len() >= 4 => Some((2, u64::from(u16::from_be_bytes([bytes[2], bytes[3]])))),
+        127 if bytes.len() >= 10 => Some((8, u64::from_be_bytes(bytes[2..10].try_into().expect("eight bytes")))),
+        126 | 127 => None,
+        small => Some((0, u64::from(small))),
+    }
+}
+
+/// The head of the frame at the start of `bytes`, once all of it has arrived. A payload past `limit` is 1009: `ws`'s
+/// maxPayload bounds what is received (`receiver.js` `haveLength`), never what is sent.
+fn parse(bytes: &[u8], limit: usize) -> Result<Option<Head>, Fault> {
+    let Some((extra, payload)) = declared(bytes) else { return Ok(None) };
     let masked = bytes[1] & 0x80 != 0;
-    let (extra, payload) = match bytes[1] & 0x7f {
-        126 if bytes.len() >= 4 => (2, u64::from(u16::from_be_bytes([bytes[2], bytes[3]]))),
-        127 if bytes.len() >= 10 => (8, u64::from_be_bytes(bytes[2..10].try_into().expect("eight bytes"))),
-        126 | 127 => return Ok(None),
-        small => (0, u64::from(small)),
-    };
-    if payload > MAX_PAYLOAD as u64 {
+    if payload > limit as u64 {
         return Err(fault(1009, "Max payload size exceeded"));
     }
     let header = 2 + extra + if masked { 4 } else { 0 };
@@ -308,58 +319,65 @@ impl Codec {
         }
     }
 
-    /// Checks one inbound frame as `ws` does (`receiver.js` `getInfo`) and moves the fragmentation state.
-    fn admit(&mut self, head: &Head) -> Result<(), Fault> {
-        if head.first & 0x30 != 0 {
+    /// Judges a frame from its first two bytes, in the order of `ws`'s `getInfo` (`receiver.js:205-385`), so that a
+    /// violation is refused as soon as the header shows it and not when the payload it declares has arrived.
+    fn admit(&self, first: u8, second: u8) -> Result<(), Fault> {
+        let (rsv1, fin, op, masked, marker) = (first & 0x40 != 0, first & 0x80 != 0, first & 0x0f, second & 0x80 != 0, second & 0x7f);
+        if first & 0x30 != 0 {
             return Err(fault(1002, "RSV2 and RSV3 must be clear"));
         }
-        match head.opcode() {
-            _ if head.rsv1() && !self.negotiated => return Err(fault(1002, "RSV1 must be clear")),
+        if rsv1 && !self.negotiated {
+            return Err(fault(1002, "RSV1 must be clear"));
+        }
+        match op {
             0 => {
-                if head.rsv1() {
+                if rsv1 {
                     return Err(fault(1002, "RSV1 must be clear"));
                 }
                 if self.message.is_none() {
                     return Err(fault(1002, "invalid opcode 0"));
                 }
             }
-            op @ (1 | 2) => {
+            1 | 2 => {
                 if self.message.is_some() {
                     return Err(fault(1002, format!("invalid opcode {op}")));
                 }
             }
             8..=10 => {
-                if head.rsv1() {
-                    return Err(fault(1002, "RSV1 must be clear"));
-                }
-                if !head.fin() {
+                if !fin {
                     return Err(fault(1002, "FIN must be set"));
                 }
-                if head.payload > 125 {
-                    return Err(fault(1002, "invalid payload length"));
+                if rsv1 {
+                    return Err(fault(1002, "RSV1 must be clear"));
+                }
+                // The 7-bit field is judged as it stands: 126 and 127 announce a longer length, over the limit of 125.
+                if marker > 125 || (op == 8 && marker == 1) {
+                    return Err(fault(1002, format!("invalid payload length {marker}")));
                 }
             }
             op => return Err(fault(1002, format!("invalid opcode {op}"))),
         }
-        if head.masked {
+        if masked {
             return Err(fault(1002, "MASK must be clear"));
         }
         Ok(())
     }
-
     /// Translates every complete server frame of `raw` into `out`; a violation is returned with the frames before it
     /// already translated.
     pub fn inbound(&mut self, raw: &mut Vec<u8>, out: &mut Vec<u8>) -> Result<(), Fault> {
         loop {
-            // `ws` judges these as soon as the first two bytes are in.
-            if raw.len() >= 2 && raw[1] & 0x80 != 0 {
-                return Err(fault(1002, "MASK must be clear"));
+            if raw.len() >= 2 {
+                self.admit(raw[0], raw[1])?;
             }
-            if !raw.is_empty() && raw[0] & 0x30 != 0 {
-                return Err(fault(1002, "RSV2 and RSV3 must be clear"));
+            // `haveLength`: the message so far plus this frame's declared payload, judged before the payload arrives.
+            if let Some((_, payload)) = declared(raw) {
+                let data = matches!(raw[0] & 0x0f, 0..=2);
+                let so_far = self.message.as_ref().map_or(0, |m| m.received) as u64;
+                if data && payload > 0 && so_far + payload > MAX_PAYLOAD as u64 {
+                    return Err(fault(1009, "Max payload size exceeded"));
+                }
             }
-            let Some(head) = parse(raw)? else { break };
-            self.admit(&head)?;
+            let Some(head) = parse(raw, MAX_PAYLOAD)? else { break };
             let payload = &raw[head.header..head.total()];
             let op = head.opcode();
             if op >= 8 {
@@ -407,7 +425,7 @@ impl Codec {
             out.append(raw);
             return Ok(());
         }
-        while let Some(head) = parse(raw)? {
+        while let Some(head) = parse(raw, usize::MAX)? {
             let single = self.negotiated && head.fin() && (head.opcode() == 1 || head.opcode() == 2) && head.first & 0x70 == 0 && head.masked;
             let small = self.extension.client_no_context_takeover && head.payload < THRESHOLD;
             if single && !small {
@@ -456,6 +474,8 @@ pub struct WsIo<S> {
     /// The violation that ended the connection: every later read fails with it, and a later write is refused, so a
     /// connection whose deflate state is no longer the server's is never used again.
     failed: Option<Fault>,
+    /// Armed while the close frame of a violation waits to be written.
+    close_flush: Option<Pin<Box<tokio::time::Sleep>>>,
 }
 
 impl<S> WsIo<S> {
@@ -470,6 +490,7 @@ impl<S> WsIo<S> {
             out_raw: Vec::new(),
             out_ready: Vec::new(),
             failed: None,
+            close_flush: None,
         }
     }
 }
@@ -488,8 +509,20 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncRead for WsIo<S> {
                 }
                 return Poll::Ready(Ok(()));
             }
-            if let Some(violation) = &this.failed {
-                return Poll::Ready(Err(failure(violation)));
+            if let Some(violation) = this.failed.clone() {
+                // The close frame leaves before the read fails: the caller stops the writer once it sees the error, and
+                // a close still queued would be lost with it. A socket that stays unwritable is given up after
+                // [CLOSE_FLUSH].
+                if !this.out_ready.is_empty() {
+                    if this.drain(cx).is_pending() {
+                        let wait = this.close_flush.get_or_insert_with(|| Box::pin(tokio::time::sleep(CLOSE_FLUSH)));
+                        if wait.as_mut().poll(cx).is_pending() {
+                            return Poll::Pending;
+                        }
+                        this.out_ready.clear();
+                    }
+                }
+                return Poll::Ready(Err(failure(&violation)));
             }
             if !this.early.is_empty() {
                 this.in_raw.append(&mut this.early);
@@ -506,7 +539,6 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncRead for WsIo<S> {
                 // The frames before the violation are still delivered; the close frame goes out on the way.
                 this.in_raw.clear();
                 this.out_ready.extend_from_slice(&close_frame(violation.code)?);
-                let _ = this.drain(cx);
                 this.failed = Some(violation);
             }
         }
@@ -613,7 +645,7 @@ mod tests {
                 }
                 // One plain frame, or (a message ws sent uncompressed in fragments) its fragments unchanged.
                 let mut joined = Vec::new();
-                while let Some(head) = parse(&out).unwrap() {
+                while let Some(head) = parse(&out, MAX_PAYLOAD).unwrap() {
                     assert_eq!(head.first & 0x70, 0, "no RSV bits reach tungstenite");
                     joined.extend_from_slice(&out[head.header..head.total()]);
                     out.drain(..head.total());
@@ -651,7 +683,7 @@ mod tests {
                 assert_eq!(out[1] & 0x80, recorded[1] & 0x80, "masked");
                 // The bytes of a later message differ with the deflate backend (zlib-rs here, zlib there) but not
                 // in meaning: an independent server-side stream reads them back.
-                let head = parse(&out).unwrap().unwrap();
+                let head = parse(&out, MAX_PAYLOAD).unwrap().unwrap();
                 let key: [u8; 4] = out[head.header - 4..head.header].try_into().unwrap();
                 let body: Vec<u8> = out[head.header..].iter().enumerate().map(|(i, b)| b ^ key[i % 4]).collect();
                 let read = if out[0] & 0x40 != 0 {
@@ -709,7 +741,7 @@ mod tests {
         for wire in case["frames"].as_array().unwrap() {
             codec.inbound(&mut unhex(wire.as_str().unwrap()), &mut out).unwrap();
         }
-        let first = parse(&out).unwrap().unwrap();
+        let first = parse(&out, MAX_PAYLOAD).unwrap().unwrap();
         assert_eq!(&out[first.header..first.total()], b"plain");
     }
 
@@ -721,11 +753,8 @@ mod tests {
         assert!(bomb.len() < MAX_PAYLOAD / 100);
         let mut raw = Vec::new();
         frame(0xc1, None, &bomb, &mut raw);
-        let mut out = Vec::new();
-        let outcome = codec.inbound(&mut raw, &mut out);
+        let outcome = codec.inbound(&mut raw, &mut Vec::new());
         assert_eq!(outcome.unwrap_err().code, 1009);
-        // Bounded while inflating, not after: the output never grew far past the limit.
-        assert!(out.capacity() <= MAX_PAYLOAD + 4 * STEP, "{} bytes allocated", out.capacity());
     }
 
     #[test]
@@ -749,5 +778,100 @@ mod tests {
             let code = u16::from_be_bytes([close[6] ^ close[2], close[7] ^ close[3]]);
             assert_eq!(code, 1002);
         });
+    }
+
+    // W4: the buffer the inflater grows is bounded while it inflates. A bomb that expands to 64 times the limit leaves
+    // a buffer that never reached the size of the whole expansion (a Vec grows by doubling, so twice the limit and a
+    // step is the most it may hold).
+    #[test]
+    fn the_inflaters_own_buffer_stops_growing_at_the_limit() {
+        let limit = 1 << 20;
+        let mut encoder = Compress::new(Compression::default(), false);
+        let bomb = deflate(&mut encoder, &vec![0u8; 64 * limit]).unwrap();
+        let mut decoder = Decompress::new(false);
+        let mut out = Vec::new();
+        let outcome = inflate(&mut decoder, &[&bomb[..], &TAIL].concat(), &mut out, limit);
+        assert_eq!(outcome.unwrap_err().code, 1009);
+        assert!(out.capacity() <= 2 * (limit + STEP), "{} bytes allocated for a limit of {limit}", out.capacity());
+    }
+
+    // W1: `ws`'s maxPayload bounds what is received; a message to send may be any size.
+    #[test]
+    fn an_outgoing_message_past_the_receive_limit_is_sent_compressed() {
+        let mut codec = Codec::new(Extension::default());
+        let plain = vec![b'a'; MAX_PAYLOAD + 1024];
+        let mut raw = Vec::new();
+        frame(0x81, Some([1, 2, 3, 4]), &plain, &mut raw);
+        let mut out = Vec::new();
+        codec.outbound(&mut raw, &mut out).unwrap();
+        assert!(raw.is_empty());
+        assert_eq!(out[0], 0xc1, "compressed, final");
+    }
+
+    // W2: a violation is refused at the header, with `ws`'s close code, before the payload it declares arrives.
+    #[test]
+    fn a_header_that_shows_a_violation_is_refused_without_its_payload() {
+        for (name, header, code) in [
+            ("a fragmented ping that declares 64 KiB", vec![0x09, 0x7e, 0xff, 0xff], 1002),
+            ("a ping that declares more than 125", vec![0x89, 0x7e], 1002),
+            ("a close with a one byte payload", vec![0x88, 0x01], 1002),
+            ("a reserved opcode", vec![0x83, 0x00], 1002),
+            ("RSV3", vec![0x91, 0x00], 1002),
+            ("a masked frame", vec![0x81, 0x80], 1002),
+            ("a text frame declaring more than the limit", vec![0x81, 0x7f, 0, 0, 0, 0, 0x02, 0, 0, 0], 1009),
+        ] {
+            let mut codec = Codec::new(Extension::default());
+            let outcome = codec.inbound(&mut header.clone(), &mut Vec::new());
+            assert_eq!(outcome.unwrap_err().code, code, "{name}");
+        }
+        // A continuation that takes the message past the limit is refused when its header comes.
+        let mut codec = Codec::new(Extension::default());
+        let mut raw = Vec::new();
+        frame(0x01, None, &vec![b'a'; MAX_PAYLOAD - 10], &mut raw);
+        let mut out = Vec::new();
+        codec.inbound(&mut raw, &mut out).unwrap();
+        let outcome = codec.inbound(&mut vec![0x80, 0x7e, 0x00, 0x20], &mut out);
+        assert_eq!(outcome.unwrap_err().code, 1009);
+    }
+
+    // W3: the close frame of a violation is written before the read fails, though the socket cannot take it at the
+    // moment, and the wait for it is bounded.
+    #[tokio::test(start_paused = true)]
+    async fn the_close_frame_of_a_violation_waits_for_a_socket_that_cannot_be_written_to() {
+        use tokio::io::AsyncReadExt;
+        use tokio::io::AsyncWriteExt;
+        let (near, mut far) = tokio::io::duplex(4); // room for four bytes: the eight byte close frame does not fit
+        let mut ws = WsIo::new(near, Vec::new(), Some(Extension::default()));
+        let mut rsv2 = Vec::new();
+        frame(0xa1, None, b"x", &mut rsv2);
+        far.write_all(&rsv2).await.unwrap();
+        let mut byte = [0u8; 1];
+        let mut read = Box::pin(ws.read(&mut byte));
+        tokio::time::advance(CLOSE_FLUSH - std::time::Duration::from_secs(1)).await;
+        assert!(futures::poll!(read.as_mut()).is_pending(), "the read does not fail while the close is still queued");
+        let mut close = [0u8; 8];
+        far.read_exact(&mut close[..4]).await.unwrap();
+        let outcome = tokio::time::timeout(std::time::Duration::from_secs(5), read).await.expect("the close left, so the read fails");
+        assert!(outcome.is_err());
+        far.read_exact(&mut close[4..]).await.unwrap();
+        assert_eq!(close[0], 0x88);
+        let code = u16::from_be_bytes([close[6] ^ close[2], close[7] ^ close[3]]);
+        assert_eq!(code, 1002);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_socket_that_stays_unwritable_gives_the_close_up_after_ws_close_timeout() {
+        use tokio::io::AsyncReadExt;
+        use tokio::io::AsyncWriteExt;
+        let (near, mut far) = tokio::io::duplex(4);
+        let mut ws = WsIo::new(near, Vec::new(), Some(Extension::default()));
+        let mut rsv2 = Vec::new();
+        frame(0xa1, None, b"x", &mut rsv2);
+        far.write_all(&rsv2).await.unwrap();
+        let mut byte = [0u8; 1];
+        let mut read = Box::pin(ws.read(&mut byte));
+        assert!(futures::poll!(read.as_mut()).is_pending());
+        tokio::time::advance(CLOSE_FLUSH + std::time::Duration::from_secs(1)).await;
+        assert!(read.await.is_err(), "the wait ended at the deadline");
     }
 }
