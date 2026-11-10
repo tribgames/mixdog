@@ -18,6 +18,7 @@ pub mod accounts;
 pub mod admission;
 pub mod broker;
 pub mod catalog;
+pub mod claude_floors;
 pub mod client_versions;
 pub mod effort;
 pub mod netproxy;
@@ -34,11 +35,12 @@ pub mod work;
 /// The process-wide state a provider send leaves behind, put back as a new process has it: the Anthropic gzip and
 /// OpenAI zstd latches, the Anthropic message threads and fast mode, the logged tool exclusions, the warmed origins,
 /// the Gemini cache registry and its announced redirects, the lane settings read from the environment, the running
-/// credential refreshes. A test that replays a recording Node made in a fresh process starts here.
+/// credential refreshes, the Claude floor features models refused. A test that replays a recording Node made in a fresh process starts here.
 /// `tests/it/process_state.rs` holds every process-wide value of the crate to this list or a reason.
 #[cfg(any(test, feature = "test-support"))]
 pub fn reset_process_state() {
     admission::settings::reset_process_lane_settings();
+    claude_floors::reset_process();
     oauth::single_flight::reset();
     providers::anthropic::reset_process_state();
     providers::compat::schema::reset_warned();

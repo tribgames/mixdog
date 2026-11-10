@@ -7,6 +7,7 @@
 //! event or the consumer dropping it.
 
 mod adapter;
+mod before_output;
 mod betas;
 mod body;
 mod caps;

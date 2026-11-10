@@ -120,7 +120,7 @@ impl Runner<'_> {
             },
             Err(ScmFailure::Unavailable { .. }) => GitRun::failed(RunError::NotFound),
             Err(ScmFailure::Cancelled) => GitRun::failed(RunError::Aborted),
-            Err(ScmFailure::TimedOut) => GitRun::failed(RunError::TimedOut),
+            Err(ScmFailure::TimedOut { .. }) => GitRun::failed(RunError::TimedOut),
             Err(ScmFailure::OutputTooLarge { .. }) => GitRun::failed(RunError::Overflow),
             Err(other) => GitRun::failed(RunError::Spawn(other.to_string())),
         }

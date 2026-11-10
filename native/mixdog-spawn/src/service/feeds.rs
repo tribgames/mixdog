@@ -16,10 +16,8 @@ use mixdog_app_protocol::rpc::FeedStamp;
 use mixdog_app_protocol::rpc::JsonRpcNotification;
 use mixdog_app_protocol::v2::feed::FeedSnapshotParams;
 use mixdog_core_api::domain::process::ExitStatus;
-use mixdog_core_api::domain::process::ProcessError;
 use mixdog_core_api::domain::process::ProcessEvent;
 use mixdog_core_api::domain::process::ProcessExit;
-use mixdog_core_api::domain::process::ProcessManager;
 use mixdog_core_api::error::CoreError;
 use mixdog_core_api::feed::AttachDecision;
 use mixdog_core_api::feed::AttachRequest;
@@ -39,12 +37,19 @@ use mixdog_rt::TaskClass;
 use serde_json::Value;
 use serde_json::json;
 
+use super::relay_buffer::RelayBuffer;
+use super::relay_buffer::RelayFrame;
 use crate::manager::LocalProcessManager;
+use crate::terminal::PumpPoint;
+use crate::terminal::PumpTell;
+use crate::terminal::REPLAY_BUFFER_LIMIT;
+use crate::terminal::ReplayBuffer;
 
 /// Exited processes whose feed stays attachable (replay of a finished run).
 const RETAINED_FEEDS: usize = 256;
-/// The screen text a terminal feed's snapshot carries: the tail of the output.
-const SNAPSHOT_TEXT_BYTES: usize = 256 * 1024;
+
+/// How long the pump waits for a change to reach the clients before the output that follows it (see `PumpTell`).
+const ORDER_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
 
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
@@ -171,11 +176,59 @@ fn exited_params(handle: &ProcessHandle, exit: &ProcessExit) -> Value {
 struct Entry {
     handle: ProcessHandle,
     publisher: FramePublisher,
+    /// A terminal tab's output as Node's relay lane sent it to a phone (`process:relay:<tab>`, see [`super::relay_buffer`]); `None` for a
+    /// process feed.
+    relay: Option<FramePublisher>,
     /// A terminal feed: its snapshot carries the screen text; a process feed's carries only the
     /// run state (its replay is the feed's ring).
     text: bool,
     started: AtomicBool,
     finished: AtomicBool,
+    /// Queued for eviction already (see `ProcessFeeds::retire`).
+    retired: AtomicBool,
+    /// The holds out, each as the output offset the pump may still publish up to (see [`FeedHold`]).
+    hold: tokio::sync::watch::Sender<Vec<u64>>,
+    /// How often the pump has stopped for a hold. Tests only.
+    #[cfg(test)]
+    stopped: tokio::sync::watch::Sender<u64>,
+    /// How often the pump has waited for a change to reach the clients before going on (see `PumpTell`). Tests only.
+    #[cfg(test)]
+    ordered: tokio::sync::watch::Sender<u64>,
+    /// Runs once a claim's hold is taken (`ProcessFeeds::hold_new_output`). Tests only.
+    #[cfg(test)]
+    after_mark: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    /// Told the bytes of output the pump has taken, after each output event went through the relay buffer (`u64::MAX` when it ends):
+    /// a terminal tab's activity changes wait for it (`TerminalTabs::relay_order`).
+    taken: OnceLock<PumpTell>,
+}
+
+/// A call's hold on its tab's feed: until it is dropped, the pump publishes no output past the hold's offset, no relay flush and no exit.
+/// Node answered `termEnsure` and `termDispose` in-process before the output they cause (a new shell's first output, a killed shell's last
+/// output and exit line: its PTY reports them later, on its own event), so the phone sees the answer first; the hold (offset 0: nothing
+/// at all) makes the core's pump wait for the answer instead of racing it. A claim's hold (see [`ProcessFeeds::hold_new_output`]) lets
+/// the output already in the feed through.
+pub(crate) struct FeedHold(Arc<Entry>, u64);
+
+impl Drop for FeedHold {
+    fn drop(&mut self) {
+        let offset = self.1;
+        self.0.hold.send_modify(|holds| {
+            if let Some(at) = holds.iter().position(|held| *held == offset) {
+                holds.swap_remove(at);
+            }
+        });
+    }
+}
+
+impl Entry {
+    fn hold(self: &Arc<Self>) -> FeedHold {
+        self.hold_from(0)
+    }
+
+    fn hold_from(self: &Arc<Self>, offset: u64) -> FeedHold {
+        self.hold.send_modify(|holds| holds.push(offset));
+        FeedHold(Arc::clone(self), offset)
+    }
 }
 
 /// The `process:<handle>` feeds. A feed is pumped from its process's event stream, starting at
@@ -193,15 +246,35 @@ pub struct ProcessFeeds {
 struct Gate {
     feeds: Arc<ProcessFeeds>,
     entry: Arc<Entry>,
+    /// The tab's relay feed rather than its raw one.
+    relay: bool,
+}
+
+impl Gate {
+    fn publisher(&self) -> &FramePublisher {
+        match (&self.entry.relay, self.relay) {
+            (Some(relay), true) => relay,
+            _ => &self.entry.publisher,
+        }
+    }
+}
+
+impl Entry {
+    fn close(&self) {
+        self.publisher.close();
+        if let Some(relay) = &self.relay {
+            relay.close();
+        }
+    }
 }
 
 impl FeedSource for Gate {
     fn feed_id(&self) -> FeedId {
-        self.entry.publisher.id().clone()
+        self.publisher().id().clone()
     }
 
     fn attach(&self, req: AttachRequest) -> Result<AttachDecision, CoreError> {
-        let decision = self.entry.publisher.source().attach(req)?;
+        let decision = self.publisher().source().attach(req)?;
         if !self.entry.started.swap(true, Ordering::AcqRel) {
             Arc::clone(&self.feeds).start_pump(Arc::clone(&self.entry));
         }
@@ -209,7 +282,7 @@ impl FeedSource for Gate {
     }
 
     fn detach(&self, sub: SubscriptionId) {
-        self.entry.publisher.source().detach(sub);
+        self.publisher().source().detach(sub);
     }
 }
 
@@ -232,6 +305,15 @@ impl ProcessFeeds {
     /// The feed of `handle`, created on first use. A terminal feed (`text`) also keeps the screen
     /// text for its snapshot. A finished run's feed is replaced when the same handle runs again.
     pub(crate) fn feed(self: &Arc<Self>, handle: &str, text: bool) -> Arc<dyn FeedSource> {
+        self.feed_for(handle, text, false)
+    }
+
+    /// The relay feed of a terminal tab (`process:relay:<tab>`): what a phone reads, its output framed by Node's relay rule.
+    pub(crate) fn relay_feed(self: &Arc<Self>, handle: &str) -> Arc<dyn FeedSource> {
+        self.feed_for(handle, true, true)
+    }
+
+    fn feed_for(self: &Arc<Self>, handle: &str, text: bool, relay: bool) -> Arc<dyn FeedSource> {
         let mut entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(entry) = entries.get(handle) {
             let rerun = entry.finished.load(Ordering::Acquire)
@@ -240,30 +322,108 @@ impl ProcessFeeds {
                 return Arc::new(Gate {
                     feeds: Arc::clone(self),
                     entry: Arc::clone(entry),
+                    relay,
                 });
             }
-            entry.publisher.close();
+            entry.close();
         }
         let state = if text { json!({ "text": "" }) } else { json!({}) };
         let entry = Arc::new(Entry {
             handle: ProcessHandle::from(handle),
-            publisher: FramePublisher::create(self.scoped.as_ref(), FeedId::from(format!("process:{handle}")), state),
+            publisher: FramePublisher::create(self.scoped.as_ref(), FeedId::from(format!("process:{handle}")), state.clone()),
+            relay: text.then(|| FramePublisher::create(self.scoped.as_ref(), FeedId::from(format!("process:relay:{handle}")), state)),
             text,
             started: AtomicBool::new(false),
             finished: AtomicBool::new(false),
+            retired: AtomicBool::new(false),
+            hold: tokio::sync::watch::Sender::new(Vec::new()),
+            #[cfg(test)]
+            stopped: tokio::sync::watch::Sender::new(0),
+            #[cfg(test)]
+            ordered: tokio::sync::watch::Sender::new(0),
+            #[cfg(test)]
+            after_mark: Mutex::new(None),
+            taken: OnceLock::new(),
         });
         entries.insert(handle.to_owned(), Arc::clone(&entry));
         Arc::new(Gate {
             feeds: Arc::clone(self),
             entry,
+            relay,
         })
     }
 
-    /// Ends the feed of a disposed tab: its subscribers are detached.
+    /// The feed of a terminal tab, live and pumping before anyone subscribes: a `feed/subscribe` attaches the publisher's own source,
+    /// which never passes the [`Gate`] that starts the pump, so a tab read only through the feed lane would never be pumped.
+    /// Returns a hold taken before the pump starts: the ensure's answer goes ahead of the shell's first output. `order` is asked, when
+    /// this starts the pump, for what the pump tells how much output it has taken (`TerminalTabs::relay_order`).
+    pub(crate) fn open_terminal(
+        self: &Arc<Self>,
+        handle: &str,
+        order: impl FnOnce() -> Option<PumpTell>,
+    ) -> Option<FeedHold> {
+        let _ = self.feed(handle, true);
+        let entry = self.entries.lock().unwrap_or_else(|e| e.into_inner()).get(handle).cloned()?;
+        let held = entry.hold();
+        if !entry.started.swap(true, Ordering::AcqRel) {
+            if let Some(order) = order() {
+                let _ = entry.taken.set(order);
+            }
+            Arc::clone(self).start_pump(Arc::clone(&entry));
+        }
+        Some(held)
+    }
+
+    /// Holds the current feed of `handle` (see [`FeedHold`]); `None` when it has none.
+    pub(crate) fn hold(&self, handle: &str) -> Option<FeedHold> {
+        let entry = self.entries.lock().unwrap_or_else(|e| e.into_inner()).get(handle).cloned()?;
+        Some(entry.hold())
+    }
+
+    /// Holds back what the process of `handle` writes from now on, and every relay flush and the exit, but not the output already in its
+    /// feed (see [`FeedHold`]); `None` when it has no feed. A process that is gone writes nothing more.
+    /// The cut and the hold are one step under the feed's lock: output the shell writes after the cut is never taken unheld.
+    pub(crate) fn hold_new_output(&self, handle: &str) -> Option<FeedHold> {
+        let entry = self.entries.lock().unwrap_or_else(|e| e.into_inner()).get(handle).cloned()?;
+        let held = self.manager.output_mark_then(&entry.handle, |offset| entry.hold_from(offset)).unwrap_or_else(|_| entry.hold_from(u64::MAX));
+        #[cfg(test)]
+        if let Some(seam) = entry.after_mark.lock().unwrap().take() {
+            seam();
+        }
+        Some(held)
+    }
+
+    /// Retires the feed of a disposed tab: a new tab of the same id gets a feed of its own, and this one stays attached until it is evicted like
+    /// any finished feed, so a subscriber still gets what the shell wrote while it was killed (Node's pty keeps delivering after dispose:
+    /// golden.json, trace.order, the output of term_ph2b after its termDispose) and its `process/exited`, which ends the subscriber's
+    /// reading (the phone's adapter leaves the feed on it). It is never closed here, finished or not: a close ends the lanes at once and
+    /// drops frames a subscriber has not read yet.
     pub(crate) fn close(&self, handle: &str) {
         let removed = self.entries.lock().unwrap_or_else(|e| e.into_inner()).remove(handle);
         if let Some(entry) = removed {
-            entry.publisher.close();
+            self.retire(vec![entry]);
+        }
+    }
+
+    /// Queues finished or retired feeds for eviction; the oldest beyond [`RETAINED_FEEDS`] are closed.
+    fn retire(&self, entries: Vec<Arc<Entry>>) {
+        let evicted = {
+            let mut finished = self.finished.lock().unwrap_or_else(|e| e.into_inner());
+            let mut current = self.entries.lock().unwrap_or_else(|e| e.into_inner());
+            // An entry is queued once: a finished feed that is then closed (or closed while its pump ends) takes one slot.
+            finished.extend(entries.into_iter().filter(|entry| !entry.retired.swap(true, Ordering::AcqRel)));
+            let mut evicted = Vec::new();
+            while finished.len() > RETAINED_FEEDS {
+                let Some(old) = finished.pop_front() else { break };
+                if current.get(old.handle.as_str()).is_some_and(|live| Arc::ptr_eq(live, &old)) {
+                    current.remove(old.handle.as_str());
+                }
+                evicted.push(old);
+            }
+            evicted
+        };
+        for old in evicted {
+            old.close();
         }
     }
 
@@ -273,77 +433,457 @@ impl ProcessFeeds {
         });
     }
 
-    async fn pump(&self, entry: &Entry) {
+    /// Waits while a hold keeps back what the pump has next: output ending at `end`, or (`None`) a relay flush, the exit or the end.
+    async fn unheld(entry: &Entry, end: Option<u64>) {
+        let passes = |holds: &Vec<u64>| holds.iter().all(|held| end.is_some_and(|end| end <= *held));
+        let mut held = entry.hold.subscribe();
+        if passes(&held.borrow_and_update()) {
+            return;
+        }
+        #[cfg(test)]
+        entry.stopped.send_modify(|stops| *stops += 1);
+        let _ = held.wait_for(passes).await;
+    }
+
+    async fn pump(&self, entry: &Arc<Entry>) {
         let handle = &entry.handle;
-        let mut events = match self.manager.subscribe(handle, Some(0)) {
-            Ok(events) => events,
-            // The ring already dropped its first events: start at the oldest one it holds.
-            Err(ProcessError::ReplayUnavailable { oldest }) => match self.manager.subscribe(handle, Some(oldest)) {
-                Ok(events) => events,
-                Err(_) => return self.finish(entry),
-            },
-            Err(_) => return self.finish(entry),
+        // `taken` counts from the output offset of the first event, so it is the feed's own offset (the tab's `emitted`) even when the
+        // ring has dropped the start.
+        // From the oldest event the ring holds, found and subscribed in one step: an eviction in between cannot end the pump.
+        let Ok((mut events, mut taken)) = self.manager.subscribe_oldest(handle) else {
+            return self.finish(entry);
         };
-        let mut screen = String::new();
-        while let Some(event) = events.next().await {
+        // The window a late subscriber is given: Node's replay buffer, the last 200,000 UTF-16 units (a cut may fall inside a non-BMP
+        // character, which then reads as U+FFFD at the window's start).
+        let mut screen = ReplayBuffer::new(REPLAY_BUFFER_LIMIT, 0);
+        // The relay feed's framing (Node's relay lane), timed on the runtime's clock.
+        let mut relay = RelayBuffer::default();
+        let output = |publisher: &FramePublisher, bytes: &[u8], state: Value| {
+            publisher.publish("process/outputDelta", json!({ "processHandle": handle, "bytesB64": STANDARD.encode(bytes) }), state);
+        };
+        let relay_out = |frames: Vec<RelayFrame>, state: &Value| {
+            if let Some(publisher) = &entry.relay {
+                for frame in frames {
+                    let mut params = json!({ "processHandle": handle, "bytesB64": STANDARD.encode(&frame.bytes) });
+                    // A frame Node cut inside a surrogate pair: the lone units at its edges (see `RelayFrame`).
+                    if let Some(lead) = frame.lead {
+                        params["leadUnit"] = json!(lead);
+                    }
+                    if let Some(tail) = frame.tail {
+                        params["tailUnit"] = json!(tail);
+                    }
+                    publisher.publish("process/outputDelta", params, state.clone());
+                }
+            }
+        };
+        loop {
+            let next = match relay.due() {
+                Some(due) => tokio::select! {
+                    biased;
+                    event = events.next() => Some(event),
+                    () = tokio::time::sleep_until(due) => None,
+                },
+                None => Some(events.next().await),
+            };
+            let end = match &next {
+                Some(Some(ProcessEvent::Output { bytes, .. })) => Some(taken + bytes.len() as u64),
+                _ => None,
+            };
+            Self::unheld(entry, end).await;
+            // No hold keeps this output back any more: a change that waits for the pump to reach it (a shell's end before its exit
+            // line) goes before it enters the relay buffer.
+            let published = match (end, entry.taken.get()) {
+                (Some(_), Some(tell)) => tell(PumpPoint::Reaching(taken)),
+                _ => None,
+            };
+            if let Some(published) = published {
+                #[cfg(test)]
+                entry.ordered.send_modify(|waits| *waits += 1);
+                // The change this output follows (a shell's end, before its exit line) reaches the clients first: the same order a
+                // client got from Node. Bounded like a reply's wait for its events (a section worker that is stuck downstream).
+                let _ = tokio::time::timeout(ORDER_DEADLINE, published).await;
+            }
+            let state = if entry.text { json!({ "text": screen.read() }) } else { json!({}) };
+            let Some(event) = next else {
+                relay_out(relay.flush(tokio::time::Instant::now()), &state);
+                continue;
+            };
             match event {
-                ProcessEvent::Output { bytes, .. } => {
+                Some(ProcessEvent::Output { bytes, .. }) => {
                     let state = if entry.text {
-                        screen.push_str(&String::from_utf8_lossy(&bytes));
-                        if screen.len() > SNAPSHOT_TEXT_BYTES {
-                            let mut cut = screen.len() - SNAPSHOT_TEXT_BYTES;
-                            while !screen.is_char_boundary(cut) {
-                                cut += 1;
-                            }
-                            screen.drain(..cut);
-                        }
-                        json!({ "text": screen })
+                        screen.append(&String::from_utf8_lossy(&bytes));
+                        json!({ "text": screen.read() })
                     } else {
                         json!({})
                     };
-                    entry.publisher.publish(
-                        "process/outputDelta",
-                        json!({ "processHandle": handle, "bytesB64": STANDARD.encode(&bytes) }),
-                        state,
-                    );
+                    output(&entry.publisher, &bytes, state.clone());
+                    // Node's relay lane takes output into its buffer only while a phone reads the terminal lane
+                    // (remote-relay-push-lanes.ts:98-101): output from before the first reader never reaches it, and with no reader
+                    // nothing is buffered. What already waits goes out when due, to whoever reads then.
+                    if entry.relay.as_ref().is_some_and(|relay| relay.feed.subscribers() > 0) {
+                        relay_out(relay.push(&bytes, tokio::time::Instant::now()), &state);
+                    }
+                    taken += bytes.len() as u64;
+                    if let Some(tell) = entry.taken.get() {
+                        let _ = tell(PumpPoint::Taken(taken));
+                    }
                 }
-                ProcessEvent::Exited { exit, .. } => {
+                Some(ProcessEvent::Exited { exit, .. }) => {
                     let state = if entry.text {
-                        json!({ "text": screen, "exited": true })
+                        json!({ "text": screen.read(), "exited": true })
                     } else {
                         json!({ "exited": true })
                     };
-                    entry.publisher.publish("process/exited", exited_params(handle, &exit), state);
+                    entry.publisher.publish("process/exited", exited_params(handle, &exit), state.clone());
+                    // Node's relay lane sends what waits when its 16 ms are up, exit or not; the relay feed ends after it.
+                    if let Some(due) = relay.due() {
+                        tokio::time::sleep_until(due).await;
+                        relay_out(relay.flush(tokio::time::Instant::now()), &state);
+                    }
+                    if let Some(publisher) = &entry.relay {
+                        publisher.publish("process/exited", exited_params(handle, &exit), state);
+                    }
                     break;
                 }
+                None => break,
             }
         }
         self.finish(entry);
     }
 
-    fn finish(&self, entry: &Entry) {
+    /// The pump of `entry` ended. It is queued for eviction only while it is still the handle's feed: a feed [`Self::close`] retired
+    /// is queued already, and the handle's feed now may be a new tab's, which this pump must not retire (Node's exit handler captured
+    /// its own terminal entry, terminal-manager.ts `spawnTerminal`).
+    fn finish(&self, entry: &Arc<Entry>) {
         entry.finished.store(true, Ordering::Release);
+        // Nothing more is taken: whatever still waits for it goes.
+        if let Some(tell) = entry.taken.get() {
+            let _ = tell(PumpPoint::Taken(u64::MAX));
+        }
         if let Some(hook) = self.on_exit.get() {
             hook(entry.handle.as_str());
         }
-        let evicted = {
-            let mut finished = self.finished.lock().unwrap_or_else(|e| e.into_inner());
-            let mut entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
-            if let Some(current) = entries.get(entry.handle.as_str()) {
-                finished.push_back(Arc::clone(current));
+        let current = self
+            .entries
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(entry.handle.as_str())
+            .is_some_and(|live| Arc::ptr_eq(live, entry));
+        self.retire(if current { vec![Arc::clone(entry)] } else { Vec::new() });
+    }
+}
+
+#[cfg(test)]
+impl ProcessFeeds {
+    /// The holds out on the current feed of `handle`, as they change.
+    pub(crate) fn holds_of(&self, handle: &str) -> tokio::sync::watch::Receiver<Vec<u64>> {
+        self.entries.lock().unwrap().get(handle).expect("the feed exists").hold.subscribe()
+    }
+
+    /// How often the pump of the current feed of `handle` has waited for a change to reach the clients, as it changes.
+    pub(crate) fn orderings_of(&self, handle: &str) -> tokio::sync::watch::Receiver<u64> {
+        self.entries.lock().unwrap().get(handle).expect("the feed exists").ordered.subscribe()
+    }
+
+    /// How often the pump of the current feed of `handle` has stopped for a hold, as it changes.
+    pub(crate) fn stops_of(&self, handle: &str) -> tokio::sync::watch::Receiver<u64> {
+        self.entries.lock().unwrap().get(handle).expect("the feed exists").stopped.subscribe()
+    }
+
+    /// The next claim's hold on `handle` runs `seam` once it is taken.
+    pub(crate) fn after_mark(&self, handle: &str, seam: impl FnOnce() + Send + 'static) {
+        *self.entries.lock().unwrap().get(handle).expect("the feed exists").after_mark.lock().unwrap() = Some(Box::new(seam));
+    }
+}
+
+#[cfg(all(test, feature = "core-test"))]
+mod tests {
+    use mixdog_core_api::domain::process::ProcessManager;
+
+    use super::*;
+
+    /// A tab disposed and opened again under the same id before the old pump ended: the old pump's end queues nothing for eviction,
+    /// in particular not the new tab's live feed (which the eviction would later close under it).
+    #[tokio::test]
+    async fn an_old_pump_does_not_retire_its_replacement() {
+        let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, crate::manager::ProcessConfig::default());
+        let feeds = ProcessFeeds::new(manager, Arc::new(mixdog_core_api::mock::MockScopedFeeds::new(mixdog_core_api::mock::MockLimits::default())));
+        // A handle with no process: its pump ends as soon as it runs (the subscribe fails), which is the pump's end this test needs.
+        let _ = feeds.feed("term_reused", true);
+        let old = feeds.entries.lock().unwrap().get("term_reused").cloned().unwrap();
+        feeds.close("term_reused");
+        let _ = feeds.feed("term_reused", true);
+        let replacement = feeds.entries.lock().unwrap().get("term_reused").cloned().unwrap();
+        assert!(!Arc::ptr_eq(&old, &replacement));
+        feeds.pump(&old).await;
+        let queued: Vec<Arc<Entry>> = feeds.finished.lock().unwrap().iter().cloned().collect();
+        assert!(queued.iter().all(|queued| !Arc::ptr_eq(queued, &replacement)), "the old pump queued the new tab's live feed for eviction");
+        assert_eq!(queued.len(), 1, "the retired feed is queued once");
+    }
+
+    /// A feed whose pump finished and which a dispose then closes is queued for eviction once: it takes one slot of the retained feeds.
+    #[tokio::test]
+    async fn a_finished_then_closed_feed_is_queued_once() {
+        let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, crate::manager::ProcessConfig::default());
+        let feeds = ProcessFeeds::new(manager, Arc::new(mixdog_core_api::mock::MockScopedFeeds::new(mixdog_core_api::mock::MockLimits::default())));
+        let _ = feeds.feed("term_twice", true);
+        let entry = feeds.entries.lock().unwrap().get("term_twice").cloned().unwrap();
+        // No process under the handle: the pump ends at once and queues its (current) feed.
+        feeds.pump(&entry).await;
+        feeds.close("term_twice");
+        assert_eq!(feeds.finished.lock().unwrap().len(), 1, "the feed is queued once");
+    }
+
+    /// A disposal's hold keeps the pump from publishing (the killed shell's last output and its exit come after the dispose's answer,
+    /// as in Node). The process has exited and all its events are in the ring before the pump runs, so an unheld pump publishes them
+    /// and ends in its first poll; a held one is pending, and ends once the hold goes.
+    #[tokio::test]
+    async fn a_held_feed_publishes_nothing_until_the_hold_goes() {
+        use std::future::Future;
+
+        use mixdog_core_api::domain::common::AbsPath;
+        use mixdog_core_api::domain::process::CommandSpec;
+        use mixdog_core_api::domain::process::EnvSpec;
+        use mixdog_core_api::domain::process::OutputMode;
+        use mixdog_core_api::domain::process::ProcessOwner;
+        use mixdog_core_api::domain::process::SpawnRequest;
+        let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, crate::manager::ProcessConfig::default());
+        let handle = ProcessHandle::from("feed-hold");
+        let (program, args) = if cfg!(windows) { ("cmd.exe", vec!["/c".to_owned(), "echo held".to_owned()]) } else { ("sh", vec!["-c".to_owned(), "echo held".to_owned()]) };
+        manager
+            .spawn(SpawnRequest {
+                handle: handle.clone(),
+                command: CommandSpec::Argv { program: program.to_owned(), args },
+                cwd: AbsPath::new(std::env::temp_dir()).unwrap(),
+                env: EnvSpec { inherit: true, ..EnvSpec::default() },
+                pty: None,
+                stdin_piped: false,
+                output: OutputMode::Merged,
+                owner: ProcessOwner::Internal,
+                time_limit: None,
+            })
+            .await
+            .unwrap();
+        let mut events = manager.subscribe(&handle, Some(0)).unwrap();
+        while let Some(event) = events.next().await {
+            if matches!(event, ProcessEvent::Exited { .. }) {
+                break;
             }
-            let mut evicted = Vec::new();
-            while finished.len() > RETAINED_FEEDS {
-                let Some(old) = finished.pop_front() else { break };
-                if entries.get(old.handle.as_str()).is_some_and(|current| Arc::ptr_eq(current, &old)) {
-                    entries.remove(old.handle.as_str());
-                }
-                evicted.push(old);
-            }
-            evicted
-        };
-        for old in evicted {
-            old.publisher.close();
         }
+        let feeds = ProcessFeeds::new(manager, Arc::new(mixdog_core_api::mock::MockScopedFeeds::new(mixdog_core_api::mock::MockLimits::default())));
+        let _ = feeds.feed("feed-hold", true);
+        let entry = feeds.entries.lock().unwrap().get("feed-hold").cloned().unwrap();
+        let hold = feeds.hold("feed-hold").expect("the feed exists");
+        let mut pump = std::pin::pin!(feeds.pump(&entry));
+        let first = std::future::poll_fn(|cx| std::task::Poll::Ready(pump.as_mut().poll(cx))).await;
+        assert!(first.is_pending(), "the pump published the exited process's events while its feed was held");
+        assert_eq!(entry.publisher.feed.position().seq, 0, "nothing was published while held");
+        drop(hold);
+        pump.await;
+        assert!(entry.publisher.feed.position().seq >= 2, "the output and the exit are published once the hold goes");
+    }
+
+    /// A process that printed `text` and exited, its events all in the manager's ring.
+    async fn exited(name: &str, text: &str) -> LocalProcessManager {
+        use mixdog_core_api::domain::common::AbsPath;
+        use mixdog_core_api::domain::process::CommandSpec;
+        use mixdog_core_api::domain::process::EnvSpec;
+        use mixdog_core_api::domain::process::OutputMode;
+        use mixdog_core_api::domain::process::ProcessOwner;
+        use mixdog_core_api::domain::process::SpawnRequest;
+        let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, crate::manager::ProcessConfig::default());
+        let handle = ProcessHandle::from(name);
+        let echo = format!("echo {text}");
+        let (program, args) = if cfg!(windows) { ("cmd.exe", vec!["/c".to_owned(), echo]) } else { ("sh", vec!["-c".to_owned(), echo]) };
+        manager
+            .spawn(SpawnRequest {
+                handle: handle.clone(),
+                command: CommandSpec::Argv { program: program.to_owned(), args },
+                cwd: AbsPath::new(std::env::temp_dir()).unwrap(),
+                env: EnvSpec { inherit: true, ..EnvSpec::default() },
+                pty: None,
+                stdin_piped: false,
+                output: OutputMode::Merged,
+                owner: ProcessOwner::Internal,
+                time_limit: None,
+            })
+            .await
+            .unwrap();
+        let mut events = manager.subscribe(&handle, Some(0)).unwrap();
+        while let Some(event) = events.next().await {
+            if matches!(event, ProcessEvent::Exited { .. }) {
+                break;
+            }
+        }
+        manager
+    }
+
+    /// The relay gate at the first reader's attach. The reader is counted under the feed's lock when it attaches, and the pump reads the
+    /// count before it buffers a chunk and publishes the chunk afterwards: a chunk the pump takes before the attach counted nothing and is
+    /// not buffered (it is from before the subscription, which Node's lane never delivers either); a chunk it takes after is buffered and
+    /// published after the attach, so the reader gets it once, as a live frame (an attach starts at the feed's current position, so a
+    /// frame published later is never also in what the attach replays). Here the reader attaches before the pump starts (the attach is
+    /// what starts it): every chunk reaches it, exactly once.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_chunk_reaches_the_first_relay_reader_exactly_once() {
+        use mixdog_core_api::feed::subscribe;
+        use mixdog_core_api::ids::ConnectionId;
+        use mixdog_core_api::mock::MockConnection;
+        use mixdog_core_api::mock::MockLimits;
+        use mixdog_core_api::sink::ConnectionSink;
+        let manager = exited("relay-once", "once").await;
+        let feeds = ProcessFeeds::new(manager, Arc::new(mixdog_core_api::mock::MockScopedFeeds::new(MockLimits::default())));
+        let (ended, end) = tokio::sync::oneshot::channel();
+        let ended = Mutex::new(Some(ended));
+        feeds.on_exit(move |_| {
+            if let Some(ended) = ended.lock().unwrap().take() {
+                let _ = ended.send(());
+            }
+        });
+        let relay = feeds.relay_feed("relay-once");
+        let conn = MockConnection::new(ConnectionId(1), MockLimits::default());
+        let attached = subscribe(&relay, SubscriptionId::from("s"), Window::Fixed, None, &conn).unwrap();
+        conn.send_control_release(Bytes::from_static(b"ok"), attached.release).unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(60), end).await.expect("the pump ended within 60 s").unwrap();
+        let mut got = Vec::new();
+        for line in conn.drain_text() {
+            let Some(frame) = line.strip_prefix("s:") else { continue };
+            let note: Value = serde_json::from_str(frame).unwrap();
+            if note["method"] == "process/outputDelta" {
+                got.extend(STANDARD.decode(note["params"]["bytesB64"].as_str().unwrap()).unwrap());
+            }
+        }
+        let expected = if cfg!(windows) { "once\r\n" } else { "once\n" };
+        assert_eq!(String::from_utf8(got).unwrap(), expected, "the output, once");
+    }
+
+    /// The ensure's hold is bounded by its request: kept in `after_answer`, it ends when the answer is queued, and also when the request
+    /// goes unanswered (cancelled, its connection gone: the last clone of `after_answer` dropped without a release).
+    #[tokio::test]
+    async fn an_ensure_hold_ends_with_an_unanswered_request() {
+        use std::future::Future;
+        let manager = exited("ensure-hold", "held").await;
+        let feeds = ProcessFeeds::new(manager, Arc::new(mixdog_core_api::mock::MockScopedFeeds::new(mixdog_core_api::mock::MockLimits::default())));
+        let _ = feeds.feed("ensure-hold", true);
+        let entry = feeds.entries.lock().unwrap().get("ensure-hold").cloned().unwrap();
+        let after = mixdog_core_api::call::AfterAnswer::default();
+        after.keep(entry.hold());
+        let mut pump = std::pin::pin!(feeds.pump(&entry));
+        let first = std::future::poll_fn(|cx| std::task::Poll::Ready(pump.as_mut().poll(cx))).await;
+        assert!(first.is_pending(), "held while the request lives");
+        drop(after);
+        pump.await;
+        assert!(entry.publisher.feed.position().seq >= 2, "published once the unanswered request went");
+    }
+
+    /// A claim's cut and hold are one step: output the shell writes right after the cut (the seam writes it as soon as the hold is
+    /// taken, and waits until the pump has either sent it or stopped for the hold) does not reach the feed before the owner's
+    /// announcement can go, as in Node, which resized and announced before it read any later output (terminal-manager.ts:485-488).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn output_written_right_after_a_claims_cut_is_held() {
+        use mixdog_core_api::domain::common::AbsPath;
+        use mixdog_core_api::domain::process::CommandSpec;
+        use mixdog_core_api::domain::process::EnvSpec;
+        use mixdog_core_api::domain::process::OutputMode;
+        use mixdog_core_api::domain::process::ProcessOwner;
+        use mixdog_core_api::domain::process::SpawnRequest;
+        use mixdog_core_api::mock::FeedTap;
+        const DEADLINE: std::time::Duration = std::time::Duration::from_secs(60);
+        let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, crate::manager::ProcessConfig::default());
+        let handle = ProcessHandle::from(format!("claim-cut-{}", std::process::id()));
+        let command = if cfg!(windows) {
+            let script = "$null = [Console]::In.ReadLine(); [Console]::Out.Write('before'); $null = [Console]::In.ReadLine(); \
+                          [Console]::Out.Write('after'); $null = [Console]::In.ReadLine()";
+            CommandSpec::Argv { program: "powershell".to_owned(), args: vec!["-NoProfile".to_owned(), "-Command".to_owned(), script.to_owned()] }
+        } else {
+            CommandSpec::Argv { program: "sh".to_owned(), args: vec!["-c".to_owned(), "read a; printf before; read b; printf after; read c".to_owned()] }
+        };
+        manager
+            .spawn(SpawnRequest {
+                handle: handle.clone(),
+                command,
+                cwd: AbsPath::new(std::env::temp_dir()).unwrap(),
+                env: EnvSpec { inherit: true, ..EnvSpec::default() },
+                pty: None,
+                stdin_piped: true,
+                output: OutputMode::Merged,
+                owner: ProcessOwner::Internal,
+                time_limit: None,
+            })
+            .await
+            .unwrap();
+        let scoped = Arc::new(mixdog_core_api::mock::MockScopedFeeds::new(mixdog_core_api::mock::MockLimits::default()));
+        let feeds = ProcessFeeds::new(manager.clone(), Arc::clone(&scoped) as Arc<dyn ScopedFeeds>);
+        drop(feeds.open_terminal(handle.as_str(), || None));
+        let raw = scoped.find(&FeedId::from(format!("process:{handle}"))).expect("the raw feed exists");
+        let tap = Arc::new(FeedTap::attach(&raw));
+        let text = |frames: &[Value]| {
+            frames
+                .iter()
+                .filter(|frame| frame["method"] == "process/outputDelta")
+                .map(|frame| String::from_utf8(STANDARD.decode(frame["params"]["bytesB64"].as_str().unwrap()).unwrap()).unwrap())
+                .collect::<String>()
+        };
+        manager.write_input(&handle, b"1\n".to_vec()).unwrap();
+        tokio::time::timeout(DEADLINE, tap.notifications_until(|frames| text(frames).contains("before"))).await.expect("the first output went");
+
+        let mut stops = feeds.stops_of(handle.as_str());
+        let stopped = *stops.borrow_and_update();
+        let (settled, settle) = std::sync::mpsc::channel();
+        let watcher = Arc::clone(&tap);
+        tokio::spawn(async move {
+            tokio::select! {
+                _ = stops.wait_for(|stops| *stops > stopped) => {}
+                _ = watcher.notifications_until(|frames| text(frames).contains("after")) => {}
+            }
+            let _ = settled.send(());
+        });
+        let writer = manager.clone();
+        let written = handle.clone();
+        feeds.after_mark(handle.as_str(), move || {
+            writer.write_input(&written, b"2\n".to_vec()).unwrap();
+            settle.recv_timeout(DEADLINE).expect("the pump sent the later output or stopped for the hold within 60 s");
+        });
+        let held = feeds.hold_new_output(handle.as_str()).expect("the feed exists");
+        let now = tokio::time::timeout(DEADLINE, tap.notifications_until(|_| true)).await.unwrap();
+        assert!(!text(&now).contains("after"), "output written after the cut went out before the hold: {}", text(&now));
+        drop(held);
+        tokio::time::timeout(DEADLINE, tap.notifications_until(|frames| text(frames).contains("after"))).await.expect("the later output goes once the hold ends");
+        let _ = manager.kill(&handle);
+    }
+
+    /// With no phone reading the relay feed, output does not enter the relay buffer (remote-relay-push-lanes.ts:98-101): the raw feed
+    /// carries the output and the exit, the relay feed only the exit.
+    #[tokio::test]
+    async fn output_with_no_relay_reader_never_enters_the_relay_buffer() {
+        use mixdog_core_api::domain::common::AbsPath;
+        use mixdog_core_api::domain::process::CommandSpec;
+        use mixdog_core_api::domain::process::EnvSpec;
+        use mixdog_core_api::domain::process::OutputMode;
+        use mixdog_core_api::domain::process::ProcessOwner;
+        use mixdog_core_api::domain::process::SpawnRequest;
+        let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, crate::manager::ProcessConfig::default());
+        let handle = ProcessHandle::from("relay-unread");
+        let (program, args) = if cfg!(windows) { ("cmd.exe", vec!["/c".to_owned(), "echo unread".to_owned()]) } else { ("sh", vec!["-c".to_owned(), "echo unread".to_owned()]) };
+        manager
+            .spawn(SpawnRequest {
+                handle: handle.clone(),
+                command: CommandSpec::Argv { program: program.to_owned(), args },
+                cwd: AbsPath::new(std::env::temp_dir()).unwrap(),
+                env: EnvSpec { inherit: true, ..EnvSpec::default() },
+                pty: None,
+                stdin_piped: false,
+                output: OutputMode::Merged,
+                owner: ProcessOwner::Internal,
+                time_limit: None,
+            })
+            .await
+            .unwrap();
+        let feeds = ProcessFeeds::new(manager, Arc::new(mixdog_core_api::mock::MockScopedFeeds::new(mixdog_core_api::mock::MockLimits::default())));
+        let _ = feeds.relay_feed("relay-unread");
+        let entry = feeds.entries.lock().unwrap().get("relay-unread").cloned().unwrap();
+        feeds.pump(&entry).await;
+        assert!(entry.publisher.feed.position().seq >= 2, "the raw feed has the output and the exit");
+        assert_eq!(entry.relay.as_ref().unwrap().feed.position().seq, 1, "the relay feed has only the exit");
     }
 }

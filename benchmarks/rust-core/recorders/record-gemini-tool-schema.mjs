@@ -11,30 +11,12 @@
 // and the `functionDeclarations` of `toGeminiTools` with validation on and off.
 //
 // Every user directory is a fresh temp one BEFORE any product module loads, so nothing under the
-// user's home can be read or written; the run ends by comparing a listing of ~/.mixdog.
-import { mkdirSync, mkdtempSync, readdirSync, statSync, writeFileSync, existsSync } from 'node:fs';
+// user's home can be read or written; the run ends by checking that os.homedir() still resolves into
+// the sandbox (the live ~/.mixdog is never read).
+import { mkdirSync, mkdtempSync, writeFileSync, existsSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-
-// The running daemon owns ~/.mixdog/data; everything else there must stay as it was.
-const listing = (dir) => {
-  if (!existsSync(dir)) return '';
-  const rows = [];
-  const walk = (current) => {
-    for (const entry of readdirSync(current, { withFileTypes: true })) {
-      const path = join(current, entry.name);
-      if (path === join(dir, 'data')) continue;
-      const info = statSync(path);
-      rows.push(`${path}\t${entry.isDirectory() ? 'd' : info.size}\t${info.mtimeMs}`);
-      if (entry.isDirectory()) walk(path);
-    }
-  };
-  walk(dir);
-  return rows.sort().join('\n');
-};
-const userMixdog = join(homedir(), '.mixdog');
-const before = listing(userMixdog);
 
 const sandbox = mkdtempSync(join(tmpdir(), 'gemini-tool-schema-'));
 const dirs = Object.fromEntries(
@@ -131,5 +113,7 @@ const cases = CASES.map(([id, tools]) => {
 
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, `${JSON.stringify({ recorder: 'benchmarks/rust-core/recorders/record-gemini-tool-schema.mjs', cases }, null, 2)}\n`);
-if (listing(userMixdog) !== before) throw new Error(`${userMixdog} changed during the run`);
+// Every home-relative path the product resolves (os.homedir() reads USERPROFILE / HOME) is in the sandbox; the live
+// profile is never read.
+if (homedir() !== dirs.home) throw new Error(`os.homedir() is ${homedir()}, not the sandbox home ${dirs.home}`);
 console.log(`recorded ${cases.length} gemini tool-schema cases to ${out}`);

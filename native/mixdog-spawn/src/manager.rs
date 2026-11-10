@@ -91,10 +91,14 @@ pub trait OutputFilter: Send {
     fn filter(&mut self, bytes: &[u8]) -> Vec<u8>;
     /// Output still held back when the stream ends.
     fn finish(&mut self) -> Vec<u8>;
+    /// The chunk the last `filter` or `finish` returned is entering the feed (its flow gate let it in): called under the feed's lock,
+    /// never for a chunk the feed drops.
+    fn admitted(&mut self) {}
 }
 
 /// Runs on the process's waiter thread once the root has ended and its output pipes are finished
-/// or [`ProcessConfig::output_drain`] has passed, before the exit event is published. The bytes it returns are the feed's last output (the terminal
+/// or [`ProcessConfig::output_drain`] has passed (a [`NodePtyExit`] process: when node-pty raised its exit), before the exit event is
+/// published. The bytes it returns are the feed's last output (the terminal
 /// tab's "[process exited …]" line).
 pub type ExitHook = Box<dyn FnOnce(&ProcessExit) -> Vec<u8> + Send>;
 
@@ -105,6 +109,44 @@ pub struct SpawnOptions {
     pub ring_bytes: Option<usize>,
     pub filter: Option<Box<dyn OutputFilter>>,
     pub on_exit: Option<ExitHook>,
+    /// A terminal tab's exit, raised when node-pty raised it (see [`NodePtyExit`]) instead of after [`ProcessConfig::output_drain`].
+    /// Only a Windows pseudo-console process uses it.
+    pub node_pty_exit: Option<NodePtyExit>,
+}
+
+/// When node-pty (the copy Node's desktop loaded) raised a Windows terminal's `exit`, which Node's terminal manager answered with the
+/// held text, `activity.exit()` and the exit line (terminal-manager.ts:378-384). node-pty raises `exit` only when its output socket
+/// closes (windowsTerminal.js `_socket.on('close')`), and that socket closes:
+/// - [`NODE_PTY_FLUSH`] after the shell's own end, the wait starting again with each chunk that arrives after the end
+///   (windowsPtyAgent.js `_$onProcessExit`, `_flushDataAndCleanUp`, `FLUSH_DATA_INTERVAL`), with no upper bound; the pseudo console
+///   stays open meanwhile (node-pty closes it only in `kill`, conpty.cc `PtyKill`), so a process the shell left behind can still write;
+/// - [`NODE_PTY_EOF`] after the console's output ends, which on a kill (`ClosePseudoConsole`) comes once its last client has gone: the
+///   output's end reaches node-pty through its conout worker's pipe, which libuv shuts down after its 50 ms end-of-file wait
+///   (`eof_timeout`, src/win/pipe.c);
+/// - after a kill, [`NODE_PTY_FLUSH`] after the kill at most (windowsConoutConnection.js `dispose`, `_drainDataAndClose`).
+///
+/// Node's recorded times (apps/mobile/fixtures/phone-terminal/exit-timing.json): 1001-1008 ms after the shell's end with output 0, 999
+/// and 1000 ms before it; 999.7-1001 ms after the last output that came after the end; 48.9-50.6 ms after a killed shell's end. The
+/// wait runs on `runtime`'s clock (a test's paused clock moves only when the test advances it).
+pub struct NodePtyExit {
+    pub runtime: tokio::runtime::Handle,
+}
+
+/// node-pty's `FLUSH_DATA_INTERVAL` (windowsPtyAgent.js, windowsConoutConnection.js).
+pub const NODE_PTY_FLUSH: Duration = Duration::from_millis(1000);
+/// libuv's `eof_timeout` on a Windows pipe (src/win/pipe.c), between the console's output end and node-pty's socket end.
+pub const NODE_PTY_EOF: Duration = Duration::from_millis(50);
+
+/// What a [`NodePtyExit`] wait has seen. Tests only.
+#[cfg(feature = "core-test")]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ExitWait {
+    /// The wait has begun (the root has ended).
+    pub waiting: bool,
+    /// Output bytes in the feed when the quiet wait last started again.
+    pub quiet_from: u64,
+    /// The output has ended.
+    pub output_ended: bool,
 }
 
 struct Life {
@@ -124,6 +166,31 @@ struct InputQueue {
     /// callers waiting for room.
     room: tokio::sync::Notify,
     cap: usize,
+    /// Held by a write for all of its pieces (see `write_input_wait`); fair, so waiting writers go in arrival order.
+    writer: Arc<tokio::sync::Mutex<()>>,
+}
+
+/// `bytes` in pieces of at most `cap` bytes, each ending at a UTF-8 character boundary (a piece is cut inside a character only when
+/// the character alone is longer than `cap`).
+fn pieces(bytes: &[u8], cap: usize) -> Vec<&[u8]> {
+    let mut out = Vec::new();
+    let mut rest = bytes;
+    while rest.len() > cap {
+        let mut end = cap;
+        while end > 0 && (rest[end] & 0xC0) == 0x80 {
+            end -= 1;
+        }
+        if end == 0 {
+            end = cap;
+        }
+        let (piece, tail) = rest.split_at(end);
+        out.push(piece);
+        rest = tail;
+    }
+    if !rest.is_empty() {
+        out.push(rest);
+    }
+    out
 }
 
 struct InputState {
@@ -131,6 +198,8 @@ struct InputState {
     bytes: usize,
     closing: bool,
     dead: bool,
+    /// No more writes are taken (a disposed terminal); the input stays open.
+    refused: bool,
 }
 
 impl InputQueue {
@@ -141,10 +210,12 @@ impl InputQueue {
                 bytes: 0,
                 closing: false,
                 dead: false,
+                refused: false,
             }),
             ready: Condvar::new(),
             room: tokio::sync::Notify::new(),
             cap,
+            writer: Arc::new(tokio::sync::Mutex::new(())),
         })
     }
 
@@ -154,7 +225,7 @@ impl InputQueue {
 
     fn push(&self, bytes: Vec<u8>) -> Result<(), ProcessError> {
         let mut state = self.lock();
-        if state.closing || state.dead {
+        if state.closing || state.dead || state.refused {
             return Err(ProcessError::StdinClosed);
         }
         if state.bytes + bytes.len() > self.cap {
@@ -177,7 +248,15 @@ impl InputQueue {
         state.closing = true;
         drop(state);
         self.ready.notify_one();
+        // A write waiting for room ends with `StdinClosed` instead of holding the write side.
+        self.room.notify_waiters();
         Ok(())
+    }
+
+    /// Refuses every later write, and ends a write waiting for room, without closing the process's input: what is queued is still written.
+    fn refuse(&self) {
+        self.lock().refused = true;
+        self.room.notify_waiters();
     }
 
     /// The process is gone: nothing more is written.
@@ -218,6 +297,17 @@ impl InputQueue {
     }
 }
 
+/// A process whose terminal was closed ([`LocalProcessManager::hang_up`]), held by itself, not by its handle (Node's dispose kills the
+/// captured entry's own pty, terminal-manager.ts:543): a tab created again under the same id is a different process this never reaches.
+pub struct HungUp(Arc<Proc>);
+
+impl HungUp {
+    /// Ends this process's tree; `AlreadyExited` once its exit is final.
+    pub fn kill(&self) -> Result<(), ProcessError> {
+        self.0.kill(KillReason::Requested)
+    }
+}
+
 pub(crate) struct Proc {
     handle: ProcessHandle,
     pid: u32,
@@ -230,6 +320,10 @@ pub(crate) struct Proc {
     life: Mutex<Life>,
     exit: OnceLock<ProcessExit>,
     exit_order: AtomicU64,
+    /// When [`LocalProcessManager::hang_up`] closed the terminal, on the runtime clock of the caller.
+    hung_up: Mutex<Option<tokio::time::Instant>>,
+    #[cfg(feature = "core-test")]
+    exit_wait: tokio::sync::watch::Sender<ExitWait>,
 }
 
 impl Proc {
@@ -602,6 +696,8 @@ fn start_piped(
 struct Drain {
     open: Mutex<usize>,
     done: Condvar,
+    /// The same signal for an async wait.
+    ended: tokio::sync::Notify,
 }
 
 impl Drain {
@@ -609,6 +705,7 @@ impl Drain {
         Arc::new(Self {
             open: Mutex::new(pipes),
             done: Condvar::new(),
+            ended: tokio::sync::Notify::new(),
         })
     }
 
@@ -617,7 +714,12 @@ impl Drain {
         *open -= 1;
         if *open == 0 {
             self.done.notify_all();
+            self.ended.notify_waiters();
         }
+    }
+
+    fn is_done(&self) -> bool {
+        *self.open.lock().unwrap_or_else(|e| e.into_inner()) == 0
     }
 
     /// Waits until every pipe has ended or `limit` has passed. A reader still blocked then is
@@ -656,7 +758,10 @@ fn read_loop(
         match reader.read(&mut buffer) {
             Ok(0) => break,
             Ok(n) => match filter.as_mut() {
-                Some(filter) => feed.push_output(stream, &filter.filter(&buffer[..n])),
+                Some(filter) => {
+                    let bytes = filter.filter(&buffer[..n]);
+                    feed.admit(stream, &bytes, || filter.admitted());
+                }
                 None => feed.push_output(stream, &buffer[..n]),
             },
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
@@ -665,18 +770,20 @@ fn read_loop(
         }
     }
     if let Some(filter) = filter.as_mut() {
-        feed.push_output(stream, &filter.finish());
+        let bytes = filter.finish();
+        feed.admit(stream, &bytes, || filter.admitted());
     }
 }
 
-/// Waits for the root, then for the output to end (for at most [`ProcessConfig::output_drain`]),
-/// and publishes the exit as the last event.
+/// Waits for the root, then for the output to end (for at most [`ProcessConfig::output_drain`]; a [`NodePtyExit`] process: until
+/// node-pty would have raised its exit), and publishes the exit as the last event.
 fn wait_and_finish(
     inner: Arc<Inner>,
     proc: Arc<Proc>,
     mut root: Root,
     drain: Arc<Drain>,
     on_exit: Option<ExitHook>,
+    node_pty_exit: Option<NodePtyExit>,
 ) {
     let status = root.wait();
     proc.life().running = false;
@@ -689,15 +796,28 @@ fn wait_and_finish(
     proc.feed.release_reader();
     // Closing a ConPTY can wait for its output to be read, and the close is what ends that
     // output; it runs beside the drain so a close that hangs is bounded by the same limit.
-    if proc.pty.is_some() {
-        let closing = Arc::clone(&proc);
+    let close = |proc: &Arc<Proc>| {
+        let closing = Arc::clone(proc);
         let _ = thread::Builder::new().name("pty-close".to_owned()).spawn(move || {
             if let Some(pty) = &closing.pty {
                 pty.close();
             }
         });
+    };
+    match node_pty_exit.filter(|_| cfg!(windows) && proc.pty.is_some()) {
+        Some(rule) => {
+            rule.runtime.block_on(node_pty_end(&proc, &drain));
+            // node-pty left the console open; the exit drops what it writes from here (the feed is done after the exit), and the
+            // console is closed so it does not outlive the tab.
+            close(&proc);
+        }
+        None => {
+            if proc.pty.is_some() {
+                close(&proc);
+            }
+            drain.wait(inner.config.output_drain);
+        }
     }
-    drain.wait(inner.config.output_drain);
     if let Some(input) = &proc.input {
         input.shutdown();
     }
@@ -714,7 +834,9 @@ fn wait_and_finish(
     let status = status.unwrap_or(mixdog_core_api::domain::process::ExitStatus::Code(-1));
     let exit = ProcessExit { status, killed };
     if let Some(hook) = on_exit {
-        proc.feed.push_output(OutputStream::Pty, &hook(&exit));
+        // An event of its own, made under the feed's lock: what the hook orders after the output before the exit (a tab's end) and
+        // before its line keeps that place for the feed's consumer.
+        proc.feed.push_last_output(OutputStream::Pty, || hook(&exit));
     }
     proc.exit_order
         .store(inner.exit_counter.fetch_add(1, Ordering::AcqRel), Ordering::Release);
@@ -722,6 +844,43 @@ fn wait_and_finish(
     // The slot is free before the exit is announced, so a caller that saw the exit can spawn.
     inner.live.fetch_sub(1, Ordering::AcqRel);
     proc.feed.push_exit(exit);
+}
+
+/// Waits, from the root's end, until node-pty would have raised the terminal's exit (see [`NodePtyExit`]): [`NODE_PTY_FLUSH`] without
+/// output, [`NODE_PTY_EOF`] after the output's end, or (once hung up) [`NODE_PTY_FLUSH`] after the hang-up, whichever comes first.
+async fn node_pty_end(proc: &Proc, drain: &Drain) {
+    let hung_up = *proc.hung_up.lock().unwrap_or_else(|e| e.into_inner());
+    let mut quiet_from = tokio::time::Instant::now();
+    let mut seen = proc.feed.pushed();
+    let mut ended: Option<tokio::time::Instant> = None;
+    loop {
+        let pushed = proc.feed.changed().notified();
+        let finished = drain.ended.notified();
+        let mut pushed = std::pin::pin!(pushed);
+        let mut finished = std::pin::pin!(finished);
+        pushed.as_mut().enable();
+        finished.as_mut().enable();
+        let now = proc.feed.pushed();
+        if now != seen {
+            seen = now;
+            quiet_from = tokio::time::Instant::now();
+        }
+        if ended.is_none() && drain.is_done() {
+            ended = Some(tokio::time::Instant::now());
+        }
+        #[cfg(feature = "core-test")]
+        proc.exit_wait.send_replace(ExitWait { waiting: true, quiet_from: seen, output_ended: ended.is_some() });
+        let due = [Some(quiet_from + NODE_PTY_FLUSH), ended.map(|at| at + NODE_PTY_EOF), hung_up.map(|at| at + NODE_PTY_FLUSH)]
+            .into_iter()
+            .flatten()
+            .min()
+            .expect("the quiet wait is always due");
+        tokio::select! {
+            () = tokio::time::sleep_until(due) => return,
+            () = pushed => {}
+            () = finished => {}
+        }
+    }
 }
 
 /// Creates the process and its threads; runs on io-spawn.
@@ -779,6 +938,9 @@ fn launch_process(
         }),
         exit: OnceLock::new(),
         exit_order: AtomicU64::new(0),
+        hung_up: Mutex::new(None),
+        #[cfg(feature = "core-test")]
+        exit_wait: tokio::sync::watch::Sender::new(ExitWait::default()),
     });
 
     // One dedicated blocking-read thread per output pipe, not a job on the pooled io-pty lane:
@@ -812,7 +974,7 @@ fn launch_process(
         let proc = Arc::clone(&proc);
         thread::Builder::new()
             .name("process-wait".to_owned())
-            .spawn(move || wait_and_finish(inner, proc, root, drain, options.on_exit))
+            .spawn(move || wait_and_finish(inner, proc, root, drain, options.on_exit, options.node_pty_exit))
     };
     if let Err(error) = waiter {
         let _ = proc.kill(KillReason::Requested);
@@ -921,34 +1083,85 @@ impl LocalProcessManager {
 
     /// The non-blocking write behind `write_stdin` and the `process/input` notification: queues
     /// `bytes` for the process's writer thread.
+    /// `Overloaded` while another write is in progress ([`Self::write_input_wait`]): the caller then waits behind it.
     pub fn write_input(&self, handle: &ProcessHandle, bytes: Vec<u8>) -> Result<(), ProcessError> {
         let proc = self.inner.lookup(handle)?;
-        proc.input
-            .as_ref()
-            .ok_or(ProcessError::StdinClosed)?
-            .push(bytes)
+        let input = proc.input.as_ref().ok_or(ProcessError::StdinClosed)?;
+        let Ok(_writing) = input.writer.try_lock() else {
+            return Err(ProcessError::Overloaded { queue: ProcessQueue::Input });
+        };
+        input.push(bytes)
     }
 
     /// Queues `bytes` for the process, waiting for room when its input queue is full: the
     /// `process/input` notification is never dropped, and the connection reader that sent it
-    /// stays paused for as long as this waits. Fails only when the process cannot take input.
+    /// stays paused for as long as this waits. Fails only when the process cannot take input. Input larger than the queue goes in
+    /// pieces of at most its capacity, in order (Node's `pty.write` takes any length), so no input is refused for its size. The pieces are
+    /// cut between UTF-8 characters, and the process's write side is held from the first piece to the last (writers take it in arrival
+    /// order), so no other input lands between them: Node wrote the whole string in one `pty.write` (terminal-manager.ts:419).
+    /// The whole string or nothing: a caller dropped while it waits for the write side writes nothing; once it has the write side the
+    /// write is the process's own (a task holding it to the last piece), so a caller dropped after that (its connection closed, the call
+    /// cancelled) never cuts it in half. Closing the input (`close_stdin`, as a disposal does) ends a write waiting for room.
     pub async fn write_input_wait(&self, handle: &ProcessHandle, bytes: Vec<u8>) -> Result<(), ProcessError> {
         let proc = self.inner.lookup(handle)?;
-        let input = proc.input.as_ref().ok_or(ProcessError::StdinClosed)?;
-        loop {
-            let mut room = std::pin::pin!(input.room.notified());
-            // Registered before the push is tried, so room made in between is not missed.
-            room.as_mut().enable();
-            match input.push(bytes.clone()) {
-                Err(ProcessError::Overloaded { queue: ProcessQueue::Input }) => room.await,
-                other => return other,
+        let input = Arc::clone(proc.input.as_ref().ok_or(ProcessError::StdinClosed)?);
+        let writing = Arc::clone(&input.writer).lock_owned().await;
+        let write = mixdog_rt::spawn("process-input", mixdog_rt::TaskClass::Work, async move {
+            let _writing = writing;
+            for piece in pieces(&bytes, input.cap.max(1)) {
+                loop {
+                    let mut room = std::pin::pin!(input.room.notified());
+                    // Registered before the push is tried, so room made in between is not missed.
+                    room.as_mut().enable();
+                    match input.push(piece.to_vec()) {
+                        Err(ProcessError::Overloaded { queue: ProcessQueue::Input }) => room.await,
+                        Err(other) => return Err(other),
+                        Ok(()) => break,
+                    }
+                }
             }
-        }
+            Ok(())
+        });
+        write.await.unwrap_or(Err(ProcessError::StdinClosed))
+    }
+
+    /// Resolves with the output bytes pushed once the process's reader is parked at its feed's gate: held back by a consumer that trails by
+    /// the ring bound, or by a paused feed. The reader's own signal; there is no deadline here, the caller bounds the wait. Tests only.
+    #[cfg(feature = "core-test")]
+    pub async fn output_blocked(&self, handle: &ProcessHandle) -> Result<u64, ProcessError> {
+        let feed = Arc::clone(&self.inner.lookup(handle)?.feed);
+        Ok(feed.blocked_pushed().await)
     }
 
     /// Output bytes the process's reader has put into its feed so far.
     pub fn output_pushed(&self, handle: &ProcessHandle) -> Result<u64, ProcessError> {
         Ok(self.inner.lookup(handle)?.feed.pushed())
+    }
+
+    /// The output offset reached so far, cut there (output after it comes in events of its own), given to `then` under the feed's lock:
+    /// no output enters between the cut and what `then` does (see `Feed::mark_then`).
+    pub(crate) fn output_mark_then<T>(&self, handle: &ProcessHandle, then: impl FnOnce(u64) -> T) -> Result<T, ProcessError> {
+        Ok(self.inner.lookup(handle)?.feed.mark_then(then))
+    }
+
+    /// A subscription from the oldest event the ring still holds, with the output offset where its first event starts (more than zero
+    /// when the ring has dropped the start of the output), taken in one step (see `Feed::subscribe_oldest`).
+    pub(crate) fn subscribe_oldest(&self, handle: &ProcessHandle) -> Result<(Box<dyn EventSource<ProcessEvent>>, u64), ProcessError> {
+        let subscription = self.inner.lookup(handle)?.feed.subscribe_oldest();
+        let start = subscription.start();
+        Ok((Box::new(subscription), start))
+    }
+
+    /// What the [`NodePtyExit`] wait of `handle` has seen, as it changes. Tests only.
+    #[cfg(feature = "core-test")]
+    pub fn exit_wait(&self, handle: &ProcessHandle) -> Result<tokio::sync::watch::Receiver<ExitWait>, ProcessError> {
+        Ok(self.inner.lookup(handle)?.exit_wait.subscribe())
+    }
+
+    /// The feed of `handle`. Tests only.
+    #[cfg(all(test, feature = "core-test"))]
+    pub(crate) fn feed_of(&self, handle: &ProcessHandle) -> Result<Arc<crate::feed::Feed>, ProcessError> {
+        Ok(Arc::clone(&self.inner.lookup(handle)?.feed))
     }
 
     /// Input accepted but not yet written to the process.
@@ -968,6 +1181,38 @@ impl LocalProcessManager {
 
     pub fn kill_with(&self, handle: &ProcessHandle, reason: KillReason) -> Result<(), ProcessError> {
         self.inner.lookup(handle)?.kill(reason)
+    }
+
+    /// Takes no more input for the process and ends a write waiting for room (it fails with `StdinClosed` and lets go of the write side);
+    /// what is queued is still written and the input stays open. A disposed terminal takes no more writes (Node's `write` returns on a
+    /// disposed entry, terminal-manager.ts:418).
+    pub fn refuse_input(&self, handle: &ProcessHandle) {
+        if let Some(input) = self.inner.lookup(handle).ok().and_then(|proc| proc.input.clone()) {
+            input.refuse();
+        }
+    }
+
+    /// Closes a PTY process's terminal, as node-pty's `kill` closes the pseudo console: on Windows the console's processes get its close
+    /// and end with `STATUS_CONTROL_C_EXIT` themselves (a shell's own answer to a closed terminal). The close runs on a thread of its own
+    /// (`ClosePseudoConsole` can wait for its output to be read). A process without a PTY is `NotPty`.
+    /// Returns the hung-up process itself: its later kill ends that process's tree, never another process the handle names by then.
+    pub fn hang_up(&self, handle: &ProcessHandle) -> Result<HungUp, ProcessError> {
+        let proc = self.inner.lookup(handle)?;
+        if proc.pty.is_none() {
+            return Err(ProcessError::NotPty);
+        }
+        // node-pty's kill bounds when it raises the exit (see `NodePtyExit`).
+        *proc.hung_up.lock().unwrap_or_else(|e| e.into_inner()) = Some(tokio::time::Instant::now());
+        let closing = Arc::clone(&proc);
+        thread::Builder::new()
+            .name("pty-hangup".to_owned())
+            .spawn(move || {
+                if let Some(pty) = &closing.pty {
+                    pty.close();
+                }
+            })
+            .map_err(|error| ProcessError::Io { os_code: error.raw_os_error() })?;
+        Ok(HungUp(proc))
     }
 }
 
@@ -1026,5 +1271,197 @@ impl ProcessManager for LocalProcessManager {
                 Slot::Reserved => None,
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pieces;
+
+    /// Pieces end between characters: a two-byte and a four-byte character on a piece's edge go whole into the next piece; a character
+    /// longer than the cap alone is the only cut inside one.
+    #[test]
+    fn input_pieces_end_between_characters() {
+        let text = "aé😀b".as_bytes();
+        assert_eq!(pieces(text, 2), vec![&b"a"[..], "é".as_bytes(), &[0xF0, 0x9F], &[0x98, 0x80], b"b"]);
+        assert_eq!(pieces(text, 4), vec!["aé".as_bytes(), "😀".as_bytes(), b"b"]);
+        assert_eq!(pieces(text, 8), vec![text]);
+    }
+}
+
+/// A terminal tab's exit raised when node-pty raised it (`NodePtyExit`), on a paused clock only the tests move.
+#[cfg(all(test, feature = "core-test", windows))]
+mod node_pty_exit {
+    use std::sync::mpsc;
+
+    use mixdog_core_api::domain::common::AbsPath;
+    use mixdog_core_api::domain::process::CommandSpec;
+    use mixdog_core_api::domain::process::EnvSpec;
+
+    use super::*;
+
+    const DEADLINE: Duration = Duration::from_secs(60);
+
+    /// `fut`'s value, or a failure naming `what` once [`DEADLINE`] has passed on the wall clock. The deadline waits on the blocking
+    /// pool, which also keeps the paused clock from moving by itself meanwhile: only the test's `advance` moves it.
+    async fn within<T>(what: &str, fut: impl std::future::Future<Output = T>) -> T {
+        let (_alive, timer) = mpsc::channel::<()>();
+        let deadline = tokio::task::spawn_blocking(move || {
+            let _ = timer.recv_timeout(DEADLINE);
+        });
+        tokio::select! {
+            value = fut => value,
+            _ = deadline => panic!("never happened within {DEADLINE:?}: {what}"),
+        }
+    }
+
+    /// A Windows PowerShell on a pseudo console running `script`, its exit hook telling `ended` when it runs.
+    async fn shell(name: &str, script: &str) -> (LocalProcessManager, ProcessHandle, mpsc::Receiver<()>) {
+        let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, ProcessConfig::default());
+        let handle = ProcessHandle::from(format!("node-pty-exit-{name}-{}", std::process::id()));
+        let (ended, end) = mpsc::channel();
+        let mut args = vec!["-NoProfile".to_owned()];
+        if !script.is_empty() {
+            args.extend(["-Command".to_owned(), script.to_owned()]);
+        }
+        manager
+            .spawn_with(
+                SpawnRequest {
+                    handle: handle.clone(),
+                    command: CommandSpec::Argv { program: "powershell.exe".to_owned(), args },
+                    cwd: AbsPath::new(std::env::temp_dir()).unwrap(),
+                    env: EnvSpec { inherit: true, ..EnvSpec::default() },
+                    pty: Some(PtySize { cols: 80, rows: 24 }),
+                    stdin_piped: true,
+                    output: OutputMode::Merged,
+                    owner: ProcessOwner::Internal,
+                    time_limit: None,
+                },
+                SpawnOptions {
+                    on_exit: Some(Box::new(move |_| {
+                        let _ = ended.send(());
+                        Vec::new()
+                    })),
+                    node_pty_exit: Some(NodePtyExit { runtime: tokio::runtime::Handle::current() }),
+                    ..SpawnOptions::default()
+                },
+            )
+            .await
+            .unwrap();
+        (manager, handle, end)
+    }
+
+    async fn output_until(manager: &LocalProcessManager, handle: &ProcessHandle, text: &str) {
+        let mut events = manager.subscribe(handle, Some(0)).unwrap();
+        let mut seen = String::new();
+        within(&format!("the shell wrote {text:?}"), async {
+            while !seen.contains(text) {
+                match events.next().await {
+                    Some(ProcessEvent::Output { bytes, .. }) => seen.push_str(&String::from_utf8_lossy(&bytes)),
+                    other => panic!("output, not {other:?}"),
+                }
+            }
+        })
+        .await;
+    }
+
+    /// The exit hook has not run (`false`) or runs within the deadline (`true`).
+    fn ended(end: &mpsc::Receiver<()>, expected: bool) {
+        if expected {
+            end.recv_timeout(DEADLINE).expect("the exit was raised");
+        } else {
+            assert_eq!(end.try_recv(), Err(mpsc::TryRecvError::Empty), "the exit was raised early");
+        }
+    }
+
+    /// The shell writes, then ends `before` after that: its exit is raised [`NODE_PTY_FLUSH`] after its end, not counted from its
+    /// output (Node: 1001-1008 ms after the end with output 0, 999 and 1000 ms before it, exit-timing.json).
+    async fn a_natural_exit_comes_a_flush_after_the_end(before: Duration) {
+        // A key read without echo: the console draws nothing more.
+        let (manager, handle, end) = shell("natural", "[Console]::Out.Write('x'); $null = [Console]::ReadKey($true); exit 3").await;
+        output_until(&manager, &handle, "x").await;
+        tokio::time::advance(before).await;
+        let mut wait = manager.exit_wait(&handle).unwrap();
+        manager.write_input(&handle, b"k".to_vec()).unwrap();
+        within("the shell ended", wait.wait_for(|wait| wait.waiting)).await.unwrap();
+        tokio::time::advance(NODE_PTY_FLUSH - Duration::from_millis(1)).await;
+        ended(&end, false);
+        tokio::time::advance(Duration::from_millis(1)).await;
+        ended(&end, true);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_natural_exit_with_output_right_before_it_comes_a_flush_after_the_end() {
+        a_natural_exit_comes_a_flush_after_the_end(Duration::ZERO).await;
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_natural_exit_with_output_999_ms_before_it_comes_a_flush_after_the_end() {
+        a_natural_exit_comes_a_flush_after_the_end(Duration::from_millis(999)).await;
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_natural_exit_with_output_1000_ms_before_it_comes_a_flush_after_the_end() {
+        a_natural_exit_comes_a_flush_after_the_end(Duration::from_millis(1000)).await;
+    }
+
+    /// Output after the shell's end (a process it left behind still writing) starts the wait again, each chunk: the exit is raised
+    /// [`NODE_PTY_FLUSH`] after the last (Node: 999.7-1001 ms after the last output that came after the end, exit-timing.json).
+    #[tokio::test(start_paused = true)]
+    async fn output_after_the_end_starts_the_wait_again() {
+        let (manager, handle, end) = shell("during", "[Console]::Out.Write('x'); $null = [Console]::ReadKey($true); exit 3").await;
+        output_until(&manager, &handle, "x").await;
+        let mut wait = manager.exit_wait(&handle).unwrap();
+        manager.write_input(&handle, b"k".to_vec()).unwrap();
+        within("the shell ended", wait.wait_for(|wait| wait.waiting)).await.unwrap();
+        let feed = manager.feed_of(&handle).unwrap();
+        for _ in 0..2 {
+            tokio::time::advance(Duration::from_millis(500)).await;
+            feed.push_output(OutputStream::Pty, b"y");
+            let pushed = feed.pushed();
+            within("the wait saw the chunk", wait.wait_for(|wait| wait.quiet_from == pushed)).await.unwrap();
+        }
+        tokio::time::advance(NODE_PTY_FLUSH - Duration::from_millis(1)).await;
+        ended(&end, false);
+        tokio::time::advance(Duration::from_millis(1)).await;
+        ended(&end, true);
+    }
+
+    /// A killed shell (the terminal closed, as node-pty's `kill`): the exit is raised [`NODE_PTY_EOF`] after the console's output ends
+    /// (Node: 48.9-50.6 ms after the killed shell's end, exit-timing.json).
+    #[tokio::test(start_paused = true)]
+    async fn a_killed_shells_exit_comes_an_eof_wait_after_its_output_ends() {
+        let (manager, handle, end) = shell("kill", "").await;
+        output_until(&manager, &handle, "PS ").await;
+        let mut wait = manager.exit_wait(&handle).unwrap();
+        let _hung = manager.hang_up(&handle).unwrap();
+        within("the console's output ended", wait.wait_for(|wait| wait.output_ended)).await.unwrap();
+        tokio::time::advance(NODE_PTY_EOF - Duration::from_millis(1)).await;
+        ended(&end, false);
+        tokio::time::advance(Duration::from_millis(1)).await;
+        ended(&end, true);
+    }
+
+    /// The rule's two waits are the ones Node's recorded exits show (exit-timing.json, record-pty-exit-timing.mjs), each within 10 ms.
+    #[test]
+    fn the_waits_are_the_ones_node_recorded() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/mobile/fixtures/phone-terminal/exit-timing.json");
+        let recorded: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let close = |measured: &serde_json::Value, rule: Duration, what: &str| {
+            let measured = measured.as_f64().unwrap_or_else(|| panic!("{what} was recorded"));
+            assert!((measured - rule.as_secs_f64() * 1000.0).abs() <= 10.0, "{what}: Node {measured} ms, the rule {rule:?}");
+        };
+        let cases = &recorded["cases"];
+        for case in ["output 0 ms before the end", "output 999 ms before the end", "output 1000 ms before the end"] {
+            for run in cases[case].as_array().unwrap() {
+                close(&run["exitAfterProcessExit"], NODE_PTY_FLUSH, case);
+            }
+        }
+        for run in cases["output after the end"].as_array().unwrap() {
+            close(&run["exitAfterLastOutputAfterTheEnd"], NODE_PTY_FLUSH, "output after the end");
+        }
+        for run in cases["kill"].as_array().unwrap() {
+            close(&run["exitAfterProcessExit"], NODE_PTY_EOF, "kill");
+        }
     }
 }

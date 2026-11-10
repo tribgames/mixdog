@@ -2,17 +2,14 @@
   "_doc": "Recorded from src/runtime/agent/orchestrator/providers/openai-oauth-login.mjs (createOpenAIOAuthLogin, browser flow, loopback fake issuer, clock pinned to nowMs). Tokens are placeholders: h.<base64url claims>.s, or opaque.",
   "recorder": "benchmarks/rust-core/recorders/record-openai-login.mjs",
   "scenarios": {
-    "jwtExpiryOnly": {
-      "authorizeFixed": {
-        "client_id": "app_EMoamEEZ73f0CkXaXp7hrann",
-        "code_challenge_method": "S256",
-        "codex_cli_simplified_flow": "true",
-        "id_token_add_organizations": "true",
-        "originator": "codex_cli_rs",
-        "redirect_uri": "http://localhost:1455/auth/callback",
-        "response_type": "code",
-        "scope": "openid profile email offline_access api.connectors.read api.connectors.invoke"
+    "withExpiresIn": {
+      "tokens": {
+        "access_token": "h.eyJleHAiOjE3MDAwMDM2MDAsImh0dHBzOi8vYXBpLm9wZW5haS5jb20vYXV0aCI6eyJjaGF0Z3B0X2FjY291bnRfaWQiOiJhY2N0LTEifSwic3ViIjoic3ViLWFjY2VzcyJ9.s",
+        "id_token": "h.eyJzdWIiOiJzdWItMSIsImVtYWlsIjoibWVAZXhhbXBsZS5jb20iLCJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdC0xIn19.s",
+        "expires_in": 7200
       },
+      "nowMs": 1700000000000,
+      "authorizeUrlBase": "https://auth.openai.com/oauth/authorize",
       "authorizeParamOrder": [
         "response_type",
         "client_id",
@@ -25,18 +22,48 @@
         "state",
         "originator"
       ],
-      "authorizeUrlBase": "https://auth.openai.com/oauth/authorize",
+      "authorizeFixed": {
+        "response_type": "code",
+        "client_id": "app_EMoamEEZ73f0CkXaXp7hrann",
+        "redirect_uri": "http://localhost:1455/auth/callback",
+        "scope": "openid profile email offline_access api.connectors.read api.connectors.invoke",
+        "code_challenge_method": "S256",
+        "id_token_add_organizations": "true",
+        "codex_cli_simplified_flow": "true",
+        "originator": "codex_cli_rs"
+      },
+      "stateShape": {
+        "length": 32,
+        "hex": true
+      },
       "challengeLength": 43,
-      "nowMs": 1700000000000,
+      "verifierLength": 86,
+      "tokenRequest": {
+        "method": "POST",
+        "contentType": "application/x-www-form-urlencoded",
+        "order": [
+          "grant_type",
+          "code",
+          "redirect_uri",
+          "client_id",
+          "code_verifier"
+        ],
+        "fixed": {
+          "grant_type": "authorization_code",
+          "code": "code 123",
+          "redirect_uri": "http://localhost:1455/auth/callback",
+          "client_id": "app_EMoamEEZ73f0CkXaXp7hrann"
+        }
+      },
       "saved": {
-        "access_token": "h.eyJleHAiOjE3MDAwMDM2MDAsImh0dHBzOi8vYXBpLm9wZW5haS5jb20vYXV0aCI6eyJjaGF0Z3B0X2FjY291bnRfaWQiOiJhY2N0LTIifSwic3ViIjoic3ViLTIiLCJodHRwczovL2FwaS5vcGVuYWkuY29tL3Byb2ZpbGUiOnsiZW1haWwiOiJwQGV4YW1wbGUuY29tIn19.s",
-        "account_id": "acct-2",
-        "expires_at": 1700003600000,
+        "access_token": "h.eyJleHAiOjE3MDAwMDM2MDAsImh0dHBzOi8vYXBpLm9wZW5haS5jb20vYXV0aCI6eyJjaGF0Z3B0X2FjY291bnRfaWQiOiJhY2N0LTEifSwic3ViIjoic3ViLWFjY2VzcyJ9.s",
+        "refresh_token": "refresh-1",
+        "expires_at": 1700007200000,
+        "account_id": "acct-1",
         "identity": {
-          "email": "p@example.com",
-          "id": "sub-2:acct-2"
-        },
-        "refresh_token": "refresh-1"
+          "id": "sub-1:acct-1",
+          "email": "me@example.com"
+        }
       },
       "savedKeyOrder": [
         "access_token",
@@ -44,46 +71,87 @@
         "expires_at",
         "account_id",
         "identity"
-      ],
-      "stateShape": {
-        "hex": true,
-        "length": 32
+      ]
+    },
+    "jwtExpiryOnly": {
+      "tokens": {
+        "access_token": "h.eyJleHAiOjE3MDAwMDM2MDAsImh0dHBzOi8vYXBpLm9wZW5haS5jb20vYXV0aCI6eyJjaGF0Z3B0X2FjY291bnRfaWQiOiJhY2N0LTIifSwic3ViIjoic3ViLTIiLCJodHRwczovL2FwaS5vcGVuYWkuY29tL3Byb2ZpbGUiOnsiZW1haWwiOiJwQGV4YW1wbGUuY29tIn19.s",
+        "id_token": null,
+        "expires_in": null
       },
+      "nowMs": 1700000000000,
+      "authorizeUrlBase": "https://auth.openai.com/oauth/authorize",
+      "authorizeParamOrder": [
+        "response_type",
+        "client_id",
+        "redirect_uri",
+        "scope",
+        "code_challenge",
+        "code_challenge_method",
+        "id_token_add_organizations",
+        "codex_cli_simplified_flow",
+        "state",
+        "originator"
+      ],
+      "authorizeFixed": {
+        "response_type": "code",
+        "client_id": "app_EMoamEEZ73f0CkXaXp7hrann",
+        "redirect_uri": "http://localhost:1455/auth/callback",
+        "scope": "openid profile email offline_access api.connectors.read api.connectors.invoke",
+        "code_challenge_method": "S256",
+        "id_token_add_organizations": "true",
+        "codex_cli_simplified_flow": "true",
+        "originator": "codex_cli_rs"
+      },
+      "stateShape": {
+        "length": 32,
+        "hex": true
+      },
+      "challengeLength": 43,
+      "verifierLength": 86,
       "tokenRequest": {
-        "contentType": "application/x-www-form-urlencoded",
-        "fixed": {
-          "client_id": "app_EMoamEEZ73f0CkXaXp7hrann",
-          "code": "code 123",
-          "grant_type": "authorization_code",
-          "redirect_uri": "http://localhost:1455/auth/callback"
-        },
         "method": "POST",
+        "contentType": "application/x-www-form-urlencoded",
         "order": [
           "grant_type",
           "code",
           "redirect_uri",
           "client_id",
           "code_verifier"
-        ]
+        ],
+        "fixed": {
+          "grant_type": "authorization_code",
+          "code": "code 123",
+          "redirect_uri": "http://localhost:1455/auth/callback",
+          "client_id": "app_EMoamEEZ73f0CkXaXp7hrann"
+        }
       },
-      "tokens": {
+      "saved": {
         "access_token": "h.eyJleHAiOjE3MDAwMDM2MDAsImh0dHBzOi8vYXBpLm9wZW5haS5jb20vYXV0aCI6eyJjaGF0Z3B0X2FjY291bnRfaWQiOiJhY2N0LTIifSwic3ViIjoic3ViLTIiLCJodHRwczovL2FwaS5vcGVuYWkuY29tL3Byb2ZpbGUiOnsiZW1haWwiOiJwQGV4YW1wbGUuY29tIn19.s",
-        "expires_in": null,
-        "id_token": null
+        "refresh_token": "refresh-1",
+        "expires_at": 1700003600000,
+        "account_id": "acct-2",
+        "identity": {
+          "id": "sub-2:acct-2",
+          "email": "p@example.com"
+        }
       },
-      "verifierLength": 86
+      "savedKeyOrder": [
+        "access_token",
+        "refresh_token",
+        "expires_at",
+        "account_id",
+        "identity"
+      ]
     },
     "opaqueTokens": {
-      "authorizeFixed": {
-        "client_id": "app_EMoamEEZ73f0CkXaXp7hrann",
-        "code_challenge_method": "S256",
-        "codex_cli_simplified_flow": "true",
-        "id_token_add_organizations": "true",
-        "originator": "codex_cli_rs",
-        "redirect_uri": "http://localhost:1455/auth/callback",
-        "response_type": "code",
-        "scope": "openid profile email offline_access api.connectors.read api.connectors.invoke"
+      "tokens": {
+        "access_token": "opaque-access",
+        "id_token": null,
+        "expires_in": null
       },
+      "nowMs": 1700000000000,
+      "authorizeUrlBase": "https://auth.openai.com/oauth/authorize",
       "authorizeParamOrder": [
         "response_type",
         "client_id",
@@ -96,119 +164,51 @@
         "state",
         "originator"
       ],
-      "authorizeUrlBase": "https://auth.openai.com/oauth/authorize",
+      "authorizeFixed": {
+        "response_type": "code",
+        "client_id": "app_EMoamEEZ73f0CkXaXp7hrann",
+        "redirect_uri": "http://localhost:1455/auth/callback",
+        "scope": "openid profile email offline_access api.connectors.read api.connectors.invoke",
+        "code_challenge_method": "S256",
+        "id_token_add_organizations": "true",
+        "codex_cli_simplified_flow": "true",
+        "originator": "codex_cli_rs"
+      },
+      "stateShape": {
+        "length": 32,
+        "hex": true
+      },
       "challengeLength": 43,
-      "nowMs": 1700000000000,
+      "verifierLength": 86,
+      "tokenRequest": {
+        "method": "POST",
+        "contentType": "application/x-www-form-urlencoded",
+        "order": [
+          "grant_type",
+          "code",
+          "redirect_uri",
+          "client_id",
+          "code_verifier"
+        ],
+        "fixed": {
+          "grant_type": "authorization_code",
+          "code": "code 123",
+          "redirect_uri": "http://localhost:1455/auth/callback",
+          "client_id": "app_EMoamEEZ73f0CkXaXp7hrann"
+        }
+      },
       "saved": {
         "access_token": "opaque-access",
+        "refresh_token": "refresh-1",
         "expires_at": 0,
-        "identity": null,
-        "refresh_token": "refresh-1"
+        "identity": null
       },
       "savedKeyOrder": [
         "access_token",
         "refresh_token",
         "expires_at",
         "identity"
-      ],
-      "stateShape": {
-        "hex": true,
-        "length": 32
-      },
-      "tokenRequest": {
-        "contentType": "application/x-www-form-urlencoded",
-        "fixed": {
-          "client_id": "app_EMoamEEZ73f0CkXaXp7hrann",
-          "code": "code 123",
-          "grant_type": "authorization_code",
-          "redirect_uri": "http://localhost:1455/auth/callback"
-        },
-        "method": "POST",
-        "order": [
-          "grant_type",
-          "code",
-          "redirect_uri",
-          "client_id",
-          "code_verifier"
-        ]
-      },
-      "tokens": {
-        "access_token": "opaque-access",
-        "expires_in": null,
-        "id_token": null
-      },
-      "verifierLength": 86
-    },
-    "withExpiresIn": {
-      "authorizeFixed": {
-        "client_id": "app_EMoamEEZ73f0CkXaXp7hrann",
-        "code_challenge_method": "S256",
-        "codex_cli_simplified_flow": "true",
-        "id_token_add_organizations": "true",
-        "originator": "codex_cli_rs",
-        "redirect_uri": "http://localhost:1455/auth/callback",
-        "response_type": "code",
-        "scope": "openid profile email offline_access api.connectors.read api.connectors.invoke"
-      },
-      "authorizeParamOrder": [
-        "response_type",
-        "client_id",
-        "redirect_uri",
-        "scope",
-        "code_challenge",
-        "code_challenge_method",
-        "id_token_add_organizations",
-        "codex_cli_simplified_flow",
-        "state",
-        "originator"
-      ],
-      "authorizeUrlBase": "https://auth.openai.com/oauth/authorize",
-      "challengeLength": 43,
-      "nowMs": 1700000000000,
-      "saved": {
-        "access_token": "h.eyJleHAiOjE3MDAwMDM2MDAsImh0dHBzOi8vYXBpLm9wZW5haS5jb20vYXV0aCI6eyJjaGF0Z3B0X2FjY291bnRfaWQiOiJhY2N0LTEifSwic3ViIjoic3ViLWFjY2VzcyJ9.s",
-        "account_id": "acct-1",
-        "expires_at": 1700007200000,
-        "identity": {
-          "email": "me@example.com",
-          "id": "sub-1:acct-1"
-        },
-        "refresh_token": "refresh-1"
-      },
-      "savedKeyOrder": [
-        "access_token",
-        "refresh_token",
-        "expires_at",
-        "account_id",
-        "identity"
-      ],
-      "stateShape": {
-        "hex": true,
-        "length": 32
-      },
-      "tokenRequest": {
-        "contentType": "application/x-www-form-urlencoded",
-        "fixed": {
-          "client_id": "app_EMoamEEZ73f0CkXaXp7hrann",
-          "code": "code 123",
-          "grant_type": "authorization_code",
-          "redirect_uri": "http://localhost:1455/auth/callback"
-        },
-        "method": "POST",
-        "order": [
-          "grant_type",
-          "code",
-          "redirect_uri",
-          "client_id",
-          "code_verifier"
-        ]
-      },
-      "tokens": {
-        "access_token": "h.eyJleHAiOjE3MDAwMDM2MDAsImh0dHBzOi8vYXBpLm9wZW5haS5jb20vYXV0aCI6eyJjaGF0Z3B0X2FjY291bnRfaWQiOiJhY2N0LTEifSwic3ViIjoic3ViLWFjY2VzcyJ9.s",
-        "expires_in": 7200,
-        "id_token": "h.eyJzdWIiOiJzdWItMSIsImVtYWlsIjoibWVAZXhhbXBsZS5jb20iLCJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdC0xIn19.s"
-      },
-      "verifierLength": 86
+      ]
     }
   }
 }
