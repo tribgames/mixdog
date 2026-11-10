@@ -20,12 +20,30 @@ use super::SessionDirectory;
 use super::SessionHandle;
 use super::seams::RunOutcome;
 use super::testing::Rig;
-use super::tests::eventually;
-use super::tests::eventually_on;
+use crate::eventually_on_until;
+use crate::eventually_on;
 use super::tests::idle;
 use super::tests::start_routed_thread;
 use super::tests::start_thread;
 use super::tests::turn;
+
+/// The context's rows once one of them carries its turn's completion, woken by each store commit; the wait is registered
+/// before the read so a commit between the read and the wait is not missed.
+async fn rows_with_completion(rig: &Rig, context: &super::run::ModelContext) -> Vec<Value> {
+    super::testing::awaiting(|| "a committed row carrying the turn's completion".to_owned(), async {
+        loop {
+            let committed = rig.store.committed.notified();
+            tokio::pin!(committed);
+            committed.as_mut().enable();
+            let rows: Vec<Value> = context.read().await.expect("context").into_iter().map(|(_, message)| message).collect();
+            if rows.iter().any(|message| message.pointer("/meta/transcript/completion").is_some()) {
+                return rows;
+            }
+            committed.await;
+        }
+    })
+    .await
+}
 
 fn request(method: &'static str, params: Value, op: &str) -> CoreRequest {
     CoreRequest {
@@ -47,16 +65,12 @@ async fn call(handle: &SessionHandle, method: &'static str, mut params: Value, o
 
 /// A retry the session accepts once the failed turn has settled: Node's button only shows then,
 /// so a refusal before that is polled past (each attempt its own op id).
-async fn retry_when_settled(handle: &SessionHandle, key: &str, tag: &str) {
-    for attempt in 0u32.. {
-        let op: &'static str = Box::leak(format!("{tag}-{attempt}").into_boxed_str());
-        if call(handle, "turn/retryFailed", json!({ "turnKey": key }), op).await.expect("answered") == json!(true) {
-            return;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-    }
-    unreachable!("the attempts are unbounded");
+async fn retry_when_settled(handle: &SessionHandle, key: &str, tag: &'static str) {
+    use std::sync::atomic::Ordering::SeqCst;
+    eventually_on!(&[&handle.cell.stepped], || (!handle.cell.busy.load(SeqCst) && !handle.cell.compacting.load(SeqCst)).then_some(())).await;
+    assert_eq!(call(handle, "turn/retryFailed", json!({ "turnKey": key }), tag).await.expect("answered"), json!(true), "the settled turn takes its retry");
 }
+
 /// A run held open until the gate is notified.
 fn held(rig: &Rig) -> Arc<tokio::sync::Notify> {
     let gate = Arc::new(tokio::sync::Notify::new());
@@ -85,7 +99,7 @@ async fn a_pushed_notice_shows_its_polished_text_as_a_row_of_no_turn() {
     let shown_of = |id: Value| {
         rig.feeds.frames(handle.id.as_str()).into_iter().find(|(_, method, params)| method == "item/completed" && params["item"]["id"] == id).map(|(_, _, params)| params)
     };
-    let shown = eventually(|| shown_of(json!(id))).await;
+    let shown = eventually_on!(&[&rig.feeds.published], || shown_of(json!(id))).await;
     assert_eq!(shown["turnId"], "");
     // A notice is a status row of kind `notice`; its polished text and tone ride in the row's ext.
     assert_eq!((shown["item"]["type"].clone(), shown["item"]["kind"].clone()), (json!("statusRow"), json!("notice")));
@@ -94,7 +108,7 @@ async fn a_pushed_notice_shows_its_polished_text_as_a_row_of_no_turn() {
 
     // The tone defaults to `info`; a text that polishes to nothing shows no row.
     let second = call(&handle, "thread/pushNotice", json!({ "text": "plain" }), "n-2").await.expect("pushed");
-    let last = eventually(|| shown_of(second.clone())).await;
+    let last = eventually_on!(&[&rig.feeds.published], || shown_of(second.clone())).await;
     assert!(last["item"].to_string().contains("\"info\""), "{}", last["item"]);
     let before = rig.feeds.frames(handle.id.as_str()).len();
     assert_eq!(call(&handle, "thread/pushNotice", json!({ "text": "   " }), "n-3").await.expect("pushed"), Value::Null);
@@ -110,14 +124,14 @@ async fn the_change_history_is_cleared_only_while_the_session_runs_no_turn() {
     let directory = SessionDirectory::new(rig.deps());
     let handle = start_thread(&directory).await;
     turn(&handle, "work", "op-1").await;
-    eventually(|| (!idle(&handle)).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
 
     let refused = call(&handle, "thread/clearSessionChangeHistory", json!({}), "c-1").await.expect_err("a turn runs");
     let CoreError::DomainError { message, .. } = refused else { panic!("a plain error") };
     assert_eq!(message.as_deref(), Some("Change history cannot be deleted while this session is running a turn"));
 
     gate.notify_one();
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     assert_eq!(call(&handle, "thread/clearSessionChangeHistory", json!({}), "c-2").await.expect("cleared"), json!({ "turns": 0 }));
 }
 
@@ -167,19 +181,19 @@ async fn a_side_question_in_flight_is_canceled_by_cancel_side_or_a_newer_questio
     let handle = start_thread(&directory).await;
     let begun = |n: usize| rig.side.begins.load(std::sync::atomic::Ordering::SeqCst) == n;
 
-    let first = {
+    let mut first = {
         let (handle, q) = (handle.clone(), json!({ "question": "one" }));
         tokio::spawn(async move { call(&handle, "thread/askSide", q, "s-1").await })
     };
-    eventually(|| begun(1).then_some(())).await;
+    eventually_on_until!(&[&rig.side.began], || begun(1).then_some(()), &mut first).await;
     assert_eq!(call(&handle, "thread/cancelSide", json!({}), "s-2").await.expect("canceled"), Value::Null);
     assert_eq!(plain_error(first.await.expect("joined").expect_err("canceled")), "Side question canceled.");
 
-    let second = {
+    let mut second = {
         let (handle, q) = (handle.clone(), json!({ "question": "two" }));
         tokio::spawn(async move { call(&handle, "thread/askSide", q, "s-3").await })
     };
-    eventually(|| (begun(2) && super::testing::lock(&rig.side.prompts).len() == 2).then_some(())).await;
+    eventually_on_until!(&[&rig.side.began], || (begun(2) && super::testing::lock(&rig.side.prompts).len() == 2).then_some(()), &mut second).await;
     *super::testing::lock(&rig.side.reply) = Some(reply("done", false));
     assert_eq!(call(&handle, "thread/askSide", json!({ "question": "three" }), "s-4").await.expect("answered"), json!({ "text": "done" }));
     assert_eq!(plain_error(second.await.expect("joined").expect_err("replaced")), "Side question canceled.");
@@ -203,7 +217,7 @@ async fn the_preflight_answers_nodes_verdict_for_the_heir_route() {
     let current = start_thread(&directory).await;
     let source = start_thread(&directory).await;
     turn(&source, "carry this", "op-1").await;
-    eventually(|| idle(&source).then_some(())).await;
+    eventually_on!(&[&source.cell.stepped], || idle(&source).then_some(())).await;
     let patch = json!({ "threadId": current.id, "set": { "provider": "openai", "model": "gpt-5" }, "unset": [] });
     current.request(CoreRequest { method: Method("thread/header/patch"), params: patch, op: None, ctx: CallContext::internal("test") }).await.expect("patch");
     let cases = [
@@ -266,12 +280,12 @@ async fn a_manual_compaction_follows_the_session_ops_order() {
     let directory = SessionDirectory::new(rig.deps());
     let handle = start_thread(&directory).await;
     turn(&handle, "work", "op-1").await;
-    eventually(|| (!idle(&handle)).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
     let busy = call(&handle, "thread/compact/start", json!({}), "k-1").await.expect("answered");
     assert_eq!(busy, json!({ "changed": false, "reason": "compact skipped: turn in progress" }));
     assert!(super::testing::lock(&rig.compaction.calls).is_empty(), "the engine is not reached");
     gate.notify_one();
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
 
     *super::testing::lock(&rig.compaction.result) = Some(json!({ "skipped": true, "reason": "no reduction" }));
     let skipped = call(&handle, "thread/compact/start", json!({ "options": { "requireReduction": true } }), "k-2").await.expect("answered");
@@ -284,7 +298,7 @@ async fn a_manual_compaction_follows_the_session_ops_order() {
     let done = call(&handle, "thread/compact/start", json!({ "options": { "recoverAgent": true } }), "k-3").await.expect("answered");
     assert_eq!(done, json!({ "changed": true }));
     assert_eq!(*super::testing::lock(&rig.compaction.calls), ["compact manual false", "post manual", "rearm", "recover", "invalidate"]);
-    let pending = eventually(|| handle.cell.header.load().get("pendingGoalReminder").cloned()).await;
+    let pending = eventually_on!(&[&handle.cell.stepped], || handle.cell.header.load().get("pendingGoalReminder").cloned()).await;
     assert_eq!((pending["reason"].clone(), pending["revision"].clone()), (json!("compaction"), json!(1)));
 
     // No result at all is Node's `null`.
@@ -322,8 +336,8 @@ async fn a_failed_turn_is_retried_once_with_its_prompt_and_its_resume_entry_fini
     let handle = start_routed_thread(&directory).await;
     turn(&handle, "write the report", "op-1").await;
     let id = handle.id.as_str().to_owned();
-    let entry = eventually(|| rig.quota.entry(&id)).await;
-    eventually(|| idle(&handle).then_some(())).await;
+    let entry = eventually_on!(&[&rig.quota_changed, &handle.cell.stepped], || rig.quota.entry(&id)).await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     let key = entry.turn_key.clone();
 
     assert_eq!(call(&handle, "turn/retryFailed", json!({ "turnKey": "attempt:other" }), "r-1").await.expect("answered"), json!(false));
@@ -331,11 +345,11 @@ async fn a_failed_turn_is_retried_once_with_its_prompt_and_its_resume_entry_fini
     assert_eq!(super::testing::lock(&seen).len(), 1, "a refusal starts no turn");
 
     retry_when_settled(&handle, &key, "r-3").await;
-    eventually(|| (super::testing::lock(&seen).len() == 2).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || (super::testing::lock(&seen).len() == 2).then_some(())).await;
     assert_eq!(super::testing::lock(&seen)[1].1, Some(true), "the retry turn carries retryFailedTurn");
     assert!(super::testing::lock(&seen)[1].0.contains("write the report"), "the failed prompt is replayed");
-    eventually(|| rig.quota.entry(&id).is_none().then_some(())).await;
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on!(&[&rig.quota_changed, &handle.cell.stepped], || rig.quota.entry(&id).is_none().then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     assert_eq!(call(&handle, "turn/retryFailed", json!({ "turnKey": key }), "r-4").await.expect("answered"), json!(false), "the retry's own turn is now the latest");
 }
 
@@ -372,8 +386,8 @@ async fn quota_failed_thread(rig: &Rig, with_message: bool) -> (Arc<SessionHandl
     let handle = start_routed_thread(&directory).await;
     turn(&handle, "write the report", "op-1").await;
     let id = handle.id.as_str().to_owned();
-    let entry = eventually(|| rig.quota.entry(&id)).await;
-    eventually(|| idle(&handle).then_some(())).await;
+    let entry = eventually_on!(&[&rig.quota_changed, &handle.cell.stepped], || rig.quota.entry(&id)).await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     (handle, entry.turn_key, seen)
 }
 
@@ -404,12 +418,12 @@ async fn a_retained_failed_message_is_resent_hidden_with_its_id_and_attempt() {
         })
         .expect("the failed turn's completion is recorded on its last message");
     retry_when_settled(&handle, &key, "r-1a").await;
-    eventually(|| (super::testing::lock(&seen).len() == 2).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || (super::testing::lock(&seen).len() == 2).then_some(())).await;
     let options = super::testing::lock(&seen)[1].clone().expect("retry options");
     assert_eq!((options.retry_failed_turn, options.retry_turn_id, options.retry_attempt_id), (Some(true), Some("m1".into()), Some(recorded)));
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     assert_eq!(user_rows(&handle), shown, "the resent message paints no second row");
-    eventually(|| rig.quota.entry(handle.id.as_str()).is_none().then_some(())).await;
+    eventually_on!(&[&rig.quota_changed, &handle.cell.stepped], || rig.quota.entry(handle.id.as_str()).is_none().then_some(())).await;
 }
 
 /// `retryBlocked`: a compaction running owns the session first (`commandBusy` /
@@ -420,17 +434,17 @@ async fn a_retry_waits_for_a_running_compaction() {
     let (handle, key, seen) = quota_failed_thread(&rig, false).await;
     let hold = Arc::new(tokio::sync::Notify::new());
     *super::testing::lock(&rig.compaction.hold) = Some(hold.clone());
-    let compacting = {
+    let mut compacting = {
         let handle = handle.clone();
         tokio::spawn(async move { call(&handle, "thread/compact/start", json!({}), "c-1").await })
     };
-    eventually(|| (!super::testing::lock(&rig.compaction.calls).is_empty()).then_some(())).await;
+    eventually_on_until!(&[&rig.compaction.called], || (!super::testing::lock(&rig.compaction.calls).is_empty()).then_some(()), &mut compacting).await;
     assert_eq!(call(&handle, "turn/retryFailed", json!({ "turnKey": key }), "r-1").await.expect("answered"), json!(false));
     hold.notify_one();
     compacting.await.expect("joined").expect("compacted");
     assert_eq!(super::testing::lock(&seen).len(), 1, "the refused retry started nothing");
     retry_when_settled(&handle, &key, "r-2c").await;
-    eventually(|| (super::testing::lock(&seen).len() == 2).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || (super::testing::lock(&seen).len() == 2).then_some(())).await;
 }
 
 /// `resumeGoal`: a quota failure that suspended the Goal is retried by reviving that Goal through
@@ -461,16 +475,16 @@ async fn a_suspended_goal_is_revived_by_its_retry_and_continues() {
     let id = handle.id.as_str().to_owned();
     rig.goals.goal_control(&handle.id, json!({ "action": "create", "objective": "Ship it" })).await.expect("create");
     let goal_id = rig.goals.goal_status(&handle.id).await.expect("status").expect("a goal")["id"].as_str().expect("goal id").to_owned();
-    let key = eventually(|| rig.quota.entry(&id).map(|entry| entry.turn_key)).await;
-    eventually(|| (rig.quota.suspended_goal(&id, &key) == goal_id).then_some(())).await;
-    eventually(|| idle(&handle).then_some(())).await;
+    let key = eventually_on!(&[&rig.quota_changed, &handle.cell.stepped], || rig.quota.entry(&id).map(|entry| entry.turn_key)).await;
+    eventually_on!(&[&rig.quota_changed, &handle.cell.stepped], || (rig.quota.suspended_goal(&id, &key) == goal_id).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
 
     retry_when_settled(&handle, &key, "r-1a").await;
-    eventually(|| (*super::testing::lock(&seen) == 2).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || (*super::testing::lock(&seen) == 2).then_some(())).await;
     let goal = rig.goals.goal_status(&handle.id).await.expect("status").expect("a goal");
     assert_eq!(goal["status"], "active", "the Goal was revived");
-    eventually(|| (rig.quota.entry(&id).is_none() && rig.quota.suspended_goal(&id, &key).is_empty()).then_some(())).await;
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on!(&[&rig.quota_changed, &handle.cell.stepped], || (rig.quota.entry(&id).is_none() && rig.quota.suspended_goal(&id, &key).is_empty()).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     assert_eq!(call(&handle, "turn/retryFailed", json!({ "turnKey": key }), "r-2").await.expect("answered"), json!(false));
 }
 /// `commitSessionCompaction`: a manual compaction's result is applied when no turn runs and the
@@ -487,7 +501,7 @@ async fn a_manual_compactions_result_is_committed_only_to_the_context_it_was_pla
     let directory = SessionDirectory::new(rig.deps());
     let handle = start_thread(&directory).await;
     turn(&handle, "first", "op-1").await;
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     let planned = directory.model_context(&handle.id).read().await.expect("context");
     assert!(!planned.is_empty());
     let snapshot: Vec<ItemId> = planned.iter().map(|(iid, _)| iid.clone()).collect();
@@ -502,10 +516,10 @@ async fn a_manual_compactions_result_is_committed_only_to_the_context_it_was_pla
     // A turn that runs refuses it.
     let gate = held(&rig);
     turn(&handle, "second", "op-2").await;
-    eventually(|| (!idle(&handle)).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
     assert_eq!(directory.commit_compaction(&handle.id, snapshot.clone(), compaction(), None).await.expect("answered"), CompactionCommit::Moved);
     gate.notify_one();
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
 
     // The turn that finished meanwhile appended its rows: they follow the compacted ones.
     assert_eq!(directory.commit_compaction(&handle.id, snapshot, compaction(), None).await.expect("answered"), CompactionCommit::Applied);
@@ -528,7 +542,7 @@ async fn a_manual_compaction_commit_writes_the_header_it_carries_without_countin
     let directory = SessionDirectory::new(rig.deps());
     let handle = start_thread(&directory).await;
     turn(&handle, "first", "op-1").await;
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     let compaction = |id: &str| Compaction { replacement: vec![(ItemId::from(id.to_owned()), json!({ "role": "user", "content": "summary" }))], at: 5, dropped_count: 1, dropped: None };
     let snapshot_of = |rows: Vec<(ItemId, Value)>| rows.into_iter().map(|(iid, _)| iid).collect::<Vec<_>>();
 
@@ -544,7 +558,7 @@ async fn a_manual_compaction_commit_writes_the_header_it_carries_without_countin
     });
     let applied = directory.commit_compaction(&handle.id, snapshot, compaction("sum1"), Some(header)).await.expect("answered");
     assert_eq!(applied, super::turn_ops::CompactionCommit::Applied);
-    eventually(|| (handle.live_header().header().get("compaction")?.get("compactCount") == Some(&json!(7))).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || (handle.live_header().header().get("compaction")?.get("compactCount") == Some(&json!(7))).then_some(())).await;
     let header = handle.live_header().header();
     assert_eq!(header["compaction"]["lastStage"], json!("manual"));
     assert_eq!(header["lastContextTokens"], json!(0));
@@ -553,7 +567,7 @@ async fn a_manual_compaction_commit_writes_the_header_it_carries_without_countin
     let snapshot = snapshot_of(directory.model_context(&handle.id).read().await.expect("context"));
     let applied = directory.commit_compaction(&handle.id, snapshot, compaction("sum2"), None).await.expect("answered");
     assert_eq!(applied, super::turn_ops::CompactionCommit::Applied);
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     assert_eq!(handle.live_header().header()["compaction"]["compactCount"], json!(7));
 }
 
@@ -664,15 +678,15 @@ async fn a_retry_of_a_system_turn_and_the_retry_of_that_retry_are_noted_as_syste
     let handle = start_routed_thread(&directory).await;
     turn(&handle, "write the report", "op-1").await;
     let id = handle.id.as_str().to_owned();
-    let first = eventually(|| rig.quota.entry(&id)).await;
-    eventually(|| idle(&handle).then_some(())).await;
+    let first = eventually_on!(&[&rig.quota_changed, &handle.cell.stepped], || rig.quota.entry(&id)).await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
 
     retry_when_settled(&handle, &first.turn_key, "r-1s").await;
-    eventually(|| (super::testing::lock(&stamped).len() == 2).then_some(())).await;
-    eventually(|| idle(&handle).then_some(())).await;
-    let second = eventually(|| rig.quota.entry(&id).filter(|entry| entry.turn_key != first.turn_key)).await;
+    eventually_on!(&[&handle.cell.stepped], || (super::testing::lock(&stamped).len() == 2).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    let second = eventually_on!(&[&rig.quota_changed, &handle.cell.stepped], || rig.quota.entry(&id).filter(|entry| entry.turn_key != first.turn_key)).await;
     retry_when_settled(&handle, &second.turn_key, "r-2s").await;
-    eventually(|| (super::testing::lock(&stamped).len() == 3).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || (super::testing::lock(&stamped).len() == 3).then_some(())).await;
 
     let provenance = json!({ "source": "task-notification" });
     assert_eq!(*super::testing::lock(&stamped), [Value::Null, provenance.clone(), provenance], "each retry row carries the failed turn's provenance");
@@ -721,17 +735,11 @@ async fn a_failed_turn_records_its_completion_and_a_plain_retry_start_carries_th
     let directory = SessionDirectory::new(rig.deps());
     let handle = start_thread(&directory).await;
     turn(&handle, "write the report", "op-1").await;
-    eventually(|| idle(&handle).then_some(())).await;
-    eventually(|| (super::testing::lock(&stamped).len() == 1).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || (super::testing::lock(&stamped).len() == 1).then_some(())).await;
 
     let context = directory.model_context(&handle.id);
-    let messages = loop {
-        let rows: Vec<Value> = context.read().await.expect("context").into_iter().map(|(_, message)| message).collect();
-        if rows.iter().any(|message| message.pointer("/meta/transcript/completion").is_some()) {
-            break rows;
-        }
-        tokio::task::yield_now().await;
-    };
+    let messages = rows_with_completion(&rig, &context).await;
     let completion = messages.last().expect("rows").pointer("/meta/transcript/completion").cloned().expect("completion");
     // The record is built from the run's failure: Node's `turnFailureRecord` of an exhausted quota with the reset the
     // provider named (`fixtures/turn-failure`, "quota with a provider-named reset").
@@ -741,7 +749,7 @@ async fn a_failed_turn_records_its_completion_and_a_plain_retry_start_carries_th
     assert_eq!(completion["quota"]["resetAt"], 5000);
 
     call(&handle, "turn/start", json!({ "input": { "prompt": "go on", "options": { "retryFailedTurn": true, "retryTurnId": "m1" } } }), "op-retry").await.expect("started");
-    eventually(|| (super::testing::lock(&stamped).len() == 2).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || (super::testing::lock(&stamped).len() == 2).then_some(())).await;
     assert_eq!(super::testing::lock(&stamped)[1], json!({ "source": "task-notification" }), "the plain retry's row carries the failed turn's provenance");
 }
 
@@ -765,16 +773,10 @@ async fn a_failure_without_an_end_item_records_its_end_and_the_history_shows_it_
     let directory = SessionDirectory::new(rig.deps());
     let handle = start_thread(&directory).await;
     turn(&handle, "write the report", "op-1").await;
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
 
     let context = directory.model_context(&handle.id);
-    let messages = loop {
-        let rows: Vec<Value> = context.read().await.expect("context").into_iter().map(|(_, message)| message).collect();
-        if rows.iter().any(|message| message.pointer("/meta/transcript/completion").is_some()) {
-            break rows;
-        }
-        tokio::task::yield_now().await;
-    };
+    let messages = rows_with_completion(&rig, &context).await;
     let mut completion = messages.last().expect("rows").pointer("/meta/transcript/completion").cloned().expect("completion");
     assert!(completion["attemptId"].as_str().is_some_and(|id| !id.is_empty()), "a fresh attempt id");
     completion.as_object_mut().expect("object").shift_remove("attemptId");
@@ -835,10 +837,10 @@ async fn a_quota_failed_turn_shows_nodes_end_and_the_settlement_reads_it() {
     };
     turn(&handle, "write the report", "op-1").await;
     let id = handle.id.as_str().to_owned();
-    let entry = eventually_on(&[&queued], || rig.quota.entry(&id)).await;
+    let entry = eventually_on!(&[&queued], || rig.quota.entry(&id)).await;
     assert_eq!(entry.to_value()["resetAt"].as_f64(), Some(reset as f64), "the resume waits for the reset the provider named");
 
-    let items = eventually_on(&[&rig.feeds.published, &handle.cell.stepped], || {
+    let items = eventually_on!(&[&rig.feeds.published, &handle.cell.stepped], || {
         let items = handle.cell.view.load_full().items.clone();
         items.iter().any(|item| matches!(item.as_ref(), mixdog_protocol::ThreadItem::TurnEnd { .. })).then_some(items)
     })
@@ -953,7 +955,7 @@ async fn the_live_failed_end_holds_what_the_run_showed_as_nodes_turndone_does() 
         let start = rig.clock.0.load(std::sync::atomic::Ordering::SeqCst);
         turn(&handle, "write the report", "op-1").await;
         let thread = handle.id.as_str().to_owned();
-        let end = eventually_on(&[&rig.feeds.published], || failed_end_frame(&rig, &thread)).await;
+        let end = eventually_on!(&[&rig.feeds.published], || failed_end_frame(&rig, &thread)).await;
         let mixdog_protocol::ThreadItem::TurnEnd { status, elapsed_ms, detail, error_details, error_kind, quota, meta, .. } = end else {
             panic!("a turn end");
         };
@@ -1013,7 +1015,7 @@ async fn a_failed_turn_whose_completion_cannot_be_recorded_settles_no_quota_and_
     turn(&handle, "again", "op-2").await;
     let thread = handle.id.as_str().to_owned();
     let completed = || rig.feeds.frames(&thread).iter().filter(|(_, method, _)| method == "turn/completed").count();
-    eventually_on(&[&rig.feeds.published], || (completed() == 2).then_some(())).await;
+    eventually_on!(&[&rig.feeds.published], || (completed() == 2).then_some(())).await;
     assert_eq!(turns.load(std::sync::atomic::Ordering::SeqCst), 2, "the settled turn let the next one run");
     assert!(failed_end_frame(&rig, &thread).is_none(), "no end is shown for a turn whose completion was not recorded");
     assert!(rig.quota.entry(&thread).is_none(), "no resume is queued for it");
@@ -1051,10 +1053,10 @@ async fn turn_ends_and_failed_saves_are_reported_to_the_notices() {
     let handle = start_thread(&directory).await;
     for (n, expected) in [(1, "failed::auth"), (2, "failed::-"), (3, ""), (4, "completed:")] {
         turn(&handle, "go", &format!("op-{n}")).await;
-        eventually(|| (super::testing::lock(&outcomes).len() == 4 - n).then_some(())).await;
-        eventually(|| idle(&handle).then_some(())).await;
+        eventually_on!(&[&handle.cell.stepped], || (super::testing::lock(&outcomes).len() == 4 - n).then_some(())).await;
+        eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
         if !expected.is_empty() {
-            eventually(|| (super::testing::lock(&rig.notices.0).last().map(String::as_str) == Some(expected)).then_some(())).await;
+            eventually_on!(&[&rig.notices.1, &handle.cell.stepped], || (super::testing::lock(&rig.notices.0).last().map(String::as_str) == Some(expected)).then_some(())).await;
         }
     }
     assert_eq!(super::testing::lock(&rig.notices.0).clone(), vec!["failed::auth", "failed::-", "completed:"], "a cancelled turn reports nothing");
@@ -1063,7 +1065,7 @@ async fn turn_ends_and_failed_saves_are_reported_to_the_notices() {
         .request(request("thread/name/set", json!({ "threadId": handle.id, "opId": "op-save", "title": "renamed" }), "op-save"))
         .await
         .expect_err("barrier failed");
-    eventually(|| (super::testing::lock(&rig.notices.0).last().map(String::as_str) == Some("save-failed")).then_some(())).await;
+    eventually_on!(&[&rig.notices.1, &handle.cell.stepped], || (super::testing::lock(&rig.notices.0).last().map(String::as_str) == Some("save-failed")).then_some(())).await;
 }
 
 /// A route change while a turn runs does not move the notice its end raises: the provider is the
@@ -1105,12 +1107,12 @@ async fn a_route_change_during_a_turn_does_not_move_its_notice() {
     };
     route(json!({ "provider": "anthropic-oauth" })).await;
     turn(&handle, "go", "op-1").await;
-    eventually(|| (!idle(&handle)).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
     route(json!({ "provider": "openai", "routeFallbackIndex": 1, "routeFallbackFailures": [{ "provider": "anthropic-oauth", "kind": "auth" }] })).await;
     assert_eq!(handle.live_header().header().get("provider"), Some(&json!("openai")), "the route changed under the running turn");
     gate.notify_one();
-    eventually(|| idle(&handle).then_some(())).await;
-    eventually(|| (!super::testing::lock(&rig.notices.0).is_empty()).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    eventually_on!(&[&rig.notices.1, &handle.cell.stepped], || (!super::testing::lock(&rig.notices.0).is_empty()).then_some(())).await;
     assert_eq!(super::testing::lock(&rig.notices.0).clone(), vec!["failed:anthropic-oauth:auth"]);
 }
 
@@ -1147,15 +1149,15 @@ async fn a_route_change_during_a_quota_failed_turn_moves_the_durable_stop_and_no
     };
     route(json!({ "provider": "anthropic-oauth", "model": "claude-opus-4-1" })).await;
     turn(&handle, "go", "op-1").await;
-    eventually(|| (!idle(&handle)).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
     route(json!({ "provider": "openai", "model": "gpt-5" })).await;
     gate.notify_one();
     let thread = handle.id.as_str().to_owned();
-    let end = eventually_on(&[&rig.feeds.published], || failed_end_frame(&rig, &thread)).await;
+    let end = eventually_on!(&[&rig.feeds.published], || failed_end_frame(&rig, &thread)).await;
     let mixdog_protocol::ThreadItem::TurnEnd { quota: Some(live), .. } = end else { panic!("a failed end with a quota stop") };
     assert_eq!(live.get("provider"), Some(&json!("anthropic-oauth")), "the live end keeps the route the turn started with");
     assert_eq!(live.get("model"), Some(&json!(display_model_name("claude-opus-4-1", ""))));
-    let durable = eventually(|| {
+    let durable = eventually_on!(&[&handle.cell.stepped], || {
         rig.store.records(&handle.id).iter().rev().find_map(|(_, record)| match record {
             mixdog_store::schema::record::Record::Amend(amend) => match &amend.body {
                 mixdog_store::schema::blob::Slot::Inline(body) => body.pointer("/meta/transcript/completion/quota").cloned(),

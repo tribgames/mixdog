@@ -1402,3 +1402,108 @@ async fn a_started_lead_sends_the_array_of_a_recorded_harness_request() {
     assert_eq!(names_of(&sent), names_of(&node_sent), "the sent tools and their order");
     assert_eq!(sent, node_sent, "the sent definitions");
 }
+const EXEC_READONLY_CASES: [&str; 6] = [
+    include_str!("../../../../../fixtures/exec-readonly/readonly-blocked.json"),
+    include_str!("../../../../../fixtures/exec-readonly/readonly-json.json"),
+    include_str!("../../../../../fixtures/exec-readonly/full-simple.json"),
+    include_str!("../../../../../fixtures/exec-readonly/full-json.json"),
+    include_str!("../../../../../fixtures/exec-readonly/interactive-gated.json"),
+    include_str!("../../../../../fixtures/exec-readonly/interactive-toggled.json"),
+];
+
+/// A headless exec session as `thread/start` makes it from the options Node created the runtime with (`runtimeOptions` of the
+/// recording): the header `write_header` writes, the denials `featureDisallowedToolsFor` gives the exec's own config (`builtins`
+/// empty) and environment (the pristine boundary's switches), the thread seeded, then the request it sends.
+async fn exec_session(case: &Value) -> (Header, Vec<ToolDefinition>) {
+    use mixdog_app_protocol::v2::thread::ThreadSessionOptions;
+    use mixdog_app_protocol::v2::thread::ToolProfile;
+    use mixdog_core_session::session::session_options::model_tool_allowlist;
+    use mixdog_core_session::session::session_options::write_header;
+
+    use crate::run_host::tool_pool::model_surface::SurfaceInputs;
+    use crate::run_host::tool_pool::model_surface::model_internal_tools;
+
+    use crate::run_host::workflow_surface::denials::FeatureFacts;
+    use crate::run_host::workflow_surface::denials::feature_disallowed_tools;
+    use crate::run_host::workflow_surface::denials::live_denied_tools;
+
+    let options: ThreadSessionOptions = serde_json::from_value(case["runtimeOptions"].clone()).expect("the session options");
+    let r = recording();
+    // The exec's pristine boundary registers no skills (`MIXDOG_DISABLE_SKILLS`), so the pool has no `Skill`.
+    let pool: Vec<Arc<dyn Tool>> = recorded_pool(&r).into_iter().filter(|tool| tool.spec().name != "Skill").collect();
+    let mcp = recorded_mcp(&r);
+    let (provider, model) = (json!("anthropic"), json!("claude-sonnet-4-6"));
+    let switch = |on: Option<bool>| Some(if on == Some(true) { "1" } else { "0" }.to_owned());
+    let env = |var: &str| match var {
+        "MIXDOG_FEATURE_WEB_SEARCH" => switch(options.web_search),
+        "MIXDOG_FEATURE_MEMORY" => switch(options.memory),
+        _ => None,
+    };
+    // This machine has a git executable (the recording's full surface lists `git`), no desktop bridge.
+    let facts = FeatureFacts { git: true, ..FeatureFacts::default() };
+    let config = json!({ "builtins": {} }).as_object().expect("config").clone();
+    // Absent `toolProfile` is the interactive profile (`write_header`).
+    let profile = options.tool_profile.unwrap_or(ToolProfile::Interactive);
+    let feature_denied = feature_disallowed_tools(&config, &facts, &env, profile);
+    let mode = if case["runtimeOptions"]["toolMode"] == "readonly" { "readonly" } else { "lead" };
+    let mut header = Header::new();
+    write_header(&options, &mut header);
+    // The standalone tools the workflow surface gates for this session: the profile's allowlist, the delegation
+    // tools, and the feature denials.
+    let standalone_for = |header: &Header, feature_denied: &[String]| -> Vec<Value> {
+        let inputs = SurfaceInputs { session: Some(header), profile_allowed: model_tool_allowlist(profile), feature_denied, delegatable_agents: &|| 0 };
+        model_internal_tools(&internal_tools(&pool), &HashSet::from(["agent"]), &inputs).iter().map(tool_doc).collect()
+    };
+    let route = json!({ "provider": provider, "model": model });
+    let build = |feature_denied: Vec<String>, live: Option<Arc<dyn FeatureDenied>>, header: Header, standalone: Vec<Value>, denied: Vec<String>| {
+        rig(&Value::Null, Setup { route: route.clone(), feature_denied, header, live, denied, pool: Some(pool.clone()), mcp: mcp.clone(), standalone: Some(standalone), ..setup(mode) })
+    };
+    let rig_at_start = build(feature_denied.clone(), None, Header::new(), standalone_for(&header, &feature_denied), Vec::new());
+    header.insert("disallowedTools".into(), header["callerDisallowedTools"].clone());
+    header.insert("cwd".into(), json!("/work"));
+    header.insert("provider".into(), provider);
+    header.insert("model".into(), model);
+    let mut seeded = rig_at_start.host.seed(&ThreadId::from("sess_exec_readonly"), &header).await.expect("seed");
+    // A session created with the switches on, closed before its first turn: the empty thread's first turn rebuilds its surface
+    // from the settings as they stand (`reconcileEmptySession`), the denials the workflow gives and the standalone tools it
+    // offers following the closed gates.
+    if case["case"] == "interactive-toggled" {
+        let off = |var: &str| match var {
+            "MIXDOG_FEATURE_WEB_SEARCH" | "MIXDOG_FEATURE_MEMORY" => Some("0".to_owned()),
+            _ => None,
+        };
+        let closed = feature_disallowed_tools(&config, &facts, &off, profile);
+        let denied = live_denied_tools(&seeded, &Value::Null, &closed).expect("the live denials");
+        let rig_after = build(Vec::new(), Some(Arc::new(Moving(Mutex::new(closed.clone())))), seeded.clone(), standalone_for(&seeded, &closed), denied);
+        seeded = TurnSettings::reconcile(&rig_after.host, &ThreadId::from("t1"), false).await.expect("the first turn's reconcile");
+    }
+    let sent = request_tools(&pool, &mcp, &seeded).await;
+    (seeded, sent)
+}
+
+/// A headless exec session of each recorded mode offers the model Node's tools (names, order, descriptions, schemas) and refuses every
+/// call the recorded model made exactly as Node did, with the same text, or lets it through where Node ran it.
+#[tokio::test]
+async fn a_headless_exec_session_offers_and_refuses_what_node_did_in_each_mode() {
+    for text in EXEC_READONLY_CASES {
+        let case: Value = serde_json::from_str(text).expect("case");
+        let label = case["case"].as_str().expect("case name");
+        let (header, sent) = exec_session(&case).await;
+        let offered: Vec<Value> = sent.iter().map(|tool| json!({ "name": tool.name, "description": tool.description, "input_schema": tool.input_schema })).collect();
+        let name_of = |tools: &[Value]| tools.iter().map(|tool| tool["name"].as_str().expect("name").to_owned()).collect::<Vec<_>>();
+        assert_eq!(name_of(&offered), name_of(case["requests"][0]["tools"].as_array().expect("tools")), "{label}: the tool names offered");
+        assert_eq!(offered, case["requests"][0]["tools"].as_array().expect("tools").clone(), "{label}: the tools offered");
+
+        let surface = SessionSurface::from_header(&header, Vec::new());
+        let requests = case["requests"].as_array().expect("requests");
+        for (index, request) in requests.iter().enumerate() {
+            let calls = request["served"]["calls"].as_array().expect("calls");
+            for (call, result) in calls.iter().zip(requests.get(index + 1).map_or(&[][..], |next| next["toolResults"].as_array().expect("results").as_slice())) {
+                let name = call["name"].as_str().expect("name");
+                let refusal = surface.refusal_for_call(name, None, &call["input"]).map(|error| error.message_for_model);
+                let node = (result["is_error"] == true).then(|| result["content"].as_str().expect("text").to_owned());
+                assert_eq!(refusal, node, "{label}: the call to {name}");
+            }
+        }
+    }
+}

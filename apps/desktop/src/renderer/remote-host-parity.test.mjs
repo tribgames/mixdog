@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createRemoteApi } from './remote-shim-api.ts';
-import { publishedCeilings, until, withShim } from './remote-shim-test-harness.mjs';
+import { peerFlagsOf } from '../../../mobile/src/phone-capabilities.ts';
+import { settle, withPhoneApi } from './test-support/phone-api-rig.mjs';
 
 const OLD_TRASH = 'Moving items to the trash is available in the desktop app only.';
 const GATED = [
@@ -18,103 +18,101 @@ const GATED = [
   'githubCliLoginOpenBrowser',
 ];
 
-const connect = async ({ ctx, dial }, remoteParity) => {
-  ctx.updaterListeners = new Set();
-  ctx.settingsChangedListeners = new Set();
-  const api = createRemoteApi(ctx);
-  const leg = await dial({ remoteParity, ready: publishedCeilings(4096, 4096) });
-  return { api, leg };
+// Node's version of these tests (b6f10295a) drove the table over a fake relay socket with the challenge's `remoteParity` flag. Here the table
+// is the same (remote-shim-api.ts), the flag is the context's `peerRemoteParity` (the phone sets it per connection from the core's
+// capabilities, apps/mobile/src/phone-capabilities.ts), and what Node read off the socket is what reached the adapter that owns the name.
+const handlers = {
+  getUpdaterState: () => ({ status: 'ready' }),
+  trashProjectEntry: () => undefined,
+  submitToSession: () => true,
 };
 
-// The submit is interrupted the way a lost reply is: the pending call fails
-// with the transport's interruption code.
-const loseReply = (ctx) => {
-  const failure = Object.assign(new Error('interrupted'), { code: 'MIXDOG_REMOTE_CONNECTION_INTERRUPTED' });
-  for (const entry of [...ctx.pending.values()]) entry.reject(failure);
-  ctx.pending.clear();
-};
+// The submit is interrupted the way a lost reply is: the call fails with the connection-interrupted code.
+const lostReply = () => Object.assign(new Error('interrupted'), { code: 'MIXDOG_REMOTE_CONNECTION_INTERRUPTED' });
 
 test('an old host (no remoteParity) keeps the pre-round behavior', async () => {
-  await withShim({}, async (shim) => {
-    const { api, leg } = await connect(shim, false);
-    assert.equal(shim.ctx.peerRemoteParity, false);
+  let submits = 0;
+  await withPhoneApi({ ...handlers, submitToSession: () => Promise.reject((submits += 1, lostReply())) }, async ({ ctx, api, calls }) => {
+    ctx.updaterListeners = new Set();
+    ctx.peerRemoteParity = false;
+    // Node remote-shim-api.ts:546-567 -- the gated members read as absent unless `parity()` (:97, ctx.peerRemoteParity === true).
     for (const key of GATED) assert.equal(api[key], undefined, `${key} is absent`);
+    // :400-404 -- without parity the updater answers are LEGACY_HOST_FALLBACKS (inert `disabled`), and nothing is called.
     assert.deepEqual({ ...(await api.getUpdaterState()) }, { status: 'disabled' });
     assert.deepEqual({ ...(await api.checkForDesktopUpdate()) }, { status: 'disabled' });
     assert.deepEqual({ ...(await api.showDesktopUpdate()) }, { status: 'disabled' });
+    // :408 -- subscribeUpdaterState is always registered on ctx.updaterListeners (listenOn).
     const unsubscribe = api.subscribeUpdaterState(() => {});
-    assert.equal(shim.ctx.updaterListeners.size, 1);
+    assert.equal(ctx.updaterListeners.size, 1);
     unsubscribe();
-    assert.equal(shim.ctx.updaterListeners.size, 0);
+    assert.equal(ctx.updaterListeners.size, 0);
+    // :415-418 -- without parity the trash refusal (remote-browser-fallbacks.ts:23) and the page release are local fallbacks.
     await assert.rejects(api.trashProjectEntry('/p', 'a.txt'), { message: OLD_TRASH });
     await api.browserReleasePage('page');
-
-    const submit = api.submitToSession('s1', 'hello', {});
-    const sent = await leg.nextPayload();
-    assert.equal(sent.method, 'submitToSession');
-    loseReply(shim.ctx);
-    await assert.rejects(submit, { code: 'MIXDOG_REMOTE_CONNECTION_INTERRUPTED' });
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    // Nothing else (no unknown-method probe, no retry) went over the wire.
-    assert.equal(leg.ws.sent.length, 2);
+    // :444-446 -- without parity submitToSession is a plain call: no stable id, a lost reply is not replayed.
+    await assert.rejects(api.submitToSession('s1', 'hello', {}), { code: 'MIXDOG_REMOTE_CONNECTION_INTERRUPTED' });
+    await settle();
+    // Nothing else (no unknown-method probe, no retry) reached the adapter: the one submit.
+    assert.deepEqual(calls.map((call) => call.method), ['submitToSession']);
+    assert.equal(submits, 1);
   });
 });
 
 test('a new host (remoteParity) exposes the new members and retries submits with a stable id', async () => {
-  await withShim({}, async (shim) => {
-    const { api, leg } = await connect(shim, true);
-    assert.equal(shim.ctx.peerRemoteParity, true);
-    for (const key of GATED) assert.equal(typeof api[key], 'function', `${key} is present`);
-
-    const state = api.getUpdaterState();
-    const request = await leg.nextPayload();
-    assert.equal(request.method, 'getUpdaterState');
-    await leg.deliver({ id: request.id, ok: true, value: { status: 'ready' } });
-    assert.equal((await state).status, 'ready');
-
-    const trash = api.trashProjectEntry('/p', 'a.txt');
-    const trashFrame = await leg.nextPayload();
-    assert.equal(trashFrame.method, 'trashProjectEntry');
-    await leg.deliver({ id: trashFrame.id, ok: true });
-    await trash;
-
-    const submit = api.submitToSession('s1', 'hello', {});
-    const first = await leg.nextPayload();
-    assert.equal(first.method, 'submitToSession');
-    assert.ok(first.params[2].id);
-    loseReply(shim.ctx);
-    const second = await leg.nextPayload();
-    assert.equal(second.method, 'submitToSession');
-    assert.equal(second.params[2].id, first.params[2].id);
-    await leg.deliver({ id: second.id, ok: true, value: true });
-    assert.equal(await submit, true);
-  });
+  let attempt = 0;
+  const submitted = [];
+  await withPhoneApi(
+    {
+      ...handlers,
+      submitToSession: (params) => {
+        submitted.push(params);
+        return (attempt += 1) === 1 ? Promise.reject(lostReply()) : true;
+      },
+    },
+    async ({ ctx, api, calls }) => {
+      ctx.peerRemoteParity = true;
+      for (const key of GATED) assert.equal(typeof api[key], 'function', `${key} is present`);
+      assert.equal((await api.getUpdaterState()).status, 'ready');
+      await api.trashProjectEntry('/p', 'a.txt');
+      assert.deepEqual(calls.map((call) => call.method), ['getUpdaterState', 'trashProjectEntry']);
+      // :444-451 -- with parity submitToSession adds a stable id (:449) and recoverableCreation replays the call after a lost reply with the same one (:450-451).
+      assert.equal(await api.submitToSession('s1', 'hello', {}), true);
+      assert.equal(submitted.length, 2);
+      assert.ok(submitted[0][2].id);
+      assert.equal(submitted[1][2].id, submitted[0][2].id);
+    }
+  );
 });
 
-test('an updater subscription made before the handshake survives it', async () => {
-  await withShim({}, async (shim) => {
-    shim.ctx.updaterListeners = new Set();
-    shim.ctx.settingsChangedListeners = new Set();
-    const api = createRemoteApi(shim.ctx);
+test('an updater subscription made before the connection says what the host has survives it', async () => {
+  await withPhoneApi(handlers, async ({ ctx, api }) => {
+    ctx.updaterListeners = new Set();
     const seen = [];
     api.subscribeUpdaterState((state) => seen.push(state.status));
-    assert.equal(shim.ctx.peerRemoteParity, false);
-    await shim.dial({ remoteParity: true, ready: publishedCeilings(4096, 4096) });
-    assert.equal(shim.ctx.updaterListeners.size, 1);
-    shim.ctx.fanOut(shim.ctx.updaterListeners, { status: 'ready' });
+    assert.equal(ctx.peerRemoteParity, false);
+    // What the phone does when a connection is ready: the flags of that connection are set; no listener is touched (phone-boot.ts).
+    // Node: the flag is set from the challenge (remote-shim-socket.ts:388) and the listener set lives on ctx (remote-shim-state.ts:517), so it survives.
+    ctx.peerRemoteParity = true;
+    assert.equal(ctx.updaterListeners.size, 1);
+    ctx.fanOut(ctx.updaterListeners, { status: 'ready' });
     assert.deepEqual(seen, ['ready']);
   });
 });
 
 test('presence follows the host of the current connection after a reconnect', async () => {
-  await withShim({}, async (shim) => {
-    const { api } = await connect(shim, true);
+  await withPhoneApi(handlers, async ({ ctx, api }) => {
+    ctx.peerRemoteParity = true;
     assert.equal(typeof api.ghPrList, 'function');
-    shim.ctx.connectionReady = false;
-    shim.ctx.socket = null;
-    shim.ctx.openPromise = null;
-    await shim.dial({ remoteParity: false, ready: publishedCeilings(4096, 4096) });
-    await until(() => shim.ctx.peerRemoteParity === false);
+    // phone-boot.ts resets the peer flags when a connection is lost, and the next connection sets its own (Node: remote-shim-socket.ts:291 and :388).
+    // The gate is evaluated per read (remote-shim-api.ts:564-567).
+    ctx.peerRemoteParity = false;
     assert.equal(api.ghPrList, undefined);
   });
+});
+
+// Node set the flag from the challenge (remote-shim-socket.ts, `peerRemoteParity = challenge.remoteParity`). The core's capabilities have no
+// counterpart yet (PEER_FLAGS_WITHOUT_CAPABILITY.remoteParity in apps/mobile/src/phone-capabilities.ts), so a phone on the core reads false.
+test('a phone connected to the core reads no remoteParity until the core advertises it', () => {
+  const capabilities = { browser: { state: 'unavailable' } };
+  assert.equal(peerFlagsOf(capabilities).peerRemoteParity, false);
 });

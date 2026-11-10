@@ -21,7 +21,7 @@ use crate::session::agent_registry::RuntimeRelease;
 use crate::session::agent_registry::SessionTurns;
 use crate::session::close::SessionClose;
 use crate::session::testing::Rig;
-use crate::session::tests::eventually_on;
+use crate::eventually_on;
 
 fn golden() -> Value {
     serde_json::from_str(include_str!("../../../../fixtures/dispatch-sessions/golden.json")).expect("golden.json")
@@ -102,6 +102,29 @@ async fn a_status_is_written_until_the_session_is_closed() {
     threads.set_status("sess_unknown", "idle").await;
 }
 
+/// `decisions.md` "Node daemon hot paths found by profiling" 5: the approval gate reads the calling session's `run`
+/// stamp on every tool call. For a session this process holds that is its live header: the thread store is not called
+/// at all, by any method. The store is counted at its trait (`CallCounted`), not by what the mock behind it happens to
+/// count, so a route to the stored record (or a method added to `ThreadStore` later) cannot go unseen.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_run_stamp_of_a_held_session_calls_no_thread_store_method() {
+    use mixdog_core_ports::ports::run_stamps::RunStamps;
+
+    use crate::session::testing::CallCounted;
+    let rig = Rig::new();
+    let store = CallCounted::new(rig.store.clone());
+    let directory = Arc::new(SessionDirectory::new(rig.deps_on(store.clone())));
+    let id = threads(&directory).create(hidden_header()).await.expect("created");
+    let thread = ThreadId::from(id.as_str());
+    let before = store.calls();
+    assert!(!before.is_empty(), "creating the session went through the counting store");
+    let stamps = crate::session::run_stamps::DirectoryRunStamps::new(directory.clone());
+    let first = stamps.stamp_of(&thread).await;
+    for _ in 0..5 {
+        assert_eq!(stamps.stamp_of(&thread).await, first);
+    }
+    assert_eq!(store.calls(), before, "a gate decision called the thread store");
+}
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_ask_answers_the_reply_and_an_abort_ends_the_turn_with_nodes_text() {
     let rig = Rig::new();
@@ -176,14 +199,14 @@ async fn an_ask_answers_the_reply_and_an_abort_ends_the_turn_with_nodes_text() {
                 let (threads, id, cancel) = (threads.clone(), id.clone(), cancel.clone());
                 async move { threads.ask(&id, prompt, None, Arc::new(Immediate), &cancel).await }
             });
-            eventually_on(&[&changed], || started.lock().unwrap().then_some(())).await;
+            eventually_on!(&[&changed], || started.lock().unwrap().then_some(())).await;
             cancel.abort("parent aborted");
             let answer = asking.await.expect("ask");
-            eventually_on(&[&changed], || signal.lock().unwrap().clone()).await;
+            eventually_on!(&[&changed], || signal.lock().unwrap().clone()).await;
             assert_eq!(signal.lock().unwrap().as_deref(), Some("parent aborted"), "{prompt}: the turn ends with the signal's reason");
             let live = directory.handle(&thread).expect("the thread is loaded while its turn runs");
             // Not just the run gone: the next ask is refused as busy until the Goal settlement is back.
-            eventually_on(&[&live.cell.stepped], || (!live.cell.busy.load(std::sync::atomic::Ordering::SeqCst)).then_some(())).await;
+            eventually_on!(&[&live.cell.stepped], || (!live.cell.busy.load(std::sync::atomic::Ordering::SeqCst)).then_some(())).await;
             answer
         }
     };

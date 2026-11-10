@@ -1,0 +1,337 @@
+#!/usr/bin/env node
+// Records `history/tool-failures.jsonl` as Node's production path writes it: real `askSession` turns (the loop, the tool
+// executor, `traceAgentTool` -> `traceAgentToolFailure` -> the buffered writer of agent-trace-io.mjs, flushed by its exit hook) against
+// a scripted provider (only the provider's `send` is scripted), over every class of failed call the contract names. The scenarios
+// are lib/tool-failure-scenarios.mjs, the same file the Rust replay (replay-tool-failures.mjs) is given.
+//
+// The turns run in a child process, twice, in two fresh profiles but the same workspace path (the workspace path is part of the
+// rows: it is `cwd` and it is inside the tool texts). Each recording's rows are normalised by lib/tool-failure-rows.mjs (session ids
+// by scenario, ts, tool_ms, the workspace): the two must then be identical, and the golden holds them, so two runs of this recorder
+// write the same bytes.
+//
+//   MIXDOG_RECORDER_SCRATCH=<scratch parent> node benchmarks/rust-core/recorders/record-tool-failures.mjs --tree <exact export of b6f10295a with node_modules> [--only <n>,<n>]
+//
+// Output: native/core/fixtures/tool-failures/golden.json (+ MANIFEST.json); with --only the scenarios named are recorded and printed.
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
+const recorder = 'benchmarks/rust-core/recorders/record-tool-failures.mjs';
+const scratch = process.env.MIXDOG_RECORDER_SCRATCH;
+const SCENARIOS_FILE = fileURLToPath(new URL('./lib/tool-failure-scenarios.mjs', import.meta.url));
+const ROWS_FILE = fileURLToPath(new URL('./lib/tool-failure-rows.mjs', import.meta.url));
+const SELF = fileURLToPath(import.meta.url);
+const DEADLINE_MS = 300_000;
+// Both recordings run in one workspace folder (its path is part of the rows), made fresh for this run and removed once at its end;
+// the child is given it and clears only what is inside it between scenarios.
+const WORKSPACE = process.argv[2] === '--child' ? process.env.RECORDER_WORKSPACE : null;
+const deadline = (p, ms, what) => {
+  let timer;
+  return Promise.race([p, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`${what} did not finish within ${ms} ms`)), ms); })]).finally(() => clearTimeout(timer));
+};
+const { FILES, MODEL, scenarios } = await import('./lib/tool-failure-scenarios.mjs');
+
+if (process.argv[2] === '--child') {
+  const tree = process.env.RECORDER_TREE;
+  const imp = (rel) => import(pathToFileURL(join(tree, rel)).href);
+  const S = 'src/runtime/agent/orchestrator/';
+  const { createSession } = await imp(`${S}session/manager/session-lifecycle.mjs`);
+  const { askSession } = await imp(`${S}session/manager/ask-session.mjs`);
+  const { abortSessionTurn } = await imp(`${S}session/manager/session-close.mjs`);
+  const { _withRegisteredProviderForTestAsync } = await imp(`${S}providers/registry.mjs`);
+  const { HEADLESS_TOOL_PROFILE, modelToolSchemaAllowlist } = await imp(`${S}runtime-core/tool-profile.mjs`);
+  const { sessionOptions } = await imp('src/session-runtime/session-create/session-options.mjs');
+  const { workflowHelpers } = await imp('src/session-runtime/boot/shared.mjs');
+  const { makeInvalidToolArgsMarker } = await imp(`${S}providers/lib/openai-tool-args.mjs`);
+  const { setInternalToolsProvider } = await imp(`${S}internal-tools.mjs`);
+  const { connectMcpServers } = await imp(`${S}mcp/client.mjs`);
+  const { stopOwnedPgForShutdown } = await imp('src/runtime/memory/lib/pg/supervisor.mjs');
+  const { createStandaloneAgent } = await imp('src/session-runtime/services/agent-tool.mjs');
+  const cfgMod = await imp(`${S}config.mjs`);
+  const reg = await imp(`${S}providers/registry.mjs`);
+  const mgr = await imp(`${S}session/manager.mjs`);
+
+  const reply = (step) => ({
+    content: step.text,
+    ...(step.calls.length
+      ? {
+          toolCalls: step.calls.map((c) => ({
+            id: c.id,
+            name: c.name,
+            // The provider's own parse of an argument text that is not JSON (parseCompletedToolCallArgumentsJson).
+            arguments: c.raw === undefined ? c.args : makeInvalidToolArgsMarker(c.raw, parseError(c.raw)),
+          })),
+          stopReason: 'tool_use',
+        }
+      : {}),
+    usage: { inputTokens: 1, outputTokens: 1 },
+  });
+  const parseError = (raw) => {
+    try {
+      JSON.parse(raw);
+    } catch (error) {
+      return error.message;
+    }
+    throw new Error(`${raw} parses`);
+  };
+  const results = [];
+  const heldFlushTimers = [];
+  for (const [index, scenario] of scenarios(WORKSPACE).entries()) {
+    if (process.env.RECORDER_ONLY && !process.env.RECORDER_ONLY.split(',').map(Number).includes(index)) {
+      results.push(null);
+      continue;
+    }
+    for (const entry of readdirSync(WORKSPACE)) rmSync(join(WORKSPACE, entry), { recursive: true, force: true });
+    for (const [name, text] of Object.entries(FILES)) writeFileSync(join(WORKSPACE, name), text);
+    const providerName = `tool-failures-${index}`;
+    const sends = [];
+    const provider = {
+      name: providerName,
+      contextWindow: 128000,
+      async send(messages) {
+        sends.push(messages.map((m) => ({ role: m.role, content: m.content })));
+        return JSON.parse(JSON.stringify(reply(scenario.replies[sends.length - 1])));
+      },
+    };
+    let sessionId;
+    let outcome;
+    const scopeId = `tool-failures-scope-${index}`;
+    const disposers = [];
+    await _withRegisteredProviderForTestAsync(providerName, provider, async () => {
+      // The headless allowlist has no skill, delegated-agent or MCP tools: a `full` scenario gets the whole surface, with the agent tool the
+      // way headless-role.mjs builds it (real modules, no boot) and the stdio server `fx` connected under the session's MCP scope.
+      // The session's options are what the product's builder gives a user's session (sessionOptions, session-options.mjs:47-139, as
+      // materialize.mjs:61 and the conversation import, apis.mjs:418-434, call it) with no session profile: a `full` scenario is the
+      // interactive Lead, the others a headless run (the headless tool profile). Its identity (owner, agent, lane, source) is the
+      // builder's; a row's `agent` is the session's (finalize.mjs:236). Only what a scenario sets itself is laid over it.
+      const toolProfile = scenario.full ? 'interactive' : HEADLESS_TOOL_PROFILE;
+      const built = sessionOptions(
+        {
+          rt: { route: { provider: providerName, model: MODEL }, config: {}, mode: 'full', toolProfile, sessionProfile: null, currentCwd: WORKSPACE, mcpScopeId: scenario.full ? scopeId : undefined },
+          cfgMod,
+          activeWorkflowContext: workflowHelpers.activeWorkflowContext,
+          schemaAllowedTools: modelToolSchemaAllowlist(toolProfile),
+          featureDisallowedTools: () => [],
+        },
+        null
+      );
+      const session = scenario.full
+        ? createSession(built)
+        : createSession({ ...built, skipSkills: true, workflow: { id: 'headless', delegatesAgents: false } });
+      sessionId = session.id;
+      if (scenario.full) {
+        const agentTool = createStandaloneAgent({ cfgMod: { loadConfig: cfgMod.loadConfig, resolveRuntimeSpec: cfgMod.resolveRuntimeSpec }, reg, mgr, dataDir: cfgMod.getPluginData(), cwd: WORKSPACE, mcpScopeId: scopeId });
+        disposers.push(setInternalToolsProvider({ scopeId, tools: agentTool.tools, executor: (_name, toolArgs, callerCtx) => agentTool.execute(toolArgs, callerCtx) }));
+        await connectMcpServers({ fx: { command: process.execPath, args: ['fx-mcp.mjs'], cwd: WORKSPACE } }, { scopeId });
+      }
+      if (scenario.hook) session.beforeToolHook = async () => scenario.hook;
+      // The failure log's flush timer (agent-trace-io.mjs:405, `setTimeout(_flushToolFailures, delayMs)`) is held: asked for, never
+      // started. Every other timer runs. This scenario runs alone in its process, so no earlier row's timer is pending.
+      if (scenario.holdFlushTimer) {
+        const realSetTimeout = globalThis.setTimeout;
+        globalThis.setTimeout = function (callback, ms, ...rest) {
+          if (callback?.name !== '_flushToolFailures') return realSetTimeout.call(this, callback, ms, ...rest);
+          heldFlushTimers.push(ms);
+          const handle = { unref: () => handle, ref: () => handle, hasRef: () => false };
+          return handle;
+        };
+      }
+      // The tool has started when it has made its file: a directory event, watched from before the turn starts so it cannot be missed.
+      const toolStarted = scenario.abortWhenFile
+        ? new Promise((resolve) => {
+            const watcher = watch(WORKSPACE, (_event, name) => {
+              if (name !== scenario.abortWhenFile) return;
+              watcher.close();
+              resolve();
+            });
+            disposers.push(() => watcher.close());
+          })
+        : null;
+      const turn = askSession(session.id, 'go', null, null, null, null, scenario.approval ? { onToolApproval: async () => scenario.approval } : {});
+      turn.catch(() => {});
+      if (scenario.abortWhenFile) {
+        await deadline(toolStarted, 60_000, `the tool of scenario ${index} creating ${scenario.abortWhenFile}`);
+        abortSessionTurn(session.id);
+      }
+      try {
+        outcome = { answer: (await turn).content };
+      } catch (error) {
+        outcome = { threw: error.message.split(sessionId).join('<session>') };
+      }
+      for (const dispose of disposers) dispose();
+      // The MCP servers stay connected until this process exits, as at the product's daemon exit, where `disconnectAll` has no caller
+      // (daemon.mjs shutdown; the core's runtime_stop_steps, compose_flip.rs, states the same): what they do at the exit is recorded.
+    });
+    const toolMessages = sends.slice(1).map((messages) => {
+      const lastAssistant = messages.map((m) => m.role).lastIndexOf('assistant');
+      return messages.slice(lastAssistant + 1).filter((m) => m.role === 'tool').map((m) => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content)));
+    });
+    results.push({ name: scenario.name, session: sessionId, outcome, sends: sends.length, toolMessages, ...(scenario.holdFlushTimer ? { holdFlushTimer: true } : {}) });
+  }
+  // The memory database the session machinery started is stopped by the product's own stop, not left for the parent to find. The
+  // stop first awaits a start still under way (its initdb included) for at most `timeoutMs` (supervisor.mjs:793-810): a first start
+  // in a fresh profile runs initdb, which its 6 s default does not cover, and an initdb left running would outlive this process.
+  await stopOwnedPgForShutdown({ timeoutMs: 120_000 });
+  // The stop: what the failures file holds now, then an ordinary exit (`process.exit`, as every ordinary end of Node's daemon,
+  // daemon.mjs:412), whose `exit` hook writes what is still queued. The parent reads the file after the exit.
+  const failures = join(process.env.MIXDOG_DATA_DIR, 'history', 'tool-failures.jsonl');
+  const fileAtStop = existsSync(failures) ? readFileSync(failures, 'utf8') : '';
+  for (const result of results) {
+    if (result?.holdFlushTimer) {
+      delete result.holdFlushTimer;
+      result.atStop = { heldFlushTimers, fileAtStop };
+    }
+  }
+  writeFileSync(join(process.env.MIXDOG_DATA_DIR, 'results.json'), JSON.stringify(results));
+  process.exit(0);
+}
+
+const { FIXTURES_ROOT, commitStage, exactProductIdentity, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
+const { leftAtExit, maskWorkspace, rowsByScenario } = await import('./lib/tool-failure-rows.mjs');
+const { readJobReport, spawnInJob } = await import('./lib/job-run.mjs');
+const argv = process.argv.slice(2);
+const onlyAt = argv.indexOf('--only');
+const only = onlyAt >= 0 ? argv[onlyAt + 1] : null;
+const tree = resolveTree(parseArgs(onlyAt >= 0 ? argv.filter((_, i) => i !== onlyAt && i !== onlyAt + 1) : argv));
+const identity = exactProductIdentity(tree, NODE_COMMIT);
+const sha256 = (path) => createHash('sha256').update(readFileSync(path)).digest('hex');
+
+const SCENARIO_COUNT = scenarios('').length;
+const selected = only ? only.split(',').map(Number) : [...Array(SCENARIO_COUNT).keys()];
+
+/**
+ * One recording: every selected scenario in a Node process of its own (as the replay gives each scenario a core of its own), so what
+ * each leaves running when Node exits is its own. The rows, results and leftovers of the scenarios, in scenario order.
+ */
+async function record(label, run, workspace) {
+  const rows = Array(SCENARIO_COUNT).fill(null);
+  const results = Array(SCENARIO_COUNT).fill(null);
+  const left = Array(SCENARIO_COUNT).fill(null);
+  for (const index of selected) {
+    const one = await recordScenario(`${label}-${index}`, index, run, workspace);
+    rows[index] = one.rows[index];
+    results[index] = one.results[index];
+    left[index] = one.left;
+  }
+  return { rows, results, left };
+}
+
+/**
+ * One scenario in its own profile under the run's folder. The child runs in a job object of its own (lib/job-run.mjs): every process
+ * it or its tools start is a member. What was still a member when the child exited is part of the recording (lib/tool-failure-rows.mjs
+ * `leftAtExit`: Node's own helpers are named and set aside there); the job is then ended. On a deadline the child's host is ended
+ * through the handle held here, which closes the job and ends its members.
+ */
+async function recordScenario(label, index, run, workspace) {
+  const sandbox = join(run, `profile-${label}`);
+  const env = { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, RECORDER_TREE: tree, RECORDER_WORKSPACE: workspace, MIXDOG_SKIP_USER_DATA_BACKUP: '1', MIXDOG_FEATURE_MEMORY: '0', RECORDER_ONLY: String(index) };
+  for (const name of ['MIXDOG_DATA_DIR', 'MIXDOG_HOME', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'TEMP', 'TMP']) {
+    env[name] = join(sandbox, name.toLowerCase());
+    mkdirSync(env[name], { recursive: true });
+  }
+  const report = join(sandbox, 'job.json');
+  const child = spawnInJob(process.execPath, [SELF, '--child'], { env, cwd: process.cwd(), stdio: ['ignore', 'pipe', 'pipe'], report });
+  let output = '';
+  child.stdout.on('data', (d) => { output += d; });
+  child.stderr.on('data', (d) => { output += d; });
+  const exited = new Promise((resolve) => child.once('exit', (code, signal) => resolve({ code, signal })));
+  let result;
+  try {
+    result = await deadline(exited, DEADLINE_MS, `recording ${label}`);
+  } catch (error) {
+    child.kill();
+    await deadline(exited, 30_000, `recording ${label} ending after its kill`);
+    throw new Error(`${error.message}\n${output}`);
+  }
+  const job = readJobReport(report);
+  if (result.code !== job.exitCode) throw new Error(`recording ${label}'s job host failed (${result.code ?? result.signal}, the program's ${job.exitCode}):\n${output}`);
+  if (job.exitCode !== 0) throw new Error(`recording ${label} failed (${job.exitCode}):\n${output}`);
+  const results = JSON.parse(readFileSync(join(env.MIXDOG_DATA_DIR, 'results.json'), 'utf8'));
+  const sessions = results.map((r) => r?.session ?? null);
+  const file = join(env.MIXDOG_DATA_DIR, 'history', 'tool-failures.jsonl');
+  const text = existsSync(file) ? readFileSync(file, 'utf8') : '';
+  // Each recording's own session ids, workspace and data folder become placeholders; what is left must be what the other recording wrote.
+  const rows = rowsByScenario(text, sessions, workspace, env.MIXDOG_DATA_DIR);
+  const masked = results.map((r, i) => (r === null ? null : JSON.parse(maskWorkspace(maskWorkspace(JSON.stringify({ ...r, session: undefined }), workspace), env.MIXDOG_DATA_DIR, '<DATA>').split(sessions[i]).join(`<session:${i}>`))));
+  return { rows, results: masked, left: leftAtExit(job, { nodeHelpers: true, workspace, dataDir: env.MIXDOG_DATA_DIR }) };
+}
+
+// The run's own folder: both profiles and the workspace (`<run>\ws`, whose path and length are part of the rows) live in it, and it is
+// removed once at the end, unless something still names it.
+if (!scratch) throw new Error('MIXDOG_RECORDER_SCRATCH must name the scratch parent (under D:\\mixdog-build\\tmp\\<slot>); the replay is run with the same one');
+mkdirSync(scratch, { recursive: true });
+const run = mkdtempSync(join(scratch, 'tf-rec-'));
+const workspace = join(run, 'ws');
+mkdirSync(workspace);
+let failure = null;
+try {
+  const a = await record('a', run, workspace);
+  const b = await record('b', run, workspace);
+  if (JSON.stringify(a) !== JSON.stringify(b)) {
+    throw new Error(`two recordings differ beyond the session ids, ts, tool_ms and the workspace:\n${JSON.stringify(a.rows)}\n${JSON.stringify(b.rows)}\n${JSON.stringify(a.results)}\n${JSON.stringify(b.results)}`);
+  }
+  const all = scenarios(workspace);
+  const golden = {
+    note: 'history/tool-failures.jsonl as the Node tool loop writes it (real askSession turns over a scripted provider), recorded twice at b6f10295a; rows normalised by lib/tool-failure-rows.mjs and grouped by scenario, in file order',
+    workspaceLength: workspace.length,
+    scenarios: all,
+    files: FILES,
+    model: MODEL,
+    rows: a.rows,
+    results: a.results,
+    leftAtExit: a.left,
+  };
+  if (only) {
+    console.log(JSON.stringify(golden, null, 1));
+  } else {
+    const finalDir = join(FIXTURES_ROOT, 'tool-failures');
+    const stage = stageSet(finalDir);
+    writeJson(join(stage, 'golden.json'), golden);
+    // Everything the recording was given that Node did not produce itself.
+    const syntheticInputs = {
+      provider: `a scripted provider (only its send is scripted; model ${MODEL}): the replies of each scenario in lib/tool-failure-scenarios.mjs`,
+      sessionBuilderInputs: {
+        builder: 'sessionOptions (src/session-runtime/session-create/session-options.mjs), with the product workflowHelpers.activeWorkflowContext',
+        rt: { config: {}, mode: 'full', sessionProfile: null, toolProfile: 'interactive for a full scenario, headless otherwise', coreMemoryContext: null },
+        featureDisallowedTools: [],
+        laidOver: 'a headless scenario: skipSkills true and workflow { id: headless, delegatesAgents: false }',
+      },
+      leftAtExit: 'what each scenario\'s Node process left running in its job when it exited (lib/job-run.mjs), Node\'s own helpers set aside (lib/tool-failure-rows.mjs NODE_HELPERS: mixdog-spawn-*, mixdog-patch-* and their console hosts); each as its image name, its parent and its command line (lib/tool-failure-rows.mjs leftAtExit)',
+      scenarios: all.map((s) => ({ name: s.name, replies: s.replies.length, hook: s.hook ?? null, approval: s.approval ?? null, full: s.full === true, abortWhenFile: s.abortWhenFile ?? null, holdFlushTimer: s.holdFlushTimer === true })),
+      heldFlushTimer: 'a holdFlushTimer scenario: globalThis.setTimeout holds a timer whose callback is agent-trace-io.mjs _flushToolFailures (never started; every other timer runs); results[i].atStop records the delays asked for and the failures file just before process.exit',
+      hookDecisions: all.filter((s) => s.hook).map((s) => ({ scenario: s.name, ...s.hook })),
+      approvalAnswers: all.filter((s) => s.approval).map((s) => ({ scenario: s.name, ...s.approval })),
+      mcpServer: { file: 'fx-mcp.mjs', sha256: createHash('sha256').update(FILES['fx-mcp.mjs']).digest('hex'), tools: ['fail', 'boom', 'ok', 'big'] },
+      workspaceFiles: Object.fromEntries(Object.entries(FILES).map(([name, text]) => [name, createHash('sha256').update(text).digest('hex')])),
+    };
+    writeSetManifest(stage, {
+      set: 'tool-failures',
+      recorder,
+      command: `MIXDOG_RECORDER_SCRATCH=<scratch parent> node ${recorder} --tree <exact export of ${NODE_COMMIT}>`,
+      identity,
+      extra: {
+        rows: a.rows.flat().length,
+        normalised: ['session_id', 'ts', 'tool_ms', 'workspace', 'data folder (with result_bytes_est counted on the masked text)', 'leftAtExit: process ids dropped (a parent named by its place in the list), the workspace and the data folder in a command line as in the rows, a console host\'s server handle value as `<server handle>`, only in a command line that is wholly `\\??\\<drive>:\\WINDOWS\\system32\\conhost.exe` SP `0x` HEXDIGIT+ [ SP `-ForceV1` ] (lib/tool-failure-rows.mjs CONSOLE_HOST; any other argument text is compared as it is). The value is chosen by Windows\' console driver, which starts the console host, not by the launcher: one mixdogd build gave `0x4` and `0xffffffff -ForceV1` on two replays of scenario 9'],
+        node: process.version,
+        recorderSha256: sha256(SELF),
+        scenariosSha256: sha256(SCENARIOS_FILE),
+        rowsLibSha256: sha256(ROWS_FILE),
+        syntheticInputs,
+      },
+    });
+    commitStage(stage, finalDir);
+    console.log(`rows=${a.rows.map((r) => r.length).join(',')}`);
+  }
+} catch (error) {
+  failure = error;
+}
+// A failed run keeps its folder for a look (what each recording left behind is its job report's, checked in `record`).
+if (failure) {
+  console.error(`the run's folder ${run} is kept`);
+  throw failure;
+}
+rmSync(run, { recursive: true, force: true });
+process.exit(0);
+

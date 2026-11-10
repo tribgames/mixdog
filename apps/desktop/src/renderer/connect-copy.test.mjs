@@ -167,7 +167,7 @@ test('web pairing layer copy has no developer wording and the revoked screen sho
   for (const [, text] of source.matchAll(/earlyUiT\(\s*'([^']+)'/gu)) assert.doesNotMatch(text, BANNED, text);
   assert.doesNotMatch(source, /Mixdog needs a one-time approval/u);
   assert.match(
-    read('./remote-shim-socket.ts'),
+    read('../../../mobile/src/phone-boot.ts'),
     /resetApprovalAndAsk\(earlyUiT\('Your PC disconnected this device\.'\)\)/
   );
   const ended = /const endedView[\s\S]*?\n {6}\};/u.exec(source)[0];

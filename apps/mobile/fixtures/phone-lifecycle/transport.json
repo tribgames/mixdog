@@ -1,0 +1,803 @@
+{
+  "note": "Node MXT transport oracle: per scenario, the whole ordered trace of what the connector put on the wire and handed to the page (decoded controls, records, cleartext pings, sockets) under a scripted stimulus, with virtual times. See benchmarks/rust-core/recorders/lib/transport-oracle.mjs.",
+  "scenarios": {
+    "transport-large-message-slow-socket": [
+      {
+        "t": 0,
+        "ev": "socket",
+        "n": 1
+      },
+      {
+        "t": 0,
+        "ev": "ready"
+      },
+      {
+        "t": 0,
+        "ev": "mark",
+        "name": "ready"
+      },
+      {
+        "t": 0,
+        "ev": "out",
+        "n": "big-1"
+      },
+      {
+        "t": 3000,
+        "ev": "xrecord",
+        "seq": 1
+      },
+      {
+        "t": 3000,
+        "ev": "mark",
+        "name": "record-1-left"
+      },
+      {
+        "t": 6000,
+        "ev": "xcontrol",
+        "kind": "ack",
+        "control": {
+          "v": 1,
+          "t": "ack",
+          "through": 1
+        }
+      },
+      {
+        "t": 6000,
+        "ev": "mark",
+        "name": "record-2-left"
+      },
+      {
+        "t": 9000,
+        "ev": "xrecord",
+        "seq": 2
+      },
+      {
+        "t": 9000,
+        "ev": "mark",
+        "name": "record-3-left"
+      },
+      {
+        "t": 9000,
+        "ev": "xcontrol",
+        "kind": "ping",
+        "control": {
+          "v": 1,
+          "t": "ping",
+          "id": 1,
+          "sent": 1
+        }
+      },
+      {
+        "t": 9000,
+        "ev": "xcontrol",
+        "kind": "ping",
+        "control": {
+          "v": 1,
+          "t": "ping",
+          "id": 2,
+          "sent": 1
+        }
+      },
+      {
+        "t": 9000,
+        "ev": "send-complete"
+      },
+      {
+        "t": 9000,
+        "ev": "xrecord",
+        "seq": 3
+      },
+      {
+        "t": 9000,
+        "ev": "pc-recv",
+        "frame": {
+          "id": 7,
+          "method": "oracle/big",
+          "oracle": "big",
+          "n": 1,
+          "pad": 2000000
+        }
+      },
+      {
+        "t": 9100,
+        "ev": "mark",
+        "name": "done"
+      }
+    ],
+    "transport-acks": [
+      {
+        "t": 0,
+        "ev": "socket",
+        "n": 1
+      },
+      {
+        "t": 0,
+        "ev": "ready"
+      },
+      {
+        "t": 0,
+        "ev": "mark",
+        "name": "ready"
+      },
+      {
+        "t": 0,
+        "ev": "pc-send",
+        "n": 1
+      },
+      {
+        "t": 0,
+        "ev": "deliver",
+        "frame": {
+          "oracle": "in",
+          "n": 1
+        }
+      },
+      {
+        "t": 0,
+        "ev": "xcontrol",
+        "kind": "ack",
+        "control": {
+          "v": 1,
+          "t": "ack",
+          "through": 2
+        }
+      },
+      {
+        "t": 0,
+        "ev": "pc-send",
+        "n": 2
+      },
+      {
+        "t": 0,
+        "ev": "deliver",
+        "frame": {
+          "oracle": "in",
+          "n": 2
+        }
+      },
+      {
+        "t": 25,
+        "ev": "xcontrol",
+        "kind": "ack",
+        "control": {
+          "v": 1,
+          "t": "ack",
+          "through": 3
+        }
+      },
+      {
+        "t": 40,
+        "ev": "mark",
+        "name": "pair-1"
+      },
+      {
+        "t": 40,
+        "ev": "pc-send",
+        "n": 3
+      },
+      {
+        "t": 40,
+        "ev": "deliver",
+        "frame": {
+          "oracle": "in",
+          "n": 3
+        }
+      },
+      {
+        "t": 40,
+        "ev": "pc-send",
+        "n": 4
+      },
+      {
+        "t": 40,
+        "ev": "deliver",
+        "frame": {
+          "oracle": "in",
+          "n": 4
+        }
+      },
+      {
+        "t": 40,
+        "ev": "xcontrol",
+        "kind": "ack",
+        "control": {
+          "v": 1,
+          "t": "ack",
+          "through": 5
+        }
+      },
+      {
+        "t": 80,
+        "ev": "mark",
+        "name": "pair-2"
+      },
+      {
+        "t": 80,
+        "ev": "pc-send",
+        "n": 5
+      },
+      {
+        "t": 80,
+        "ev": "deliver",
+        "frame": {
+          "oracle": "in",
+          "n": 5
+        }
+      },
+      {
+        "t": 80,
+        "ev": "pc-send",
+        "n": 6
+      },
+      {
+        "t": 80,
+        "ev": "deliver",
+        "frame": {
+          "oracle": "in",
+          "n": 6
+        }
+      },
+      {
+        "t": 80,
+        "ev": "xcontrol",
+        "kind": "ack",
+        "control": {
+          "v": 1,
+          "t": "ack",
+          "through": 7
+        }
+      },
+      {
+        "t": 80,
+        "ev": "pc-send",
+        "n": 7
+      },
+      {
+        "t": 80,
+        "ev": "deliver",
+        "frame": {
+          "oracle": "in",
+          "n": 7
+        }
+      },
+      {
+        "t": 80,
+        "ev": "pc-send",
+        "n": 8
+      },
+      {
+        "t": 80,
+        "ev": "deliver",
+        "frame": {
+          "oracle": "in",
+          "n": 8
+        }
+      },
+      {
+        "t": 80,
+        "ev": "xcontrol",
+        "kind": "ack",
+        "control": {
+          "v": 1,
+          "t": "ack",
+          "through": 9
+        }
+      },
+      {
+        "t": 120,
+        "ev": "mark",
+        "name": "quad"
+      },
+      {
+        "t": 120,
+        "ev": "pc-send",
+        "n": 9
+      },
+      {
+        "t": 120,
+        "ev": "deliver",
+        "frame": {
+          "oracle": "in",
+          "n": 9
+        }
+      },
+      {
+        "t": 144,
+        "ev": "mark",
+        "name": "tail-24ms"
+      },
+      {
+        "t": 145,
+        "ev": "xcontrol",
+        "kind": "ack",
+        "control": {
+          "v": 1,
+          "t": "ack",
+          "through": 10
+        }
+      },
+      {
+        "t": 145,
+        "ev": "mark",
+        "name": "tail-25ms"
+      },
+      {
+        "t": 245,
+        "ev": "out",
+        "n": 1
+      },
+      {
+        "t": 245,
+        "ev": "xrecord",
+        "seq": 1
+      },
+      {
+        "t": 245,
+        "ev": "pc-recv",
+        "frame": {
+          "oracle": "out",
+          "n": 1
+        }
+      },
+      {
+        "t": 245,
+        "ev": "out",
+        "n": 2
+      },
+      {
+        "t": 245,
+        "ev": "xrecord",
+        "seq": 2
+      },
+      {
+        "t": 245,
+        "ev": "pc-recv",
+        "frame": {
+          "oracle": "out",
+          "n": 2
+        }
+      },
+      {
+        "t": "ack",
+        "ev": "pc-control"
+      },
+      {
+        "t": "ping",
+        "ev": "pc-control",
+        "id": 9001
+      },
+      {
+        "t": 260,
+        "ev": "xcontrol",
+        "kind": "pong",
+        "control": {
+          "v": 1,
+          "t": "pong",
+          "id": 9001
+        }
+      },
+      {
+        "t": 270,
+        "ev": "mark",
+        "name": "sends-acked-pinged"
+      },
+      {
+        "t": 270,
+        "ev": "pc-send",
+        "n": 10
+      },
+      {
+        "t": 270,
+        "ev": "deliver",
+        "frame": {
+          "oracle": "in",
+          "n": 10
+        }
+      },
+      {
+        "t": 373,
+        "ev": "mark",
+        "name": "hidden-with-tail"
+      },
+      {
+        "t": 373,
+        "ev": "pc-send",
+        "n": 11
+      },
+      {
+        "t": 373,
+        "ev": "deliver",
+        "frame": {
+          "oracle": "in",
+          "n": 11
+        }
+      },
+      {
+        "t": 373,
+        "ev": "xcontrol",
+        "kind": "ack",
+        "control": {
+          "v": 1,
+          "t": "ack",
+          "through": 12
+        }
+      },
+      {
+        "t": 373,
+        "ev": "pc-send",
+        "n": 12
+      },
+      {
+        "t": 373,
+        "ev": "deliver",
+        "frame": {
+          "oracle": "in",
+          "n": 12
+        }
+      },
+      {
+        "t": 423,
+        "ev": "mark",
+        "name": "pair-while-hidden"
+      },
+      {
+        "t": 423,
+        "ev": "pc-send",
+        "n": 13
+      },
+      {
+        "t": 423,
+        "ev": "deliver",
+        "frame": {
+          "oracle": "in",
+          "n": 13
+        }
+      },
+      {
+        "t": 423,
+        "ev": "xcontrol",
+        "kind": "ack",
+        "control": {
+          "v": 1,
+          "t": "ack",
+          "through": 14
+        }
+      },
+      {
+        "t": 473,
+        "ev": "mark",
+        "name": "odd-while-hidden"
+      },
+      {
+        "t": 473,
+        "ev": "pc-send",
+        "n": 14
+      },
+      {
+        "t": 473,
+        "ev": "deliver",
+        "frame": {
+          "oracle": "in",
+          "n": 14
+        }
+      },
+      {
+        "t": 523,
+        "ev": "mark",
+        "name": "tail-while-hidden"
+      },
+      {
+        "t": 523,
+        "ev": "ping",
+        "socket": 1
+      },
+      {
+        "t": 523,
+        "ev": "xcontrol",
+        "kind": "ping",
+        "control": {
+          "v": 1,
+          "t": "ping",
+          "id": 1,
+          "sent": 2
+        }
+      },
+      {
+        "t": 548,
+        "ev": "xcontrol",
+        "kind": "ack",
+        "control": {
+          "v": 1,
+          "t": "ack",
+          "through": 15
+        }
+      },
+      {
+        "t": 623,
+        "ev": "mark",
+        "name": "woken"
+      },
+      {
+        "t": 3623,
+        "ev": "mark",
+        "name": "quiet-after-wake"
+      }
+    ],
+    "transport-boot-shaped": [
+      {
+        "t": 0,
+        "ev": "socket",
+        "n": 1
+      },
+      {
+        "t": 0,
+        "ev": "ready"
+      },
+      {
+        "t": 0,
+        "ev": "out",
+        "n": 1
+      },
+      {
+        "t": 0,
+        "ev": "xrecord",
+        "seq": 1
+      },
+      {
+        "t": 0,
+        "ev": "pc-recv",
+        "frame": {
+          "oracle": "out",
+          "n": 1
+        }
+      },
+      {
+        "t": 0,
+        "ev": "pc-send",
+        "n": 1
+      },
+      {
+        "t": 0,
+        "ev": "deliver",
+        "frame": {
+          "oracle": "in",
+          "n": 1
+        }
+      },
+      {
+        "t": 0,
+        "ev": "xcontrol",
+        "kind": "ack",
+        "control": {
+          "v": 1,
+          "t": "ack",
+          "through": 2
+        }
+      },
+      {
+        "t": 0,
+        "ev": "out",
+        "n": 2
+      },
+      {
+        "t": 0,
+        "ev": "xrecord",
+        "seq": 2
+      },
+      {
+        "t": 0,
+        "ev": "pc-recv",
+        "frame": {
+          "oracle": "out",
+          "n": 2
+        }
+      },
+      {
+        "t": 0,
+        "ev": "pc-send",
+        "n": 2
+      },
+      {
+        "t": 0,
+        "ev": "deliver",
+        "frame": {
+          "oracle": "in",
+          "n": 2
+        }
+      },
+      {
+        "t": 0,
+        "ev": "mark",
+        "name": "booted"
+      },
+      {
+        "t": 25,
+        "ev": "xcontrol",
+        "kind": "ack",
+        "control": {
+          "v": 1,
+          "t": "ack",
+          "through": 3
+        }
+      },
+      {
+        "t": 1025,
+        "ev": "xcontrol",
+        "kind": "ping",
+        "control": {
+          "v": 1,
+          "t": "ping",
+          "id": 1,
+          "sent": 2
+        }
+      },
+      {
+        "t": 1100,
+        "ev": "xcontrol",
+        "kind": "ping",
+        "control": {
+          "v": 1,
+          "t": "ping",
+          "id": 2,
+          "sent": 2
+        }
+      },
+      {
+        "t": 1225,
+        "ev": "xcontrol",
+        "kind": "ping",
+        "control": {
+          "v": 1,
+          "t": "ping",
+          "id": 3,
+          "sent": 2
+        }
+      },
+      {
+        "t": 1450,
+        "ev": "xcontrol",
+        "kind": "ping",
+        "control": {
+          "v": 1,
+          "t": "ping",
+          "id": 4,
+          "sent": 2
+        }
+      },
+      {
+        "t": 1875,
+        "ev": "xcontrol",
+        "kind": "ping",
+        "control": {
+          "v": 1,
+          "t": "ping",
+          "id": 5,
+          "sent": 2
+        }
+      },
+      {
+        "t": 2725,
+        "ev": "xcontrol",
+        "kind": "ping",
+        "control": {
+          "v": 1,
+          "t": "ping",
+          "id": 6,
+          "sent": 2
+        }
+      },
+      {
+        "t": 4400,
+        "ev": "xcontrol",
+        "kind": "ping",
+        "control": {
+          "v": 1,
+          "t": "ping",
+          "id": 7,
+          "sent": 2
+        }
+      },
+      {
+        "t": 7000,
+        "ev": "mark",
+        "name": "quiet-visible"
+      },
+      {
+        "t": 7000,
+        "ev": "pc-send",
+        "n": 3
+      },
+      {
+        "t": 7000,
+        "ev": "deliver",
+        "frame": {
+          "oracle": "in",
+          "n": 3
+        }
+      },
+      {
+        "t": 7000,
+        "ev": "pc-send",
+        "n": 4
+      },
+      {
+        "t": 7000,
+        "ev": "deliver",
+        "frame": {
+          "oracle": "in",
+          "n": 4
+        }
+      },
+      {
+        "t": 7000,
+        "ev": "xcontrol",
+        "kind": "ack",
+        "control": {
+          "v": 1,
+          "t": "ack",
+          "through": 5
+        }
+      },
+      {
+        "t": 7000,
+        "ev": "pc-send",
+        "n": 5
+      },
+      {
+        "t": 7000,
+        "ev": "deliver",
+        "frame": {
+          "oracle": "in",
+          "n": 5
+        }
+      },
+      {
+        "t": 17000,
+        "ev": "mark",
+        "name": "hidden"
+      },
+      {
+        "t": 17000,
+        "ev": "ping",
+        "socket": 1
+      },
+      {
+        "t": 17000,
+        "ev": "xcontrol",
+        "kind": "ping",
+        "control": {
+          "v": 1,
+          "t": "ping",
+          "id": 8,
+          "sent": 2
+        }
+      },
+      {
+        "t": 17025,
+        "ev": "xcontrol",
+        "kind": "ping",
+        "control": {
+          "v": 1,
+          "t": "ping",
+          "id": 9,
+          "sent": 2
+        }
+      },
+      {
+        "t": 17025,
+        "ev": "xcontrol",
+        "kind": "ack",
+        "control": {
+          "v": 1,
+          "t": "ack",
+          "through": 6
+        }
+      },
+      {
+        "t": 22000,
+        "ev": "mark",
+        "name": "woken"
+      }
+    ]
+  }
+}

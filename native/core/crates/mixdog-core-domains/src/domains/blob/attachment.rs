@@ -23,6 +23,7 @@ use mixdog_store::blobs::BlobStore;
 use mixdog_workspace::error::Reason;
 use mixdog_workspace::error::WsError;
 use mixdog_workspace::error::WsResult;
+use mixdog_workspace::transfer::SourceBytes;
 use mixdog_workspace::transfer::SourceFile;
 use mixdog_workspace::transfer::TransferSource;
 use serde_json::Value;
@@ -131,6 +132,24 @@ pub(crate) fn lane_failure(error: CoreError) -> WsError {
 /// The bytes of attachment `digest`, checked, in a new temp file opened for reading.
 #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "runs on the interactive-io lane job (lane proof argument)")]
 fn stage(store: &BlobStore, lane: &mixdog_rt::InLane<InteractiveIo>, digest: &BlobDigest, id: &str) -> WsResult<(File, PathBuf)> {
+    let bytes = checked(store, lane, digest, id)?;
+    // `stageTemporaryDownload`: a private folder of its own (0700) holding the payload (0600); the folder is what goes.
+    let (folder, mut out) = mixdog_workspace::transfer::staged_payload()?;
+    let written = out.write_all(&bytes).and_then(|()| out.sync_all());
+    drop(out);
+    let opened = written.and_then(|()| File::open(folder.join(mixdog_workspace::transfer::STAGED_PAYLOAD)));
+    match opened {
+        Ok(file) => Ok((file, folder)),
+        Err(error) => {
+            let _ = std::fs::remove_dir_all(&folder);
+            Err(error.into())
+        }
+    }
+}
+
+/// The bytes of attachment `digest`, read from the store and checked against its id and the size limit (`readSessionAttachment`).
+#[allow(clippy::disallowed_methods, reason = "runs on the interactive-io lane job (lane proof argument)")]
+fn checked(store: &BlobStore, lane: &mixdog_rt::InLane<InteractiveIo>, digest: &BlobDigest, id: &str) -> WsResult<Vec<u8>> {
     let bytes = store.read(lane, digest).map_err(|error| match error {
         BlobError::Missing { .. } => refused(Reason::NotFound, "This attachment is no longer stored on the PC."),
         BlobError::Corrupt { .. } => refused(Reason::Changed, "The stored attachment failed its integrity check."),
@@ -145,20 +164,15 @@ fn stage(store: &BlobStore, lane: &mixdog_rt::InLane<InteractiveIo>, digest: &Bl
     if bytes.len() > MAX_BYTES {
         return Err(refused(Reason::TooLarge, "Files larger than 256 MB cannot be downloaded."));
     }
-    let path = std::env::temp_dir().join(format!("mixdog-download-{}", uuid::Uuid::new_v4()));
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    let written = options.open(&path).and_then(|mut file| file.write_all(&bytes).and_then(|()| file.sync_all()));
-    let opened = written.and_then(|()| File::open(&path));
-    match opened {
-        Ok(file) => Ok((file, path)),
-        Err(error) => {
-            let _ = std::fs::remove_file(&path);
-            Err(error.into())
-        }
-    }
+    Ok(bytes)
+}
+
+/// What the request names: the attachment's offered name and type and its store id, once the conversation is shown to name it.
+struct Named {
+    name: String,
+    mime_type: String,
+    digest: BlobDigest,
+    id: String,
 }
 
 #[async_trait]
@@ -168,6 +182,26 @@ impl TransferSource for AttachmentSource {
     }
 
     async fn open(&self, source: &Value, cancel: &CancellationToken) -> WsResult<SourceFile> {
+        let Named { name, mime_type, digest, id } = self.named_in(source).await?;
+        let store = self.store.clone();
+        let (file, path) = on_lane(self.interactive, cancel, move |lane| stage(&store, lane, &digest, &id))
+            .await
+            .map_err(lane_failure)??;
+        Ok(SourceFile { file, name, mime_type, cleanup: Some(path) })
+    }
+
+    /// The checked bytes for the phone's download, which the transfer service stages itself (`authorizeAttachment`).
+    async fn bytes(&self, source: &Value, cancel: &CancellationToken) -> WsResult<SourceBytes> {
+        let Named { name, mime_type, digest, id } = self.named_in(source).await?;
+        let store = self.store.clone();
+        let bytes = on_lane(self.interactive, cancel, move |lane| checked(&store, lane, &digest, &id)).await.map_err(lane_failure)??;
+        Ok(SourceBytes { bytes, name, mime_type })
+    }
+}
+
+impl AttachmentSource {
+    /// `requiredSessionId`, `requiredAttachmentId`, then the conversation must name the id (`sessionAttachments`).
+    async fn named_in(&self, source: &Value) -> WsResult<Named> {
         let session_id = required_session_id(source.get("sessionId"))?;
         // `requiredAttachmentId`: any non-string, or a string off the pattern, is one TypeError.
         let id = source
@@ -184,11 +218,7 @@ impl TransferSource for AttachmentSource {
         let mime_type =
             mixdog_js::slice_utf16(named.mime_type.as_deref().filter(|m| !m.is_empty()).unwrap_or("application/octet-stream"), 100);
         let digest: BlobDigest = format!("sha256:{id}").parse().map_err(|_| WsError::invalid("attachment id is invalid."))?;
-        let (store, wanted) = (self.store.clone(), id.to_owned());
-        let (file, path) = on_lane(self.interactive, cancel, move |lane| stage(&store, lane, &digest, &wanted))
-            .await
-            .map_err(lane_failure)??;
-        Ok(SourceFile { file, name: view_name(&name, &mime_type), mime_type, cleanup: Some(path) })
+        Ok(Named { name: view_name(&name, &mime_type), mime_type, digest, id: id.to_owned() })
     }
 }
 

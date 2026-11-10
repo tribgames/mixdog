@@ -25,6 +25,7 @@ use mixdog_core_api::domain::retry::RetryState;
 use mixdog_core_api::domain::retry::Verdict;
 
 use crate::boundary::CompactPolicy;
+use crate::env::PartialToolRecovery;
 use crate::env::RetractReason;
 use crate::env::RouteDecision;
 use crate::env::Retracted;
@@ -436,7 +437,10 @@ impl Run {
         };
         let mut stream = match attempt {
             None => return Err(AgentError::Aborted),
-            Some(Err(error)) => return Ok(fail(error, builder, false, 0, false)),
+            Some(Err(error)) => {
+                self.show_notices(&error);
+                return Ok(fail(error, builder, false, 0, false));
+            }
             Some(Ok(stream)) => stream,
         };
         self.emit(RunEvent::Stage(Stage::Streaming));
@@ -449,6 +453,7 @@ impl Run {
             let event = match next {
                 None => break,
                 Some(Err(error)) => {
+                    self.show_notices(&error);
                     return Ok(fail(error, builder, true, shown_chars, reasoning_shown));
                 }
                 Some(Ok(event)) => event,
@@ -478,11 +483,16 @@ impl Run {
                     self.provider_state = Some(state.clone());
                     self.provider_state_changed = true;
                 }
+                // `onStageChange('notice', { tone, message })`: shown in the transcript, nothing else.
+                StreamEvent::Notice { message, warn } => self.show_notice(message, *warn),
                 _ => {}
             }
             let tool_done = matches!(event, StreamEvent::ToolCallDone(_));
             builder.push(event);
             if tool_done && let Some(call) = builder.so_far().tool_calls.last().cloned() {
+                if !call.id.is_empty() {
+                    self.streamed_ids.insert(call.id.clone());
+                }
                 self.try_eager(&call).await;
             }
         }
@@ -499,6 +509,18 @@ impl Run {
         Ok(Ok(builder.finish()))
     }
 
+    fn show_notice(&self, message: &str, warn: bool) {
+        let tone = if warn { Tone::Warn } else { Tone::Info };
+        self.emit(RunEvent::Stage(Stage::Notice { message: message.to_owned(), tone }));
+    }
+
+    /// The notices a failed request raised before it failed (`ProviderError::notices`).
+    fn show_notices(&self, error: &ProviderError) {
+        for (message, warn) in &error.notices {
+            self.show_notice(message, *warn);
+        }
+    }
+
     async fn recover(&mut self, fail: Failure) -> Result<Recovery, AgentError> {
         let Failure {
             error,
@@ -513,11 +535,19 @@ impl Run {
         // When a tool input was still streaming at the cut, the turn continues
         // only if every complete call was already dispatched: nothing committed
         // may reference an undispatched call. The in-flight call is dropped
-        // unrun and the model told to split it.
+        // unrun and the model told to split it. A call the stream handed over is dispatched whether or not it was admitted
+        // for an eager run (`recoverableToolCalls`, `send-with-recovery.mjs:720`).
         let input_cut = error.exposure.tool_input_cut;
         let recoverable = !partial.tool_calls.is_empty()
-            && (!input_cut || partial.tool_calls.iter().all(|c| self.eager_dispatched(&c.id)));
+            && (!input_cut || partial.tool_calls.iter().all(|c| self.stream_dispatched(&c.id)));
         if is_stream_cut(&error) && recoverable {
+            // `recoverPartialToolCalls`' trace (`send-with-recovery.mjs:769`), at the round's iteration (`nextIteration`).
+            self.emit(RunEvent::PartialToolRecovery(PartialToolRecovery {
+                iteration: self.iterations + 1,
+                tool_calls: partial.tool_calls.len(),
+                dropped_incomplete_input: input_cut,
+                partial_content_len: mixdog_js::utf16_len(&partial.content),
+            }));
             let recovery_notice = input_cut
                 .then(|| AgentMessage::sourced(Source::StreamCutRecovery, TOOL_INPUT_CUT_NOTICE));
             return Ok(Recovery::Proceed(Box::new(ModelResponse {

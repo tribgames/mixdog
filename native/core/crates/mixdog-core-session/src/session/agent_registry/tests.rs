@@ -30,6 +30,8 @@ struct Store {
     sessions: Mutex<Vec<Row>>,
     headers: Mutex<HashMap<String, Row>>,
     dirs: Mutex<HashSet<String>>,
+    /// The stored session records asked for.
+    header_reads: std::sync::atomic::AtomicUsize,
 }
 
 #[async_trait]
@@ -43,6 +45,7 @@ impl WorkerStore for Store {
     }
 
     async fn header(&self, session: &str) -> Option<Row> {
+        self.header_reads.fetch_add(1, Ordering::SeqCst);
         self.headers.lock().unwrap().get(session).cloned()
     }
 
@@ -251,6 +254,183 @@ async fn a_tombstone_blocks_a_scan_of_its_reaped_session_only() {
     assert!(!decisions(&registry, &turned)[0]);
 }
 
+/// Many rows and tombstones on top of [`tombstone_rig`]'s: sessions with a settled row, and sessions that kept
+/// only the tombstone their reap left.
+fn crowd(rig: &Rig, count: usize) {
+    let (created, reaped) = (at(NOW - 3 * HOUR), at(NOW - HOUR));
+    for i in 0..count {
+        let id = format!("s-crowd-{i}");
+        rig.store.write(&id, Some(worker_row(&id, &format!("c{i}"), json!({ "createdAt": created }))));
+        let gone = obj(json!({ "tombstone": tombstone(&format!("g{i}"), &reaped, json!({})) }));
+        rig.store.write(&format!("s-gone-{i}"), without_row(&gone));
+    }
+}
+
+/// `decisions.md` "Node daemon hot paths found by profiling" 1: the agent status is recomputed on every session
+/// activity change, and each recompute keyed every tombstone and tested every row again. With the worker index
+/// unchanged a recompute does no per-tombstone and no per-row work; a write to the index is seen at once.
+#[tokio::test]
+async fn a_status_recompute_over_an_unchanged_index_visits_no_row_and_no_tombstone() {
+    let (rig, _) = tombstone_rig();
+    crowd(&rig, 40);
+    let registry = rig.registry();
+    let scope = lead("lead-a");
+    let recompute = || async {
+        registry.refresh_tags_from_sessions(false, &scope).await;
+        (registry.session_entries(false, &scope), registry.read_worker_rows(&scope).unwrap(), registry.read_all_tag_tombstones())
+    };
+
+    let first = recompute().await;
+    assert!(first.1.len() >= 40 && first.2.len() >= 40, "the index holds what the test counts: {} rows, {} tombstones", first.1.len(), first.2.len());
+    let warmed = rows::work::counts();
+    assert!(warmed.rows_normalized > 0 && warmed.tombstones_normalized > 0 && warmed.tombstones_keyed > 0 && warmed.rows_tested > 0, "{warmed:?}");
+    for pass in 0..4 {
+        assert_eq!(recompute().await, first, "pass {pass} answers what the first did");
+    }
+    assert_eq!(rows::work::counts(), warmed, "four recomputes of an unchanged index did per-row or per-tombstone work");
+
+    // A write is seen by the next read, and costs one rebuild, not one per read.
+    registry.mark_released(&["s-crowd-0".into()]);
+    let released = |registry: &AgentRegistry| {
+        let st = registry.lock();
+        st.rows(&scope, registry.now()).iter().find(|r| r["tag"] == "c0").map(|r| r.get("released").cloned())
+    };
+    assert_eq!(released(&registry), Some(Some(json!(true))));
+    let rebuilt = rows::work::counts();
+    assert!(rebuilt.rows_normalized > warmed.rows_normalized);
+    for _ in 0..3 {
+        assert_eq!(released(&registry), Some(Some(json!(true))));
+    }
+    assert_eq!(rows::work::counts(), rebuilt);
+}
+
+/// What the registry's reads answer, whole, at its clock.
+fn index_reads(registry: &AgentRegistry) -> (Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>) {
+    let now = registry.now();
+    let st = registry.lock();
+    (
+        st.rows(&Scope::default(), now).iter().cloned().collect(),
+        st.all_rows(now).iter().cloned().collect(),
+        st.stored_tombstones(now).iter().cloned().collect(),
+        st.tombstones(now).iter().cloned().collect(),
+    )
+}
+
+/// Reads that keep their answer while the index is unchanged still change with the clock exactly where a read
+/// that keeps nothing does: a tombstone and a release marker end at the TTL, a tombstone stamped in the future
+/// reads as now, and the clock going back reads as it did.
+#[tokio::test]
+async fn the_kept_reads_follow_the_clock_as_a_read_that_keeps_nothing_does() {
+    let (rig, _) = tombstone_rig();
+    crowd(&rig, 3);
+    let future = obj(json!({ "tombstone": tombstone("fut", &at(NOW + 2 * HOUR), json!({})) }));
+    rig.store.write("s-future", without_row(&future));
+    let mut released = worker_row("s-released", "rel", json!({ "createdAt": at(NOW - 3 * HOUR) }));
+    released.insert("releasedAt".into(), json!(at(NOW - 2 * DAY)));
+    rig.store.write("s-released", Some(released));
+    let kept = rig.registry();
+    kept.reload().await;
+    kept.resolve_tombstone_owners();
+
+    let ttl = TAG_TOMBSTONE_TTL_MS as i64;
+    // The reaps are at NOW - 1h and the marker at NOW - 2d: they end at NOW + ttl - 1h and NOW + ttl - 2d.
+    let offsets = [0, 1, HOUR, 3 * HOUR, ttl - 2 * DAY, ttl - 2 * DAY + 1, ttl - HOUR, ttl - HOUR + 1, ttl + 1, ttl + DAY, 0, ttl - HOUR];
+    for offset in offsets {
+        rig.clock.0.store(NOW + offset, Ordering::SeqCst);
+        let fresh = rig.registry();
+        fresh.reload().await;
+        fresh.resolve_tombstone_owners();
+        let (have, want) = (index_reads(&kept), index_reads(&fresh));
+        assert_eq!(have.0, want.0, "rows at +{offset}");
+        assert_eq!(have.1, want.1, "all rows at +{offset}");
+        assert_eq!(have.2, want.2, "stored tombstones at +{offset}");
+        assert_eq!(have.3, want.3, "tombstones at +{offset}");
+    }
+}
+
+/// The invalidation argument of the kept reads (`State::kept`, `window_at`) at its sharpest point: the exact instant a
+/// tombstone, a release marker or a future-stamped tombstone starts to read differently. One registry keeps its answers
+/// while the clock is walked up to, across and back over each such instant, a millisecond at a time, and at every
+/// step its reads (all four index reads, and the scoped worker rows a tombstone blocks) equal those of a registry
+/// that has kept nothing.
+#[tokio::test]
+async fn the_kept_reads_equal_a_fresh_computation_at_every_ms_around_each_expiry() {
+    let (rig, _) = tombstone_rig();
+    crowd(&rig, 2);
+    let future_at = NOW + 2 * HOUR;
+    let future = obj(json!({ "tombstone": tombstone("fut", &at(future_at), json!({})) }));
+    rig.store.write("s-future", without_row(&future));
+    // A legacy (owner-less) tombstone stamped in the future reads as `now`, so its identity moves with the clock, and the one
+    // session that can have been its owner is found only from the instant that session exists at the tombstone's time.
+    let created_at = NOW + HOUR;
+    let owner = session("s-fut-legacy", "futleg", &at(created_at), json!({}));
+    rig.store.sessions.lock().unwrap().push(owner);
+    let legacy = json!({ "parentSessionId": null, "ownerSessionId": null });
+    let future_legacy = obj(json!({ "tombstone": tombstone("futleg", &at(future_at), legacy) }));
+    rig.store.write("s-fut-legacy", without_row(&future_legacy));
+    let mut released = worker_row("s-released", "rel", json!({ "createdAt": at(NOW - 3 * HOUR) }));
+    released.insert("releasedAt".into(), json!(at(NOW - 2 * DAY)));
+    rig.store.write("s-released", Some(released));
+    let kept = rig.registry();
+    kept.reload().await;
+    kept.resolve_tombstone_owners();
+
+    let ttl = TAG_TOMBSTONE_TTL_MS as i64;
+    let (reap_end, marker_end) = (NOW - HOUR + ttl, NOW - 2 * DAY + ttl);
+    let scope = lead("lead-a");
+    let reads = |registry: &AgentRegistry| {
+        let scoped: Vec<Row> = registry.lock().rows(&scope, registry.now()).iter().cloned().collect();
+        (index_reads(registry), scoped)
+    };
+    let tags = |rows: &[Row]| rows.iter().map(|r| clean(r.get("tag"))).collect::<Vec<_>>();
+    let mut instants: Vec<i64> = [reap_end, marker_end, future_at, created_at, NOW].into_iter().flat_map(|b| (-2..=2).map(move |d| b + d)).collect();
+    instants.sort_unstable();
+    let back: Vec<i64> = instants.iter().rev().copied().collect();
+    for now in instants.into_iter().chain(back) {
+        rig.clock.0.store(now, Ordering::SeqCst);
+        let fresh = rig.registry();
+        fresh.reload().await;
+        // A read made before the owners of this instant are resolved is kept, and the resolve must invalidate it (`owners` is
+        // an input of `tombstones`): each refresh of the kept registry resolves the owners again, as the registry's own does.
+        let _ = reads(&kept);
+        kept.resolve_tombstone_owners();
+        fresh.resolve_tombstone_owners();
+        assert_eq!(reads(&kept), reads(&fresh), "at {now}");
+        let (index, scoped) = reads(&kept);
+        let future_legacy = index.3.iter().find(|t| t["tag"] == "futleg").expect("the future-stamped legacy tombstone is read at every instant");
+        assert_eq!(rows::stamp_ms(future_legacy.get("reapedAt")) as i64, now.min(future_at), "a tombstone stamped in the future reads as now, at {now}");
+        assert_eq!(clean(future_legacy.get("ownerSessionId")) == "lead-a", now >= created_at, "legacy owner recovered at {now}");
+        // The boundaries are real: a tombstone is read through its last instant and not after, and the row it blocked
+        // (r3, created before the reap) is work again only once the tombstone ended.
+        assert_eq!(index.3.iter().any(|t| t["tag"] == "r3"), now <= reap_end, "r3 tombstone at {now}");
+        assert_eq!(tags(&scoped).contains(&"r3".to_owned()), now > reap_end, "r3 row at {now}");
+        assert_eq!(index.1.iter().any(|r| r["tag"] == "rel" && r.get("released") == Some(&json!(true))), now <= marker_end, "release marker at {now}");
+    }
+}
+
+/// Hot path 2: whether a session is at work is answered from memory. No bookkeeping pass of the registry reads a
+/// session's record (a busy worker's whole log) from the store.
+#[tokio::test]
+async fn a_bookkeeping_pass_over_running_rows_reads_no_session_record() {
+    let rig = Rig::new();
+    let created = at(NOW - HOUR);
+    for i in 0..6 {
+        let id = format!("s-run-{i}");
+        let row = worker_row(&id, &format!("r{i}"), json!({ "status": "running", "stage": "streaming", "createdAt": created, "updatedAt": created }));
+        rig.store.write(&id, Some(row));
+        let header = obj(json!({ "agentTag": format!("r{i}"), "parentSessionId": "lead-a", "ownerSessionId": "lead-a", "agent": "worker", "status": "running", "createdAt": created }));
+        rig.live.headers.lock().unwrap().insert(id, header);
+    }
+    let registry = rig.registry();
+    let scope = lead("lead-a");
+    for _ in 0..3 {
+        registry.refresh_tags_from_sessions(true, &scope).await;
+        assert_eq!(registry.session_entries(true, &scope).len(), 6);
+        assert!(registry.read_worker_rows(&scope).unwrap().len() >= 6);
+    }
+    assert_eq!(rig.store.header_reads.load(Ordering::SeqCst), 0, "a pass loaded a session's record");
+}
+
 /// `worker-row-released.test.mjs` "close → restart + scan keeps the agent released" and "the
 /// marker expires after 7 days on read": the owner's close survives a restart and a session
 /// scan, and its `released` reading ends exactly at the TTL.
@@ -357,7 +537,7 @@ async fn turns_stamp_the_session_and_an_owner_close_records_itself() {
     use crate::session::thread_state::SessionThreads;
     use crate::session::SessionDirectory;
     use crate::session::seams::RunOutcome;
-    use crate::session::tests::eventually;
+    use crate::eventually_on;
     use crate::session::tests::idle;
     use crate::session::tests::start_thread;
     use crate::session::tests::turn;
@@ -383,7 +563,7 @@ async fn turns_stamp_the_session_and_an_owner_close_records_itself() {
     let id = handle.id.as_str().to_owned();
 
     turn(&handle, "one", "op-1").await;
-    let stamped = eventually(|| {
+    let stamped = eventually_on!(&[&handle.cell.stepped], || {
         let header = handle.cell.header.load_full();
         header.contains_key("lastTurnCompletedAt").then(|| (*header).clone())
     })
@@ -394,7 +574,7 @@ async fn turns_stamp_the_session_and_an_owner_close_records_itself() {
     registry.mark_released(std::slice::from_ref(&id));
     assert!(rig.store.map(&id).is_some_and(|m| m.contains_key("releasedAt")));
     turn(&handle, "two", "op-2").await;
-    eventually(|| handle.cell.run.load().is_some().then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load().is_some().then_some(())).await;
     assert!(rig.store.map(&id).is_none(), "the turn start lifted the release");
 
     let statusline = Arc::new(Statusline::default());
@@ -406,7 +586,7 @@ async fn turns_stamp_the_session_and_an_owner_close_records_itself() {
     assert!(sessions.close_session(&id, "cli-agent-close", options).await);
     // `cancelOwnedShellTrees(id)` (`session-close.mjs:184`).
     assert_eq!(*shells.0.lock().unwrap(), [id.clone()]);
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     let header = handle.cell.header.load_full();
     assert_eq!(header["ownerClosedAt"], json!(NOW));
     assert_eq!(header["detachedReason"], json!("cli-agent-close"));
@@ -427,7 +607,7 @@ async fn a_job_cancel_aborts_the_turn_with_the_close_session_text() {
     use crate::session::thread_state::SessionThreads;
     use crate::session::SessionDirectory;
     use crate::session::seams::RunOutcome;
-    use crate::session::tests::eventually;
+    use crate::eventually_on;
     use crate::session::tests::idle;
     use crate::session::tests::start_thread;
     use crate::session::tests::turn;
@@ -449,7 +629,7 @@ async fn a_job_cancel_aborts_the_turn_with_the_close_session_text() {
     let handle = start_thread(&directory).await;
     let id = handle.id.as_str().to_owned();
     turn(&handle, "work", "op-1").await;
-    eventually(|| handle.cell.run.load().is_some().then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load().is_some().then_some(())).await;
 
     let threads = Arc::new(SessionThreads::new(directory.clone()));
     let sessions = AgentSessions::new(
@@ -463,7 +643,7 @@ async fn a_job_cancel_aborts_the_turn_with_the_close_session_text() {
     );
     let options = mixdog_agent::agent_tool::host::CloseOptions { tombstone: false, owner_close: false };
     assert!(sessions.close_session(&id, "agent-task-cancel", options).await);
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     assert_eq!(
         aborted.lock().unwrap().as_deref(),
         Some(format!("Session \"{id}\" closed: closeSession (reason=agent-task-cancel)").as_str())
@@ -475,9 +655,9 @@ async fn a_job_cancel_aborts_the_turn_with_the_close_session_text() {
 
     // `abortSessionTurn(id, reason)` for a session no outer turn holds.
     turn(&handle, "again", "op-2").await;
-    eventually(|| handle.cell.run.load().is_some().then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load().is_some().then_some(())).await;
     assert!(directory.abort_session_turn(&handle.id, "login-required"));
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     assert_eq!(
         aborted.lock().unwrap().as_deref(),
         Some(format!("Session \"{id}\" closed: abortSessionTurn (reason=login-required)").as_str())

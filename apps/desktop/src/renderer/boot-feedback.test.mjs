@@ -236,6 +236,9 @@ test('the real pre-React pairing screen uses early catalogs and treats translati
   const remoteSource = buildSync({
     entryPoints: [fileURLToPath(new URL('./remote-shim.ts', import.meta.url))],
     bundle: true,
+    // remote-shim-adapters.ts reads the group adapters with import.meta.glob (a bundler feature); none here.
+    define: { 'import.meta.glob': 'noGlob' },
+    banner: { js: 'const noGlob = () => ({});' },
     platform: 'browser',
     format: 'iife',
     write: false,

@@ -77,8 +77,14 @@ dbg_macro = "deny"
 debug = false
 incremental = false
 
+# Registry and git dependencies are compiled optimised; the workspace's own crates stay unoptimised, so an edit
+# rebuilds as fast as before. A dependency is compiled once per checkout and never again on an edit, while the
+# tests spend their processor time inside them (SQLite, sha2, serde_json, tokio). Measured 2026-11-10 on five
+# crates' suites (2,618 tests, eight threads, busy PC), twice each: 202 s and 184 s before, 148 s and 123 s
+# after; a log-reading store test 61 s -> 21 s; a migration crash matrix 222 -> 87 processor seconds.
 [profile.dev.package."*"]
 debug = false
+opt-level = 3
 
 [workspace.dependencies]
 # Internal crates (layering: SPEC §3.2; protocol/api crates at the bottom).
@@ -210,6 +216,8 @@ tokio-test = "0.4"
 # Each crate names the features it uses (client connect, server handshake, TLS).
 tokio-tungstenite = { version = "0.28.0", default-features = false }
 tokio-util = "0.7.18"
+httparse = "1.10" # the response head of the Node-equal HTTP/1.1 client (`mixdog-ai` `transport::node_http`)
+brotli = { version = "9.1", default-features = false, features = ["std"] } # `content-encoding: br`, which undici's fetch decodes
 toml = "0.9.5"
 tracing = "0.1.44"
 tracing-subscriber = "0.3.22"

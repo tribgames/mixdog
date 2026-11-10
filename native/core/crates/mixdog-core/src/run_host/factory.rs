@@ -36,7 +36,8 @@ use serde_json::{json, Value};
 use tokio::sync::{mpsc, watch};
 
 use super::live_turn::LiveTurnPublisher;
-use super::watchdog::Watchdog;
+use super::watchdog::{StallSite, Watchdog, registration_id, stall_abort_ctx};
+use mixdog_agent::agent_tool::progress::Snapshot;
 use mixdog_agent::agent_tool::watchdog::{is_watchdog_abort, resolve_policy, AgentKind, Overrides};
 use super::message_row::{message_of, row_of};
 use mixdog_core_run::run_host::progress::ProgressPublisher;
@@ -141,6 +142,8 @@ pub struct Assembled {
     pub step_judge: Option<Arc<dyn mixdog_agent::step_effort::StepEffortJudge>>,
     pub artifacts: Option<Arc<dyn mixdog_agent::offload::ArtifactStore>>,
     pub images: Option<Arc<dyn mixdog_agent::offload::ImageCompactor>>,
+    /// Where the turn's failed tool calls are recorded (`history/tool-failures.jsonl`).
+    pub failures: Option<Arc<dyn mixdog_agent::env::ToolFailureLog>>,
     /// The attachment blob reader, for the display facts of a user row (a pasted text's body).
     pub blobs: Arc<dyn mixdog_agent::compact::blob_reads::BlobReads>,
     /// The guard state that outlives one ask (the session record).
@@ -557,6 +560,9 @@ struct PortObserver {
     /// The turn's live messages, which an early tool notice joins until its result commits.
     live: LiveTurnPublisher,
     rows: Arc<StoredRows>,
+    /// The run's token: once it is cancelled the interruption's record is closed (Node finalizes the interrupted turn in the
+    /// abort's own step, so a call that settles after the abort is closed as cancelled).
+    cancel: tokio_util::sync::CancellationToken,
 }
 
 impl PortObserver {
@@ -717,9 +723,11 @@ impl RunObserver for PortObserver {
                 if let Some(id) = message.tool_call_id() {
                     self.live.early(id, mixdog_agent::compact::execution_tail::MessageRows::row(&*self.rows, &message));
                 }
-                let mut observed = lock(&self.observed);
-                observed.started = true;
-                observed.results.push(message);
+                if !self.cancel.is_cancelled() {
+                    let mut observed = lock(&self.observed);
+                    observed.started = true;
+                    observed.results.push(message);
+                }
             }
             _ => {}
         }
@@ -941,7 +949,7 @@ async fn drive(
         Err(error) => return RunOutcome::Failed(error),
     };
     let Assembled {
-        provider, tools, tool_env, gate, worktree, mut config, clock, decider, guards, compactor, route, skills, hooks, reuse, reactions, reaction_scope: _reaction_scope, rows, tail, side, step_judge, artifacts, images, blobs, carry,
+        provider, tools, tool_env, gate, worktree, mut config, clock, decider, guards, compactor, route, skills, hooks, reuse, reactions, reaction_scope: _reaction_scope, rows, tail, side, step_judge, artifacts, images, failures, blobs, carry,
     } = assembled;
     // `backfillFallbackSessionTitle` (`precommitUserTurn`, `ask-turn-execute.mjs`): a titleless session is named
     // from the earliest human turn of its history, else this turn's prompt (an injected turn never names it),
@@ -1074,7 +1082,16 @@ async fn drive(
         let kind = AgentKind { name: agent, hidden: config.hidden_agent, stall_cap_idle_seconds: parts.stall_cap_idle_seconds(agent) };
         let policy = resolve_policy(kind, overrides, &|name: &str| std::env::var(name).ok());
         let (reaper, reaped_thread) = (parts.clone(), thread.clone());
-        Watchdog::arm(true, policy, signal.clone(), clock.clone(), move |now| watched.borrow().snapshot(now), move || reaper.reap_turn_shells(&reaped_thread, asked_at))
+        // The worker-turn registry's stop (`abortOnTimeout`, `agent-watchdog-registry.mjs:30-33`): the reap is armed, then the stop is
+        // recorded with what the sweep judged, then the abort.
+        let (stall_log, stall_agent, site) = (failures.clone(), agent.map(str::to_owned), StallSite::Registry { registration_id: registration_id() });
+        let anchor_ts = clock.now_ms();
+        Watchdog::arm(true, policy, signal.clone(), clock.clone(), move |now| watched.borrow().snapshot(now), move |snapshot: &Snapshot, message: &str, now: i64| {
+            reaper.reap_turn_shells(&reaped_thread, asked_at);
+            if let Some(log) = stall_log {
+                log.stall_abort(stall_abort_ctx(reaped_thread.as_str(), stall_agent.as_deref(), &site, &policy, anchor_ts, snapshot, message, now));
+            }
+        })
     } else {
         None
     };
@@ -1109,7 +1126,7 @@ async fn drive(
     let hears_search = search_usage.register(thread.as_str(), Arc::new(move |delta| {
         let _ = search_tx.send(Shown::SearchUsage(delta));
     }));
-    let observer = Arc::new(PortObserver { observed: observed.clone(), progress: progress.clone(), out: shown_tx, streaming, reasoning: Mutex::new(None), last_send_tools: Mutex::new(Vec::new()), chunked: std::sync::atomic::AtomicBool::new(false), live: live.clone(), rows: rows.clone() });
+    let observer = Arc::new(PortObserver { observed: observed.clone(), progress: progress.clone(), out: shown_tx, streaming, reasoning: Mutex::new(None), last_send_tools: Mutex::new(Vec::new()), chunked: std::sync::atomic::AtomicBool::new(false), live: live.clone(), rows: rows.clone(), cancel: cancel.clone() });
     let closing = observer.clone();
 
     config.thread_id = thread.clone();
@@ -1141,6 +1158,7 @@ async fn drive(
         step_judge,
         artifacts,
         images,
+        failures,
     };
     // Node's `_api_call_with_interrupt` spans `agentLoop`: an abort inside reads "during call".
     progress.model_loop(true);
@@ -1264,7 +1282,7 @@ mod tests {
     use mixdog_store::schema::record::Record;
 
     use super::*;
-    use mixdog_core_session::session::testing::Rig;
+    use mixdog_core_session::session::testing::{Rig, eventually_on_awaiting};
     use mixdog_core_session::session::SessionDirectory;
 
     struct Steps(VecDeque<StreamEvent>);
@@ -1424,6 +1442,7 @@ mod tests {
                 step_judge: None,
                 artifacts: None,
                 images: None,
+                failures: None,
                 blobs: Arc::new(NoBlobs),
                 carry: RunCarry::default(),
             })
@@ -1488,17 +1507,8 @@ mod tests {
                 })
                 .collect()
         };
-        // Woken by each step of the thread's actor, which acknowledges each row after the store holds
-        // it; registered before the check so a step in between is not missed. No clock judges it.
-        loop {
-            let stepped = handle.stepped().notified();
-            tokio::pin!(stepped);
-            stepped.as_mut().enable();
-            if roles().len() >= 4 {
-                break;
-            }
-            stepped.await;
-        }
+        // Woken by each step of the thread's actor, which acknowledges each row after the store holds it.
+        eventually_on_awaiting(|| "the four-role transcript (user, assistant, tool, assistant) in the store".to_owned(), &[handle.stepped()], || (roles().len() >= 4).then_some(())).await;
         let rows = roles();
         assert_eq!(rows.iter().map(|(role, _)| role.as_str()).collect::<Vec<_>>(), ["user", "assistant", "tool", "assistant"]);
         assert_eq!(rows[1].1["content"], "looking");
@@ -1511,6 +1521,73 @@ mod tests {
         let second: Vec<_> = requests[1].messages.iter().map(|m| m.role).collect();
         assert_eq!(second, [Role::User, Role::Assistant, Role::Tool]);
         let _ = AtomicI64::new(0);
+    }
+
+    /// A provider's notice (the Gemini redirect) goes the whole way a client reads it: the stream event, the loop's
+    /// stage notice, the run host's shown event, the session's live row and the frame the thread's feed publishes (the
+    /// feed desktop and phone both follow). The message and tone are the Node recording's, and the row is the one the
+    /// real TUI/desktop notice surface made of it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_providers_notice_reaches_the_threads_clients_as_the_row_node_showed() {
+        let recorded: Value = serde_json::from_str(include_str!("../../../../fixtures/wire-anthropic-gemini/gemini.json")).expect("the Gemini recording");
+        let send = &recorded["scenarios"].as_array().unwrap().iter().find(|s| s["id"] == "pro25.boundary-at").expect("the redirect scenario")["sends"][0];
+        let (notice, row) = (&send["notices"][0], &send["noticeRows"][0]);
+        let provider = Arc::new(Scripted {
+            id: ProviderId::from("scripted"),
+            policy: RetryPolicy::codex_default(),
+            keepalive: KeepaliveSchedule::SPEC,
+            codec: MockCodec,
+            script: Mutex::new(VecDeque::from([vec![
+                StreamEvent::Notice { message: notice["message"].as_str().unwrap().to_owned(), warn: notice["tone"] == "warn" },
+                StreamEvent::TextDelta("hello".into()),
+                StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None },
+            ]])),
+            requests: Mutex::new(Vec::new()),
+            fail_first: std::sync::atomic::AtomicBool::new(false),
+        });
+        let workspace = tempfile::tempdir().unwrap();
+        let rig = Rig::new();
+        let mut deps = rig.deps_parts(rig.store.clone());
+        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None })));
+        let directory = SessionDirectory::new(Arc::new(deps));
+        let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+        let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
+        let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
+        let handle = directory.handle(&id).expect("loaded");
+        handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
+        // Woken by each step of the thread's actor; the frame is searched for before waiting.
+        let shown = tokio::time::timeout(std::time::Duration::from_secs(30), async { loop {
+            let stepped = handle.stepped().notified();
+            tokio::pin!(stepped);
+            stepped.as_mut().enable();
+            let found = rig.feeds.frames(id.as_str()).into_iter().find_map(|(_, _, params)| {
+                let text = row["text"].as_str().unwrap();
+                // The row's text and tone sit in the item's `meta`; its `kind` is on the item that holds them.
+                let mut stack = vec![(params, Value::Null)];
+                while let Some((value, kind)) = stack.pop() {
+                    match value {
+                        Value::Object(mut map) if map.get("text").and_then(Value::as_str) == Some(text) => {
+                            map.entry("kind").or_insert(kind);
+                            return Some(Value::Object(map));
+                        }
+                        Value::Object(map) => {
+                            let kind = map.get("kind").cloned().unwrap_or(kind);
+                            stack.extend(map.into_iter().map(|(_, v)| (v, kind.clone())));
+                        }
+                        Value::Array(all) => stack.extend(all.into_iter().map(|v| (v, kind.clone()))),
+                        _ => {}
+                    }
+                }
+                None
+            });
+            if let Some(found) = found {
+                break found;
+            }
+            stepped.await;
+        } })
+        .await
+        .expect("the thread's feed never published the provider's notice within 30 s");
+        assert_eq!((shown["kind"].clone(), shown["text"].clone(), shown["tone"].clone()), (row["kind"].clone(), row["text"].clone(), row["tone"].clone()), "{shown}");
     }
 
     /// A turn is assembled from the header the settings reconcile returns, not the one it started
@@ -1537,16 +1614,11 @@ mod tests {
         let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
         let handle = directory.handle(&id).expect("loaded");
         handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
-        loop {
-            let stepped = handle.stepped().notified();
-            tokio::pin!(stepped);
-            stepped.as_mut().enable();
+        eventually_on_awaiting(|| "the assistant's answer in the store".to_owned(), &[handle.stepped()], || {
             let answered = rig.store.records(&id).into_iter().any(|(_, record)| matches!(record, Record::Item(item) if matches!(&item.body, Slot::Inline(body) if body["role"] == "assistant")));
-            if answered {
-                break;
-            }
-            stepped.await;
-        }
+            answered.then_some(())
+        })
+        .await;
         let seen = lock(&settle.seen).clone();
         assert_eq!(seen.len(), 1);
         assert_eq!(seen[0]["featureDeniedTools"], json!(["web_search"]));
@@ -1595,18 +1667,8 @@ mod tests {
                 // so both answers are right; the first turn, on an idle thread, can only start.
                 let kind = started["kind"].as_str().expect("turn/start names its answer");
                 assert!(kind == "queued" && want > 1 || kind == "started", "turn {op}: {started}");
-                // Woken by each step of the thread's actor, which is where a run's end is acknowledged
-                // after its record is stored; registered before the check so a step in between is not
-                // missed. The wait is not judged by the clock.
-                loop {
-                    let stepped = handle.stepped().notified();
-                    tokio::pin!(stepped);
-                    stepped.as_mut().enable();
-                    if ended() >= want {
-                        break;
-                    }
-                    stepped.await;
-                }
+                // Woken by each step of the thread's actor, which is where a run's end is acknowledged after its record is stored.
+                eventually_on_awaiting(|| format!("the end record of run {want} in the store (turn {op})"), &[handle.stepped()], || (ended() >= want).then_some(())).await;
             }
         };
         turn(json!({ "prompt": "fix it" }), "op-1", 1).await;
@@ -1690,16 +1752,15 @@ mod tests {
             let (handle, op, thread, prompt) = (handle.clone(), op.to_owned(), id.clone(), prompt.to_owned());
             let ended = &ended;
             async move {
+                // The settle writes the acknowledgement of what the turn carried, then the run's end record, then the
+                // turn's coverage stamp (`actor.rs` settle; Node: `commitAskTurn` acknowledges, `ask-turn-settle.mjs:148-164`,
+                // before the turn is published). The header a client reads follows only once each is acked, and the store
+                // already holds the end record before that, so the end record alone does not say the header is settled:
+                // the coverage stamp, the last of them, does.
+                let covered = || handle.header_snapshot().get("turnCoverage").cloned();
+                let before = covered();
                 handle.request(request("turn/start", json!({ "threadId": thread, "opId": op, "input": { "prompt": prompt } }), &op)).await.expect("turn/start");
-                loop {
-                    let stepped = handle.stepped().notified();
-                    tokio::pin!(stepped);
-                    stepped.as_mut().enable();
-                    if ended() >= want {
-                        break;
-                    }
-                    stepped.await;
-                }
+                eventually_on_awaiting(|| format!("the end record of run {want} and the changed turnCoverage stamp (turn {op})"), &[handle.stepped()], || (ended() >= want && covered() != before).then_some(())).await;
             }
         };
         let header = || async { threads.header(&id).await.expect("header") };
@@ -1800,15 +1861,7 @@ mod tests {
         let patch = json!({ "threadId": id, "set": { "provider": route["provider"], "model": route["model"] }, "unset": [] });
         handle.request(CoreRequest { method: Method("thread/header/patch"), params: patch, op: None, ctx: CallContext::internal("test") }).await.expect("route");
         handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
-        let entry = loop {
-            let queued = woke.notified();
-            tokio::pin!(queued);
-            queued.as_mut().enable();
-            if let Some(entry) = rig.quota.entry(id.as_str()) {
-                break entry;
-            }
-            queued.await;
-        };
+        let entry = eventually_on_awaiting(|| "the quota entry for the failed run's thread".to_owned(), &[&*woke], || rig.quota.entry(id.as_str())).await;
         assert_eq!(entry.to_value()["resetAt"].as_f64(), Some(reset as f64), "the resume waits for the reset the provider named");
 
         let completion = rig
@@ -1909,18 +1962,10 @@ mod tests {
                 .map(|(_, _, params)| params["value"]["progressHint"].clone())
                 .collect()
         };
-        tokio::time::timeout(Duration::from_secs(10), reported.notified()).await.expect("the tool ran");
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-        while !hints().contains(&json!({ "outputTail": "compiling" })) {
-            assert!(tokio::time::Instant::now() < deadline, "the hint was not published: {:?}", hints());
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
+        mixdog_core_session::session::testing::awaiting(|| "the report tool to be called".to_owned(), reported.notified()).await;
+        eventually_on_awaiting(|| "the tool-output hint with outputTail \"compiling\" published to the thread's clients".to_owned(), &[&rig.feeds.published], || hints().contains(&json!({ "outputTail": "compiling" })).then_some(())).await;
         release.notify_one();
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-        while hints().last() != Some(&Value::Null) {
-            assert!(tokio::time::Instant::now() < deadline, "the hint was not withdrawn: {:?}", hints());
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
+        eventually_on_awaiting(|| "the tool-output hint withdrawn (a null hint published last) after the tool ends".to_owned(), &[&rig.feeds.published], || (hints().last() == Some(&Value::Null)).then_some(())).await;
     }
 
     /// A tool that spends like a hosted web search: it reports its delta to the usage registry under the asking thread.
@@ -1993,16 +2038,8 @@ mod tests {
         let heard = || -> Vec<Value> {
             rig.feeds.frames(id.as_str()).into_iter().filter(|(_, method, _)| method == "thread/tokenUsage/updated").map(|(_, _, params)| params["usage"].clone()).collect()
         };
-        // Woken by each step of the thread's actor; registered before the check so a step in between is not missed.
-        loop {
-            let stepped = handle.stepped().notified();
-            tokio::pin!(stepped);
-            stepped.as_mut().enable();
-            if heard().contains(&delta) {
-                break;
-            }
-            stepped.await;
-        }
+        // Woken by each step of the thread's actor.
+        eventually_on_awaiting(|| "the thread/tokenUsage/updated frame carrying the usage delta".to_owned(), &[handle.stepped()], || heard().contains(&delta).then_some(())).await;
         assert_eq!(heard().iter().filter(|usage| **usage == delta).count(), 1);
     }
 
@@ -2140,11 +2177,12 @@ mod tests {
     }
 
     #[derive(Default)]
-    struct Ledger(Mutex<Vec<mixdog_ai::registry::accounting::UsageRow>>);
+    struct Ledger(Mutex<Vec<mixdog_ai::registry::accounting::UsageRow>>, tokio::sync::Notify);
     #[async_trait]
     impl mixdog_ai::registry::accounting::UsageSink for Ledger {
         async fn record_queued(&self, row: mixdog_ai::registry::accounting::UsageRow) -> Result<(), String> {
             lock(&self.0).push(row);
+            self.1.notify_waiters();
             Ok(())
         }
     }
@@ -2292,6 +2330,16 @@ mod tests {
         let next = super::super::next_request_source::NextRequestSource::new();
         let (kept, side_store, side_next) = (store.clone(), store.clone(), next.clone());
         let liveness = mixdog_services::task_reports::runtime_state::RuntimeLiveness::new();
+        /// Notes every thread the assembly asks where its approvals go.
+        #[derive(Default)]
+        struct AskedFor(Mutex<Vec<String>>);
+        impl crate::run_host::run_approvals::RunApprovals for AskedFor {
+            fn gate_for(&self, thread: &ThreadId, own: Arc<dyn mixdog_core_api::domain::approval::ApprovalGate>) -> Arc<dyn mixdog_core_api::domain::approval::ApprovalGate> {
+                lock(&self.0).push(thread.as_str().to_owned());
+                own
+            }
+        }
+        let asked = Arc::new(AskedFor::default());
         let parts = super::super::turn_path::TurnPathParts {
             tokens: tokens.clone(),
             clock: clock.clone(),
@@ -2313,6 +2361,7 @@ mod tests {
             connectors,
             resolver: Arc::new(PoolResolver(pool.clone())),
             unattended: crate::run_host::unattended::UnattendedRunRegistry::new(Arc::new(NoStamps)),
+            approvals: asked.clone(),
             exclusions: Arc::default(),
             agents: Arc::new(mixdog_core_agents::agents::AgentDefinitions::new(workspace.path().join("shipped"), workspace.path().join("agents"), tokens.interactive_io, mixdog_core_config::config::AgentRoutes::new(compaction.config.clone(), workspace.path()), Arc::new(NoEvidence), Arc::new(|| json!({})), workspace.path())),
             allow_all: Arc::new(AllowNone),
@@ -2407,12 +2456,10 @@ mod tests {
                 })
                 .collect()
         };
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-        while roles().len() < 4 || lock(&ledger.0).len() < 2 {
-            assert!(tokio::time::Instant::now() < deadline, "the turn did not settle: {:?} ledger={}", roles(), lock(&ledger.0).len());
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
+        eventually_on_awaiting(|| "the four-role transcript in the store and two usage rows in the ledger".to_owned(), &[&rig.store.committed, &ledger.1], || (roles().len() >= 4 && lock(&ledger.0).len() >= 2).then_some(())).await;
         assert_eq!(roles(), ["user", "assistant", "tool", "assistant"]);
+        // The turn's two approval entry points (the policy gate and the tool environment a nested call is judged with) both went through the composition's choice.
+        assert_eq!(*lock(&asked.0), [id.as_str(), id.as_str()]);
         let requests = lock(&provider.requests).clone();
         assert_eq!(requests.len(), 2);
         assert_eq!(requests[1].messages.iter().map(|m| m.role).collect::<Vec<_>>(), [Role::User, Role::Assistant, Role::Tool]);

@@ -37,6 +37,7 @@ pub struct HostParts {
     pub connectors: Arc<dyn ConnectorPermissions>,
     pub resolver: Arc<dyn ToolResolver>,
     pub gate_env: Arc<dyn GateEnv>,
+    pub approvals: Arc<dyn super::run_approvals::RunApprovals>,
     pub blobs: Arc<dyn BlobReads>,
     /// The one table the react tool (`SessionReactions`) records into.
     pub reaction_targets: Arc<ReactionTargets>,
@@ -67,7 +68,7 @@ pub fn build_directory(host: HostParts, deps: impl FnOnce(Arc<dyn RunFactory>) -
     let mut bound = None;
     let registry = host.registry.clone();
     let directory = Arc::new_cyclic(|directory: &Weak<SessionDirectory>| {
-        let HostParts { registry, clock, files, processes, io, policy, connectors, resolver, gate_env, blobs, reaction_targets, reuses, effort_judge, side, next, seams, settings, probes, observed, shells, exclusions, turn_settings, liveness, search_usage } = host;
+        let HostParts { registry, clock, files, processes, io, policy, connectors, resolver, gate_env, approvals, blobs, reaction_targets, reuses, effort_judge, side, next, seams, settings, probes, observed, shells, exclusions, turn_settings, liveness, search_usage } = host;
         let services = HostServices {
             registry,
             clock,
@@ -78,6 +79,7 @@ pub fn build_directory(host: HostParts, deps: impl FnOnce(Arc<dyn RunFactory>) -
             connectors,
             resolver,
             gate_env,
+            approvals,
             blobs,
             reaction_targets,
             reuses,

@@ -60,6 +60,7 @@ use crate::recovery::RecoveryStore;
 use crate::search::SearchSessions;
 use crate::search::SessionConfig;
 use crate::textsearch::TextQuery;
+use crate::transfer::Owner;
 use crate::transfer::Transfers;
 use crate::watcher::ChangeKind;
 use crate::watcher::ChangeSink;
@@ -232,6 +233,10 @@ pub struct WorkspaceService {
     fs: Arc<ProjectFs>,
     paths: Claims<PathBuf>,
     transfers: Arc<Transfers>,
+    /// The file previews' media leases (`media-leases.ts`), served by the media lane through [`WorkspaceService::file_leases`].
+    file_leases: Arc<crate::preview::FileLeases>,
+    /// The text reads answered a window at a time, each held as the one read of its file ([`crate::readwindow`]).
+    read_windows: crate::readwindow::ReadWindows,
     watcher: Arc<FolderWatcher>,
     router: Arc<Router>,
     watches: Mutex<HashMap<String, Owned>>,
@@ -249,9 +254,20 @@ pub struct WorkspaceService {
     /// The desktop host's channel, for the methods only an Electron window can answer.
     host: OnceLock<Arc<dyn HostChannel>>,
     phone_grants: OnceLock<PhoneGrants>,
+    /// The sweepers run once, whatever the number of calls to [WorkspaceService::spawn_idle_sweeper].
+    sweepers: std::sync::Once,
     /// The user's Markdown default view, read when editor settings are (see [`Self::set_user_markdown_view`]).
     user_markdown_view: OnceLock<UserMarkdownView>,
+    /// Where a path inside a managed worktree is resolved to its owner Project (see [`ManagedProjects`]).
+    managed: OnceLock<Arc<dyn ManagedProjects>>,
     releases: Arc<crate::release::FolderReleases>,
+}
+
+/// Node's `resolveManagedWorktree`, which the worktree manager owns: the registered Project that owns the ready managed
+/// worktree at (or below) a path, and the folder's real path.
+#[async_trait::async_trait]
+pub trait ManagedProjects: Send + Sync {
+    async fn owner(&self, path: &str) -> Option<(String, String)>;
 }
 
 /// Reads the user's Markdown default view.
@@ -262,7 +278,21 @@ fn s<'a>(params: &'a Value, key: &str) -> WsResult<&'a str> {
 }
 
 /// Largest staged upload and its chunk size (`shared/server-files.ts`).
-use crate::transfer::{UPLOAD_CHUNK_BYTES, UPLOAD_MAX_BYTES};
+use crate::transfer::{UPLOAD_CHUNK_BYTES, UPLOAD_MAX_BYTES, unavailable};
+
+/// A relay call's file as admitted (Node's `remoteFileTarget` answer): the registered project and the entry in it, or the
+/// granted file's own folder and its name.
+#[derive(Debug)]
+pub struct RelayTarget {
+    pub root: PathBuf,
+    pub rel: String,
+    pub absolute: PathBuf,
+}
+
+/// Node's plain `Error` for an entry beyond its folder (`projectEntryPathIn`), as the phone read it.
+fn beyond_plain(error: WsError) -> WsError {
+    if crate::pathguard::is_beyond_project(&error) { WsError::plain(error.message) } else { error }
+}
 
 fn opt_bool(params: &Value, key: &str) -> bool {
     params.get(key).and_then(Value::as_bool).unwrap_or(false)
@@ -287,6 +317,16 @@ fn text_query(options: &Value) -> WsResult<TextQuery> {
 
 impl WorkspaceService {
     pub fn new(deps: Deps) -> WsResult<Arc<Self>> {
+        Self::build(deps, Arc::new(Transfers::default()))
+    }
+
+    /// A service over a transfer table whose clock a test moves (the whole download path then runs on that clock).
+    #[cfg(test)]
+    pub(crate) fn new_with_transfers(deps: Deps, transfers: Arc<Transfers>) -> WsResult<Arc<Self>> {
+        Self::build(deps, transfers)
+    }
+
+    fn build(deps: Deps, transfers: Arc<Transfers>) -> WsResult<Arc<Self>> {
         let router = Arc::new(Router { fs: Mutex::default(), search: OnceLock::new() });
         let watcher = Arc::new(FolderWatcher::new(router.clone())?);
         let search = SearchSessions::new(deps.lanes, deps.feeds.clone(), watcher.clone());
@@ -301,7 +341,9 @@ impl WorkspaceService {
             catalog: Catalog::new(deps.state.clone(), deps.lanes),
             fs: Arc::new(ProjectFs::new(Arc::new(RecoveryStore::new(deps.recovery_dir)))),
             paths: path_claims(),
-            transfers: Arc::new(Transfers::default()),
+            transfers,
+            file_leases: Arc::default(),
+            read_windows: crate::readwindow::ReadWindows::default(),
             watcher,
             router,
             watches: Mutex::default(),
@@ -318,7 +360,9 @@ impl WorkspaceService {
             state: deps.state,
             host: OnceLock::new(),
             phone_grants: OnceLock::new(),
+            sweepers: std::sync::Once::new(),
             user_markdown_view: OnceLock::new(),
+            managed: OnceLock::new(),
             releases: deps.releases,
         });
         let _ = service.me.set(Arc::downgrade(&service));
@@ -329,6 +373,20 @@ impl WorkspaceService {
     /// per-upload `setTimeout(idleMs)`: it sleeps to the earliest idle deadline and sweeps then, so a
     /// partial file does not wait for the next upload call. Call once after construction.
     pub fn spawn_idle_sweeper(&self) {
+        self.sweepers.call_once(|| self.start_sweepers());
+    }
+
+    fn start_sweepers(&self) {
+        let sweeping = self.transfers.clone();
+        // Node's 15 s sweeper of grants and phone transfers: their handles close at its tick although no call comes. It ends with the
+        // runtime at shutdown, like the other tasks of the daemon. A core built for the replay of the recording ticks on the replay's clock.
+        drop(mixdog_rt::spawn("download-sweep", mixdog_rt::TaskClass::Work, async move {
+            #[cfg(feature = "replay-controls")]
+            if let Some(clock) = crate::replay_controls::clock() {
+                return sweeping.run_download_sweeper(&*clock).await;
+            }
+            sweeping.run_download_sweeper(&crate::transfer::TokioTimer).await;
+        }));
         let (transfers, lanes) = (self.transfers.clone(), self.lanes);
         drop(mixdog_rt::spawn("upload-idle-sweep", mixdog_rt::TaskClass::Work, async move {
             let cancel = CancellationToken::new();
@@ -342,6 +400,10 @@ impl WorkspaceService {
                 .await;
             }
         }));
+    }
+    /// The media leases a file preview minted: the media lane resolves a `mediaAssetId` through them.
+    pub fn file_leases(&self) -> Arc<crate::preview::FileLeases> {
+        self.file_leases.clone()
     }
     pub fn catalog(&self) -> &Catalog {
         &self.catalog
@@ -360,6 +422,26 @@ impl WorkspaceService {
         let _ = self.user_markdown_view.set(read);
     }
 
+    /// Connects the worktree manager's resolution of a managed worktree path to its owner Project. Without it only a
+    /// registered Project's own path is accepted. Set once.
+    pub fn set_managed_projects(&self, managed: Arc<dyn ManagedProjects>) {
+        let _ = self.managed.set(managed);
+    }
+
+    /// Node's `projectScope`: the registered Project a path names, or the owner of the managed worktree it names (with
+    /// that worktree's folder). Any other path is the registry's refusal.
+    async fn scope(&self, path: &str) -> WsResult<(PathBuf, Option<PathBuf>)> {
+        let refusal = match self.catalog.resolve(path).await {
+            Ok(project) => return Ok((project, None)),
+            Err(refusal) => refusal,
+        };
+        let owned = match self.managed.get() {
+            Some(managed) => managed.owner(path).await,
+            None => None,
+        };
+        owned.map(|(project, folder)| (PathBuf::from(project), Some(PathBuf::from(folder)))).ok_or(refusal)
+    }
+
     /// Connects the paired devices' one-file grants (`transfer/grant/mint` and the `granted` read source): the
     /// store, and the credential a relay connection is paired as. Without it both answer `unsupported`. Set once.
     pub fn set_phone_grants(
@@ -367,21 +449,27 @@ impl WorkspaceService {
         store: Arc<crate::grants::GrantStore>,
         credential_of: Arc<dyn Fn(ConnectionId) -> Option<String> + Send + Sync>,
     ) {
+        // A device that unpairs loses its downloads in the same step as its grants, whether or not any connection of it is attached.
+        let transfers = self.transfers.clone();
+        store.on_unpaired(Arc::new(move |credential| transfers.revoke_owner(&Owner::device(credential))));
+        // A conversation a publication lists again is a member again (Node's replaceable catalog).
+        let transfers = self.transfers.clone();
+        store.on_listed(Arc::new(move |sessions| transfers.relisted(sessions)));
         let _ = self.phone_grants.set(PhoneGrants { store, credential_of });
     }
 
     /// The grant store and the paired device the request comes from.
-    fn phone_grants_for(&self, req: &CoreRequest) -> WsResult<(Arc<crate::grants::GrantStore>, String)> {
+    fn phone_grants_for(&self, req: &CoreRequest) -> WsResult<(Arc<crate::grants::GrantStore>, String, u64)> {
         let grants = self
             .phone_grants
             .get()
             .ok_or_else(|| WsError::new(Reason::Unsupported, "Paired-device file grants are not available."))?;
-        let credential = match &req.ctx.caller {
-            mixdog_core_api::call::Caller::Connection(id) => (grants.credential_of)(*id),
-            mixdog_core_api::call::Caller::Internal(_) => None,
+        let (credential, connection) = match &req.ctx.caller {
+            mixdog_core_api::call::Caller::Connection(id) => ((grants.credential_of)(*id), id.0),
+            mixdog_core_api::call::Caller::Internal(_) => (None, 0),
         };
         let credential = credential.filter(|id| !id.is_empty()).ok_or_else(|| WsError::denied("This connection is not a paired device."))?;
-        Ok((grants.store.clone(), credential))
+        Ok((grants.store.clone(), credential, connection))
     }
 
     /// One `host/*` request to the desktop's file capability, its failure mapped to the coded
@@ -408,8 +496,11 @@ impl WorkspaceService {
 
     /// A connection closed: its watches, searches and transfers end with it.
     pub fn connection_closed(&self, connection: &ConnectionId) {
-        let owner = connection.to_string();
+        let owner = Owner::connection(connection.0).to_string();
         self.transfers.end_owner(&owner);
+        if let Some(grants) = self.phone_grants.get() {
+            grants.store.release(connection.0);
+        }
         let watches: Vec<String> =
             self.watches.lock().expect("watches").iter().filter(|(_, w)| w.connection == owner).map(|(k, _)| k.clone()).collect();
         for id in watches {
@@ -423,8 +514,42 @@ impl WorkspaceService {
         }
     }
 
-    pub fn revoke_device(&self, device: &str) {
-        self.transfers.end_owner(device);
+    /// The host's catalog dropped a conversation, and this is told in the step that publishes the change (Node's `retainSessions`): the
+    /// downloads on it end at once, a call of them in flight finds it removed, and a conversation no published catalog ever listed ends
+    /// nothing (Node's `seenSessions`).
+    pub fn session_removed(&self, session: &str) {
+        if self.phone_grants.get().is_some_and(|grants| grants.store.has_seen(session)) {
+            self.transfers.remove_session(session);
+        }
+    }
+
+    /// An unpair ends what the device holds. `connection` is the number of one of the device's attached connections, which the unpair
+    /// walks (`PairedDeviceCleanup::unpaired`): what the connection owns ends, and so do the downloads of the credential it is attached
+    /// under. The downloads of a device with no connection attached end through the grant store, which is told the credential
+    /// (see [`Self::set_phone_grants`]).
+    pub fn revoke_device(&self, connection: &str) {
+        let Ok(id) = connection.parse::<u64>() else { return };
+        self.transfers.revoke_owner(&Owner::connection(id));
+        if let Some(credential) = self.phone_grants.get().and_then(|grants| (grants.credential_of)(ConnectionId(id))).filter(|credential| !credential.is_empty()) {
+            self.transfers.revoke_owner(&Owner::device(&credential));
+        }
+    }
+
+    /// The relay handle closed (switched off, rotated, the core stopping): every phone download ends in that step, and a call in flight
+    /// finds it revoked (Node's `fileDownloads.revokeAll` in the relay's `close`, `remote-relay.ts:653`).
+    pub fn revoke_all_downloads(&self) {
+        self.transfers.revoke_all();
+    }
+
+    /// Who a phone's download calls belong to: its paired credential (only a relay peer admitted under one has it), else (a local
+    /// client) the connection (Node's `downloadRequester`).
+    fn download_owner(&self, req: &CoreRequest) -> Owner {
+        match (&req.ctx.caller, self.phone_grants.get()) {
+            (mixdog_core_api::call::Caller::Connection(id), Some(grants)) => {
+                (grants.credential_of)(*id).filter(|c| !c.is_empty()).map_or_else(|| Owner::connection(id.0), |credential| Owner::device(&credential))
+            }
+            _ => Self::owner(req),
+        }
     }
 
     fn unwatch(&self, id: &str) {
@@ -436,6 +561,9 @@ impl WorkspaceService {
     }
 
     fn map_error(&self, req: &CoreRequest, error: WsError) -> CoreError {
+        // The phone's adapter asks for `nodeErrors`: an entry beyond the project is Node's plain `Error` there (a code-less `domainError`);
+        // every other caller keeps the permission refusal.
+        let error = if req.params.get("nodeErrors") == Some(&Value::Bool(true)) && crate::pathguard::is_beyond_project(&error) { WsError::plain(error.message) } else { error };
         match error.reason {
             Reason::InvalidParams => CoreError::InvalidParams { path: "params".into(), expected: error.message.into() },
             Reason::PermissionDenied => {
@@ -446,6 +574,7 @@ impl WorkspaceService {
             },
             Reason::Overloaded => CoreError::QueueFull { queue: "workspace".into() },
             Reason::Cancelled => CoreError::Cancelled { by: "caller".into() },
+            Reason::Plain => CoreError::DomainError { domain: "workspace".into(), code: None, message: Some(error.message.clone().into()), detail: None },
             ref other => CoreError::DomainError { domain: "workspace".into(), code: Some(other.code().into()), message: Some(error.message.clone().into()), detail: None },
         }
     }
@@ -497,18 +626,72 @@ impl WorkspaceService {
     /// by the connection's origin and `rel`.
     async fn file_target(&self, req: &CoreRequest, params: &Value) -> WsResult<(PathBuf, String)> {
         if let Some(token) = params.get("accessToken") {
-            let (grants, credential) = self.phone_grants_for(req)?;
+            let (grants, credential, connection) = self.phone_grants_for(req)?;
             let token = token.as_str().ok_or_else(|| WsError::invalid("accessToken is invalid."))?;
-            let granted = grants.redeem(&credential, token, s(params, "root")?, s(params, "rel")?).await?;
+            let granted = grants.redeem(&credential, connection, token, s(params, "root")?, s(params, "rel")?).await?;
             return Ok((granted.root, granted.rel));
         }
         Ok((self.root(req.ctx.origin, params).await?, s(params, "rel")?.to_owned()))
     }
 
-    fn owner(req: &CoreRequest) -> String {
+    /// A paired phone's file named by its path (an editor backup, a document preview), held to what Node's host let a phone
+    /// name (`remoteFileTarget`, `remote-file-preview.ts`): a file this device holds a live one-file grant for, or an entry of a
+    /// registered project confined to it. The registered projects are the catalog's; the grants are this connection's device
+    /// table in the grant store (`set_phone_grants`). A refusal is Node's answer for a file named without a token:
+    /// `PROJECT_UNAVAILABLE` "Project is not available." for a folder that is no project, "Path is outside the project." (no code)
+    /// for an entry beyond it. The token's own refusals stay with `projectFs/entryPath`, which redeems a token.
+    ///
+    /// The answer is the file as admitted, and it is what the caller acts on in place of what the phone sent: Node's callers
+    /// used `target.root`, `target.rel` and `target.absolute`, never the phone's own spelling (a folder name that only trims
+    /// to a project's is not that project).
+    pub async fn relay_file(&self, req: &CoreRequest, root: &str, rel: &str) -> Result<RelayTarget, CoreError> {
+        self.relay_target(req, root, rel).await.map_err(|error| self.map_error(req, error))
+    }
+
+    async fn relay_target(&self, req: &CoreRequest, root: &str, rel: &str) -> WsResult<RelayTarget> {
+        if let (Some(grants), mixdog_core_api::call::Caller::Connection(id)) = (self.phone_grants.get(), &req.ctx.caller)
+            && let Some(credential) = (grants.credential_of)(*id).filter(|credential| !credential.is_empty())
+            && let Ok(base) = std::path::absolute(root)
+        {
+            let file = crate::pathguard::lexical(&base.join(rel));
+            if grants.store.holds(&credential, id.0, &file).await? {
+                // `located(root, rel, true)`: the granted file is re-resolved in its own folder on every call, so a name
+                // swapped for a link out of that folder is refused.
+                let folder = file.parent().map(Path::to_path_buf).unwrap_or_default();
+                let name = file.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+                let absolute = project_entry_path(&folder, &name).map_err(beyond_plain)?;
+                return Ok(RelayTarget { root: folder, rel: name, absolute });
+            }
+        }
+        let project = self.catalog.resolve(root).await?;
+        let absolute = project_entry_path(&project, rel).map_err(beyond_plain)?;
+        Ok(RelayTarget { root: project, rel: rel.to_owned(), absolute })
+    }
+
+    /// An editor backup of a relay connection: [`Self::relay_file`] for a file named by its absolute path alone. The
+    /// deepest registered project that holds it names the project and the entry (Node's phone named them), else the file's
+    /// own folder is the folder named. Other origins name any absolute path, as the desktop's own editor did. The answer is the
+    /// path the backup is kept under: the admitted file's (Node's `editorFilePath`), the caller's own for another origin.
+    async fn relay_backup(&self, req: &CoreRequest, source: String) -> WsResult<String> {
+        if req.ctx.origin != mixdog_protocol::Origin::Relay {
+            return Ok(source);
+        }
+        let projects: Vec<String> = self.catalog.list().await?.into_iter().map(|row| row.path).collect();
+        let file = Path::new(&source);
+        let (root, rel) = match crate::grants::owning_project(&projects, file) {
+            Some((project, rel)) => (project.to_owned(), rel),
+            None => (
+                file.parent().map(|parent| parent.to_string_lossy().into_owned()).unwrap_or_default(),
+                file.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default(),
+            ),
+        };
+        Ok(self.relay_target(req, &root, &rel).await?.absolute.to_string_lossy().into_owned())
+    }
+
+    fn owner(req: &CoreRequest) -> Owner {
         match &req.ctx.caller {
-            mixdog_core_api::call::Caller::Connection(id) => id.to_string(),
-            mixdog_core_api::call::Caller::Internal(name) => (*name).to_owned(),
+            mixdog_core_api::call::Caller::Connection(id) => Owner::connection(id.0),
+            mixdog_core_api::call::Caller::Internal(name) => Owner::internal(name),
         }
     }
 
@@ -533,7 +716,11 @@ impl WorkspaceService {
                 value(json!({ "path": path.to_string_lossy(), "exists": exists, "directory": directory }))
             }
             "project/create" => value(json!({ "project": self.catalog.add(s(params, "path")?, &cancel, op).await? })),
-            "project/touch" => value(json!({ "project": self.catalog.touch(s(params, "path")?, op).await? })),
+            "project/touch" => {
+                // Node's `touchProject` takes the registered Project (`knownProject`: a managed worktree names its owner).
+                let (project, _) = self.scope(s(params, "path")?).await?;
+                value(json!({ "project": self.catalog.touch(&project.to_string_lossy(), op).await? }))
+            }
             "project/update" => {
                 let alias = params.get("alias").and_then(Value::as_str).unwrap_or_default();
                 value(json!({ "project": self.catalog.rename(s(params, "path")?, alias, op).await? }))
@@ -554,7 +741,19 @@ impl WorkspaceService {
                 let path = self.catalog.ensure_directory(s(params, "path")?, &cancel).await?;
                 value(json!({ "path": path.to_string_lossy() }))
             }
-            "project/directory" => value(json!({ "path": self.catalog.resolve(s(params, "path")?).await?.to_string_lossy() })),
+            "project/directory" => {
+                // `projectDirectory`: the managed worktree's folder, else the Project's real path. `owner` asks for the
+                // Project's real path even for a worktree (`startProjectTask`'s `canonicalDirectory(knownProject(path))`).
+                let (project, worktree) = self.scope(s(params, "path")?).await?;
+                let folder = match worktree.filter(|_| !opt_bool(params, "owner")) {
+                    Some(folder) => folder,
+                    None => {
+                        let given = project.to_string_lossy().into_owned();
+                        run_fallible(self.lanes.interactive, &cancel, move || crate::catalog::canonical_directory(&project, &given)).await?
+                    }
+                };
+                value(json!({ "path": folder.to_string_lossy() }))
+            }
             "project/recoveryDirectory" => {
                 let root = self.catalog.resolve(s(params, "path")?).await?;
                 value(json!({ "path": self.fs.recovery.store_path(&root).to_string_lossy() }))
@@ -564,22 +763,49 @@ impl WorkspaceService {
                 value(json!(items))
             }
             "projectFs/readText" => {
+                // A connection carries at most 512 KiB per answer, a file up to 10 MiB: the reader asks for the text a window at a time
+                // (code points, so no character is split) and joins the pieces. The first window reads the file once; `readId` names that
+                // read, and the windows after it are served from it (readwindow.rs), so the pieces are one version of the file.
+                let max = req.params.get("maxChars").and_then(Value::as_u64).map(|max| max as usize);
+                if let (Some(max), Some(id)) = (max, req.params.get("readId").and_then(Value::as_str)) {
+                    let from = req.params.get("fromChar").and_then(Value::as_u64).unwrap_or(0) as usize;
+                    return value(self.read_windows.next(&Self::owner(req), id, from, max)?);
+                }
                 let (root, rel) = self.file_target(req, params).await?;
-                let file = run_fallible(self.lanes.interactive, &cancel, move || fsops::read_text(&root, &rel)).await?;
-                value(json!(file))
+                let authorized = opt_bool(params, "authorized");
+                let file = run_fallible(self.lanes.interactive, &cancel, move || {
+                    if authorized { fsops::read_text_authorized(&root, &rel) } else { fsops::read_text(&root, &rel) }
+                })
+                .await?;
+                let answer = json!(file);
+                value(match max {
+                    Some(max) => self.read_windows.begin(&Self::owner(req), answer, max),
+                    None => answer,
+                })
             }
             "projectFs/stat" => {
                 let (root, rel) = self.file_target(req, params).await?;
                 value(json!(run_fallible(self.lanes.interactive, &cancel, move || fsops::stat(&root, &rel)).await?))
             }
             "projectFs/entryPath" => {
-                let root = self.root(req.ctx.origin, params).await?;
-                value(json!({ "path": project_entry_path(&root, s(params, "rel")?)?.to_string_lossy() }))
+                let (root, rel) = self.file_target(req, params).await?;
+                value(json!({ "path": project_entry_path(&root, &rel)?.to_string_lossy() }))
             }
             "projectFs/browseDirs" => {
                 let path = s(params, "path")?.to_owned();
                 let include_hidden = params.get("includeHidden").and_then(Value::as_bool);
                 value(run_fallible(self.lanes.interactive, &cancel, move || crate::browse::browse_dirs(&path, include_hidden)).await?)
+            }
+            "projectFs/previewFile" => {
+                let (root, rel) = self.file_target(req, params).await?;
+                let leases = self.file_leases.clone();
+                value(run_fallible(self.lanes.interactive, &cancel, move || crate::preview::preview_file(&leases, &root, &rel)).await?)
+            }
+            "projectFs/previewRange" => {
+                let (root, rel) = self.file_target(req, params).await?;
+                let offset = params.get("offset").and_then(Value::as_u64).ok_or_else(|| WsError::invalid("offset is invalid."))?;
+                let length = params.get("length").and_then(Value::as_u64).filter(|n| (1..=crate::preview::RANGE_MAX).contains(n)).ok_or_else(|| WsError::invalid("length is invalid."))?;
+                value(run_fallible(self.lanes.interactive, &cancel, move || crate::preview::preview_range(&root, &rel, offset, length)).await?)
             }
             "projectFs/readLocal" => {
                 let path = s(params, "path")?.to_owned();
@@ -600,8 +826,7 @@ impl WorkspaceService {
                 value(json!(entries))
             }
             "projectFs/writeText" => {
-                let root = self.root(req.ctx.origin, params).await?;
-                let rel = s(params, "rel")?.to_owned();
+                let (root, rel) = self.file_target(req, params).await?;
                 let (content, expected) = (s(params, "content")?.to_owned(), s(params, "expectedContent")?.to_owned());
                 let encoding = params.get("encoding").and_then(Value::as_str).map(fsops::parse_encoding).transpose()?;
                 let _claim = self.paths.acquire(Self::claim_keys(&root, &[&rel])?).await;
@@ -625,6 +850,8 @@ impl WorkspaceService {
             "projectFs/create" => {
                 let root = self.root(req.ctx.origin, params).await?;
                 let (dir, name, directory) = (s(params, "relDir")?.to_owned(), s(params, "name")?.to_owned(), opt_bool(params, "directory"));
+                // Node names the segments invalid before it joins and claims the path.
+                fsops::entry_segments(&name)?;
                 let target = PathBuf::from(&dir).join(name.replace('\\', "/"));
                 let _claim = self.paths.acquire(Self::claim_keys(&root, &[&target.to_string_lossy()])?).await;
                 let note_root = root.clone();
@@ -753,12 +980,12 @@ impl WorkspaceService {
                     self.router.fs.lock().expect("fs watches").remove(&id);
                     return Err(error);
                 }
-                self.watches.lock().expect("watches").insert(id, Owned { connection: Self::owner(req), publisher: publisher.clone() });
+                self.watches.lock().expect("watches").insert(id, Owned { connection: Self::owner(req).to_string(), publisher: publisher.clone() });
                 Ok(Reply::Subscribe(Subscribe { result: json!({}), feed: publisher.source(), window: Window::Fixed, resume_from: None }))
             }
             "fs/unwatch" => {
                 let id = s(params, "watchId")?;
-                let owned = self.watches.lock().expect("watches").get(id).is_some_and(|w| w.connection == Self::owner(req));
+                let owned = self.watches.lock().expect("watches").get(id).is_some_and(|w| w.connection == *Self::owner(req));
                 if owned {
                     self.unwatch(id);
                 }
@@ -789,7 +1016,7 @@ impl WorkspaceService {
                     beyond_budget: None,
                 };
                 let publisher = self.search.start(&id, config)?;
-                self.search_owner.lock().expect("search owners").insert(id, Self::owner(req));
+                self.search_owner.lock().expect("search owners").insert(id, Self::owner(req).to_string());
                 Ok(Reply::Subscribe(Subscribe { result: json!({}), feed: publisher.source(), window: Window::Fixed, resume_from: None }))
             }
             "search/update" => {
@@ -813,9 +1040,9 @@ impl WorkspaceService {
                         run_fallible(self.lanes.interactive, &cancel, move || t.begin_project_read(&owner, &root, &rel)).await?
                     }
                     Some("granted") => {
-                        let (grants, credential) = self.phone_grants_for(req)?;
+                        let (grants, credential, connection) = self.phone_grants_for(req)?;
                         let granted = grants
-                            .redeem(&credential, s(source, "accessToken")?, s(source, "projectPath")?, s(source, "relPath")?)
+                            .redeem(&credential, connection, s(source, "accessToken")?, s(source, "projectPath")?, s(source, "relPath")?)
                             .await?;
                         let (root, rel) = (granted.root, granted.rel);
                         run_fallible(self.lanes.interactive, &cancel, move || t.begin_project_read(&owner, &root, &rel)).await?
@@ -860,12 +1087,109 @@ impl WorkspaceService {
                     return value(run_fallible(self.lanes.interactive, &cancel, move || crate::transfer::read_path_range(&root, &rel, offset, length)).await?);
                 }
                 let id = s(params, "transferId")?.to_owned();
-                let (owner, t) = (Self::owner(req), self.transfers.clone());
-                let range = run_fallible(self.lanes.interactive, &cancel, move || t.read_range(&owner, &id, offset, length)).await?;
+                let (owner, connection, t) = (self.download_owner(req), Self::owner(req), self.transfers.clone());
+                let owners = [owner.as_str(), connection.as_str()];
+                let version = params.get("version").and_then(Value::as_str).map(str::to_owned);
+                let range = run_fallible(self.lanes.interactive, &cancel, {
+                    let (owners, id) = (owners.map(str::to_owned), id.clone());
+                    move || t.read_range(&[owners[0].as_str(), owners[1].as_str()], &id, offset, length, version.as_deref())
+                })
+                .await?;
+                // The lane answered some time after the range took its last look: a revoke that landed since is never followed by bytes.
+                if !self.transfers.holds(&owners, &id) {
+                    return Err(WsError::expired());
+                }
                 value(json!(range))
             }
+            "transfer/authorizeRead" => {
+                // Node's `requiredFileDownloadRequest`, check for check and before anything is looked up: the core is the boundary, whoever
+                // calls it, and each identifier is the trimmed text Node goes on with.
+                let source = params.get("source").filter(|source| source.is_object()).ok_or_else(|| WsError::invalid("download source is invalid."))?;
+                if !matches!(params.get("purpose").and_then(Value::as_str), Some("save" | "share" | "open")) {
+                    return Err(WsError::invalid("download purpose is invalid."));
+                }
+                let session = crate::transfer::required_session_id(params.get("sessionId"))?;
+                let requested = crate::transfer::DownloadRequest::of(source)?;
+                let owner = self.download_owner(req);
+                let mark = self.transfers.mark(&owner, &session);
+                let t = self.transfers.clone();
+                // Node's `sessionRow`: the conversation must be in the host's catalog now, whoever asks, and its project is the catalog's, never
+                // the caller's.
+                let grants = self.phone_grants.get().ok_or_else(|| WsError::new(Reason::Unsupported, "Paired-device downloads are not available."))?;
+                let row = grants.store.session_row(&session).await?.ok_or_else(unavailable)?;
+                // `projectRoot`: only a project conversation whose project is still a registered one has a root.
+                let project = match (&row.project_path, row.project) {
+                    (Some(given), true) => self.catalog.resolve(given).await.ok(),
+                    _ => None,
+                };
+                let given = row.project_path.as_deref().map(PathBuf::from);
+                let mut left_out = None;
+                let opened = match requested {
+                    crate::transfer::DownloadRequest::Project(rel) => {
+                        let root = project.ok_or_else(|| WsError::new(Reason::Download("file-download:outside-project"), "The file is outside the conversation's project."))?;
+                        run_fallible(self.lanes.interactive, &cancel, move || crate::transfer::open_project_download(&root, &rel, &|point| t.point(point))).await?
+                    }
+                    crate::transfer::DownloadRequest::Session(path) => {
+                        let cwd = row.cwd.clone();
+                        run_fallible(self.lanes.interactive, &cancel, move || {
+                            crate::transfer::open_session_download(&path, &cwd, project.as_deref(), given.as_deref(), &|point| t.point(point))
+                        })
+                        .await?
+                    }
+                    crate::transfer::DownloadRequest::Media(asset) => {
+                        // Node's `authorizeMediaAsset`: the conversation is in the catalog (above), the asset is the media store's.
+                        let entry = grants.store.media(&asset).await?;
+                        run_fallible(self.lanes.interactive, &cancel, move || crate::transfer::open_media_download(entry.as_ref(), &|point| t.point(point))).await?
+                    }
+                    crate::transfer::DownloadRequest::Link(href) => {
+                        // Node's `authorizeLinkedFile`: the link decoded as the desktop decodes it, then opened as a path the conversation names.
+                        let path = crate::transfer::link_path(&href).ok_or_else(|| WsError::new(Reason::Download("file-download:not-a-file"), "Only files on this PC can be downloaded."))?;
+                        let cwd = row.cwd.clone();
+                        run_fallible(self.lanes.interactive, &cancel, move || {
+                            crate::transfer::open_session_download(&path, &cwd, project.as_deref(), given.as_deref(), &|point| t.point(point))
+                        })
+                        .await?
+                    }
+                    crate::transfer::DownloadRequest::Attachment(id) => {
+                        // Node's `authorizeAttachment`: an id the conversation the core resolved names, staged by the attachment domain.
+                        let source = self.sources.iter().find(|x| x.kind() == "attachment").ok_or_else(|| WsError::new(Reason::Unsupported, "Attachments are not available."))?;
+                        let read = source.bytes(&json!({ "sessionId": session, "attachmentId": id }), &cancel).await.map_err(crate::transfer::source_refusal)?;
+                        let (owner, session) = (owner.clone(), session.clone());
+                        run_fallible(self.lanes.interactive, &cancel, move || t.stage(&owner, &session, &read.bytes, read.name, read.mime_type)).await?
+                    }
+                    crate::transfer::DownloadRequest::Folder(path) => {
+                        // Node's `authorizeFolderZip`: the folder as the conversation names it, zipped as `zipFolder` zips it, staged.
+                        let cwd = row.cwd.clone();
+                        let (root, given) = (project.clone(), given.clone());
+                        let folder = run_fallible(self.lanes.maintenance, &cancel, move || crate::transfer::phone_folder(&path, &cwd, root.as_deref(), given.as_deref())).await?;
+                        let scan = crate::zip::scan_folder(self.tracked.as_ref(), self.lanes, &cancel, &folder, crate::transfer::ZIP_MAX_BYTES, crate::transfer::ZIP_MAX_FILES, None)
+                            .await
+                            .map_err(crate::transfer::phone_folder_refusal)?;
+                        left_out = Some(crate::transfer::LeftOut { ignored: scan.ignored, secret: 0 });
+                        let (t, owner, session) = (self.transfers.clone(), owner.clone(), session.clone());
+                        run_fallible(self.lanes.cpu_bulk, &cancel, move || {
+                            let (archive, name) = crate::transfer::folder_zip(&folder, &scan.files, &|point| t.point(point))?;
+                            t.stage(&owner, &session, &archive, name, "application/zip".into())
+                        })
+                        .await?
+                    }
+                };
+                let t = self.transfers.clone();
+                let mut authorized = t.authorize(&owner, &session, mark, opened)?;
+                authorized.left_out = left_out;
+                value(json!(authorized))
+            }
+            "transfer/redeemGrant" => {
+                let (owner, t, id) = (self.download_owner(req), self.transfers.clone(), crate::transfer::required_download_id(params.get("grantId"), "grant id")?);
+                value(json!(run_fallible(self.lanes.interactive, &cancel, move || t.begin_grant(&owner, &id)).await?))
+            }
+            "transfer/finishRead" => {
+                let (owner, t, id) = (self.download_owner(req), self.transfers.clone(), crate::transfer::required_download_id(params.get("transferId"), "transfer id")?);
+                value(json!(run_fallible(self.lanes.interactive, &cancel, move || t.finish_read(&owner, &id)).await?))
+            }
             "transfer/endRead" => {
-                value(json!({ "ended": self.transfers.end_read(&Self::owner(req), s(params, "transferId")?) }))
+                let (owner, connection, id) = (self.download_owner(req), Self::owner(req), s(params, "transferId")?);
+                value(json!({ "ended": self.transfers.end_read(&[owner.as_str(), connection.as_str()], id) }))
             }
             "transfer/beginWrite" if params.get("scope").is_some() => {
                 // `serverUploadBegin(name, size, scope)`: staged under the data dir, named at commit.
@@ -922,7 +1246,7 @@ impl WorkspaceService {
             "transfer/grant/mint" => {
                 // `resolveLocalPaths` / `attachmentOpen` of a paired device: the described path, with a one-file
                 // grant when it lies outside every project (a conversation's attachment always gets one).
-                let (grants, credential) = self.phone_grants_for(req)?;
+                let (grants, credential, connection) = self.phone_grants_for(req)?;
                 let path = s(params, "path")?.to_owned();
                 let session = params.get("sessionId").and_then(Value::as_str).unwrap_or_default().to_owned();
                 let entry = run_fallible(self.lanes.interactive, &cancel, move || fsops::stat_local(&path)).await?;
@@ -939,7 +1263,7 @@ impl WorkspaceService {
                         None => {
                             row["projectPath"] = json!(absolute.parent().map(|dir| dir.to_string_lossy().into_owned()).unwrap_or_default());
                             row["relPath"] = json!(absolute.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default());
-                            row["accessToken"] = json!(grants.mint(&credential, &absolute, &session).await?);
+                            row["accessToken"] = json!(grants.mint(&credential, connection, &absolute, &session).await?);
                         }
                     }
                 }
@@ -957,17 +1281,17 @@ impl WorkspaceService {
                 value(outcome)
             }
             "projectFs/backup/read" => {
-                let (backups, source) = (self.backups.clone(), s(params, "sourcePath")?.to_owned());
+                let (backups, source) = (self.backups.clone(), self.relay_backup(req, s(params, "sourcePath")?.to_owned()).await?);
                 value(run_fallible(self.lanes.interactive, &cancel, move || backups.read(&source)).await?)
             }
             "projectFs/backup/write" => {
-                let (backups, source) = (self.backups.clone(), s(params, "sourcePath")?.to_owned());
+                let (backups, source) = (self.backups.clone(), self.relay_backup(req, s(params, "sourcePath")?.to_owned()).await?);
                 let (content, expected) = (s(params, "content")?.to_owned(), s(params, "expectedContent")?.to_owned());
                 let _claim = self.paths.acquire(vec![self.backups.path_of(&source)?]).await;
                 value(run_fallible(self.lanes.durability, &cancel, move || backups.write(&source, &content, &expected)).await?)
             }
             "projectFs/backup/delete" => {
-                let (backups, source) = (self.backups.clone(), s(params, "sourcePath")?.to_owned());
+                let (backups, source) = (self.backups.clone(), self.relay_backup(req, s(params, "sourcePath")?.to_owned()).await?);
                 let _claim = self.paths.acquire(vec![self.backups.path_of(&source)?]).await;
                 run_fallible(self.lanes.durability, &cancel, move || backups.delete(&source)).await?;
                 value(json!({}))
@@ -1162,6 +1486,16 @@ impl DomainService for WorkspaceService {
     async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
         // `dispatch` needs `Arc<Self>` for lane closures; services are always held in an Arc.
         let this = self.me.get().and_then(Weak::upgrade).ok_or(CoreError::ConnectionClosed)?;
+        // The OS trash is the window's (Node's `trashItem` host request): the path is confined here, the window moves it.
+        if req.method.as_str() == "projectFs/trash" && opt_bool(&req.params, "viaHost") {
+            let confined = async {
+                let root = this.root(req.ctx.origin, &req.params).await?;
+                let target = project_entry_path(&root, s(&req.params, "rel")?)?;
+                Ok::<_, WsError>(json!({ "path": target.to_string_lossy() }))
+            };
+            let host_params = confined.await.map_err(|e| this.map_error(&req, e))?;
+            return this.host_files("host/files/trashItem", host_params).await.map(|_| Reply::Value(json!({})));
+        }
         if let (Some(scope), Some(op)) = (op_scope(req.method.as_str()), req.op.as_ref()) {
             return this.with_op(&req, scope, op.to_string()).await;
         }
@@ -1171,12 +1505,16 @@ impl DomainService for WorkspaceService {
             _ => None,
         };
         if let Some(host_method) = host_method {
-            // The path is confined here; the window only renders it.
+            // The path is confined here; the window only renders it. A one-file grant names the granted file alone.
             let confined = async {
-                let root = this.root(req.ctx.origin, &req.params).await?;
-                let rel = s(&req.params, "rel")?;
-                project_entry_path(&root, rel)?;
-                Ok::<_, WsError>(json!({ "root": root.to_string_lossy(), "rel": rel }))
+                let (root, rel) = this.file_target(&req, &req.params).await?;
+                project_entry_path(&root, &rel)?;
+                let granted = req.params.get("accessToken").is_some();
+                Ok::<_, WsError>(if host_method == "host/capture/fileSnapshot" {
+                    json!({ "root": root.to_string_lossy(), "rel": rel, "grant": granted })
+                } else {
+                    json!({ "root": root.to_string_lossy(), "rel": rel, "scope": if granted { "file" } else { "project" } })
+                })
             };
             let host_params = confined.await.map_err(|e| this.map_error(&req, e))?;
             return this.host_files(host_method, host_params).await.map(Reply::Value);
@@ -1201,6 +1539,8 @@ impl DomainService for WorkspaceService {
             "projectFs/readText",
             "projectFs/stat",
             "projectFs/entryPath",
+            "projectFs/previewFile",
+            "projectFs/previewRange",
             "projectFs/readLocal",
             "projectFs/statLocal",
             "projectFs/browseDirs",
@@ -1230,6 +1570,9 @@ impl DomainService for WorkspaceService {
             "transfer/beginRead",
             "transfer/beginZip",
             "transfer/readRange",
+            "transfer/authorizeRead",
+            "transfer/redeemGrant",
+            "transfer/finishRead",
             "transfer/endRead",
             "transfer/beginWrite",
             "transfer/writeChunk",

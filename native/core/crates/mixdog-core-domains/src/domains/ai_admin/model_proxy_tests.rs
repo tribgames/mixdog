@@ -59,7 +59,7 @@ fn request() -> p::ModelRequest {
         iteration: 3,
         temperature: p::Temperature::new(0.5),
         model_parameters: Some(json!({ "serviceTier": "priority" })),
-        thread: Some(p::RequestThread { id: ThreadId::from("t1"), window: 2, turn: Some(TurnId::from("u1")) }),
+        thread: Some(p::RequestThread { id: ThreadId::from("t1"), window: 2, turn: Some(TurnId::from("u1")), turn_started_at_ms: None }),
         shared_cache_prefix_count: Some(4),
         provider_state: Some(provider_state()),
         effort_projection: Some(p::EffortProjection { initial_effort: "low".into(), updates: BTreeMap::from([(2, "high".into())]) }),
@@ -181,11 +181,13 @@ fn variant_name(event: &p::StreamEvent) -> &'static str {
         E::ReturnedCalls(_) => "ReturnedCalls",
         E::ThinkingBlocks(_) => "ThinkingBlocks",
         E::ProviderState(_) => "ProviderState",
+        E::Notice { .. } => "Notice",
+        E::ServedModel(_) => "ServedModel",
         E::Completed { .. } => "Completed",
     }
 }
 
-const STREAM_EVENT_VARIANTS: [&str; 19] = [
+const STREAM_EVENT_VARIANTS: [&str; 21] = [
     "ItemStart",
     "TextDelta",
     "ReasoningDelta",
@@ -204,6 +206,8 @@ const STREAM_EVENT_VARIANTS: [&str; 19] = [
     "ReturnedCalls",
     "ThinkingBlocks",
     "ProviderState",
+    "Notice",
+    "ServedModel",
     "Completed",
 ];
 
@@ -238,6 +242,8 @@ fn every_stream_event_survives_the_wire() {
         p::StreamEvent::ReturnedCalls(Vec::new()),
         p::StreamEvent::ThinkingBlocks(json!([{ "type": "thinking", "signature": "s" }])),
         p::StreamEvent::ProviderState(state),
+        p::StreamEvent::Notice { message: "m".into(), warn: true },
+        p::StreamEvent::ServedModel("gemini-3.8-flash".into()),
         p::StreamEvent::Completed { stop: Some(p::StopReason::ToolUse), pricing_model: None, request_ms: None },
     ];
     let mut seen: Vec<&str> = events.iter().map(variant_name).collect();
@@ -319,6 +325,7 @@ fn events_and_failures_survive_the_wire() {
     error.transport = Some(p::TransportFault::KeepaliveExpired { transport: TransportKind::WebSocket });
     error.partial_usage = Some(Box::new(usage));
     error.message = "failed with Bearer abcdefghijkl".into();
+    error.notices = vec![("served as another model".into(), true), ("info only".into(), false)];
     let wire = failure_out(&error, w::ProxyOutcome::Fallback { model: "m2".into() });
     assert_eq!(wire.message, "failed with [redacted]");
     let (back, outcome) = failure_in(serde_json::from_str(&serde_json::to_string(&wire).unwrap()).unwrap()).unwrap();

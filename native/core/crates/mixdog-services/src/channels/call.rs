@@ -113,6 +113,9 @@ fn call_signature(name: &str, args: &Value) -> String {
     Sha256::digest(canonical.to_string().as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
 }
 
+/// Hears `(remote acquired, pinned session id)`.
+pub type BindingObserver = Arc<dyn Fn(bool, Option<&str>) + Send + Sync>;
+
 #[derive(Clone, Default)]
 struct Binding {
     remote_acquired: bool,
@@ -131,6 +134,8 @@ pub struct CallDispatch {
     cache: Arc<Mutex<HashMap<String, Arc<Entry>>>>,
     /// The one remote-control binding; held for a few instructions, never across the call.
     binding: Mutex<Binding>,
+    /// Told `(enabled, pinned session)` after each change of the binding (`onRemoteStateChange`).
+    on_binding: Mutex<Option<BindingObserver>>,
     /// Orders the binding tool's calls: a call reads the binding, runs, then records its outcome.
     binding_turn: mixdog_rt::Gate,
     /// Ends every wait on `binding_turn` and every binding call in flight ([`Self::close`]).
@@ -153,9 +158,24 @@ impl CallDispatch {
             ttl,
             cache: Default::default(),
             binding: Default::default(),
+            on_binding: Default::default(),
             binding_turn: mixdog_rt::Gate::new(),
             cancel: CancellationToken::new(),
         })
+    }
+
+    /// Registers who hears the binding change, and tells it the binding now.
+    pub fn observe_binding(&self, observer: BindingObserver) {
+        let binding = self.binding.lock().unwrap().clone();
+        observer(binding.remote_acquired, binding.pinned_session_id.as_deref());
+        *self.on_binding.lock().unwrap() = Some(observer);
+    }
+
+    fn binding_changed(&self) {
+        let binding = self.binding.lock().unwrap().clone();
+        if let Some(observer) = self.on_binding.lock().unwrap().as_ref() {
+            observer(binding.remote_acquired, binding.pinned_session_id.as_deref());
+        }
     }
 
     /// Shutdown: queued binding calls and the one in flight end as dropped calls.
@@ -246,8 +266,10 @@ impl CallDispatch {
             Ok(value) if !is_soft_error(value) => {
                 if deactivating {
                     *self.binding.lock().unwrap() = Binding::default();
+                    self.binding_changed();
                 } else if activating {
                     *self.binding.lock().unwrap() = Binding { remote_acquired: true, pinned_session_id: session };
+                    self.binding_changed();
                 }
             }
             _ => {}

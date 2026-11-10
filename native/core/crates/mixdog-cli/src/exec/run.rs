@@ -348,7 +348,6 @@ pub async fn run_exec(opts: ExecOptions, host: Host<'_>, signal: Signal) -> i32 
             format!("exec_{}", uuid::Uuid::new_v4().simple()),
             &route,
             &opts.cwd.to_string_lossy(),
-            opts.tool_mode.as_str(),
             opts.web_search,
         )
     });

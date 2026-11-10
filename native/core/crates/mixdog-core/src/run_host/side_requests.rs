@@ -128,17 +128,24 @@ impl SendTicket for Sent {
 
 /// Sends forks of the saved request: a compaction's on the summary route, a side question's with its own
 /// transport scope.
-struct RequestFork {
-    thread: ThreadId,
-    provider: Arc<dyn ProviderAdapter>,
-    request: ModelRequest,
+pub(crate) struct RequestFork {
+    pub(crate) thread: ThreadId,
+    pub(crate) provider: Arc<dyn ProviderAdapter>,
+    pub(crate) request: ModelRequest,
     /// The reply the saved request produced; `None` until its send settles.
-    reply: Arc<Mutex<Option<ModelResponse>>>,
+    pub(crate) reply: Arc<Mutex<Option<ModelResponse>>>,
 }
 
 #[async_trait]
 impl ForkSender for RequestFork {
     async fn send(&self, _route: &SummaryRoute) -> Result<SummaryResponse, SummaryFailure> {
+        self.send_fork().await
+    }
+}
+
+impl RequestFork {
+    /// The compaction's fork of the saved request, sent on its provider.
+    pub(crate) async fn send_fork(&self) -> Result<SummaryResponse, SummaryFailure> {
         let reply = self.reply.lock().unwrap_or_else(PoisonError::into_inner).clone();
         let mut fork = forked_request(&self.request, reply.as_ref(), &forked_compaction_prompt());
         // The ledger source, and a transport scope of its own: no pooled socket or response chain of the

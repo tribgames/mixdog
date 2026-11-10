@@ -4,8 +4,7 @@ import test from 'node:test';
 import { DESKTOP_IPC } from '../../shared/contract.ts';
 import { connectionFeatureGate } from '../connections/feature-gates.ts';
 import { createRemoteMethods, executeRemoteFrame } from '../remote-methods.ts';
-import { createRemoteApi } from '../../renderer/remote-shim-api.ts';
-import { withShim } from '../../renderer/remote-shim-test-harness.mjs';
+import { withPhoneApi } from '../../renderer/test-support/phone-api-rig.mjs';
 
 // The approval is a human-only gate on this PC: a paired web client must
 // neither be shown the card nor be able to answer it.
@@ -24,8 +23,7 @@ test('the remote method table has no way to answer a browser approval', async ()
 });
 
 test('the remote renderer API neither listens for nor answers a browser approval', async () => {
-  await withShim({}, async (shim) => {
-    const api = createRemoteApi(shim.ctx);
+  await withPhoneApi({}, async ({ api }) => {
     assert.equal(api.onBrowserApproval, undefined);
     assert.equal(api.browserApprovalDecide, undefined);
   });

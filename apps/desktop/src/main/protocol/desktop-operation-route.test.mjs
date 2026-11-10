@@ -365,10 +365,15 @@ test('the routed operations are the spec map targets with params the Rust schema
     ])
   );
   assert.equal(operations.length, 166);
+  // Two operations have a core method the desktop never sends: `visualizeRemoteViewing` is read from a section, and
+  // `browserRemoteWebrtcSignal` was the relay's own call into the desktop service (Node `main/index.ts`
+  // `invokeDesktopOperation('browserRemoteWebrtcSignal', [clientId, signal])`); the phone now sends
+  // `browser/webrtcSignal` to the core itself, on a relay connection, the only origin the method allows.
   assert.deepEqual(
     [...wantedMethods].filter(([, methods]) => methods).map(([name]) => name).sort(),
-    [...ROUTED_DESKTOP_OPERATIONS, ...UNROUTED_DESKTOP_OPERATIONS, 'visualizeRemoteViewing'].sort()
+    [...ROUTED_DESKTOP_OPERATIONS, ...UNROUTED_DESKTOP_OPERATIONS, 'visualizeRemoteViewing', 'browserRemoteWebrtcSignal'].sort()
   );
+  assert.throws(() => routeDesktopOperation('browserRemoteWebrtcSignal', ['client-1', {}]), { code: 'unknownMethod' });
   const covered = new Set(CASES.map(([name]) => name));
   assert.deepEqual(ROUTED_DESKTOP_OPERATIONS.filter((name) => !covered.has(name)), []);
   for (const [name, args, method, params] of CASES) {
@@ -395,7 +400,7 @@ test('an operation with no Rust op is unknownMethod and one the schema cannot ca
   const unknown = operations
     .filter((row) => row.target.kind !== 'method' && row.target.kind !== 'methods')
     .map((row) => row.name);
-  assert.equal(unknown.length, 41);
+  assert.equal(unknown.length, 40);
   for (const name of unknown) {
     assert.throws(() => routeDesktopOperation(name, []), { code: 'unknownMethod' }, name);
   }

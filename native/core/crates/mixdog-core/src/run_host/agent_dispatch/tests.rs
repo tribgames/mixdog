@@ -20,7 +20,7 @@ const GOLDEN: &str = include_str!("../../../../../fixtures/agent-dispatch/golden
 
 /// The runs the dispatch reports, counted while they are in its table.
 #[derive(Default)]
-struct Watch(Arc<std::sync::atomic::AtomicUsize>);
+struct Watch(Arc<std::sync::atomic::AtomicUsize>, tokio::sync::Notify);
 
 struct Held(Arc<std::sync::atomic::AtomicUsize>);
 
@@ -39,6 +39,7 @@ impl Watch {
 impl RunWatch for Watch {
     fn started(&self) -> RunHold {
         self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.1.notify_waiters();
         Box::new(Held(self.0.clone()))
     }
 }
@@ -195,6 +196,10 @@ impl DispatchSessions for Fake {
         Some(Snapshot { stage: Some("streaming".into()), last_progress_at: since, has_first_semantic: true, ..Snapshot::default() })
     }
 
+    fn last_iteration_index(&self, _id: &str) -> Option<Value> {
+        None
+    }
+
     fn arm_turn_timeout(&self, _id: &str) {}
 
     async fn close(&self, _id: &str, reason: &str) {
@@ -235,6 +240,8 @@ impl DispatchWorld for Fake {
     fn diagnostic(&self, line: &str) {
         self.log().lines.push(line.to_owned());
     }
+
+    fn record_stall_abort(&self, _ctx: Map<String, Value>) {}
 }
 
 /// `sess_...` ids are the dispatch's own; Node's were masked the same way.
@@ -470,20 +477,26 @@ async fn the_inline_host_hands_the_dispatcher_what_nodes_host_handed_it() {
         verify(id, go(&host, &case(id)["outcome"]["input"]).await);
     }
     // `d4` waits for its abort while the next calls are made.
-    let hanging = {
+    let mut hanging = {
         let host = host.clone();
         let payload = AgentDispatchPayload { dispatch_id: "d4".into(), prompt: "hang".into(), ..payload_of(&json!({ "payload": { "dispatchId": "d4" } })) };
         tokio::spawn(async move { host.run(payload, &Cancel::new()).await })
     };
-    for _ in 0..20 {
-        tokio::task::yield_now().await;
+    // A dispatch that returns without registering ends the task: that is the failure, not a wait with no end.
+    let wakes = [&watch.1];
+    let watched = mixdog_core_session::eventually_on!(&wakes, || (watch.live() == 1).then_some(()));
+    // The wait has its own deadline, naming what it waits for.
+    tokio::select! {
+        biased;
+        () = watched => {}
+        ended = &mut hanging => panic!("the hanging run ended before it was watched: {ended:?}"),
     }
     // Only the hanging run is in the table: a refused duplicate enters nothing and leaves nothing.
     assert_eq!(watch.live(), 1, "the hanging run alone is watched");
     verify("duplicate-id", go(&host, &case("duplicate-id")["outcome"]["input"]).await);
     assert_eq!(watch.live(), 1, "a refused duplicate is not a run");
     host.abort_all("host closing");
-    verify("abort-all", match hanging.await.unwrap() {
+    verify("abort-all", match mixdog_core_session::session::testing::awaiting(|| "the hanging run to end once the host aborts all".to_owned(), hanging).await.unwrap() {
         Ok(answer) => json!({ "ok": answer }),
         Err(error) => json!({ "error": error }),
     });

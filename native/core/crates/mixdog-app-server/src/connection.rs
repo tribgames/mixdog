@@ -189,12 +189,25 @@ impl Connection {
         }
     }
 
-    pub(crate) fn mark_live(&self, feed: &FeedId, id: &SubscriptionId) {
-        if let Some(sub) = lock(&self.subs).as_mut().and_then(|subs| subs.get_mut(feed))
+    /// Queues the attach response of subscription `id` on `feed` (`send`) and marks the subscription live, as
+    /// one step for every reader of the subscriptions. Marking it after the response was queued, with the lock
+    /// free in between, left a moment in which a client already holding its attach response did not count as
+    /// attached ([`Self::is_eligible`]): an ask made then was held as if no client could show it. Node sets a
+    /// turn's approval hook in the same synchronous step that answers the client.
+    pub(crate) fn send_attach_response<E>(
+        &self,
+        feed: &FeedId,
+        id: &SubscriptionId,
+        send: impl FnOnce() -> Result<(), E>,
+    ) -> Result<(), E> {
+        let mut subs = lock(&self.subs);
+        send()?;
+        if let Some(sub) = subs.as_mut().and_then(|subs| subs.get_mut(feed))
             && sub.id == *id
         {
             sub.live = true;
         }
+        Ok(())
     }
 
     pub(crate) fn remove_subscription(&self, feed: &FeedId) -> Option<Sub> {

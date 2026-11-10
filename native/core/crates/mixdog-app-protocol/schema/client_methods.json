@@ -262,6 +262,14 @@
             "null"
           ]
         },
+        "minimumValidityMs": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "opId": {
           "type": "string"
         },
@@ -274,6 +282,13 @@
         "refresh": {
           "type": [
             "boolean",
+            "null"
+          ]
+        },
+        "renewCredential": {
+          "description": "A provider id whose current account's OAuth token is refreshed now unless it lasts `minimumValidityMs` more (the host preflight of a benchmark run); needs `minimumValidityMs`.",
+          "type": [
+            "string",
             "null"
           ]
         },
@@ -1399,6 +1414,33 @@
       },
       "required": [
         "action"
+      ],
+      "type": "object"
+    },
+    "BrowserStreamParams": {
+      "description": "Params of `browser/stream` (a phone's request, Node's `browserRemoteStream`): `on` starts or stops this connection's stream of the browser session. The first stream of a session makes the core send `host/browser/viewFrames{on:true}` and the last one `{on:false}`; the phone's live-view signals name only a session it streams. `request` is the stream request (fit, quality) the core hands on to the host unchanged.",
+      "properties": {
+        "on": {
+          "type": "boolean"
+        },
+        "request": true,
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "on",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "BrowserWebrtcSignalParams": {
+      "description": "A phone's live-view signal (`browser/webrtcSignal` request, Node's `browserRemoteWebrtcSignal` call) and the core's signal to that phone (the `browser/webrtcSignal` push, Node's `browserRemoteWebrtc` event). `signal` is the validated wire object of `mixdog-remote::webrtc::signal` (`ClientSignal` / `DesktopSignal`).",
+      "properties": {
+        "signal": true
+      },
+      "required": [
+        "signal"
       ],
       "type": "object"
     },
@@ -3236,6 +3278,129 @@
         "root"
       ],
       "type": "object"
+    },
+    "DownloadSource": {
+      "description": "What a paired phone asks to download (`transfer/authorizeRead`).",
+      "oneOf": [
+        {
+          "description": "A file of the conversation's project, by its path in the project. The project is the host catalog's, never the caller's.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "file"
+              ],
+              "type": "string"
+            },
+            "rel": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "rel"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A file the conversation names, by its absolute path or its path in the conversation's folder.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "sessionFile"
+              ],
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "path"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A media asset of the host's media store, by its id; the conversation must still be in the catalog.",
+          "properties": {
+            "assetId": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "mediaAsset"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "assetId",
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A link the conversation shows, by its `href` as written (decoded by the core as the desktop decodes it); `itemId` names the row.",
+          "properties": {
+            "href": {
+              "type": "string"
+            },
+            "itemId": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "link"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "href",
+            "itemId",
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An attachment the conversation's transcript names, by its content hash.",
+          "properties": {
+            "attachmentId": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "attachment"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "attachmentId",
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A folder the conversation names (absolute, or in its folder), served as a zip of its work files.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "folder"
+              ],
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "path"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "DrainReason": {
       "description": "Why the core is winding down (LR §5, SPEC R22). Shared by core-api and the wire.",
@@ -8413,6 +8578,13 @@
     "ProjectDirectoryParams": {
       "description": "Params of `project/directory`.",
       "properties": {
+        "owner": {
+          "description": "Answer the registered Project's real path even when `path` names a managed worktree of it.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "path": {
           "type": "string"
         }
@@ -8511,6 +8683,13 @@
     "ProjectFsCaptureSnapshotParams": {
       "description": "Params of `projectFs/captureSnapshot`.",
       "properties": {
+        "accessToken": {
+          "description": "A paired device's one-file grant, as on `projectFs/readText`; the window then captures the granted file alone.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "rel": {
           "type": "string"
         },
@@ -8579,6 +8758,13 @@
     "ProjectFsEntryPathParams": {
       "description": "Params of `projectFs/entryPath`.",
       "properties": {
+        "accessToken": {
+          "description": "A paired device's one-file grant, as on `projectFs/readText`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "rel": {
           "type": "string"
         },
@@ -8611,6 +8797,13 @@
     "ProjectFsLocalPageUrlParams": {
       "description": "Params of `projectFs/localPageUrl`.",
       "properties": {
+        "accessToken": {
+          "description": "A paired device's one-file grant, as on `projectFs/readText`; the page then serves that file alone.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "rel": {
           "type": "string"
         },
@@ -8645,6 +8838,63 @@
         "rel",
         "root",
         "targetDirRel"
+      ],
+      "type": "object"
+    },
+    "ProjectFsPreviewFileParams": {
+      "description": "Params of `projectFs/previewFile`: what a paired device's file preview needs to know before it reads (Node's `previewProjectFile`).",
+      "properties": {
+        "accessToken": {
+          "description": "A paired device's one-file grant, as on `projectFs/readText`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rel": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "rel",
+        "root"
+      ],
+      "type": "object"
+    },
+    "ProjectFsPreviewRangeParams": {
+      "description": "Params of `projectFs/previewRange`: one bounded window of a previewable file (Node's `previewProjectFileRange`).",
+      "properties": {
+        "accessToken": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "length": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "offset": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "rel": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "length",
+        "offset",
+        "rel",
+        "root"
       ],
       "type": "object"
     },
@@ -8687,6 +8937,37 @@
       "properties": {
         "accessToken": {
           "description": "A paired device's one-file grant (`transfer/grant/mint`): `root` and `rel` are then Node's `projectPath` and `relPath`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "authorized": {
+          "description": "Read as a paired device does (Node's `readProjectTextFileAuthorized`): the file is opened first and the open file is checked.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "fromChar": {
+          "description": "Answer only `maxChars` code points of the text, from code point `fromChar`; the answer then carries `nextChar` while text remains.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "maxChars": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "readId": {
+          "description": "The `readId` the first window's answer carried: the windows after it are served from that one read of the file (the file is not opened again), so a file replaced between two windows does not mix versions.",
           "type": [
             "string",
             "null"
@@ -8855,6 +9136,13 @@
         },
         "root": {
           "type": "string"
+        },
+        "viaHost": {
+          "description": "The OS trash is the desktop window's (Node's `trashItem` host request): the core confines the path and asks the window.",
+          "type": [
+            "boolean",
+            "null"
+          ]
         }
       },
       "required": [
@@ -8915,6 +9203,13 @@
     "ProjectFsWriteTextParams": {
       "description": "Params of `projectFs/writeText`.",
       "properties": {
+        "accessToken": {
+          "description": "A paired device's one-file grant, as on `projectFs/readText`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "content": {
           "type": "string"
         },
@@ -10062,6 +10357,13 @@
         "message": {
           "type": "string"
         },
+        "notices": {
+          "description": "The display-only notices the failed call raised before it failed (`ProviderError::notices`).",
+          "items": {
+            "$ref": "#/definitions/ProxyNotice"
+          },
+          "type": "array"
+        },
         "outcome": {
           "$ref": "#/definitions/ProxyOutcome"
         },
@@ -10170,6 +10472,7 @@
         "delivery",
         "kind",
         "message",
+        "notices",
         "outcome",
         "reauthRequired",
         "textEmitted",
@@ -10801,6 +11104,22 @@
         "manual",
         "picker",
         "reasoningLevels"
+      ],
+      "type": "object"
+    },
+    "ProxyNotice": {
+      "description": "One display-only transcript notice (`StreamEvent::Notice`).",
+      "properties": {
+        "message": {
+          "type": "string"
+        },
+        "warn": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "message",
+        "warn"
       ],
       "type": "object"
     },
@@ -12351,6 +12670,20 @@
       ],
       "type": "object"
     },
+    "RoomResetParams": {
+      "description": "Params of `room/reset`.",
+      "properties": {
+        "input": true,
+        "opId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "input",
+        "opId"
+      ],
+      "type": "object"
+    },
     "RoomRowKind": {
       "enum": [
         "user",
@@ -12474,6 +12807,11 @@
         "kind",
         "name"
       ],
+      "type": "object"
+    },
+    "ScreenDisplaysParams": {
+      "additionalProperties": false,
+      "description": "Params of `browser/screenDisplays` (a granted phone's request, Node's `browserRemoteScreenDisplays`) and of `host/screen/displays` (core → host): none. Both answer `RemoteScreenDisplaySummary[]` (`apps/desktop/src/shared/remote-webrtc.ts`), unchanged.",
       "type": "object"
     },
     "SearchStartParams": {
@@ -16155,6 +16493,20 @@
             "null"
           ]
         },
+        "snapshot": {
+          "description": "`true`: the reply also carries `requestSnapshot`, the provider request the thread's next send would carry (needs `threadId`).",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "snapshotUserMessage": {
+          "description": "With snapshot: the user message the snapshot's request carries as its last turn, as the send of that message would; a thread with no user turn yet cannot be encoded by every provider (Gemini refuses a request with nothing to send).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "threadId": {
           "type": [
             "string",
@@ -16173,6 +16525,28 @@
       },
       "required": [
         "transferId"
+      ],
+      "type": "object"
+    },
+    "TransferAuthorizeReadParams": {
+      "description": "Params of `transfer/authorizeRead`: the first stage of a phone's download, a grant that expires.",
+      "properties": {
+        "purpose": {
+          "description": "`save`, `share` or `open`.",
+          "type": "string"
+        },
+        "sessionId": {
+          "description": "The conversation the phone names: the grant and the transfer it becomes end with it (Node's `Grant.sessionId`).",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/definitions/DownloadSource"
+        }
+      },
+      "required": [
+        "purpose",
+        "sessionId",
+        "source"
       ],
       "type": "object"
     },
@@ -16288,7 +16662,19 @@
       "type": "object"
     },
     "TransferEndReadParams": {
-      "description": "Params of `transfer/endRead`.",
+      "description": "Params of `transfer/endRead`: the transfer, or the unredeemed grant, to release.",
+      "properties": {
+        "transferId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "transferId"
+      ],
+      "type": "object"
+    },
+    "TransferFinishReadParams": {
+      "description": "Params of `transfer/finishRead`.",
       "properties": {
         "transferId": {
           "type": "string"
@@ -16347,11 +16733,30 @@
             "string",
             "null"
           ]
+        },
+        "version": {
+          "description": "A phone's read names the version it leased; another is `changed`.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
         "length",
         "offset"
+      ],
+      "type": "object"
+    },
+    "TransferRedeemGrantParams": {
+      "description": "Params of `transfer/redeemGrant`: the second stage, which consumes the grant once into a transfer.",
+      "properties": {
+        "grantId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "grantId"
       ],
       "type": "object"
     },
@@ -16694,6 +17099,7 @@
           "type": "string"
         },
         "turnId": {
+          "description": "Absent: the thread's active turn (Node's `abortSession` named none), or, with none running, the idle stop.",
           "type": [
             "string",
             "null"
@@ -16706,11 +17112,44 @@
       "type": "object"
     },
     "TurnInterruptResponse": {
-      "description": "Fixed C0 reply (R12).",
+      "description": "The C0 reply (R12, amended): what Node's `abortSession` answered. A named or active turn's stop is `cancelRequested: true` with its `turnId`; a thread with no active turn and no turn named is idle (`cancelRequested: false`, no `turnId`), and `submissionId` then hands a queued submission back.",
       "properties": {
-        "cancelRequested": {
-          "description": "Always `true`.",
+        "aborted": {
+          "description": "Node's `aborted`: the stop took a running turn.",
           "type": "boolean"
+        },
+        "cancelRequested": {
+          "description": "A running turn was cancelled.",
+          "type": "boolean"
+        },
+        "content": {
+          "description": "The file parts of the handed-back prompt."
+        },
+        "discardPastedImages": {
+          "description": "The pasted images and texts a queued steering prompt left unrestored, for the client to discard."
+        },
+        "discardPastedTexts": true,
+        "notice": {
+          "description": "An attachment that could not be read back (`N attachment(s) no longer available and dropped.`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "pastedImages": {
+          "description": "The pasted images and texts of the handed-back prompt, read from the attachment store."
+        },
+        "pastedTexts": true,
+        "restoreText": {
+          "description": "The prompt handed back to the composer of the device that cancelled; empty when the prompt stays in the transcript, or travels to the device that sent it through `thread/promptRestore`.",
+          "type": "string"
+        },
+        "restoredSubmissionIds": {
+          "description": "The submissions (`clientSubmissionId`) the handed-back text came from.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         },
         "turnId": {
           "type": [
@@ -16720,7 +17159,10 @@
         }
       },
       "required": [
-        "cancelRequested"
+        "aborted",
+        "cancelRequested",
+        "restoreText",
+        "restoredSubmissionIds"
       ],
       "type": "object"
     },
@@ -18173,6 +18615,28 @@
         "$ref": "#/definitions/BrowserCommandParams"
       },
       "result": true
+    },
+    "browser/screenDisplays": {
+      "params": {
+        "$ref": "#/definitions/ScreenDisplaysParams"
+      },
+      "result": true
+    },
+    "browser/stream": {
+      "params": {
+        "$ref": "#/definitions/BrowserStreamParams"
+      },
+      "result": {
+        "$ref": "#/definitions/EmptyResult"
+      }
+    },
+    "browser/webrtcSignal": {
+      "params": {
+        "$ref": "#/definitions/BrowserWebrtcSignalParams"
+      },
+      "result": {
+        "$ref": "#/definitions/EmptyResult"
+      }
     },
     "channel/call": {
       "params": {
@@ -19788,6 +20252,18 @@
       },
       "result": true
     },
+    "projectFs/previewFile": {
+      "params": {
+        "$ref": "#/definitions/ProjectFsPreviewFileParams"
+      },
+      "result": true
+    },
+    "projectFs/previewRange": {
+      "params": {
+        "$ref": "#/definitions/ProjectFsPreviewRangeParams"
+      },
+      "result": true
+    },
     "projectFs/readEditorSettings": {
       "params": {
         "$ref": "#/definitions/ProjectFsReadEditorSettingsParams"
@@ -19995,6 +20471,12 @@
     "room/remove": {
       "params": {
         "$ref": "#/definitions/RoomRemoveParams"
+      },
+      "result": true
+    },
+    "room/reset": {
+      "params": {
+        "$ref": "#/definitions/RoomResetParams"
       },
       "result": true
     },
@@ -20548,6 +21030,12 @@
       },
       "result": true
     },
+    "transfer/authorizeRead": {
+      "params": {
+        "$ref": "#/definitions/TransferAuthorizeReadParams"
+      },
+      "result": true
+    },
     "transfer/beginRead": {
       "params": {
         "$ref": "#/definitions/TransferBeginReadParams"
@@ -20584,6 +21072,12 @@
         "$ref": "#/definitions/EmptyResult"
       }
     },
+    "transfer/finishRead": {
+      "params": {
+        "$ref": "#/definitions/TransferFinishReadParams"
+      },
+      "result": true
+    },
     "transfer/grant/mint": {
       "params": {
         "$ref": "#/definitions/TransferGrantMintParams"
@@ -20597,6 +21091,12 @@
       "result": {
         "$ref": "#/definitions/BlobReadResponse"
       }
+    },
+    "transfer/redeemGrant": {
+      "params": {
+        "$ref": "#/definitions/TransferRedeemGrantParams"
+      },
+      "result": true
     },
     "transfer/trash/entry": {
       "params": {

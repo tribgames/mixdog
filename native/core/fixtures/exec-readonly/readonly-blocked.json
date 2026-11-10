@@ -1,0 +1,747 @@
+{
+  "case": "readonly-blocked",
+  "mode": "readonly",
+  "script": "blocked",
+  "json": false,
+  "runtimeOptions": {
+    "toolMode": "readonly",
+    "toolProfile": "headless",
+    "approvalMode": "implicit",
+    "disallowDelegation": true,
+    "autoWakeCompletions": false,
+    "webSearch": false,
+    "memory": false
+  },
+  "code": 0,
+  "stdout": [
+    "final answer\n"
+  ],
+  "stderr": [],
+  "requests": [
+    {
+      "path": "/v1/messages",
+      "model": "claude-sonnet-4-6",
+      "tools": [
+        {
+          "name": "find",
+          "description": "Fuzzy filename/directory path lookup; returns paths only. Only when the target path is unknown and cannot be directly resolved but a fragment is known; general discovery: glob.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "query": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S",
+                "description": "Filename/path fragment; space-separated fragments AND-match within one path."
+              },
+              "path": {
+                "type": "string",
+                "description": "Base directory; omit for the current Project."
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Max paths; default 25; 0 unlimited."
+              },
+              "include_noise": {
+                "type": "boolean",
+                "description": "Also search gitignored trees."
+              }
+            },
+            "required": [
+              "query"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "glob",
+          "description": "Wildcard file-path lookup under a known directory; directories never match. No preliminary listing. Unknown base: find first with a known path fragment.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "maxItems": 10
+                  }
+                ],
+                "description": "Union of patterns under one base; separate calls for other bases or per-pattern results."
+              },
+              "path": {
+                "type": "string",
+                "description": "Known existing base directory; omit for the current Project."
+              },
+              "sort": {
+                "type": "string",
+                "enum": [
+                  "natural",
+                  "mtime"
+                ],
+                "description": "mtime default (newest first); natural = raw walk order, cheaper on huge trees."
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Max entries; default 100; 0 unlimited."
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "include_noise": {
+                "type": "boolean",
+                "description": "Also search gitignored trees."
+              }
+            },
+            "required": [
+              "pattern"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "list",
+          "description": "Return a known directory's immediate entries (path + type); no wildcard. Only when those entries or metadata are needed, not to re-confirm a known listing or before read/glob.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "description": "Known directory; defaults to the current Project."
+              },
+              "hidden": {
+                "type": "boolean",
+                "description": "Include dotfiles."
+              },
+              "meta": {
+                "type": "boolean",
+                "description": "Per-entry size bytes, UTC mtime, octal mode; text files also get a line count."
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100,
+                "description": "Max entries; default 100; 0 = no page cap (absolute cap still applies)."
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "grep",
+          "description": "Search literal/regex file contents (single-line ripgrep); returns path:line blocks with context, patch-ready. Broad reconnaissance: mode:files; locating: context:0; every pattern and scope in one call, and the anchors are the windows for one read. Symbol relations: code_graph.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "maxItems": 10
+                  }
+                ],
+                "description": "Ripgrep regex(es); escape literal metacharacters."
+              },
+              "path": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 10,
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                ],
+                "description": "Plain file/directory scopes; omit for Project root. Every pattern searches every path; pattern/path pairs need separate calls."
+              },
+              "glob": {
+                "type": "string",
+                "description": "Relative glob filter evaluated inside path, e.g. \"*.cs\" or \"src/**/*.ts\"; for exact/absolute paths use path instead."
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "content",
+                  "files",
+                  "count"
+                ],
+                "description": "content default; files lists matching paths; count totals all patterns together per file."
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Requested results; default 250; 0 unlimited. Context output caps at 40 blocks; continue via the returned offset."
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "context": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 200,
+                "description": "Omit for automatic context; 0 for matches only."
+              },
+              "include_noise": {
+                "type": "boolean",
+                "description": "Also search gitignored trees."
+              },
+              "text": {
+                "type": "boolean",
+                "description": "Search binary data as text (archives/Git objects not decoded)."
+              }
+            },
+            "required": [
+              "pattern"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "code_graph",
+          "description": "Code structure and relations from the parsed graph, no text matching. symbols → file outline rows `[export ]kind name (Lstart-end) signature`; find_symbol returns declaration/body; references adds usages; callers/callees return locations; dependents/impact → importers and blast radius. Exact identifiers: find_symbol/references/callers/callees; keywords: symbol_search/search; literal text and regex belong to grep. Prefer it over read/grep for declarations and relations. symbols already outlines a file: never pair it with overview for one need.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "overview",
+                  "imports",
+                  "dependents",
+                  "related",
+                  "impact",
+                  "symbols",
+                  "find_symbol",
+                  "symbol_search",
+                  "search",
+                  "references",
+                  "callers",
+                  "callees"
+                ],
+                "description": "File modes (files[]): overview, imports, dependents, related, impact. symbols with files[] gives the file outline; other modes use symbols[]."
+              },
+              "files": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                ],
+                "description": "Paths, project-relative or absolute; required for file modes, symbol queries span all files."
+              },
+              "symbols": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                ],
+                "description": "Exact identifiers/keywords; required for symbol modes, optional outline filter. Every symbol searches every file; distinct pairs need separate calls."
+              },
+              "body": {
+                "type": "boolean",
+                "description": "true for implementation, false for locations; find_symbol defaults true, references is opt-in."
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 500,
+                "description": "Max results; modes may cap lower."
+              },
+              "depth": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 5,
+                "description": "Overview hierarchy or caller traversal depth; default 1."
+              },
+              "cwd": {
+                "type": "string",
+                "description": "Explicit root outside the project; omit for project root."
+              }
+            },
+            "required": [
+              "mode"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "read",
+          "description": "Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "file_path": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 10,
+                    "items": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "file_path": {
+                              "type": "string"
+                            },
+                            "offset": {
+                              "type": "integer",
+                              "minimum": 1
+                            },
+                            "limit": {
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 100000
+                            }
+                          },
+                          "required": [
+                            "file_path"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "description": "Overlapping windows of one file merge. A glob fans out to ≤10 newest files."
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "1-based start line; default 1; batch default."
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100000,
+                "description": "Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages."
+              },
+              "pages": {
+                "type": "string",
+                "description": "PDF page range \"N\" or \"N-M\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count."
+              }
+            },
+            "required": [
+              "file_path"
+            ],
+            "additionalProperties": false
+          }
+        }
+      ],
+      "toolResults": [],
+      "served": {
+        "text": "",
+        "calls": [
+          {
+            "id": "toolu_1_0",
+            "name": "read",
+            "input": {
+              "path": "a.txt"
+            }
+          },
+          {
+            "id": "toolu_1_1",
+            "name": "edit",
+            "input": {
+              "path": "a.txt",
+              "old_string": "hello",
+              "new_string": "bye"
+            }
+          },
+          {
+            "id": "toolu_1_2",
+            "name": "apply_patch",
+            "input": {
+              "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n-hello\n+bye\n*** End Patch"
+            }
+          },
+          {
+            "id": "toolu_1_3",
+            "name": "shell",
+            "input": {
+              "command": "echo hi > b.txt"
+            }
+          },
+          {
+            "id": "toolu_1_4",
+            "name": "git",
+            "input": {
+              "action": "status"
+            }
+          },
+          {
+            "id": "toolu_1_5",
+            "name": "github",
+            "input": {
+              "action": "repo"
+            }
+          },
+          {
+            "id": "toolu_1_6",
+            "name": "task",
+            "input": {
+              "action": "list"
+            }
+          },
+          {
+            "id": "toolu_1_7",
+            "name": "agent",
+            "input": {
+              "prompt": "look around"
+            }
+          },
+          {
+            "id": "toolu_1_8",
+            "name": "office",
+            "input": {
+              "action": "list"
+            }
+          },
+          {
+            "id": "toolu_1_9",
+            "name": "tidy",
+            "input": {
+              "action": "check"
+            }
+          },
+          {
+            "id": "toolu_1_10",
+            "name": "web_search",
+            "input": {
+              "query": "x"
+            }
+          },
+          {
+            "id": "toolu_1_11",
+            "name": "web_fetch",
+            "input": {
+              "url": "http://127.0.0.1/"
+            }
+          },
+          {
+            "id": "toolu_1_12",
+            "name": "recall",
+            "input": {
+              "query": "x"
+            }
+          },
+          {
+            "id": "toolu_1_13",
+            "name": "mcp__fake__ping",
+            "input": {}
+          },
+          {
+            "id": "toolu_1_14",
+            "name": "no_such_tool",
+            "input": {}
+          },
+          {
+            "id": "toolu_1_15",
+            "name": "grep",
+            "input": {
+              "pattern": "hello",
+              "path": "."
+            }
+          }
+        ],
+        "inputTokens": 21,
+        "outputTokens": 11,
+        "stopReason": "tool_use"
+      }
+    },
+    {
+      "path": "/v1/messages",
+      "model": "claude-sonnet-4-6",
+      "tools": [],
+      "toolResults": [
+        {
+          "tool_use_id": "toolu_1_0",
+          "is_error": false,
+          "content": "[lines 1-1]\nhello\n[lines 1-1 of 1]"
+        },
+        {
+          "tool_use_id": "toolu_1_1",
+          "is_error": true,
+          "content": "Error: tool \"edit\" is not available in this read-only session."
+        },
+        {
+          "tool_use_id": "toolu_1_2",
+          "is_error": true,
+          "content": "Error: tool \"apply_patch\" is not available in this read-only session."
+        },
+        {
+          "tool_use_id": "toolu_1_3",
+          "is_error": true,
+          "content": "Error: tool \"shell\" is not available in this read-only session."
+        },
+        {
+          "tool_use_id": "toolu_1_4",
+          "is_error": true,
+          "content": "Error: tool \"git\" is not available in this read-only session."
+        },
+        {
+          "tool_use_id": "toolu_1_5",
+          "is_error": true,
+          "content": "Error: tool \"github\" is not available in this session."
+        },
+        {
+          "tool_use_id": "toolu_1_6",
+          "is_error": true,
+          "content": "Error: tool \"task\" is not available in this read-only session."
+        },
+        {
+          "tool_use_id": "toolu_1_7",
+          "is_error": true,
+          "content": "Error: tool \"agent\" is not available on this session's schema allowlist."
+        },
+        {
+          "tool_use_id": "toolu_1_8",
+          "is_error": true,
+          "content": "Error: tool \"office\" is not available in this session."
+        },
+        {
+          "tool_use_id": "toolu_1_9",
+          "is_error": true,
+          "content": "Error: tool \"tidy\" is not available in this session."
+        },
+        {
+          "tool_use_id": "toolu_1_10",
+          "is_error": true,
+          "content": "Error: tool \"web_search\" is not available in this session."
+        },
+        {
+          "tool_use_id": "toolu_1_11",
+          "is_error": true,
+          "content": "Error: tool \"web_fetch\" is not available in this session."
+        },
+        {
+          "tool_use_id": "toolu_1_12",
+          "is_error": true,
+          "content": "Error: tool \"recall\" is not available on this session's schema allowlist."
+        },
+        {
+          "tool_use_id": "toolu_1_13",
+          "is_error": true,
+          "content": "Error: tool \"mcp__fake__ping\" is not available on this session's schema allowlist."
+        },
+        {
+          "tool_use_id": "toolu_1_14",
+          "is_error": true,
+          "content": "Error: tool \"no_such_tool\" is not available on this session's schema allowlist."
+        },
+        {
+          "tool_use_id": "toolu_1_15",
+          "is_error": false,
+          "content": "# ./a.txt:1 [lines 1-1]\nhello"
+        }
+      ],
+      "served": {
+        "text": "",
+        "calls": [
+          {
+            "id": "toolu_2_0",
+            "name": "load_tool",
+            "input": {
+              "names": [
+                "shell"
+              ]
+            }
+          },
+          {
+            "id": "toolu_2_1",
+            "name": "load_tool",
+            "input": {
+              "names": [
+                "read"
+              ]
+            }
+          },
+          {
+            "id": "toolu_2_2",
+            "name": "call_tool",
+            "input": {
+              "name": "shell",
+              "arguments": {
+                "command": "echo hi > c.txt"
+              }
+            }
+          },
+          {
+            "id": "toolu_2_3",
+            "name": "call_tool",
+            "input": {
+              "name": "edit",
+              "arguments": {
+                "path": "a.txt",
+                "old_string": "hello",
+                "new_string": "bye"
+              }
+            }
+          },
+          {
+            "id": "toolu_2_4",
+            "name": "call_tool",
+            "input": {
+              "name": "apply_patch",
+              "arguments": {
+                "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n-hello\n+bye\n*** End Patch"
+              }
+            }
+          },
+          {
+            "id": "toolu_2_5",
+            "name": "call_tool",
+            "input": {
+              "name": "mcp__fake__ping",
+              "arguments": {}
+            }
+          },
+          {
+            "id": "toolu_2_6",
+            "name": "call_tool",
+            "input": {
+              "name": "agent",
+              "arguments": {
+                "prompt": "look around"
+              }
+            }
+          },
+          {
+            "id": "toolu_2_7",
+            "name": "call_tool",
+            "input": {
+              "name": "read",
+              "arguments": {
+                "path": "a.txt"
+              }
+            }
+          }
+        ],
+        "inputTokens": 22,
+        "outputTokens": 12,
+        "stopReason": "tool_use"
+      }
+    },
+    {
+      "path": "/v1/messages",
+      "model": "claude-sonnet-4-6",
+      "tools": [],
+      "toolResults": [
+        {
+          "tool_use_id": "toolu_2_0",
+          "is_error": true,
+          "content": "Error: tool \"load_tool\" is not available in this session."
+        },
+        {
+          "tool_use_id": "toolu_2_1",
+          "is_error": true,
+          "content": "Error: tool \"load_tool\" is not available in this session."
+        },
+        {
+          "tool_use_id": "toolu_2_2",
+          "is_error": true,
+          "content": "Error: tool \"call_tool\" is not available on this session's schema allowlist."
+        },
+        {
+          "tool_use_id": "toolu_2_3",
+          "is_error": true,
+          "content": "Error: tool \"call_tool\" is not available on this session's schema allowlist."
+        },
+        {
+          "tool_use_id": "toolu_2_4",
+          "is_error": true,
+          "content": "Error: tool \"call_tool\" is not available on this session's schema allowlist."
+        },
+        {
+          "tool_use_id": "toolu_2_5",
+          "is_error": true,
+          "content": "Error: tool \"call_tool\" is not available on this session's schema allowlist."
+        },
+        {
+          "tool_use_id": "toolu_2_6",
+          "is_error": true,
+          "content": "Error: tool \"call_tool\" is not available on this session's schema allowlist."
+        },
+        {
+          "tool_use_id": "toolu_2_7",
+          "is_error": true,
+          "content": "Error: tool \"call_tool\" is not available on this session's schema allowlist."
+        }
+      ],
+      "served": {
+        "text": "final answer",
+        "calls": [],
+        "inputTokens": 23,
+        "outputTokens": 13,
+        "stopReason": "end_turn"
+      }
+    }
+  ],
+  "files": {
+    "a.txt": "hello\n"
+  },
+  "usage": {
+    "schemaVersion": 1,
+    "sessions": [
+      {
+        "sessionId": "sess_exec_readonly",
+        "agentRole": "primary",
+        "models": [
+          "claude-sonnet-4-6"
+        ],
+        "inputTokens": 66,
+        "cacheTokens": 0,
+        "cacheWriteTokens": 0,
+        "outputTokens": 36,
+        "toolCallCountApprox": 0
+      }
+    ],
+    "totals": {
+      "inputTokens": 66,
+      "cacheTokens": 0,
+      "cacheWriteTokens": 0,
+      "outputTokens": 36,
+      "toolCallCountApprox": 0
+    }
+  }
+}

@@ -165,7 +165,7 @@ pub(super) fn request(messages: Vec<Message>, options: RequestOptions) -> ModelR
 fn header<'a>(headers: &'a [(String, String)], name: &str) -> &'a str {
     headers
         .iter()
-        .find(|(k, _)| k == name)
+        .find(|(k, _)| k.eq_ignore_ascii_case(name))
         .map(|(_, v)| v.as_str())
         .unwrap_or_else(|| panic!("header {name}"))
 }
@@ -330,6 +330,10 @@ impl MemoryStore {
             identity: None,
             extra: Default::default(),
         }
+    }
+
+    pub(super) fn session(&self, http: Arc<dyn HttpSend>) -> Arc<OAuthSession> {
+        Arc::new(OAuthSession::new(self.file.clone(), http))
     }
 
     pub(super) fn signed_in() -> Arc<Self> {
@@ -749,6 +753,32 @@ fn a_stream_cut_after_text_is_truncated_with_exposure() {
     assert!(!err.exposure.tool_dispatched);
 }
 
+/// Node's adapter over a stream cut while the third call's arguments were arriving (`fixtures/provider-tool-cut`,
+/// `record-provider-tool-cut.mjs`): it dispatches the two complete calls as they end, then throws `TRUNCATED_STREAM` with them as
+/// `partialToolCalls` and `pendingToolUse`. The decoder hands the loop the same calls as they end, and ends with the cut, flagged as a
+/// call's input cut after calls were dispatched (what the loop's recovery reads).
+#[test]
+fn a_cut_tool_stream_dispatches_the_complete_calls_as_node_does() {
+    let body = read_text("provider-tool-cut/response.sse");
+    let node = read_json("provider-tool-cut/result.json");
+    let mut decoder = api_codec().decoder(&request(Vec::new(), RequestOptions::default()));
+    let events = decoder.feed(body.as_bytes()).expect("the complete calls decode");
+    let calls: Vec<Value> = events
+        .iter()
+        .filter_map(|event| match event {
+            StreamEvent::ToolCallDone(call) => Some(json!({ "id": call.id, "name": call.name, "arguments": call.arguments })),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(json!(calls), node["dispatchedToolCalls"]);
+    assert_eq!(json!(calls), node["error"]["partialToolCalls"]);
+    let err = decoder.finish().expect_err("a cut stream");
+    assert_eq!((node["error"]["code"].as_str(), node["error"]["truncatedStream"].as_bool()), (Some("TRUNCATED_STREAM"), Some(true)));
+    assert_eq!(err.transport, Some(TransportFault::TruncatedStream));
+    assert_eq!(Some(err.exposure.tool_input_cut), node["error"]["pendingToolUse"].as_bool());
+    assert_eq!(err.exposure.tool_dispatched, !calls.is_empty());
+}
+
 #[test]
 fn a_stop_with_tool_input_still_streaming_is_a_cut() {
     let body = concat!(
@@ -776,6 +806,8 @@ fn malformed_tool_input_is_a_call_carrying_the_parse_failure() {
     assert_eq!(folded.tool_calls.len(), 1);
     assert_eq!(folded.tool_calls[0].arguments["__invalidToolArgs"], true);
     assert_eq!(folded.tool_calls[0].arguments["__rawArguments"], "{oops");
+    // V8's text (`JSON.parse('{oops')` on Node v22.20.0), which is what the model is shown.
+    assert_eq!(folded.tool_calls[0].arguments["__parseError"], "Expected property name or '}' in JSON at position 1 (line 1 column 2)");
 }
 
 #[test]
@@ -1182,34 +1214,54 @@ async fn an_expiring_token_is_refreshed_before_the_request() {
     assert_eq!(header(&sent[1].headers, "authorization"), "Bearer fresh");
 }
 
+/// `preflightAnthropicOAuthCredentials` (anthropic-oauth-credentials.mjs): a token that lasts less than the
+/// requested lease is refreshed even when it is outside the usual skew; one that lasts it is left alone. The
+/// token endpoint is the scripted fake, never the provider's.
 #[tokio::test]
-async fn a_rejected_gzip_body_is_the_provider_error_and_is_never_resent_plain() {
-    let mut messages = base_messages();
-    messages[1] = text_message(Role::User, &"x".repeat(20_000));
-    let ok = read_text(&api("text", "response.sse"));
-    let http = ScriptedHttp::new([
-        Scripted::body(400, r#"{"error":{"type":"invalid_request_error"}}"#),
-        Scripted::body(200, &ok),
-    ]);
+async fn a_lease_longer_than_the_token_forces_a_refresh_and_a_long_token_is_left_alone() {
+    let hour = 3_600_000_u64;
+    let now = 1_000_000_000_000_u64;
     let store = MemoryStore::signed_in();
-    let adapter = AnthropicAdapter::oauth(
-        config("https://api.anthropic.com"),
-        http.clone(),
-        Arc::new(OAuthSession::new(store.file.clone(), http.clone())),
-        false,
-        cpu_bulk(),
-    );
-    let req = Arc::new(request(messages, RequestOptions::default()));
-    let Err(err) = adapter.attempt(req.clone()).await else {
-        panic!("the 400 surfaces");
-    };
-    assert_eq!(err.kind, ErrorKind::InvalidRequest);
-    assert_eq!(err.status, Some(400));
-    adapter.attempt(req).await.map(drop).expect("stream");
-    let sent = http.sent();
-    assert_eq!(sent.len(), 2, "one request per attempt, no plain resend");
-    assert_eq!(header(&sent[0].headers, "content-encoding"), "gzip");
-    assert_eq!(header(&sent[1].headers, "content-encoding"), "gzip", "no latch: still compressed");
+    // Ten minutes left: beyond the five-minute skew, short of a one-hour lease.
+    store.write(&StoredOAuth { expires_at: now + 10 * 60_000, ..MemoryStore::credential() });
+    let token = r#"{"access_token":"leased","refresh_token":"leased-refresh","expires_in":28800}"#;
+    let http = ScriptedHttp::new([Scripted::body(200, token)]);
+    let session = OAuthSession::new(store.file.clone(), http.clone()).with_clock(Arc::new(move || now));
+
+    assert_eq!(session.access_token().await.expect("usable"), "fixture-access-token", "the usual skew does not refresh it");
+    assert!(http.sent().is_empty());
+
+    let lease = session.ensure_lease(hour).await.expect("lease");
+    assert!(lease.refreshed);
+    assert_eq!(lease.expires_at, now + 28_800_000);
+    assert_eq!(lease.remaining_ms, 28_800_000);
+    assert_eq!(http.sent().len(), 1);
+    assert_eq!(http.sent()[0].url, "https://platform.claude.com/v1/oauth/token");
+    let stored = store.load().await.expect("stored");
+    assert_eq!((stored.access_token.as_str(), stored.refresh_token.as_str()), ("leased", "leased-refresh"), "persisted before it returns");
+
+    let again = session.ensure_lease(hour).await.expect("lease");
+    assert!(!again.refreshed, "a token that lasts the lease is not refreshed");
+    assert_eq!(http.sent().len(), 1);
+}
+
+#[tokio::test]
+async fn a_lease_the_endpoint_cannot_grant_and_a_dead_grant_are_errors() {
+    let now = 1_000_000_000_000_u64;
+    let store = MemoryStore::signed_in();
+    store.write(&StoredOAuth { expires_at: now + 1000, ..MemoryStore::credential() });
+    let http = ScriptedHttp::new([Scripted::body(200, r#"{"access_token":"short","refresh_token":"r","expires_in":60}"#)]);
+    let session = OAuthSession::new(store.file.clone(), http.clone()).with_clock(Arc::new(move || now));
+    let err = session.ensure_lease(3_600_000).await.expect_err("a 60 s grant");
+    assert!(err.message.contains("3600s") && err.message.contains("60s"), "{}", err.message);
+
+    let dead = MemoryStore::signed_in();
+    dead.write(&StoredOAuth { expires_at: now + 1000, ..MemoryStore::credential() });
+    let http = ScriptedHttp::new([Scripted::body(400, r#"{"error":"invalid_grant"}"#)]);
+    let session = OAuthSession::new(dead.file.clone(), http).with_clock(Arc::new(move || now));
+    let err = session.ensure_lease(3_600_000).await.expect_err("dead grant");
+    assert!(err.reauth_required);
+    assert_eq!(dead.load().await.expect("stored").reauth_required, Some(true));
 }
 
 // ---------------------------------------------------------------------------

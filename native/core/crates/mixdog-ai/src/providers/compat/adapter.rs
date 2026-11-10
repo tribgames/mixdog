@@ -97,6 +97,8 @@ impl CompatAdapter {
         http: Arc<dyn HttpSend>,
         key: Option<Arc<dyn ApiKeySource>>,
     ) -> Self {
+        #[cfg(feature = "count-work")]
+        crate::work::provider_built();
         let profile = codec.profile();
         debug_assert_eq!(
             key.is_none(),

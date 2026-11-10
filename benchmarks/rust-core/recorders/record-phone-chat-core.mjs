@@ -1,0 +1,506 @@
+#!/usr/bin/env node
+// The core side of the phone's Chat calls (PH-2): what Node's session code did for `abortSession`, an idle abort's
+// reclaim, a refused `submitToSession`, `readTranscriptHistory`, the room `reset` and the stale-view check. Each case lists
+// what was done to the real Node code and everything it left behind.
+//
+//   MIXDOG_DATA_DIR=<temp> MIXDOG_HOME=<temp> HOME=<temp> USERPROFILE=<temp> APPDATA=<temp> LOCALAPPDATA=<temp> MIXDOG_SKIP_USER_DATA_BACKUP=1 \
+//     node --experimental-transform-types benchmarks/rust-core/recorders/record-phone-chat-core.mjs --tree <exact b6f10295a export>
+//
+// The Node session code runs on a virtual timer queue: `setTimeout` is held, and a timer fires only when the scenario says
+// so, in due-time then registration order, with the microtasks drained between callbacks. `Date.now` is that queue's clock.
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { setImmediate as realImmediate } from 'node:timers';
+import { FIXTURES_ROOT, exactProductIdentity, importFrom, parseArgs, resolveTree, writeSetManifest } from './lib/common.mjs';
+
+const dataDir = mkdtempSync(join(tmpdir(), 'phone-chat-core-'));
+process.env.MIXDOG_DATA_DIR = join(dataDir, 'data');
+process.env.MIXDOG_HOME = join(dataDir, 'home');
+const tree = resolveTree(parseArgs());
+
+// ---- the virtual timer queue --------------------------------------------------------------------------------------
+const START = 1_700_000_000_000;
+let now = START;
+let sequence = 0;
+let timers = [];
+const realDateNow = Date.now;
+Date.now = () => now;
+globalThis.setTimeout = (fn, ms = 0, ...args) => {
+  const timer = { id: ++sequence, due: now + Math.max(0, Number(ms) || 0), fn, args, unref: () => timer, ref: () => timer, hasRef: () => false };
+  timers.push(timer);
+  return timer;
+};
+globalThis.clearTimeout = (timer) => {
+  timers = timers.filter((held) => held !== timer);
+};
+const microtasks = () => new Promise((resolve) => realImmediate(resolve));
+/** Fires every timer due within `ms` of the clock, one at a time. */
+async function advance(ms) {
+  const until = now + ms;
+  await microtasks();
+  for (;;) {
+    const due = timers.filter((timer) => timer.due <= until).sort((a, b) => a.due - b.due || a.id - b.id)[0];
+    if (!due) break;
+    timers = timers.filter((held) => held !== due);
+    now = Math.max(now, due.due);
+    due.fn(...due.args);
+    await microtasks();
+  }
+  now = until;
+}
+
+const { createSessionFlow } = await importFrom(tree, 'src/tui/session/session-flow.mjs');
+const { createRunTurn } = await importFrom(tree, 'src/tui/session/turn.mjs');
+const { createAbortAction } = await importFrom(tree, 'src/tui/session/session-api/intake/abort.mjs');
+const { createSubmissionIntake } = await importFrom(tree, 'src/tui/session/session-api/intake/submission.mjs');
+const { createTranscriptIntake } = await importFrom(tree, 'src/tui/session/transcript-intake.mjs');
+const { createRewindAction } = await importFrom(tree, 'src/tui/session/session-api/intake/rewind.mjs');
+const { createSessionDraftStore } = await importFrom(tree, 'src/tui/session/draft-store.mjs');
+const { createTranscriptStore } = await importFrom(tree, 'src/tui/session/transcript-store.mjs');
+const { createTranscriptSpillBuffer } = await importFrom(tree, 'src/tui/session/transcript-spill.mjs');
+const { createTranscriptRouteMetadata } = await importFrom(tree, 'src/runtime/shared/transcript-metadata.mjs');
+const { flushTuiSteeringPersist } = await importFrom(tree, 'src/tui/session/tui-steering-persist.mjs');
+const { pendingMessagesPath } = await importFrom(tree, 'src/runtime/agent/orchestrator/session/manager/pending-spool-path.mjs');
+const { saveSessionAsync } = await importFrom(tree, 'src/runtime/agent/orchestrator/session/store.mjs');
+const { projectSessionState } = await importFrom(tree, 'src/standalone/session-state-projection.mjs');
+const { rewindSessionMessagesTo } = await importFrom(tree, 'src/runtime/agent/orchestrator/session/manager/session-crud.mjs');
+const { makeQueueEntry } = await importFrom(tree, 'src/tui/session/session-flow/queue/entry-shape.mjs');
+
+/** A value as the fixture keeps it: callbacks have no JSON form, so they read as a marker. */
+// The steering mirror's id ends in random bytes (`newSteeringPersistId`, tui-steering-persist.mjs): kept as a marker so a
+// re-recording is the same file.
+const plain = (value) =>
+  JSON.parse(
+    JSON.stringify(value ?? null, (_key, held) => {
+      if (typeof held === 'function') return '[function]';
+      return typeof held === 'string' ? held.replace(/^(ts_[0-9a-z]+_)[0-9a-f]{8}$/, '$1<random>').replace(/^\d+:\d+:[0-9a-f]{40}$/, '<history-marker>').replace(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/, '<uuid>') : held;
+    }),
+  );
+
+const cancelled = () => Object.assign(new Error('aborted'), { name: 'AbortError' });
+
+/** One session: only the provider request is controlled. Intake, turn ownership and abort are Node's own. */
+function boot(sessionId) {
+  // The session's own store: Node's real draft store (frame-batched publication, with its emission and disposal guards) and its real
+  // transcript store (`pushItem` rebuilds the prompt history and asks for the immediate flush). Only the clock and the frame
+  // scheduler are the virtual ones above.
+  const draft = {
+    state: {
+      busy: false,
+      commandBusy: false,
+      queued: [],
+      items: [],
+      promptHistoryList: [],
+      stats: { turns: 0, inputTokens: 0, outputTokens: 0 },
+      structureRevision: 0,
+      transcriptViewRevision: 0,
+      transcriptViewItems: null,
+      // Its own folder: the prompt history Node merges in is read from the folder's file, so no case sees another's prompts.
+      cwd: join(dataDir, 'project', sessionId),
+    },
+  };
+  const flags = { leadTurnEpoch: 0, pushingFromDeferredEntry: false, flushDeferredBeforeImmediatePush: null };
+  const pending = [];
+  const requests = [];
+  const waiting = new Map();
+  const abortReasons = [];
+  /** What a viewer was shown: the store's published snapshot at each publication, whole, in order. */
+  const publications = [];
+  const rewinds = [];
+  let active;
+  let sequenceId = 0;
+  const runtime = {
+    id: sessionId,
+    session: { id: sessionId, messages: [] },
+    toolMode: 'auto',
+    async ask(content, options) {
+      const result = Promise.withResolvers();
+      const request = { id: options.id, content, options, ...result };
+      const index = requests.push(request) - 1;
+      active = request;
+      waiting.get(index)?.resolve(request);
+      try {
+        return await result.promise;
+      } finally {
+        active = null;
+      }
+    },
+    abort(reason) {
+      abortReasons.push(reason);
+      active.reject(cancelled());
+      return true;
+    },
+    // The model-history rewind is the runtime's own (`session-ops.mjs` `rewindMessages` -> `rewindSessionMessagesTo`, session-crud.mjs),
+    // run on the session stored by `plantSession`; what the session asked of it and what it answered are recorded.
+    async rewindMessages(options) {
+      const result = await rewindSessionMessagesTo(sessionId, options);
+      rewinds.push({ options: plain(options), result: plain(result) });
+      return result;
+    },
+  };
+  // `bag.drain` is not yet built when the store is: a release of `busy` re-kicks it (local-session-runtime.mjs).
+  const store = createSessionDraftStore({
+    draft,
+    // `projected` is what the daemon sends a client of that snapshot's queue (`projectSessionState`, session-state-projection.mjs).
+    listeners: new Set([() => publications.push({ at: now, state: plain({ ...store.getPublishedState(), cwd: '<cwd>' }), projectedQueued: plain(projectSessionState({}, store.getPublishedState()).queued) })]),
+    isDisposed: () => flags.disposed === true,
+    onBusyReleased: () => {
+      void bag.drain?.();
+    },
+  });
+  const itemIndexById = new Map();
+  const transcript = createTranscriptStore({ draft, store, flags, transcriptSpill: createTranscriptSpillBuffer(), itemIndexById, onBulkReplace() {} });
+  const bag = {
+    runtime,
+    flags,
+    pending,
+    pendingNotificationKeys: new Set(),
+    getState: store.getState,
+    set: store.set,
+    nextId: () => `${sessionId}-item-${++sequenceId}`,
+    appendItems: transcript.appendItems,
+    pushItem: transcript.pushItem,
+    patchItem: transcript.patchItem,
+    replaceItems: transcript.replaceItems,
+    flushEmitImmediate: store.flushEmitImmediate,
+    tuiDebug() {},
+    pushNotice() {},
+    syncContextStats() {},
+    routeState: () => ({}),
+    agentStatusState: () => ({}),
+    denyAllToolApprovals() {},
+    clearActiveToolSummary() {},
+    flushDeferredExecutionPendingResumeKick() {},
+    flushToolResults() {},
+    autoClearBeforeSubmit() {},
+  };
+  // Node's own intake builds the row (kind, id, text, route metadata, message id, device) and hands it to `pushItem`, recorded whole.
+  Object.assign(bag, createTranscriptIntake({ getState: bag.getState, flags, pushItem: bag.pushItem, patchItem: bag.patchItem, transcriptRouteMetadata: (at = Date.now()) => createTranscriptRouteMetadata(runtime.session, bag.routeState(), at) }));
+  Object.assign(bag, createSessionFlow(bag));
+  bag.runTurn = createRunTurn(bag);
+  const { abort } = createAbortAction(bag);
+  const intake = createSubmissionIntake(bag);
+  let draining;
+  return {
+    get state() {
+      return draft.state;
+    },
+    flags,
+    pending,
+    requests,
+    abortReasons,
+    publications,
+    rewinds,
+    id: sessionId,
+    flow: bag,
+    rewind: createRewindAction(bag).rewindToItem,
+    abort,
+    submitAsync: intake.submitAsync,
+    start() {
+      draining = bag.drain();
+      return draining;
+    },
+    get drained() {
+      return draining;
+    },
+    nextRequest(index = 0) {
+      if (requests[index]) return Promise.resolve(requests[index]);
+      if (!waiting.has(index)) waiting.set(index, Promise.withResolvers());
+      return waiting.get(index).promise;
+    },
+    async stop() {
+      flags.disposed = true;
+      flags.admission = 'closing';
+      active?.reject(cancelled());
+      await draining;
+      await flushTuiSteeringPersist();
+    },
+  };
+}
+
+/**
+ * Everything the session holds after a scenario, whole: the stored transcript rows and the queue entries as Node keeps them
+ * (callbacks read as a marker), the pending list and the restore handed to the composer. A submit case adds what its viewer was
+ * shown (`publications`).
+ */
+const left = (f) => ({
+  items: plain(f.state.items),
+  queued: plain(f.state.queued),
+  pending: plain(f.pending),
+  promptRestore: plain(f.state.promptRestore ?? null),
+  promptHistory: plain(f.state.promptHistoryList),
+  busy: f.state.busy,
+});
+
+const PNG = { 1: { data: 'AAAA', mimeType: 'image/png' } };
+const cases = [];
+
+/** A turn running on a prompt `first` (the submit options), then `then(f)` happens, then the abort `options` is made. */
+async function aborting(name, { prompt = 'draft', first = {}, steering = null, output = null, outputText = 'partial answer', options = {}, hint = null }) {
+  const f = boot(`abort-${cases.length}`);
+  const submitOptions = { id: 'sub1', awaitPersistence: true, transcriptMeta: { device: 'PC' }, ...first };
+  const accepted = await f.submitAsync(prompt, submitOptions);
+  const drained = f.start();
+  const request = await f.nextRequest();
+  if (steering) await f.submitAsync(steering.text, { id: steering.id, awaitPersistence: true, ...steering.options });
+  if (output) request.options[output]?.(outputText);
+  const before = left(f);
+  const result = f.abort(options);
+  await drained;
+  await advance(150);
+  cases.push({
+    name,
+    kind: 'abort',
+    prompt,
+    submit: { ...submitOptions, awaitPersistence: undefined },
+    steering,
+    output: output ? { callback: output, text: outputText } : null,
+    options,
+    accepted,
+    before,
+    result,
+    abortReasons: f.abortReasons,
+    after: left(f),
+    ...(hint ? { hint } : {}),
+  });
+  await f.stop();
+}
+
+await aborting('own device, prompt handed back', {});
+await aborting('own device, restorePrompt false keeps the prompt', { options: { restorePrompt: false, device: 'PC' } });
+await aborting('own device named, prompt handed back', { options: { device: 'PC' } });
+await aborting('another device cancels: the prompt travels through the state', { options: { device: 'Phone' } });
+await aborting('another device cancels a prompt with pasted images', { first: { pastedImages: PNG }, prompt: 'see [Image #1]', options: { device: 'Phone' } });
+await aborting('own device cancels a prompt with pasted images', { first: { pastedImages: PNG }, prompt: 'see [Image #1]', options: { device: 'PC' } });
+await aborting('own device cancels a prompt with pasted texts', { first: { pastedTexts: { 1: { text: 'inline text' } } }, prompt: 'see [Text #1]', options: {} });
+await aborting('a queued steering prompt: the turn is only interrupted', { steering: { id: 'sub2', text: 'redirect' }, options: { device: 'PC' } });
+await aborting('a queued steering prompt, pasted images discarded', { first: { pastedImages: PNG }, prompt: 'see [Image #1]', steering: { id: 'sub2', text: 'redirect' }, options: {} });
+await aborting('output already produced: nothing to hand back', { output: 'onTextDelta', options: { device: 'PC' } });
+await aborting('whitespace output is not output', { output: 'onTextDelta', outputText: '  \n', options: { device: 'PC' } });
+await aborting('a kickoff prompt is never restorable', { first: { kickoff: true }, options: { device: 'PC' } });
+await aborting('a named non-user reason with no restore', { options: { reason: 'agent-watchdog', restorePrompt: false } });
+await aborting('no device named by the canceller', { options: {} });
+await aborting('a prompt submitted without a device, cancelled from a device', { first: { transcriptMeta: {} }, options: { device: 'Phone' } });
+
+/** An abort while nothing runs: the daemon's `abort` reply is the object the session returned, or `{aborted}` for a boolean. */
+const daemonReply = (raw) => (raw && typeof raw === 'object' ? raw : { aborted: raw === true });
+
+async function idle(name, { queue, abortOptions }) {
+  const f = boot(`idle-${cases.length}`);
+  // A command is running: submissions queue and nothing starts.
+  f.state.commandBusy = true;
+  const accepted = [];
+  for (const entry of queue) accepted.push(await f.submitAsync(entry.text, { id: entry.id, awaitPersistence: true, ...entry.options }));
+  const before = left(f);
+  const raw = f.abort(abortOptions);
+  await advance(150);
+  cases.push({ name, kind: 'idle', queue, abortOptions, accepted, before, raw: raw === undefined ? null : raw, reply: daemonReply(raw), after: left(f) });
+  f.flags.disposed = true;
+  await flushTuiSteeringPersist();
+}
+
+await idle('a queued submission is handed back by its id', { queue: [{ id: 'sub1', text: 'queued one' }, { id: 'sub2', text: 'queued two' }], abortOptions: { submissionId: 'sub1' } });
+await idle('an id that is not queued', { queue: [{ id: 'sub1', text: 'queued one' }], abortOptions: { submissionId: 'zz' } });
+await idle('no id names nothing', { queue: [{ id: 'sub1', text: 'queued one' }], abortOptions: {} });
+await idle('nothing queued', { queue: [], abortOptions: { submissionId: 'sub1' } });
+await idle('a queued prompt with pasted images', {
+  queue: [{ id: 'sub1', text: 'see [Image #1]', options: { pastedImages: PNG } }],
+  abortOptions: { submissionId: 'sub1' },
+});
+
+/** `submitAsync` of the daemon (`session-turns.mjs`): whether the prompt was accepted, and what the session holds after. */
+async function submitting(name, { prompt, options = {}, admission, repeat = 1, busy = false }) {
+  const f = boot(`submit-${cases.length}`);
+  if (admission) f.flags.admission = admission;
+  f.state.commandBusy = busy;
+  const answers = [];
+  const base = f.publications.length;
+  const submittedAt = now;
+  // The host stamps the sending device on a connection's submit (`transcriptMeta.device`); the replay's connection is desktop-1.
+  const submitted = { id: 'sub1', awaitPersistence: true, transcriptMeta: { device: 'desktop-1' }, ...options };
+  for (let i = 0; i < repeat; i += 1) answers.push(await f.submitAsync(prompt, submitted));
+  // The frame timer (`TUI_FRAME_MS`) fires within this: every publication the submit asked for is made.
+  await advance(50);
+  // The durable record of a queued prompt is Node's own steering mirror (`appendTuiSteeringPersist`): the shard file as written, and
+  // what the turn the session started was handed (`runtime.ask`: content and options).
+  await flushTuiSteeringPersist();
+  const durable = existsSync(pendingMessagesPath(`tui_${f.id}`)) ? plain(JSON.parse(readFileSync(pendingMessagesPath(`tui_${f.id}`), 'utf8'))) : null;
+  const asked = f.requests.map((request) => plain({ content: request.content, options: request.options }));
+  cases.push({ name, kind: 'submit', prompt, options, admission: admission ?? 'open', repeat, busy, answers, at: submittedAt, after: { ...left(f), publications: f.publications.slice(base), durable, asked } });
+  f.flags.disposed = true;
+}
+
+await submitting('a prompt of blank text parts is refused', { prompt: [{ type: 'text', text: ' \n ' }] });
+await submitting('a prompt whose display text is blank is refused', { prompt: [{ type: 'text', text: '' }], options: { displayText: '  ' } });
+await submitting('a blank display text is replaced by the one given', { prompt: [{ type: 'text', text: ' ' }], options: { displayText: 'shown' } });
+await submitting('a prompt of text is accepted and queued', { prompt: 'hello', busy: true });
+await submitting('a closing session still takes a user prompt', { prompt: 'hello', admission: 'closing', busy: true });
+await submitting('a closed session takes nothing', { prompt: 'hello', admission: 'terminal', busy: true });
+await submitting('a repeated submission id is one prompt', { prompt: 'hello', repeat: 2, busy: true });
+// An image prompt: the content carries an image part, the pasted image names it (`promptContentImageMeta`).
+await submitting('a prompt with a pasted image is queued with its image', {
+  prompt: [{ type: 'text', text: 'see [Image #1]' }, { type: 'image', data: 'AAAA', mimeType: 'image/png' }],
+  options: { pastedImages: { 1: { id: 1, type: 'image', content: 'AAAA', mediaType: 'image/png', filename: 'a.png' } } },
+  busy: true,
+});
+// A pasted text: the composer's chip in the prompt, the text in the option (`mergePastedField`, queue-helpers.mjs:166).
+await submitting('a prompt with a pasted text is queued with its text', {
+  prompt: 'see [Pasted text #1 +2 lines]',
+  options: { pastedTexts: { 1: { id: 1, text: 'a\nb\nc' } } },
+  busy: true,
+});
+await submitting('a prompt with a later priority is queued at it', { prompt: 'hello', options: { priority: 'later' }, busy: true });
+// A channel message queued as a task notification (`channel-session-router.mjs`): no submission id, no device, mode and origin set.
+await submitting('a channel message is queued as a task notification', { prompt: 'Build finished', options: { id: undefined, transcriptMeta: null, mode: 'task-notification', origin: 'channel' }, busy: true });
+
+/**
+ * Node's store guards and coalesces (`frame-batched-store.mjs`): a change followed by two immediate flushes in one synchronous chain,
+ * and then the frame timer, publishes once. What the real store published is recorded; nothing is derived.
+ */
+{
+  const f = boot('flush-probe');
+  const base = f.publications.length;
+  f.flow.set({ busy: true });
+  f.flow.flushEmitImmediate();
+  f.flow.flushEmitImmediate();
+  await advance(50);
+  cases.push({ name: 'two immediate flushes in one chain publish once', kind: 'flush', flushes: 2, publications: f.publications.slice(base) });
+  f.flags.disposed = true;
+}
+
+/**
+ * The message selector's rewind (`rewindToItem`, session-api/intake/rewind.mjs; the desktop's "edit a message" is this same capability,
+ * which hands the prompt's text back to the composer, `use-composer-message-selector.ts:59`) on a submitted row: the client names the row
+ * by the id it shows (a user row's id is its submission id) and Node resolves that id on the rows, then hands the runtime the row's
+ * stable message id with its text. What the session answered and what it asked of the runtime are recorded.
+ */
+async function rewinding(name, { itemId, busy = false, turns = 1 }) {
+  const f = boot(`rewind-${cases.length}`);
+  const asked = [];
+  const messages = [];
+  for (let turn = 1; turn <= turns; turn++) {
+    await f.submitAsync('hello', { id: `sub${turn}`, awaitPersistence: true, transcriptMeta: { device: 'desktop-1' } });
+    const drained = f.start();
+    const request = await f.nextRequest(turn - 1);
+    // The turn ends with an answer; the session is then idle with the row of its prompt in the transcript.
+    request.resolve({ result: { content: 'hi', usage: {} }, session: { id: request.options.id, messages: [] } });
+    await drained;
+    await advance(50);
+    // What the runtime holds of the turn: the prompt as it was asked (`runtime.ask`'s content and its transcript metadata, which carries
+    // the row's message id) and the answer, in the stored message shape; the runtime's own rewind then runs on them.
+    asked.push(plain({ content: request.content, options: request.options }));
+    messages.push({ role: 'user', content: request.content, meta: { transcript: request.options.transcriptMeta } }, { role: 'assistant', content: 'hi' });
+  }
+  await saveSessionAsync(
+    { id: f.id, provider: 'openai', model: 'gpt-test', cwd: dataDir, generation: 0, closed: false, messages },
+    { expectedGeneration: 0 },
+  );
+  f.state.commandBusy = busy;
+  const before = left(f);
+  const reply = await f.rewind(itemId);
+  await advance(50);
+  cases.push({ name, kind: 'rewind', prompt: 'hello', turns, itemId, busy, asked, before, reply: plain(reply), runtimeCalls: f.rewinds, after: left(f) });
+  f.flags.disposed = true;
+  await flushTuiSteeringPersist();
+}
+
+await rewinding('a submitted row is rewound by the id it shows', { itemId: 'sub1' });
+await rewinding('an id that names no row answers nothing', { itemId: 'zz' });
+await rewinding('a busy session answers nothing', { itemId: 'sub1', busy: true });
+await rewinding('the second of two prompts with the same text is rewound', { itemId: 'sub2', turns: 2 });
+
+// The image shapes a queue entry can hold (a persisted queue entry carries whatever the producer wrote): Node's real `makeQueueEntry`
+// builds the entry and `projectSessionState` shows it to a client, so `images` is what `promptContentImageMeta` gives for the shape.
+function queueShape(name, kind, content, pastedImages = null, literal = null) {
+  // `content` is the entry as a store or the wire holds it (JSON): a literal NaN or infinity is null there, and `literal` names what the
+  // producer wrote. The core receives only JSON, so `projected` is Node's real projection of that JSON entry; `projectedLiteral` is what
+  // Node shows for the in-process non-finite number, kept so the difference is on the record.
+  const wire = JSON.parse(JSON.stringify(content));
+  const show = (held) => plain(projectSessionState({}, { queued: [makeQueueEntry(held, { id: 'q1', submittedAt: 1, ...(pastedImages ? { pastedImages } : {}) }, () => 'unused')] }).queued);
+  cases.push({ name, kind, content: wire, literal, pastedImages, projected: show(wire), ...(literal ? { projectedLiteral: show(content) } : {}) });
+}
+function imageShape(name, part, pastedImages = null, literal = null) {
+  queueShape(name, 'image-shape', [{ type: 'text', text: 'see [Image #1]' }, { type: 'image', ...part }], pastedImages, literal);
+}
+queueShape('a file part shows as [File]', 'queue-shape', [{ type: 'text', text: 'read this' }, { type: 'file', filename: 'a.pdf', text: 'ignored' }]);
+queueShape('a string part is its own text', 'queue-shape', ['plain', { type: 'text', text: 'and more' }]);
+queueShape('a media reference text part is dropped', 'queue-shape', [{ type: 'text', text: 'ask' }, { type: 'text', text: 'Image kept on disk', attachmentReference: true }]);
+queueShape('an unknown part shows its text', 'queue-shape', [{ type: 'text', text: 'ask' }, { type: 'audio', text: 'heard' }]);
+imageShape('sizeBytes an empty string', { data: 'AAAA', mimeType: 'image/png', sizeBytes: '' });
+imageShape('sizeBytes a blank string', { data: 'AAAA', mimeType: 'image/png', sizeBytes: '   ' });
+imageShape('sizeBytes an exponent string', { data: 'AAAA', mimeType: 'image/png', sizeBytes: '1e3' });
+imageShape('sizeBytes false', { data: 'AAAA', mimeType: 'image/png', sizeBytes: false });
+imageShape('sizeBytes negative', { data: 'AAAA', mimeType: 'image/png', sizeBytes: -5 });
+imageShape('sizeBytes NaN', { data: 'AAAA', mimeType: 'image/png', sizeBytes: Number.NaN }, null, 'NaN');
+imageShape('sizeBytes negative infinity', { data: 'AAAA', mimeType: 'image/png', sizeBytes: Number.NEGATIVE_INFINITY }, null, '-Infinity');
+imageShape('sizeBytes a very large number', { data: 'AAAA', mimeType: 'image/png', sizeBytes: 1e300 });
+imageShape('sizeBytes a very large numeric string', { data: 'AAAA', mimeType: 'image/png', sizeBytes: '1e400' });
+imageShape('sizeBytes an array of one', { data: 'AAAA', mimeType: 'image/png', sizeBytes: [7] });
+imageShape('data and mimeType', { data: 'AAAA', mimeType: 'image/png' });
+imageShape('content and no data', { content: 'BBBBBBBB', mimeType: 'image/jpeg' });
+imageShape('data that is no string falls back to content', { data: 7, content: 'CCCCC', mimeType: 'image/jpeg' });
+imageShape('neither data nor content', { mimeType: 'image/jpeg' });
+imageShape('mediaType instead of mimeType', { data: 'AAAA', mediaType: 'image/webp' });
+imageShape('mimeType wins over mediaType', { data: 'AAAA', mimeType: 'image/gif', mediaType: 'image/webp' });
+imageShape('an empty mimeType falls to mediaType', { data: 'AAAA', mimeType: '', mediaType: 'image/webp' });
+imageShape('the pasted image names the type', { data: 'AAAA' }, { 1: { id: 3, mediaType: 'image/avif', filename: 'p.avif' } });
+imageShape('no type anywhere is a png', { data: 'AAAA' });
+imageShape('sizeBytes an integer', { data: 'AAAA', mimeType: 'image/png', sizeBytes: 4096 });
+imageShape('sizeBytes a numeric string', { data: 'AAAA', mimeType: 'image/png', sizeBytes: '12' });
+imageShape('sizeBytes a padded numeric string', { data: 'AAAA', mimeType: 'image/png', sizeBytes: ' 0x10 ' });
+imageShape('sizeBytes a float', { data: 'AAAA', mimeType: 'image/png', sizeBytes: 12.5 });
+imageShape('sizeBytes zero', { data: 'AAAA', mimeType: 'image/png', sizeBytes: 0 });
+imageShape('sizeBytes a word', { data: 'AAAA', mimeType: 'image/png', sizeBytes: 'abc' });
+imageShape('sizeBytes true', { data: 'AAAA', mimeType: 'image/png', sizeBytes: true });
+imageShape('sizeBytes null', { data: 'AAAA', mimeType: 'image/png', sizeBytes: null });
+imageShape('sizeBytes an object', { data: 'AAAA', mimeType: 'image/png', sizeBytes: {} });
+imageShape('sizeBytes infinite', { data: 'AAAA', mimeType: 'image/png', sizeBytes: 'Infinity' });
+imageShape('a stored attachment keeps its reference', { mimeType: 'image/png', sizeBytes: 99, attachmentRef: 'a'.repeat(64) });
+
+// A completion notification, as Node persists it and as it queues in memory. Persisted: `markCompletionEntry` tags it and
+// `normalizePersistedEntry` is the shape the pending spool writes (pending-message-entry.mjs), which holds no priority. In memory:
+// the real `createExecutionDelivery` enqueues it (priority `next`, execution-delivery.mjs:96) through the real `makeQueueEntry`.
+const { markCompletionEntry, normalizePersistedEntry } = await importFrom(tree, 'src/runtime/agent/orchestrator/session/manager/pending-message-entry.mjs');
+const { createExecutionDelivery } = await importFrom(tree, 'src/tui/session/agent-job-feed/execution-delivery.mjs');
+const { isQueuedEntryEditable, isQueuedEntryVisible } = await importFrom(tree, 'src/tui/session/queue-helpers.mjs');
+const SHELL_DONE = '<task-notification>\n<task-id>job-7</task-id>\n<status>completed</status>\n<summary>Shell task completed (exit 0)</summary>\n<result>\nok\n</result>\n</task-notification>';
+function completion(name, text, options) {
+  const marked = markCompletionEntry(text, options);
+  const persisted = normalizePersistedEntry(marked);
+  const queued = [];
+  const delivery = createExecutionDelivery({
+    dedup: { hasNotificationKey: () => false, rememberNotificationKey() {}, responseState: () => null, rememberResponseState() {}, promote() {} },
+    pendingResume: { isDiscarded: () => false },
+    enqueue: (body, opts) => { queued.push(makeQueueEntry(body, opts, () => 'unused')); return true; },
+    nextId: () => 'card',
+    pushResponse() {},
+    statusRefresh: { refresh() {} },
+  });
+  const event = { meta: options.meta || {} };
+  delivery.deliver({ event, text: text.trim(), parsed: null, delivery: { modelContent: text, displayText: 'shown' }, executionId: options.executionId, status: 'completed', terminal: true, notificationKey: undefined });
+  const [entry] = queued;
+  cases.push({
+    name, kind: 'completion', text, options, persisted: plain(persisted),
+    queued: plain({ mode: entry.mode, priority: entry.priority, visible: isQueuedEntryVisible(entry), editable: isQueuedEntryEditable(entry) }),
+  });
+}
+completion('a completion with its execution', `  ${SHELL_DONE}\n`, { executionId: 'job-7', meta: { execution_surface: 'shell', status: 'completed' } });
+completion('a completion with an id and no meta', SHELL_DONE.replace('job-7', 'job-8'), { executionId: 'job-8' });
+// A completion naming no execution anywhere is not recorded: Node's `normalizePersistedEntry` recurses without end on it
+// (`completionExecutionId` -> `pendingMessageText` -> `completionEntryFields`), so Node persists no such entry.
+
+const out = join(FIXTURES_ROOT, 'phone-chat-core', 'phone-chat-core.json');
+mkdirSync(join(FIXTURES_ROOT, 'phone-chat-core'), { recursive: true });
+// Every message id (`msg_` and 32 hex digits) is random: each is numbered by its first appearance in its case, so which rows share an id
+// and which differ stays in the recording while the file is the same on every run.
+const numbered = cases.map((held) => {
+  const seen = new Map();
+  return JSON.parse(JSON.stringify(held, (_key, value) => (typeof value === 'string' && /^msg_[0-9a-f]{32}$/.test(value) ? `msg_<${seen.get(value) ?? seen.set(value, seen.size + 1).get(value)}>` : value)));
+});
+writeFileSync(out, `${JSON.stringify({ recorder: 'benchmarks/rust-core/recorders/record-phone-chat-core.mjs', epoch: START, cases: numbered }, null, 2)}\n`);
+console.log(`${cases.length} cases -> ${out}`);
+Date.now = realDateNow;
+// Both recorders write this set; whichever runs last lists every file in the manifest.
+writeSetManifest(join(FIXTURES_ROOT, 'phone-chat-core'), { set: 'phone-chat-core', recorder: 'benchmarks/rust-core/recorders/record-phone-chat-core.mjs + record-remote-session.mjs + record-room-reset.mjs', command: 'node --experimental-transform-types --import ./benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/<recorder>.mjs --tree <tree>, for each of the three recorders', identity: exactProductIdentity(tree, 'b6f10295a2f698afc85332467192de28500bd146') });
+process.exit(0);

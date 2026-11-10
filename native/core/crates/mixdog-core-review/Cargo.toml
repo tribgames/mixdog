@@ -31,15 +31,31 @@ sha2 = { workspace = true }
 tokio = { workspace = true, features = ["sync", "rt", "macros", "time"] }
 tokio-util = { workspace = true }
 mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core"], optional = true }
+tempfile = { workspace = true, optional = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [features]
-test-support = ["dep:mixdog-spawn", "mixdog-rt/test-support"]
+# signal_replay (the replay of Node's review-signal recording against a core) is shared with the daemon's composed-core test.
+test-support = ["dep:mixdog-spawn", "dep:tempfile", "mixdog-rt/test-support", "mixdog-core-api/mock", "tokio/process"]
 
 [dev-dependencies]
-mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core"] }
+bytes = { workspace = true }
+mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core", "core-test"] }
 regex = { workspace = true }
 tempfile = { workspace = true }
 mixdog-core-api = { workspace = true, features = ["mock"] }
+mixdog-core-base = { workspace = true, features = ["test-support"] }
 mixdog-rt = { workspace = true, features = ["test-support"] }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util", "process"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-ai = { workspace = true, features = ["count-work", "test-support"] }
+mixdog-app-protocol = { workspace = true, features = ["codegen"] }
+mixdog-core-review = { path = ".", features = ["test-support"] }
+mixdog-js = { workspace = true, features = ["fixture-tools"] }
+mixdog-secrets = { workspace = true, features = ["count-work", "test-support"] }
+mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }
+mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", "replay-controls"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-protocol = { workspace = true, features = ["codegen"] }

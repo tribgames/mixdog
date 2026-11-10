@@ -263,18 +263,25 @@ mod tests {
     #[tokio::test]
     async fn a_teardown_closes_the_workers_before_it_cancels_the_descendants() {
         let log = std::sync::Mutex::new(Vec::new());
-        let cancelled = teardown_in_order(
+        let (started, close_started) = tokio::sync::oneshot::channel();
+        let (finish, finish_close) = tokio::sync::oneshot::channel::<()>();
+        let mut teardown = std::pin::pin!(teardown_in_order(
             async {
-                tokio::task::yield_now().await;
+                started.send(()).unwrap();
+                finish_close.await.unwrap();
                 log.lock().unwrap().push("close_all");
             },
             async {
                 log.lock().unwrap().push("cancel_descendants");
                 true
             },
-        )
-        .await;
-        assert!(cancelled);
+        ));
+        // The close has begun and is held: a teardown running both at once would have logged the cancel by now.
+        assert!(futures::poll!(teardown.as_mut()).is_pending());
+        crate::session::testing::awaiting(|| "the close to begin".to_owned(), close_started).await.unwrap();
+        assert!(log.lock().unwrap().is_empty(), "the descendants wait for the close");
+        finish.send(()).unwrap();
+        assert!(crate::session::testing::awaiting(|| "the teardown to end once the close has".to_owned(), teardown).await);
         assert_eq!(*log.lock().unwrap(), ["close_all", "cancel_descendants"]);
     }
 }

@@ -32,7 +32,8 @@ use super::SessionSetupUi;
 use crate::session::SessionDirectory;
 use crate::session::SessionHandle;
 use crate::session::testing::Rig;
-use crate::session::tests::eventually;
+use crate::eventually_on_until;
+use crate::eventually_on;
 use crate::session::tests::start_thread;
 
 /// Far beyond any test: the window that never ends inside one.
@@ -87,19 +88,10 @@ async fn snapshot_state(handle: &Arc<SessionHandle>, client: u64) -> Value {
     let sub = format!("snapshot-{client}");
     let attached = mixdog_core_api::feed::subscribe(&source, sub.as_str().into(), Window::LastItems(10), None, &connection).expect("attach");
     connection.send_control_release(Bytes::from_static(b"{}"), attached.release).expect("release");
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-    loop {
-        for text in connection.drain_text() {
-            // `drain_text` renders `control:<frame>` or `<sub>:<frame>`.
-            let (_, body) = text.split_once(':').expect("a rendered frame");
-            let frame: Value = serde_json::from_str(body).expect("a JSON frame");
-            if frame["method"] == "thread/snapshot" {
-                return frame["params"]["state"].clone();
-            }
-        }
-        assert!(tokio::time::Instant::now() < deadline, "no snapshot");
-        tokio::time::sleep(Duration::from_millis(5)).await;
-    }
+    // `drain_text` renders `control:<frame>` or `<sub>:<frame>`.
+    let frame_of = |text: &String| serde_json::from_str::<Value>(text.split_once(':').expect("a rendered frame").1).expect("a JSON frame");
+    let frames = connection.drain_text_until(|texts| texts.iter().any(|text| frame_of(text)["method"] == "thread/snapshot")).await;
+    frames.iter().map(frame_of).find(|frame| frame["method"] == "thread/snapshot").expect("the awaited snapshot")["params"]["state"].clone()
 }
 
 #[tokio::test(start_paused = true)]
@@ -122,7 +114,7 @@ async fn every_scenario_answers_and_holds_the_request_as_node() {
                 Vec::new()
             };
             if !expected.is_empty() {
-                eventually(|| (!published(&rig, thread).is_empty()).then_some(())).await;
+                eventually_on!(&[&rig.feeds.published], || (!published(&rig, thread).is_empty()).then_some(())).await;
             }
             assert_eq!(published(&rig, thread), expected, "{name} {session}");
         }
@@ -150,11 +142,11 @@ async fn the_broker_runs_nodes_scenarios_over_the_session_surface() {
         }
         // A window reads the request from the thread, claims it and completes it; the claim
         // takes it off the thread.
-        let pending = tokio::spawn({
+        let mut pending = tokio::spawn({
             let (broker, from, args) = (broker.clone(), from.clone(), golden["args"].clone());
             async move { broker.request(&from, &args).await }
         });
-        let shown = eventually(|| published(&rig, &from).into_iter().next()).await;
+        let shown = eventually_on_until!(&[&rig.feeds.published], || published(&rig, &from).into_iter().next(), &mut pending).await;
         let patch = &scenario["patches"][0]["setupUiRequest"];
         assert_eq!(shown["at"], patch["at"], "{name}");
         let keys = |v: &Value| v.as_object().expect("request").keys().cloned().collect::<std::collections::BTreeSet<_>>();
@@ -162,7 +154,7 @@ async fn the_broker_runs_nodes_scenarios_over_the_session_surface() {
         let id = shown["id"].as_str().expect("request id");
         let claim = broker.claim(&from, id, owner).expect("claimed");
         assert_eq!(claim, json!({ "id": id, "args": scenario["claim"]["args"], "scope": scenario["claim"]["scope"] }), "{name}");
-        eventually(|| (published(&rig, &from).len() == 2).then_some(())).await;
+        eventually_on_until!(&[&rig.feeds.published], || (published(&rig, &from).len() == 2).then_some(()), &mut pending).await;
         assert_eq!(published(&rig, &from)[1], Value::Null, "{name}: the claim clears it");
         assert!(broker.complete(id, owner, &golden["receipt"]).expect("receipt"), "{name}");
         assert_eq!(pending.await.expect("request").expect("answer"), DesktopAnswer::Done(outcome["value"].clone()), "{name}");
@@ -171,11 +163,11 @@ async fn the_broker_runs_nodes_scenarios_over_the_session_surface() {
 
 /// A client that attaches by snapshot inside the claim window sees the request, as a replay
 /// client does; one that attaches after the window ends, or after a claim, does not.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_snapshot_carries_the_request_only_while_it_can_be_claimed() {
     let golden = golden();
     let (rig, directory) = rig(&golden);
-    // Long enough for a snapshot and a claim inside it on a loaded machine.
+    // The window ends only when the test advances the virtual clock past it, so a snapshot and a claim inside it cannot be late.
     let window = Duration::from_millis(1500);
     let broker = Arc::new(SetupRequests::with_timeouts(Arc::new(SessionSetupUi::new(directory.clone())), window, LONG));
     let handle = start_thread(&directory).await;
@@ -186,23 +178,24 @@ async fn a_snapshot_carries_the_request_only_while_it_can_be_claimed() {
     };
 
     // Unclaimed: seen inside the window, gone after it.
-    let pending = request(&broker);
-    let shown = eventually(|| published(&rig, &thread).into_iter().next()).await;
+    let mut pending = request(&broker);
+    let shown = eventually_on_until!(&[&rig.feeds.published], || published(&rig, &thread).into_iter().next(), &mut pending).await;
     assert_eq!(snapshot_state(&handle, 1).await["setupUiRequest"], shown, "inside the window");
+    tokio::time::advance(window).await;
     assert_eq!(
         pending.await.expect("request").expect("answer"),
         DesktopAnswer::Unclaimed("setup: no Desktop window claimed the request; nothing was changed".into())
     );
-    eventually(|| (published(&rig, &thread).last() == Some(&Value::Null)).then_some(())).await;
+    eventually_on!(&[&rig.feeds.published], || (published(&rig, &thread).last() == Some(&Value::Null)).then_some(())).await;
     assert!(snapshot_state(&handle, 2).await.get("setupUiRequest").is_none(), "after the window");
 
     // Claimed inside the window: a later snapshot no longer carries it.
-    let pending = request(&broker);
-    let shown = eventually(|| published(&rig, &thread).into_iter().nth(2)).await;
+    let mut pending = request(&broker);
+    let shown = eventually_on_until!(&[&rig.feeds.published], || published(&rig, &thread).into_iter().nth(2), &mut pending).await;
     assert_eq!(snapshot_state(&handle, 3).await["setupUiRequest"], shown, "a second request, inside its window");
     let id = shown["id"].as_str().expect("request id");
     broker.claim(&thread, id, golden["owner"].as_str().expect("owner")).expect("claimed");
-    eventually(|| (published(&rig, &thread).len() == 4).then_some(())).await;
+    eventually_on_until!(&[&rig.feeds.published], || (published(&rig, &thread).len() == 4).then_some(()), &mut pending).await;
     assert!(snapshot_state(&handle, 4).await.get("setupUiRequest").is_none(), "after the claim");
     broker.dispose();
     let _ = pending.await;

@@ -21,6 +21,17 @@ test('repeated titling of the same preview normalizes it once', () => {
   assert.equal(sessionTitleNormalizationStats.cleaned, afterFirst);
 });
 
+test('a second catalog build over a few thousand sessions cleans no title again', () => {
+  const previews = Array.from({ length: 3000 }, (_, i) => `session ${i} preview ${Math.random()} with some words in it`);
+  const build = () => previews.map((preview) => generatedSessionTitle(preview, ''));
+  sessionTitleNormalizationStats.cleaned = 0;
+  const first = build();
+  const cleanedOnce = sessionTitleNormalizationStats.cleaned;
+  assert.ok(cleanedOnce >= previews.length);
+  assert.deepEqual(build(), first);
+  assert.equal(sessionTitleNormalizationStats.cleaned, cleanedOnce);
+});
+
 const EDGE = [
   '',
   '   \n\t ',

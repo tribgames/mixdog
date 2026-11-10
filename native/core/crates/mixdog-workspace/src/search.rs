@@ -447,8 +447,8 @@ fn rank_roots(roots: &[(PathBuf, Arc<Index>, Vec<String>)], query: &str, limit: 
         hits.sort_by(|a, b| {
             b.directory
                 .cmp(&a.directory)
-                .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
-                .then_with(|| a.path.cmp(b.path))
+                .then_with(|| mixdog_js::locale_compare(a.name, b.name))
+                .then_with(|| mixdog_js::locale_compare(a.path, b.path))
         });
     } else {
         hits.sort_by(|a, b| compare((a.path, &a.matched), (b.path, &b.matched)));

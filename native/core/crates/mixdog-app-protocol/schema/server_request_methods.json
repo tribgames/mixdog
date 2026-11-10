@@ -139,6 +139,24 @@
       ],
       "type": "object"
     },
+    "HostBrowserLiveControlParams": {
+      "description": "Params of `host/browser/liveControl` (core → host): a live-view control that is not page input. The page input itself goes as `host/browser/command{action:\"input\"}`. The result is null; a failure is a JSON-RPC error.",
+      "properties": {
+        "kind": {
+          "$ref": "#/definitions/LiveControlKind"
+        },
+        "request": true,
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "request",
+        "sessionId"
+      ],
+      "type": "object"
+    },
     "HostCommandParams": {
       "properties": {
         "action": {
@@ -200,6 +218,18 @@
       "required": [
         "rel",
         "root"
+      ],
+      "type": "object"
+    },
+    "HostFilesTrashItemParams": {
+      "description": "Params of `host/files/trashItem` (core → host): the absolute path the core has already confined.",
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
       ],
       "type": "object"
     },
@@ -328,6 +358,25 @@
         "done"
       ],
       "type": "string"
+    },
+    "LiveControlKind": {
+      "description": "What `host/browser/liveControl` carries to the viewed page.",
+      "oneOf": [
+        {
+          "description": "A phone's `resize-request`: `request` is its `resize` object (`{mode: \"page\"}` or `{mode: \"fit-client\", cssWidth, cssHeight, deviceScaleFactor}`); the host resizes the page (Node's `remote.resize(sessionId, request)`).",
+          "enum": [
+            "resize"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "A phone's `ready.videoLimit`: `request` is `{maxWidth, maxHeight}`; the host may capture larger than its frame bound, up to it, and lock a new geometry (Node's `remote.widenVideo(sessionId, limit)`).",
+          "enum": [
+            "videoLimit"
+          ],
+          "type": "string"
+        }
+      ]
     },
     "LocalPageScope": {
       "description": "What a `host/localPage/url` lease covers; absent means `project`.",
@@ -926,6 +975,13 @@
         "message": {
           "type": "string"
         },
+        "notices": {
+          "description": "The display-only notices the failed call raised before it failed (`ProviderError::notices`).",
+          "items": {
+            "$ref": "#/definitions/ProxyNotice"
+          },
+          "type": "array"
+        },
         "outcome": {
           "$ref": "#/definitions/ProxyOutcome"
         },
@@ -1034,6 +1090,7 @@
         "delivery",
         "kind",
         "message",
+        "notices",
         "outcome",
         "reauthRequired",
         "textEmitted",
@@ -1665,6 +1722,22 @@
         "manual",
         "picker",
         "reasoningLevels"
+      ],
+      "type": "object"
+    },
+    "ProxyNotice": {
+      "description": "One display-only transcript notice (`StreamEvent::Notice`).",
+      "properties": {
+        "message": {
+          "type": "string"
+        },
+        "warn": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "message",
+        "warn"
       ],
       "type": "object"
     },
@@ -2542,6 +2615,11 @@
       ],
       "type": "object"
     },
+    "ScreenDisplaysParams": {
+      "additionalProperties": false,
+      "description": "Params of `browser/screenDisplays` (a granted phone's request, Node's `browserRemoteScreenDisplays`) and of `host/screen/displays` (core → host): none. Both answer `RemoteScreenDisplaySummary[]` (`apps/desktop/src/shared/remote-webrtc.ts`), unchanged.",
+      "type": "object"
+    },
     "ToolApprovalDecision": {
       "description": "Mixdog's `ToolApprovalDecision` without `device`: the core stamps the device from the answering connection (P §8.1). The result type of every approval server request.",
       "properties": {
@@ -2810,6 +2888,12 @@
       },
       "result": true
     },
+    "host/browser/liveControl": {
+      "params": {
+        "$ref": "#/definitions/HostBrowserLiveControlParams"
+      },
+      "result": true
+    },
     "host/capture/fileSnapshot": {
       "params": {
         "$ref": "#/definitions/HostFileSnapshotParams"
@@ -2817,6 +2901,12 @@
       "result": {
         "$ref": "#/definitions/HostFileSnapshot"
       }
+    },
+    "host/files/trashItem": {
+      "params": {
+        "$ref": "#/definitions/HostFilesTrashItemParams"
+      },
+      "result": true
     },
     "host/localPage/url": {
       "params": {
@@ -2833,6 +2923,12 @@
       "result": {
         "$ref": "#/definitions/HostNotificationStatus"
       }
+    },
+    "host/screen/displays": {
+      "params": {
+        "$ref": "#/definitions/ScreenDisplaysParams"
+      },
+      "result": true
     },
     "host/systemProxy/resolve": {
       "params": {

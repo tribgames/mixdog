@@ -844,6 +844,30 @@ fn state_ddl_creates_the_core_state() {
     );
 }
 
+/// A `user_version` 1 core state file (the frozen v1 DDL, a row written) opens as version 2 with its rows intact and the new
+/// `name` column empty; a second open changes nothing.
+#[test]
+fn state_v1_file_upgrades_to_v2_keeping_its_rows() {
+    let dir = tempfile::tempdir().expect("dir");
+    let path = dir.path().join("core.sqlite");
+    {
+        let conn = Connection::open(&path).expect("open");
+        conn.execute_batch(include_str!("sql/state_v1.sql")).expect("v1 ddl");
+        conn.execute("INSERT INTO projects (path, alias, hidden, hidden_rank, last_used_at) VALUES ('/p', 'Alias', 1, 0, 7)", [])
+            .expect("row");
+    }
+    assert_eq!(pragma(&Connection::open(&path).unwrap(), "user_version"), 1);
+    for _ in 0..2 {
+        crate::state::upgrade_v1(&path).expect("upgrade");
+        let conn = Connection::open(&path).expect("reopen");
+        assert_eq!(pragma(&conn, "user_version"), i64::from(STATE_USER_VERSION));
+        let row: (String, Option<String>, i64, Option<String>) = conn
+            .query_row("SELECT path, alias, last_used_at, name FROM projects", [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+            .expect("row survives");
+        assert_eq!(row, ("/p".to_owned(), Some("Alias".to_owned()), 7, None));
+    }
+}
+
 fn new_ledger() -> Connection {
     let conn = Connection::open_in_memory().expect("open");
     conn.execute_batch("BEGIN IMMEDIATE").expect("begin");

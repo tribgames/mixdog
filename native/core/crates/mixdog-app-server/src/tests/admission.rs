@@ -70,7 +70,7 @@ async fn control_requests_stay_admitted_while_a_class_is_saturated() {
     let reply = client.response(20).await;
     assert_eq!(
         reply["result"],
-        json!({ "cancelRequested": true, "turnId": "turn1" })
+        json!({ "cancelRequested": true, "turnId": "turn1", "aborted": true, "restoreText": "", "pastedImages": null, "pastedTexts": null, "discardPastedImages": null, "discardPastedTexts": null, "restoredSubmissionIds": [] })
     );
 }
 

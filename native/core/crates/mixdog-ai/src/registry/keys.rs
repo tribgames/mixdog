@@ -58,6 +58,22 @@ impl VaultError {
 /// Process environment, injectable.
 pub trait Environment: Send + Sync {
     fn var(&self, name: &str) -> Option<String>;
+
+    /// A read of a credential or key variable. Every such read in production goes through here, so the work counter
+    /// sees it whichever `Environment` is injected.
+    fn key_var(&self, name: &str) -> Option<String> {
+        #[cfg(feature = "count-work")]
+        crate::work::credential_read();
+        self.var(name)
+    }
+}
+
+/// [`Environment::key_var`] over the real process environment for a caller with no injected one, keeping `var_os`'s answer
+/// (a value that is not UTF-8 is still set). With `key_var`, the one place a credential variable is read.
+pub fn process_key_var_os(name: &str) -> Option<std::ffi::OsString> {
+    #[cfg(feature = "count-work")]
+    crate::work::credential_read();
+    std::env::var_os(name)
 }
 
 /// The real process environment.
@@ -130,8 +146,13 @@ impl ApiKeyStore {
         Self { vault, env, remote_client }
     }
 
+    /// A key variable's value, as the environment holds it.
+    fn read_env(&self, name: &str) -> Option<String> {
+        self.env.key_var(name)
+    }
+
     fn set_env(&self, name: &str) -> Option<String> {
-        self.env.var(name).filter(|v| !v.is_empty())
+        self.read_env(name).filter(|v| !v.is_empty())
     }
 
     /// The environment variable `get` would return for `provider`, in the
@@ -165,6 +186,7 @@ impl ApiKeyStore {
     /// A vault read. A read that RAN and failed is "nothing stored" (Node's `catch`); `Err` only
     /// when it never ran.
     async fn stored(&self, account: &str) -> Result<Option<String>, VaultError> {
+        // Not counted here: the store behind the vault performs (and counts) the read.
         match self.vault.get(account).await {
             Ok(value) => Ok(value),
             Err(error) if error.unrun => Err(error),
@@ -197,7 +219,7 @@ impl ApiKeyStore {
     /// `Err` when the keychain read never ran: an empty key would read as "not configured".
     pub async fn resolve(&self, provider: &str, config: &KeyConfig) -> Result<String, VaultError> {
         if let Some(env) = config.api_key_env.as_deref().filter(|e| !e.is_empty()) {
-            return Ok(self.env.var(env).unwrap_or_default());
+            return Ok(self.read_env(env).unwrap_or_default());
         }
         if let Some(key) = config.api_key.as_deref().filter(|k| !k.is_empty()) {
             return Ok(key.to_owned());
@@ -220,7 +242,7 @@ impl ApiKeyStore {
     /// environment key is read first, so a rotated key beats the stale one in config.
     pub async fn reload(&self, provider: &str, config: &KeyConfig) -> Result<String, VaultError> {
         if let Some(env) = config.api_key_env.as_deref().filter(|e| !e.is_empty()) {
-            return Ok(self.env.var(env).unwrap_or_default());
+            return Ok(self.read_env(env).unwrap_or_default());
         }
         if let Some(key) = self.get(provider).await? {
             return Ok(key);
