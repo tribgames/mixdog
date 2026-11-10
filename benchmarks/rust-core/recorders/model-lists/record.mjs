@@ -141,6 +141,13 @@ else rmSync(RUN_ROOT, { recursive: true, force: true });
 // `--only` re-records one scenario into the fixture and leaves the others as they were recorded.
 const kept = only ? JSON.parse(readFileSync(OUT, 'utf8')).scenarios.filter((s) => s.name !== only) : [];
 writeFileSync(OUT, JSON.stringify({ baseURL: '__BASE_URL__', seeds, scenarios: [...kept, ...recorded] }, null, 2).replaceAll(baseURL, '__BASE_URL__'));
+// Why the anthropic-search / anthropic-floor-empty scenarios come in four orderings (lines of the 7f633e730 tree).
+const WEB_SEARCH_READ_ORDERINGS = [
+  'The web-search read after the full read picks its rows by state alone: it syncs the catalog revision (src/session-runtime/provider-models/web-search-catalog.mjs:112; a moved revision drops both caches, provider-models/model-meta.mjs:18-29), then answers cached web-search rows (:117, none before this first web-search read), else the full-catalog rows (:122), else quick rows (:129).',
+  'After the full read (which awaited the shared load, so the full-catalog cache is filled) only three events change that state, in this order: (1) the statusline-usage warm-up applies a config with the OAuth provider enabled and the revision moves (src/runtime/agent/orchestrator/providers/registry.mjs:312); (2) the catalog refresh it started (src/session-runtime/provider-readiness.mjs:149) completes: the revision moves (registry.mjs:717) and, in the same promise chain with no macrotask between, the caches are dropped and the re-warm started (provider-readiness.mjs:160-171); (3) the re-warm adopts its rows (src/session-runtime/provider-models.mjs:107-114).',
+  'A read is an IPC request (a macrotask), so it lands in one of the four windows those events bound and nowhere else: before (1) -> *-before-statusline-warm-up (full-catalog rows); between (1) and (2) -> *-after-statusline-warm-up-moved-catalog-revision (quick rows); between (2) and (3) -> *-after-catalog-refresh-completed-while-rewarm-loads (quick rows); after (3) -> *-after-catalog-refresh-completed-and-rewarmed (the re-warm\'s full-catalog rows). These four are all the orderings Node allows for this read.',
+  'Each window is pinned by an event barrier: the warm-up held at its start (hold.mjs), the refresh request held at the endpoint (record.mjs), the re-warm\'s load held at its start (hold.mjs __mixdogRecorderLoadHold), and the boot-profile marks past a log offset (child.mjs).',
+];
 // Every set is a recording of its own: its manifest names the Node commit and says whether the loaded tree is exactly it.
 // The unnamed set got one only from 7f633e730 on, and only from a full run.
 if (setName || !only) {
@@ -156,6 +163,9 @@ if (setName || !only) {
     recorder,
     command: `node ${recorder} --tree <tree>${setArg} --commit ${NODE_COMMIT}`,
     identity: exactProductIdentity(NODE_TREE, NODE_COMMIT),
-    extra: recordingProvenance(recorder, [...inputs, 'benchmarks/rust-core/recorders/lib/common.mjs']),
+    extra: {
+      ...recordingProvenance(recorder, [...inputs, 'benchmarks/rust-core/recorders/lib/common.mjs']),
+      ...(setName ? {} : { webSearchReadOrderings: WEB_SEARCH_READ_ORDERINGS }),
+    },
   });
 }

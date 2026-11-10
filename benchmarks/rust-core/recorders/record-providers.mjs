@@ -331,6 +331,7 @@ writeSetManifest(setDir, {
     productOracles: Object.fromEntries(Object.entries(PRODUCT_ORACLES).map(([name, from]) => [`oracles/${name}`, from])),
     // Not written by this run: carried over unchanged from the committed set.
     externalFixtures: Object.entries(EXTERNAL).map(([path, source]) => ({ path, source, sha256: sha256(readFileSync(join(setDir, path))) })),
+    externalFixturesNote: `The ${Object.keys(EXTERNAL).length} externalFixtures are hand-made and are not recordings: no recorder writes them and no Node run produced them; the product commit above covers every other file of the set only.`,
   },
 });
 commitStage(setDir, finalDir);
