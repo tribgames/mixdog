@@ -68,6 +68,14 @@ pub trait Environment: Send + Sync {
     }
 }
 
+/// [`Environment::key_var`] over the real process environment for a caller with no injected one, keeping `var_os`'s answer
+/// (a value that is not UTF-8 is still set). With `key_var`, the one place a credential variable is read.
+pub fn process_key_var_os(name: &str) -> Option<std::ffi::OsString> {
+    #[cfg(feature = "count-work")]
+    crate::work::credential_read();
+    std::env::var_os(name)
+}
+
 /// The real process environment.
 pub struct ProcessEnv;
 
@@ -178,8 +186,7 @@ impl ApiKeyStore {
     /// A vault read. A read that RAN and failed is "nothing stored" (Node's `catch`); `Err` only
     /// when it never ran.
     async fn stored(&self, account: &str) -> Result<Option<String>, VaultError> {
-        #[cfg(feature = "count-work")]
-        crate::work::credential_read();
+        // Not counted here: the store behind the vault performs (and counts) the read.
         match self.vault.get(account).await {
             Ok(value) => Ok(value),
             Err(error) if error.unrun => Err(error),

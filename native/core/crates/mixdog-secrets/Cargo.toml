@@ -10,6 +10,8 @@ workspace = true
 [features]
 # The lane executors the tests run blocking keychain work on.
 test-support = ["mixdog-rt/test-support"]
+# A counter of the credential reads the stores perform (mixdog_secrets::work): for a dev-dependency, never a normal build.
+count-work = []
 
 [dependencies]
 mixdog-rt = { workspace = true }

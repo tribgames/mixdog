@@ -4,8 +4,11 @@
 
 use std::sync::Arc;
 
+use mixdog_ai::registry::keys::ApiKeyStore;
+use mixdog_ai::registry::keys::ProcessEnv;
 use mixdog_ai::registry::keys::SecretVault;
 use mixdog_core::run_host::vault::KeychainVault;
+use mixdog_core_domains::domains::ai_account::admin::ProviderAdmin;
 use mixdog_core_domains::domains::ai_account::oauth_credentials::credential_file;
 use mixdog_core_domains::domains::ai_account::oauth_credentials::load_oauth_credentials;
 
@@ -20,12 +23,48 @@ fn the_domains_oauth_loader_moves_the_counter_from_a_dependent_crate() {
     }
 }
 
+/// One logical lookup is one counted read, counted by the store that performs it: not again by the vault over it, nor by
+/// `ApiKeyStore::stored` over that.
 #[tokio::test]
-async fn the_keychain_vault_moves_the_counter_from_a_dependent_crate() {
-    let vault = KeychainVault::new(Arc::new(mixdog_secrets::MemoryStore::default()));
+async fn one_vault_lookup_through_the_key_store_is_one_credential_read() {
+    let vault = Arc::new(KeychainVault::new(Arc::new(mixdog_secrets::MemoryStore::default())));
+    let keys = ApiKeyStore::new(vault, Arc::new(ProcessEnv), false);
     for read in 1..=2 {
         let before = mixdog_ai::work::credential_reads();
-        assert_eq!(vault.get("agent.openai.apiKey").await.unwrap(), None);
-        assert!(mixdog_ai::work::credential_reads() > before, "vault read {read} moved no counter seen from the dependent crate");
+        assert_eq!(keys.read_custom("custom-one", "k1").await.unwrap(), "");
+        assert_eq!(mixdog_ai::work::credential_reads() - before, 1, "ApiKeyStore::read_custom, lookup {read}");
+    }
+}
+
+/// The platform's own store: a lookup is one read where the keychain is a single file or item, and a fallback check reads
+/// nothing where `is_fallback` is a constant (Windows, macOS).
+#[tokio::test]
+async fn the_platform_store_counts_a_lookup_and_a_constant_fallback_check_reads_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = mixdog_secrets::default_store(mixdog_rt::testing::tokens().durability_io, dir.path());
+    let vault = KeychainVault::new(store);
+    let before = mixdog_ai::work::credential_reads();
+    assert_eq!(vault.get("agent.openai.apiKey").await.unwrap(), None);
+    let lookup = mixdog_ai::work::credential_reads() - before;
+    if cfg!(any(windows, target_os = "macos")) {
+        assert_eq!(lookup, 1, "one keychain lookup");
+    } else {
+        assert!(lookup >= 1, "a lookup reads the keyring or the private file");
+    }
+    let before = mixdog_ai::work::credential_reads();
+    vault.is_fallback("agent.openai.apiKey").await.unwrap();
+    if cfg!(any(windows, target_os = "macos")) {
+        assert_eq!(mixdog_ai::work::credential_reads() - before, 0, "is_fallback reads nothing on this platform");
+    }
+}
+
+/// The settings view's probe of a custom provider's key variable reads the process environment through the counted function.
+#[test]
+fn the_admin_key_variable_probe_is_one_credential_read() {
+    for read in 1..=2 {
+        let before = mixdog_ai::work::credential_reads();
+        let found = ProviderAdmin::check_custom_provider_key_env("MIXDOG_NO_SUCH_KEY_VARIABLE").unwrap();
+        assert_eq!(found["found"], false);
+        assert_eq!(mixdog_ai::work::credential_reads() - before, 1, "check_custom_provider_key_env, probe {read}");
     }
 }

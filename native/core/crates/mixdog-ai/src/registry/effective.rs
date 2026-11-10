@@ -47,11 +47,7 @@ impl EffectiveProviders {
     async fn defaults(&self, detect: bool) -> Map<String, Value> {
         let mut providers = Map::new();
         for (name, variable) in KEY_PROVIDERS {
-            #[cfg(feature = "count-work")]
-            if detect {
-                crate::work::credential_read();
-            }
-            let key = if detect { self.env.var(variable).filter(|key| !key.is_empty()) } else { None };
+            let key = if detect { self.env.key_var(variable).filter(|key| !key.is_empty()) } else { None };
             let mut entry = Map::new();
             entry.insert("enabled".into(), Value::Bool(key.is_some()));
             if let Some(key) = key {
@@ -144,9 +140,7 @@ impl EffectiveProviders {
                 if let Some(variable) = entry.get("apiKeyEnv").and_then(Value::as_str).filter(|v| !v.is_empty()).map(str::to_owned) {
                     // Env mode: the named variable is the only key source.
                     entry = entry.into_iter().filter(|(key, _)| key != "apiKey").collect();
-                    #[cfg(feature = "count-work")]
-                    crate::work::credential_read();
-                    if let Some(key) = self.env.var(&variable).filter(|key| !key.is_empty()) {
+                    if let Some(key) = self.env.key_var(&variable).filter(|key| !key.is_empty()) {
                         entry.insert("apiKey".into(), Value::String(key));
                     }
                 } else if let Some(key) = self.keys.get(&name).await.map_err(|error| error.message)? {

@@ -659,7 +659,7 @@ impl DefaultProviderBuilder {
     /// `adcLocation` + `readAdcFile`: `GOOGLE_APPLICATION_CREDENTIALS`, when
     /// set, is the only source (its missing file is an error); else gcloud's.
     async fn adc_text(&self) -> Result<AdcRead, String> {
-        let explicit = self.env.env.key_var("GOOGLE_APPLICATION_CREDENTIALS").map(|v| v.trim().to_owned());
+        let explicit = self.env.env.var("GOOGLE_APPLICATION_CREDENTIALS").map(|v| v.trim().to_owned());
         let explicit = explicit.filter(|v| !v.is_empty());
         let path = match &explicit {
             Some(path) => PathBuf::from(path),
