@@ -7,13 +7,19 @@
 // is recorded whole.
 //
 //   node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs \
-//        benchmarks/rust-core/recorders/record-phone-files.mjs --tree <git archive of b6f10295a with node_modules> [--only main|relay]
+//        benchmarks/rust-core/recorders/record-phone-files.mjs --tree <git archive of b6f10295a with the patch applied, with node_modules> \
+//        --patch benchmarks/rust-core/recorders/node-patches/node-fix-relay-optional-args.patch [--only main|relay]
+// `--patch <file>`: the tree is the export of b6f10295a with that fix of a Node bug applied (the recording is made with
+// node-fix-relay-optional-args.patch: the relay's methods take an optional argument the page left out as omitted).
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { commitStage, exactProductIdentity, importFrom, parseArgs, REPO_ROOT, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
+import { commitStage, importFrom, nodeTreeIdentity, parseArgs, recordingProvenance, REPO_ROOT, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 import { FIXED_NOW_MS, filesRelayScript, filesScript, filesWorld, play, treeOf, windowAnswers } from './lib/phone-files-script.mjs';
 
 const REF = 'b6f10295a2f698afc85332467192de28500bd146';
+const RECORDER = 'benchmarks/rust-core/recorders/record-phone-files.mjs';
+// Every module of this repository the recorder loads (its replay too), each by sha256 in the manifest.
+const RECORDER_MODULES = ['lib/common.mjs', 'lib/phone-files-script.mjs', 'lib/phone-files-replay.mjs', 'lib/phone-relay-core.mjs'].map((file) => `benchmarks/rust-core/recorders/${file}`);
 const FIXTURES = join(REPO_ROOT, 'apps', 'mobile', 'fixtures', 'phone-files');
 const args = parseArgs();
 const REPLAY = args.get('replay') ?? null;
@@ -34,6 +40,8 @@ if (REPLAY) {
   const { replayFiles } = await import('./lib/phone-files-replay.mjs');
   process.exit(await replayFiles({ exe: REPLAY, world, golden: JSON.parse(readFileSync(join(FIXTURES, 'golden.json'), 'utf8')) }));
 }
+// Checked before anything is recorded: the tree is the commit (with `--patch`, the commit with that fix) and nothing else.
+const identity = nodeTreeIdentity(args, tree, REF);
 
 const main = (name) => importFrom(tree, `apps/desktop/src/main/${name}.ts`);
 const { SessionHost } = await main('session-host');
@@ -149,10 +157,18 @@ writeJson(join(out, 'golden.json'), {
 });
 writeSetManifest(out, {
   set: 'phone-files',
-  recorder: 'benchmarks/rust-core/recorders/record-phone-files.mjs',
-  command: `node benchmarks/rust-core/recorders/record-phone-files.mjs --tree <git archive of ${REF} (src, apps) with node_modules>`,
-  identity: exactProductIdentity(tree, REF),
-  extra: { steps: scenarios.main.steps.length + scenarios.relay.steps.length },
+  recorder: RECORDER,
+  command: `node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs ${RECORDER} --tree <git archive of ${REF} (src, apps)${identity.patch ? ` with ${identity.patch.file} applied` : ''}, with node_modules>${identity.patch ? ` --patch ${identity.patch.file}` : ''}`,
+  identity,
+  // The recorder and its modules as they ran, and the Node that ran them (process.version).
+  extra: {
+    steps: scenarios.main.steps.length + scenarios.relay.steps.length,
+    notes: {
+      fileMtimeMs:
+        'A comparison rule, applied to both sides: a step\'s `fileMtimeMs` (only on a writeProjectFile that succeeded) is not compared; the replay removes it from Node\'s step and from the core\'s before comparing (benchmarks/rust-core/recorders/lib/phone-files-replay.mjs:221-222). It is the mtime the answer carried, which the operating system stamps at the write (Node: apps/desktop/src/main/project-files.ts:407 `handle.stat()` after the rewrite, :601 `stat(file)` after the write), so it differs between any two runs, of Node as of the core. It is checked independently on each side instead: `play` (benchmarks/rust-core/recorders/lib/phone-files-script.mjs:426-427) fails the run unless the answer\'s mtimeMs equals the written file\'s mtime on disk right after the call, and the answer keeps `{$fileMtime: true}` in its place, which is compared; every other field of the step is compared as recorded.',
+    },
+    ...recordingProvenance(RECORDER, RECORDER_MODULES),
+  },
 });
 commitStage(out, FIXTURES);
 console.log(`phone-files: ${scenarios.main.steps.length} + ${scenarios.relay.steps.length} steps`);

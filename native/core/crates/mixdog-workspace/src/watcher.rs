@@ -109,6 +109,11 @@ pub fn git_dirs_of(dir: &Path) -> Vec<PathBuf> {
 }
 
 /// A watch the backend refused, as Node's `fs.watch` threw it: libuv's code and text for the OS error, `watch '<path>'`.
+#[allow(
+    clippy::disallowed_methods,
+    clippy::disallowed_types,
+    reason = "a stat and an open that name a refused watch's error, called only inside the lane job that registers the watch"
+)]
 fn watch_failure(error: &notify::Error, path: &Path) -> WsError {
     // libuv opens the path itself and fails with what the system said; the backend checks the path first and says it in words of its
     // own, so a path the system cannot even stat is named by that system error.

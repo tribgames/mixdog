@@ -247,6 +247,15 @@ fn text<'a>(header: &'a Header, key: &str) -> &'a str {
     header.get(key).and_then(Value::as_str).map_or("", mixdog_js::js_trim)
 }
 
+/// `snapshotProviderRequestTools` at a request boundary: `tools` as the provider is sent them, with the catalog tools the
+/// transcript's native tool searches (`native`, [`super::factory::native_searches`]) reference. The turn's boundary and
+/// the snapshot both take the request's tools here.
+fn boundary_tools(header: &Header, tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>, native: &[Value]) -> Vec<mixdog_core_api::domain::provider::ToolDefinition> {
+    let provider = text(header, "provider").to_lowercase();
+    let referenced = native.iter().flat_map(|record| super::context_world::native_references(Some(record), &provider)).collect();
+    super::context_world::snapshot_tools(header, tools, referenced, &provider)
+}
+
 fn refuse(message: impl Into<String>) -> TurnError {
     TurnError { message: message.into(), data: json!({}), provider_error: None }
 }
@@ -345,22 +354,22 @@ impl HostRunParts {
         surface: &mixdog_tools::policy::SessionSurface,
         prior: Vec<(mixdog_core_api::ids::ItemId, Value)>,
     ) -> Option<(Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>, mixdog_core_api::domain::provider::ModelRequest)> {
-        self.rebuild_request(thread, header, surface, prior, true).await
+        self.rebuild_request(thread, header, surface, prior, None).await.map(|(provider, request, _)| (provider, request))
     }
 
-    /// [`Self::next_request`] for a thread that has no conversation yet: the request its first send would
-    /// carry (the system prompt and the tools), which `tools/toolsStatus` with `snapshot` reads.
-    pub async fn first_request(
+    /// [`Self::next_request`] as `nextMainRequest` returns it (`side-question.mjs:64-99`): the tools taken through
+    /// `snapshotProviderRequestTools` (the request boundary's [`boundary_tools`]), and `user_message` appended to the
+    /// transcript. `None` where `nextMainRequest` is null.
+    pub async fn snapshot_request(
         &self,
         thread: &ThreadId,
         header: &Header,
         surface: &mixdog_tools::policy::SessionSurface,
         prior: Vec<(mixdog_core_api::ids::ItemId, Value)>,
+        user_message: Option<&str>,
     ) -> Option<(Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>, mixdog_core_api::domain::provider::ModelRequest)> {
-        let (provider, mut request) = self.rebuild_request(thread, header, surface, prior, false).await?;
-        // `snapshotProviderRequestTools` at the request boundary: the tools the provider is sent, with no native tool searches yet.
-        let owner = mixdog_js::js_trim(text(header, "provider")).to_lowercase();
-        request.tools = super::context_world::snapshot_tools(header, std::mem::take(&mut request.tools), Vec::new(), &owner);
+        let (provider, mut request, native) = self.rebuild_request(thread, header, surface, prior, user_message).await?;
+        request.tools = boundary_tools(header, std::mem::take(&mut request.tools), &native);
         Some((provider, request))
     }
 
@@ -370,29 +379,30 @@ impl HostRunParts {
         header: &Header,
         surface: &mixdog_tools::policy::SessionSurface,
         prior: Vec<(mixdog_core_api::ids::ItemId, Value)>,
-        conversation_required: bool,
-    ) -> Option<(Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>, mixdog_core_api::domain::provider::ModelRequest)> {
+        user_message: Option<&str>,
+    ) -> Option<(Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>, mixdog_core_api::domain::provider::ModelRequest, Vec<Value>)> {
         if super::compaction_world::is_agent_owner(header) {
             return None;
         }
         let rows: Vec<Value> = prior.iter().map(|(_, body)| body.clone()).collect();
-        if conversation_required && !mixdog_core_session::session::route_session::has_user_conversation(&rows) {
+        if !mixdog_core_session::session::route_session::has_user_conversation(&rows) {
             return None;
         }
         let provider_state = header.get("providerState").and_then(|state| serde_json::from_value(state.clone()).ok());
         let source = RequestSource { thread, header, surface, prior: &rows, request: "", injected: false, provider_state, turn: None };
         let parts = self.request_parts(source).await.ok()?;
-        let messages = rebuilt_messages(header, &rows)?;
+        let mut messages = rebuilt_messages(header, &rows)?;
+        messages.extend(user_message.map(mixdog_agent::message::AgentMessage::user));
         let mut options = parts.options;
         options.iteration = 1;
-        let request = mixdog_agent::wire_request(
+        let (request, _) = mixdog_agent::assemble_request(
             text(header, "model"),
             options,
             mixdog_agent::project::project_for_wire(&messages),
             None,
             parts.tool_set.definitions(),
         );
-        Some((parts.provider, request))
+        Some((parts.provider, request, super::factory::native_searches(&messages)))
     }
 
     /// The source of the tail reminder the session's sends carry (`withTailReminder`): what the
@@ -441,9 +451,7 @@ impl RunParts for HostRunParts {
     async fn request_snapshot(&self, thread: &ThreadId, tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>, native: Vec<Value>) -> Result<Vec<mixdog_core_api::domain::provider::ToolDefinition>, TurnError> {
         let directory = self.services.directory.upgrade().ok_or_else(|| refuse("the session directory is closed"))?;
         let header = directory.live_header(thread).header();
-        let provider = mixdog_js::js_trim(text(&header, "provider")).to_lowercase();
-        let referenced = native.iter().flat_map(|record| super::context_world::native_references(Some(record), &provider)).collect();
-        Ok(super::context_world::snapshot_tools(&header, tools, referenced, &provider))
+        Ok(boundary_tools(&header, tools, &native))
     }
 
     fn stall_cap_idle_seconds(&self, agent: Option<&str>) -> Option<i64> {
@@ -648,7 +656,7 @@ impl RunParts for HostRunParts {
             }),
             reactions: Some(Arc::new(LoopReactions::new(session_id, s.reaction_targets.clone(), rows, mixdog_protocol::text_class::is_internal_transcript_display_text))),
             reaction_scope: Some(ReactionScope::new(s.reaction_targets.clone(), session_id)),
-            tail: Some(Arc::new(mixdog_agent::tail_rules::RuleTailReminder { context: seams.tail_context(header) })),
+            tail: Some(self.tail_reminder(header)),
             side: Some(side),
             step_judge,
             artifacts: Some(artifacts),
