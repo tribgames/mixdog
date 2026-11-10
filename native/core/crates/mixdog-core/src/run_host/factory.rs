@@ -1552,12 +1552,19 @@ mod tests {
             stepped.as_mut().enable();
             let found = rig.feeds.frames(id.as_str()).into_iter().find_map(|(_, _, params)| {
                 let text = row["text"].as_str().unwrap();
-                let mut stack = vec![params];
-                while let Some(value) = stack.pop() {
+                // The row's text and tone sit in the item's `meta`; its `kind` is on the item that holds them.
+                let mut stack = vec![(params, Value::Null)];
+                while let Some((value, kind)) = stack.pop() {
                     match value {
-                        Value::Object(map) if map.get("text").and_then(Value::as_str) == Some(text) => return Some(Value::Object(map)),
-                        Value::Object(map) => stack.extend(map.into_iter().map(|(_, v)| v)),
-                        Value::Array(all) => stack.extend(all),
+                        Value::Object(mut map) if map.get("text").and_then(Value::as_str) == Some(text) => {
+                            map.entry("kind").or_insert(kind);
+                            return Some(Value::Object(map));
+                        }
+                        Value::Object(map) => {
+                            let kind = map.get("kind").cloned().unwrap_or(kind);
+                            stack.extend(map.into_iter().map(|(_, v)| (v, kind.clone())));
+                        }
+                        Value::Array(all) => stack.extend(all.into_iter().map(|v| (v, kind.clone()))),
                         _ => {}
                     }
                 }
