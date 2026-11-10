@@ -110,6 +110,10 @@ pub mod settings_changes;
 pub mod prompt_session;
 #[cfg(test)]
 mod prompt_session_tests;
+#[cfg(test)]
+mod compaction_node_harness;
+#[cfg(test)]
+mod execution_tail_node_tests;
 pub mod session_reactions;
 pub mod summary_host;
 pub mod title_completion;
