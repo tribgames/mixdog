@@ -46,7 +46,11 @@ const SCRIPT = {
   'abortSession-idle': () => ({ 'turn/interrupt': { cancelRequested: true } }),
   // actor.rs:3980 `{ "kind": "started" }`
   'submitToSession-accepted': () => ({ 'turn/start': { kind: 'started', turnId: 't1' } }),
-  'resolveToolApproval-approved': () => ({ pending: [{ id: 'ap1', method: 'item/tool/requestApproval', params: { threadId: S, order: 1 } }] }),
+  // approval_notification.rs `answer_approval`: `{accepted}` once the thread took the decision
+  'resolveToolApproval-approved': () => ({
+    pending: [{ id: 'ap1', method: 'item/tool/requestApproval', params: { threadId: S, order: 1 } }],
+    'thread/approval/answer': { accepted: true },
+  }),
   'resolveToolApproval-settled': () => ({ pending: [] }),
   setFast: () => ({ 'fast/set': true, 'thread/read': threadRead({ route: { provider: 'p', model: 'm', fast: true } }) }),
   setModelRoute: () => ({ 'route/set': { provider: 'p2', model: 'm2' }, 'thread/read': threadRead({ route: { provider: 'p2', model: 'm2', fast: false } }) }),
@@ -82,7 +86,7 @@ const SCRIPT = {
   'readTranscriptItem-found': (n) => ({ state: { items: n.daemon.read.full.items } }),
   'readTranscriptItem-not-viewed': () => ({ state: undefined }),
   'readTranscriptItem-not-held': (n) => ({ state: { items: n.daemon.read.full.items } }),
-  'answerApprovalNotification-answered': () => ({ notifications: NOTIFICATIONS, pending: [PENDING_AP1] }),
+  'answerApprovalNotification-answered': () => ({ notifications: NOTIFICATIONS, pending: [PENDING_AP1], 'thread/approval/answer': { accepted: true } }),
   'answerApprovalNotification-settled': () => ({ notifications: NOTIFICATIONS, pending: [] }),
   'answerApprovalNotification-open': () => ({ notifications: NOTIFICATIONS, pending: [] }),
   'resolveToolApproval-pointer-only': () => ({ notifications: NOTIFICATIONS, pending: [PENDING_AP1] }),
@@ -261,7 +265,10 @@ for (const c of recorded.cases) {
     }
     if (c.name === 'prefetchSession-limit') assert.deepEqual(sent.find((s) => s.resume), { resume: S, window: { lastItems: 40 } });
     if (c.call === 'resolveToolApprovalForSession' && c.node.result === true) {
-      assert.deepEqual(sent.find((s) => s.respond), { respond: 'ap1', answer: { result: { approved: true } } });
+      assert.deepEqual(sent.find((s) => s.method === 'thread/approval/answer'), {
+        method: 'thread/approval/answer',
+        params: { threadId: S, approvalId: 'ap1', result: { approved: true } },
+      });
     }
   });
 }

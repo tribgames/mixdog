@@ -144,9 +144,9 @@ export interface CapabilityLane {
    *  `config/value/write`; on unless it is `false`. */
   getQuotaAutoResume(): Promise<boolean>;
   setQuotaAutoResume(enabled: boolean): Promise<boolean>;
-  /** `resolveToolApprovalForSession`: the answer to the `item/*` server request the card of `sessionId` shows (the card's
-   *  `id` is the request id). The core stamps the device itself, so the decision's `device` is not sent. `false` when the
-   *  core is no longer asking for that id (already settled), as Node answered a settled approval. */
+  /** `resolveToolApprovalForSession`: `thread/approval/answer` on the `item/*` server request the card of `sessionId` shows (the
+   *  card's `id` is the request id). The core stamps the device itself, so the decision's `device` is not sent. `false` when the
+   *  core is no longer asking for that id or another decision resolved it first, as Node answered a settled approval. */
   resolveToolApproval(sessionId: string, id: string, decision: Record<string, unknown>): Promise<boolean>;
 }
 
@@ -374,15 +374,13 @@ export function createCapabilityLane({
       const asked = pendingApprovals().find((candidate) => {
         const { id: requestId } = candidate as { id: string | number };
         return String(requestId) === id && approvalSurface(candidate as Parameters<typeof approvalSurface>[0]) === sessionId;
-      }) as { id: string | number } | undefined;
+      }) as { id: string | number; params: { threadId: string } } | undefined;
       if (!asked) return false;
       const { device: _device, ...answer } = decision;
-      try {
-        protocol.respond(asked.id, { result: answer } as Parameters<ProtocolConnection['respond']>[1]);
-      } catch (error) {
-        throw coreErrorForWindow(error);
-      }
-      return true;
+      // Answered once the core's thread took the decision or another one had: `accepted` is Node's serialized answer
+      // (session-host-lifecycle.ts:1086), false for the card that lost.
+      const answered = await request('thread/approval/answer', { threadId: asked.params.threadId, approvalId: String(asked.id), result: answer });
+      return (answered as { accepted?: unknown } | null)?.accepted === true;
     },
     async getQuotaAutoResume() {
       // The core publishes each subtree of the `config` section as an entry of its own, keyed by the subtree's name; this
