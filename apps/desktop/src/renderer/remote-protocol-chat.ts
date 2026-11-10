@@ -220,8 +220,8 @@ export function createChatApi(
           throw error;
         })
       );
-      // `restore` is what the core hands back to the composer (run_restore.rs `stop`; Node's host reply, session-host-lifecycle.ts:1075).
-      const restore = record(reply.restore);
+      // The core's reply is Node's `createAbortAction` result (abort.mjs:205-218): the hand-back fields ride the reply itself (handle.rs `stop`).
+      const restore = reply;
       return {
         aborted: reply.cancelRequested === true,
         restoreText: restore.restoreText || '',
