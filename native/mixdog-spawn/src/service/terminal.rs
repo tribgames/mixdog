@@ -373,7 +373,8 @@ impl DomainService for TerminalService {
                 Ok(Reply::Value(json!({})))
             }
             "terminal/dispose" => {
-                let params: TerminalDisposeParams = decode(&req.params)?;                // The phone sees, as Node recorded it (golden.json, trace.claims.order): the tab's end, the dispose's answer, then
+                let params: TerminalDisposeParams = decode(&req.params)?;
+                // The phone sees, as Node recorded it (golden.json, trace.claims.order): the tab's end, the dispose's answer, then
                 // what the killed shell still wrote and its exit line. The feed is held from before the kill until the answer is made.
                 let held = self.feeds.hold(params.tab_id.as_str());
                 self.tabs.dispose(params.tab_id.as_str());
@@ -417,7 +418,8 @@ impl DomainService for TerminalService {
                 }
             }
             "terminal/resize" => {
-                if let Ok(size) = serde_json::from_value::<TerminalResizeParams>(params) {                    // Only a claiming view is a size owner; any other view's resize has no client.
+                if let Ok(size) = serde_json::from_value::<TerminalResizeParams>(params) {
+                    // Only a claiming view is a size owner; any other view's resize has no client.
                     let client = if size.claim == Some(true) { connection_key(from) } else { String::new() };
                     // Node resized the PTY and announced the new owner in one call (terminal-manager.ts:485-488): whatever happened
                     // after that call reached the phone after the announcement (the console's re-render, a relay flush whose 16 ms ran
