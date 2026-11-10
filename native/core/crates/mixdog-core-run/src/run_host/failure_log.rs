@@ -49,6 +49,9 @@ pub struct FailureWriter {
     /// Test-only: told the kind of each record once its rows are in the queue (`with_appended`).
     #[cfg(feature = "test-support")]
     appended: Option<Arc<dyn Fn(&'static str) + Send + Sync>>,
+    /// Test-only: the 1000 ms timer is held (it is never started), so queued rows reach the file only through a flush.
+    #[cfg(feature = "test-support")]
+    timer_held: bool,
 }
 
 impl FailureWriter {
@@ -73,7 +76,21 @@ impl FailureWriter {
             warned: Mutex::new(HashSet::new()),
             #[cfg(feature = "test-support")]
             appended: None,
+            #[cfg(feature = "test-support")]
+            timer_held: false,
         }
+    }
+
+    /// The writer of `data_dir` the process's exit flush ([`flush_all`]) reaches, made as [`FailureWriter::for_data_dir`] makes it
+    /// (with `env` for the process environment) but with its 1000 ms timer held: a test sees whether a queued row is written by the
+    /// exit flush alone.
+    #[cfg(feature = "test-support")]
+    pub fn register_with_timer_held(data_dir: &Path, env: &dyn Fn(&str) -> Option<String>, io: ToolIo, clock: Arc<dyn Clock>) -> Arc<Self> {
+        let config = TraceConfig::from_env(data_dir, env, false);
+        let writer = Arc::new(Self { timer_held: true, ..Self::new(&config, io, clock) });
+        let writers = WRITERS.get_or_init(Mutex::default);
+        writers.lock().unwrap_or_else(PoisonError::into_inner).insert(data_dir.to_path_buf(), Arc::clone(&writer));
+        writer
     }
 
     /// A writer that tells `appended` the kind of each record (`"tool_failure"`, `"stall_abort"`) as soon as its append has
@@ -81,6 +98,13 @@ impl FailureWriter {
     #[cfg(feature = "test-support")]
     pub fn with_appended(config: &TraceConfig, io: ToolIo, clock: Arc<dyn Clock>, appended: Arc<dyn Fn(&'static str) + Send + Sync>) -> Self {
         Self { appended: Some(appended), ..Self::new(config, io, clock) }
+    }
+
+    fn timer_is_held(&self) -> bool {
+        #[cfg(feature = "test-support")]
+        return self.timer_held;
+        #[cfg(not(feature = "test-support"))]
+        false
     }
 
     #[cfg(feature = "test-support")]
@@ -112,6 +136,7 @@ impl FailureWriter {
         if due {
             let me = Arc::clone(self);
             drop(mixdog_rt::spawn("tool-failures-flush", TaskClass::Work, async move { me.flush().await }));
+        } else if self.timer_is_held() {
         } else if !self.armed.swap(true, Ordering::AcqRel) {
             let me = Arc::clone(self);
             drop(mixdog_rt::spawn("tool-failures-timer", TaskClass::Work, async move {
