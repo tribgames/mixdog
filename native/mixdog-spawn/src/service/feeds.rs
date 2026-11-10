@@ -41,11 +41,15 @@ use super::relay_buffer::RelayBuffer;
 use super::relay_buffer::RelayFrame;
 use crate::manager::LocalProcessManager;
 use crate::terminal::PumpPoint;
+use crate::terminal::PumpTell;
 use crate::terminal::REPLAY_BUFFER_LIMIT;
 use crate::terminal::ReplayBuffer;
 
 /// Exited processes whose feed stays attachable (replay of a finished run).
 const RETAINED_FEEDS: usize = 256;
+
+/// How long the pump waits for a change to reach the clients before the output that follows it (see `PumpTell`).
+const ORDER_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
 
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
@@ -187,12 +191,15 @@ struct Entry {
     /// How often the pump has stopped for a hold. Tests only.
     #[cfg(test)]
     stopped: tokio::sync::watch::Sender<u64>,
+    /// How often the pump has waited for a change to reach the clients before going on (see `PumpTell`). Tests only.
+    #[cfg(test)]
+    ordered: tokio::sync::watch::Sender<u64>,
     /// Runs once a claim's hold is taken (`ProcessFeeds::hold_new_output`). Tests only.
     #[cfg(test)]
     after_mark: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     /// Told the bytes of output the pump has taken, after each output event went through the relay buffer (`u64::MAX` when it ends):
     /// a terminal tab's activity changes wait for it (`TerminalTabs::relay_order`).
-    taken: OnceLock<Arc<dyn Fn(PumpPoint) + Send + Sync>>,
+    taken: OnceLock<PumpTell>,
 }
 
 /// A call's hold on its tab's feed: until it is dropped, the pump publishes no output past the hold's offset, no relay flush and no exit.
@@ -333,6 +340,8 @@ impl ProcessFeeds {
             #[cfg(test)]
             stopped: tokio::sync::watch::Sender::new(0),
             #[cfg(test)]
+            ordered: tokio::sync::watch::Sender::new(0),
+            #[cfg(test)]
             after_mark: Mutex::new(None),
             taken: OnceLock::new(),
         });
@@ -351,7 +360,7 @@ impl ProcessFeeds {
     pub(crate) fn open_terminal(
         self: &Arc<Self>,
         handle: &str,
-        order: impl FnOnce() -> Option<Arc<dyn Fn(PumpPoint) + Send + Sync>>,
+        order: impl FnOnce() -> Option<PumpTell>,
     ) -> Option<FeedHold> {
         let _ = self.feed(handle, true);
         let entry = self.entries.lock().unwrap_or_else(|e| e.into_inner()).get(handle).cloned()?;
@@ -483,8 +492,16 @@ impl ProcessFeeds {
             Self::unheld(entry, end).await;
             // No hold keeps this output back any more: a change that waits for the pump to reach it (a shell's end before its exit
             // line) goes before it enters the relay buffer.
-            if let (Some(_), Some(tell)) = (end, entry.taken.get()) {
-                tell(PumpPoint::Reaching(taken));
+            let published = match (end, entry.taken.get()) {
+                (Some(_), Some(tell)) => tell(PumpPoint::Reaching(taken)),
+                _ => None,
+            };
+            if let Some(published) = published {
+                #[cfg(test)]
+                entry.ordered.send_modify(|waits| *waits += 1);
+                // The change this output follows (a shell's end, before its exit line) reaches the clients first: the same order a
+                // client got from Node. Bounded like a reply's wait for its events (a section worker that is stuck downstream).
+                let _ = tokio::time::timeout(ORDER_DEADLINE, published).await;
             }
             let state = if entry.text { json!({ "text": screen.read() }) } else { json!({}) };
             let Some(event) = next else {
@@ -508,7 +525,7 @@ impl ProcessFeeds {
                     }
                     taken += bytes.len() as u64;
                     if let Some(tell) = entry.taken.get() {
-                        tell(PumpPoint::Taken(taken));
+                        let _ = tell(PumpPoint::Taken(taken));
                     }
                 }
                 Some(ProcessEvent::Exited { exit, .. }) => {
@@ -541,7 +558,7 @@ impl ProcessFeeds {
         entry.finished.store(true, Ordering::Release);
         // Nothing more is taken: whatever still waits for it goes.
         if let Some(tell) = entry.taken.get() {
-            tell(PumpPoint::Taken(u64::MAX));
+            let _ = tell(PumpPoint::Taken(u64::MAX));
         }
         if let Some(hook) = self.on_exit.get() {
             hook(entry.handle.as_str());
@@ -561,6 +578,11 @@ impl ProcessFeeds {
     /// The holds out on the current feed of `handle`, as they change.
     pub(crate) fn holds_of(&self, handle: &str) -> tokio::sync::watch::Receiver<Vec<u64>> {
         self.entries.lock().unwrap().get(handle).expect("the feed exists").hold.subscribe()
+    }
+
+    /// How often the pump of the current feed of `handle` has waited for a change to reach the clients, as it changes.
+    pub(crate) fn orderings_of(&self, handle: &str) -> tokio::sync::watch::Receiver<u64> {
+        self.entries.lock().unwrap().get(handle).expect("the feed exists").ordered.subscribe()
     }
 
     /// How often the pump of the current feed of `handle` has stopped for a hold, as it changes.

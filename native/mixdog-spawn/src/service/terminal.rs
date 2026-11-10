@@ -47,6 +47,7 @@ use crate::manager::LocalProcessManager;
 use crate::terminal::ActivityState;
 use crate::terminal::Attached;
 use crate::terminal::EnsureRequest;
+use crate::terminal::Published;
 use crate::terminal::SizeOwner;
 use crate::terminal::SizeOwnerChange;
 use crate::terminal::TerminalConfig;
@@ -87,6 +88,11 @@ impl TerminalEvents for Events {
 
     fn size_claims_forgotten(&self, id: &str) {
         let _ = self.changes.send(Change::Forgotten(id.to_owned()));
+    }
+
+    fn published(&self) -> Option<Published> {
+        let (published, done) = tokio::sync::oneshot::channel();
+        self.changes.send(Change::Barrier(published)).ok().map(|()| done)
     }
 }
 
@@ -367,8 +373,7 @@ impl DomainService for TerminalService {
                 Ok(Reply::Value(json!({})))
             }
             "terminal/dispose" => {
-                let params: TerminalDisposeParams = decode(&req.params)?;
-                // The phone sees, as Node recorded it (golden.json, trace.claims.order): the tab's end, the dispose's answer, then
+                let params: TerminalDisposeParams = decode(&req.params)?;                // The phone sees, as Node recorded it (golden.json, trace.claims.order): the tab's end, the dispose's answer, then
                 // what the killed shell still wrote and its exit line. The feed is held from before the kill until the answer is made.
                 let held = self.feeds.hold(params.tab_id.as_str());
                 self.tabs.dispose(params.tab_id.as_str());
@@ -412,8 +417,7 @@ impl DomainService for TerminalService {
                 }
             }
             "terminal/resize" => {
-                if let Ok(size) = serde_json::from_value::<TerminalResizeParams>(params) {
-                    // Only a claiming view is a size owner; any other view's resize has no client.
+                if let Ok(size) = serde_json::from_value::<TerminalResizeParams>(params) {                    // Only a claiming view is a size owner; any other view's resize has no client.
                     let client = if size.claim == Some(true) { connection_key(from) } else { String::new() };
                     // Node resized the PTY and announced the new owner in one call (terminal-manager.ts:485-488): whatever happened
                     // after that call reached the phone after the announcement (the console's re-render, a relay flush whose 16 ms ran
@@ -421,7 +425,8 @@ impl DomainService for TerminalService {
                     // already. So what the shell writes from here, the relay flushes and the exit wait until the announcement is
                     // published; the output already in the feed does not (`hold_new_output`). Activity changes go through the same
                     // ordered queue as the announcement and are not held. The hold's deadline runs from here, so a resize that blocks
-                    // in the console holds the feed for no longer than that.
+                    // in the console holds the feed for no longer than that. A stated limit: a resize still blocked when the deadline
+                    // passes lets what was held go before the owner, a shell's exit (its end and exit line) included.
                     let release = self.feeds.hold_new_output(size.tab_id.as_str()).map(|held| {
                         let deadline = tokio::time::Instant::now() + PUBLISH_DEADLINE;
                         let (published, done) = tokio::sync::oneshot::channel();
@@ -723,20 +728,33 @@ mod tests {
     }
 
     /// Records every section publication with the relay feed's position when it went.
+    /// The first publication a gate matches waits (on the section worker) until the test opens the gate.
     #[cfg(windows)]
     #[derive(Default)]
     struct Ordered {
         relay: Mutex<Option<Arc<dyn ScopedFeed>>>,
         log: Mutex<Vec<(bool, Value, u64)>>,
         changed: tokio::sync::Notify,
+        #[allow(clippy::type_complexity)]
+        gate: Mutex<Option<(Box<dyn Fn(bool, &Value) -> bool + Send>, std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
     }
 
     #[cfg(windows)]
     impl StatePublisher for Ordered {
         fn publish(&self, section: SectionName, _: Option<String>, change: SectionChange) {
             let SectionChange::Set(bytes) = &change else { return };
+            let tabs = section == SectionName::TerminalTabs;
+            let value: Value = serde_json::from_slice(bytes).unwrap();
+            let gated = {
+                let mut gate = self.gate.lock().unwrap();
+                if gate.as_ref().is_some_and(|(matches, ..)| matches(tabs, &value)) { gate.take() } else { None }
+            };
+            if let Some((_, held, open)) = gated {
+                held.send(()).unwrap();
+                open.recv_timeout(DEADLINE).expect("the test opens the gate within 60 s");
+            }
             let at = self.relay.lock().unwrap().as_ref().map_or(0, |relay| relay.position().seq);
-            self.log.lock().unwrap().push((section == SectionName::TerminalTabs, serde_json::from_slice(bytes).unwrap(), at));
+            self.log.lock().unwrap().push((tabs, value, at));
             self.changed.notify_waiters();
         }
     }
@@ -761,100 +779,199 @@ mod tests {
         }
     }
 
-    /// C3 (c) and C1: `typed`, the tab's shell is sent `exit` while its output is paused, so its echo waits unread at the gate; otherwise
-    /// all its output is taken and it is killed. (A real console still writes output of its own at the close, before the exit line (one run: 50 bytes after the cut, the exit line among them), so a
-    /// shell whose exit has no output before it at all is reached only at the tab's level: `terminal::lock_order::
-    /// a_shells_end_during_a_claim_waits_for_the_pump_to_reach_the_exit_line`, the test that fails without the C1 fix.) A claim takes its hold and its resize stops at the
-    /// claim gate, before the announcement; the shell exits; the resize is let go. The phone gets the owner, then the parked output (as
-    /// a leading-edge relay frame: no clock moves for it), then the tab's end, then the exit line, and no activity change before the
-    /// owner, as Node, whose exit handler could not run inside its resize-and-announce call (terminal-manager.ts:485-488). Windows
-    /// PowerShell's console: Windows only.
+    /// A tab running the integrated Windows PowerShell (its prompt marks the tab idle, so the tab's end is an activity change), its
+    /// relay feed pumped and read, the section worker on a runtime of its own (a gated publication blocks it, not the pump), the test
+    /// on a paused clock: the tab's exit comes [`crate::manager::NODE_PTY_FLUSH`] after the shell's end only when the test advances it.
     #[cfg(windows)]
-    async fn the_owner_goes_before_the_exit_of_a_shell_that_ends_during_a_claim(typed: bool) {
-        let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, ProcessConfig::default());
-        let scoped = Arc::new(MockScopedFeeds::new(MockLimits::default()));
-        let feeds = ProcessFeeds::new(manager.clone(), Arc::clone(&scoped) as Arc<dyn ScopedFeeds>);
-        let publisher = Arc::new(Ordered::default());
-        let service = TerminalService::new(manager.clone(), Arc::clone(&feeds), Arc::clone(&publisher) as Arc<dyn StatePublisher>, TerminalServiceConfig::default());
-        let id = format!("term_claimed_exit_{typed}_{}", std::process::id());
-        let handle = ProcessHandle::from(id.as_str());
-        // The integrated PowerShell (no arguments): its prompt marks the tab idle, so the tab's end is an activity change.
-        let profile = SpawnProfile { path: "powershell.exe".to_owned(), ..SpawnProfile::default() };
-        within("the tab started", service.tabs.ensure(Some(&id), EnsureRequest { profile: Some(profile), cols: Some(80), rows: Some(24), ..EnsureRequest::default() }))
-            .await
-            .unwrap();
-        drop(feeds.open_terminal(&id, || service.tabs.relay_order(&id)));
-        let relay = scoped.find(&FeedId::from(format!("process:relay:{id}"))).expect("the relay feed exists");
-        *publisher.relay.lock().unwrap() = Some(Arc::clone(&relay));
-        let tap = FeedTap::attach(&relay);
-        let has_tab = |tabs: bool, value: &Value| !tabs && value.get(&id).is_some();
-        within("the prompt's activity was published", publisher.at(has_tab)).await;
-        // The relay's window closes: the next output goes as a leading-edge frame.
-        tokio::time::advance(Duration::from_secs(1)).await;
+    struct ShellRig {
+        manager: LocalProcessManager,
+        feeds: Arc<ProcessFeeds>,
+        publisher: Arc<Ordered>,
+        service: Arc<TerminalService>,
+        id: String,
+        handle: ProcessHandle,
+        relay: Arc<dyn ScopedFeed>,
+        raw: FeedTap,
+        tap: FeedTap,
+    }
 
-        if typed {
-            manager.set_output_paused(&handle, true).unwrap();
-            assert!(service.tabs.write(&id, "exit\r").is_none(), "the line was queued");
-            within("the producer parked the shell's echo at the gate", manager.output_blocked(&handle)).await.unwrap();
+    #[cfg(windows)]
+    impl ShellRig {
+        async fn start(name: &str, sections: &tokio::runtime::Runtime) -> Self {
+            let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, ProcessConfig::default());
+            let scoped = Arc::new(MockScopedFeeds::new(MockLimits::default()));
+            let feeds = ProcessFeeds::new(manager.clone(), Arc::clone(&scoped) as Arc<dyn ScopedFeeds>);
+            let publisher = Arc::new(Ordered::default());
+            let service = {
+                let _sections = sections.enter();
+                TerminalService::new(manager.clone(), Arc::clone(&feeds), Arc::clone(&publisher) as Arc<dyn StatePublisher>, TerminalServiceConfig::default())
+            };
+            let id = format!("term_{name}_{}", std::process::id());
+            let handle = ProcessHandle::from(id.as_str());
+            let profile = SpawnProfile { path: "powershell.exe".to_owned(), ..SpawnProfile::default() };
+            within("the tab started", service.tabs.ensure(Some(&id), EnsureRequest { profile: Some(profile), cols: Some(80), rows: Some(24), ..EnsureRequest::default() }))
+                .await
+                .unwrap();
+            drop(feeds.open_terminal(&id, || service.tabs.relay_order(&id)));
+            let relay = scoped.find(&FeedId::from(format!("process:relay:{id}"))).expect("the relay feed exists");
+            *publisher.relay.lock().unwrap() = Some(Arc::clone(&relay));
+            let raw = FeedTap::attach(&scoped.find(&FeedId::from(format!("process:{id}"))).expect("the raw feed exists"));
+            let tap = FeedTap::attach(&relay);
+            let rig = Self { manager, feeds, publisher, service, id, handle, relay, raw, tap };
+            within("the prompt's activity was published", rig.publisher.at(|tabs, value| !tabs && value.get(&rig.id).is_some())).await;
+            // The relay's window closes: the next output goes as a leading-edge frame.
+            tokio::time::advance(Duration::from_secs(1)).await;
+            rig
         }
-        // With the reader parked nothing more comes in: any relay window still open closes here.
-        tokio::time::advance(Duration::from_secs(1)).await;
-        let claimed = publisher.log.lock().unwrap().len();
-        let gate = service.tabs.hold_claim_gate(&id);
-        let mut holds = feeds.holds_of(&id);
-        let claim = {
-            let (service, runtime, id) = (Arc::clone(&service), tokio::runtime::Handle::current(), id.clone());
-            std::thread::spawn(move || {
-                let _runtime = runtime.enter();
-                let _ = service.notify(Method("terminal/resize"), json!({ "tabId": id, "cols": 101, "rows": 31, "claim": true }), ConnectionId(1));
+
+        /// The shell has ended and its exit wait has seen every byte it wrote (the clock has not moved since its end).
+        async fn ended_quietly(&self) {
+            let mut wait = self.manager.exit_wait(&self.handle).unwrap();
+            let manager = &self.manager;
+            within("the shell ended and its output was seen", wait.wait_for(|wait| wait.waiting && wait.quiet_from == manager.output_pushed(&self.handle).unwrap()))
+                .await
+                .unwrap();
+        }
+
+        /// The pump has taken every byte the shell wrote.
+        async fn all_taken(&self) {
+            let pushed = self.manager.output_pushed(&self.handle).unwrap() as usize;
+            let total = |frames: &[Value]| outputs(frames).iter().map(|(_, text)| text.len()).sum::<usize>();
+            within("the pump took the shell's output", self.raw.notifications_until(|frames| total(frames) >= pushed)).await;
+        }
+
+        fn ended(&self) -> impl Fn(bool, &Value) -> bool + '_ {
+            |tabs, value| !tabs && value.get(&self.id).is_none()
+        }
+
+        fn owned(&self) -> impl Fn(bool, &Value) -> bool + '_ {
+            |tabs, value| tabs && value.as_array().is_some_and(|rows| rows.iter().any(|row| row["id"] == json!(self.id) && !row["sizeOwner"].is_null()))
+        }
+    }
+
+    /// Blocks on `rx` for at most [`DEADLINE`], off the paused runtime.
+    async fn received(rx: &Arc<Mutex<std::sync::mpsc::Receiver<()>>>, what: &'static str) {
+        let rx = Arc::clone(rx);
+        tokio::task::spawn_blocking(move || rx.lock().unwrap().recv_timeout(DEADLINE)).await.unwrap().expect(what);
+    }
+
+    /// G1: the shell's end and its exit line reach a client in Node's order (terminal-manager.ts:378-384: the text, `activity.exit()`,
+    /// the exit line). The tab's end is held at the publisher; the pump waits for it and does not send the exit line meanwhile.
+    #[cfg(windows)]
+    #[test]
+    fn the_exit_line_waits_until_the_tabs_end_has_reached_the_clients() {
+        let paused = tokio::runtime::Builder::new_current_thread().enable_all().start_paused(true).build().unwrap();
+        let sections = tokio::runtime::Builder::new_multi_thread().worker_threads(1).enable_all().build().unwrap();
+        paused.block_on(async {
+            let rig = ShellRig::start("exit_order", &sections).await;
+            assert!(rig.service.tabs.write(&rig.id, "exit\r").is_none(), "the line was queued");
+            rig.ended_quietly().await;
+            let (held, open) = (std::sync::mpsc::channel(), std::sync::mpsc::channel());
+            let id = rig.id.clone();
+            *rig.publisher.gate.lock().unwrap() = Some((Box::new(move |tabs, value: &Value| !tabs && value.get(&id).is_none()), held.0, open.1));
+            let held = Arc::new(Mutex::new(held.1));
+            let mut orderings = rig.feeds.orderings_of(&rig.id);
+            let ordered = *orderings.borrow_and_update();
+            tokio::time::advance(crate::manager::NODE_PTY_FLUSH).await;
+            received(&held, "the tab's end reached the publisher").await;
+            // The raw feed carries the pump's output at once (the relay feed may buffer it for its 16 ms).
+            let exit_line = |frames: &[Value]| sent(frames, "[process exited").is_some();
+            within("the pump waited for the tab's end or sent the exit line", async {
+                tokio::select! {
+                    _ = orderings.wait_for(|waits| *waits > ordered) => {}
+                    _ = rig.raw.notifications_until(exit_line) => {}
+                }
             })
-        };
-        within("the claim took its hold", holds.wait_for(|holds| holds.len() == 1)).await.unwrap();
-        if !typed {
-            let _ = manager.kill(&handle);
-        }
-        within("the shell's exit entered the feed", manager.feed_of(&handle).unwrap().ended()).await;
-        let before = relay.position().seq;
-        drop(gate);
-        claim.join().unwrap();
+            .await;
+            assert!(!exit_line(&rig.raw.notifications_until(|_| true).await), "the exit line went while the tab's end was held at the publisher");
+            assert!(!exit_line(&rig.tap.notifications_until(|_| true).await), "the exit line went while the tab's end was held at the publisher");
+            open.0.send(()).unwrap();
+            let at_end = within("the tab's end was published", rig.publisher.at(rig.ended())).await;
+            tokio::time::advance(Duration::from_secs(1)).await;
+            let frames = within("the exit line went", rig.tap.notifications_until(exit_line)).await;
+            assert!(sent(&frames, "[process exited").unwrap() > at_end, "the exit line went before the tab's end");
+        });
+    }
 
-        let owned = |tabs: bool, value: &Value| {
-            tabs && value.as_array().is_some_and(|rows| rows.iter().any(|row| row["id"] == json!(id) && !row["sizeOwner"].is_null()))
-        };
-        let ended = |tabs: bool, value: &Value| !tabs && value.get(&id).is_none();
-        let at_owner = within("the owner was published", publisher.at(owned)).await;
-        let at_end = within("the tab's end was published", publisher.at(ended)).await;
-        // The parked echo goes first after the owner, before any clock moves: a leading-edge frame.
-        let frames = if typed {
-            within("the parked output went as a leading-edge frame", tap.notifications_until(|frames| outputs(frames).iter().any(|(seq, _)| *seq > before))).await
-        } else {
-            Vec::new()
-        };
-        tokio::time::advance(Duration::from_secs(1)).await;
-        let frames = [frames, within("the exit line went", tap.notifications_until(|frames| sent(frames, "[process exited").is_some())).await].concat();
-        let exit_line = sent(&frames, "[process exited").unwrap();
-        assert_eq!(at_owner, before, "output went while the claim held the feed, or after the owner was published");
-        let owner = publisher.index(owned).unwrap();
-        let log = publisher.log.lock().unwrap().clone();
-        let changes: Vec<usize> = (claimed..log.len()).filter(|at| !log[*at].0).collect();
-        assert!(changes.iter().all(|at| *at > owner), "an activity change went before the owner: {log:?}");
-        if typed {
-            let parked = outputs(&frames).into_iter().find(|(seq, _)| *seq > before).unwrap();
-            assert!(parked.0 != exit_line && parked.0 <= at_end, "the parked output is not between the owner ({at_owner}) and the tab's end ({at_end}): {parked:?}");
-        }
-        assert!(exit_line > at_end, "the exit line went before the tab's end");
+    /// G2 and C1, through the service: a claim takes its hold and its resize stops at the claim gate, before the announcement; the
+    /// shell's end comes meanwhile (`paused`: its echo of `exit` waiting unread at the paused gate; otherwise with all its output
+    /// taken); the resize is let go. A client gets the owner, then (`paused`) the parked output as a leading-edge frame, then the tab's
+    /// end, then the exit line, and no activity change before the owner: Node ran no exit handler inside its resize-and-announce call
+    /// (terminal-manager.ts:485-488).
+    #[cfg(windows)]
+    fn the_owner_goes_before_the_exit_of_a_shell_that_ends_during_a_claim(paused: bool) {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().start_paused(true).build().unwrap();
+        let sections = tokio::runtime::Builder::new_multi_thread().worker_threads(1).enable_all().build().unwrap();
+        runtime.block_on(async {
+            let rig = ShellRig::start(if paused { "claimed_parked" } else { "claimed_taken" }, &sections).await;
+            if paused {
+                rig.manager.set_output_paused(&rig.handle, true).unwrap();
+            }
+            // Paused: the line without its Enter, so the shell is still there when the claim comes; its echo waits at the gate.
+            assert!(rig.service.tabs.write(&rig.id, if paused { "exit" } else { "exit\r" }).is_none(), "the line was queued");
+            if paused {
+                within("the producer parked the shell's echo at the gate", rig.manager.output_blocked(&rig.handle)).await.unwrap();
+            } else {
+                rig.ended_quietly().await;
+                rig.all_taken().await;
+            }
+            let claimed = rig.publisher.log.lock().unwrap().len();
+            let gate = rig.service.tabs.hold_claim_gate(&rig.id);
+            let mut holds = rig.feeds.holds_of(&rig.id);
+            let (claimed_tx, claimed_rx) = std::sync::mpsc::channel();
+            {
+                let (service, runtime, id) = (Arc::clone(&rig.service), tokio::runtime::Handle::current(), rig.id.clone());
+                std::thread::spawn(move || {
+                    let _runtime = runtime.enter();
+                    let _ = service.notify(Method("terminal/resize"), json!({ "tabId": id, "cols": 101, "rows": 31, "claim": true }), ConnectionId(1));
+                    let _ = claimed_tx.send(());
+                });
+            }
+            within("the claim took its hold", holds.wait_for(|holds| holds.len() == 1)).await.unwrap();
+            if paused {
+                assert!(rig.service.tabs.write(&rig.id, "\r").is_none(), "the Enter was queued");
+            }
+            // Paused: the shell's end lets the parked echo in, after the end, which starts the exit wait again.
+            rig.ended_quietly().await;
+            tokio::time::advance(crate::manager::NODE_PTY_FLUSH).await;
+            within("the shell's exit entered the feed", rig.manager.feed_of(&rig.handle).unwrap().ended()).await;
+            let before = rig.relay.position().seq;
+            drop(gate);
+            received(&Arc::new(Mutex::new(claimed_rx)), "the claim's resize returned once its gate was let go").await;
+
+            let at_owner = within("the owner was published", rig.publisher.at(rig.owned())).await;
+            let at_end = within("the tab's end was published", rig.publisher.at(rig.ended())).await;
+            assert_eq!(at_owner, before, "output went while the claim held the feed, or after the owner was published");
+            let owner = rig.publisher.index(rig.owned()).unwrap();
+            let log = rig.publisher.log.lock().unwrap().clone();
+            let changes: Vec<usize> = (claimed..log.len()).filter(|at| !log[*at].0).collect();
+            assert!(changes.iter().all(|at| *at > owner), "an activity change went before the owner: {log:?}");
+            let frames = if paused {
+                within("the parked output went as a leading-edge frame", rig.tap.notifications_until(|frames| outputs(frames).iter().any(|(seq, _)| *seq > before))).await
+            } else {
+                Vec::new()
+            };
+            tokio::time::advance(Duration::from_secs(1)).await;
+            let frames = [frames, within("the exit line went", rig.tap.notifications_until(|frames| sent(frames, "[process exited").is_some())).await].concat();
+            let exit_line = sent(&frames, "[process exited").unwrap();
+            if paused {
+                let parked = outputs(&frames).into_iter().find(|(seq, _)| *seq > before).unwrap();
+                assert!(parked.0 != exit_line && parked.0 <= at_end, "the parked output is not between the owner ({at_owner}) and the tab's end ({at_end}): {parked:?}");
+            }
+            assert!(exit_line > at_end, "the exit line went before the tab's end");
+        });
     }
 
     #[cfg(windows)]
-    #[tokio::test(start_paused = true)]
-    async fn the_owner_goes_before_the_exit_and_the_parked_output_of_a_shell_that_ends_during_a_claim() {
-        the_owner_goes_before_the_exit_of_a_shell_that_ends_during_a_claim(true).await;
+    #[test]
+    fn the_owner_goes_before_the_exit_and_the_parked_output_of_a_shell_that_ends_during_a_claim() {
+        the_owner_goes_before_the_exit_of_a_shell_that_ends_during_a_claim(true);
     }
 
     #[cfg(windows)]
-    #[tokio::test(start_paused = true)]
-    async fn the_owner_goes_before_the_exit_of_a_shell_killed_with_its_output_taken_during_a_claim() {
-        the_owner_goes_before_the_exit_of_a_shell_that_ends_during_a_claim(false).await;
+    #[test]
+    fn the_owner_goes_before_the_exit_of_a_shell_that_ends_with_its_output_taken_during_a_claim() {
+        the_owner_goes_before_the_exit_of_a_shell_that_ends_during_a_claim(false);
     }
 
     /// A claim's hold has its deadline from when it is taken: a resize that blocks (here at the id's claim gate) holds the feed no longer.
@@ -866,19 +983,21 @@ mod tests {
         let _ = feeds.feed("term_blocked", true);
         let gate = service.tabs.hold_claim_gate("term_blocked");
         let mut holds = feeds.holds_of("term_blocked");
-        let claim = {
+        let (claimed_tx, claimed_rx) = std::sync::mpsc::channel();
+        {
             let (service, runtime) = (Arc::clone(&service), tokio::runtime::Handle::current());
             std::thread::spawn(move || {
                 let _runtime = runtime.enter();
                 let _ = service.notify(Method("terminal/resize"), json!({ "tabId": "term_blocked", "cols": 101, "rows": 31, "claim": true }), ConnectionId(1));
-            })
-        };
+                let _ = claimed_tx.send(());
+            });
+        }
         within("the claim took its hold", holds.wait_for(|holds| holds.len() == 1)).await.unwrap();
         tokio::time::advance(PUBLISH_DEADLINE - Duration::from_millis(1)).await;
         assert_eq!(holds.borrow().len(), 1, "the hold ended before its deadline");
         tokio::time::advance(Duration::from_millis(1)).await;
         within("the hold of a claim whose resize is blocked ended at its deadline", holds.wait_for(Vec::is_empty)).await.unwrap();
         drop(gate);
-        claim.join().unwrap();
+        received(&Arc::new(Mutex::new(claimed_rx)), "the claim's resize returned once its gate was let go").await;
     }
 }

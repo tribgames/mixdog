@@ -529,6 +529,10 @@ struct Rig {
 }
 
 async fn rig(name: &str) -> Rig {
+    rig_with(name, |_| {}).await
+}
+
+async fn rig_with(name: &str, set: impl FnOnce(&mut TerminalConfig)) -> Rig {
     let manager = manager();
     let events = Arc::new(Events::default());
     let clock_reads = Arc::new(AtomicUsize::new(0));
@@ -541,6 +545,7 @@ async fn rig(name: &str) -> Rig {
     config.shell_integration_dir = Some(scratch_dir(&format!("{name}-integration")));
     let waits = Arc::clone(&events);
     config.gate_waiting = Some(Arc::new(move |id: &str| waits.gate_waited(id)));
+    set(&mut config);
     let tabs = Arc::new(TerminalTabs::new(manager.clone(), config));
     let profile = tabs.resolve_profile("").await.expect("this machine has a shell");
     Rig {
@@ -716,7 +721,12 @@ async fn size_owner_follows_claims_not_focus() {
     assert_eq!(rig.tabs.size_owner(id), None);
     let after: Vec<(String, u16, u16)> = rig.events.owners(id).into_iter().map(|c| (c.owner, c.cols, c.rows)).collect();
     assert_eq!(after, owners, "a disposal announces no owner change");
-    assert_eq!(rig.events.all().last(), Some(&Ev::Forgotten(id.to_owned())), "and tells its consumer the claims are forgotten");
+    // The shell's end follows when node-pty would have raised it (after the disposal), so the forgetting need not be the last event.
+    assert_eq!(
+        rig.events.all().iter().filter(|ev| **ev == Ev::Forgotten(id.to_owned())).count(),
+        1,
+        "and tells its consumer the claims are forgotten, once"
+    );
     assert_eq!(rig.clock_reads.load(Ordering::SeqCst), 1);
 }
 
@@ -852,17 +862,14 @@ async fn a_size_claim_lapses_after_its_lease_unless_renewed() {
     assert_eq!(owners, vec![("A".into(), 50, 20), ("B".into(), 60, 25), ("B".into(), 61, 26), (String::new(), 0, 0)]);
     rig.tabs.dispose(id);
 }
-/// A rig on the manual lease clock (debug builds, `MIXDOG_TERMINAL_LEASE_CLOCK` set to a directory) and one tab.
+/// A rig on the manual lease clock (its own directory and secret, given in the rig's config, not the process environment) and one tab.
 /// The tests step the clock through the socket the core publishes in that directory, as the replay does.
 #[cfg(feature = "lease-clock")]
 async fn manual_lease_rig(name: &str) -> (Rig, String, LeaseClock) {
     let clock_dir = std::env::temp_dir().join(format!("mixdog-lease-clock-{}-{name}", std::process::id()));
     std::fs::create_dir_all(&clock_dir).unwrap();
-    // SAFETY: set before this test's tabs exist; the test binary runs each test in its own process under nextest.
-    unsafe { std::env::set_var("MIXDOG_TERMINAL_LEASE_CLOCK", &clock_dir) };
-    // SAFETY: as above.
-    unsafe { std::env::set_var("MIXDOG_TERMINAL_LEASE_CLOCK_SECRET", LEASE_CLOCK_SECRET) };
-    let rig = rig(name).await;
+    let setting = mixdog_spawn::terminal::LeaseClockSetting { dir: clock_dir, secret: Some(LEASE_CLOCK_SECRET.to_owned()) };
+    let rig = rig_with(name, |config| config.lease_clock = Some(setting)).await;
     let attached = rig.tabs.ensure(Some("term_manual"), rig.request()).await.unwrap();
     let id = attached.id.clone();
     let clock = LeaseClock::admitted(lease_clock_port(name));
