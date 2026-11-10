@@ -74,41 +74,16 @@ fn strip_date(id: &str) -> &str {
     id
 }
 
-/// `claude-<family>-<major>[-<minor>]` as (family, major, minor).
-fn parse_version(key: &str) -> Option<(&str, u32, u32)> {
-    let rest = key.strip_prefix("claude-")?;
-    let (family, version) = rest.split_once('-')?;
-    if family.is_empty() || !family.bytes().all(|b| b.is_ascii_lowercase()) {
-        return None;
-    }
-    let (major, minor) = match version.split_once('-') {
-        Some((major, minor)) => (major, Some(minor)),
-        None => (version, None),
-    };
-    let number = |s: &str, max_len: usize| {
-        (!s.is_empty() && s.len() <= max_len && s.bytes().all(|b| b.is_ascii_digit()))
-            .then(|| s.parse::<u32>().ok())
-            .flatten()
-    };
-    let major = number(major, usize::MAX)?;
-    let minor = match minor {
-        Some(minor) => number(minor, 2)?,
-        None => 0,
-    };
-    Some((family, major, minor))
-}
-
 /// Whether the model's version takes the update on this route.
 pub(crate) fn version_supported(provider: &str, model: &str) -> bool {
-    let key = model_key(model);
-    let Some((family, major, minor)) = parse_version(&key) else {
+    let Some((family, major, minor)) = crate::claude_floors::family_version(model) else {
         return false;
     };
     if let Some(row) = FLOORS.iter().find(|row| row.family == family) {
-        return (major, minor) >= (row.major, row.minor);
+        return (major, minor) >= (u64::from(row.major), u64::from(row.minor));
     }
     let first_major = FLOORS.iter().map(|row| row.major).min().unwrap_or(u32::MAX);
-    UNMEASURED_FAMILY_PROVIDERS.contains(&provider) && major >= first_major
+    UNMEASURED_FAMILY_PROVIDERS.contains(&provider) && major >= u64::from(first_major)
 }
 
 /// What else decides whether a request carries updates.

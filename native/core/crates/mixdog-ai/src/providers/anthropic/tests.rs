@@ -53,6 +53,7 @@ use crate::transport::http::HttpResponse;
 use crate::transport::http::HttpSend;
 
 mod fast_replay;
+mod floor_fallback;
 mod warm;
 
 // ---------------------------------------------------------------------------

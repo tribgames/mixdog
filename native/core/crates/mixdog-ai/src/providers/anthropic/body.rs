@@ -21,6 +21,7 @@ use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
 
+use crate::claude_floors;
 use crate::providers::action_input::action_input_contract;
 use crate::providers::action_input::action_input_union_for;
 use crate::providers::compat::schema::Problem;
@@ -162,33 +163,11 @@ pub(crate) struct BodyConfig<'a> {
 /// ids stay off because a wrong "yes" is a 400.
 const SERVER_FALLBACK_FAMILIES: [&str; 2] = ["claude-opus-5", "claude-fable-5"];
 
-/// Models (by Node's exact id test, see `turn_scoped_model`) that take turn-scoped `clear_at` system messages;
-/// an id list because a wrong "yes" is a 400 on every request.
-const TURN_SCOPED_MODELS: [&str; 9] = [
-    "claude-fable-5-1",
-    "claude-mythos-5-1",
-    "claude-fable-5",
-    "claude-mythos-5",
-    "claude-opus-5-5",
-    "claude-opus-5",
-    "claude-opus-4-8",
-    "claude-sonnet-5-5",
-    "claude-haiku-5-5",
-];
-
-/// Node's `supportsAnthropicTurnScopedSystemMessages`: the listed ids, each
-/// with an optional `-YYYYMMDD` snapshot suffix and nothing else (no trimming,
-/// no `-YYYY-MM-DD`), after lowercasing and folding dots to dashes.
-fn turn_scoped_model(model: &str) -> bool {
-    let id = model.to_lowercase().replace('.', "-");
-    TURN_SCOPED_MODELS.iter().any(|listed| {
-        id.strip_prefix(listed).is_some_and(|rest| {
-            rest.is_empty()
-                || rest
-                    .strip_prefix('-')
-                    .is_some_and(|date| date.len() == 8 && date.bytes().all(|b| b.is_ascii_digit()))
-        })
-    })
+/// Node's `supportsAnthropicTurnScopedSystemMessages` (a family floor), unless the model rejected
+/// turn-scoped system messages on this route in this process (`anthropicTurnScopedReminders`).
+fn turn_scoped_model(provider: &str, model: &str) -> bool {
+    claude_floors::supports_turn_scoped_system_messages(model)
+        && claude_floors::enabled(claude_floors::Feature::TurnScopedSystem, provider, model)
 }
 
 fn server_fallback(cfg: &BodyConfig<'_>, model: &str, parameters: Option<&Value>) -> bool {
@@ -665,8 +644,10 @@ fn reasoning(
     }
     let effort = effort.and_then(|raw| normalize_effort(raw, caps));
     if caps.adaptive_thinking && caps.supports_effort() {
-        let display_updates =
-            (cfg.flavor == Flavor::OAuth || cfg.beta_headers) && caps.thinking_display_updates;
+        // A model that rejected the display is off for it on this route (`anthropicCapabilityEnabled`).
+        let display_updates = (cfg.flavor == Flavor::OAuth || cfg.beta_headers)
+            && caps.thinking_display_updates
+            && claude_floors::enabled(claude_floors::Feature::ProgressUpdates, cfg.provider_name, &request.model);
         let thinking = if display_updates {
             json!({ "type": "adaptive", "display": "updates" })
         } else {
@@ -735,7 +716,7 @@ pub(crate) fn build_body(cfg: &BodyConfig<'_>, request: &ModelRequest) -> Result
                 .collect();
             lower_with_updates(source, &kept, &context)
         }
-        None if cfg.first_party && turn_scoped_model(&request.model) => {
+        None if cfg.first_party && turn_scoped_model(cfg.provider_name, &request.model) => {
             turn_scoped_layout(lower_messages(source, &context))
         }
         None => lower_messages(source, &context),

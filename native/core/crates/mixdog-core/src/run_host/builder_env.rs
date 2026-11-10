@@ -123,14 +123,6 @@ fn keys_of(model: &str) -> Vec<String> {
     if undated == id { vec![id] } else { vec![id, undated] }
 }
 
-/// `emitsAnthropicProgressUpdates`.
-fn emits_progress_updates(id: &str) -> bool {
-    let Some(rest) = id.strip_prefix("claude-") else { return false };
-    ["opus-5-5", "sonnet-5-5", "fable-5-1", "mythos-5-1", "fable-5"]
-        .iter()
-        .any(|m| rest.strip_prefix(m).is_some_and(|t| t.is_empty() || (t.len() == 9 && t.starts_with('-') && t[1..].bytes().all(|b| b.is_ascii_digit()))))
-}
-
 /// What the Anthropic catalog states of a model (`_catalogEntry`).
 struct Entry {
     levels: Vec<String>,
@@ -228,7 +220,7 @@ impl CatalogCaps {
             max_output_tokens: positive("outputTokens").map(|n| n as u32),
             fast_mode: self.catalog.supports_anthropic_fast_mode(&id),
             context_window: positive("contextWindow").map(|n| n as u64),
-            thinking_display_updates: emits_progress_updates(&id),
+            thinking_display_updates: mixdog_ai::claude_floors::emits_progress_updates(model),
         })
     }
     /// `anthropicEffortLevelsFor(model)`: the levels the wire builder sends unchanged (reserved
