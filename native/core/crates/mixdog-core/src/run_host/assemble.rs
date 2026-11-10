@@ -253,8 +253,7 @@ impl HostRunParts {
     /// The tools a run calls: the surface's own and, on a bridge session, the registry behind them. A
     /// deferred tool is not in the request, but a call to it (through `call_tool`, or by its name) runs it,
     /// as Node's executor dispatches by registry (`tool-exec/dispatch.mjs`).
-    fn surface_tools(&self, SessionTools { tools, builtins, agent }: SessionTools, header: &Header, surface: &mixdog_tools::policy::SessionSurface) -> ToolSet {
-        let set = ToolSet::with_builtins(tools, builtins).for_agent(agent);
+    fn surface_tools(&self, set: ToolSet, header: &Header, surface: &mixdog_tools::policy::SessionSurface) -> ToolSet {
         if !surface.bridge {
             return set;
         }
@@ -272,7 +271,9 @@ impl HostRunParts {
             .await
             .ok_or_else(|| refuse(format!("provider {provider_id:?} is not available")))?;
         let cwd = cwd_of(header)?;
-        let tool_set = self.surface_tools(seams.tools(thread, header, source.surface).await.map_err(refuse)?, header, source.surface);
+        let SessionTools { tools, builtins, agent } = seams.tools(thread, header, source.surface).await.map_err(refuse)?;
+        let tool_set = ToolSet::with_builtins(tools, builtins).for_agent(agent);
+        let tool_set = self.surface_tools(tool_set, header, source.surface);
         let settings = super::settings::merge_settings(
             seams.run_settings(thread, header),
             &s.settings,
@@ -365,8 +366,9 @@ impl RunParts for HostRunParts {
     async fn request_tools(&self, thread: &ThreadId, surface: &mixdog_tools::policy::SessionSurface) -> Result<Option<ToolSet>, TurnError> {
         let directory = self.services.directory.upgrade().ok_or_else(|| refuse("the session directory is closed"))?;
         let header = directory.live_header(thread).header();
-        let tools = self.services.seams.tools(thread, &header, surface).await.map_err(refuse)?;
-        Ok(Some(self.surface_tools(tools, &header, surface)))
+        let SessionTools { tools, builtins, agent } = self.services.seams.tools(thread, &header, surface).await.map_err(refuse)?;
+        let tool_set = ToolSet::with_builtins(tools, builtins).for_agent(agent);
+        Ok(Some(self.surface_tools(tool_set, &header, surface)))
     }
 
     async fn migrate_exposure(&self, thread: &ThreadId, rows: Vec<Value>) -> Result<Option<Vec<mixdog_agent::message::AgentMessage>>, TurnError> {
