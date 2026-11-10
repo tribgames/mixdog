@@ -1,0 +1,1774 @@
+{
+ "manifest": {
+  "commit": "b6f10295a2f698afc85332467192de28500bd146",
+  "exact": true,
+  "filesVerified": 20655,
+  "node": "v22.20.0",
+  "epoch": 1900000000000,
+  "perfBase": 10000000,
+  "afterInputMs": 1000,
+  "replaced": [
+   "<pid:host>",
+   "<pid:daemon>",
+   "<port:model>",
+   "<port:daemon>"
+  ]
+ },
+ "name": "running-then-stopped-again",
+ "id": "sess_desktop_249166149197d6e59f20d770b5ad400f8e584166e633335c67ff7fe3628d5a59",
+ "inputs": [
+  {
+   "at": 0,
+   "clock": 1000,
+   "input": "host.startProject"
+  },
+  {
+   "at": 1,
+   "clock": 2000,
+   "input": "phone.submitNewTask"
+  },
+  {
+   "at": 4,
+   "clock": 2000,
+   "input": "provider write",
+   "key": "GET /v1/models",
+   "prompt": "GET /v1/models",
+   "step": 1
+  },
+  {
+   "at": 4,
+   "clock": 2000,
+   "input": "provider write",
+   "key": "GET /v1/models",
+   "prompt": "GET /v1/models",
+   "step": 2
+  },
+  {
+   "at": 4,
+   "clock": 2000,
+   "input": "provider write",
+   "key": "GET /v1/models",
+   "prompt": "GET /v1/models",
+   "step": 1
+  },
+  {
+   "at": 4,
+   "clock": 2000,
+   "input": "provider write",
+   "key": "GET /v1/models",
+   "prompt": "GET /v1/models",
+   "step": 2
+  },
+  {
+   "at": 4,
+   "clock": 2000,
+   "input": "provider write",
+   "key": "HEAD / once plain first 0 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "prompt": "",
+   "step": 1
+  },
+  {
+   "at": 4,
+   "clock": 2000,
+   "input": "provider write",
+   "key": "HEAD / once plain first 0 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "prompt": "",
+   "step": 2
+  },
+  {
+   "at": 4,
+   "clock": 2000,
+   "input": "provider write",
+   "key": "POST /v1/chat/completions stream tools first 42521 4ae8e7b901f61a37d1b63eefa9223b73cc73ec5bc4277313634cb5d44e4f1cf0",
+   "prompt": "HOLD-EMPTY stop me twice",
+   "step": 1
+  },
+  {
+   "at": 4,
+   "clock": 2000,
+   "input": "provider write",
+   "key": "POST /v1/chat/completions stream tools first 42521 4ae8e7b901f61a37d1b63eefa9223b73cc73ec5bc4277313634cb5d44e4f1cf0",
+   "prompt": "HOLD-EMPTY stop me twice",
+   "step": 2
+  },
+  {
+   "at": 9,
+   "clock": 4000,
+   "input": "phone.abortSession"
+  },
+  {
+   "at": 12,
+   "clock": 5000,
+   "input": "phone.abortSession again"
+  }
+ ],
+ "history": [
+  {
+   "kind": "reply",
+   "input": "host.startProject",
+   "reply": {
+    "sessionId": "",
+    "items": [],
+    "queued": [],
+    "busy": false,
+    "commandBusy": false,
+    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-then-stopped-again\\ws\\a",
+    "currentProject": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-then-stopped-again\\ws\\a",
+    "desktopSession": {
+     "classification": "project",
+     "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-then-stopped-again\\ws\\a"
+    },
+    "remoteEnabled": false,
+    "remoteSessionId": null
+   }
+  },
+  {
+   "sessionId": "sess_desktop_249166149197d6e59f20d770b5ad400f8e584166e633335c67ff7fe3628d5a59",
+   "frameSource": "live",
+   "snapshot": {
+    "items": [],
+    "transcriptViewItems": null,
+    "transcriptViewRevision": 0,
+    "transcriptHistoryBefore": false,
+    "transcriptHistoryAfter": false,
+    "transcriptArchive": null,
+    "structureRevision": 0,
+    "streamingTail": null,
+    "toasts": [],
+    "progressHint": null,
+    "busy": false,
+    "commandBusy": false,
+    "commandStatus": null,
+    "spinner": null,
+    "queued": [],
+    "thinking": null,
+    "toolApproval": null,
+    "toolApprovalsWaiting": 0,
+    "toolApprovalResult": null,
+    "promptRestore": null,
+    "lastTurn": null,
+    "stats": {
+     "inputTokens": 0,
+     "outputTokens": 0,
+     "cachedTokens": 0,
+     "cacheWriteTokens": 0,
+     "promptTokens": 0,
+     "latestInputTokens": 0,
+     "latestOutputTokens": 0,
+     "latestCachedTokens": 0,
+     "latestCacheWriteTokens": 0,
+     "latestPromptTokens": 0,
+     "costUsd": 0,
+     "turns": 0,
+     "currentContextTokens": null,
+     "currentEstimatedContextTokens": 0,
+     "currentContextSource": "pending",
+     "currentContextUpdatedAt": null,
+     "usageReadout": null
+    },
+    "activeToolSummary": null,
+    "activeTools": null,
+    "promptHistoryList": [],
+    "sessionId": "sess_desktop_249166149197d6e59f20d770b5ad400f8e584166e633335c67ff7fe3628d5a59",
+    "sessionForkedFrom": null,
+    "clientHostPid": "<pid:daemon>",
+    "model": "",
+    "provider": "anthropic-oauth",
+    "sessionProvider": null,
+    "sessionModel": null,
+    "effort": null,
+    "turnEffort": null,
+    "effortOptions": [],
+    "fast": false,
+    "fastCapable": false,
+    "autoEffort": true,
+    "modelParameters": {},
+    "contextPercent": null,
+    "contextWindow": null,
+    "rawContextWindow": null,
+    "effectiveContextWindowPercent": null,
+    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-then-stopped-again\\ws\\a",
+    "workspace": null,
+    "systemShell": {
+     "command": "",
+     "effective": "",
+     "source": "auto"
+    },
+    "webSearchRoute": {
+     "provider": "default",
+     "model": "default"
+    },
+    "autoClear": {
+     "enabled": true,
+     "idleMs": 3600000,
+     "unlimited": false,
+     "label": "1h",
+     "custom": false,
+     "providerCustom": false,
+     "providerDefault": 3600000,
+     "provider": "anthropic-oauth",
+     "providerDefaults": [
+      {
+       "provider": "anthropic-oauth",
+       "idleMs": 3600000,
+       "builtInMs": 3600000,
+       "unlimited": false,
+       "builtInUnlimited": false,
+       "custom": false
+      },
+      {
+       "provider": "custom-harness",
+       "idleMs": 3600000,
+       "builtInMs": 3600000,
+       "unlimited": false,
+       "builtInUnlimited": false,
+       "custom": false
+      },
+      {
+       "provider": "default",
+       "idleMs": 3600000,
+       "builtInMs": 3600000,
+       "unlimited": false,
+       "builtInUnlimited": false,
+       "custom": false
+      }
+     ],
+     "minContextPercent": 10
+    },
+    "workflow": {
+     "id": "default",
+     "name": "Default",
+     "description": "Handle tasks as requested.",
+     "source": "built-in",
+     "delegatesAgents": true
+    },
+    "orchestrationMode": "balanced",
+    "pendingWorkflowSwitch": false,
+    "pendingOrchestrationModeSwitch": false,
+    "goal": null,
+    "quotaResume": null,
+    "todo": null,
+    "displayContextWindow": 0,
+    "compactBoundaryTokens": 0,
+    "autoCompactTokenLimit": 0,
+    "agentWorkers": [],
+    "agentJobs": [],
+    "agentScope": null,
+    "toolMode": "full",
+    "themeEpoch": 0,
+    "shellJobs": {
+     "count": 0,
+     "elapsedLabel": "",
+     "jobs": [],
+     "finished": []
+    },
+    "hostShellJobs": {
+     "count": 0,
+     "elapsedLabel": "",
+     "jobs": [],
+     "finished": []
+    },
+    "remoteEnabled": false,
+    "remoteSessionId": null
+   }
+  },
+  {
+   "sessionId": "sess_desktop_249166149197d6e59f20d770b5ad400f8e584166e633335c67ff7fe3628d5a59",
+   "frameSource": "live",
+   "snapshot": {
+    "items": [],
+    "transcriptViewItems": null,
+    "transcriptViewRevision": 0,
+    "transcriptHistoryBefore": false,
+    "transcriptHistoryAfter": false,
+    "transcriptArchive": null,
+    "structureRevision": 0,
+    "streamingTail": null,
+    "toasts": [],
+    "progressHint": null,
+    "busy": false,
+    "commandBusy": false,
+    "commandStatus": null,
+    "spinner": null,
+    "queued": [],
+    "thinking": null,
+    "toolApproval": null,
+    "toolApprovalsWaiting": 0,
+    "toolApprovalResult": null,
+    "promptRestore": null,
+    "lastTurn": null,
+    "stats": {
+     "inputTokens": 0,
+     "outputTokens": 0,
+     "cachedTokens": 0,
+     "cacheWriteTokens": 0,
+     "promptTokens": 0,
+     "latestInputTokens": 0,
+     "latestOutputTokens": 0,
+     "latestCachedTokens": 0,
+     "latestCacheWriteTokens": 0,
+     "latestPromptTokens": 0,
+     "costUsd": 0,
+     "turns": 0,
+     "currentContextTokens": null,
+     "currentEstimatedContextTokens": 0,
+     "currentContextSource": "pending",
+     "currentContextUpdatedAt": null,
+     "usageReadout": null
+    },
+    "activeToolSummary": null,
+    "activeTools": null,
+    "promptHistoryList": [],
+    "sessionId": "sess_desktop_249166149197d6e59f20d770b5ad400f8e584166e633335c67ff7fe3628d5a59",
+    "sessionForkedFrom": null,
+    "clientHostPid": "<pid:daemon>",
+    "model": "harness-model",
+    "provider": "custom-harness",
+    "sessionProvider": null,
+    "sessionModel": null,
+    "effort": null,
+    "turnEffort": null,
+    "effortOptions": [],
+    "fast": false,
+    "fastCapable": false,
+    "autoEffort": true,
+    "modelParameters": {},
+    "contextPercent": null,
+    "contextWindow": null,
+    "rawContextWindow": null,
+    "effectiveContextWindowPercent": null,
+    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-then-stopped-again\\ws\\a",
+    "workspace": null,
+    "systemShell": {
+     "command": "",
+     "effective": "",
+     "source": "auto"
+    },
+    "webSearchRoute": {
+     "provider": "default",
+     "model": "default"
+    },
+    "autoClear": {
+     "enabled": true,
+     "idleMs": 3600000,
+     "unlimited": false,
+     "label": "1h",
+     "custom": false,
+     "providerCustom": false,
+     "providerDefault": 3600000,
+     "provider": "custom-harness",
+     "providerDefaults": [
+      {
+       "provider": "custom-harness",
+       "idleMs": 3600000,
+       "builtInMs": 3600000,
+       "unlimited": false,
+       "builtInUnlimited": false,
+       "custom": false
+      },
+      {
+       "provider": "default",
+       "idleMs": 3600000,
+       "builtInMs": 3600000,
+       "unlimited": false,
+       "builtInUnlimited": false,
+       "custom": false
+      }
+     ],
+     "minContextPercent": 10
+    },
+    "workflow": {
+     "id": "default",
+     "name": "Default",
+     "description": "Handle tasks as requested.",
+     "source": "built-in",
+     "delegatesAgents": true
+    },
+    "orchestrationMode": "balanced",
+    "pendingWorkflowSwitch": false,
+    "pendingOrchestrationModeSwitch": false,
+    "goal": null,
+    "quotaResume": null,
+    "todo": null,
+    "displayContextWindow": 0,
+    "compactBoundaryTokens": 0,
+    "autoCompactTokenLimit": 0,
+    "agentWorkers": [],
+    "agentJobs": [],
+    "agentScope": null,
+    "toolMode": "full",
+    "themeEpoch": 0,
+    "shellJobs": {
+     "count": 0,
+     "elapsedLabel": "",
+     "jobs": [],
+     "finished": []
+    },
+    "hostShellJobs": {
+     "count": 0,
+     "elapsedLabel": "",
+     "jobs": [],
+     "finished": []
+    },
+    "remoteEnabled": false,
+    "remoteSessionId": null
+   }
+  },
+  {
+   "sessionId": "sess_desktop_249166149197d6e59f20d770b5ad400f8e584166e633335c67ff7fe3628d5a59",
+   "frameSource": "live",
+   "snapshot": {
+    "items": [
+     {
+      "kind": "user",
+      "id": "sub-running-then-stopped-again",
+      "text": "HOLD-EMPTY stop me twice",
+      "at": 1900000002000,
+      "modelId": "harness-model",
+      "model": "harness-model",
+      "provider": "custom-harness",
+      "agent": "Default",
+      "messageId": "msg_d0c76aaaa30142fba4ea35304a5fd31d",
+      "device": "Phone A"
+     }
+    ],
+    "transcriptViewItems": null,
+    "transcriptViewRevision": 0,
+    "transcriptHistoryBefore": false,
+    "transcriptHistoryAfter": false,
+    "transcriptArchive": null,
+    "structureRevision": 1,
+    "streamingTail": null,
+    "toasts": [],
+    "progressHint": null,
+    "busy": true,
+    "commandBusy": false,
+    "commandStatus": null,
+    "spinner": {
+     "active": true,
+     "verb": "Architecting",
+     "startedAt": 1900000002000,
+     "responseLength": 0,
+     "inputTokens": 0,
+     "outputTokens": 0,
+     "mode": "requesting"
+    },
+    "queued": [],
+    "thinking": null,
+    "toolApproval": null,
+    "toolApprovalsWaiting": 0,
+    "toolApprovalResult": null,
+    "promptRestore": null,
+    "lastTurn": null,
+    "stats": {
+     "inputTokens": 0,
+     "outputTokens": 0,
+     "cachedTokens": 0,
+     "cacheWriteTokens": 0,
+     "promptTokens": 0,
+     "latestInputTokens": 0,
+     "latestOutputTokens": 0,
+     "latestCachedTokens": 0,
+     "latestCacheWriteTokens": 0,
+     "latestPromptTokens": 0,
+     "costUsd": 0,
+     "turns": 0,
+     "currentContextTokens": null,
+     "currentEstimatedContextTokens": 0,
+     "currentContextSource": "pending",
+     "currentContextUpdatedAt": null,
+     "usageReadout": null
+    },
+    "activeToolSummary": null,
+    "activeTools": null,
+    "promptHistoryList": [
+     "HOLD-EMPTY stop me twice"
+    ],
+    "sessionId": "sess_desktop_249166149197d6e59f20d770b5ad400f8e584166e633335c67ff7fe3628d5a59",
+    "sessionForkedFrom": null,
+    "clientHostPid": "<pid:daemon>",
+    "model": "harness-model",
+    "provider": "custom-harness",
+    "sessionProvider": null,
+    "sessionModel": null,
+    "effort": null,
+    "turnEffort": null,
+    "effortOptions": [],
+    "fast": false,
+    "fastCapable": false,
+    "autoEffort": true,
+    "modelParameters": {},
+    "contextPercent": null,
+    "contextWindow": null,
+    "rawContextWindow": null,
+    "effectiveContextWindowPercent": null,
+    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-then-stopped-again\\ws\\a",
+    "workspace": null,
+    "systemShell": {
+     "command": "",
+     "effective": "",
+     "source": "auto"
+    },
+    "webSearchRoute": {
+     "provider": "default",
+     "model": "default"
+    },
+    "autoClear": {
+     "enabled": true,
+     "idleMs": 3600000,
+     "unlimited": false,
+     "label": "1h",
+     "custom": false,
+     "providerCustom": false,
+     "providerDefault": 3600000,
+     "provider": "custom-harness",
+     "providerDefaults": [
+      {
+       "provider": "custom-harness",
+       "idleMs": 3600000,
+       "builtInMs": 3600000,
+       "unlimited": false,
+       "builtInUnlimited": false,
+       "custom": false
+      },
+      {
+       "provider": "default",
+       "idleMs": 3600000,
+       "builtInMs": 3600000,
+       "unlimited": false,
+       "builtInUnlimited": false,
+       "custom": false
+      }
+     ],
+     "minContextPercent": 10
+    },
+    "workflow": {
+     "id": "default",
+     "name": "Default",
+     "description": "Handle tasks as requested.",
+     "source": "built-in",
+     "delegatesAgents": true
+    },
+    "orchestrationMode": "balanced",
+    "pendingWorkflowSwitch": false,
+    "pendingOrchestrationModeSwitch": false,
+    "goal": null,
+    "quotaResume": null,
+    "todo": null,
+    "displayContextWindow": 0,
+    "compactBoundaryTokens": 0,
+    "autoCompactTokenLimit": 0,
+    "agentWorkers": [],
+    "agentJobs": [],
+    "agentScope": null,
+    "toolMode": "full",
+    "themeEpoch": 0,
+    "transcriptSpilled": {
+     "rows": 0,
+     "epoch": 0
+    },
+    "shellJobs": {
+     "count": 0,
+     "elapsedLabel": "",
+     "jobs": [],
+     "finished": []
+    },
+    "hostShellJobs": {
+     "count": 0,
+     "elapsedLabel": "",
+     "jobs": [],
+     "finished": []
+    },
+    "remoteEnabled": false,
+    "remoteSessionId": null
+   }
+  },
+  {
+   "kind": "reply",
+   "input": "phone.submitNewTask",
+   "reply": {
+    "accepted": true,
+    "sessionId": "sess_desktop_249166149197d6e59f20d770b5ad400f8e584166e633335c67ff7fe3628d5a59",
+    "snapshot": {
+     "items": [
+      {
+       "kind": "user",
+       "id": "sub-running-then-stopped-again",
+       "text": "HOLD-EMPTY stop me twice",
+       "at": 1900000002000,
+       "modelId": "harness-model",
+       "model": "harness-model",
+       "provider": "custom-harness",
+       "agent": "Default",
+       "messageId": "msg_d0c76aaaa30142fba4ea35304a5fd31d",
+       "device": "Phone A"
+      }
+     ],
+     "transcriptViewItems": null,
+     "transcriptViewRevision": 0,
+     "transcriptHistoryBefore": false,
+     "transcriptHistoryAfter": false,
+     "transcriptArchive": null,
+     "structureRevision": 1,
+     "streamingTail": null,
+     "toasts": [],
+     "progressHint": null,
+     "busy": true,
+     "commandBusy": false,
+     "commandStatus": null,
+     "spinner": {
+      "active": true,
+      "verb": "Architecting",
+      "startedAt": 1900000002000,
+      "responseLength": 0,
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "mode": "requesting"
+     },
+     "queued": [],
+     "thinking": null,
+     "toolApproval": null,
+     "toolApprovalsWaiting": 0,
+     "toolApprovalResult": null,
+     "promptRestore": null,
+     "lastTurn": null,
+     "stats": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "cachedTokens": 0,
+      "cacheWriteTokens": 0,
+      "promptTokens": 0,
+      "latestInputTokens": 0,
+      "latestOutputTokens": 0,
+      "latestCachedTokens": 0,
+      "latestCacheWriteTokens": 0,
+      "latestPromptTokens": 0,
+      "costUsd": 0,
+      "turns": 0,
+      "currentContextTokens": null,
+      "currentEstimatedContextTokens": 0,
+      "currentContextSource": "pending",
+      "currentContextUpdatedAt": null,
+      "usageReadout": null
+     },
+     "activeToolSummary": null,
+     "activeTools": null,
+     "promptHistoryList": [
+      "HOLD-EMPTY stop me twice"
+     ],
+     "sessionId": "sess_desktop_249166149197d6e59f20d770b5ad400f8e584166e633335c67ff7fe3628d5a59",
+     "sessionForkedFrom": null,
+     "clientHostPid": "<pid:daemon>",
+     "model": "harness-model",
+     "provider": "custom-harness",
+     "sessionProvider": null,
+     "sessionModel": null,
+     "effort": null,
+     "turnEffort": null,
+     "effortOptions": [],
+     "fast": false,
+     "fastCapable": false,
+     "autoEffort": true,
+     "modelParameters": {},
+     "contextPercent": null,
+     "contextWindow": null,
+     "rawContextWindow": null,
+     "effectiveContextWindowPercent": null,
+     "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-then-stopped-again\\ws\\a",
+     "workspace": null,
+     "systemShell": {
+      "command": "",
+      "effective": "",
+      "source": "auto"
+     },
+     "webSearchRoute": {
+      "provider": "default",
+      "model": "default"
+     },
+     "autoClear": {
+      "enabled": true,
+      "idleMs": 3600000,
+      "unlimited": false,
+      "label": "1h",
+      "custom": false,
+      "providerCustom": false,
+      "providerDefault": 3600000,
+      "provider": "custom-harness",
+      "providerDefaults": [
+       {
+        "provider": "custom-harness",
+        "idleMs": 3600000,
+        "builtInMs": 3600000,
+        "unlimited": false,
+        "builtInUnlimited": false,
+        "custom": false
+       },
+       {
+        "provider": "default",
+        "idleMs": 3600000,
+        "builtInMs": 3600000,
+        "unlimited": false,
+        "builtInUnlimited": false,
+        "custom": false
+       }
+      ],
+      "minContextPercent": 10
+     },
+     "workflow": {
+      "id": "default",
+      "name": "Default",
+      "description": "Handle tasks as requested.",
+      "source": "built-in",
+      "delegatesAgents": true
+     },
+     "orchestrationMode": "balanced",
+     "pendingWorkflowSwitch": false,
+     "pendingOrchestrationModeSwitch": false,
+     "goal": null,
+     "quotaResume": null,
+     "todo": null,
+     "displayContextWindow": 0,
+     "compactBoundaryTokens": 0,
+     "autoCompactTokenLimit": 0,
+     "agentWorkers": [],
+     "agentJobs": [],
+     "agentScope": null,
+     "toolMode": "full",
+     "themeEpoch": 0,
+     "transcriptSpilled": {
+      "rows": 0,
+      "epoch": 0
+     },
+     "remoteEnabled": false,
+     "remoteSessionId": null
+    }
+   }
+  },
+  {
+   "sessionId": "sess_desktop_249166149197d6e59f20d770b5ad400f8e584166e633335c67ff7fe3628d5a59",
+   "frameSource": "live",
+   "snapshot": {
+    "items": [
+     {
+      "kind": "user",
+      "id": "sub-running-then-stopped-again",
+      "text": "HOLD-EMPTY stop me twice",
+      "at": 1900000002000,
+      "modelId": "harness-model",
+      "model": "harness-model",
+      "provider": "custom-harness",
+      "agent": "Default",
+      "messageId": "msg_d0c76aaaa30142fba4ea35304a5fd31d",
+      "device": "Phone A"
+     }
+    ],
+    "transcriptViewItems": null,
+    "transcriptViewRevision": 0,
+    "transcriptHistoryBefore": false,
+    "transcriptHistoryAfter": false,
+    "transcriptArchive": null,
+    "structureRevision": 1,
+    "streamingTail": null,
+    "toasts": [],
+    "progressHint": null,
+    "busy": true,
+    "commandBusy": false,
+    "commandStatus": null,
+    "spinner": {
+     "active": true,
+     "verb": "Architecting",
+     "startedAt": 1900000002000,
+     "responseLength": 0,
+     "inputTokens": 0,
+     "outputTokens": 0,
+     "mode": "responding"
+    },
+    "queued": [],
+    "thinking": null,
+    "toolApproval": null,
+    "toolApprovalsWaiting": 0,
+    "toolApprovalResult": null,
+    "promptRestore": null,
+    "lastTurn": null,
+    "stats": {
+     "inputTokens": 0,
+     "outputTokens": 0,
+     "cachedTokens": 0,
+     "cacheWriteTokens": 0,
+     "promptTokens": 0,
+     "latestInputTokens": 0,
+     "latestOutputTokens": 0,
+     "latestCachedTokens": 0,
+     "latestCacheWriteTokens": 0,
+     "latestPromptTokens": 0,
+     "costUsd": 0,
+     "turns": 0,
+     "currentContextTokens": null,
+     "currentEstimatedContextTokens": 0,
+     "currentContextSource": "pending",
+     "currentContextUpdatedAt": null,
+     "usageReadout": null
+    },
+    "activeToolSummary": null,
+    "activeTools": null,
+    "promptHistoryList": [
+     "HOLD-EMPTY stop me twice"
+    ],
+    "sessionId": "sess_desktop_249166149197d6e59f20d770b5ad400f8e584166e633335c67ff7fe3628d5a59",
+    "sessionForkedFrom": null,
+    "clientHostPid": "<pid:daemon>",
+    "model": "harness-model",
+    "provider": "custom-harness",
+    "sessionProvider": null,
+    "sessionModel": null,
+    "effort": null,
+    "turnEffort": null,
+    "effortOptions": [],
+    "fast": false,
+    "fastCapable": false,
+    "autoEffort": true,
+    "modelParameters": {},
+    "contextPercent": null,
+    "contextWindow": null,
+    "rawContextWindow": null,
+    "effectiveContextWindowPercent": null,
+    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-then-stopped-again\\ws\\a",
+    "workspace": null,
+    "systemShell": {
+     "command": "",
+     "effective": "",
+     "source": "auto"
+    },
+    "webSearchRoute": {
+     "provider": "default",
+     "model": "default"
+    },
+    "autoClear": {
+     "enabled": true,
+     "idleMs": 3600000,
+     "unlimited": false,
+     "label": "1h",
+     "custom": false,
+     "providerCustom": false,
+     "providerDefault": 3600000,
+     "provider": "custom-harness",
+     "providerDefaults": [
+      {
+       "provider": "custom-harness",
+       "idleMs": 3600000,
+       "builtInMs": 3600000,
+       "unlimited": false,
+       "builtInUnlimited": false,
+       "custom": false
+      },
+      {
+       "provider": "default",
+       "idleMs": 3600000,
+       "builtInMs": 3600000,
+       "unlimited": false,
+       "builtInUnlimited": false,
+       "custom": false
+      }
+     ],
+     "minContextPercent": 10
+    },
+    "workflow": {
+     "id": "default",
+     "name": "Default",
+     "description": "Handle tasks as requested.",
+     "source": "built-in",
+     "delegatesAgents": true
+    },
+    "orchestrationMode": "balanced",
+    "pendingWorkflowSwitch": false,
+    "pendingOrchestrationModeSwitch": false,
+    "goal": null,
+    "quotaResume": null,
+    "todo": null,
+    "displayContextWindow": 0,
+    "compactBoundaryTokens": 0,
+    "autoCompactTokenLimit": 0,
+    "agentWorkers": [],
+    "agentJobs": [],
+    "agentScope": null,
+    "toolMode": "full",
+    "themeEpoch": 0,
+    "transcriptSpilled": {
+     "rows": 0,
+     "epoch": 0
+    },
+    "shellJobs": {
+     "count": 0,
+     "elapsedLabel": "",
+     "jobs": [],
+     "finished": []
+    },
+    "hostShellJobs": {
+     "count": 0,
+     "elapsedLabel": "",
+     "jobs": [],
+     "finished": []
+    },
+    "remoteEnabled": false,
+    "remoteSessionId": null
+   }
+  },
+  {
+   "sessionId": "sess_desktop_249166149197d6e59f20d770b5ad400f8e584166e633335c67ff7fe3628d5a59",
+   "frameSource": "live",
+   "snapshot": {
+    "items": [
+     {
+      "kind": "user",
+      "id": "sub-running-then-stopped-again",
+      "text": "HOLD-EMPTY stop me twice",
+      "at": 1900000002000,
+      "modelId": "harness-model",
+      "model": "harness-model",
+      "provider": "custom-harness",
+      "agent": "Default",
+      "messageId": "msg_d0c76aaaa30142fba4ea35304a5fd31d",
+      "device": "Phone A"
+     }
+    ],
+    "transcriptViewItems": null,
+    "transcriptViewRevision": 0,
+    "transcriptHistoryBefore": false,
+    "transcriptHistoryAfter": false,
+    "transcriptArchive": null,
+    "structureRevision": 1,
+    "streamingTail": null,
+    "toasts": [],
+    "progressHint": null,
+    "busy": true,
+    "commandBusy": false,
+    "commandStatus": null,
+    "spinner": {
+     "active": true,
+     "verb": "Architecting",
+     "startedAt": 1900000002000,
+     "responseLength": 0,
+     "inputTokens": 0,
+     "outputTokens": 0,
+     "mode": "responding"
+    },
+    "queued": [],
+    "thinking": null,
+    "toolApproval": null,
+    "toolApprovalsWaiting": 0,
+    "toolApprovalResult": null,
+    "promptRestore": null,
+    "lastTurn": null,
+    "stats": {
+     "inputTokens": 0,
+     "outputTokens": 0,
+     "cachedTokens": 0,
+     "cacheWriteTokens": 0,
+     "promptTokens": 0,
+     "latestInputTokens": 0,
+     "latestOutputTokens": 0,
+     "latestCachedTokens": 0,
+     "latestCacheWriteTokens": 0,
+     "latestPromptTokens": 0,
+     "costUsd": 0,
+     "turns": 0,
+     "currentContextTokens": null,
+     "currentEstimatedContextTokens": 0,
+     "currentContextSource": "pending",
+     "currentContextUpdatedAt": null,
+     "usageReadout": null
+    },
+    "activeToolSummary": null,
+    "activeTools": null,
+    "promptHistoryList": [
+     "HOLD-EMPTY stop me twice"
+    ],
+    "sessionId": "sess_desktop_249166149197d6e59f20d770b5ad400f8e584166e633335c67ff7fe3628d5a59",
+    "sessionForkedFrom": null,
+    "clientHostPid": "<pid:daemon>",
+    "model": "harness-model",
+    "provider": "custom-harness",
+    "sessionProvider": "custom-harness",
+    "sessionModel": "harness-model",
+    "effort": null,
+    "turnEffort": null,
+    "effortOptions": [],
+    "fast": false,
+    "fastCapable": false,
+    "autoEffort": true,
+    "modelParameters": {},
+    "contextPercent": null,
+    "contextWindow": 128000,
+    "rawContextWindow": 128000,
+    "effectiveContextWindowPercent": 100,
+    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-then-stopped-again\\ws\\a",
+    "workspace": null,
+    "systemShell": {
+     "command": "",
+     "effective": "",
+     "source": "auto"
+    },
+    "webSearchRoute": {
+     "provider": "default",
+     "model": "default"
+    },
+    "autoClear": {
+     "enabled": true,
+     "idleMs": 3600000,
+     "unlimited": false,
+     "label": "1h",
+     "custom": false,
+     "providerCustom": false,
+     "providerDefault": 3600000,
+     "provider": "custom-harness",
+     "providerDefaults": [
+      {
+       "provider": "custom-harness",
+       "idleMs": 3600000,
+       "builtInMs": 3600000,
+       "unlimited": false,
+       "builtInUnlimited": false,
+       "custom": false
+      },
+      {
+       "provider": "default",
+       "idleMs": 3600000,
+       "builtInMs": 3600000,
+       "unlimited": false,
+       "builtInUnlimited": false,
+       "custom": false
+      }
+     ],
+     "minContextPercent": 10
+    },
+    "workflow": {
+     "id": "default",
+     "name": "Default",
+     "description": "Handle tasks as requested.",
+     "source": "built-in",
+     "delegatesAgents": true
+    },
+    "orchestrationMode": "balanced",
+    "pendingWorkflowSwitch": false,
+    "pendingOrchestrationModeSwitch": false,
+    "goal": null,
+    "quotaResume": null,
+    "todo": null,
+    "displayContextWindow": 0,
+    "compactBoundaryTokens": 0,
+    "autoCompactTokenLimit": 0,
+    "agentWorkers": [],
+    "agentJobs": [],
+    "agentScope": {
+     "sessionId": "sess_desktop_249166149197d6e59f20d770b5ad400f8e584166e633335c67ff7fe3628d5a59"
+    },
+    "toolMode": "full",
+    "themeEpoch": 0,
+    "transcriptSpilled": {
+     "rows": 0,
+     "epoch": 0
+    },
+    "shellJobs": {
+     "count": 0,
+     "elapsedLabel": "",
+     "jobs": [],
+     "finished": []
+    },
+    "hostShellJobs": {
+     "count": 0,
+     "elapsedLabel": "",
+     "jobs": [],
+     "finished": []
+    },
+    "remoteEnabled": false,
+    "remoteSessionId": null
+   }
+  },
+  {
+   "sessionId": "sess_desktop_249166149197d6e59f20d770b5ad400f8e584166e633335c67ff7fe3628d5a59",
+   "frameSource": "live",
+   "snapshot": {
+    "items": [
+     {
+      "kind": "user",
+      "id": "sub-running-then-stopped-again",
+      "text": "HOLD-EMPTY stop me twice",
+      "at": 1900000002000,
+      "modelId": "harness-model",
+      "model": "harness-model",
+      "provider": "custom-harness",
+      "agent": "Default",
+      "messageId": "msg_d0c76aaaa30142fba4ea35304a5fd31d",
+      "device": "Phone A"
+     }
+    ],
+    "transcriptViewItems": null,
+    "transcriptViewRevision": 0,
+    "transcriptHistoryBefore": false,
+    "transcriptHistoryAfter": false,
+    "transcriptArchive": null,
+    "structureRevision": 1,
+    "streamingTail": null,
+    "toasts": [],
+    "progressHint": null,
+    "busy": true,
+    "commandBusy": false,
+    "commandStatus": null,
+    "spinner": {
+     "active": true,
+     "verb": "Architecting",
+     "startedAt": 1900000002000,
+     "responseLength": 0,
+     "inputTokens": 0,
+     "outputTokens": 0,
+     "mode": "responding"
+    },
+    "queued": [],
+    "thinking": null,
+    "toolApproval": null,
+    "toolApprovalsWaiting": 0,
+    "toolApprovalResult": null,
+    "promptRestore": null,
+    "lastTurn": null,
+    "stats": {
+     "inputTokens": 0,
+     "outputTokens": 0,
+     "cachedTokens": 0,
+     "cacheWriteTokens": 0,
+     "promptTokens": 0,
+     "latestInputTokens": 0,
+     "latestOutputTokens": 0,
+     "latestCachedTokens": 0,
+     "latestCacheWriteTokens": 0,
+     "latestPromptTokens": 0,
+     "costUsd": 0,
+     "turns": 0,
+     "currentContextTokens": null,
+     "currentEstimatedContextTokens": 0,
+     "currentContextSource": "pending",
+     "currentContextUpdatedAt": null,
+     "usageReadout": null
+    },
+    "activeToolSummary": null,
+    "activeTools": null,
+    "promptHistoryList": [
+     "HOLD-EMPTY stop me twice"
+    ],
+    "sessionId": "sess_desktop_249166149197d6e59f20d770b5ad400f8e584166e633335c67ff7fe3628d5a59",
+    "sessionForkedFrom": null,
+    "clientHostPid": "<pid:daemon>",
+    "model": "harness-model",
+    "provider": "custom-harness",
+    "sessionProvider": "custom-harness",
+    "sessionModel": "harness-model",
+    "effort": null,
+    "turnEffort": null,
+    "effortOptions": [],
+    "fast": false,
+    "fastCapable": false,
+    "autoEffort": true,
+    "modelParameters": {},
+    "contextPercent": null,
+    "contextWindow": 128000,
+    "rawContextWindow": 128000,
+    "effectiveContextWindowPercent": 100,
+    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-then-stopped-again\\ws\\a",
+    "workspace": null,
+    "systemShell": {
+     "command": "",
+     "effective": "",
+     "source": "auto"
+    },
+    "webSearchRoute": {
+     "provider": "default",
+     "model": "default"
+    },
+    "autoClear": {
+     "enabled": true,
+     "idleMs": 3600000,
+     "unlimited": false,
+     "label": "1h",
+     "custom": false,
+     "providerCustom": false,
+     "providerDefault": 3600000,
+     "provider": "custom-harness",
+     "providerDefaults": [
+      {
+       "provider": "custom-harness",
+       "idleMs": 3600000,
+       "builtInMs": 3600000,
+       "unlimited": false,
+       "builtInUnlimited": false,
+       "custom": false
+      },
+      {
+       "provider": "default",
+       "idleMs": 3600000,
+       "builtInMs": 3600000,
+       "unlimited": false,
+       "builtInUnlimited": false,
+       "custom": false
+      }
+     ],
+     "minContextPercent": 10
+    },
+    "workflow": {
+     "id": "default",
+     "name": "Default",
+     "description": "Handle tasks as requested.",
+     "source": "built-in",
+     "delegatesAgents": true
+    },
+    "orchestrationMode": "balanced",
+    "pendingWorkflowSwitch": false,
+    "pendingOrchestrationModeSwitch": false,
+    "goal": null,
+    "quotaResume": null,
+    "todo": null,
+    "displayContextWindow": 0,
+    "compactBoundaryTokens": 0,
+    "autoCompactTokenLimit": 0,
+    "agentWorkers": [],
+    "agentJobs": [],
+    "agentScope": {
+     "sessionId": "sess_desktop_249166149197d6e59f20d770b5ad400f8e584166e633335c67ff7fe3628d5a59"
+    },
+    "toolMode": "full",
+    "themeEpoch": 0,
+    "transcriptSpilled": {
+     "rows": 0,
+     "epoch": 0
+    },
+    "setupChanged": {
+     "action": "settings_changed",
+     "seq": 1,
+     "at": 1900000002100
+    },
+    "shellJobs": {
+     "count": 0,
+     "elapsedLabel": "",
+     "jobs": [],
+     "finished": []
+    },
+    "hostShellJobs": {
+     "count": 0,
+     "elapsedLabel": "",
+     "jobs": [],
+     "finished": []
+    },
+    "remoteEnabled": false,
+    "remoteSessionId": null
+   }
+  },
+  {
+   "sessionId": "sess_desktop_249166149197d6e59f20d770b5ad400f8e584166e633335c67ff7fe3628d5a59",
+   "frameSource": "live",
+   "snapshot": {
+    "items": [
+     {
+      "kind": "user",
+      "id": "sub-running-then-stopped-again",
+      "text": "HOLD-EMPTY stop me twice",
+      "at": 1900000002000,
+      "modelId": "harness-model",
+      "model": "harness-model",
+      "provider": "custom-harness",
+      "agent": "Default",
+      "messageId": "msg_d0c76aaaa30142fba4ea35304a5fd31d",
+      "device": "Phone A"
+     }
+    ],
+    "transcriptViewItems": null,
+    "transcriptViewRevision": 0,
+    "transcriptHistoryBefore": false,
+    "transcriptHistoryAfter": false,
+    "transcriptArchive": null,
+    "structureRevision": 1,
+    "streamingTail": null,
+    "toasts": [],
+    "progressHint": null,
+    "busy": true,
+    "commandBusy": false,
+    "commandStatus": null,
+    "spinner": {
+     "active": true,
+     "verb": "Architecting",
+     "startedAt": 1900000002000,
+     "responseLength": 0,
+     "inputTokens": 0,
+     "outputTokens": 0,
+     "mode": "responding"
+    },
+    "queued": [],
+    "thinking": null,
+    "toolApproval": null,
+    "toolApprovalsWaiting": 0,
+    "toolApprovalResult": null,
+    "promptRestore": null,
+    "lastTurn": null,
+    "stats": {
+     "inputTokens": 0,
+     "outputTokens": 0,
+     "cachedTokens": 0,
+     "cacheWriteTokens": 0,
+     "promptTokens": 0,
+     "latestInputTokens": 0,
+     "latestOutputTokens": 0,
+     "latestCachedTokens": 0,
+     "latestCacheWriteTokens": 0,
+     "latestPromptTokens": 0,
+     "costUsd": 0,
+     "turns": 0,
+     "currentContextTokens": null,
+     "currentEstimatedContextTokens": 0,
+     "currentContextSource": "pending",
+     "currentContextUpdatedAt": null,
+     "usageReadout": null
+    },
+    "activeToolSummary": null,
+    "activeTools": null,
+    "promptHistoryList": [
+     "HOLD-EMPTY stop me twice"
+    ],
+    "sessionId": "sess_desktop_249166149197d6e59f20d770b5ad400f8e584166e633335c67ff7fe3628d5a59",
+    "sessionForkedFrom": null,
+    "clientHostPid": "<pid:daemon>",
+    "model": "harness-model",
+    "provider": "custom-harness",
+    "sessionProvider": "custom-harness",
+    "sessionModel": "harness-model",
+    "effort": null,
+    "turnEffort": null,
+    "effortOptions": [],
+    "fast": false,
+    "fastCapable": false,
+    "autoEffort": true,
+    "modelParameters": {},
+    "contextPercent": null,
+    "contextWindow": 128000,
+    "rawContextWindow": 128000,
+    "effectiveContextWindowPercent": 100,
+    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-then-stopped-again\\ws\\a",
+    "workspace": null,
+    "systemShell": {
+     "command": "",
+     "effective": "",
+     "source": "auto"
+    },
+    "webSearchRoute": {
+     "provider": "default",
+     "model": "default"
+    },
+    "autoClear": {
+     "enabled": true,
+     "idleMs": 3600000,
+     "unlimited": false,
+     "label": "1h",
+     "custom": false,
+     "providerCustom": false,
+     "providerDefault": 3600000,
+     "provider": "custom-harness",
+     "providerDefaults": [
+      {
+       "provider": "custom-harness",
+       "idleMs": 3600000,
+       "builtInMs": 3600000,
+       "unlimited": false,
+       "builtInUnlimited": false,
+       "custom": false
+      },
+      {
+       "provider": "default",
+       "idleMs": 3600000,
+       "builtInMs": 3600000,
+       "unlimited": false,
+       "builtInUnlimited": false,
+       "custom": false
+      }
+     ],
+     "minContextPercent": 10
+    },
+    "workflow": {
+     "id": "default",
+     "name": "Default",
+     "description": "Handle tasks as requested.",
+     "source": "built-in",
+     "delegatesAgents": true
+    },
+    "orchestrationMode": "balanced",
+    "pendingWorkflowSwitch": false,
+    "pendingOrchestrationModeSwitch": false,
+    "goal": null,
+    "quotaResume": null,
+    "todo": null,
+    "displayContextWindow": 128000,
+    "compactBoundaryTokens": 128000,
+    "autoCompactTokenLimit": 128000,
+    "agentWorkers": [],
+    "agentJobs": [],
+    "agentScope": {
+     "sessionId": "sess_desktop_249166149197d6e59f20d770b5ad400f8e584166e633335c67ff7fe3628d5a59"
+    },
+    "toolMode": "full",
+    "themeEpoch": 0,
+    "transcriptSpilled": {
+     "rows": 0,
+     "epoch": 0
+    },
+    "setupChanged": {
+     "action": "settings_changed",
+     "seq": 1,
+     "at": 1900000002100
+    },
+    "shellJobs": {
+     "count": 0,
+     "elapsedLabel": "",
+     "jobs": [],
+     "finished": []
+    },
+    "hostShellJobs": {
+     "count": 0,
+     "elapsedLabel": "",
+     "jobs": [],
+     "finished": []
+    },
+    "remoteEnabled": false,
+    "remoteSessionId": null
+   }
+  },
+  {
+   "kind": "reply",
+   "input": "phone.abortSession",
+   "reply": {
+    "aborted": true,
+    "restoreText": "HOLD-EMPTY stop me twice",
+    "pastedImages": null,
+    "pastedTexts": null,
+    "discardPastedImages": null,
+    "discardPastedTexts": null,
+    "restoredSubmissionIds": [
+     "sub-running-then-stopped-again"
+    ]
+   }
+  },
+  {
+   "sessionId": "sess_desktop_249166149197d6e59f20d770b5ad400f8e584166e633335c67ff7fe3628d5a59",
+   "frameSource": "live",
+   "snapshot": {
+    "items": [],
+    "transcriptViewItems": null,
+    "transcriptViewRevision": 0,
+    "transcriptHistoryBefore": false,
+    "transcriptHistoryAfter": false,
+    "transcriptArchive": null,
+    "structureRevision": 2,
+    "streamingTail": null,
+    "toasts": [],
+    "progressHint": null,
+    "busy": false,
+    "commandBusy": false,
+    "commandStatus": null,
+    "spinner": null,
+    "queued": [],
+    "thinking": null,
+    "toolApproval": null,
+    "toolApprovalsWaiting": 0,
+    "toolApprovalResult": null,
+    "promptRestore": null,
+    "lastTurn": null,
+    "stats": {
+     "inputTokens": 0,
+     "outputTokens": 0,
+     "cachedTokens": 0,
+     "cacheWriteTokens": 0,
+     "promptTokens": 0,
+     "latestInputTokens": 0,
+     "latestOutputTokens": 0,
+     "latestCachedTokens": 0,
+     "latestCacheWriteTokens": 0,
+     "latestPromptTokens": 0,
+     "costUsd": 0,
+     "turns": 1,
+     "currentContextTokens": null,
+     "currentEstimatedContextTokens": 0,
+     "currentContextSource": "pending",
+     "currentContextUpdatedAt": null,
+     "usageReadout": null
+    },
+    "activeToolSummary": null,
+    "activeTools": null,
+    "promptHistoryList": [],
+    "sessionId": "sess_desktop_249166149197d6e59f20d770b5ad400f8e584166e633335c67ff7fe3628d5a59",
+    "sessionForkedFrom": null,
+    "clientHostPid": "<pid:daemon>",
+    "model": "harness-model",
+    "provider": "custom-harness",
+    "sessionProvider": "custom-harness",
+    "sessionModel": "harness-model",
+    "effort": null,
+    "turnEffort": null,
+    "effortOptions": [],
+    "fast": false,
+    "fastCapable": false,
+    "autoEffort": true,
+    "modelParameters": {},
+    "contextPercent": null,
+    "contextWindow": 128000,
+    "rawContextWindow": 128000,
+    "effectiveContextWindowPercent": 100,
+    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-then-stopped-again\\ws\\a",
+    "workspace": null,
+    "systemShell": {
+     "command": "",
+     "effective": "",
+     "source": "auto"
+    },
+    "webSearchRoute": {
+     "provider": "default",
+     "model": "default"
+    },
+    "autoClear": {
+     "enabled": true,
+     "idleMs": 3600000,
+     "unlimited": false,
+     "label": "1h",
+     "custom": false,
+     "providerCustom": false,
+     "providerDefault": 3600000,
+     "provider": "custom-harness",
+     "providerDefaults": [
+      {
+       "provider": "custom-harness",
+       "idleMs": 3600000,
+       "builtInMs": 3600000,
+       "unlimited": false,
+       "builtInUnlimited": false,
+       "custom": false
+      },
+      {
+       "provider": "default",
+       "idleMs": 3600000,
+       "builtInMs": 3600000,
+       "unlimited": false,
+       "builtInUnlimited": false,
+       "custom": false
+      }
+     ],
+     "minContextPercent": 10
+    },
+    "workflow": {
+     "id": "default",
+     "name": "Default",
+     "description": "Handle tasks as requested.",
+     "source": "built-in",
+     "delegatesAgents": true
+    },
+    "orchestrationMode": "balanced",
+    "pendingWorkflowSwitch": false,
+    "pendingOrchestrationModeSwitch": false,
+    "goal": null,
+    "quotaResume": null,
+    "todo": null,
+    "displayContextWindow": 128000,
+    "compactBoundaryTokens": 128000,
+    "autoCompactTokenLimit": 128000,
+    "agentWorkers": [],
+    "agentJobs": [],
+    "agentScope": {
+     "sessionId": "sess_desktop_249166149197d6e59f20d770b5ad400f8e584166e633335c67ff7fe3628d5a59"
+    },
+    "toolMode": "full",
+    "themeEpoch": 0,
+    "transcriptSpilled": {
+     "rows": 0,
+     "epoch": 0
+    },
+    "setupChanged": {
+     "action": "settings_changed",
+     "seq": 1,
+     "at": 1900000002100
+    },
+    "shellJobs": {
+     "count": 0,
+     "elapsedLabel": "",
+     "jobs": [],
+     "finished": []
+    },
+    "hostShellJobs": {
+     "count": 0,
+     "elapsedLabel": "",
+     "jobs": [],
+     "finished": []
+    },
+    "remoteEnabled": false,
+    "remoteSessionId": null
+   }
+  },
+  {
+   "sessionId": "sess_desktop_249166149197d6e59f20d770b5ad400f8e584166e633335c67ff7fe3628d5a59",
+   "frameSource": "live",
+   "snapshot": {
+    "items": [],
+    "transcriptViewItems": null,
+    "transcriptViewRevision": 0,
+    "transcriptHistoryBefore": false,
+    "transcriptHistoryAfter": false,
+    "transcriptArchive": null,
+    "structureRevision": 2,
+    "streamingTail": null,
+    "toasts": [],
+    "progressHint": null,
+    "busy": false,
+    "commandBusy": false,
+    "commandStatus": null,
+    "spinner": null,
+    "queued": [],
+    "thinking": null,
+    "toolApproval": null,
+    "toolApprovalsWaiting": 0,
+    "toolApprovalResult": null,
+    "promptRestore": null,
+    "lastTurn": null,
+    "stats": {
+     "inputTokens": 0,
+     "outputTokens": 0,
+     "cachedTokens": 0,
+     "cacheWriteTokens": 0,
+     "promptTokens": 0,
+     "latestInputTokens": 0,
+     "latestOutputTokens": 0,
+     "latestCachedTokens": 0,
+     "latestCacheWriteTokens": 0,
+     "latestPromptTokens": 0,
+     "costUsd": 0,
+     "turns": 1,
+     "currentContextTokens": null,
+     "currentEstimatedContextTokens": 0,
+     "currentContextSource": "pending",
+     "currentContextUpdatedAt": null,
+     "usageReadout": null
+    },
+    "activeToolSummary": null,
+    "activeTools": null,
+    "promptHistoryList": [],
+    "sessionId": "sess_desktop_249166149197d6e59f20d770b5ad400f8e584166e633335c67ff7fe3628d5a59",
+    "sessionForkedFrom": null,
+    "clientHostPid": "<pid:daemon>",
+    "model": "harness-model",
+    "provider": "custom-harness",
+    "sessionProvider": "custom-harness",
+    "sessionModel": "harness-model",
+    "effort": null,
+    "turnEffort": null,
+    "effortOptions": [],
+    "fast": false,
+    "fastCapable": false,
+    "autoEffort": true,
+    "modelParameters": {},
+    "contextPercent": null,
+    "contextWindow": 128000,
+    "rawContextWindow": 128000,
+    "effectiveContextWindowPercent": 100,
+    "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-then-stopped-again\\ws\\a",
+    "workspace": null,
+    "systemShell": {
+     "command": "",
+     "effective": "",
+     "source": "auto"
+    },
+    "webSearchRoute": {
+     "provider": "default",
+     "model": "default"
+    },
+    "autoClear": {
+     "enabled": true,
+     "idleMs": 3600000,
+     "unlimited": false,
+     "label": "1h",
+     "custom": false,
+     "providerCustom": false,
+     "providerDefault": 3600000,
+     "provider": "custom-harness",
+     "providerDefaults": [
+      {
+       "provider": "custom-harness",
+       "idleMs": 3600000,
+       "builtInMs": 3600000,
+       "unlimited": false,
+       "builtInUnlimited": false,
+       "custom": false
+      },
+      {
+       "provider": "default",
+       "idleMs": 3600000,
+       "builtInMs": 3600000,
+       "unlimited": false,
+       "builtInUnlimited": false,
+       "custom": false
+      }
+     ],
+     "minContextPercent": 10
+    },
+    "workflow": {
+     "id": "default",
+     "name": "Default",
+     "description": "Handle tasks as requested.",
+     "source": "built-in",
+     "delegatesAgents": true
+    },
+    "orchestrationMode": "balanced",
+    "pendingWorkflowSwitch": false,
+    "pendingOrchestrationModeSwitch": false,
+    "goal": null,
+    "quotaResume": null,
+    "todo": null,
+    "displayContextWindow": 128000,
+    "compactBoundaryTokens": 128000,
+    "autoCompactTokenLimit": 128000,
+    "agentWorkers": [],
+    "agentJobs": [],
+    "agentScope": {
+     "sessionId": "sess_desktop_249166149197d6e59f20d770b5ad400f8e584166e633335c67ff7fe3628d5a59"
+    },
+    "toolMode": "full",
+    "themeEpoch": 0,
+    "transcriptSpilled": {
+     "rows": 0,
+     "epoch": 0
+    },
+    "setupChanged": {
+     "action": "settings_changed",
+     "seq": 1,
+     "at": 1900000002100
+    },
+    "shellJobs": {
+     "count": 0,
+     "elapsedLabel": "",
+     "jobs": [],
+     "finished": []
+    },
+    "hostShellJobs": {
+     "count": 0,
+     "elapsedLabel": "",
+     "jobs": [],
+     "finished": []
+    },
+    "remoteEnabled": false,
+    "remoteSessionId": null
+   }
+  },
+  {
+   "kind": "reply",
+   "input": "phone.abortSession again",
+   "reply": {
+    "aborted": false,
+    "restoreText": "",
+    "pastedImages": null,
+    "pastedTexts": null,
+    "discardPastedImages": null,
+    "discardPastedTexts": null,
+    "restoredSubmissionIds": []
+   }
+  }
+ ]
+}

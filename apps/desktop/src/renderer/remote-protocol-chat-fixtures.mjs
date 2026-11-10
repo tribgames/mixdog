@@ -3,7 +3,7 @@
 // Loading verifies all of it: a file missing, extra or changed, or a recorder file changed since the recordings were made, fails.
 //
 //   node --import ./scripts/test-env.mjs --import ./scripts/test-tsx.mjs src/renderer/remote-protocol-chat-fixtures.mjs <fixture> <recording.json>...
-// installs the recordings as the fixture's folder (abort | roster | live | refusals).
+// installs the recordings as the fixture's folder (abort | history | roster | live | refusals).
 import { createHash } from 'node:crypto';
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -13,6 +13,20 @@ export const FIXTURES = {
   abort: {
     dir: 'remote-protocol-chat-abort.node/',
     recorder: ['remote-protocol-chat-abort.record.mjs', 'remote-protocol-chat-abort-cases.mjs', 'remote-protocol-chat-abort-provider.mjs', 'remote-protocol-chat-abort-procs.mjs'],
+    node: true,
+  },
+  // Node's state history at the store's publish, one recording per case, each recorded twice byte-identical before it was installed.
+  history: {
+    dir: 'remote-protocol-chat-history.node/',
+    recorder: [
+      'remote-protocol-chat-history.record.mjs',
+      'remote-protocol-chat-history-loader.mjs',
+      'remote-protocol-chat-vclock.mjs',
+      'remote-protocol-chat-node-export.mjs',
+      'remote-protocol-chat-abort-cases.mjs',
+      'remote-protocol-chat-abort-provider.mjs',
+      'remote-protocol-chat-abort-procs.mjs',
+    ],
     node: true,
   },
   roster: { dir: 'remote-protocol-chat-roster.node/', recorder: ['remote-protocol-chat-roster.record.mjs'], node: true },

@@ -25,7 +25,8 @@ export function leftBy(rootPid, folder, processes = allProcesses()) {
   for (const p of processes) children.set(p.ParentProcessId, [...(children.get(p.ParentProcessId) ?? []), p]);
   const found = new Map();
   const walk = (pid) => { for (const child of children.get(pid) ?? []) if (!found.has(child.ProcessId)) { found.set(child.ProcessId, child); walk(child.ProcessId); } };
-  walk(rootPid);
+  // No daemon (it never started): only the folder's processes; pid 0's "children" are the system's own.
+  if (rootPid > 0) walk(rootPid);
   const forms = [folder, folder.replaceAll('\\', '/')].map((f) => f.toLowerCase());
   for (const p of processes) if (forms.some((f) => (p.CommandLine ?? '').toLowerCase().includes(f))) found.set(p.ProcessId, p);
   found.delete(rootPid);

@@ -7,6 +7,7 @@
 //   HOLD-ASK    answers with a call of the read tool on ASKED_FILE (a hook rule asks the person first: remote-protocol-chat-abort-cases.mjs
 //               HOOK_RULES), and the request carrying the call's result is answered and finished (the turn ends on its own);
 // anything else (and every request without tools: titles, warm-ups) is answered with a short text and finished.
+import { createHash } from 'node:crypto';
 import http from 'node:http';
 
 export const PARTIAL = 'HOLD-PARTIAL-STREAM';
@@ -15,11 +16,24 @@ export const FINAL = 'HOLD-FINAL-ANSWER';
 export const ASKED_FILE = 'ask-me.json';
 const textOf = (content) => (typeof content === 'string' ? content : Array.isArray(content) ? content.map((p) => p?.text ?? '').join('\n') : '');
 
-export async function startAbortProvider() {
+/** `gated`: nothing is written until the caller releases it (`releaseNext`, one write at a time, the history recorder's barrier between
+ *  inputs); otherwise every write goes out as soon as the request is read. */
+export async function startAbortProvider({ gated = false } = {}) {
   const requests = [];
   const listeners = new Set();
-  const server = http.createServer((req, res) => {
+  // The writes not yet released, per request (gated only), and the requests by their key in arrival order of the key.
+  const queued = [];
+  const gate = (entry, res) => {
+    if (!gated) return res;
+    const steps = [];
+    entry.steps = steps;
+    queued.push(entry);
+    const later = (op) => (...args) => { steps.push(() => res[op](...args)); };
+    return { setHeader: later('setHeader'), writeHead: later('writeHead'), write: later('write'), end: later('end'), on: (...args) => res.on(...args) };
+  };
+  const server = http.createServer((req, realRes) => {
     if (req.method === 'GET') {
+      const res = gate({ key: `GET ${req.url}` }, realRes);
       res.setHeader('content-type', 'application/json');
       res.end(JSON.stringify({ object: 'list', data: [{ id: 'harness-model', object: 'model' }] }));
       return;
@@ -34,8 +48,11 @@ export async function startAbortProvider() {
       // HOLD-TOOL: the first request answers with a call of the read tool, the request that carries its result is held with no further output.
       const asksTool = (body.tools ?? []).length > 0 && /HOLD-TOOL|HOLD-APPROVAL|HOLD-ASK/.test(prompt) && !afterTool;
       const held = asksTool ? null : (body.tools ?? []).length > 0 ? (/HOLD-TEXT/.test(prompt) ? 'text' : /HOLD-FINAL/.test(prompt) ? 'final' : /HOLD-EMPTY|HOLD-TOOL|HOLD-APPROVAL/.test(prompt) ? 'empty' : null) : null;
-      const entry = { prompt, held, afterTool, asked: asksTool };
+      // The key a gated release orders by: what the request is, never when its connection was accepted.
+      const entry = { prompt, held, afterTool, asked: asksTool, key: `${req.method} ${req.url} ${body.stream === true ? 'stream' : 'once'} ${(body.tools ?? []).length ? 'tools' : 'plain'} ${afterTool ? 'after-tool' : 'first'} ${raw.length} ${createHash('sha256').update(raw).digest('hex')}` };
+      Object.defineProperty(entry, 'raw', { value: raw, enumerable: false });
       requests.push(entry);
+      const res = gate(entry, realRes);
       const chunk = (delta, finish = null) => `data: ${JSON.stringify({ id: 'chatcmpl-abort', object: 'chat.completion.chunk', created: 1700000000, model: 'harness-model', choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`;
       if (body.stream !== true) {
         res.setHeader('content-type', 'application/json');
@@ -103,6 +120,17 @@ export async function startAbortProvider() {
       const listener = () => { const found = requests.filter(matches)[nth - 1]; if (found) { listeners.delete(listener); resolve(found); } };
       listeners.add(listener);
     }),
+    /** Gated: releases the next write of the request first by key (then by arrival among equal keys); false when none is waiting. */
+    releaseNext: () => {
+      const waiting = queued.filter((e) => e.steps.length);
+      if (!waiting.length) return false;
+      waiting.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : queued.indexOf(a) - queued.indexOf(b)));
+      const entry = waiting[0];
+      // One call on the response per release (a header set alone writes nothing until the first write).
+      entry.steps.shift()();
+      entry.released = (entry.released ?? 0) + 1;
+      return { key: entry.key, prompt: entry.prompt?.slice(0, 60) ?? entry.key, step: entry.released };
+    },
     close: () => new Promise((resolve) => { server.close(resolve); server.closeAllConnections(); }),
   };
 }
