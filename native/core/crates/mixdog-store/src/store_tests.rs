@@ -823,7 +823,10 @@ async fn a_boot_ended_between_the_projection_and_the_row_reconciles_again() {
     assert!(matches!(outcome, Err(DbError::Stopped)));
     drop(ended);
     let reopened = open_index(&env.data).unwrap();
-    assert_eq!(reopened.projected("s1").await.unwrap().unwrap().ordinal, end);
+    let projected = tokio::time::timeout(std::time::Duration::from_secs(60), reopened.projected("s1"))
+        .await
+        .expect("the reconciled cursor answered within 60 s");
+    assert_eq!(projected.unwrap().unwrap().ordinal, end);
     drop(reopened);
     let rebuilt = tempfile::tempdir().unwrap();
     copy_tree(&env.dir("s1"), &rebuilt.path().join("sessions").join("s1"));
@@ -844,18 +847,21 @@ async fn a_failed_reconcile_fails_every_access() {
     crate::sqlite::reconcile_seam::fail(&env.data);
     let failed = open_index(&env.data).unwrap();
     let why = "s1: the test seam failed the index write";
-    let read = failed.history_page(lineage(&[("s1", None)]), None, None, 10).await;
+    let bound = std::time::Duration::from_secs(60);
+    let read = tokio::time::timeout(bound, failed.history_page(lineage(&[("s1", None)]), None, None, 10))
+        .await
+        .expect("the read answered within 60 s");
     assert!(matches!(&read, Err(DbError::Write(w)) if w == why), "{read:?}");
-    let write = failed.mark_dirty("s1").await;
+    let write = tokio::time::timeout(bound, failed.mark_dirty("s1")).await.expect("the write answered within 60 s");
     assert!(matches!(&write, Err(DbError::Write(w)) if w == why), "{write:?}");
     let laned = failed.clone();
     let on_lane = tokens()
         .interactive_io
         .submit(&CancellationToken::new(), move |lane| laned.history_page_on_lane(lane, &lineage(&[("s1", None)]), None, None, 10).map(drop))
         .expect("lane");
-    let on_lane = tokio::time::timeout(std::time::Duration::from_secs(60), on_lane).await.expect("the lane read answered within 60 s").expect("job ran");
+    let on_lane = tokio::time::timeout(bound, on_lane).await.expect("the lane read answered within 60 s").expect("job ran");
     assert!(matches!(&on_lane, Err(DbError::Write(w)) if w == why), "{on_lane:?}");
-    let settled = failed.reconciled().await;
+    let settled = tokio::time::timeout(bound, failed.reconciled()).await.expect("the reconcile's outcome answered within 60 s");
     assert!(matches!(&settled, Err(DbError::Write(w)) if w == why), "{settled:?}");
 }
 
