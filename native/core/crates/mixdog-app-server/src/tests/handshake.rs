@@ -1,5 +1,7 @@
 //! The initialize latch, the version gate and the frame rules (P §3, §4.2, §4.4; §14.3).
 
+use std::sync::Arc;
+
 use bytes::Bytes;
 use mixdog_app_protocol::limits::CloseCode;
 use mixdog_core_api::HostMediaSink;
@@ -45,6 +47,29 @@ async fn initialize_reports_the_core_and_latches() {
     client.initialize(VERSION, json!({}));
     let again = client.response(0).await;
     assert_eq!(reason(&again), "alreadyInitialized");
+}
+
+/// Node put `nativePush` on the challenge of each new phone connection while its relay could deliver a native push, and left it
+/// off while it could not (`remote-relay-client-lifecycle.ts:150`): each `initialize` reads the offer as it stands then.
+#[tokio::test(start_paused = true)]
+async fn each_initialize_reports_native_push_as_offered_at_that_handshake() {
+    let offered = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let read = offered.clone();
+    let rig = Rig::configured(
+        super::domain_methods(),
+        Vec::new(),
+        crate::ServerConfig { native_push: Arc::new(move || read.load(std::sync::atomic::Ordering::SeqCst)), ..super::config() },
+    );
+    let mut seen = Vec::new();
+    for (id, offer) in [(1, false), (2, true), (3, false)] {
+        offered.store(offer, std::sync::atomic::Ordering::SeqCst);
+        let client = rig.connect(id, Origin::Relay);
+        client.initialize(VERSION, json!({}));
+        seen.push((offer, client.response(0).await["result"]["capabilities"]["remote"]["nativePush"].clone()));
+    }
+    for (offer, reported) in seen {
+        assert_eq!(reported, json!(offer), "the handshake reports the offer that stood at it");
+    }
 }
 
 #[tokio::test(start_paused = true)]
