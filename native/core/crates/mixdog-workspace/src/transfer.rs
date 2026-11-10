@@ -1775,6 +1775,20 @@ mod tests {
         assert_refused_as(again, &frame_of_call("ancestor swapped between resolving and opening", 0));
     }
 
+    /// A grant's expiry reads the runtime's clock afresh at each use, as Node reads `Date.now`: moving that clock 1 ms short of the grant's life
+    /// leaves it, moving it the whole life ends it (`grant expiry`: the begin at 59 999 ms succeeds, at 60 000 ms it is expired).
+    #[tokio::test(start_paused = true)]
+    async fn a_grant_lives_exactly_as_long_as_the_runtime_clock_says() {
+        let dir = tempfile::tempdir().unwrap();
+        let t = Arc::new(Transfers::with_clock(Arc::new(SystemClock), UPLOAD_IDLE));
+        let first = grant_of(&t, dir.path(), "dev", "s1");
+        tokio::time::advance(std::time::Duration::from_millis(59_999)).await;
+        t.begin_grant("dev", &first.grant_id).expect("one millisecond before the limit");
+        let second = grant_of(&t, dir.path(), "dev", "s1");
+        tokio::time::advance(std::time::Duration::from_millis(60_000)).await;
+        assert_refused_as(t.begin_grant("dev", &second.grant_id).unwrap_err(), &frame_of_call("grant expiry", 3));
+    }
+
     /// A file renamed or removed after it was authorized is not the file that was authorized, though its identity, size and modification
     /// time are unchanged: begin, a range and finish refuse it as Node does, and the transfer ends; renamed away and back it is the same
     /// (`file moved`).
