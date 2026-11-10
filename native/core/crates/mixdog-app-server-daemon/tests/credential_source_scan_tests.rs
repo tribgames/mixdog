@@ -7,9 +7,14 @@ use std::path::Path;
 use std::path::PathBuf;
 
 /// What a direct read looks like in source.
-const READS: [&str; 10] = [
+const READS: [&str; 15] = [
     "std::env::var",
+    "use std::env::{",
+    "env::var(",
+    "env::vars",
     "env::var_os",
+    "store.has(",
+    "vault.has(",
     ".var(",
     ".var_os(",
     "store.get(",
@@ -61,6 +66,8 @@ const ALLOWED: &[(&str, &str, &str)] = &[
     ("mixdog-ai/src/registry/builder.rs", "env_location(|n| self.env.env.var(n)", "the Vertex location variable: an identifier"),
     ("mixdog-ai/src/registry/builder.rs", ".find_map(|name| env.var(name)", "vertex::PROJECT_ENV: project identifiers"),
     ("mixdog-ai/src/service/api_usage.rs", "XAI_TEAM_ID", "a team identifier, not a secret"),
+    ("mixdog-ai/src/catalog/listing.rs", "MIXDOG_MODEL_STALE_MONTHS", "a staleness bound (code after an inline test module, unscanned before this round)"),
+    ("mixdog-ai/src/providers/google/mod.rs", "std::env::var(name).ok()", "cache tuning variables (code after an inline test module, unscanned before this round)"),
     ("mixdog-ai/src/admission/settings.rs", "MIXDOG_PROVIDER_ADMISSION_MAX_QUEUE", "a queue bound"),
     ("mixdog-ai/src/catalog/sources.rs", "let env = |name: &str| std::env::var(name).ok()", "the model floor's variables: model names"),
     ("mixdog-ai/src/client_versions.rs", "MIXDOG_DISABLE_LIVE_CLI_VERSIONS", "a feature flag"),
@@ -105,10 +112,29 @@ fn rust_files(path: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// The lines of the non-test code: everything before the file's first `#[cfg(test)]`.
+/// The lines of the non-test code: the file without its `#[cfg(test)]` items. An item is skipped through its closing
+/// brace (or its `;`), so code after an inline test module is scanned.
 fn production_lines(path: &Path) -> Vec<String> {
     let text = std::fs::read_to_string(path).expect("read source");
-    text.lines().take_while(|line| line.trim() != "#[cfg(test)]").map(str::to_owned).collect()
+    let mut out = Vec::new();
+    let mut lines = text.lines();
+    while let Some(line) = lines.next() {
+        if line.trim() != "#[cfg(test)]" {
+            out.push(line.to_owned());
+            continue;
+        }
+        let mut depth = 0i32;
+        for item in lines.by_ref() {
+            if item.trim_start().starts_with('#') {
+                continue;
+            }
+            depth += item.matches('{').count() as i32 - item.matches('}').count() as i32;
+            if depth <= 0 && (item.trim_end().ends_with(';') || item.contains('}')) {
+                break;
+            }
+        }
+    }
+    out
 }
 
 #[test]
