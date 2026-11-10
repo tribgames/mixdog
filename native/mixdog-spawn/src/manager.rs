@@ -125,7 +125,7 @@ struct InputQueue {
     room: tokio::sync::Notify,
     cap: usize,
     /// Held by a write for all of its pieces (see `write_input_wait`); fair, so waiting writers go in arrival order.
-    writer: tokio::sync::Mutex<()>,
+    writer: Arc<tokio::sync::Mutex<()>>,
 }
 
 /// `bytes` in pieces of at most `cap` bytes, each ending at a UTF-8 character boundary (a piece is cut inside a character only when
@@ -156,6 +156,8 @@ struct InputState {
     bytes: usize,
     closing: bool,
     dead: bool,
+    /// No more writes are taken (a disposed terminal); the input stays open.
+    refused: bool,
 }
 
 impl InputQueue {
@@ -166,11 +168,12 @@ impl InputQueue {
                 bytes: 0,
                 closing: false,
                 dead: false,
+                refused: false,
             }),
             ready: Condvar::new(),
             room: tokio::sync::Notify::new(),
             cap,
-            writer: tokio::sync::Mutex::new(()),
+            writer: Arc::new(tokio::sync::Mutex::new(())),
         })
     }
 
@@ -180,7 +183,7 @@ impl InputQueue {
 
     fn push(&self, bytes: Vec<u8>) -> Result<(), ProcessError> {
         let mut state = self.lock();
-        if state.closing || state.dead {
+        if state.closing || state.dead || state.refused {
             return Err(ProcessError::StdinClosed);
         }
         if state.bytes + bytes.len() > self.cap {
@@ -203,7 +206,15 @@ impl InputQueue {
         state.closing = true;
         drop(state);
         self.ready.notify_one();
+        // A write waiting for room ends with `StdinClosed` instead of holding the write side.
+        self.room.notify_waiters();
         Ok(())
+    }
+
+    /// Refuses every later write, and ends a write waiting for room, without closing the process's input: what is queued is still written.
+    fn refuse(&self) {
+        self.lock().refused = true;
+        self.room.notify_waiters();
     }
 
     /// The process is gone: nothing more is written.
@@ -974,23 +985,30 @@ impl LocalProcessManager {
     /// pieces of at most its capacity, in order (Node's `pty.write` takes any length), so no input is refused for its size. The pieces are
     /// cut between UTF-8 characters, and the process's write side is held from the first piece to the last (writers take it in arrival
     /// order), so no other input lands between them: Node wrote the whole string in one `pty.write` (terminal-manager.ts:419).
+    /// The whole string or nothing: a caller dropped while it waits for the write side writes nothing; once it has the write side the
+    /// write is the process's own (a task holding it to the last piece), so a caller dropped after that (its connection closed, the call
+    /// cancelled) never cuts it in half. Closing the input (`close_stdin`, as a disposal does) ends a write waiting for room.
     pub async fn write_input_wait(&self, handle: &ProcessHandle, bytes: Vec<u8>) -> Result<(), ProcessError> {
         let proc = self.inner.lookup(handle)?;
-        let input = proc.input.as_ref().ok_or(ProcessError::StdinClosed)?;
-        let _writing = input.writer.lock().await;
-        for piece in pieces(&bytes, input.cap.max(1)) {
-            loop {
-                let mut room = std::pin::pin!(input.room.notified());
-                // Registered before the push is tried, so room made in between is not missed.
-                room.as_mut().enable();
-                match input.push(piece.to_vec()) {
-                    Err(ProcessError::Overloaded { queue: ProcessQueue::Input }) => room.await,
-                    Err(other) => return Err(other),
-                    Ok(()) => break,
+        let input = Arc::clone(proc.input.as_ref().ok_or(ProcessError::StdinClosed)?);
+        let writing = Arc::clone(&input.writer).lock_owned().await;
+        let write = mixdog_rt::spawn("process-input", mixdog_rt::TaskClass::Work, async move {
+            let _writing = writing;
+            for piece in pieces(&bytes, input.cap.max(1)) {
+                loop {
+                    let mut room = std::pin::pin!(input.room.notified());
+                    // Registered before the push is tried, so room made in between is not missed.
+                    room.as_mut().enable();
+                    match input.push(piece.to_vec()) {
+                        Err(ProcessError::Overloaded { queue: ProcessQueue::Input }) => room.await,
+                        Err(other) => return Err(other),
+                        Ok(()) => break,
+                    }
                 }
             }
-        }
-        Ok(())
+            Ok(())
+        });
+        write.await.unwrap_or(Err(ProcessError::StdinClosed))
     }
 
     /// Resolves with the output bytes pushed once the process's reader is parked at its feed's gate: held back by a consumer that trails by
@@ -1023,6 +1041,15 @@ impl LocalProcessManager {
 
     pub fn kill_with(&self, handle: &ProcessHandle, reason: KillReason) -> Result<(), ProcessError> {
         self.inner.lookup(handle)?.kill(reason)
+    }
+
+    /// Takes no more input for the process and ends a write waiting for room (it fails with `StdinClosed` and lets go of the write side);
+    /// what is queued is still written and the input stays open. A disposed terminal takes no more writes (Node's `write` returns on a
+    /// disposed entry, terminal-manager.ts:418).
+    pub fn refuse_input(&self, handle: &ProcessHandle) {
+        if let Some(input) = self.inner.lookup(handle).ok().and_then(|proc| proc.input.clone()) {
+            input.refuse();
+        }
     }
 
     /// Closes a PTY process's terminal, as node-pty's `kill` closes the pseudo console: on Windows the console's processes get its close

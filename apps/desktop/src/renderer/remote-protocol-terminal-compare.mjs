@@ -3,6 +3,13 @@
 // (golden.json's `replayWindow` is compared by mixdog-spawn tests/terminal.rs `the_replay_window_is_nodes_at_its_boundary` and
 // remote-protocol-terminal-replay.test.mjs.) Values are compared by strict deep equality (null is not undefined, no field is ignored).
 //
+// What the script settles, and why (lib/phone-terminal-script.mjs): output that no answered call causes (a claim's resize re-render, a
+// tab's prompt after its idle, a disposed tab's closing output against the next tab's dispose) is waited for before the next call. Its place
+// among later calls is set by the calls' latency: Node's recorder calls in-process (0 ms), a real phone and this replay cross a socket,
+// so the agreement of Node's runs there is the recorder's, not Node's. Settling is not a hidden difference: the output itself, its bytes,
+// its place against the entries that cause or order it, all stay compared. Unsettled (`immediate`) are the sequences an answer orders:
+// an ensure's answer before the new shell's first output, a dispose's answer before the killed shell's last output and exit line.
+//
 // One rule for each list, in its one global order:
 //   - Output: consecutive output frames of one tab (all their fields but `data` equal) are one run, compared as one entry whose data is
 //     the frames' bytes joined: where the frames are cut is the relay's 16 ms timing, which neither side decides here and which is proved

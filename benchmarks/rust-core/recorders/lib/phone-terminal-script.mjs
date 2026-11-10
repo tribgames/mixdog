@@ -218,6 +218,10 @@ export function sizeClaimScript(root) {
     return settle(tab, n, n, prompt);
   };
   const attachAll = (list) => list.flatMap((tab) => [...barrier(tab), { op: 'call', name: 'termAttach', params: [tab] }]);
+  // A claim's resize is a fire: the re-render ConPTY sends for it has no answer to order it against, so it is on the screen (settled)
+  // before the next step. Where it would land among later calls is the calls' latency (Node's recorder calls in-process, a phone and the
+  // replay cross a socket), not a property of either product.
+  const settleClaims = () => [...resized].flatMap((tab) => barrier(tab));
   return {
     cwd,
     ops: [
@@ -246,27 +250,35 @@ export function sizeClaimScript(root) {
       owner(NONE, 0, 0, false),
       claim(L1, 100, 30),
       owner(L1, 100, 30, true),
+      ...settleClaims(),
       { op: 'advance', ms: 1000 },
       claim(L2, 101, 31),
       owner(L2, 101, 31, true),
+      ...settleClaims(),
       { op: 'advance', ms: 1000 },
       claim(L4, 102, 32, 'other'),
       owner(L4, 102, 32, false),
+      ...settleClaims(),
       { op: 'advance', ms: 1000 },
       claim(L5, 104, 34),
       owner(L5, 104, 34, true),
+      ...settleClaims(),
       claim(L5, 0, 0),
       owner(L5, 0, 0, false),
+      ...settleClaims(),
       { op: 'advance', ms: 1000 },
       claim(L6, 103, 33),
       owner(L6, 103, 33, true),
+      ...settleClaims(),
       { op: 'advance', ms: 1000 },
       claim(L6, 83, 24, 'other'),
       owner(L6, 83, 24, false),
+      ...settleClaims(),
       { op: 'advance', ms: 5000 },
       claim(L2, 101, 31),
       claim(L6, 0, 0, 'other'),
       owner(L6, 103, 33, true, 2),
+      ...settleClaims(),
       ...attachAll([L2]),
       { op: 'advance', ms: 2000 },
       { op: 'close', who: 'other' },
@@ -306,21 +318,26 @@ export function sizeClaimScript(root) {
       // The re-render ConPTY sends for the new size is on the screen before the tabs are disposed: where it lands among the disposals
       // would otherwise be a race with the calls' own latency (Node's calls are in-process, the core's cross a socket).
       ...barrier(L5),
-      ...tabs.map((tab) => ({ op: 'call', name: 'termDispose', params: [tab] })),
-      ...tabs.map((tab) => ({ op: 'until', kind: 'exitLine', tab })),
+      // One disposal at a time, each tab's last output and exit line before the next dispose: a tab's closing output has no answer to
+      // order it against the next tab's dispose (the call's latency again); against its own dispose answer it is ordered (the hold).
+      ...tabs.flatMap((tab) => [
+        { op: 'call', name: 'termDispose', params: [tab] },
+        { op: 'until', kind: 'exitLine', tab },
+      ]),
       { op: 'lane', lane: 'terminal', on: false },
     ],
   };
 }
 
 /**
- * The sequences the settled timelines wait out, run as they come: each tab's next call sent the moment its predecessor is idle (before its
- * prompt is drawn), a claim's resize followed at once by the dispose of its tab, and two disposals back to back. The core answers before
- * the output a call causes (an ensure's and a dispose's feed holds); what Node's own runs vary here shows in their recordings and is
- * left to the comparison's rule, not to a wait.
+ * The sequences whose order an answer defines, run with no wait in between: an ensure's answer before the new shell's first output, and a
+ * dispose's answer before the killed shell's last output and its exit line (Node answered in-process before its PTY reported either; the
+ * core holds the tab's feed until the answer is queued). Output that no answered call causes is waited out before the next call (see
+ * `settle` and the comparison's header): its place among later calls is the calls' latency, which the in-process recorder lacks.
  */
 export function immediateScript(root) {
   const cwd = join(root, 'cwd');
+  const prompt = `PS ${cwd}> `;
   const [I1, I2] = ['term_ph2_i1', 'term_ph2_i2'];
   return {
     cwd,
@@ -328,13 +345,13 @@ export function immediateScript(root) {
       { op: 'lane', lane: 'terminal', on: true },
       { op: 'call', name: 'termEnsure', params: [I1, cwd, null] },
       { op: 'until', kind: 'activity', event: { id: I1, state: 'idle' } },
+      { op: 'until', kind: 'text', tab: I1, text: prompt },
       { op: 'call', name: 'termEnsure', params: [I2, cwd, null] },
       { op: 'until', kind: 'activity', event: { id: I2, state: 'idle' } },
-      { op: 'fire', name: 'termResize', params: [I1, 99, 29, true] },
-      { op: 'until', kind: 'sizeOwner', event: { id: I1, cols: 99, rows: 29, own: true } },
+      { op: 'until', kind: 'text', tab: I2, text: prompt },
       { op: 'call', name: 'termDispose', params: [I1] },
-      { op: 'call', name: 'termDispose', params: [I2] },
       { op: 'until', kind: 'exitLine', tab: I1 },
+      { op: 'call', name: 'termDispose', params: [I2] },
       { op: 'until', kind: 'exitLine', tab: I2 },
       { op: 'lane', lane: 'terminal', on: false },
     ],

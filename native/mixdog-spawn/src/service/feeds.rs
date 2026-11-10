@@ -576,6 +576,99 @@ mod tests {
         assert!(entry.publisher.feed.position().seq >= 2, "the output and the exit are published once the hold goes");
     }
 
+    /// A process that printed `text` and exited, its events all in the manager's ring.
+    async fn exited(name: &str, text: &str) -> LocalProcessManager {
+        use mixdog_core_api::domain::common::AbsPath;
+        use mixdog_core_api::domain::process::CommandSpec;
+        use mixdog_core_api::domain::process::EnvSpec;
+        use mixdog_core_api::domain::process::OutputMode;
+        use mixdog_core_api::domain::process::ProcessOwner;
+        use mixdog_core_api::domain::process::SpawnRequest;
+        let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, crate::manager::ProcessConfig::default());
+        let handle = ProcessHandle::from(name);
+        let echo = format!("echo {text}");
+        let (program, args) = if cfg!(windows) { ("cmd.exe", vec!["/c".to_owned(), echo]) } else { ("sh", vec!["-c".to_owned(), echo]) };
+        manager
+            .spawn(SpawnRequest {
+                handle: handle.clone(),
+                command: CommandSpec::Argv { program: program.to_owned(), args },
+                cwd: AbsPath::new(std::env::temp_dir()).unwrap(),
+                env: EnvSpec { inherit: true, ..EnvSpec::default() },
+                pty: None,
+                stdin_piped: false,
+                output: OutputMode::Merged,
+                owner: ProcessOwner::Internal,
+                time_limit: None,
+            })
+            .await
+            .unwrap();
+        let mut events = manager.subscribe(&handle, Some(0)).unwrap();
+        while let Some(event) = events.next().await {
+            if matches!(event, ProcessEvent::Exited { .. }) {
+                break;
+            }
+        }
+        manager
+    }
+
+    /// The relay gate at the first reader's attach. The reader is counted under the feed's lock when it attaches, and the pump reads the
+    /// count before it buffers a chunk and publishes the chunk afterwards: a chunk the pump takes before the attach counted nothing and is
+    /// not buffered (it is from before the subscription, which Node's lane never delivers either); a chunk it takes after is buffered and
+    /// published after the attach, so the reader gets it once, as a live frame (an attach starts at the feed's current position, so a
+    /// frame published later is never also in what the attach replays). Here the reader attaches before the pump starts (the attach is
+    /// what starts it): every chunk reaches it, exactly once.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_chunk_reaches_the_first_relay_reader_exactly_once() {
+        use mixdog_core_api::feed::subscribe;
+        use mixdog_core_api::ids::ConnectionId;
+        use mixdog_core_api::mock::MockConnection;
+        use mixdog_core_api::mock::MockLimits;
+        use mixdog_core_api::sink::ConnectionSink;
+        let manager = exited("relay-once", "once").await;
+        let feeds = ProcessFeeds::new(manager, Arc::new(mixdog_core_api::mock::MockScopedFeeds::new(MockLimits::default())));
+        let (ended, end) = tokio::sync::oneshot::channel();
+        let ended = Mutex::new(Some(ended));
+        feeds.on_exit(move |_| {
+            if let Some(ended) = ended.lock().unwrap().take() {
+                let _ = ended.send(());
+            }
+        });
+        let relay = feeds.relay_feed("relay-once");
+        let conn = MockConnection::new(ConnectionId(1), MockLimits::default());
+        let attached = subscribe(&relay, SubscriptionId::from("s"), Window::Fixed, None, &conn).unwrap();
+        conn.send_control_release(Bytes::from_static(b"ok"), attached.release).unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(60), end).await.expect("the pump ended within 60 s").unwrap();
+        let mut got = Vec::new();
+        for line in conn.drain_text() {
+            let Some(frame) = line.strip_prefix("s:") else { continue };
+            let note: Value = serde_json::from_str(frame).unwrap();
+            if note["method"] == "process/outputDelta" {
+                got.extend(STANDARD.decode(note["params"]["bytesB64"].as_str().unwrap()).unwrap());
+            }
+        }
+        let expected = if cfg!(windows) { "once\r\n" } else { "once\n" };
+        assert_eq!(String::from_utf8(got).unwrap(), expected, "the output, once");
+    }
+
+    /// The ensure's hold is bounded by its request: kept in `after_answer`, it ends when the answer is queued, and also when the request
+    /// goes unanswered (cancelled, its connection gone: the last clone of `after_answer` dropped without a release).
+    #[tokio::test]
+    async fn an_ensure_hold_ends_with_an_unanswered_request() {
+        use std::future::Future;
+        let manager = exited("ensure-hold", "held").await;
+        let feeds = ProcessFeeds::new(manager, Arc::new(mixdog_core_api::mock::MockScopedFeeds::new(mixdog_core_api::mock::MockLimits::default())));
+        let _ = feeds.feed("ensure-hold", true);
+        let entry = feeds.entries.lock().unwrap().get("ensure-hold").cloned().unwrap();
+        let after = mixdog_core_api::call::AfterAnswer::default();
+        after.keep(entry.hold());
+        let mut pump = std::pin::pin!(feeds.pump(&entry));
+        let first = std::future::poll_fn(|cx| std::task::Poll::Ready(pump.as_mut().poll(cx))).await;
+        assert!(first.is_pending(), "held while the request lives");
+        drop(after);
+        pump.await;
+        assert!(entry.publisher.feed.position().seq >= 2, "published once the unanswered request went");
+    }
+
     /// With no phone reading the relay feed, output does not enter the relay buffer (remote-relay-push-lanes.ts:98-101): the raw feed
     /// carries the output and the exit, the relay feed only the exit.
     #[tokio::test]
