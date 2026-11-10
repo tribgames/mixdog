@@ -169,14 +169,6 @@ impl SessionHandle {
         self.cell.grants.clone()
     }
 
-    /// `RequestThread.window`: `compaction.compactCount` of the acked header, 0 until the first
-    /// compaction (`compactCount`, `store-summary-fields.mjs:70`: a safe non-negative integer).
-    pub fn thread_window(&self) -> u64 {
-        let header = self.cell.header.load();
-        let count = header.get("compaction").and_then(|c| c.get("compactCount")).and_then(Value::as_u64);
-        count.filter(|n| *n <= (1u64 << 53) - 1).unwrap_or(0)
-    }
-
     /// The session's tool-policy surface, republished by the actor whenever it changes.
     pub fn surface(&self) -> watch::Receiver<Arc<SessionSurface>> {
         self.cell.surface.clone()
@@ -486,7 +478,7 @@ impl SessionHandle {
             .send(Inbox::ForkPlan { tx })
             .await
             .map_err(|_| self.closing())?;
-        let (base, mut header) = rx.await.map_err(|_| self.closing())??;
+        let (_base, mut header) = rx.await.map_err(|_| self.closing())??;
         let directory = self.directory.upgrade().ok_or_else(|| self.closing())?;
         if let Some(heir) = &params.into_thread_id {
             let heirs = super::SessionDirectory::over(directory.clone());
@@ -499,11 +491,18 @@ impl SessionHandle {
         if params.into_thread_id.is_none() {
             heir_place(&directory.deps, &mut header).await?;
         }
+        // The heir owns a Codex wire identity of its own: Node's cold heir drops the source's and mints one (`cold-heir.mjs:70`,
+        // `:143` `ensureCodexWireSessionId`), so the two sessions never share a `session_id` on the wire.
+        header.remove("codexWireSessionId");
+        if header.get("provider").and_then(Value::as_str) == Some("openai-oauth") {
+            header.insert("codexWireSessionId".into(), Value::String(uuid::Uuid::now_v7().to_string()));
+        }
         header.insert(
             "inheritedFromSessionId".into(),
             Value::String(self.id.as_str().to_owned()),
         );
         // The heir is a session of its own: Node stamps its creation, not the source's times.
+        fresh_heir_state(&mut header);
         let now = json!(directory.deps.clock.now_ms());
         for key in ["createdAt", "updatedAt", "lastUsedAt"] {
             header.insert(key.into(), now.clone());
@@ -512,7 +511,7 @@ impl SessionHandle {
             .create(CreateSpec {
                 id: params.into_thread_id,
                 header,
-                base: Some(base),
+                base: None,
                 op: req.op.clone(),
                 method: req.method,
                 params: req.params.clone(),
@@ -521,28 +520,13 @@ impl SessionHandle {
                 starting: None,
             })
             .await?;
-        let summary = created.cell.view.load_full().summary.clone();
-        // `inheritFrom`'s answer (`lifecycle/inheritance.mjs`): how many messages the heir carries, and the route it holds.
-        let messages = match created
-            .request(CoreRequest {
-                method: mixdog_core_api::ids::Method("thread/messages/read"),
-                params: json!({ "threadId": created.id }),
-                op: None,
-                ctx: mixdog_core_api::call::CallContext::internal("inheritance"),
-            })
-            .await?
-        {
-            Reply::Value(read) => read.get("messages").and_then(Value::as_array).cloned().unwrap_or_default(),
-            Reply::Subscribe(_) => return Err(CoreError::Internal { incident_id: "inheritance-subscribed".into() }),
-        };
-        let carried = super::inheritance::inheritable(messages).len();
-        let held = created.cell.header.load();
-        Ok(Reply::Value(json!({
-            "thread": summary,
-            "messages": carried,
-            "provider": held.get("provider").cloned().unwrap_or(Value::Null),
-            "model": held.get("model").cloned().unwrap_or(Value::Null),
-        })))
+        // The heir's prompt is composed for the heir (`createSession`: its scratch directory, tools and workflow), never the
+        // source's text; `carryConversation` carries the conversation only ("System blocks belong to the session that BUILT them").
+        directory.deps.empty_surface.refresh_empty(&created.id).await.map_err(|message| mixdog_core_base::support::failed("session", message))?;
+        // `inheritFrom` (`lifecycle/inheritance.mjs`): the heir is a created, empty session and the source's conversation is
+        // carried into it with its inheritance boundary, as an `intoThreadId` heir's is.
+        let heirs = super::SessionDirectory::over(directory.clone());
+        heirs.carry_into(&self.id, &created.id, params.compact == Some(true)).await
     }
 
     /// `thread/clear`. With `rebuildPrompt` (an agent chat's reset, `session-ops.mjs clear`) it is refused while a turn runs, and
@@ -585,6 +569,40 @@ impl SessionHandle {
 /// Project is the deepest registered one holding its stored Project, folder or workspace (`sessionProjectKey`); the heir takes
 /// that Project as `cwd` and `{project, projectPath}`, or the task workspace and `{task, null}`, and no `workspace` record.
 /// Only a source the desktop classified is moved: a thread of another client keeps its header.
+/// A heir is a session of its own, created fresh and given the source's conversation (`createSession` then `inheritFrom`): it
+/// holds none of what the source measured or ran. Its usage totals start at zero, its context readings, step list, close
+/// provenance, transcript identity and the source's own name and title are not carried (the carry gives the heir the source's title), and its compaction is the configuration alone, without the source's checks.
+fn fresh_heir_state(header: &mut mixdog_store::schema::record::Header) {
+    const COMPACTION_CONFIG: [&str; 9] = ["auto", "model", "summaryModel", "timeoutMs", "memoryTimeoutMs", "bufferTokens", "mainBufferTokens", "reservedTokens", "boundaryTokens"];
+    const NOT_CARRIED: [&str; 42] = [
+        "bp3Cursor", "closeProvenance", "lastCacheWriteTokens", "lastCachedReadTokens", "lastContextTokens", "lastContextTokensStaleAfterCompact",
+        "lastContextTokensUpdatedAt", "lastInputTokens", "lastIterationIndex", "lastOutputTokens", "lastProviderSendAt", "lastTurnCompletedAt",
+        "lastUncachedInputTokens", "reasoningUsage", "titleUpdatedAt", "todo", "todoCheck", "totalCacheWriteTokens", "totalCachedReadTokens",
+        "totalUncachedInputTokens", "transcriptEpoch", "turnBotChain", "turnCoverage", "pendingGoalReminder",
+        "goalReminderRevision", "goalStalledNotice", "contextUsageSnapshot", "turnHop", "usageMetricsTurnId", "usageReadout",
+        "archivedAt", "favoriteAt", "name", "title", "titleLocked", "titleSource", "importOrigin", "codexWireSessionId", "detachedReason", "sessionVisibility", "task_id", "taskId",
+    ];
+    for key in NOT_CARRIED {
+        header.remove(key);
+    }
+    header.retain(|key, _| !key.starts_with("contextPressureBaseline"));
+    // `ensureCodexWireSessionId`: the heir's own wire id on an `openai-oauth` route, none on any other.
+    let wire = if header.get("provider").and_then(Value::as_str) == Some("openai-oauth") { json!(uuid::Uuid::now_v7().to_string()) } else { Value::Null };
+    header.insert("codexWireSessionId".into(), wire);
+    for key in ["totalInputTokens", "totalOutputTokens", "totalToolCalls", "tokensCumulative"] {
+        header.insert(key.into(), json!(0));
+    }
+    if let Some(Value::Object(compaction)) = header.get_mut("compaction") {
+        compaction.retain(|key, _| COMPACTION_CONFIG.contains(&key.as_str()));
+        // The overrides a turn resolved (the source's buffer reads 0) are the source's: the heir starts from its configuration, unset.
+        for key in ["bufferTokens", "mainBufferTokens", "reservedTokens"] {
+            if compaction.contains_key(key) {
+                compaction.insert(key.into(), Value::Null);
+            }
+        }
+    }
+}
+
 async fn heir_place(deps: &SessionDeps, header: &mut mixdog_store::schema::record::Header) -> Result<(), CoreError> {
     use super::thread_settings::project_identity;
     use super::thread_settings::session_project_key;

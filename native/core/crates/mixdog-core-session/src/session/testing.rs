@@ -1414,6 +1414,8 @@ pub struct Deletes(
     pub Mutex<Option<String>>,
     pub Mutex<bool>,
     pub Mutex<bool>,
+    /// The purge's first hook (`transcriptExport`), when set, tells `.0` it was reached and waits for `.1` before it returns.
+    pub Mutex<Option<(Arc<tokio::sync::Notify>, std::sync::mpsc::Receiver<()>)>>,
 );
 
 impl Deletes {
@@ -1428,7 +1430,13 @@ struct Hook(&'static str, Arc<Deletes>);
 impl super::delete::PurgeHook for Hook {
     fn purge(&self, session_id: &str, cwds: &[String]) -> futures::future::BoxFuture<'static, ()> {
         self.1.note(format!("{}:{session_id}:{}", self.0, cwds.join(",")));
-        Box::pin(std::future::ready(()))
+        let held = if self.0 == "transcriptExport" { lock(&self.1.6).take() } else { None };
+        Box::pin(async move {
+            if let Some((reached, release)) = held {
+                reached.notify_one();
+                tokio::task::spawn_blocking(move || release.recv()).await.expect("the purge hold").expect("the purge released");
+            }
+        })
     }
 }
 
@@ -1439,6 +1447,9 @@ impl super::delete::DeleteSeams for Deletes {
     }
     fn session_closed(&self, session_id: &str, reason: &str, _: &mixdog_store::schema::record::Header, _: i64) {
         self.note(format!("sessionClosed:{session_id}:{reason}"));
+    }
+    fn tombstoned(&self, thread: &ThreadId) {
+        self.note(format!("tombstoned:{thread}"));
     }
     fn release_mcp_scope(&self, session_id: &str) {
         lock(&self.2).push(session_id.to_owned());
@@ -1887,6 +1898,50 @@ macro_rules! eventually_on_until {
     ($wakes:expr, $probe:expr, $task:expr $(,)?) => {
         $crate::session::testing::eventually_on_until_awaiting(|| ::std::format!("until {}", ::core::stringify!($probe)), $wakes, $probe, $task)
     };
+}
+
+/// A test's data folder and the databases opened in it. Dropped (a panic included), the databases close first, then the folder is
+/// removed: Windows refuses to remove a database file another handle (a writer thread, a pooled read connection, a task still
+/// holding the store) keeps open, and the folder then stayed behind, one per run.
+pub struct DataDir {
+    indexes: Mutex<Vec<mixdog_store::sqlite::SqliteStore>>,
+    states: Mutex<Vec<mixdog_store::state::CoreState>>,
+    dir: tempfile::TempDir,
+}
+
+impl Default for DataDir {
+    fn default() -> Self {
+        Self { indexes: Mutex::default(), states: Mutex::default(), dir: tempfile::tempdir().expect("a data folder") }
+    }
+}
+
+impl DataDir {
+    pub fn path(&self) -> &std::path::Path {
+        self.dir.path()
+    }
+
+    /// `index`, closed with the folder.
+    pub fn index(&self, index: mixdog_store::sqlite::SqliteStore) -> mixdog_store::sqlite::SqliteStore {
+        self.indexes.lock().unwrap().push(index.clone());
+        index
+    }
+
+    /// `state`, closed with the folder.
+    pub fn state(&self, state: mixdog_store::state::CoreState) -> mixdog_store::state::CoreState {
+        self.states.lock().unwrap().push(state.clone());
+        state
+    }
+}
+
+impl Drop for DataDir {
+    fn drop(&mut self) {
+        for index in self.indexes.get_mut().unwrap_or_else(std::sync::PoisonError::into_inner).drain(..) {
+            index.close();
+        }
+        for state in self.states.get_mut().unwrap_or_else(std::sync::PoisonError::into_inner).drain(..) {
+            state.close();
+        }
+    }
 }
 
 /// Keeps a paused runtime clock from moving by itself while it is held: tokio advances a paused clock when the runtime is idle,

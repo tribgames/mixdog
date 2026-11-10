@@ -25,6 +25,7 @@ use mixdog_core_api::domain::retry::RetryState;
 use mixdog_core_api::domain::retry::Verdict;
 
 use crate::boundary::CompactPolicy;
+use crate::env::PartialToolRecovery;
 use crate::env::RetractReason;
 use crate::env::RouteDecision;
 use crate::env::Retracted;
@@ -483,6 +484,9 @@ impl Run {
             let tool_done = matches!(event, StreamEvent::ToolCallDone(_));
             builder.push(event);
             if tool_done && let Some(call) = builder.so_far().tool_calls.last().cloned() {
+                if !call.id.is_empty() {
+                    self.streamed_ids.insert(call.id.clone());
+                }
                 self.try_eager(&call).await;
             }
         }
@@ -513,11 +517,19 @@ impl Run {
         // When a tool input was still streaming at the cut, the turn continues
         // only if every complete call was already dispatched: nothing committed
         // may reference an undispatched call. The in-flight call is dropped
-        // unrun and the model told to split it.
+        // unrun and the model told to split it. A call the stream handed over is dispatched whether or not it was admitted
+        // for an eager run (`recoverableToolCalls`, `send-with-recovery.mjs:720`).
         let input_cut = error.exposure.tool_input_cut;
         let recoverable = !partial.tool_calls.is_empty()
-            && (!input_cut || partial.tool_calls.iter().all(|c| self.eager_dispatched(&c.id)));
+            && (!input_cut || partial.tool_calls.iter().all(|c| self.stream_dispatched(&c.id)));
         if is_stream_cut(&error) && recoverable {
+            // `recoverPartialToolCalls`' trace (`send-with-recovery.mjs:769`), at the round's iteration (`nextIteration`).
+            self.emit(RunEvent::PartialToolRecovery(PartialToolRecovery {
+                iteration: self.iterations + 1,
+                tool_calls: partial.tool_calls.len(),
+                dropped_incomplete_input: input_cut,
+                partial_content_len: mixdog_js::utf16_len(&partial.content),
+            }));
             let recovery_notice = input_cut
                 .then(|| AgentMessage::sourced(Source::StreamCutRecovery, TOOL_INPUT_CUT_NOTICE));
             return Ok(Recovery::Proceed(Box::new(ModelResponse {
