@@ -6,8 +6,9 @@
 // output and the exit when the scenario says so. Only `git --version` is scripted; every other git command runs the real git
 // (PHONE_SCM_REAL_GIT) with this process's own streams.
 //
-// Wire: the shim sends `tool`, `cwd` (hex), then `argc` and each argument (hex) and three env values (hex), one per line; the
-// driver answers lines `O <hex>` (stdout), `E <hex>` (stderr) and `X <code>` (exit).
+// Wire: the shim sends `tool`, `cwd` (hex), then `argc` and each argument (hex) and three env values (hex), one per line, and for
+// a call that reads its body from stdin (`--input -`, gh's REST calls) the whole of stdin (hex) on one more line; the driver
+// answers lines `O <hex>` (stdout), `E <hex>` (stderr) and `X <code>` (exit).
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpStream;
 use std::process::{Command, exit};
@@ -73,6 +74,11 @@ fn main() {
     }
     for key in ["GH_PROMPT_DISABLED", "BROWSER", "GH_BROWSER"] {
         request.push_str(&format!("{}\n", hex(std::env::var(key).unwrap_or_default().as_bytes())));
+    }
+    if args.windows(2).any(|pair| pair[0] == "--input" && pair[1] == "-") {
+        let mut body = Vec::new();
+        std::io::Read::read_to_end(&mut std::io::stdin(), &mut body).unwrap();
+        request.push_str(&format!("{}\n", hex(&body)));
     }
     stream.write_all(request.as_bytes()).unwrap();
     for line in BufReader::new(stream).lines() {

@@ -87,25 +87,30 @@ pub struct ReviewDiffGetParams {
     pub scope: ReviewScope,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
-    /// Repository working directory for `repo`. This and the other arguments of a repository review (`path`, `files`,
-    /// `untracked`, `source`) are the raw values of the phone's `gitReview*` call: the owner checks them as Node's host
-    /// did (params.rs, the source-control calls).
+    /// Repository working directory for `repo`.
+    // This and the other arguments of a repository review (`path`, `files`, `untracked`, `source`) decode as the raw
+    // values of the phone's `gitReview*` call, which the owner checks as Node's host did; the schema keeps the valid shape.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", schemars(with = "Option<String>"), ts(as = "Option<String>"))]
     pub cwd: Option<JsonValue>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub checkpoint_id: Option<String>,
     /// One file's patch.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", schemars(with = "Option<String>"), ts(as = "Option<String>"))]
     pub path: Option<JsonValue>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub old_path: Option<String>,
     /// Several files' patches (today's `gitReviewDiffs`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", schemars(with = "Option<Vec<JsonValue>>"), ts(as = "Option<Vec<JsonValue>>"))]
     pub files: Option<JsonValue>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", schemars(with = "Option<bool>"), ts(as = "Option<bool>"))]
     pub untracked: Option<JsonValue>,
     /// `branch` | `worktree` | … (today's `GitReviewSource`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", schemars(with = "Option<String>"), ts(as = "Option<String>"))]
     pub source: Option<JsonValue>,
     /// Include patches (today's `patch: true`).
     #[serde(default, skip_serializing_if = "Option::is_none")]

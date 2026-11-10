@@ -195,7 +195,9 @@ fn is_name(value: &str, first: impl Fn(char) -> bool, rest: impl Fn(char) -> boo
 pub fn validate(input: &Value) -> Result<GithubRequest, ScmFailure> {
     let unsupported = || type_error("A supported GitHub action is required.");
     let object = input.as_object().ok_or_else(unsupported)?;
-    let def = object.get("action").and_then(Value::as_str).and_then(definition).ok_or_else(unsupported)?;
+    // `Object.hasOwn(GITHUB_ACTIONS, input.action ?? '')` and every later `GITHUB_ACTIONS[action]` read the action as a property
+    // key, `String(action)`: a list holding one action's name is that action until its first use as a string below.
+    let def = object.get("action").map(mixdog_js::value_to_string).as_deref().and_then(definition).ok_or_else(unsupported)?;
     if object.keys().any(|key| !matches!(key.as_str(), "action" | "repo" | "hostname") && !def.fields.contains(&key.as_str())) {
         return Err(type_error(format!("Unsupported field for GitHub {}.", def.name)));
     }
@@ -232,6 +234,11 @@ pub fn validate(input: &Value) -> Result<GithubRequest, ScmFailure> {
         }
     }
     let event = object.get("event").and_then(Value::as_str);
+    // `(out.action === 'pr.review' && …) || out.action.endsWith('.comment')`: an action that is no string reaches the call of
+    // `endsWith`, which it lacks; V8's TypeError is the text Node's host answered.
+    if !object.get("action").is_some_and(Value::is_string) {
+        return Err(type_error("out.action.endsWith is not a function"));
+    }
     if (def.name == "pr.review" && event != Some("APPROVE")) || def.name.ends_with(".comment") {
         github_text(object.get("body").unwrap_or(&Value::Null), "body", 60_000, false)?;
     }

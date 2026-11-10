@@ -288,6 +288,39 @@ async fn the_first_argument_node_checked_answers() {
     compare_group(&["input-wrong-type-", "input-two-invalid-"]).await;
 }
 
+/// A repository-scoped request (a write the server serializes per repository) is keyed by the directory Node's host acted on, the
+/// trimmed `cwd`; a request whose directory Node refused joins no repository's queue.
+#[test]
+fn a_repository_request_is_keyed_by_the_directory_node_acted_on() {
+    let golden = golden();
+    let (mut keyed, mut unkeyed) = (0, 0);
+    for case in golden["cases"].as_array().expect("cases") {
+        let name = case["name"].as_str().expect("name");
+        let args = match case.get("paramsText").and_then(Value::as_str) {
+            Some(text) => serde_json::from_str(text).expect("params text"),
+            None => case["params"].clone(),
+        };
+        let Some((method, params)) = request(case["call"].as_str().expect("call"), args.as_array().expect("params")) else {
+            continue;
+        };
+        let spec = mixdog_app_protocol::client_method_spec(method).expect("a method of the table");
+        if !matches!(spec.scope, mixdog_app_protocol::ScopeRule::Repo { .. }) {
+            continue;
+        }
+        let wire = json!({ "id": 1, "method": method, "params": params });
+        let scope = mixdog_app_protocol::ClientRequest::from_jsonrpc(serde_json::from_value(wire).expect("a request")).expect("decodes").serialization_scope();
+        if case["frame"]["error"] == "A project directory is required." {
+            assert_eq!(scope, None, "{name}");
+            unkeyed += 1;
+        } else if let Some(op) = case["ops"].as_array().expect("ops").first() {
+            let root = op["args"][0].as_str().expect("the directory Node acted on").to_owned();
+            assert_eq!(scope, Some(mixdog_app_protocol::SerializationScope::Repo { root }), "{name}");
+            keyed += 1;
+        }
+    }
+    assert!(keyed > 0 && unkeyed > 0, "{keyed} keyed and {unkeyed} refused for their directory");
+}
+
 /// The global config key is one of three exact strings, checked after the value, with Node's text.
 #[tokio::test]
 async fn a_global_config_key_is_refused_with_nodes_text() {
@@ -306,16 +339,62 @@ async fn githubs_arguments_are_checked_as_nodes_host_did() {
     compare_group(&["input-flow-id-", "input-githubRequest-", "githubCliLoginStatus-padded-flow-id"]).await;
 }
 
-/// Node took a lone surrogate in a string (`"\ud800"`) as any other string and acted on it; the core cannot decode it into a
-/// string at all, a limit of the whole core that the manifest states. The case is on record as Node's JSON text.
+/// Node took a lone surrogate in a string (`"\ud800"`) as any other string and acted on it; the core's frame decoder cannot read
+/// the frame that carries it and closes the connection, for every method. An open difference the manifest states; the case is on
+/// record as Node's JSON text.
 #[test]
 fn a_lone_surrogate_node_acted_on_is_on_record() {
     let golden = golden();
     let limit = golden["limits"].as_array().expect("limits").iter().find(|limit| limit["name"] == "lone-surrogate-gitLog-query").expect("the case");
     let text = limit["paramsText"].as_str().expect("params text");
     assert!(text.contains("\\ud800"), "{text}");
-    assert!(serde_json::from_str::<Value>(text).is_err(), "the core's JSON reads it");
+    let args: Vec<&str> = text.trim_start_matches('[').trim_end_matches(']').splitn(2, ',').collect();
+    let frame = format!(r#"{{"jsonrpc":"2.0","id":1,"method":"git/log","params":{{"cwd":{},"query":{}}}}}"#, args[0], args[1]);
+    let decoded = mixdog_app_protocol::rpc::decode_inbound_text(&frame, 1 << 20);
+    assert_eq!(decoded.close_code(), Some(mixdog_app_protocol::limits::CloseCode::InvalidFrame), "the core's frame decoder on {frame}");
     assert!(limit["recordedText"].as_str().expect("Node's answer").starts_with(r#"{"frame":{"ok":true,"#), "Node acted on it");
+}
+
+/// What Node put on gh's command line and fed it on stdin for an argument it read through a coercion is what the core builds:
+/// the head sha that passed `/^[a-f0-9]{40}$/i.test` as a list goes into the REST body as that list, the merge method
+/// (`String(method ?? 'merge')`) and the pull request's number (`Number(value)`, then `String(...)`) go on the command line as
+/// those strings. Each case is built from the arguments Node's operation was given.
+#[test]
+fn a_coerced_argument_reaches_github_as_node_sent_it() {
+    let golden = golden();
+    let mut checked = 0;
+    for case in golden["cases"].as_array().expect("cases") {
+        let name = case["name"].as_str().expect("name");
+        let Some(op) = case["ops"].as_array().expect("ops").first().filter(|_| name.starts_with("coerced-")) else {
+            continue;
+        };
+        let args = op["args"].as_array().expect("args");
+        let gh: Vec<&Value> = case["processes"].as_array().map(|all| all.iter().filter(|entry| entry["tool"] == "gh").collect()).unwrap_or_default();
+        let sent = |lead: &[&str]| -> &Value {
+            gh.iter().copied().find(|entry| lead.iter().enumerate().all(|(index, word)| entry["argv"][index] == *word)).unwrap_or_else(|| panic!("{name}: Node ran no gh {lead:?}"))
+        };
+        let argv = |entry: &Value| -> Vec<String> { entry["argv"].as_array().expect("argv").iter().map(|arg| arg.as_str().expect("an argument").to_owned()).collect() };
+        match op["name"].as_str().expect("operation") {
+            "githubRequest" => {
+                let request = crate::gh::contract::validate(&args[1]).unwrap_or_else(|error| panic!("{name}: {error:?}"));
+                let command = crate::gh::commands::build(&request).unwrap_or_else(|error| panic!("{name}: {error:?}"));
+                let rest = sent(&["api"]);
+                assert_eq!((command.args, command.input), (argv(rest), rest["stdin"].as_str().map(str::to_owned)), "{name}");
+            }
+            "ghPrMerge" => {
+                let args = crate::gh::pr::merge_args(&args[1], &args[2]).unwrap_or_else(|error| panic!("{name}: {error:?}"));
+                assert_eq!(args, argv(sent(&["pr", "merge"])), "{name}");
+            }
+            operation @ ("ghPrView" | "ghPrDiff" | "ghPrCheckout") => {
+                let number = crate::gh::pr::required_number(&args[1]).unwrap_or_else(|error| panic!("{name}: {error:?}"));
+                let verb = &operation[4..].to_lowercase();
+                assert_eq!(number.to_string(), argv(sent(&["pr", verb]))[2], "{name}");
+            }
+            other => panic!("{name}: {other} is not a GitHub operation"),
+        }
+        checked += 1;
+    }
+    assert!(checked >= 7, "{checked} coerced cases acted on");
 }
 
 /// `requiredGitRevision` answers the revision rebuilt from its checked hash (git-contract.mjs: the hash before `^` is trimmed again).

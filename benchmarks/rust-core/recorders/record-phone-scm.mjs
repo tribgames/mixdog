@@ -51,6 +51,16 @@ const ONLY_OUT = args.get('out') ?? null;
 if (ONLY !== null && !REPLAY && !ONLY_OUT) throw new Error('--only records into --out <file>, never into the fixture');
 const tree = resolveTree(args);
 const identity = exactProductIdentity(tree, REF);
+// The recorder and every file of lib/ it runs, each by the hash of its committed (LF) text: the manifest names them, and a replay
+// compares them with the files of the running recorder before it compares anything else.
+const RECORDER_FILES = ['record-phone-scm.mjs', 'lib/common.mjs', 'lib/phone-scm-world.mjs', 'lib/scripted-tool.rs', 'lib/spawn-log.cjs'].map((file) => `benchmarks/rust-core/recorders/${file}`);
+const recorderFiles = () => RECORDER_FILES.map((path) => ({ path, sha256: createHash('sha256').update(readFileSync(join(REPO_ROOT, path), 'utf8').replaceAll('\r\n', '\n')).digest('hex') }));
+{
+  const own = readFileSync(join(REPO_ROOT, RECORDER_FILES[0]), 'utf8');
+  const used = [...own.matchAll(/from '\.\/(lib\/[\w.-]+)'|'lib', '([\w.-]+)'/g)].map((match) => `benchmarks/rust-core/recorders/${match[1] ?? `lib/${match[2]}`}`);
+  const unlisted = used.filter((path) => !RECORDER_FILES.includes(path));
+  if (unlisted.length) throw new Error(`the recorder uses ${unlisted.join(', ')}, which RECORDER_FILES does not name`);
+}
 const script = JSON.parse(readFileSync(join(FIXTURES, 'gh-script.json'), 'utf8'));
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
@@ -509,13 +519,24 @@ process.on('exit', () => {
 const settingsChanges = [];
 let settingsWaiting = [];
 if (REPLAY) {
+  // Nothing is compared with a recording its manifest does not vouch for: every file the manifest lists has the size and hash it
+  // states and the folder holds no other, and the recording was made by this recorder (each of its files has the hash the
+  // manifest names).
+  const fixtureManifest = JSON.parse(readFileSync(join(FIXTURES, 'MANIFEST.json'), 'utf8'));
+  const present = readdirSync(FIXTURES).filter((name) => name !== 'MANIFEST.json').sort();
+  assert.deepEqual(present, fixtureManifest.files.map((file) => file.path).sort(), 'the fixture folder holds other files than its manifest lists: record again');
+  for (const file of fixtureManifest.files) {
+    const data = readFileSync(join(FIXTURES, file.path));
+    assert.deepEqual({ bytes: data.length, sha256: createHash('sha256').update(data).digest('hex') }, { bytes: file.bytes, sha256: file.sha256 }, `${file.path} is not the file its manifest lists: record again`);
+  }
+  assert.deepEqual(fixtureManifest.recorderFiles, recorderFiles(), 'the recording was made by another recorder than this one (the hashes of its files differ): record again before comparing');
   const golden = JSON.parse(readFileSync(join(FIXTURES, 'golden.json'), 'utf8'));
   assert.equal(realGitVersion, golden.realGit, `the recording was made with "${golden.realGit}" and this machine's git is "${realGitVersion}": record again before comparing`);
   const here = (path) => import(pathToFileURL(join(REPO_ROOT, path)).href);
   if (process.env.PHONE_SCM_VERBOSE) console.error('stage: imports');
-  const { adapter } = await here('apps/desktop/src/renderer/remote-protocol-scm.ts');
+  const { adapter, phoneCallError } = await here('apps/desktop/src/renderer/remote-protocol-scm.ts');
   const { runQueued, callQueueFor } = await here('apps/desktop/src/renderer/remote-protocol-queue.ts');
-  const { SCM_OPERATION_ROUTES } = await here('apps/desktop/src/shared/scm-operation-route.ts');
+  const { SCM_OPERATION_ROUTES, SCM_REPLIES } = await here('apps/desktop/src/shared/scm-operation-route.ts');
   const { connect, sessionReducer } = await here('packages/protocol-client/src/index.ts');
   const { scopeClient } = await here('apps/mobile/src/phone-send-scope.ts');
   const { createWsConnector } = await here('apps/desktop/src/main/protocol/ws-connector.ts');
@@ -664,7 +685,7 @@ if (REPLAY) {
   // As the router gives it: the client scoped to the call, so every request frame carries the call's `sent` claim.
   const host = { ctx: {}, client: () => scopeClient(traced, () => {}) };
   const byName = new Map(golden.cases.map((entry) => [entry.name, entry]));
-  replay = { core, client, host, adapter, runQueued, callQueueFor, routes: SCM_OPERATION_ROUTES, golden, byName, shims, wire, wires, holder, compared: [], differences: [], ptySeen: 0, jsSeen: 0, baseEnv: coreEnv };
+  replay = { core, client, host, adapter, phoneCallError, runQueued, callQueueFor, routes: SCM_OPERATION_ROUTES, replies: SCM_REPLIES, golden, byName, shims, wire, wires, holder, compared: [], differences: [], ptySeen: 0, jsSeen: 0, baseEnv: coreEnv };
 }
 
 /** The phone's adapter against the core: the frame the relay would carry. */
@@ -674,6 +695,62 @@ const failureFrame = (error) => ({ ok: false, error: error.message, ...(typeof e
 function replayCall(call, params) {
   const answered = replay.runQueued(replay.host.ctx, call, params, async () => replay.adapter.calls[call](params, replay.host));
   return withDeadline(answered.then(frameOf, failureFrame), `the core never answered ${call}`);
+}
+/**
+ * The arguments of a params text (`[cwd, "", 1.0, 40]`) with each argument kept as it is spelled: a primitive becomes
+ * `JSON.rawJSON` of its own text, which `JSON.stringify` writes back unchanged, so the request frame carries the bytes Node read.
+ * A list or an object is parsed; it must print back as the same text, or the bytes could not be kept.
+ */
+function spelledArgs(text) {
+  const elements = [];
+  let depth = 0;
+  let quoted = false;
+  let start = 1;
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i];
+    if (quoted) {
+      if (char === '\\') i += 1;
+      else if (char === '"') quoted = false;
+    } else if (char === '"') quoted = true;
+    else if (char === '[' || char === '{') depth += 1;
+    else if (char === ']' || char === '}') {
+      depth -= 1;
+      if (depth === 0) elements.push(text.slice(start, i));
+    } else if (char === ',' && depth === 1) {
+      elements.push(text.slice(start, i));
+      start = i + 1;
+    }
+  }
+  assert.equal(depth, 0, `params text ${text} is not one list`);
+  return elements.map((element) => {
+    if (/^[[{]/.test(element)) {
+      const value = JSON.parse(element);
+      assert.equal(JSON.stringify(value), element, `the argument ${element} would not be sent as it is spelled`);
+      return value;
+    }
+    return JSON.rawJSON(element);
+  });
+}
+/**
+ * A call whose recording keeps its params text, sent to the core as those bytes: the operation's request (the page's route,
+ * scm-operation-route.ts) made of the spelled arguments, without the page's argument checks, whose conversions (`Number(...)`)
+ * would send other bytes. The core checks the arguments itself (mixdog-scm input.rs); its answer is read as the page reads it.
+ */
+function replaySpelled(call, text) {
+  const args = spelledArgs(text);
+  assert.ok(replay.routes[call] && replay.replies[call], `${call} is not one operation of the page's routes`);
+  const route = replay.routes[call](args);
+  const client = replay.host.client();
+  const answered = replay.runQueued(replay.host.ctx, call, JSON.parse(text), async () => {
+    try {
+      const reply = await client.call(route.method, route.params);
+      const value = await replay.replies[call](reply, { args, params: route.params, call: (method, params) => client.call(method, params) });
+      return value === undefined ? null : value;
+    } catch (error) {
+      throw replay.phoneCallError(error);
+    }
+  });
+  return { route: { method: route.method, params: JSON.parse(JSON.stringify(route.params)) }, answered: withDeadline(answered.then(frameOf, failureFrame), `the core never answered ${call}`) };
 }
 
 async function finishReplay() {
@@ -833,6 +910,15 @@ function opsDifference(ops, wires) {
   const actual = actualWires(wires);
   return isDeepStrictEqual(actual, expected) ? null : { node: expected, core: actual };
 }
+/** A call sent as its spelled bytes makes one request of the core, `route`, the request its text stands for: it is answered
+ *  with what Node's one operation answered, or refused with Node's text where Node's host refused before acting. */
+function spelledDifference(recorded, route, wires) {
+  assert.ok(recorded.ops.length <= 1, `${recorded.name}: a call sent as its bytes stands for one operation`);
+  const outcome = recorded.ops.length ? expectedWires(recorded.ops)[0].outcome : { failed: { message: recorded.frame.error } };
+  const expected = [{ ...route, outcome }];
+  const actual = actualWires(wires);
+  return isDeepStrictEqual(actual, expected) ? null : { node: expected, core: actual };
+}
 
 // The clock steps taken since the last call: they belong to the next call recorded (a status after the remote-list minute went by).
 const pendingClock = [];
@@ -947,7 +1033,9 @@ async function rec(name, call, params, note, during, text) {
     const settingsBefore = settingsChanges.length;
     const steps = [...pendingClock];
     pendingClock.length = 0;
-    const answered = replayCall(call, coreParams(params));
+    // A params text is sent as its own bytes (replaySpelled); every other call goes through the phone's page.
+    const spelled = text === undefined ? null : replaySpelled(call, text);
+    const answered = spelled ? spelled.answered : replayCall(call, coreParams(params));
     if (during) await during(steps);
     const core = mapFlowIds(await answered);
     // The core starts gh on its own time (Node's scripted pty is synchronous): wait for each sign-in the recording started.
@@ -990,7 +1078,10 @@ async function rec(name, call, params, note, during, text) {
     assert.ok(!(rust.length && js.length), `${name}: attempts of both the core's own spawns and its JS workers are not told apart in order`);
     const wanted = nodeAttempts(recorded.processes);
     if (!isDeepStrictEqual([...rust, ...js], wanted)) differ('attempts', wanted, [...rust, ...js]);
-    const operations = opsDifference(recorded.ops, replay.wires);
+    // The body each REST call fed the tool on stdin (`--input -`): what reached GitHub.
+    const bodies = (list) => (list ?? []).filter((entry) => entry.stdin !== undefined).map(({ tool, argv, stdin }) => ({ tool, argv, stdin }));
+    if (!isDeepStrictEqual(bodies(processes), bodies(recorded.processes))) differ('bodies fed to the tools', bodies(recorded.processes), bodies(processes));
+    const operations = spelled ? spelledDifference(recorded, spelled.route, replay.wires) : opsDifference(recorded.ops, replay.wires);
     if (operations) differ('operations', operations.node, operations.core);
     // What the call left in the repository, read after the core's answer and every child it started ended.
     const left = repoState(R, ORIGIN);
@@ -1197,6 +1288,8 @@ async function recordInputChecks() {
     ['offset-string', '"1"', '40'],
     ['offset-true', 'true', '40'],
     ['offset-list', '[1]', '40'],
+    ['offset-list-of-string', '["1"]', '40'],
+    ['limit-list-of-string', '0', '["2"]'],
     ['offset-false', 'false', '40'],
     ['offset-empty', '""', '40'],
     ['offset-space', '" "', '40'],
@@ -1255,6 +1348,8 @@ async function recordInputChecks() {
   ];
   for (const [label, cwd] of spellings) await rec(`input-cwd-${label}`, 'gitDiff', [cwd, '../x']);
   await rec('input-cwd-trimmed-and-acted-on', 'gitStatus', [`  ${I}\t`]);
+  // A write, whose request the core serializes per repository: on the directory Node acted on, the trimmed one.
+  await rec('input-cwd-trimmed-and-staged', 'gitStage', [` ${I} `, ['f.txt']]);
   // ── the flow id of a sign-in: a string of at most 200 units, trimmed ──
   for (const [label, flowId] of [['blank', ' '], ['long', 'x'.repeat(201)], ['null', null], ['padded-unknown', ' ghlogin_unknown ']]) {
     await rec(`input-flow-id-${label}`, 'githubCliLoginStatus', [flowId]);
@@ -1307,7 +1402,7 @@ async function recordInputChecks() {
   ];
   for (const [name, call, params] of refused) await rec(`refused-${name}`, call, params);
   // ── a lone surrogate in a string: Node's string checks take it; the core cannot decode it into a string at all ──
-  if (!replay) await recordLimit('lone-surrogate-gitLog-query', 'gitLog', `[${JSON.stringify(I)},"\\ud800"]`, 'A JSON string escape of a lone surrogate (\\ud800) is a string to Node, which checks it as any other and acts on it; the core decodes JSON into Rust strings, which cannot hold it, so a request carrying one is refused before any check runs. This is a limit of the whole core, not of these calls.');
+  if (!replay) await recordLimit('lone-surrogate-gitLog-query', 'gitLog', `[${JSON.stringify(I)},"\\ud800"]`, 'A JSON string escape of a lone surrogate (\\ud800) is a string to Node, which checks it as any other and acts on it; the core reads every frame into Rust strings, which cannot hold it, so its frame decoder closes the connection (1007) before any check runs. An open difference of the whole core.');
 }
 await recordInputChecks();
 if (ONLY !== null) {
@@ -1718,6 +1813,17 @@ await rec('ghPrMerge-bad-method', 'ghPrMerge', [R, 12, 'fast-forward']);
 await rec('ghPrMerge-missing', 'ghPrMerge', [R, 404, 'merge']);
 await rec('ghPrDiff', 'ghPrDiff', [R, 12]);
 await rec('ghPrDiff-missing', 'ghPrDiff', [R, 404]);
+// ── what gh-cli.ts reads through a coercion and then uses coerced: the number (`Number(value)`, then `String(number)` on gh's
+//    command line) and the merge method (`String(method ?? 'merge')`, checked before the number and put on the command line) ──
+await rec('coerced-ghPrMerge-method-list', 'ghPrMerge', [R, 12, ['squash']]);
+await rec('coerced-ghPrMerge-method-null', 'ghPrMerge', [R, 12, null]);
+await rec('coerced-ghPrMerge-method-number', 'ghPrMerge', [R, 12, 7]);
+await rec('coerced-ghPrMerge-method-boolean', 'ghPrMerge', [R, 'x', true]);
+await rec('coerced-ghPrMerge-number-list', 'ghPrMerge', [R, [12], 'merge']);
+await rec('coerced-ghPrView-number-list-of-string', 'ghPrView', [R, ['12']]);
+await rec('coerced-ghPrDiff-number-boolean', 'ghPrDiff', [R, true]);
+await rec('coerced-ghPrDiff-number-padded-string', 'ghPrDiff', [R, ' 12 ']);
+await rec('coerced-ghPrCheckout-number-list', 'ghPrCheckout', [R, [404]]);
 
 // ═══ 8. githubRequest: the feature gate, then the allowlisted action ═══
 await rec('githubRequest-gate-off', 'githubRequest', [R, { action: 'pr.list', repo: 'octo/demo' }]);
@@ -1732,6 +1838,25 @@ await rec('githubRequest-unknown-action', 'githubRequest', [R, { action: 'repo.d
 await rec('githubRequest-extra-field', 'githubRequest', [R, { action: 'pr.view', repo: 'octo/demo', number: 1, bogus: 1 }]);
 await rec('githubRequest-bad-cwd', 'githubRequest', ['repo', { action: 'pr.list', repo: 'octo/demo' }]);
 await rec('githubRequest-not-an-object', 'githubRequest', [R, 'pr.list']);
+// ── what validateGithubRequest reads through a coercion (contract.mjs): the action as a property key (`Object.hasOwn`,
+//    `GITHUB_ACTIONS[action]`), used as a string only at `out.action.endsWith`; the head sha through `/^[a-f0-9]{40}$/i.test`, put into
+//    the REST body as given (commands.mjs:100, :109). Beside them, fields it reads strictly ──
+const SHA = 'a'.repeat(40);
+await rec('coerced-githubRequest-sha-list-merge', 'githubRequest', [R, { action: 'pr.merge', repo: 'octo/demo', number: 1, sha: [SHA] }]);
+await rec('coerced-githubRequest-sha-list-review', 'githubRequest', [R, { action: 'pr.review', repo: 'octo/demo', number: 1, event: 'APPROVE', sha: [SHA] }]);
+await rec('coerced-githubRequest-sha-number', 'githubRequest', [R, { action: 'pr.merge', repo: 'octo/demo', number: 1, sha: 1234 }]);
+await rec('coerced-githubRequest-sha-boolean', 'githubRequest', [R, { action: 'pr.merge', repo: 'octo/demo', number: 1, sha: true }]);
+await rec('coerced-githubRequest-sha-two-items', 'githubRequest', [R, { action: 'pr.merge', repo: 'octo/demo', number: 1, sha: [SHA, SHA] }]);
+await rec('coerced-githubRequest-action-list', 'githubRequest', [R, { action: ['pr.view'], repo: 'octo/demo', number: 1 }]);
+await rec('coerced-githubRequest-action-list-missing-field', 'githubRequest', [R, { action: ['pr.view'], repo: 'octo/demo' }]);
+await rec('coerced-githubRequest-action-list-extra-field', 'githubRequest', [R, { action: ['pr.view'], repo: 'octo/demo', number: 1, bogus: 1 }]);
+await rec('coerced-githubRequest-action-number', 'githubRequest', [R, { action: 7, repo: 'octo/demo' }]);
+await rec('coerced-githubRequest-action-boolean', 'githubRequest', [R, { action: true, repo: 'octo/demo' }]);
+await rec('coerced-githubRequest-method-list', 'githubRequest', [R, { action: 'pr.merge', repo: 'octo/demo', number: 1, sha: SHA, method: ['squash'] }]);
+await rec('coerced-githubRequest-number-string', 'githubRequest', [R, { action: 'pr.view', repo: 'octo/demo', number: '1' }]);
+await rec('coerced-githubRequest-number-list', 'githubRequest', [R, { action: 'pr.view', repo: 'octo/demo', number: [1] }]);
+await rec('coerced-githubRequest-number-boolean', 'githubRequest', [R, { action: 'pr.view', repo: 'octo/demo', number: true }]);
+await rec('coerced-githubRequest-repo-list', 'githubRequest', [R, { action: 'pr.view', repo: ['octo/demo'], number: 1 }]);
 
 // ═══ 9. installers ═══
 await rec('gitCliStatus-installed', 'gitCliStatus', []);
@@ -1966,6 +2091,9 @@ writeSetManifest(stage, {
   extra: {
     cases: cases.length,
     calls: PH2_SCM_CALLS.length,
+    // The recorder that made this recording, by the hash of each of its files' committed (LF) text; a replay refuses to compare
+    // when the running recorder's files differ.
+    recorderFiles: recorderFiles(),
     // What of Node's path from the phone's socket to the method table this recording runs, and what it does not.
     entry: {
       runs: 'executeRemoteFrame over createRemoteMethods (remote-methods.ts:1256, :828): the frame parse, the method lookup, every argument check and the desktop operation',
@@ -1977,7 +2105,7 @@ writeSetManifest(stage, {
     },
     notes: {
       loneSurrogate:
-        'A JSON string holding an escaped lone surrogate ("\\ud800") is a string to Node: its string checks take it and the call acts on it (golden.json limits[lone-surrogate-gitLog-query]). The core decodes a request into Rust strings, which cannot hold one, so it refuses such a request before any check runs. This is a limit of the whole core, not of the source-control calls; the case is not replayed.',
+        'An open difference, not parity. A JSON string holding an escaped lone surrogate ("\\ud800") is a string to Node: its string checks take it and the call acts on it (golden.json limits[lone-surrogate-gitLog-query]; Node\'s spawn writes it on git\'s command line as U+FFFD, bytes EF BF BD). The core reads every inbound frame into Rust strings (mixdog-app-protocol rpc.rs decode_inbound_text), which cannot hold one: the frame is invalid and the connection is closed with 1007, for every method, before any check runs. The case is not replayed.',
       posixCwd:
         'The directory rule is the platform\'s path.isAbsolute (git-contract.mjs:3), and so is the core\'s (mixdog-scm input.rs is_absolute): on POSIX only a leading "/" is absolute, so a backslash-rooted, a drive (C:\\x) or a UNC spelling is refused there where Windows (this recording) takes it. The trim is JavaScript\'s on both platforms.',
       reviewWithoutFiles:

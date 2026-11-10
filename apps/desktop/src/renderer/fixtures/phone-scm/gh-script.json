@@ -595,6 +595,64 @@
     },
     {
       "imitates": {
+        "command": "gh pr diff <n> (no such pull request)",
+        "shape": "exit 1; GraphQL \"Could not resolve to a PullRequest ...\" on stderr"
+      },
+      "tool": "gh",
+      "argv": [
+        "pr",
+        "diff",
+        "1"
+      ],
+      "reply": {
+        "code": 1,
+        "stderr": "GraphQL: Could not resolve to a PullRequest with the number of 1.\n"
+      }
+    },
+    {
+      "imitates": {
+        "command": "gh api repos/<owner>/<repo>/pulls/<n>/merge --method PUT --input - (REST: merge a pull request)",
+        "shape": "exit 0; the merge result object {sha, merged, message} on stdout"
+      },
+      "tool": "gh",
+      "argv": [
+        "api",
+        "repos/octo/demo/pulls/1/merge",
+        "--hostname",
+        "github.com",
+        "--method",
+        "PUT",
+        "--input",
+        "-"
+      ],
+      "reply": {
+        "code": 0,
+        "stdout": "{\"sha\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"merged\":true,\"message\":\"Pull Request successfully merged\"}\n"
+      }
+    },
+    {
+      "imitates": {
+        "command": "gh api repos/<owner>/<repo>/pulls/<n>/reviews --method POST --input - (REST: create a review)",
+        "shape": "exit 0; the review object {id, state, body, commit_id} on stdout"
+      },
+      "tool": "gh",
+      "argv": [
+        "api",
+        "repos/octo/demo/pulls/1/reviews",
+        "--hostname",
+        "github.com",
+        "--method",
+        "POST",
+        "--input",
+        "-"
+      ],
+      "reply": {
+        "code": 0,
+        "stdout": "{\"id\":80,\"state\":\"APPROVED\",\"body\":\"\",\"commit_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}\n"
+      }
+    },
+    {
+      "imitates": {
         "command": "winget (not installed)",
         "shape": "the program cannot be started: ENOENT"
       },
