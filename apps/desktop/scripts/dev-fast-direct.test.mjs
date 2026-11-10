@@ -282,9 +282,9 @@ test('installed FastDirect runtime readiness requires the matching dependency ma
   const installDir = await mkdtemp(join(tmpdir(), 'mixdog-fast-runtime-ready-'));
   context.after(() => rm(installDir, { recursive: true, force: true }));
   const runtimeRoot = join(installDir, 'resources', 'fast-runtime');
-  const entry = join(runtimeRoot, 'node_modules', 'mixdog', 'src', 'standalone');
+  const entry = join(runtimeRoot, 'node_modules', 'mixdog', 'src', 'ext-host');
   await mkdir(entry, { recursive: true });
-  await writeFile(join(entry, 'session-client.mjs'), 'export {};');
+  await writeFile(join(entry, 'worker.mjs'), 'export {};');
   await writeFile(
     join(runtimeRoot, '.mixdog-fast-runtime.json'),
     JSON.stringify({
