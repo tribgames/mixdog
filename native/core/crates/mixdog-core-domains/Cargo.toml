@@ -48,6 +48,8 @@ mixdog-secrets = { workspace = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [dev-dependencies]
+# The credential-read counter the OAuth loader's test reads (`mixdog_ai::work`); only this crate's test builds turn it on.
+mixdog-ai = { workspace = true, features = ["count-work"] }
 bytes = { workspace = true }
 tempfile = { workspace = true }
 mixdog-secrets = { workspace = true }

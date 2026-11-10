@@ -166,6 +166,13 @@ fn read_text(path: &std::path::Path) -> std::io::Result<String> {
     std::fs::read_to_string(path)
 }
 
+/// [`read_text`] of a credential file (the gcloud login).
+fn read_credential_text(path: &std::path::Path) -> std::io::Result<String> {
+    #[cfg(feature = "count-work")]
+    crate::work::credential_read();
+    read_text(path)
+}
+
 /// The `project =` of the `[core]` section of the gcloud configuration `named`
 /// (else the active one, else `default`) under `dir`.
 fn read_gcloud_project(dir: &std::path::Path, named: String) -> Option<String> {
@@ -659,7 +666,7 @@ impl DefaultProviderBuilder {
             None => self.gcloud_dir().join("application_default_credentials.json"),
         };
         let shown = path.display().to_string();
-        let read = self.env.io.read_job(move |_| read_text(&path)).await;
+        let read = self.env.io.read_job(move |_| read_credential_text(&path)).await;
         match read {
             Ok(raw) => Ok(AdcRead::Found { raw, path: shown }),
             Err(e) if matches!(e.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory) => {
@@ -998,8 +1005,6 @@ impl DefaultProviderBuilder {
 
 impl DefaultProviderBuilder {
     async fn build_unversioned(&self, name: &str, cfg: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
-        #[cfg(feature = "count-work")]
-        crate::work::provider_built();
         if name.starts_with("custom-") && text(cfg, "type") == Some("custom") {
             return self.build_custom(name, cfg);
         }

@@ -134,6 +134,8 @@ impl HttpAdapter {
         credential: Arc<dyn Credential>,
         policy: RetryPolicy,
     ) -> Self {
+        #[cfg(feature = "count-work")]
+        crate::work::provider_built();
         Self {
             id,
             codec,
