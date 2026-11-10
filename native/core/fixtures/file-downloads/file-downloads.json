@@ -11706,6 +11706,46 @@
           }
         },
         {
+          "op": "mediaRoot",
+          "id": "m-root"
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "media",
+                "sessionId": "s1",
+                "assetId": "m-root"
+              },
+              "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "media",
+                    "sessionId": "s1",
+                    "assetId": "m-root"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
+          "frame": {
+            "id": 329,
+            "ok": false,
+            "error": "Only files on this PC can be downloaded.",
+            "errorCode": "file-download:not-a-file"
+          }
+        },
+        {
           "op": "handles",
           "open": 1
         }
@@ -11759,7 +11799,7 @@
             }
           ],
           "frame": {
-            "id": 329,
+            "id": 330,
             "ok": true,
             "value": {
               "grantId": "<grantId#84>",
@@ -11797,7 +11837,7 @@
             }
           ],
           "frame": {
-            "id": 330,
+            "id": 331,
             "ok": false,
             "error": "This download is no longer available.",
             "errorCode": "file-download:expired"
@@ -11833,7 +11873,7 @@
             }
           ],
           "frame": {
-            "id": 331,
+            "id": 332,
             "ok": false,
             "error": "This conversation is not available.",
             "errorCode": "file-download:unavailable"
@@ -11869,7 +11909,7 @@
             }
           ],
           "frame": {
-            "id": 332,
+            "id": 333,
             "ok": true,
             "value": {
               "grantId": "<grantId#85>",
@@ -11897,7 +11937,7 @@
             }
           ],
           "frame": {
-            "id": 333,
+            "id": 334,
             "ok": true,
             "value": {
               "transferId": "<transferId#48>",
@@ -11956,7 +11996,7 @@
             }
           ],
           "frame": {
-            "id": 334,
+            "id": 335,
             "ok": false,
             "error": "The file no longer exists.",
             "errorCode": "file-download:not-found"
@@ -11992,7 +12032,7 @@
             }
           ],
           "frame": {
-            "id": 335,
+            "id": 336,
             "ok": true,
             "value": {
               "grantId": "<grantId#86>",
@@ -12034,7 +12074,7 @@
             }
           ],
           "frame": {
-            "id": 336,
+            "id": 337,
             "ok": false,
             "error": "The file no longer exists.",
             "errorCode": "file-download:not-found"
@@ -12070,7 +12110,7 @@
             }
           ],
           "frame": {
-            "id": 337,
+            "id": 338,
             "ok": false,
             "error": "The file no longer exists.",
             "errorCode": "file-download:not-found"
@@ -12106,7 +12146,7 @@
             }
           ],
           "frame": {
-            "id": 338,
+            "id": 339,
             "ok": false,
             "error": "Only files on this PC can be downloaded.",
             "errorCode": "file-download:not-a-file"
@@ -12142,7 +12182,7 @@
             }
           ],
           "frame": {
-            "id": 339,
+            "id": 340,
             "ok": false,
             "error": "The file no longer exists.",
             "errorCode": "file-download:not-found"
@@ -12178,7 +12218,7 @@
             }
           ],
           "frame": {
-            "id": 340,
+            "id": 341,
             "ok": true,
             "value": {
               "grantId": "<grantId#87>",
@@ -12220,7 +12260,7 @@
             }
           ],
           "frame": {
-            "id": 341,
+            "id": 342,
             "ok": true,
             "value": {
               "grantId": "<grantId#88>",

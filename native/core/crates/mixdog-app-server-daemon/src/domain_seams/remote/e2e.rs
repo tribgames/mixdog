@@ -355,6 +355,10 @@ impl Harness {
                     let workspace = workspace.clone();
                     Arc::new(move |owner| workspace.revoke_device(owner))
                 },
+                end_downloads: {
+                    let workspace = workspace.clone();
+                    Arc::new(move || workspace.revoke_all_downloads())
+                },
                 config: config.clone(),
             }))
             .unwrap();
@@ -801,6 +805,57 @@ async fn the_leg_redials_on_the_backoff_node_recorded_and_a_phone_pairs_again_on
     // The relay re-announces the phones on the new leg; a phone pairs again and drives the core as before.
     let (mut again, _) = h.connect("p3", CRED).await;
     assert_eq!(list(&mut again, 1).await["result"], listed());
+    h.runtime.close().await;
+}
+
+const FILE_DOWNLOADS: &str = include_str!("../../../../../fixtures/file-downloads/file-downloads.json");
+
+/// The frame Node's phone got for the `n`th call of the scenario `name`, which must be of the phone method `method`, without its id.
+fn download_call(name: &str, n: usize, method: &str) -> Value {
+    let recording: Value = serde_json::from_str(FILE_DOWNLOADS).unwrap();
+    let scenario = recording["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == name).unwrap_or_else(|| panic!("no scenario {name}"));
+    let step = scenario["steps"].as_array().unwrap().iter().filter(|step| step["op"] == "call").nth(n).unwrap_or_else(|| panic!("{name}: no call {n}"));
+    assert_eq!(step["method"], method, "{name}: call {n}");
+    let mut frame = step["frame"].clone();
+    frame.as_object_mut().unwrap().remove("id");
+    frame
+}
+
+/// One call of `phone`, as the frame Node's phone would have got, without its id.
+async fn download_frame(phone: &mut Phone, id: u64, method: &str, params: Value) -> Value {
+    phone.send(&json!({ "id": id, "method": method, "params": params }).to_string());
+    let mut frame = node_of(&answer(phone, id).await);
+    frame.as_object_mut().unwrap().remove("id");
+    frame
+}
+
+/// Remote access switched off closes the relay handle, and with it every download the paired phones held (`remote-relay.ts` `close`,
+/// `fileDownloads.revokeAll`): a phone that pairs again once remote access is back finds its unbegun grant and its transfer gone, as Node's
+/// phone did after the same revoke (`revoke all`: the begin of the unbegun grant, then the range of the transfer).
+#[tokio::test(flavor = "multi_thread")]
+async fn switching_remote_access_off_ends_every_download_of_the_phones() {
+    let mut h = Harness::start(true).await;
+    let (mut phone, connection) = h.connect("p1", CRED).await;
+    let file = h.dir.path().join("a.bin");
+    std::fs::write(&file, "0123456789abcdef").unwrap();
+    let authorize = json!({ "sessionId": "s1", "source": { "kind": "sessionFile", "path": file.to_string_lossy() }, "purpose": "save" });
+    let unbegun = download_frame(&mut phone, 1, "transfer/authorizeRead", authorize.clone()).await["value"]["grantId"].clone();
+    let grant = download_frame(&mut phone, 2, "transfer/authorizeRead", authorize).await["value"]["grantId"].clone();
+    let lease = download_frame(&mut phone, 3, "transfer/redeemGrant", json!({ "grantId": grant })).await["value"].clone();
+    assert!(unbegun.is_string() && lease["transferId"].is_string(), "{unbegun} {lease}");
+
+    h.runtime.stop().await.unwrap();
+    h.closed(connection).await;
+    h.runtime.start(false).await.unwrap();
+    tokio::time::timeout(FRAME_WAIT, h.relay.legs.recv()).await.expect("the core never dialed the relay again").expect("the relay ended");
+    let mut up = h.runtime.watch_connected();
+    tokio::time::timeout(FRAME_WAIT, up.wait_for(|up| *up)).await.expect("the new leg never came up").expect("the runtime ended");
+    let (mut again, _) = h.connect("p2", CRED).await;
+    let begin = download_frame(&mut again, 4, "transfer/redeemGrant", json!({ "grantId": unbegun })).await;
+    assert_eq!(begin, download_call("revoke all", 3, "fileDownloadBegin"), "the unbegun grant after the relay closed");
+    let range = json!({ "transferId": lease["transferId"], "offset": 0, "length": 4, "version": lease["version"] });
+    let read = download_frame(&mut again, 5, "transfer/readRange", range).await;
+    assert_eq!(read, download_call("revoke all", 4, "fileDownloadRange"), "the transfer after the relay closed");
     h.runtime.close().await;
 }
 

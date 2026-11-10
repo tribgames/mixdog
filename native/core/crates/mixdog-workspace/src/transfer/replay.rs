@@ -385,10 +385,18 @@ async fn every_recorded_download_scenario_is_answered_and_held_as_nodes_service_
                     // The unpair walks the device's connections: the service is told the connection (`PairedDeviceCleanup`).
                     world.service.revoke_device(&World::connection(step["device"].as_str().unwrap()).to_string());
                 }
-                // The relay leg closing or every device revoked: nothing in the daemon calls this yet (the remote domain's event).
-                "revokeAll" => world.transfers.revoke_all(),
+                // The relay handle closing: what the remote runtime's `relay_closed` reaches (`PairedDeviceCleanup::relay_closed`).
+                "revokeAll" => world.service.revoke_all_downloads(),
                 "sessions" => world.publish(&ids_of(step)),
                 "media" => world.media(step),
+                // An index entry with an empty file: the store resolves it to its assets folder (the core's store does so too, see
+                // `mixdog-services` `stored_asset_path`; the adapter replay drives that store itself).
+                "mediaRoot" => {
+                    let root = world.dir.join("media/assets");
+                    std::fs::create_dir_all(&root).unwrap();
+                    let entry = crate::grants::MediaEntry { path: root.to_string_lossy().into_owned(), mime: Some(String::new()) };
+                    world.present.2.lock().unwrap().insert(step["id"].as_str().unwrap().to_owned(), entry);
+                }
                 "unmedia" => {
                     let entry = world.present.2.lock().unwrap().remove(step["id"].as_str().unwrap()).unwrap();
                     std::fs::remove_file(entry.path).unwrap();

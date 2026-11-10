@@ -2389,6 +2389,10 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 let workspace = workspace.clone();
                 Arc::new(move |owner| workspace.revoke_device(owner))
             },
+            end_downloads: {
+                let workspace = workspace.clone();
+                Arc::new(move || workspace.revoke_all_downloads())
+            },
             config: config.clone(),
         }))
         .map_err(|_| ComposeError::AlreadyBound("device cleanup"))?;

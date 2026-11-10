@@ -249,7 +249,9 @@ impl MediaStore {
                 other => path.push(other),
             }
         }
-        (path != root && path.starts_with(&root)).then_some(path)
+        // The root itself is accepted as Node accepts it (`path === root`); a reader then finds a folder, not a file, and refuses it
+        // there (a download answers `not-a-file`), and a discard's `remove_file` cannot remove a folder.
+        path.starts_with(&root).then_some(path)
     }
 
     fn read_assets(&self) -> Result<Vec<Value>, MediaError> {
@@ -789,5 +791,6 @@ mod tests {
         assert!(s.stored_asset_path("images/../a.png").is_some());
         assert!(s.stored_asset_path("images/../../index.json").is_none());
         assert!(s.stored_asset_path("/a.png").is_none());
+        assert_eq!(s.stored_asset_path(""), Some(s.assets_dir()), "an empty name is the root, as Node's `resolve(root, '')`");
     }
 }

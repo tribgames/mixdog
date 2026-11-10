@@ -13,8 +13,9 @@
 // The world: each scenario runs on devices of its own (a paired credential each) over two conversations of the core (s1 in a registered
 // project, s2 a task conversation); a deleted conversation is a deleted thread, a publication of the catalog a `thread/list`. An unpair is
 // the desktop's `remoteAccess/revokeClient` against a relay that does not confirm it (the phone's connection stays, without the device's
-// grants). The core has no event for "every device revoked" or "the relay leg closed" (Node's `revokeAll`, remote-relay.ts:643/:652):
-// the recording's `revokeAll` is played as the unpair of each device of the scenario, the only event the core has.
+// grants). Node's `revokeAll` is the relay handle's close (remote-relay.ts:652); the core's is remote access switched off, which ends every
+// phone connection this replay holds, so here the recording's `revokeAll` is played as the unpair of each device of the scenario (the
+// close itself is replayed over the relay by the daemon's `switching_remote_access_off_ends_every_download_of_the_phones`).
 import { spawn, spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, truncateSync, watch, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -227,19 +228,23 @@ class Tokens {
 let opCount = 0;
 const opId = () => `018f0000-0000-7000-8000-${(++opCount).toString(16).padStart(12, '0')}`;
 
-/** @returns {Promise<{ code: number, notRun: string[] }>} code 0 when every step is as Node's; and the scenarios recorded for another system, not run. */
-export async function replayDownloads({ exe, recording }) {
+/** @returns {Promise<{ code: number, notRun: string[], left: string[] }>} code 0 when every step is as Node's; the scenarios recorded for
+ *  another system, not run; and those `only` left out (`--only <name>`, while a finding is fixed: the full run is the default).
+ *  `failSetup` is the replay's own test of its cleanup: the setup throws right after the work folder is made, before any process starts. */
+export async function replayDownloads({ exe, recording, only = null, failSetup = false }) {
   // A folder of this run's own, removed once at the end, after the processes that use it have ended.
   const WORLDS = realpathSync.native(mkdtempSync(join(tmpdir(), 'downloads-replay-')));
+  const left = [];
   // Everything from the allocation on is inside the one protected region, so a throw anywhere after it still removes the folder.
   let relay = null;
   let core = null;
   const clients = [];
   const problems = [];
-  const accounted = { calls: 0, held: 0, handles: 0 };
+  const accounted = { calls: 0, held: 0, handles: 0, direct: 0 };
   /** The scenarios recorded for another system: not run here, and said so. */
   const notRun = [];
   try {
+    if (failSetup) throw new Error(`the setup failed on purpose after making ${WORLDS}`);
     const talk = talkFolder(join(WORLDS, 'talk'));
     talk.write('clock', recording.clockStart);
     const credentials = [];
@@ -260,7 +265,7 @@ export async function replayDownloads({ exe, recording }) {
     core = await startCore(exe, join(WORLDS, 'core'), relay.port(), talk);
     await relay.leg();
     const E2EE = await here('apps/desktop/src/shared/remote-e2ee.ts');
-    const { adapter } = await here('apps/desktop/src/renderer/remote-protocol-files.ts');
+    const { adapter, failure } = await here('apps/desktop/src/renderer/remote-protocol-files.ts');
     const { connect, sessionReducer } = await here('packages/protocol-client/src/index.ts');
     const { createWsConnector } = await here('apps/desktop/src/main/protocol/ws-connector.ts');
     globalThis.window = { setTimeout: () => 0, clearTimeout() {} };
@@ -291,6 +296,13 @@ export async function replayDownloads({ exe, recording }) {
         console.log(`file-downloads ${label}: recorded on ${scenario.platform}, not run on ${process.platform} (${callsOf} calls)`);
         continue;
       }
+      if (only && label !== only) {
+        left.push(label);
+        if (expectedId !== null) expectedId += callsOf;
+        continue;
+      }
+      // The first scenario run may come after left-out ones: its own first call sets the counter.
+      if (only) expectedId = null;
       const world = realpathSync.native(mkdtempSync(join(WORLDS, 'w-')));
       for (const folder of ['project', 'task', 'outside']) mkdirSync(join(world, folder), { recursive: true });
       talk.write('clock', recording.clockStart);
@@ -328,6 +340,8 @@ export async function replayDownloads({ exe, recording }) {
         return tokens.tokenOf(node) ?? (slashed.includes(forward(world)) ? slashed.replaceAll(forward(world), '<dir>') : node);
       };
       const routers = new Map();
+      /** Each device's own client, to call the core directly (not counted as a request of the adapter). */
+      const phones = new Map();
       const requested = [];
       const gaps = [];
       for (const [device, id] of Object.entries(devices)) {
@@ -342,7 +356,8 @@ export async function replayDownloads({ exe, recording }) {
         }
         clients.push(client);
         const call = client.call.bind(client);
-        client.call = (method, params) => (requested.push({ method, params: normalized(params) }), call(method, params));
+        phones.set(device, { call });
+        client.call =(method, params) => (requested.push({ method, params: normalized(params) }), call(method, params));
         const host = { ctx: { browserId: `p${n}-${device}` }, client: () => client, declareLane() {} };
         routers.set(device, createProtocolRouter([adapter], { host, started: async () => {}, synced: async () => {}, probe() {}, silentSince: () => false }));
       }
@@ -439,6 +454,13 @@ export async function replayDownloads({ exe, recording }) {
               writeIndex(assetsHeld);
               break;
             }
+            case 'mediaRoot': {
+              // The core's own store, given an index entry whose file is empty: it resolves to the assets folder, as Node's does.
+              mkdirSync(join(store, 'assets'), { recursive: true });
+              assetsHeld.push({ id: step.id, kind: 'image', mime: '', file: '', bytes: 0, createdAt: 1 });
+              writeIndex(assetsHeld);
+              break;
+            }
             case 'unmedia': {
               const at = assetsHeld.findIndex((entry) => entry.id === step.id);
               rmSync(join(store, 'assets', assetsHeld[at].file));
@@ -470,6 +492,23 @@ export async function replayDownloads({ exe, recording }) {
               const from = issue(step, step.frame.id);
               compare(step, step.frame, await sendFrame(step.device, step.method, step.params), at);
               settleRequests(from, step, at);
+              // An asset id Node's table refused is the core's to refuse too (the core is the boundary): the same id sent straight to the
+              // core, past the adapter's own check, answers the phone the frame Node's did once the adapter reads the core's error.
+              const source = step.params?.[0]?.source;
+              if (step.method === 'fileDownloadAuthorize' && source?.kind === 'media' && step.service.length === 0) {
+                const direct = { sessionId: conversations[source.sessionId] ?? source.sessionId, source: { kind: 'mediaAsset', assetId: source.assetId }, purpose: step.params[0].purpose };
+                const got = await within(phones.get(step.device).call('transfer/authorizeRead', direct), 'the core to answer an asset id past the adapter').then(
+                  (value) => ({ ok: true, value }),
+                  (error) => {
+                    const read = failure(error);
+                    return { ok: false, error: read.message, ...(typeof read.code === 'string' && read.code ? { errorCode: read.code } : {}) };
+                  }
+                );
+                accounted.direct += 1;
+                const { id: _id, ...node } = step.frame;
+                const found = tokens.differences(node, got);
+                if (found.length) unexpected.push(`#${index} ${step.method} sent to the core past the adapter: ${found.join('; ')}`);
+              }
               break;
             }
             case 'hold': {
@@ -535,6 +574,7 @@ export async function replayDownloads({ exe, recording }) {
     }
     if (failures.length) throw new AggregateError(failures, `cleanup of the replay failed: ${failures.map((error) => error.message).join('; ')}`);
   }
-  console.log(`file-downloads replay over ${exe}: ${accounted.calls} calls compared, ${accounted.held} held calls, ${accounted.handles} handle counts, ${problems.length} unexpected, not run on this system: ${JSON.stringify(notRun)}`);
-  return { code: problems.length ? 1 : 0, notRun };
+  if (only && left.length === recording.scenarios.length - notRun.length) problems.push(`--only ${only}: no scenario of that name`);
+  console.log(`file-downloads replay over ${exe}: ${accounted.calls} calls compared, ${accounted.held} held calls, ${accounted.handles} handle counts, ${accounted.direct} asset ids sent past the adapter, ${problems.length} unexpected, not run on this system: ${JSON.stringify(notRun)}${only ? `, left out by --only: ${left.length}` : ''}`);
+  return { code: problems.length ? 1 : 0, notRun, left };
 }

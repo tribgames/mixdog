@@ -39,7 +39,7 @@ const FILE_CHANGED = 'File changed on disk. Reload or keep your edits before sav
 /** What a domain failure was to Node's page: the error's text, and its `code` when Node's error had one (a system error's
  *  `ENOENT`, `PROJECT_UNAVAILABLE`, ...). The core names those codes in capitals; its own reasons are camel case. A call that needs the
  *  PC's window while none is connected is Node's "unavailable" TypeError. */
-function failure(error: unknown): unknown {
+export function failure(error: unknown): unknown {
   const data = (error as { detail?: { data?: Record<string, unknown> } } | null)?.detail?.data;
   if (!data) return error;
   if (data.reason === 'capabilityUnavailable' && data.capability === 'desktopHost') return new TypeError(DESKTOP_UNAVAILABLE);

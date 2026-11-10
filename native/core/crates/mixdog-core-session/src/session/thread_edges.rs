@@ -165,11 +165,17 @@ impl ThreadDeletions {
         self.gone.set(hook).map_err(|_| ())
     }
 
-    /// The conversation left the catalog: told, then `thread/deleted`.
-    pub fn publish(&self, thread: &ThreadId) {
+    /// The conversation left the catalog, before its `thread/deleted` is published: an explicit delete tells it the moment its
+    /// tombstone lands (a list no longer shows it from then on), ahead of the purge. Telling it again is harmless.
+    pub fn tell(&self, thread: &ThreadId) {
         if let Some(gone) = self.gone.get() {
             gone(thread.as_str());
         }
+    }
+
+    /// The conversation left the catalog: told, then `thread/deleted`.
+    pub fn publish(&self, thread: &ThreadId) {
+        self.tell(thread);
         self.app.notify(DELETED, &ThreadIdParams { thread_id: thread.clone() });
     }
 }
