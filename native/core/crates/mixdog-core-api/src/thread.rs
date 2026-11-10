@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use mixdog_protocol::ConnectionKind;
+use mixdog_protocol::Origin;
 use serde_json::Value;
 
 use crate::call::CallContext;
@@ -140,6 +141,9 @@ pub struct Decision {
     pub device: String,
     /// The answering connection's `clientInfo.kind`; recorded as `connectionKind`.
     pub connection_kind: ConnectionKind,
+    /// The transport the answer came by, as the server set it where the answer was admitted. Rules for remote devices read
+    /// this, never a later lookup of the connection (which may have been unpaired or closed by the time it is decided).
+    pub origin: Origin,
     /// The JSON-RPC `result` of the client's response.
     pub result: Value,
 }

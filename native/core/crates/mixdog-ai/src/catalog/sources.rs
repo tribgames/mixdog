@@ -23,6 +23,9 @@ pub struct ModelSource {
     floor: Option<Floor>,
     /// The Anthropic OAuth route's 24 h roster cache, read before the fetch and written after it.
     cache: Option<OauthModelCache>,
+    /// A recorded answer that stands in for the listing ([`Self::answering`]).
+    #[cfg(any(test, feature = "test-support"))]
+    answer: Option<Result<Vec<ModelRecord>, ProviderError>>,
 }
 
 /// The offline floors of Node's providers (`listModels` answering its static list), generated from Node's own lists by
@@ -87,7 +90,28 @@ impl Floor {
 
 impl ModelSource {
     pub fn new(provider: ProviderId, listing: Arc<dyn ModelListing>) -> Self {
-        Self { provider, listing, floor: None, cache: None }
+        Self {
+            provider,
+            listing,
+            floor: None,
+            cache: None,
+            #[cfg(any(test, feature = "test-support"))]
+            answer: None,
+        }
+    }
+
+    /// A registered provider whose every listing answers `answer`, already as the catalog stores it: a recording's
+    /// provider replayed with the records its listing produced, which an adapter record cannot restate in full.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn answering(provider: ProviderId, answer: Result<Vec<ModelRecord>, ProviderError>) -> Self {
+        struct Unused;
+        #[async_trait::async_trait]
+        impl ModelListing for Unused {
+            async fn list_models(&self) -> Result<Vec<mixdog_core_api::domain::provider::ModelRecord>, ProviderError> {
+                unreachable!("an answering source never lists")
+            }
+        }
+        Self { answer: Some(answer), ..Self::new(provider, Arc::new(Unused)) }
     }
 
 
@@ -111,6 +135,10 @@ impl ModelSource {
 
     /// One fetch: the adapter's records, as the catalog stores them.
     pub async fn list(&self) -> Result<Vec<ModelRecord>, ProviderError> {
+        #[cfg(any(test, feature = "test-support"))]
+        if let Some(answer) = &self.answer {
+            return answer.clone();
+        }
         let env = |name: &str| std::env::var(name).ok();
         // A fresh cache answers without a fetch and is not written again (`listModels`: `if (cached) return cached`).
         if let Some(cached) = match &self.cache {

@@ -447,15 +447,17 @@ impl SessionDirectory {
 
     /// The room's answer to `approval_id` of `thread` (`scheduler.approve` → `deps.approve`):
     /// the server-request response a client sends, through the same decision path. `false` when
-    /// `approval_id` is not the approval the thread shows (Node refuses then). `decision` is the
+    /// `approval_id` is not the approval the thread shows (Node refuses then), or when another
+    /// decision resolved it first (Node's `result.approved` of the serialized answer). `decision` is the
     /// response's result (`{ approved, reason?, answers?, reply?, remember?, ... }`).
-    pub fn answer_member_approval(
+    pub async fn answer_member_approval(
         &self,
         thread: &ThreadId,
         approval_id: &str,
         connection: ConnectionId,
         device: String,
         connection_kind: ConnectionKind,
+        origin: mixdog_protocol::Origin,
         decision: Value,
     ) -> Result<bool, CoreError> {
         let Some(handle) = self.handle(thread) else { return Ok(false) };
@@ -463,8 +465,7 @@ impl SessionDirectory {
         if shown.is_none_or(|request| request.id.0.to_string() != approval_id) {
             return Ok(false);
         }
-        handle.cell.decide(Decision { request: ServerRequestId(approval_id.to_owned()), connection, device, connection_kind, result: decision })?;
-        Ok(true)
+        handle.decide_arbitrated(Decision { request: ServerRequestId(approval_id.to_owned()), connection, device, connection_kind, origin, result: decision }).await
     }
 }
 
