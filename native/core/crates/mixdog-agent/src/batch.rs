@@ -304,8 +304,9 @@ impl Run {
         let failed = Arc::new(std::sync::atomic::AtomicBool::new(false));
         self.barriers.register(&id, &name, &exec.arguments, &cwd, done, failed.clone());
         let handle = mixdog_rt::spawn("agent.eager", TaskClass::Work, async move {
+            let dispatch_started_at = env.clock.now_ms();
             let executed = match preceding.wait(&exec.name).await {
-                Some(text) => Executed::skipped(&exec.id, text),
+                Some(text) => crate::tools::stamp_timing(Executed::skipped(&exec.id, text), dispatch_started_at, env.clock.as_ref()),
                 None => execute_call(exec, env).await,
             };
             failed.store(executed.failed, std::sync::atomic::Ordering::Release);
@@ -478,11 +479,12 @@ impl Run {
         cacheable
     }
 
-    pub(crate) async fn process_tool_batch(&mut self, wire_calls: &[ToolCall], allowed: u64) -> Result<(), AgentError> {
+    /// The execution view (`resolveExecutionToolCalls`): typo aliases and case variants canonicalized,
+    /// and a `call_tool` of a bridge session replaced by its target, so that every layer below sees the
+    /// target itself. The wire calls stay what the transcript holds. Also, per call, whether it was
+    /// bridged and the refusal of a `call_tool` that names no usable target.
+    pub(crate) fn execution_view(&self, wire_calls: &[ToolCall]) -> (Vec<ToolCall>, Vec<bool>, Vec<Option<String>>) {
         let n = wire_calls.len();
-        // The execution view (`resolveExecutionToolCalls`): typo aliases and case variants canonicalized,
-        // and a `call_tool` of a bridge session replaced by its target, so that every layer below sees the
-        // target itself. The wire calls stay what the transcript holds.
         let mut unprojected: Vec<Option<String>> = vec![None; n];
         let mut bridged = vec![false; n];
         let mut calls: Vec<ToolCall> = Vec::with_capacity(n);
@@ -500,6 +502,12 @@ impl Run {
                 }
             });
         }
+        (calls, bridged, unprojected)
+    }
+
+    pub(crate) async fn process_tool_batch(&mut self, wire_calls: &[ToolCall], allowed: u64) -> Result<(), AgentError> {
+        let n = wire_calls.len();
+        let (calls, bridged, unprojected) = self.execution_view(wire_calls);
         let dups = intra_turn_duplicates(&calls, &self.tools);
         let mut single_first: HashMap<String, String> = HashMap::new();
         let mut single_of: Vec<Option<String>> = vec![None; n];
@@ -800,10 +808,13 @@ impl Run {
 /// gate denial the executor returns as text (`Executed.returned`), is not a thrown call.
 pub(crate) fn early_result(call_id: &str, result: &Executed) -> AgentMessage {
     if result.failed && !result.returned {
-        return AgentMessage::tool_text(call_id, result.message.text(), ToolKind::Error);
+        let mut early = AgentMessage::tool_text(call_id, result.message.text(), ToolKind::Error);
+        early.tool_timing = result.message.tool_timing;
+        return early;
     }
     let mut early = AgentMessage::tool_text(call_id, result.message.text(), ToolKind::Normal);
     early.tool_kind = None;
+    early.tool_timing = result.message.tool_timing;
     early
 }
 

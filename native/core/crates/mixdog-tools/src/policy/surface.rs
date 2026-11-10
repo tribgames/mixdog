@@ -94,6 +94,9 @@ pub struct SessionSurface {
     pub project_disabled: bool,
     /// A read-only session.
     pub readonly: bool,
+    /// The session's persisted deferred surface is read-only (`deferredSurfaceMode`), whatever its tool mode: the deferred-call guard
+    /// counts it with `readonly` (`isBridgeReadonlySession`, `tool-bridge.mjs:187`).
+    pub deferred_readonly: bool,
     /// Names of the session's active tools.
     pub active_tools: Vec<String>,
     /// Names in the deferred catalog.
@@ -275,6 +278,7 @@ impl SessionSurface {
             disallowed,
             feature_denied: names("featureDeniedTools").unwrap_or_default(),
             readonly: readonly_tool_spec(header.get("toolSpec")),
+            deferred_readonly: text("deferredSurfaceMode") == "readonly",
             active_tools: tool_names("tools"),
             catalog_tools,
             bridge: text("toolExposureMode") == BRIDGE_EXPOSURE,
@@ -317,7 +321,7 @@ impl SessionSurface {
         if !self.mode_resolved {
             return Some(format!("Error: tool \"{name}\" is deferred and cannot be auto-loaded without a resolved tool mode; no call was sent."));
         }
-        self.readonly.then(|| format!("Error: tool \"{name}\" is not available in readonly mode"))
+        (self.readonly || self.deferred_readonly).then(|| format!("Error: tool \"{name}\" is not available in readonly mode"))
     }
 
     /// A read-only session runs only what its surfaces offer: active tools,
@@ -478,6 +482,13 @@ mod tests {
                 .readonly
                 == false
         );
+        // deferredSurfaceMode: readonly under a full tool mode: the deferred-call guard refuses what is not read-only selectable.
+        let persisted = SessionSurface::from_header(
+            &header(serde_json::json!({"toolSpec": "full", "deferredSurfaceMode": "readonly", "toolExposureMode": "bridge-v1", "deferredToolCatalog": [{"name": "odd"}]})),
+            vec![],
+        );
+        assert!(!persisted.readonly && persisted.deferred_readonly);
+        assert_eq!(persisted.deferred_call_refusal("odd", &ToolAnnotations::default()).as_deref(), Some("Error: tool \"odd\" is not available in readonly mode"));
         // call_tool is never dispatched itself on a bridge session.
         assert_eq!(
             text(surface.refusal("call_tool", None)),

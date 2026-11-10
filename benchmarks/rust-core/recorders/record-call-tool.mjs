@@ -356,6 +356,17 @@ SCENARIOS.push(
     ],
   }
 );
+// An invalid first `computer` call still takes the turn's single slot (eager-dispatch/admission.mjs:55-63 reserves, then refuses it): the
+// valid one behind it is answered, never run, whether the provider streams or not.
+const INVALID_COMPUTER = [{ name: 'an invalid first computer call and a valid one behind it', internal: ['computer'], script: [round(call('c1', 'computer', NOT_JSON), call('c2', 'computer', { action: 'click' })), FINAL] }];
+SCENARIOS.push(...INVALID_COMPUTER, { ...INVALID_COMPUTER[0], name: 'an invalid first computer call and a valid one behind it (streamed)', stream: true });
+// A session whose persisted deferred surface is read-only although its tool mode is not (tool-bridge.mjs:187 `isBridgeReadonlySession`,
+// session/loop/deferred-call-through.mjs:108): a deferred tool that is not read-only selectable is refused, one that is selectable runs.
+SCENARIOS.push({
+  name: 'a session whose deferred surface is read-only under a full tool mode',
+  session: { toolSpec: 'full', deferredSurfaceMode: 'readonly' },
+  script: [round(bridged('c1', 'probe_write', { q: 'x' }), bridged('c2', 'probe_read', { q: 'r' }), call('c3', 'probe_write', { q: 'x' })), FINAL],
+});
 // The same turns with a provider that streams its tool calls: each call reaches the loop (and starts its eager dispatch) before the response ends.
 const STREAMED = [
   'calls whose arguments were not JSON: a tool, call_tool and a tool of the session',
@@ -500,7 +511,7 @@ async function runScenario(scenario, twin = false) {
     if (scenario.staleMcp) session.deferredLateToolCatalog = [{ ...MCP_TOOLS[1], name: 'mcp__mail__gone' }];
     if (!scenario.nonBridge) applyDeferredToolSurface(session, 'lead', [], { provider: providerName });
     // Not createSession options: the session runtime sets them on the session after it is built.
-    for (const key of ['toolSpec', 'featureDeniedTools']) if (scenario.session && key in scenario.session) session[key] = scenario.session[key];
+    for (const key of ['toolSpec', 'featureDeniedTools', 'deferredSurfaceMode']) if (scenario.session && key in scenario.session) session[key] = scenario.session[key];
     session.beforeToolHook = async (hookCall) => {
       hooks.before.push({ name: hookCall.name, args: clone(hookCall.args) });
       note({ ev: 'pre', name: hookCall.name, args: clone(hookCall.args) });
@@ -516,7 +527,7 @@ async function runScenario(scenario, twin = false) {
       note({ ev: 'post', name: hookCall.name, args: clone(hookCall.args) });
       await step('post', hookCall.name, hookCall.args);
     };
-    const surface = { exposure: session.toolExposureMode ?? null, toolSpec: session.toolSpec ?? null, tools: session.tools.map((t) => t.name), catalog: [...(session.deferredToolCatalog ?? []), ...(session.deferredLateToolCatalog ?? [])].map((t) => t.name), mcpNames: session.deferredMcpToolNames ?? null };
+    const surface = { exposure: session.toolExposureMode ?? null, toolSpec: session.toolSpec ?? null, deferredSurfaceMode: session.deferredSurfaceMode ?? null, tools: session.tools.map((t) => t.name), catalog: [...(session.deferredToolCatalog ?? []), ...(session.deferredLateToolCatalog ?? [])].map((t) => t.name), mcpNames: session.deferredMcpToolNames ?? null };
     const turn = await askSession(
       session.id,
       'go',

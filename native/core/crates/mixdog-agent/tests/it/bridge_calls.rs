@@ -7,10 +7,22 @@
 //! session's tools and catalog are the recording's own. What is compared with Node, whole, is what a
 //! client or the model can observe: the messages the model is sent at each request, the stored
 //! transcript, the tool events the loop raises, the approval cards, the PreToolUse / PostToolUse
-//! hook calls and what the executors were called with.
+//! hook calls and what the executors were called with, the human gate's audit records and the loop's
+//! tool-batch audit (Node's `recordToolBatch`, the `batch` rows of the trace).
 //!
-//! Not compared: the audit rows (`batches`, Node's `recordToolBatch`), which the Rust loop does not
-//! write at all yet, and timings.
+//! The recording's declared normalisations (`MANIFEST.json`, `normalisations`) are the only values not
+//! kept: the sandbox path (`<SANDBOX>`), clock values (0) and batch ids (`<BATCH-n>`). Beyond them the
+//! replay leaves out, each for a reason:
+//! - `createdAt` and `meta.transcript.completion` of a stored row: the host stamps them when it stores
+//!   the row (`mixdog-core` `run_host/factory.rs:363`, `:384`); the loop's `AgentMessage` has neither.
+//! - the `context`, `tool` and `usage` rows of the trace: the host writes them from facts the loop
+//!   reports (`mixdog-trace` `tool_records`, `usage_record`), not the loop; the replay asserts that no
+//!   other kind of row exists. A `batch` row's `batch_id` and `batch_schema_version` are the host
+//!   writer's too (`batch_record`): the loop reports the batch (`RunEvent::ToolBatch`), whole.
+//! - a request message's `toolKind`, `toolTiming` and `createdAt`: the request holds wire `Message`s,
+//!   which have no such fields; the recording shows them to be the stored row's own (checked below).
+//! - the `sessionId` of an approval card: the approval actor adds the thread id to the request, the
+//!   gate's ask does not carry it; the card compares with the run's thread id in its place.
 
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -40,6 +52,7 @@ use mixdog_agent::env::Rewrite;
 use mixdog_agent::env::RunEnv;
 use mixdog_agent::env::RunEvent;
 use mixdog_agent::env::RunObserver;
+use mixdog_agent::env::ToolBatch;
 use mixdog_agent::env::SteerEntry;
 use mixdog_agent::env::SteerSource;
 use mixdog_agent::env::TextRetraction;
@@ -50,6 +63,7 @@ use mixdog_agent::message::AgentMessage;
 use mixdog_agent::message::ToolKind;
 use mixdog_agent::tools::ToolEnv;
 use mixdog_agent::tools::ToolSet;
+use mixdog_core_api::domain::approval::ActionKind;
 use mixdog_core_api::domain::approval::ApprovalAsk;
 use mixdog_core_api::domain::approval::ApprovalGate;
 use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
@@ -65,6 +79,8 @@ use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::ModelStream;
 use mixdog_core_api::domain::provider::ProviderAdapter;
 use mixdog_core_api::domain::provider::ProviderError;
+use mixdog_core_api::domain::provider::CacheTier;
+use mixdog_core_api::domain::provider::Message;
 use mixdog_core_api::domain::provider::Role;
 use mixdog_core_api::domain::provider::StopReason;
 use mixdog_core_api::domain::provider::StreamEvent;
@@ -134,8 +150,8 @@ impl Timeline {
         self.0.entries.lock().expect("timeline").clone()
     }
 
-    /// Resolves once an entry has every field of `matching`, or fails naming what never happened (the clock is paused: a
-    /// scenario nothing can move on advances it to the deadline).
+    /// Resolves once an entry has every field of `matching`, or fails naming what never happened (by the machine's clock: see
+    /// [`awaiting_for`]).
     async fn until(&self, matching: &Value, label: &str) {
         let wait = async {
             loop {
@@ -149,9 +165,31 @@ impl Timeline {
                 changed.await;
             }
         };
-        if tokio::time::timeout(Duration::from_secs(10), wait).await.is_err() {
-            panic!("{label} never happened (waiting for {matching})");
+        awaiting_for(DEADLINE, || format!("{label} (waiting for {matching})"), wait).await;
+    }
+}
+
+/// How long a wait may last before it is the test's failure: measured on the machine's clock, so no runtime clock decides it. A wait
+/// ends on its signal; this is only the failure path of a signal that never comes. (The same helper as
+/// `mixdog-core-session`'s `session/testing.rs` `awaiting_for`, which this crate cannot reach.)
+const DEADLINE: Duration = Duration::from_secs(30);
+
+/// Awaits `wait`, failing with `what` if it has not ended by `limit`. The deadline is a blocking task, which a paused runtime clock
+/// cannot skip past, and ends as soon as the wait is over.
+async fn awaiting_for<T>(limit: Duration, what: impl FnOnce() -> String, wait: impl std::future::Future<Output = T>) -> T {
+    let (over, ended) = std::sync::mpsc::channel::<()>();
+    let (fire, mut fired) = tokio::sync::oneshot::channel();
+    #[allow(clippy::disallowed_methods, reason = "test deadline on the machine's clock")]
+    tokio::task::spawn_blocking(move || {
+        if ended.recv_timeout(limit) == Err(std::sync::mpsc::RecvTimeoutError::Timeout) {
+            let _ = fire.send(());
         }
+    });
+    let _over = over;
+    tokio::select! {
+        biased;
+        value = wait => value,
+        Ok(()) = &mut fired => panic!("timed out after {limit:?} waiting for {}", what()),
     }
 }
 
@@ -241,6 +279,9 @@ struct Probe {
     executed: Arc<Mutex<Vec<Value>>>,
     timeline: Timeline,
     stages: Arc<Stages>,
+    /// The connector tool's own classification of what it does outside the machine (Tool::outbound_kind; the product's MCP tool takes it from
+    /// mixdog-mcp outbound_kind, which reads the server and tool names as Node's outbound-policy.mjs:166 does: mail + send is an email).
+    outbound: Option<ActionKind>,
 }
 
 impl Probe {
@@ -272,6 +313,7 @@ impl Probe {
             executed: executed.clone(),
             timeline: timeline.clone(),
             stages: stages.clone(),
+            outbound: (name == "mcp__mail__send").then_some(ActionKind::Email),
         })
     }
 }
@@ -280,6 +322,9 @@ impl Probe {
 impl Tool for Probe {
     fn spec(&self) -> &ToolSpec {
         &self.spec
+    }
+    fn outbound_kind(&self, _: &JsonValue) -> Option<ActionKind> {
+        self.outbound
     }
     async fn call(&self, _: &ToolContext, args: JsonValue) -> ToolOutcome {
         self.executed.lock().expect("executed").push(json!({ "name": self.spec.name, "args": args }));
@@ -700,10 +745,61 @@ fn recorded_view(message: &Value, with_kind: bool) -> Value {
         })
         .unwrap_or_default();
     let mut shown = view(message["role"].as_str().expect("role"), message["content"].clone(), &calls, message["toolCallId"].as_str());
-    if with_kind && let Some(kind) = message["toolKind"].as_str() {
-        shown["toolKind"] = json!(kind);
+    if let Some(tier) = message.get("cacheTier") {
+        shown["cacheTier"] = tier.clone();
+    }
+    if with_kind {
+        // The loop's own fields of a stored row; `createdAt` and `meta` are the host's (see the header).
+        for key in ["toolKind", "toolTiming", "iterations", "toolCallsTotal"] {
+            if let Some(value) = message.get(key) {
+                shown[key] = value.clone();
+            }
+        }
     }
     shown
+}
+
+/// A request's tool message carries the row's `toolKind`, `toolTiming` and `createdAt` as the provider is handed them; the recording
+/// must show them to be the stored row's own, which is why the request side leaves them out.
+fn request_fields_are_the_rows(scenario: &Value) {
+    let stored = scenario["stored"].as_array().expect("stored");
+    for request in scenario["requests"].as_array().expect("requests") {
+        for message in request.as_array().expect("messages") {
+            for key in ["toolKind", "toolTiming", "createdAt"] {
+                let Some(value) = message.get(key) else { continue };
+                let row = stored.iter().find(|row| row["role"] == message["role"] && row["toolCallId"] == message["toolCallId"] && row["content"] == message["content"]);
+                assert_eq!(row.map(|row| &row[key]), Some(value), "{}: a request's {key} is not the stored row's", scenario["name"]);
+            }
+        }
+    }
+}
+
+/// Where two values first differ, as a path and the two leaves.
+fn first_difference(node: &Value, core: &Value, path: &str) -> String {
+    match (node, core) {
+        (Value::Array(a), Value::Array(b)) => {
+            for (index, (x, y)) in a.iter().zip(b).enumerate() {
+                if x != y {
+                    return first_difference(x, y, &format!("{path}[{index}]"));
+                }
+            }
+            format!("{path}: node has {} item(s), core has {}", a.len(), b.len())
+        }
+        (Value::Object(a), Value::Object(b)) => {
+            for (key, x) in a {
+                match b.get(key) {
+                    Some(y) if x == y => {}
+                    Some(y) => return first_difference(x, y, &format!("{path}.{key}")),
+                    None => return format!("{path}.{key}: node has {x}, core has none"),
+                }
+            }
+            match b.keys().find(|key| !a.contains_key(*key)) {
+                Some(key) => format!("{path}.{key}: core has {}, node has none", b[key]),
+                None => format!("{path}: equal"),
+            }
+        }
+        _ => format!("{path}: node {node}, core {core}"),
+    }
 }
 
 async fn observed(scenario: &Value, defined: &[Value]) -> Value {
@@ -731,8 +827,10 @@ async fn observed(scenario: &Value, defined: &[Value]) -> Value {
         registry.push(Probe::new("mcp__mail__send", &executed, &timeline, &stages));
     }
     let readonly = session["toolSpec"] == "readonly";
+    // The session's persisted deferred surface (`deferredSurfaceMode`), set apart from its tool mode.
+    let deferred_readonly = surface["deferredSurfaceMode"] == "readonly";
     let mcp_names = (scenario["mcp"].as_bool() == Some(true)).then(|| live_mcp.clone());
-    let catalog = Arc::new(Catalog { eager: eager.clone(), deferred: deferred.clone(), live_mcp, defined: defined.to_vec(), readonly });
+    let catalog = Arc::new(Catalog { eager: eager.clone(), deferred: deferred.clone(), live_mcp, defined: defined.to_vec(), readonly: readonly || deferred_readonly });
     let mut offered: Vec<Arc<dyn Tool>> = Vec::new();
     for name in &eager {
         match name.as_str() {
@@ -750,6 +848,7 @@ async fn observed(scenario: &Value, defined: &[Value]) -> Value {
         disallowed: disallowed.clone(),
         feature_denied: strings(&session["featureDeniedTools"]),
         readonly,
+        deferred_readonly,
         mode_resolved: !surface["toolSpec"].is_null(),
         mcp_names,
         active_tools: eager.clone(),
@@ -784,7 +883,8 @@ async fn observed(scenario: &Value, defined: &[Value]) -> Value {
             self.0.pre_tool(call).await
         }
     }
-    let policy = ToolPolicy::new(Arc::new(MemoryGrantStore::default()), Arc::new(Connectors)).with_hook(Arc::new(SharedHook(hook.clone())));
+    let grant_store = Arc::new(MemoryGrantStore::default());
+    let policy = ToolPolicy::new(grant_store.clone(), Arc::new(Connectors)).with_hook(Arc::new(SharedHook(hook.clone())));
     let thread = ThreadId::from("t");
     let gate = PolicyGate::new(PolicyGateParts {
         policy: Arc::new(policy),
@@ -856,10 +956,12 @@ async fn observed(scenario: &Value, defined: &[Value]) -> Value {
         set,
         tool_env,
         RunConfig::new(thread, TurnId::from("r"), "m"),
-        vec![AgentMessage::user("go")],
+        // The transcript the run is given is the recording's first request, whole: the host's system messages (the prompt is
+        // assembled outside the loop, which must pass it on untouched) and the user's turn.
+        scenario["requests"][0].as_array().expect("first request").iter().map(input_message).collect(),
         RunCarry::default(),
     );
-    let output = match run.run().await {
+    let output = match awaiting_for(DEADLINE, || format!("the run of {}", scenario["name"]), run.run()).await {
         Ok(output) => output,
         Err(failure) => panic!("{}: the run failed: {}", scenario["name"], failure.error),
     };
@@ -869,30 +971,14 @@ async fn observed(scenario: &Value, defined: &[Value]) -> Value {
         .lock()
         .expect("requests")
         .iter()
-        .map(|request| {
-            let messages: Vec<Value> = request
-                .messages
-                .iter()
-                .filter(|m| !matches!(m.role, Role::System | Role::Developer))
-                .map(|m| view(role_name(m.role), text_of(&m.content), &m.tool_calls, m.tool_call_id.as_deref()))
-                .collect();
-            json!(messages)
-        })
+        .map(|request| json!(request.messages.iter().map(wire_view).collect::<Vec<_>>()))
         .collect();
-    // The answer is the transcript's last message, which the run returns apart from it.
-    let mut transcript: Vec<Value> = output
-        .transcript
-        .iter()
-        .filter(|m| m.role() != Role::System)
-        .map(|m| {
-            let mut shown = view(role_name(m.role()), text_of(&m.message.content), &m.tool_calls().to_vec(), m.tool_call_id());
-            if let Some(kind) = m.tool_kind {
-                shown["toolKind"] = json!(kind_of(kind));
-            }
-            shown
-        })
-        .collect();
-    transcript.push(view("assistant", json!(output.response.content), &[], None));
+    // The answer is the transcript's last message, which the run returns apart from it, with the run's own counters.
+    let mut transcript: Vec<Value> = output.transcript.iter().map(stored_view).collect();
+    let mut answer = view("assistant", json!(output.response.content), &[], None);
+    answer["iterations"] = json!(output.iterations);
+    answer["toolCallsTotal"] = json!(output.tool_calls_total);
+    transcript.push(answer);
     let events = observer.0.lock().expect("events").clone();
     let tool_calls: Vec<Value> = events
         .iter()
@@ -901,10 +987,17 @@ async fn observed(scenario: &Value, defined: &[Value]) -> Value {
             _ => None,
         })
         .collect();
-    let early: Vec<String> = events
+    let batches: Vec<Value> = events
         .iter()
         .filter_map(|event| match event {
-            RunEvent::EarlyResult(message) => message.tool_call_id().map(str::to_owned),
+            RunEvent::ToolBatch(batch) => Some(batch_view(batch)),
+            _ => None,
+        })
+        .collect();
+    let early: Vec<Value> = events
+        .iter()
+        .filter_map(|event| match event {
+            RunEvent::EarlyResult(message) => Some(early_view(message)),
             _ => None,
         })
         .collect();
@@ -921,29 +1014,138 @@ async fn observed(scenario: &Value, defined: &[Value]) -> Value {
         .lock()
         .expect("asks")
         .iter()
-        .map(|ask| json!({ "name": ask.tool, "args": ask.payload["args"], "reason": ask.reason, "toolCallId": ask.call_id.as_ref().map(|id| id.as_str()) }))
+        .map(|ask| card_view(ask))
+        .collect();
+    let audit: Vec<Value> = grant_store
+        .audit()
+        .iter()
+        .map(|entry| json!({ "agentId": entry.agent_id, "kind": entry.kind, "action": entry.action, "tool": entry.tool, "target": entry.target, "decision": entry.decision, "device": entry.device }))
         .collect();
     let executed = executed.lock().expect("executed").clone();
     let before = hook.seen.lock().expect("seen").clone();
     let after = post.0.lock().expect("after").clone();
-    json!({
+    let mut seen = json!({
         "answer": output.response.content,
         "requests": requests,
         "transcript": transcript,
         "toolCalls": tool_calls,
+        "batches": batches,
         "early": early,
         "results": results,
         "cards": cards,
+        "audit": audit,
         "hooks": { "before": before, "after": after },
         "executed": executed,
         "timeline": timeline.all(),
+    });
+    sandboxed(&mut seen);
+    seen
+}
+
+/// The recording's sandbox, in the core's terms: the run's working directory is the machine's temp directory, which stands where the
+/// recorder's work folder stood.
+fn sandboxed(value: &mut Value) {
+    let work = std::env::temp_dir().display().to_string();
+    match value {
+        Value::String(text) => *text = text.replace(&work, r"<SANDBOX>\work"),
+        Value::Array(items) => items.iter_mut().for_each(sandboxed),
+        Value::Object(fields) => fields.values_mut().for_each(sandboxed),
+        _ => {}
+    }
+}
+
+/// A message the run is given, as the recording shows it.
+fn input_message(message: &Value) -> AgentMessage {
+    let text = message["content"].as_str().expect("input text").to_owned();
+    match message["role"].as_str().expect("role") {
+        "user" => AgentMessage::user(text),
+        "system" => {
+            let mut system = Message::new(Role::System, Content::Text(text));
+            system.cache_tier = match message["cacheTier"].as_str() {
+                None => None,
+                Some("tier3") => Some(CacheTier::Tier3),
+                Some("env") => Some(CacheTier::Env),
+                Some(other) => panic!("a cache tier the replay does not know: {other}"),
+            };
+            AgentMessage::new(system)
+        }
+        other => panic!("an input message of role {other}"),
+    }
+}
+
+fn tier_name(tier: Option<CacheTier>) -> Option<&'static str> {
+    tier.map(|tier| match tier {
+        CacheTier::Tier3 => "tier3",
+        CacheTier::Env => "env",
+    })
+}
+
+/// A message of a model request: the wire message.
+fn wire_view(message: &Message) -> Value {
+    let mut shown = view(role_name(message.role), text_of(&message.content), &message.tool_calls, message.tool_call_id.as_deref());
+    if let Some(tier) = tier_name(message.cache_tier) {
+        shown["cacheTier"] = json!(tier);
+    }
+    shown
+}
+
+/// A message of the transcript: the wire message and the loop's own fields (`toolKind`, `toolTiming`). The timing's clock values are
+/// the recording's declared 0.
+fn stored_view(message: &AgentMessage) -> Value {
+    let mut shown = wire_view(&message.message);
+    if let Some(kind) = message.tool_kind {
+        shown["toolKind"] = json!(kind_of(kind));
+    }
+    if message.tool_timing.is_some() {
+        shown["toolTiming"] = json!({ "dispatchStartedAt": 0, "executionStartedAt": 0, "executionCompletedAt": 0, "postprocessStartedAt": 0, "resultCompletedAt": 0 });
+    }
+    shown
+}
+
+/// The early notification a settled call tells the host: its role, call id, text, error flag and the marks it carries (the first three
+/// of the timing's five).
+fn early_view(message: &AgentMessage) -> Value {
+    let mut shown = view("tool", text_of(&message.message.content), &[], message.tool_call_id());
+    shown["isError"] = json!(message.message.is_error);
+    if message.tool_timing.is_some() {
+        shown["toolTiming"] = json!({ "dispatchStartedAt": 0, "executionStartedAt": 0, "executionCompletedAt": 0 });
+    }
+    shown
+}
+
+/// The approval card as the human is shown it: the ask's own fields, and the thread (the card's `sessionId`).
+fn card_view(ask: &ApprovalAsk) -> Value {
+    let payload = &ask.payload;
+    json!({
+        "kind": payload["kind"],
+        "agentId": payload["agentId"],
+        "remember": payload["remember"],
+        "grantAction": payload["grantAction"],
+        "name": ask.tool,
+        "args": payload["args"],
+        "cwd": payload["cwd"],
+        "sessionId": "t",
+        "toolCallId": ask.call_id.as_ref().map(|id| id.as_str()),
+        "reason": ask.reason,
+    })
+}
+
+/// `recordToolBatch`'s row of a batch: what the loop reports.
+fn batch_view(batch: &ToolBatch) -> Value {
+    json!({
+        "iteration": batch.iteration,
+        "tool_call_count": batch.calls.len(),
+        "calls": batch.calls.iter().map(|call| json!({
+            "tool_call_id": call.tool_call_id,
+            "tool_name": call.tool_name,
+            "array_lengths": call.array_lengths.as_ref().map(|lengths| Value::Object(lengths.iter().map(|(field, length)| (field.clone(), json!(length))).collect())),
+        })).collect::<Vec<_>>(),
     })
 }
 
 /// The recording's side of the same view.
 fn recorded(scenario: &Value) -> Value {
-    let workdir = scenario["workdir"].as_str().expect("workdir");
-    let _ = workdir;
+    request_fields_are_the_rows(scenario);
     let requests: Vec<Value> = scenario["requests"]
         .as_array()
         .expect("requests")
@@ -953,7 +1155,38 @@ fn recorded(scenario: &Value) -> Value {
     let transcript: Vec<Value> = scenario["stored"].as_array().expect("stored").iter().map(|m| recorded_view(m, true)).collect();
     let events = scenario["events"].as_array().expect("events");
     let tool_calls: Vec<Value> = events.iter().filter(|e| e["ev"] == "toolCall").map(|e| json!({ "iteration": e["iteration"], "calls": e["calls"] })).collect();
-    let early: Vec<String> = events.iter().filter(|e| e["ev"] == "toolResult" && e["message"]["__earlyNotify"] == true).map(|e| e["message"]["toolCallId"].as_str().expect("id").to_owned()).collect();
+    let early: Vec<Value> = events
+        .iter()
+        .filter(|e| e["ev"] == "toolResult" && e["message"]["__earlyNotify"] == true)
+        .map(|e| {
+            let message = &e["message"];
+            let mut shown = view("tool", message["content"].clone(), &[], message["toolCallId"].as_str());
+            shown["isError"] = message["isError"].clone();
+            if let Some(timing) = message.get("toolTiming") {
+                shown["toolTiming"] = timing.clone();
+            }
+            shown
+        })
+        .collect();
+    // The trace: only these kinds exist, and the loop's own is the `batch` row.
+    let trace = scenario["trace"].as_array().expect("trace");
+    for row in trace {
+        assert!(matches!(row["kind"].as_str(), Some("context" | "batch" | "tool" | "usage")), "{}: a trace row of a kind the replay does not know: {}", scenario["name"], row["kind"]);
+    }
+    let batches: Vec<Value> = trace
+        .iter()
+        .filter(|row| row["kind"] == "batch")
+        .map(|row| {
+            assert_eq!(row["payload"]["batch_schema_version"], 1, "{}: batch row schema", scenario["name"]);
+            json!({ "iteration": row["payload"]["iteration"], "tool_call_count": row["payload"]["tool_call_count"], "calls": row["payload"]["calls"] })
+        })
+        .collect();
+    let audit: Vec<Value> = scenario["audit"]
+        .as_array()
+        .expect("audit")
+        .iter()
+        .map(|record| json!({ "agentId": record["agentId"], "kind": record["kind"], "action": record["action"], "tool": record["tool"], "target": record["target"], "decision": record["decision"], "device": record["device"] }))
+        .collect();
     let results: Vec<Value> = events
         .iter()
         .filter(|e| e["ev"] == "toolResult" && e["message"]["__earlyNotify"] != true)
@@ -963,16 +1196,23 @@ fn recorded(scenario: &Value) -> Value {
         .as_array()
         .expect("cards")
         .iter()
-        .map(|card| json!({ "name": card["name"], "args": card["args"], "reason": card["reason"], "toolCallId": card["toolCallId"] }))
+        .map(|card| {
+            let mut shown = card.clone();
+            // The thread stands where the recorder's generated session id was (see the header).
+            shown["sessionId"] = json!("t");
+            shown
+        })
         .collect();
     json!({
         "answer": scenario["answer"],
         "requests": requests,
         "transcript": transcript,
         "toolCalls": tool_calls,
+        "batches": batches,
         "early": early,
         "results": results,
         "cards": cards,
+        "audit": audit,
         "hooks": scenario["hooks"],
         "executed": scenario["executed"],
         "timeline": scenario["timeline"],
@@ -983,7 +1223,6 @@ fn recorded(scenario: &Value) -> Value {
 async fn differences() -> (usize, Vec<String>) {
     let golden: Value = serde_json::from_str(GOLDEN).expect("golden parses");
     let scenarios = golden["scenarios"].as_array().expect("scenarios");
-    assert_eq!(scenarios.len(), 55, "the recorded scenario list");
     let mut failures = Vec::new();
     let mut compared = 0;
     for scenario in scenarios {
@@ -993,7 +1232,7 @@ async fn differences() -> (usize, Vec<String>) {
         let (got, want) = (observed(scenario, golden["tools"].as_array().expect("tools")).await, recorded(scenario));
         for key in want.as_object().expect("view").keys() {
             if got[key] != want[key] {
-                failures.push(format!("{} / {key}\n  node: {}\n  core: {}", scenario["name"], want[key], got[key]));
+                failures.push(format!("{} / {key}: {}\n  node: {}\n  core: {}", scenario["name"], first_difference(&want[key], &got[key], key), want[key], got[key]));
             }
         }
     }
@@ -1001,9 +1240,11 @@ async fn differences() -> (usize, Vec<String>) {
 }
 
 /// Node's recording and the core's replay of every scenario, compared whole: every key, in the order Node recorded it.
-#[tokio::test(start_paused = true)]
+#[tokio::test]
 async fn every_recorded_call_tool_scenario_is_the_same_in_the_core() {
-    let (compared, failures) = differences().await;
-    assert_eq!(compared, 55);
+    let golden: Value = serde_json::from_str(GOLDEN).expect("golden parses");
+    let recorded_count = golden["scenarios"].as_array().expect("scenarios").len();
+    let (compared, failures) = awaiting_for(Duration::from_secs(300), || "the whole replay".to_owned(), differences()).await;
+    assert_eq!(compared, recorded_count, "every recorded scenario is replayed");
     assert!(failures.is_empty(), "{} difference(s):\n{}", failures.len(), failures.join("\n"));
 }
