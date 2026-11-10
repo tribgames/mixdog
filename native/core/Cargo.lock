@@ -4950,6 +4950,7 @@ dependencies = [
  "mixdog-workspace-hack",
  "rand 0.9.5",
  "serde_json",
+ "sha2 0.10.9",
  "tempfile",
  "tokio",
  "tracing",
