@@ -1,0 +1,1272 @@
+{
+  "scenarios": [
+    {
+      "name": "before a connection: the bounded sends are refused at once and the control writes do nothing",
+      "steps": [
+        {
+          "op": "session"
+        },
+        {
+          "op": "send",
+          "as": "input",
+          "what": "input",
+          "event": {
+            "kind": "key",
+            "down": true,
+            "vk": 65,
+            "scan": 30,
+            "extended": false
+          }
+        },
+        {
+          "op": "send",
+          "as": "grant",
+          "what": "grant",
+          "grant": {
+            "challenge": "c",
+            "epoch": 2,
+            "signature": "s"
+          }
+        },
+        {
+          "op": "send",
+          "as": "sas",
+          "what": "sas"
+        },
+        {
+          "op": "setActive",
+          "active": true
+        },
+        {
+          "op": "videoRun",
+          "epoch": 1
+        },
+        {
+          "op": "await",
+          "call": "input"
+        },
+        {
+          "op": "await",
+          "call": "grant"
+        },
+        {
+          "op": "await",
+          "call": "sas"
+        },
+        {
+          "op": "close"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "session",
+          "session": null
+        },
+        {
+          "ev": "done",
+          "call": "input",
+          "ok": false,
+          "error": "not connected"
+        },
+        {
+          "ev": "done",
+          "call": "grant",
+          "ok": false,
+          "error": "not connected"
+        },
+        {
+          "ev": "done",
+          "call": "sas",
+          "ok": false,
+          "error": "not connected"
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "connected: the session is the hello; control writes go out unbounded; a taken send resolves",
+      "steps": [
+        {
+          "op": "connect",
+          "as": "connect"
+        },
+        {
+          "op": "await",
+          "call": "connect"
+        },
+        {
+          "op": "session"
+        },
+        {
+          "op": "setActive",
+          "active": true
+        },
+        {
+          "op": "videoRun",
+          "epoch": 3
+        },
+        {
+          "op": "send",
+          "as": "input",
+          "what": "input",
+          "event": {
+            "kind": "key",
+            "down": true,
+            "vk": 65,
+            "scan": 30,
+            "extended": false
+          }
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "written",
+          "n": 2
+        },
+        {
+          "op": "await",
+          "call": "input"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "open",
+          "socket": "A"
+        },
+        {
+          "ev": "done",
+          "call": "connect",
+          "ok": true,
+          "value": "hello"
+        },
+        {
+          "ev": "session",
+          "session": {
+            "protocol": 4,
+            "version": "1.4.5",
+            "session": 1,
+            "desktop": "Winlogon",
+            "locked": false
+          }
+        },
+        {
+          "ev": "write",
+          "socket": "A",
+          "n": 0,
+          "message": {
+            "type": "control",
+            "active": true
+          }
+        },
+        {
+          "ev": "write",
+          "socket": "A",
+          "n": 1,
+          "message": {
+            "type": "video-run",
+            "epoch": 3
+          }
+        },
+        {
+          "ev": "write",
+          "socket": "A",
+          "n": 2,
+          "message": {
+            "type": "input",
+            "event": {
+              "kind": "key",
+              "down": true,
+              "vk": 65,
+              "scan": 30,
+              "extended": false
+            }
+          }
+        },
+        {
+          "ev": "done",
+          "call": "input",
+          "ok": true,
+          "value": null
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "a write that fails rejects with its error",
+      "steps": [
+        {
+          "op": "connect",
+          "as": "connect"
+        },
+        {
+          "op": "await",
+          "call": "connect"
+        },
+        {
+          "op": "send",
+          "as": "input",
+          "what": "input",
+          "event": {
+            "kind": "key",
+            "down": true,
+            "vk": 65,
+            "scan": 30,
+            "extended": false
+          }
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "written",
+          "n": 0,
+          "error": "EPIPE: broken pipe"
+        },
+        {
+          "op": "await",
+          "call": "input"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "open",
+          "socket": "A"
+        },
+        {
+          "ev": "done",
+          "call": "connect",
+          "ok": true,
+          "value": "hello"
+        },
+        {
+          "ev": "write",
+          "socket": "A",
+          "n": 0,
+          "message": {
+            "type": "input",
+            "event": {
+              "kind": "key",
+              "down": true,
+              "vk": 65,
+              "scan": 30,
+              "extended": false
+            }
+          }
+        },
+        {
+          "ev": "done",
+          "call": "input",
+          "ok": false,
+          "error": "EPIPE: broken pipe"
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "a write the pipe never takes is rejected at the frame deadline, not before; a late outcome counts for nothing",
+      "steps": [
+        {
+          "op": "connect",
+          "as": "connect"
+        },
+        {
+          "op": "await",
+          "call": "connect"
+        },
+        {
+          "op": "send",
+          "as": "input",
+          "what": "input",
+          "event": {
+            "kind": "key",
+            "down": true,
+            "vk": 65,
+            "scan": 30,
+            "extended": false
+          }
+        },
+        {
+          "op": "advance",
+          "ms": 9999
+        },
+        {
+          "op": "advance",
+          "ms": 1
+        },
+        {
+          "op": "await",
+          "call": "input"
+        },
+        {
+          "op": "written",
+          "n": 0
+        },
+        {
+          "op": "settle"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "open",
+          "socket": "A"
+        },
+        {
+          "ev": "done",
+          "call": "connect",
+          "ok": true,
+          "value": "hello"
+        },
+        {
+          "ev": "write",
+          "socket": "A",
+          "n": 0,
+          "message": {
+            "type": "input",
+            "event": {
+              "kind": "key",
+              "down": true,
+              "vk": 65,
+              "scan": 30,
+              "extended": false
+            }
+          }
+        },
+        {
+          "ev": "advance",
+          "ms": 9999,
+          "ran": 0
+        },
+        {
+          "ev": "done",
+          "call": "input",
+          "ok": false,
+          "error": "input not taken by the helper within 10000 ms"
+        },
+        {
+          "ev": "advance",
+          "ms": 1,
+          "ran": 1
+        }
+      ],
+      "final": {
+        "elapsedMs": 10000,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "sas and a grant are bounded the same way",
+      "steps": [
+        {
+          "op": "connect",
+          "as": "connect"
+        },
+        {
+          "op": "await",
+          "call": "connect"
+        },
+        {
+          "op": "send",
+          "as": "sas",
+          "what": "sas"
+        },
+        {
+          "op": "send",
+          "as": "grant",
+          "what": "grant",
+          "grant": {
+            "challenge": "c",
+            "epoch": 2,
+            "signature": "s"
+          }
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "written",
+          "n": 0
+        },
+        {
+          "op": "await",
+          "call": "sas"
+        },
+        {
+          "op": "advance",
+          "ms": 10000
+        },
+        {
+          "op": "await",
+          "call": "grant"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "open",
+          "socket": "A"
+        },
+        {
+          "ev": "done",
+          "call": "connect",
+          "ok": true,
+          "value": "hello"
+        },
+        {
+          "ev": "write",
+          "socket": "A",
+          "n": 0,
+          "message": {
+            "type": "sas"
+          }
+        },
+        {
+          "ev": "write",
+          "socket": "A",
+          "n": 1,
+          "message": {
+            "type": "grant",
+            "challenge": "c",
+            "epoch": 2,
+            "signature": "s"
+          }
+        },
+        {
+          "ev": "done",
+          "call": "sas",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "done",
+          "call": "grant",
+          "ok": false,
+          "error": "input not taken by the helper within 10000 ms"
+        },
+        {
+          "ev": "advance",
+          "ms": 10000,
+          "ran": 1
+        }
+      ],
+      "final": {
+        "elapsedMs": 10000,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "the connection closing rejects every pending send and emits close; later sends are refused",
+      "steps": [
+        {
+          "op": "connect",
+          "as": "connect"
+        },
+        {
+          "op": "await",
+          "call": "connect"
+        },
+        {
+          "op": "listen"
+        },
+        {
+          "op": "send",
+          "as": "a",
+          "what": "input",
+          "event": {
+            "kind": "key",
+            "down": true,
+            "vk": 65,
+            "scan": 30,
+            "extended": false
+          }
+        },
+        {
+          "op": "send",
+          "as": "b",
+          "what": "sas"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "peerClose"
+        },
+        {
+          "op": "await",
+          "call": "a"
+        },
+        {
+          "op": "await",
+          "call": "b"
+        },
+        {
+          "op": "session"
+        },
+        {
+          "op": "send",
+          "as": "after",
+          "what": "input",
+          "event": {
+            "kind": "key",
+            "down": true,
+            "vk": 65,
+            "scan": 30,
+            "extended": false
+          }
+        },
+        {
+          "op": "await",
+          "call": "after"
+        },
+        {
+          "op": "written",
+          "n": 0
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "advance",
+          "ms": 10000
+        }
+      ],
+      "trace": [
+        {
+          "ev": "open",
+          "socket": "A"
+        },
+        {
+          "ev": "done",
+          "call": "connect",
+          "ok": true,
+          "value": "hello"
+        },
+        {
+          "ev": "write",
+          "socket": "A",
+          "n": 0,
+          "message": {
+            "type": "input",
+            "event": {
+              "kind": "key",
+              "down": true,
+              "vk": 65,
+              "scan": 30,
+              "extended": false
+            }
+          }
+        },
+        {
+          "ev": "write",
+          "socket": "A",
+          "n": 1,
+          "message": {
+            "type": "sas"
+          }
+        },
+        {
+          "ev": "close"
+        },
+        {
+          "ev": "done",
+          "call": "a",
+          "ok": false,
+          "error": "connection closed"
+        },
+        {
+          "ev": "done",
+          "call": "b",
+          "ok": false,
+          "error": "connection closed"
+        },
+        {
+          "ev": "session",
+          "session": null
+        },
+        {
+          "ev": "done",
+          "call": "after",
+          "ok": false,
+          "error": "not connected"
+        },
+        {
+          "ev": "advance",
+          "ms": 10000,
+          "ran": 0
+        }
+      ],
+      "final": {
+        "elapsedMs": 10000,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "close deactivates and ends; a send already handed over settles from its own outcome",
+      "steps": [
+        {
+          "op": "connect",
+          "as": "connect"
+        },
+        {
+          "op": "await",
+          "call": "connect"
+        },
+        {
+          "op": "send",
+          "as": "input",
+          "what": "input",
+          "event": {
+            "kind": "key",
+            "down": true,
+            "vk": 65,
+            "scan": 30,
+            "extended": false
+          }
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "session"
+        },
+        {
+          "op": "send",
+          "as": "after",
+          "what": "input",
+          "event": {
+            "kind": "key",
+            "down": true,
+            "vk": 65,
+            "scan": 30,
+            "extended": false
+          }
+        },
+        {
+          "op": "await",
+          "call": "after"
+        },
+        {
+          "op": "written",
+          "n": 0
+        },
+        {
+          "op": "await",
+          "call": "input"
+        },
+        {
+          "op": "close"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "open",
+          "socket": "A"
+        },
+        {
+          "ev": "done",
+          "call": "connect",
+          "ok": true,
+          "value": "hello"
+        },
+        {
+          "ev": "write",
+          "socket": "A",
+          "n": 0,
+          "message": {
+            "type": "input",
+            "event": {
+              "kind": "key",
+              "down": true,
+              "vk": 65,
+              "scan": 30,
+              "extended": false
+            }
+          }
+        },
+        {
+          "ev": "write",
+          "socket": "A",
+          "n": 1,
+          "message": {
+            "type": "control",
+            "active": false
+          }
+        },
+        {
+          "ev": "end",
+          "socket": "A"
+        },
+        {
+          "ev": "session",
+          "session": null
+        },
+        {
+          "ev": "done",
+          "call": "after",
+          "ok": false,
+          "error": "not connected"
+        },
+        {
+          "ev": "done",
+          "call": "input",
+          "ok": true,
+          "value": null
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "after authentication: a desktop change updates the session; challenges and errors are emitted",
+      "steps": [
+        {
+          "op": "connect",
+          "as": "connect"
+        },
+        {
+          "op": "await",
+          "call": "connect"
+        },
+        {
+          "op": "listen"
+        },
+        {
+          "op": "peer",
+          "message": {
+            "type": "desktop-changed",
+            "desktop": "Default",
+            "session": 2,
+            "locked": true
+          }
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "session"
+        },
+        {
+          "op": "peer",
+          "message": {
+            "type": "desktop-changed",
+            "desktop": "Winlogon",
+            "session": 2
+          }
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "session"
+        },
+        {
+          "op": "peer",
+          "message": {
+            "type": "grant-challenge",
+            "nonce": "CQkJCQkJCQkJCQkJCQkJCQ==",
+            "challenge": "CQkJCQkJCQkJCQkJCQkJCQ=="
+          }
+        },
+        {
+          "op": "peer",
+          "message": {
+            "type": "error",
+            "code": "grant_expired",
+            "message": "the grant lapsed"
+          }
+        },
+        {
+          "op": "settle"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "open",
+          "socket": "A"
+        },
+        {
+          "ev": "done",
+          "call": "connect",
+          "ok": true,
+          "value": "hello"
+        },
+        {
+          "ev": "desktop-changed",
+          "desktop": "Default",
+          "session": 2,
+          "locked": true
+        },
+        {
+          "ev": "session",
+          "session": {
+            "protocol": 4,
+            "version": "1.4.5",
+            "desktop": "Default",
+            "session": 2,
+            "locked": true
+          }
+        },
+        {
+          "ev": "desktop-changed",
+          "desktop": "Winlogon",
+          "session": 2,
+          "locked": null
+        },
+        {
+          "ev": "session",
+          "session": {
+            "protocol": 4,
+            "version": "1.4.5",
+            "desktop": "Winlogon",
+            "session": 2
+          }
+        },
+        {
+          "ev": "grant-challenge",
+          "challenge": {
+            "nonce": "CQkJCQkJCQkJCQkJCQkJCQ==",
+            "challenge": "CQkJCQkJCQkJCQkJCQkJCQ=="
+          }
+        },
+        {
+          "ev": "error",
+          "code": "grant_expired",
+          "message": "the grant lapsed"
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "close, then the connection’s own close: close is still emitted and the session stays ended",
+      "steps": [
+        {
+          "op": "connect",
+          "as": "connect"
+        },
+        {
+          "op": "await",
+          "call": "connect"
+        },
+        {
+          "op": "listen"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "peerClose"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "session"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "open",
+          "socket": "A"
+        },
+        {
+          "ev": "done",
+          "call": "connect",
+          "ok": true,
+          "value": "hello"
+        },
+        {
+          "ev": "write",
+          "socket": "A",
+          "n": 0,
+          "message": {
+            "type": "control",
+            "active": false
+          }
+        },
+        {
+          "ev": "end",
+          "socket": "A"
+        },
+        {
+          "ev": "close"
+        },
+        {
+          "ev": "session",
+          "session": null
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "a late close of a socket given up in its handshake leaves the connection that replaced it connected and usable",
+      "world": {
+        "held": [
+          "A"
+        ]
+      },
+      "steps": [
+        {
+          "op": "listen"
+        },
+        {
+          "op": "connect",
+          "as": "a"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "connect",
+          "as": "b"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "await",
+          "call": "a"
+        },
+        {
+          "op": "await",
+          "call": "b"
+        },
+        {
+          "op": "session"
+        },
+        {
+          "op": "peerClose",
+          "socket": "A"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "session"
+        },
+        {
+          "op": "send",
+          "as": "input",
+          "what": "input",
+          "event": {
+            "kind": "key",
+            "down": true,
+            "vk": 65,
+            "scan": 30,
+            "extended": false
+          }
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "written",
+          "n": 0
+        },
+        {
+          "op": "await",
+          "call": "input"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "open",
+          "socket": "A"
+        },
+        {
+          "ev": "end",
+          "socket": "A"
+        },
+        {
+          "ev": "open",
+          "socket": "B"
+        },
+        {
+          "ev": "done",
+          "call": "a",
+          "ok": false,
+          "error": "connection closed"
+        },
+        {
+          "ev": "done",
+          "call": "b",
+          "ok": true,
+          "value": "hello"
+        },
+        {
+          "ev": "session",
+          "session": {
+            "protocol": 4,
+            "version": "1.4.5",
+            "session": 1,
+            "desktop": "Winlogon",
+            "locked": false
+          }
+        },
+        {
+          "ev": "session",
+          "session": {
+            "protocol": 4,
+            "version": "1.4.5",
+            "session": 1,
+            "desktop": "Winlogon",
+            "locked": false
+          }
+        },
+        {
+          "ev": "write",
+          "socket": "B",
+          "n": 0,
+          "message": {
+            "type": "input",
+            "event": {
+              "kind": "key",
+              "down": true,
+              "vk": 65,
+              "scan": 30,
+              "extended": false
+            }
+          }
+        },
+        {
+          "ev": "done",
+          "call": "input",
+          "ok": true,
+          "value": null
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "late data of a socket given up in its handshake does not reach the handshake of the connect that replaced it",
+      "world": {
+        "held": [
+          "A",
+          "B"
+        ]
+      },
+      "steps": [
+        {
+          "op": "listen"
+        },
+        {
+          "op": "connect",
+          "as": "a"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "connect",
+          "as": "b"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "answer",
+          "socket": "A"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "answer",
+          "socket": "B"
+        },
+        {
+          "op": "await",
+          "call": "b"
+        },
+        {
+          "op": "await",
+          "call": "a"
+        },
+        {
+          "op": "session"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "open",
+          "socket": "A"
+        },
+        {
+          "ev": "end",
+          "socket": "A"
+        },
+        {
+          "ev": "open",
+          "socket": "B"
+        },
+        {
+          "ev": "done",
+          "call": "a",
+          "ok": false,
+          "error": "connection closed"
+        },
+        {
+          "ev": "done",
+          "call": "b",
+          "ok": true,
+          "value": "hello"
+        },
+        {
+          "ev": "session",
+          "session": {
+            "protocol": 4,
+            "version": "1.4.5",
+            "session": 1,
+            "desktop": "Winlogon",
+            "locked": false
+          }
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "a late error of a socket given up in its handshake does not fail the connect that replaced it",
+      "world": {
+        "held": [
+          "A",
+          "B"
+        ]
+      },
+      "steps": [
+        {
+          "op": "listen"
+        },
+        {
+          "op": "connect",
+          "as": "a"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "close"
+        },
+        {
+          "op": "connect",
+          "as": "b"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "peerError",
+          "socket": "A",
+          "error": "read ECONNRESET"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "answer",
+          "socket": "B"
+        },
+        {
+          "op": "await",
+          "call": "b"
+        },
+        {
+          "op": "await",
+          "call": "a"
+        },
+        {
+          "op": "session"
+        },
+        {
+          "op": "peerClose",
+          "socket": "A"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "session"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "open",
+          "socket": "A"
+        },
+        {
+          "ev": "end",
+          "socket": "A"
+        },
+        {
+          "ev": "open",
+          "socket": "B"
+        },
+        {
+          "ev": "done",
+          "call": "a",
+          "ok": false,
+          "error": "connection closed"
+        },
+        {
+          "ev": "done",
+          "call": "b",
+          "ok": true,
+          "value": "hello"
+        },
+        {
+          "ev": "session",
+          "session": {
+            "protocol": 4,
+            "version": "1.4.5",
+            "session": 1,
+            "desktop": "Winlogon",
+            "locked": false
+          }
+        },
+        {
+          "ev": "session",
+          "session": {
+            "protocol": 4,
+            "version": "1.4.5",
+            "session": 1,
+            "desktop": "Winlogon",
+            "locked": false
+          }
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0
+      }
+    }
+  ]
+}

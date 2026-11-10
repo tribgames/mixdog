@@ -5,8 +5,9 @@
 // parity contract of DS-SCM-1: a core reply equals Node's operation result), and two things are compared whole:
 //  - every request the adapter sends equals, in order, the request the shared desktop route makes of the operation Node ran;
 //  - the answer the phone receives (value, or message / code / params of the failure) equals the relay frame Node sent.
-// A call Node refused before running any operation sends nothing. Each call also runs with its `null` arguments as `undefined`,
-// as the page passes them (the relay's JSON turned them into null).
+// A call Node refused before running any operation sends nothing. Every call enters through the router (remote-shim-protocol.ts), and
+// each also runs with its `null` arguments as `undefined`, as the page passes them (the relay's JSON turned them into null). Node is
+// b6f10295a with node-fix-relay-optional-args.patch: its relay methods take an optional argument the app left out as omitted.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -95,12 +96,18 @@ const failureOf = (error) => ({
   ...(error.details === undefined ? {} : { errorParams: error.details }),
 });
 
+// The router arms each call's deadline on the page's window timers; the replay compares answers, so its window never fires one.
+globalThis.window ??= { setTimeout: () => 0, clearTimeout() {} };
+
+/** One call as the page makes it: through the router (its relay transformation, its queue) to the adapter, over the scripted core. */
 async function answerOf(entry, params, coreCodes = false) {
   const core = scriptedCore(entry.ops, { coreCodes });
-  const host = { ctx: {}, client: () => core };
+  const host = { ctx: {}, client: () => core, declareLane() {} };
+  const ready = Promise.resolve();
+  const router = createProtocolRouter([adapter], { host, started: () => ready, synced: () => ready, probe() {}, silentSince: () => false });
   let answer;
   try {
-    const value = await adapter.calls[entry.call](params, host);
+    const value = await router.call(entry.call, params);
     answer = { ok: true, value: value === undefined ? null : clone(value) };
   } catch (error) {
     answer = failureOf(error);

@@ -177,7 +177,7 @@ pub fn create_new_file(path: &Path, access: Access) -> Result<File, IoError> {
 
 fn create_new_platform(path: &Path, access: Access) -> io::Result<File> {
     // 0o666: the umask decides, as a plain `open` does.
-    mixdog_statefile::unlaned::create_new(path, access, 0o666)
+    mixdog_statefile::unlaned::create_new(path, access, 0o666).map(mixdog_fsio::File::into_std)
 }
 
 /// Whether only the current user can open `path`: Unix no group/other mode bits;
