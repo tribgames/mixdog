@@ -27,7 +27,7 @@ import type { ServerPortForwards } from './server-port-forwards';
 import { createServiceTerminalHost } from './terminal-host';
 import { createCapabilityLane } from '../protocol/capability-route';
 import { withSectionCapabilities } from '../protocol/section-capability-lane';
-import { createOperationLane } from '../protocol/desktop-operation-route';
+import { createOperationLane, watchAnnouncements } from '../protocol/desktop-operation-route';
 import { createServiceLane } from '../protocol/service-route';
 import type { OperationHost } from '../protocol/section-reads';
 import type { ProtocolConnection } from '../protocol/connection';
@@ -390,6 +390,9 @@ function createServiceClient({
     onDiagnostic: (event, data) => deps.onDiagnostic?.(identity, event, data),
     onServiceReady: (context) => deps.onServiceReady?.(identity, context),
   });
+  // The core's announcements (`ui/settings/changed`, `ui/providerModels/changed`) are the events Node's service raised for
+  // this process's windows; they last as long as the connection.
+  if (protocol) watchAnnouncements(protocol, (name, value) => client.emitDesktopEvent(name, value));
   return client;
 }
 
