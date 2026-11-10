@@ -1070,6 +1070,9 @@ pub struct ExecRuntime {
     reaped: Mutex<HashMap<String, Vec<String>>>,
     /// Whether the expired logs of the spill directory were swept.
     swept: std::sync::atomic::AtomicBool,
+    /// The hoisted scripts and tee captures a command still uses, removed when it settles or, for
+    /// a tree that never settled, at shutdown (`PENDING_ARTIFACT_PATHS`, `transport-artifacts.mjs`).
+    artifacts: Mutex<Vec<PathBuf>>,
 }
 
 /// The owner's user cycle (`currentUserCycle`): how many genuine prompts the session has seen.
@@ -1094,12 +1097,31 @@ impl ExecRuntime {
             cycles: OnceLock::new(),
             reaped: Mutex::new(HashMap::new()),
             swept: std::sync::atomic::AtomicBool::new(false),
+            artifacts: Mutex::new(Vec::new()),
         })
     }
 
-    /// Shutdown: removes the shell snapshots this runtime made.
+    /// Shutdown: removes the shell snapshots this runtime made, and the hoisted scripts and tee
+    /// captures of commands that never settled (Node's exit hooks).
     pub async fn drain_snapshots(&self, cancel: &CancellationToken) {
         self.snapshots.drain(self.config.lanes.maintenance, cancel).await;
+        let pending = std::mem::take(&mut *lock(&self.artifacts));
+        for path in pending {
+            spill::remove_file(self.config.lanes.maintenance, cancel, &path).await;
+        }
+    }
+
+    /// `path` stays in use until `job` settles; then it is removed (`cleanupArtifactAfter`). One
+    /// that cannot be removed then is removed at shutdown.
+    pub(crate) fn remove_when_settled(self: &Arc<Self>, job: &Arc<Job>, path: PathBuf, cancel: CancellationToken) {
+        lock(&self.artifacts).push(path.clone());
+        let (runtime, settled) = (self.clone(), job.clone());
+        mixdog_rt::spawn("shell-artifact-cleanup", TaskClass::Work, async move {
+            settled.settled().await;
+            if spill::remove_file(runtime.config.lanes.maintenance, &cancel, &path).await {
+                lock(&runtime.artifacts).retain(|pending| pending != &path);
+            }
+        });
     }
 
     /// Remembers the shells a timeout reap of `owner` stopped.

@@ -324,6 +324,25 @@ async fn the_first_job_sweeps_the_logs_older_than_a_week_once() {
     assert!(later.exists(), "the sweep runs once per runtime");
 }
 
+/// A hoisted script stays while its command runs; one whose tree never settled is removed when
+/// the runtime shuts down (Node's exit hook, `foreground-artifact-lifecycle.test.mjs:66`).
+#[tokio::test]
+async fn a_hoisted_script_of_a_tree_that_never_settled_is_removed_at_shutdown() {
+    let rig = rig();
+    let started = body(
+        rig.shell
+            .call(&ctx(&rig, "c1"), serde_json::json!({"command": "node -e \"console.log(1)\"", "background": true}))
+            .await,
+    );
+    assert!(started.starts_with("background task\n"), "{started}");
+    let (spec, _) = rig.processes.seen.lock().unwrap().last().cloned().unwrap();
+    let CommandSpec::Shell { script, .. } = spec else { unreachable!() };
+    let path = script.rsplit('"').nth(1).map(std::path::PathBuf::from).expect("the command runs a hoisted file");
+    assert!(path.exists(), "the running command still uses {}", path.display());
+    rig.runtime.drain_snapshots(&CancellationToken::new()).await;
+    assert!(!path.exists(), "the shutdown removed {}", path.display());
+}
+
 /// The `task` goldens were recorded from today's Node product (`executeTaskTool`); every text is
 /// asserted byte-equal.
 #[tokio::test]
