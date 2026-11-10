@@ -447,22 +447,39 @@ mod tests {
         }
     }
 
-    /// The clock of the failure writer under test: the recorded run's epoch time on the paused clock, and at each reading
-    /// whether the run's signal had been aborted (the writer reads it as it queues a row, for the row's `ts`).
+    /// The clock of the failure writer under test (the recorded run's epoch time on the paused clock), and the ordered record of
+    /// the run's events: the writer's "appended <kind>" as each record's rows are queued, and "aborted" for the run's signal. The
+    /// writer tells its appends as they happen; an abort is set synchronously and seen at the next append or at the run's end, so
+    /// an abort delivered before an append comes before it in the record.
     #[derive(Default)]
     struct Probe {
         run: Mutex<Option<(tokio::time::Instant, i64, Cancel)>>,
         last: AtomicI64,
-        readings: Mutex<Vec<(i64, bool)>>,
+        events: Mutex<Vec<String>>,
+    }
+
+    impl Probe {
+        /// "aborted", once, when the run's signal is aborted and the record does not have it yet.
+        fn note_abort(&self) {
+            let aborted = self.run.lock().unwrap().as_ref().is_some_and(|(_, _, signal)| signal.is_aborted());
+            let mut events = self.events.lock().unwrap();
+            if aborted && !events.iter().any(|e| e == "aborted") {
+                events.push("aborted".to_owned());
+            }
+        }
+
+        fn appended(&self, kind: &str) {
+            self.note_abort();
+            self.events.lock().unwrap().push(format!("appended {kind}"));
+        }
     }
 
     impl Clock for Probe {
         fn now_ms(&self) -> i64 {
             match &*self.run.lock().unwrap() {
-                Some((start, origin, signal)) => {
+                Some((start, origin, _)) => {
                     let now = origin + start.elapsed().as_millis() as i64;
                     self.last.store(now, Ordering::SeqCst);
-                    self.readings.lock().unwrap().push((now, signal.is_aborted()));
                     now
                 }
                 None => self.last.load(Ordering::SeqCst),
@@ -496,9 +513,9 @@ mod tests {
     /// clock moves only by the explicit one-second advance, and the stop is recorded as both arming sites record it (`factory.rs` hands
     /// `stall_abort_ctx` to the run's `RunFailureLog::stall_abort`; `agent_dispatch.rs` hands it to the host's `StallLog`, which is
     /// `FailureWriter::record_watchdog_abort` in `compose_flip.rs`). Each stop must come at Node's sweep with Node's sentence, and its
-    /// row must be queued while the run's signal is not yet aborted (Node records, then aborts: `agent-progress-watchdog.mjs:291-293`).
-    /// Returns the two files the writer's exit flush left (`None`: not written).
-    async fn replay_stall_rows(golden: &Value, env: &[(&str, &str)]) -> (Option<String>, Option<String>) {
+    /// run's events must be `appended`: the writer's append of the stop's rows, then the abort (Node records, then aborts:
+    /// `agent-progress-watchdog.mjs:291-293`). Returns the two files the writer's exit flush left (`None`: not written).
+    async fn replay_stall_rows(golden: &Value, env: &[(&str, &str)], appended: &[&str]) -> (Option<String>, Option<String>) {
         let tokens = mixdog_rt::testing::tokens();
         let policy = &golden["policy"];
         let policy = WatchdogPolicy {
@@ -511,7 +528,8 @@ mod tests {
         let config = mixdog_trace::TraceConfig::from_env(data.path(), &|name| vars.get(name).cloned(), false);
         let io = mixdog_core_api::domain::tool::ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io };
         let probe = Arc::new(Probe::default());
-        let writer = Arc::new(mixdog_core_run::run_host::failure_log::FailureWriter::new(&config, io, probe.clone()));
+        let told = probe.clone();
+        let writer = Arc::new(mixdog_core_run::run_host::failure_log::FailureWriter::with_appended(&config, io, probe.clone(), Arc::new(move |kind| told.appended(kind))));
         let runs = golden["runs"].as_array().unwrap();
         assert!(!runs.is_empty());
         for run in runs {
@@ -527,6 +545,7 @@ mod tests {
             let (signal, sweeps) = (Cancel::new(), Arc::new(Sweeps::default()));
             let start = tokio::time::Instant::now();
             *probe.run.lock().unwrap() = Some((start, origin, signal.clone()));
+            probe.events.lock().unwrap().clear();
             let clock = Arc::new(Since(start, origin));
             let log = mixdog_core_run::run_host::failure_log::RunFailureLog::new(writer.clone(), &session, Some(&agent), "");
             let hook = move |snapshot: &Snapshot, message: &str, now: i64| {
@@ -542,10 +561,9 @@ mod tests {
             run_for((stopped_at / 1000) as u64, &sweeps, &dogs).await;
             assert!(signal.is_aborted(), "{site_name}/{name}: stopped by {stopped_at} ms");
             assert_eq!(signal.reason(), run["message"].as_str().unwrap(), "{site_name}/{name}: the sentence");
-            assert!(
-                probe.readings.lock().unwrap().iter().any(|(at, aborted)| *at == origin + stopped_at && !aborted),
-                "{site_name}/{name}: the row is queued at the stop, before the abort is delivered"
-            );
+            probe.note_abort();
+            let want: Vec<String> = appended.iter().map(|kind| format!("appended {kind}")).chain(["aborted".to_owned()]).collect();
+            assert_eq!(*probe.events.lock().unwrap(), want, "{site_name}/{name}: the stop's rows are queued, then the abort is delivered");
         }
         *probe.run.lock().unwrap() = None;
         writer.flush().await;
@@ -561,7 +579,7 @@ mod tests {
         let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/watchdog-stall-rows/golden.json")).unwrap();
         let manifest: Value = serde_json::from_str(include_str!("../../../../fixtures/watchdog-stall-rows/MANIFEST.json")).unwrap();
         assert!(manifest.to_string().contains("\"runOwnValues\":{\"registration_id\""), "the manifest declares the registration id as the run's own");
-        let (failures, trace) = replay_stall_rows(&golden, &[("MIXDOG_DIAGNOSTICS", "1")]).await;
+        let (failures, trace) = replay_stall_rows(&golden, &[("MIXDOG_DIAGNOSTICS", "1")], &["stall_abort"]).await;
         assert_eq!(mask_registrations(&failures.expect("tool-failures.jsonl")), golden["failures"].as_str().unwrap(), "history/tool-failures.jsonl");
         assert_eq!(trace.as_deref(), golden["trace"].as_str(), "history/agent-trace.jsonl");
     }
@@ -572,7 +590,8 @@ mod tests {
     async fn a_stop_with_the_trace_disabled_writes_what_node_writes() {
         let _held = HeldClock::hold();
         let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/watchdog-stall-rows/golden.json")).unwrap();
-        let (failures, trace) = replay_stall_rows(&golden, &[("MIXDOG_DIAGNOSTICS", "1"), ("MIXDOG_AGENT_TRACE_DISABLE", "1")]).await;
+        // The stop's append still runs before the abort, and queues nothing.
+        let (failures, trace) = replay_stall_rows(&golden, &[("MIXDOG_DIAGNOSTICS", "1"), ("MIXDOG_AGENT_TRACE_DISABLE", "1")], &["stall_abort"]).await;
         assert_eq!(failures.as_deref(), golden["traceDisabled"]["failures"].as_str(), "history/tool-failures.jsonl");
         assert_eq!(trace.as_deref(), golden["traceDisabled"]["trace"].as_str(), "history/agent-trace.jsonl");
     }

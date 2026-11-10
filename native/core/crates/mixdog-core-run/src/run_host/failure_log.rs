@@ -46,6 +46,9 @@ pub struct FailureWriter {
     turn: tokio::sync::Mutex<()>,
     /// `warnAgentOnce`: each warning key is written to stderr once.
     warned: Mutex<HashSet<String>>,
+    /// Test-only: told the kind of each record once its rows are in the queue (`with_appended`).
+    #[cfg(feature = "test-support")]
+    appended: Option<Arc<dyn Fn(&'static str) + Send + Sync>>,
 }
 
 impl FailureWriter {
@@ -68,6 +71,22 @@ impl FailureWriter {
             armed: AtomicBool::new(false),
             turn: tokio::sync::Mutex::new(()),
             warned: Mutex::new(HashSet::new()),
+            #[cfg(feature = "test-support")]
+            appended: None,
+        }
+    }
+
+    /// A writer that tells `appended` the kind of each record (`"tool_failure"`, `"stall_abort"`) as soon as its append has
+    /// queued its rows (none when the trace is off), before anything else happens: a test orders the append against other events.
+    #[cfg(feature = "test-support")]
+    pub fn with_appended(config: &TraceConfig, io: ToolIo, clock: Arc<dyn Clock>, appended: Arc<dyn Fn(&'static str) + Send + Sync>) -> Self {
+        Self { appended: Some(appended), ..Self::new(config, io, clock) }
+    }
+
+    #[cfg(feature = "test-support")]
+    fn tell_appended(&self, kind: &'static str) {
+        if let Some(appended) = &self.appended {
+            appended(kind);
         }
     }
 
@@ -75,6 +94,8 @@ impl FailureWriter {
     /// that is due, on the durability lane.
     pub fn record(self: &Arc<Self>, args: &Map<String, Value>) {
         let due = self.trace.tool_failure(args, self.clock.now_ms());
+        #[cfg(feature = "test-support")]
+        self.tell_appended("tool_failure");
         self.after_append(due);
     }
 
@@ -82,6 +103,8 @@ impl FailureWriter {
     /// fields of `ctx`), queued behind the same buffers.
     pub fn record_watchdog_abort(self: &Arc<Self>, ctx: &Map<String, Value>) {
         let due = self.trace.watchdog_abort(ctx, self.clock.now_ms());
+        #[cfg(feature = "test-support")]
+        self.tell_appended("stall_abort");
         self.after_append(due);
     }
 
