@@ -219,13 +219,16 @@ impl AnthropicCodec {
         let scope = options.session_id.as_deref().filter(|s| !s.is_empty())?;
         let first_party = self.config.first_party_route();
         // `carriesLegacyTailReminder`: a reminder with no text rides nothing, so it does not stop threading.
-        let legacy_reminder = !split_tail_reminder(&request.messages).1.is_empty() && !(first_party && turn_scoped_model(&request.model));
+        let provider = self.flavor.provider_name();
+        let legacy_reminder =
+            !split_tail_reminder(&request.messages).1.is_empty() && !(first_party && turn_scoped_model(provider, &request.model));
         (self.config.message_threads
             && first_party
             && options.transport_scope.as_deref().is_none_or(str::is_empty)
             && options.shared_cache_prefix_count.is_none_or(|count| count == 0)
             && options.request_kind.as_deref() != Some("compaction")
             && threads::supports_model(&request.model)
+            && crate::claude_floors::enabled(crate::claude_floors::Feature::MessageThreads, provider, &request.model)
             && !legacy_reminder)
             .then_some(scope)
     }

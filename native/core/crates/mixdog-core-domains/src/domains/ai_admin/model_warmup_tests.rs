@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use serde_json::Value;
 
-use super::model_list_node_tests::{Rig, assert_rows, node_calls, recording, rig, web_search};
+use super::model_list_node_tests::{Rig, assert_rows, node_calls, recording, rig, three_reads, web_search};
 use super::model_warmup::{ModelWarmup, WarmupConfig, WarmupGates};
 use crate::domains::ai_account::SetupSource;
 use crate::domains::ai_account::auth_refresh::{AuthRefreshFlow, ProviderEffects};
@@ -344,7 +344,7 @@ async fn the_account_change_warm_loads_once_at_once_and_is_not_adopted() {
 async fn startup_with_no_reader_leaves_the_cache_loaded_as_nodes_boot_warm_does() {
     let recording = recording();
     let mut complete = 0;
-    for scenario in recording["scenarios"].as_array().unwrap().iter().filter(|s| s["name"] != "custom-discovery-update") {
+    for scenario in recording["scenarios"].as_array().unwrap().iter().filter(|s| three_reads(s)) {
         let name = scenario["name"].as_str().unwrap();
         let [quick, full, search] = node_calls(scenario);
         let rig = rig(scenario, &recording["seeds"], false).await;

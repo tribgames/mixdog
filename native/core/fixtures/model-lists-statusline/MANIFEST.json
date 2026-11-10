@@ -1,30 +1,63 @@
 {
-  "command": "node benchmarks/rust-core/recorders/model-lists/record.mjs --tree <tree> --set statusline",
+  "command": "node benchmarks/rust-core/recorders/model-lists/record.mjs --tree <tree> --set statusline --commit 7f633e7305166c5fc8ee66464859ab7de7b60b4d",
   "fileCount": 1,
   "files": [
     {
       "bytes": 41202,
       "path": "node-model-lists.json",
-      "sha256": "4a0c3b7a8541e85d19a9e2247906743fbc12dd97f809bf33f8832594f28303da"
+      "sha256": "fe07cce151458878f1e5837d69483636fce2d38753c7c1ec5d1670c3d05a46a5"
     }
   ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/model-lists/scenarios-statusline.json",
+      "sha256": "849e1c52bd922b518ba1018cdde426a32525257fe7be8d378a79f838ed057663"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/model-lists/seeds.json",
+      "sha256": "d891bf6e01768d2fa51b564ab8bc7c15e82392da14c440497f7606e5ac193093"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/model-lists/child.mjs",
+      "sha256": "47333c438ac3e5cd50784e24cdd49a6833d8d5b5ae2b410364148424c120988e"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/model-lists/offline.mjs",
+      "sha256": "a6ded042fb37015f5961463c82cdd5def017cdbdf3de66d9f0478b61c05585aa"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/model-lists/hold.mjs",
+      "sha256": "7d04e30317291cf75b4781fa5d5ed73f8b5d359157ea9a24254cd53f70d2d51f"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/model-lists/hold-hooks.mjs",
+      "sha256": "a2c34060493308f8c10c413cad15e8e79f6cca75f839f09f0ed28865393ca0fb"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "9d85c23ce17a8eb56ca50b848fd8f7e39dadc23c258277510b0bfd67885739f5"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
-    "commit": "b6f10295a2f698afc85332467192de28500bd146",
-    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
-    "files": 9139,
+    "commit": "7f633e7305166c5fc8ee66464859ab7de7b60b4d",
+    "comparedAgainst": "7f633e7305166c5fc8ee66464859ab7de7b60b4d",
+    "exact": true,
+    "files": 9142,
     "refComparison": {
-      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "closestCommit": "7f633e7305166c5fc8ee66464859ab7de7b60b4d",
       "commitFilesMissingFromTree": 0,
       "exact": true,
       "filesDifferingFromCommit": 0
     },
-    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "srcSha256": "938d5325e28e2ad94621b1dec936ddda2ad4212305e7463fe2be9dcf404d8387",
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/model-lists/record.mjs",
+  "recorderSha256": "4834daf281e18a140177938f1beb345ddc9aaa3dfe33310a8c4eac13c4c34ed9",
   "set": "model-lists-statusline",
   "totalBytes": 41202
 }

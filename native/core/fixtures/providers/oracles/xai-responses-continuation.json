@@ -1,206 +1,122 @@
 {
   "_doc": "Recorded from src/runtime/agent/orchestrator/providers/openai-compat-xai-send.mjs (sendXaiResponses, real send path with a fake client) and normalizeXaiResponsesWebSocket; Date.now fixed to 1700000000000.",
-  "imported": {
-    "messages": [
-      {
-        "content": "sys",
-        "role": "system"
-      },
-      {
-        "content": "read a",
-        "role": "user"
-      },
-      {
-        "content": "",
-        "role": "assistant",
-        "toolCalls": [
-          {
-            "arguments": {
-              "path": "a"
-            },
-            "id": "call_1",
-            "name": "read"
-          }
-        ]
-      },
-      {
-        "content": "contents",
-        "role": "tool",
-        "toolCallId": "call_1"
-      }
-    ],
-    "priorState": {
-      "xaiResponses": {
-        "model": "grok-4.5",
-        "previousResponseId": "resp_old",
-        "seenMessageCount": 2,
-        "store": true
-      }
-    },
-    "providerState": {
-      "xaiResponses": {
-        "encryptedReasoningHistory": [],
-        "encryptedReasoningItems": [],
-        "model": "grok-4.5",
-        "previousResponseId": null,
-        "responseId": "resp_3",
-        "seenMessageCount": 4,
-        "store": false,
-        "updatedAt": 1700000000000
-      }
-    },
-    "request": {
-      "include": [
-        "reasoning.encrypted_content"
-      ],
-      "input": [
-        {
-          "call_id": "call_1",
-          "output": "contents",
-          "type": "function_call_output"
-        }
-      ],
-      "model": "grok-4.5",
-      "parallel_tool_calls": true,
-      "previous_response_id": "resp_old",
-      "prompt_cache_key": "02733410-c9ef-45c6-9a6f-f3f3178d70f3",
-      "store": false,
-      "stream": true,
-      "tools": [
-        {
-          "description": "read",
-          "name": "read",
-          "parameters": {
-            "properties": {
-              "path": {
-                "type": "string"
-              }
-            },
-            "type": "object"
-          },
-          "strict": false,
-          "type": "function"
-        }
-      ]
-    }
-  },
   "recorder": "benchmarks/rust-core/recorders/record-xai-responses-continuation.mjs",
   "turn1": {
     "messages": [
       {
-        "content": "sys",
-        "role": "system"
+        "role": "system",
+        "content": "sys"
       },
       {
-        "content": "read a",
-        "role": "user"
+        "role": "user",
+        "content": "read a"
       }
     ],
-    "providerState": {
-      "xaiResponses": {
-        "encryptedReasoningHistory": [
-          {
-            "items": [
-              {
-                "encrypted_content": "enc-1",
-                "id": "rs_1",
-                "summary": [],
-                "type": "reasoning"
-              }
-            ],
-            "messageIndex": 2
-          }
-        ],
-        "encryptedReasoningItems": [
-          {
-            "encrypted_content": "enc-1",
-            "id": "rs_1",
-            "summary": [],
-            "type": "reasoning"
-          }
-        ],
-        "model": "grok-4.5",
-        "previousResponseId": null,
-        "responseId": "resp_1",
-        "seenMessageCount": 2,
-        "store": false,
-        "updatedAt": 1700000000000
-      }
-    },
     "request": {
+      "model": "grok-4.5",
+      "input": [
+        {
+          "role": "system",
+          "content": [
+            {
+              "type": "input_text",
+              "text": "sys"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "input_text",
+              "text": "read a"
+            }
+          ]
+        }
+      ],
+      "store": false,
       "include": [
         "reasoning.encrypted_content"
       ],
-      "input": [
-        {
-          "content": [
-            {
-              "text": "sys",
-              "type": "input_text"
-            }
-          ],
-          "role": "system"
-        },
-        {
-          "content": [
-            {
-              "text": "read a",
-              "type": "input_text"
-            }
-          ],
-          "role": "user"
-        }
-      ],
-      "model": "grok-4.5",
-      "parallel_tool_calls": true,
       "prompt_cache_key": "02733410-c9ef-45c6-9a6f-f3f3178d70f3",
-      "store": false,
-      "stream": true,
       "tools": [
         {
-          "description": "read",
+          "type": "function",
           "name": "read",
+          "description": "read",
           "parameters": {
+            "type": "object",
             "properties": {
               "path": {
                 "type": "string"
               }
-            },
-            "type": "object"
+            }
           },
-          "strict": false,
-          "type": "function"
+          "strict": false
         }
-      ]
+      ],
+      "parallel_tool_calls": true,
+      "stream": true
+    },
+    "providerState": {
+      "xaiResponses": {
+        "previousResponseId": null,
+        "responseId": "resp_1",
+        "store": false,
+        "encryptedReasoningItems": [
+          {
+            "type": "reasoning",
+            "id": "rs_1",
+            "encrypted_content": "enc-1",
+            "summary": []
+          }
+        ],
+        "encryptedReasoningHistory": [
+          {
+            "messageIndex": 2,
+            "items": [
+              {
+                "type": "reasoning",
+                "id": "rs_1",
+                "encrypted_content": "enc-1",
+                "summary": []
+              }
+            ]
+          }
+        ],
+        "seenMessageCount": 2,
+        "model": "grok-4.5",
+        "updatedAt": 1700000000000
+      }
     }
   },
   "turn2": {
     "messages": [
       {
-        "content": "sys",
-        "role": "system"
+        "role": "system",
+        "content": "sys"
       },
       {
-        "content": "read a",
-        "role": "user"
+        "role": "user",
+        "content": "read a"
       },
       {
-        "content": "",
         "role": "assistant",
+        "content": "",
         "toolCalls": [
           {
+            "id": "call_1",
+            "name": "read",
             "arguments": {
               "path": "a"
-            },
-            "id": "call_1",
-            "name": "read"
+            }
           }
         ]
       },
       {
-        "content": "contents",
         "role": "tool",
-        "toolCallId": "call_1"
+        "toolCallId": "call_1",
+        "content": "contents"
       }
     ],
     "priorState": {
@@ -208,153 +124,237 @@
         "keep": 1
       },
       "xaiResponses": {
-        "encryptedReasoningHistory": [
-          {
-            "items": [
-              {
-                "encrypted_content": "enc-1",
-                "id": "rs_1",
-                "summary": [],
-                "type": "reasoning"
-              }
-            ],
-            "messageIndex": 2
-          }
-        ],
-        "encryptedReasoningItems": [
-          {
-            "encrypted_content": "enc-1",
-            "id": "rs_1",
-            "summary": [],
-            "type": "reasoning"
-          }
-        ],
-        "model": "grok-4.5",
         "previousResponseId": null,
         "responseId": "resp_1",
-        "seenMessageCount": 2,
         "store": false,
+        "encryptedReasoningItems": [
+          {
+            "type": "reasoning",
+            "id": "rs_1",
+            "encrypted_content": "enc-1",
+            "summary": []
+          }
+        ],
+        "encryptedReasoningHistory": [
+          {
+            "messageIndex": 2,
+            "items": [
+              {
+                "type": "reasoning",
+                "id": "rs_1",
+                "encrypted_content": "enc-1",
+                "summary": []
+              }
+            ]
+          }
+        ],
+        "seenMessageCount": 2,
+        "model": "grok-4.5",
         "updatedAt": 1700000000000
       }
+    },
+    "request": {
+      "model": "grok-4.5",
+      "input": [
+        {
+          "role": "system",
+          "content": [
+            {
+              "type": "input_text",
+              "text": "sys"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "input_text",
+              "text": "read a"
+            }
+          ]
+        },
+        {
+          "type": "reasoning",
+          "id": "rs_1",
+          "encrypted_content": "enc-1",
+          "summary": []
+        },
+        {
+          "type": "function_call",
+          "call_id": "call_1",
+          "name": "read",
+          "arguments": "{\"path\":\"a\"}"
+        },
+        {
+          "type": "function_call_output",
+          "call_id": "call_1",
+          "output": "contents"
+        }
+      ],
+      "store": false,
+      "include": [
+        "reasoning.encrypted_content"
+      ],
+      "prompt_cache_key": "02733410-c9ef-45c6-9a6f-f3f3178d70f3",
+      "tools": [
+        {
+          "type": "function",
+          "name": "read",
+          "description": "read",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            }
+          },
+          "strict": false
+        }
+      ],
+      "parallel_tool_calls": true,
+      "stream": true
     },
     "providerState": {
       "other": {
         "keep": 1
       },
       "xaiResponses": {
-        "encryptedReasoningHistory": [
-          {
-            "items": [
-              {
-                "encrypted_content": "enc-1",
-                "id": "rs_1",
-                "summary": [],
-                "type": "reasoning"
-              }
-            ],
-            "messageIndex": 2
-          },
-          {
-            "items": [
-              {
-                "encrypted_content": "enc-2",
-                "id": "rs_2",
-                "summary": [],
-                "type": "reasoning"
-              }
-            ],
-            "messageIndex": 4
-          }
-        ],
-        "encryptedReasoningItems": [
-          {
-            "encrypted_content": "enc-2",
-            "id": "rs_2",
-            "summary": [],
-            "type": "reasoning"
-          }
-        ],
-        "model": "grok-4.5",
         "previousResponseId": null,
         "responseId": "resp_2",
-        "seenMessageCount": 4,
         "store": false,
+        "encryptedReasoningItems": [
+          {
+            "type": "reasoning",
+            "id": "rs_2",
+            "encrypted_content": "enc-2",
+            "summary": []
+          }
+        ],
+        "encryptedReasoningHistory": [
+          {
+            "messageIndex": 2,
+            "items": [
+              {
+                "type": "reasoning",
+                "id": "rs_1",
+                "encrypted_content": "enc-1",
+                "summary": []
+              }
+            ]
+          },
+          {
+            "messageIndex": 4,
+            "items": [
+              {
+                "type": "reasoning",
+                "id": "rs_2",
+                "encrypted_content": "enc-2",
+                "summary": []
+              }
+            ]
+          }
+        ],
+        "seenMessageCount": 4,
+        "model": "grok-4.5",
         "updatedAt": 1700000000000
+      }
+    }
+  },
+  "imported": {
+    "messages": [
+      {
+        "role": "system",
+        "content": "sys"
+      },
+      {
+        "role": "user",
+        "content": "read a"
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "toolCalls": [
+          {
+            "id": "call_1",
+            "name": "read",
+            "arguments": {
+              "path": "a"
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "toolCallId": "call_1",
+        "content": "contents"
+      }
+    ],
+    "priorState": {
+      "xaiResponses": {
+        "previousResponseId": "resp_old",
+        "store": true,
+        "seenMessageCount": 2,
+        "model": "grok-4.5"
       }
     },
     "request": {
+      "model": "grok-4.5",
+      "input": [
+        {
+          "type": "function_call_output",
+          "call_id": "call_1",
+          "output": "contents"
+        }
+      ],
+      "store": false,
       "include": [
         "reasoning.encrypted_content"
       ],
-      "input": [
-        {
-          "content": [
-            {
-              "text": "sys",
-              "type": "input_text"
-            }
-          ],
-          "role": "system"
-        },
-        {
-          "content": [
-            {
-              "text": "read a",
-              "type": "input_text"
-            }
-          ],
-          "role": "user"
-        },
-        {
-          "encrypted_content": "enc-1",
-          "id": "rs_1",
-          "summary": [],
-          "type": "reasoning"
-        },
-        {
-          "arguments": "{\"path\":\"a\"}",
-          "call_id": "call_1",
-          "name": "read",
-          "type": "function_call"
-        },
-        {
-          "call_id": "call_1",
-          "output": "contents",
-          "type": "function_call_output"
-        }
-      ],
-      "model": "grok-4.5",
-      "parallel_tool_calls": true,
       "prompt_cache_key": "02733410-c9ef-45c6-9a6f-f3f3178d70f3",
-      "store": false,
-      "stream": true,
+      "previous_response_id": "resp_old",
       "tools": [
         {
-          "description": "read",
+          "type": "function",
           "name": "read",
+          "description": "read",
           "parameters": {
+            "type": "object",
             "properties": {
               "path": {
                 "type": "string"
               }
-            },
-            "type": "object"
+            }
           },
-          "strict": false,
-          "type": "function"
+          "strict": false
         }
-      ]
+      ],
+      "parallel_tool_calls": true,
+      "stream": true
+    },
+    "providerState": {
+      "xaiResponses": {
+        "previousResponseId": null,
+        "responseId": "resp_3",
+        "store": false,
+        "encryptedReasoningItems": [],
+        "encryptedReasoningHistory": [],
+        "seenMessageCount": 4,
+        "model": "grok-4.5",
+        "updatedAt": 1700000000000
+      }
     }
   },
   "websocket": {
     "messages": [
       {
-        "content": "sys",
-        "role": "system"
+        "role": "system",
+        "content": "sys"
       },
       {
-        "content": "read a",
-        "role": "user"
+        "role": "user",
+        "content": "read a"
       }
     ],
     "priorState": {
@@ -367,85 +367,85 @@
         "keep": 1
       },
       "xaiResponses": {
-        "encryptedReasoningHistory": [
-          {
-            "items": [
-              {
-                "encrypted_content": "enc-9",
-                "id": "rs_9",
-                "summary": [],
-                "type": "reasoning"
-              }
-            ],
-            "messageIndex": 2
-          }
-        ],
-        "encryptedReasoningItems": [
-          {
-            "encrypted_content": "enc-9",
-            "id": "rs_9",
-            "summary": [],
-            "type": "reasoning"
-          }
-        ],
-        "model": "grok-4.5",
         "previousResponseId": null,
         "responseId": "resp_ws",
-        "seenMessageCount": 2,
         "store": false,
-        "transport": "websocket",
-        "updatedAt": 1700000000000
+        "encryptedReasoningItems": [
+          {
+            "type": "reasoning",
+            "id": "rs_9",
+            "encrypted_content": "enc-9",
+            "summary": []
+          }
+        ],
+        "encryptedReasoningHistory": [
+          {
+            "messageIndex": 2,
+            "items": [
+              {
+                "type": "reasoning",
+                "id": "rs_9",
+                "encrypted_content": "enc-9",
+                "summary": []
+              }
+            ]
+          }
+        ],
+        "seenMessageCount": 2,
+        "model": "grok-4.5",
+        "updatedAt": 1700000000000,
+        "transport": "websocket"
       }
     }
   },
   "websocketResumed": {
     "messages": [
       {
-        "content": "sys",
-        "role": "system"
+        "role": "system",
+        "content": "sys"
       },
       {
-        "content": "read a",
-        "role": "user"
+        "role": "user",
+        "content": "read a"
       },
       {
-        "content": "",
         "role": "assistant",
+        "content": "",
         "toolCalls": [
           {
+            "id": "call_1",
+            "name": "read",
             "arguments": {
               "path": "a"
-            },
-            "id": "call_1",
-            "name": "read"
+            }
           }
         ]
       },
       {
-        "content": "contents",
         "role": "tool",
-        "toolCallId": "call_1"
+        "toolCallId": "call_1",
+        "content": "contents"
       }
     ],
     "priorState": {
       "xaiResponses": {
-        "model": "grok-4.5",
         "previousResponseId": "resp_old",
+        "store": true,
         "seenMessageCount": 2,
-        "store": true
+        "model": "grok-4.5"
       }
     },
     "providerState": {
       "xaiResponses": {
-        "encryptedReasoningHistory": [],
-        "encryptedReasoningItems": [],
-        "model": "grok-4.5",
         "previousResponseId": null,
         "responseId": "resp_old",
-        "seenMessageCount": 4,
         "store": false,
-        "transport": "websocket",
-        "updatedAt": 1700000000000
+        "encryptedReasoningItems": [],
+        "encryptedReasoningHistory": [],
+        "seenMessageCount": 4,
+        "model": "grok-4.5",
+        "updatedAt": 1700000000000,
+        "transport": "websocket"
       }
     }
   }
