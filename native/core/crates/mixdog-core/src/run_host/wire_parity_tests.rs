@@ -190,8 +190,9 @@ impl AttemptSink for Folded {
 fn selected<'a>(scenarios: &'a [Value], only: Option<&str>) -> &'a [Value] {
     let Some(only) = only else { return scenarios };
     let at = scenarios.iter().position(|s| s["id"] == only).unwrap_or_else(|| panic!("no scenario {only}"));
+    // Another provider's scenario stands alone, or (`continues`) runs after the one before it, whose process state it reads.
     if scenarios[at]["provider"] != "openai-oauth" {
-        return &scenarios[at..=at];
+        return &scenarios[at - usize::from(scenarios[at]["continues"] == true)..=at];
     }
     let mut start = at;
     while start > 0 && scenarios[start]["fresh"] != true && scenarios[start - 1]["provider"] == "openai-oauth" {
