@@ -2351,16 +2351,18 @@ impl SessionActor {
             Ctl::Decide(decision, arbitrated) => {
                 let device = self.deps.devices.describe(decision.connection);
                 let at = self.deps.clock.now_ms();
-                let outcome = match self
-                    .book
-                    .validate(&decision.request, &decision.result, device, at)
-                {
-                    Ok(Some(accepted)) => {
+                let shown = self.cell.shown_approval.load_full();
+                // A refused remote Allow is not taken: the approval stays pending and the answer is told it lost (a response, as a
+                // late one, gets nothing).
+                let refused =
+                    super::approval_notification::refuses_remote_allow(device.kind, shown.as_deref(), &decision.request, &decision.result);
+                let outcome = match (!refused).then(|| self.book.validate(&decision.request, &decision.result, device, at)) {
+                    Some(Ok(Some(accepted))) => {
                         self.resolve(accepted.aid, &accepted.rid, accepted.resolution);
                         Ok(true)
                     }
-                    Ok(None) => Ok(false),
-                    Err(error) => Err(error),
+                    None | Some(Ok(None)) => Ok(false),
+                    Some(Err(error)) => Err(error),
                 };
                 match (arbitrated, outcome) {
                     (Some(arbitrated), outcome) => {
