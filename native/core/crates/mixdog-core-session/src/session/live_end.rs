@@ -48,6 +48,10 @@ pub(crate) fn live_form(mut item: mixdog_protocol::ThreadItem, attempt: Option<&
         ThreadItem::AgentMessage { text, meta, .. } => {
             if let Some(attempt) = attempt {
                 meta.ext.insert("attemptId".into(), json!(attempt));
+                // The answer of a turn the stored row states the attempt of still carries the device that sent the prompt.
+                if let Some(device) = turn.and_then(|turn| turn.get("device")).and_then(Value::as_str).filter(|device| !device.is_empty()) {
+                    meta.ext.entry("device").or_insert_with(|| json!(device));
+                }
             } else if let Some(turn) = turn.and_then(Value::as_object) {
                 for key in ["agent", "model", "modelId", "provider", "attemptId", "device"] {
                     if let Some(value) = turn.get(key).filter(|value| value.as_str().is_some_and(|text| !text.is_empty())) {

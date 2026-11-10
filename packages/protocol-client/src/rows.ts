@@ -398,6 +398,13 @@ const SOURCE_PAYLOAD_KEYS = ['routine', 'heldRequest', 'execution', 'attachments
 /** `meta.ext` as row attributes: for a notice or card source the stored payloads it was built from are not row attributes. */
 function extOf(item: Obj, m: Obj): Obj {
   const ext = asObj(m.ext);
+  if (item.type === 'turnEnd' && text(ext.clientSubmissionId)) {
+    // Node's turn end names the prompt by the row id it shows, the submission id (`checkpointId`, turn.mjs `turnDoneItem`);
+    // the core's own `checkpointId` is the user item's id, the submission riding in `ext`. A client names a prompt by what it
+    // shows (rewind resolves the submission id), so the row shows Node's value.
+    const { clientSubmissionId, ...rest } = ext;
+    return { ...rest, checkpointId: clientSubmissionId };
+  }
   if (item.type !== 'userMessage' || !NOTICE_SOURCES.has(text(m.source))) return ext;
   const rest = { ...ext };
   for (const k of SOURCE_PAYLOAD_KEYS) delete rest[k];

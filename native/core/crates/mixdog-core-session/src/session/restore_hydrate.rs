@@ -61,6 +61,44 @@ fn hydrate_map(
     Ok(())
 }
 
+/// `materializePastedTexts` (`attachments/store.mjs:466-499`): an inline pasted text is kept as a content-addressed blob and its entry
+/// states `attachmentRef`, `sizeBytes` and `chars` (the text itself stays for the composer). Node does this when the prompt is taken in;
+/// the core's intake keeps the entry as sent, so a Stop writes the blob when it hands the prompt back.
+pub(super) fn materialize_texts(store: &AttachmentStore, lane: &InLane<InteractiveIo>, map: &mut Value) -> Result<(), CoreError> {
+    let Value::Object(entries) = map else { return Ok(()) };
+    for raw in entries.values_mut() {
+        if !raw.is_object() || reference_of(raw).is_some() {
+            continue;
+        }
+        let Some(text) = raw.get("text").and_then(Value::as_str).map(str::to_owned) else { continue };
+        let reference = store.write_blob(lane, text.as_bytes()).map_err(|error| CoreError::DomainError { domain: "thread".into(), code: None, message: Some(format!("{error:?}").into()), detail: None })?;
+        let chars = chars_of(raw.get("chars"), &text);
+        raw["attachmentRef"] = Value::String(reference);
+        raw["sizeBytes"] = Value::from(text.len());
+        raw["chars"] = chars;
+    }
+    Ok(())
+}
+
+/// `Number(raw.chars) || raw.text.length` (`store.mjs:496`): `Number()` reads a numeric string, `length` counts UTF-16 units.
+pub(super) fn chars_of(supplied: Option<&Value>, text: &str) -> Value {
+    let number = match supplied {
+        Some(Value::Number(n)) => n.as_f64().unwrap_or(f64::NAN),
+        Some(Value::String(s)) => {
+            let s = mixdog_js::js_trim(s);
+            if s.is_empty() { 0.0 } else { s.parse::<f64>().unwrap_or(f64::NAN) }
+        }
+        Some(Value::Bool(b)) => f64::from(u8::from(*b)),
+        Some(Value::Null) | None => 0.0,
+        Some(_) => f64::NAN,
+    };
+    if number != 0.0 && !number.is_nan() {
+        if number.fract() == 0.0 && number.abs() < 9e15 { Value::from(number as i64) } else { serde_json::Number::from_f64(number).map_or(Value::Null, Value::Number) }
+    } else {
+        Value::from(text.encode_utf16().count())
+    }
+}
+
 /// `hydrateRestorableFileParts(content)`: `{ type: 'file', data, mimeType, filename }` with the bytes inlined as base64.
 fn hydrate_files(store: &AttachmentStore, lane: &InLane<InteractiveIo>, parts: &[Value], unreadable: &mut usize) -> Result<Vec<Value>, CoreError> {
     let text = |part: &Value, key: &str| part.get(key).and_then(Value::as_str).map(str::to_owned);
@@ -112,4 +150,23 @@ pub(super) fn hydrate(store: &AttachmentStore, lane: &InLane<InteractiveIo>, mut
         out.insert("content".into(), Value::Array(files));
     }
     Ok(Value::Object(out))
+}
+
+#[cfg(test)]
+mod chars_tests {
+    use super::chars_of;
+    use serde_json::Value;
+
+    /// Node's own `materializePastedTexts` (`record-pasted-text-chars.mjs`) is the oracle for `chars` and `sizeBytes`.
+    #[test]
+    fn chars_and_size_are_nodes() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/desktop/phone-chat/pasted-text-chars.json");
+        let recorded: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        for case in recorded["cases"].as_array().unwrap() {
+            let name = case["name"].as_str().unwrap();
+            let text = case["entry"]["text"].as_str().unwrap();
+            assert_eq!(chars_of(case["entry"].get("chars"), text).as_f64(), case["materialized"]["chars"].as_f64(), "{name}: chars");
+            assert_eq!(text.len() as u64, case["materialized"]["sizeBytes"].as_u64().unwrap(), "{name}: sizeBytes");
+        }
+    }
 }

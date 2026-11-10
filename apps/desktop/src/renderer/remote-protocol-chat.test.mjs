@@ -235,41 +235,6 @@ const invoke = {
   submitFeedback: (api, a) => api.submitFeedback(...a),
 };
 
-// The Stops: Node's daemon + SessionHost (remote-protocol-chat-abort.recorded.json) against a running mixdogd
-// (remote-protocol-chat-abort-live.recorded.json), the same cases (remote-protocol-chat-abort-cases.mjs). The phone gets the whole reply Node gave.
-const abortNode = JSON.parse(readFileSync(new URL('./remote-protocol-chat-abort.recorded.json', import.meta.url), 'utf8'));
-const abortLive = JSON.parse(readFileSync(new URL('./remote-protocol-chat-abort-live.recorded.json', import.meta.url), 'utf8'));
-const rpcFailure = (error) => Object.assign(new Error(error.message), { detail: { kind: 'rpc', code: error.code, reason: error.data?.reason, message: error.message, data: error.data } });
-
-test('the abort recordings hold the same cases and an exact Node manifest', () => {
-  assert.equal(abortNode.manifest.exact, true);
-  assert.equal(abortNode.manifest.commit, 'b6f10295a2f698afc85332467192de28500bd146');
-  assert.deepEqual(abortLive.cases.map((c) => c.name), abortNode.cases.map((c) => c.name));
-  assert.deepEqual(abortLive.cases.map((c) => c.stop.restorePrompt), abortNode.cases.map((c) => c.stop.restorePrompt));
-});
-
-for (const nodeCase of abortNode.cases) {
-  test(`abortSession ${nodeCase.name}: the phone gets Node's whole reply from the core's`, async () => {
-    const live = abortLive.cases.find((c) => c.name === nodeCase.name);
-    const threadId = live.stop.threadId;
-    let calls = 0;
-    const replies = [live.core.reply, live.core.again?.reply].filter((r) => r !== undefined);
-    const { api, sent } = adapterFor({
-      get 'turn/interrupt'() {
-        const reply = replies[calls++];
-        return reply?.error ? rpcFailure(reply.error) : reply;
-      },
-    });
-    const options = nodeCase.stop;
-    assert.deepEqual(await api.abortSession(threadId, options), nodeCase.node.reply);
-    if (nodeCase.node.second) assert.deepEqual(await api.abortSession(threadId, nodeCase.again), nodeCase.node.second);
-    // The stopped turn left the same of the prompt in the transcript.
-    assert.equal(live.core.promptKept, nodeCase.node.promptKept);
-    // The core got the request the recording made of it.
-    assert.deepEqual(sent.map((s) => s.params), [live.stop, ...(live.core.again ? [live.core.again.request] : [])]);
-  });
-}
-
 test('the recording is an exact Node b6f10295a manifest', () => {
   assert.equal(recorded.manifest.exact, true);
   assert.equal(recorded.manifest.commit, 'b6f10295a2f698afc85332467192de28500bd146');

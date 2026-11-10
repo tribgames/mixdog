@@ -49,15 +49,22 @@ mkdirSync(project, { recursive: true });
 let deadline;
 let discovery;
 let host;
-const provider = await startAbortProvider();
+let provider;
+// Each step ends whether or not the one before it did: a host that fails to dispose still has its daemon shut down and its endpoint closed.
 const end = async () => {
   deadline?.clear();
   const ended = createDeadline(60_000, () => 'ending the abort recording');
   try {
-    if (host) await ended.race(host.dispose(), 'the host to dispose');
-    // Node's own bounded wait for the daemon to exit.
-    if (discovery) await sessionClient.shutdownDaemon(discovery, { waitForExit: true, timeoutMs: 30_000 });
-    await ended.race(provider.close(), 'the model endpoint to close');
+    try {
+      if (host) await ended.race(host.dispose(), 'the host to dispose');
+    } finally {
+      try {
+        // Node's own bounded wait for the daemon to exit.
+        if (discovery) await sessionClient.shutdownDaemon(discovery, { waitForExit: true, timeoutMs: 30_000 });
+      } finally {
+        if (provider) await ended.race(provider.close(), 'the model endpoint to close');
+      }
+    }
   } finally {
     ended.clear();
   }
@@ -65,6 +72,7 @@ const end = async () => {
 let sessionClient;
 let frames;
 try {
+provider = await startAbortProvider();
 writeFileSync(join(envPaths.dataDir, 'mixdog-config.json'), JSON.stringify({ agent: { providers: { 'custom-harness': { type: 'custom', schemaVersion: 2, name: 'harness', protocol: 'openai-chat', baseURL: provider.baseURL, auth: 'none', enabled: true, modelOverrides: { 'harness-model': { manual: true } } } } } }));
 const route = { provider: 'custom-harness', model: 'harness-model' };
 for (const key of Object.keys(process.env)) if (/^MIXDOG_/i.test(key)) delete process.env[key];
@@ -130,7 +138,9 @@ let lastId = '';
     await until(() => frames.some((f) => f.includes(id) && f.includes(`"turns":${turns}`)) && idle(id), `the turn(s) of ${c.name} to close after its Stop`);
     const second = c.again ? plain(await deadline.race(host.abortSession(id, c.again), `the second abortSession of ${c.name}`)) : undefined;
     // What the stopped turn left in the stored thread, whole: the transcript rows the host holds and the thread's list row.
-    await until(() => published.some((r) => r.id === id), `the thread row of ${c.name} to be published`);
+    // Node publishes a thread's row to subscribers (`subscribeSessions`) when the daemon's session-summary frame for it reaches the host;
+    // `listSessions` answers from those rows, so the row is read once the host has been given it.
+    await until(() => published.some((r) => r.id === id),`the thread row of ${c.name} to be published`);
     const row = plain((await deadline.race(host.listSessions(), `listSessions after ${c.name}`)).find((r) => r.id === id) ?? null);
     const items = plain((await deadline.race(host.readSessionTranscript(id), `readSessionTranscript after ${c.name}`)).items);
     cases.push({ name: c.name, id, stop: c.stop, ...(c.again ? { again: c.again } : {}), node: { reply, ...(second ? { second } : {}), items, row } });

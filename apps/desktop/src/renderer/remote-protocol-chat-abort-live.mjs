@@ -1,7 +1,6 @@
 // Drives a RUNNING mixdogd through the Stops of remote-protocol-chat-abort-cases.mjs, case for case as Node's recording
-// (remote-protocol-chat-abort.record.mjs) drove its daemon, and returns what the core answered. The recorder
-// (remote-protocol-chat-abort-live.record.mjs) writes it down; the test (remote-protocol-chat-abort-live.test.mjs) runs it again each time and
-// compares it with Node's recording. Each case is a fresh thread; the phone's calls are recorded as the core got them (`turn/start`,
+// (remote-protocol-chat-abort.record.mjs) drove its daemon, and returns what the core answered. The test
+// (remote-protocol-chat-abort-live.test.mjs) runs it each time and compares it with Node's recording. Each case is a fresh thread; the phone's calls are recorded as the core got them (`turn/start`,
 // `turn/interrupt`) with the core's whole reply, then the thread's items and its list row once the turn(s) closed.
 //
 // The binary is `MIXDOGD_EXE`, the real-turn harness directory `REAL_TURN_HARNESS`: a missing one fails. Every wait is an event wait under
@@ -136,12 +135,18 @@ export async function runAbortLive() {
     try {
       watcher?.close();
       socket?.close();
-      if (core) {
-        core.kill();
-        await ended.race(core.exited, 'the core to exit');
+      try {
+        if (core) {
+          core.kill();
+          await ended.race(core.exited, 'the core to exit');
+        }
+      } finally {
+        try {
+          if (provider) await ended.race(provider.close(), 'the model endpoint to close');
+        } finally {
+          killStrayPostgres(paths.dataDir);
+        }
       }
-      if (provider) await ended.race(provider.close(), 'the model endpoint to close');
-      killStrayPostgres(paths.dataDir);
     } finally {
       ended.clear();
     }
