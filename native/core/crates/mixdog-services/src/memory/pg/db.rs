@@ -171,18 +171,49 @@ pub type PoolOpener = Arc<dyn Fn() -> BoxFuture<'static, Result<Pool>> + Send + 
 struct LazyPool {
     cell: OnceCell<Pool>,
     opener: Option<PoolOpener>,
+    /// The opening in flight, shared by every use that arrived while it runs: they all see its one outcome, and the next use after a failure opens again
+    /// (Node's callers all await the one `initPromise`, `http-router.mjs:34-46`; a bare `OnceCell` would hand a failed opening to the next waiter to run again).
+    flight: std::sync::Mutex<Option<Flight>>,
 }
 
+type Flight = futures::future::Shared<BoxFuture<'static, std::result::Result<(), String>>>;
+
 impl LazyPool {
-    async fn get(&self) -> Result<&Pool> {
-        self.cell
-            .get_or_try_init(|| async {
-                match &self.opener {
-                    Some(open) => open().await,
-                    None => unreachable!("an eager pool is set at construction"),
+    fn new(cell: OnceCell<Pool>, opener: Option<PoolOpener>) -> Arc<Self> {
+        Arc::new(Self { cell, opener, flight: std::sync::Mutex::new(None) })
+    }
+
+    async fn get(self: &Arc<Self>) -> Result<&Pool> {
+        use futures::FutureExt as _;
+        if let Some(pool) = self.cell.get() {
+            return Ok(pool);
+        }
+        let flight = {
+            let mut slot = self.flight.lock().expect("flight");
+            slot.get_or_insert_with(|| {
+                let this = self.clone();
+                async move {
+                    let opened = this
+                        .cell
+                        .get_or_try_init(|| async {
+                            match &this.opener {
+                                Some(open) => open().await,
+                                None => unreachable!("an eager pool is set at construction"),
+                            }
+                        })
+                        .await
+                        .map(drop)
+                        .map_err(|error| error.message());
+                    this.flight.lock().expect("flight").take();
+                    opened
                 }
+                .boxed()
+                .shared()
             })
-            .await
+            .clone()
+        };
+        flight.await.map_err(MemoryError::Rejected)?;
+        self.cell.get().ok_or_else(|| MemoryError::Runtime("the pool did not open".to_owned()))
     }
 }
 
@@ -199,12 +230,12 @@ impl Db {
         bootstrap(cluster).await?;
         let path = format!("{}, public", schema.name());
         let pool = build_pool(config(cluster.port(), DATABASE, Some(&path)), POOL_SIZE)?;
-        Ok(Self { pool: Arc::new(LazyPool { cell: OnceCell::new_with(Some(pool)), opener: None }), schema })
+        Ok(Self { pool: LazyPool::new(OnceCell::new_with(Some(pool)), None), schema })
     }
 
     /// A handle whose pool `opener` produces at the first use; a failed open is retried by the next use.
     pub fn deferred(schema: Schema, opener: PoolOpener) -> Self {
-        Self { pool: Arc::new(LazyPool { cell: OnceCell::new(), opener: Some(opener) }), schema }
+        Self { pool: LazyPool::new(OnceCell::new(), Some(opener)), schema }
     }
 
     /// The pool of a handle that is already open (what a deferred handle's opener hands over).
