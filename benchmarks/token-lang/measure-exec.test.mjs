@@ -5,8 +5,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { endAndWait, waitGone } from '../../scripts/rust-core/lib/process-probe.mjs';
-import { runTree } from '../../scripts/rust-core/lib/process-tree.mjs';
+import { assertTreeGone, endIfSame } from '../../scripts/rust-core/lib/process-probe.mjs';
+import { runTree, spawnTree } from '../../scripts/rust-core/lib/process-tree.mjs';
+
+const PROBE = fileURLToPath(new URL('../../scripts/rust-core/lib/process-probe.mjs', import.meta.url));
 import { LANGS, MODELS, execInputTokens, inputTokensOfFirstRequest, measureModel, renderTable, usageLogInput } from './measure-exec.mjs';
 
 const lines = (...events) => events.map((event) => JSON.stringify(event)).join('\n');
@@ -148,18 +150,19 @@ test('at the deadline the exec and everything it started are gone, on a real pro
     const preload = join(dir, 'hang.cjs').replaceAll('\\', '/');
     writeFileSync(
       preload,
-      `delete process.env.NODE_OPTIONS;\nconst gc = require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', detached: process.platform === 'win32' });\nrequire('node:fs').writeFileSync(${JSON.stringify(join(dir, 'pids.json').replaceAll('\\', '/'))}, JSON.stringify([process.pid, gc.pid]));\nAtomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);\n`,
+      `delete process.env.NODE_OPTIONS;\nconst { startTimeOfSync } = require(${JSON.stringify(PROBE)});\nconst gc = require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', detached: true });\nrequire('node:fs').writeFileSync(${JSON.stringify(join(dir, 'pids.json').replaceAll('\\', '/'))}, JSON.stringify([process.pid, gc.pid].map((pid) => ({ pid, start: startTimeOfSync(pid) }))));\nAtomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);\n`,
     );
     process.env.NODE_OPTIONS = `--require "${preload}"`;
-    await assert.rejects(execInputTokens({ bin: process.execPath, provider: 'x', model: 'm', text: 't', cwd: dir, deadlineMs: 5000 }), /did not finish within 5000ms and was ended/);
-    const pids = JSON.parse(readFileSync(join(dir, 'pids.json'), 'utf8'));
-    assert.equal(pids.length, 2);
-    for (const pid of pids) await waitGone(pid);
+    let mark;
+    await assert.rejects(execInputTokens({ bin: process.execPath, provider: 'x', model: 'm', text: 't', cwd: dir, deadlineMs: 30_000, spawnImpl: (...args) => { const child = spawnTree(...args); mark = child.treeMark; return child; } }), /did not finish within 30000ms and was ended/);
+    const members = JSON.parse(readFileSync(join(dir, 'pids.json'), 'utf8'));
+    assert.equal(members.length, 2);
+    await assertTreeGone({ mark, members });
   } finally {
     if (previous === undefined) delete process.env.NODE_OPTIONS;
     else process.env.NODE_OPTIONS = previous;
-    // What the test started is ended and awaited on every path, a failed assertion included.
-    if (existsSync(join(dir, 'pids.json'))) for (const pid of JSON.parse(readFileSync(join(dir, 'pids.json'), 'utf8'))) await endAndWait(pid);
+    // What the test started is ended on every path, a failed assertion included: each recorded process only while it is still the one first seen.
+    if (existsSync(join(dir, 'pids.json'))) for (const record of JSON.parse(readFileSync(join(dir, 'pids.json'), 'utf8'))) await endIfSame(record);
     rmSync(dir, { recursive: true, force: true });
   }
 });

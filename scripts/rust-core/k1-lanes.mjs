@@ -44,6 +44,22 @@ export function runChild(program, args, { label = `${program} ${args.join(' ')}`
   return runTree(program, args, { label, cwd, env: CHILD_ENV, deadlineMs, inherit, shell: SHELL && program === 'cargo' });
 }
 
+/** The test binaries in the output of `cargo test --no-run --message-format=json` (its `compiler-artifact` messages). */
+export function testBinariesOf(buildStdout) {
+  return buildStdout
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith('{'))
+    .map((line) => JSON.parse(line))
+    .filter((message) => message.reason === 'compiler-artifact' && message.profile?.test && message.executable);
+}
+
+/** The tests in the output of a libtest binary's `--list`, each with the source path of the binary that listed it. */
+export function testsOfList(listStdout, srcPath) {
+  return listStdout
+    .split(/\r?\n/)
+    .filter((line) => line.endsWith(': test'))
+    .map((line) => ({ name: line.slice(0, -': test'.length), srcPath }));
+}
 /**
  * The tests one lane filter selects, each with the test binary (its source path) that holds it. cargo runs a filter that
  * matches nothing and reports success, so a lane must see at least one test here before it runs. The binaries come from
@@ -55,18 +71,11 @@ export async function selectedTests(lane, filter = null, { pkg = LANES[lane].pkg
   const label = `lane ${lane} (filter ${filter ?? '(all)'}, preflight listing)`;
   const build = await runChild('cargo', ['test', '-p', pkg, '--locked', '--no-run', '--message-format=json'], { label: `${label} build`, ...options });
   if (build.status !== 0) throw new Error(`cargo test --no-run failed for lane ${lane} (filter ${filter ?? '(all)'})\n${build.stderr}`);
-  const binaries = build.stdout
-    .split(/\r?\n/)
-    .filter((line) => line.startsWith('{'))
-    .map((line) => JSON.parse(line))
-    .filter((message) => message.reason === 'compiler-artifact' && message.profile?.test && message.executable);
   const selected = [];
-  for (const binary of binaries) {
+  for (const binary of testBinariesOf(build.stdout)) {
     const listed = await runChild(binary.executable, ['--list', ...(filter ? [filter] : [])], { label: `${label} of ${binary.target.name}`, cwd: dirname(binary.manifest_path), ...options });
     if (listed.status !== 0) throw new Error(`${binary.target.name} --list failed for lane ${lane} (filter ${filter ?? '(all)'})\n${listed.stderr}`);
-    for (const line of listed.stdout.split(/\r?\n/)) {
-      if (line.endsWith(': test')) selected.push({ name: line.slice(0, -': test'.length), srcPath: binary.target.src_path });
-    }
+    selected.push(...testsOfList(listed.stdout, binary.target.src_path));
   }
   return selected;
 }

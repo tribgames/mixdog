@@ -229,8 +229,10 @@ export async function startCore({ bin, root, config, prepare, extraEnv = {}, rea
       paths,
       discovery: doc,
       client,
-      // On Windows the launcher's pid (see spawnTree); the core's own pids are those running `exe`.
+      // The tree helper's pid (see spawnTree); the core's own pids are those running `exe`, and `mark` marks its tree.
       pid: child.pid,
+      mark: child.treeMark,
+      alive: () => child.exitCode === null && child.signalCode === null,
       exe,
       spawnedAt,
       tail: () => tail.join('\n') || '(no output)',
