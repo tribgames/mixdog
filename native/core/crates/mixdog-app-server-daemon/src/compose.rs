@@ -639,7 +639,8 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
     let shell_control = Arc::new(mixdog_tools::exec::ShellControl::new(exec.runtime.clone(), process_manager.clone()));
     let id = FeedId::from("app");
     let epoch = FeedEpoch::from(new_instance_id());
-    let app_feed = Arc::new(CoreFeed::new(
+    // The app feed is of the ordered class (`SectionFeed::ordered`).
+    let app_feed = Arc::new(CoreFeed::new_ordered(
         id.clone(),
         epoch.clone(),
         empty_view(&id, &epoch),

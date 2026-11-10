@@ -482,6 +482,10 @@ impl LinkIo for mixdog_secure_desktop::client::Link {
 
 impl LinkConnector {
     /// The installed helper, dialled and authenticated by [`mixdog_secure_desktop::client::Link::connect`].
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "one read of the helper's small install-state file, where Node's client reads it synchronously: when the adapter is made and before a connect"
+    )]
     pub(super) fn installed(timers: Arc<dyn Timers>) -> Self {
         Self {
             available: Arc::new(|| {
