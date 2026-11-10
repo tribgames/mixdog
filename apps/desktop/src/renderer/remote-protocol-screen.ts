@@ -6,13 +6,14 @@
 // issued (it issues none unless its perf flag is on, and the core issues none), and `reportConnectionTimeline` was a PC log line:
 // nothing reaches the core for either. The replay compares them with the recording
 // (benchmarks/rust-core/recorders/record-phone-plumbing.mjs).
+import type { UiScreenSessionsChangedParams } from '@mixdog/protocol';
 import { SCREEN_SESSIONS_CHANGED } from '../../../mobile/src/screen-reporter';
 import type { PhoneProtocolAdapter, PhoneProtocolHost } from './remote-shim-protocol';
 
 /** `filterSessionIds`'s reading of each item (desktop-state.ts:82-93): the core drops what is not a session id. */
 const sessionIds = (value: unknown): string[] => (Array.isArray(value) ? value.map((item) => String(item || '')) : []);
 
-const report = (host: PhoneProtocolHost, params: Record<string, unknown>): void => host.client().notify(SCREEN_SESSIONS_CHANGED, params);
+const report = (host: PhoneProtocolHost, params: UiScreenSessionsChangedParams): void => host.client().notify(SCREEN_SESSIONS_CHANGED, params);
 
 export const adapter: PhoneProtocolAdapter = {
   group: 'screen',
