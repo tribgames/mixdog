@@ -1,7 +1,7 @@
 //! [`SessionOps`] over the session directory: the sessions behind agent homes and rooms.
 //!
 //! A session's route, archive and retirement marks are header fields (`provider`, `model`,
-//! `effort`, `archived`, `retired`), read and patched through `ThreadState`
+//! `effort`, `archivedAt`, `retiredAt`), read and patched through `ThreadState`
 //! (`thread/header/*`, which the session actor must serve).
 
 use std::sync::Arc;
@@ -69,9 +69,32 @@ impl DirectorySessions {
     }
 
     async fn patch(&self, session_id: &str, set: Map<String, Value>) -> Result<(), RoomError> {
-        match self.state.patch_header(&ThreadId::from(session_id), set, vec![]).await {
+        self.patch_unset(session_id, set, vec![]).await
+    }
+
+    async fn patch_unset(&self, session_id: &str, set: Map<String, Value>, unset: Vec<String>) -> Result<(), RoomError> {
+        match self.state.patch_header(&ThreadId::from(session_id), set, unset).await {
             Ok(()) | Err(PortError::NotFound { .. }) => Ok(()),
             Err(error) => Err(port(error)),
+        }
+    }
+
+    /// Whether the header holds the positive stamp `key`.
+    async fn stamped(&self, session_id: &str, key: &str) -> Result<bool, RoomError> {
+        Ok(self.header(session_id).await?.and_then(|h| h.get(key).and_then(Value::as_f64)).is_some_and(|at| at > 0.0))
+    }
+
+    /// The desktop's sidebar marks are the header's own positive stamps (`archivedAt`, `retiredAt`), which the thread rows read
+    /// (`summary.rs` `catalog_row`). As `DesktopSessionMetadata.setArchived`/`setRetired` (`desktop-session-metadata.ts:133-171`):
+    /// a mark already in the asked state is left as it is, a new one is stamped now, a cleared one is removed.
+    async fn mark(&self, session_id: &str, key: &str, on: bool) -> Result<(), RoomError> {
+        if self.stamped(session_id, key).await? == on {
+            return Ok(());
+        }
+        if on {
+            self.patch(session_id, Map::from_iter([(key.to_owned(), json!(chrono::Utc::now().timestamp_millis()))])).await
+        } else {
+            self.patch_unset(session_id, Map::new(), vec![key.to_owned()]).await
         }
     }
 }
@@ -108,15 +131,15 @@ impl SessionOps for DirectorySessions {
     }
 
     async fn set_archived(&self, session_id: &str, archived: bool) -> Result<(), RoomError> {
-        self.patch(session_id, Map::from_iter([("archived".to_owned(), json!(archived))])).await
+        self.mark(session_id, "archivedAt", archived).await
     }
 
     async fn is_retired(&self, session_id: &str) -> Result<bool, RoomError> {
-        Ok(self.header(session_id).await?.and_then(|h| h.get("retired").and_then(Value::as_bool)).unwrap_or(false))
+        self.stamped(session_id, "retiredAt").await
     }
 
     async fn set_retired(&self, session_id: &str, retired: bool) -> Result<(), RoomError> {
-        self.patch(session_id, Map::from_iter([("retired".to_owned(), json!(retired))])).await
+        self.mark(session_id, "retiredAt", retired).await
     }
 
     async fn rename(&self, session_id: &str, title: &str) -> Result<(), RoomError> {
