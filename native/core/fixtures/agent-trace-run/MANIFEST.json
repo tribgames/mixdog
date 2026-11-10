@@ -11,7 +11,33 @@
       "sha256": "16022382d43e18ae06539d8648ff5aa77fd6eeb7cc269a26bc0104ed3af95660"
     }
   ],
-  "node": "v22.20.0",
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/agent-trace-run-rows.mjs",
+      "sha256": "14b0241b423269fb5a473fbc520e8aa2a1fcac22c757845e126a86c5f5076c74"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/agent-trace-run-scenarios.mjs",
+      "sha256": "104af93f584f8a393260144b0882998280b046ed99e0d05397c68c3d089103bf"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/job-run.mjs",
+      "sha256": "81706cfb9424070aebc944c20cbdc72c31c84d06bd60119e4ad752af2fc7fc91"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/tool-failure-rows.mjs",
+      "sha256": "e5748aefeacdd419e2192ec5164c375afc0db5938acea9e6b49d7de0267068ce"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
   "normalised": [
     "session_id",
     "ts and each execution_intervals mark",
@@ -42,9 +68,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-agent-trace-run.mjs",
-  "recorderSha256": "7f32878724131227c90f5dbc825cfc68d8c479e12fca3074537d1ae5f31c140f",
-  "rowsLibSha256": "e5748aefeacdd419e2192ec5164c375afc0db5938acea9e6b49d7de0267068ce",
-  "scenariosSha256": "104af93f584f8a393260144b0882998280b046ed99e0d05397c68c3d089103bf",
+  "recorderSha256": "2427bb5c373e25fc8ba08b8ef783a16f8370545ef2357e57095a01266d50ec00",
   "set": "agent-trace-run",
   "syntheticInputs": {
     "environment": [
@@ -68,6 +92,5 @@
       "b.txt": "c150e5a8a604acebd8d15bd7bf8ea96b2874bdcc91dee6319977d353251283b0"
     }
   },
-  "totalBytes": 9703,
-  "traceRowsLibSha256": "14b0241b423269fb5a473fbc520e8aa2a1fcac22c757845e126a86c5f5076c74"
+  "totalBytes": 9703
 }
