@@ -11,7 +11,7 @@
 // extension host never calls. The ext-host e2e suites, run against the trimmed bundle, confirm the set.
 import { existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { builtinModules } from 'node:module';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 
 const FIXED_ENTRIES = Object.freeze(['src/ext-host/worker.mjs', 'src/skill-script-entry.mjs']);
 const SKILLS_DIR = 'src/defaults/skills';
@@ -160,6 +160,52 @@ export const fitsTarget = (name, entry, target) =>
     allowed(entry.os, target.os) &&
     allowed(entry.cpu, target.cpu) &&
     (!target.libc || allowed(entry.libc, target.libc)));
+
+/**
+ * The package directories `roots` need in an installed tree: every root, and every dependency, optional
+ * dependency and required peer of what is reached, found the way Node finds it from the owner's directory
+ * upward. `modulesDir` is the tree's `node_modules`; the roots are resolved from the `mixdog` package inside
+ * it (the owner of the entry points). Returns `{ dirs: absolute package directories, missing: messages,
+ * skipped: names }`. A dependency absent from the tree is a miss, unless `tolerate(name, kind)` accepts it
+ * (then its name is in `skipped`) or it is an optional peer. What an installer left out of an installed tree
+ * because the platform does not fit (npm's own os/cpu/libc judgement, which the lockfile does not always
+ * record: it has no libc for the musl variants) is what a staging run tolerates, records, and a later check
+ * of the staged tree tolerates by that record only.
+ */
+export function installedClosure(modulesDir, roots, tolerate = () => false) {
+  // `modulesDir` is the tree's top `node_modules` whatever it is called (the desktop stages it as `native-modules`).
+  const find = (owner, name) => {
+    for (let at = owner; ; at = dirname(at)) {
+      const candidate = at === modulesDir ? join(at, name) : basename(at) === 'node_modules' ? null : join(at, 'node_modules', name);
+      if (candidate && existsSync(join(candidate, 'package.json'))) return candidate;
+      if (at === modulesDir || at === dirname(at)) return null;
+    }
+  };
+  const dirs = new Set();
+  const missing = [];
+  const skipped = new Set();
+  const visit = (dir, label) => {
+    if (dirs.has(dir)) return;
+    dirs.add(dir);
+    const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
+    for (const [kind, group] of [['dependency', manifest.dependencies], ['optional dependency', manifest.optionalDependencies], ['peer dependency', manifest.peerDependencies]]) {
+      for (const name of Object.keys(group ?? {})) {
+        const found = find(dir, name);
+        if (found) visit(found);
+        else if (kind === 'peer dependency' && manifest.peerDependenciesMeta?.[name]?.optional) continue;
+        else if (tolerate(name, kind)) skipped.add(name);
+        else missing.push(`${name} (${kind} of ${label ?? basename(dir)}) is not installed`);
+      }
+    }
+  };
+  const owner = join(modulesDir, 'mixdog');
+  for (const name of roots) {
+    const found = find(owner, name);
+    if (found) visit(found);
+    else missing.push(`${name} (reached from the remote entry points) is not installed`);
+  }
+  return { dirs, missing, skipped };
+}
 
 const keepsName = (keep, name) => [...keep].some((path) => path.endsWith(`node_modules/${name}`));
 

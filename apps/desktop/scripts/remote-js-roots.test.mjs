@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { makeTempDirSync } from '../../../scripts/lib/scoped-temp.mjs';
-import { NOT_FOR_REMOTE, deriveRemoteRoots, fitsTarget, pruneInapplicable, remoteJsEntries, trimManifest, verifyInstalledTree } from './remote-js-roots.mjs';
+import { NOT_FOR_REMOTE, deriveRemoteRoots, fitsTarget, installedClosure, pruneInapplicable, remoteJsEntries, trimManifest, verifyInstalledTree } from './remote-js-roots.mjs';
 
 const write = (root, file, text) => {
   mkdirSync(dirname(join(root, file)), { recursive: true });
@@ -111,6 +111,36 @@ test('platform exclusion follows the package own os/cpu/libc, plus exact names, 
   assert.ok(existsSync(join(pkg, 'node_modules/plain-wasm32')));
   assert.ok(existsSync(join(pkg, 'node_modules/@img/sharp-linux-x64')));
   assert.ok(NOT_FOR_REMOTE['@img/sharp-wasm32']);
+});
+
+test('the closure of an installed tree is found as Node resolves it, nested copies included', () => {
+  const modules = join(makeTempDirSync('closure'), 'node_modules');
+  const pkg = (dir, manifest) => write(modules, `${dir}/package.json`, JSON.stringify(manifest));
+  pkg('mixdog', {});
+  pkg('a', { dependencies: { b: '1' }, optionalDependencies: { 'a-linux-x64': '1', 'a-win32-x64': '1' }, peerDependencies: { p: '1', q: '1' }, peerDependenciesMeta: { q: { optional: true } } });
+  pkg('b', { dependencies: { c: '2' } });
+  pkg('b/node_modules/c', {});
+  pkg('c', {});
+  pkg('a-linux-x64', {});
+  pkg('p', {});
+  pkg('unused', {});
+  const optionalOnly = (_name, kind) => kind === 'optional dependency';
+  const { dirs, missing, skipped } = installedClosure(modules, ['a'], optionalOnly);
+  assert.deepEqual(missing, []);
+  assert.deepEqual([...skipped], ['a-win32-x64']);
+  assert.deepEqual([...dirs].map((dir) => dir.slice(modules.length + 1).replaceAll('\\', '/')).sort(), ['a', 'a-linux-x64', 'b', 'b/node_modules/c', 'p']);
+  // A package may be absent only if the caller says so: a required dependency, a root and a peer are misses.
+  rmSync(join(modules, 'a-linux-x64'), { recursive: true });
+  rmSync(join(modules, 'p'), { recursive: true });
+  rmSync(join(modules, 'b/node_modules/c'), { recursive: true });
+  rmSync(join(modules, 'c'), { recursive: true });
+  const recorded = new Set(['a-win32-x64']);
+  assert.deepEqual(installedClosure(modules, ['a', 'ghost'], (name) => recorded.has(name)).missing, [
+    'c (dependency of b) is not installed',
+    'a-linux-x64 (optional dependency of a) is not installed',
+    'p (peer dependency of a) is not installed',
+    'ghost (reached from the remote entry points) is not installed',
+  ]);
 });
 
 const lock = {

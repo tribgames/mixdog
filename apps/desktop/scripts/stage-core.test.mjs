@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
@@ -23,6 +23,34 @@ const fakePayload = (js = 'node') => async ({ key, payloadDir }) => {
   writeFileSync(join(payloadDir, 'js-runtime.json'), '{"program":"js/node","packageRoot":"js/pkg/node_modules/mixdog","electron":false}\n');
 };
 
+/** The payload check stand-in records what it was asked to verify; its real counterpart is core-layout.test.mjs. */
+const verified = [];
+const verifyPayload = async ({ key, payloadDir }) => {
+  assert.ok(readFileSync(join(payloadDir, 'js-runtime.json'), 'utf8'));
+  verified.push(key);
+};
+
+test('a server payload that fails its integrity check is never archived', async () => {
+  const targetDir = makeTempDirSync('stage-core-verify');
+  const runtimeDir = makeTempDirSync('stage-core-verify-rt');
+  builtTargets(targetDir, Object.values(HOST_TARGETS));
+  await assert.rejects(
+    stageCore({
+      targetDir,
+      runtimeDir,
+      version: '1.4.6',
+      host: { platform: 'win32', arch: 'x64' },
+      reportedVersion: () => '1.4.6',
+      buildPayload: fakePayload(),
+      verifyPayload: async () => {
+        throw new Error('ONNX Runtime library is missing');
+      },
+    }),
+    /ONNX Runtime library is missing/
+  );
+  assert.equal(existsSync(join(runtimeDir, 'server-cores', 'servers.json')), false);
+});
+
 test('staging puts the host core and every server runtime where the build and the ssh install read them', async () => {
   const targetDir = makeTempDirSync('stage-core-target');
   const runtimeDir = makeTempDirSync('stage-core-runtime');
@@ -34,12 +62,14 @@ test('staging puts the host core and every server runtime where the build and th
     host: { platform: 'win32', arch: 'x64' },
     reportedVersion: () => '1.4.6',
     buildPayload: fakePayload(),
+    verifyPayload,
   });
   assert.equal(readFileSync(join(runtimeDir, 'core', 'mixdogd.exe'), 'utf8'), 'binary for x86_64-pc-windows-msvc');
-  // The core finds the app binary (interpreter, node mode) and the package inside runtime.asar from here.
+  // The core finds the app binary (interpreter, node mode) and the package as real files beside the archive:
+  // plain fs cannot read inside runtime.asar.
   assert.deepEqual(JSON.parse(readFileSync(join(runtimeDir, 'core', 'js-runtime.json'), 'utf8')), {
     program: '../../Mixdog.exe',
-    packageRoot: '../runtime.asar/node_modules/mixdog',
+    packageRoot: '../runtime.asar.unpacked/node_modules/mixdog',
     electron: true,
     // The file onnxruntime-node's binding loads, mirrored unpacked beside the archive.
     ortLibrary: '../runtime.asar.unpacked/node_modules/onnxruntime-node/bin/napi-v6/win32/x64/onnxruntime.dll',
@@ -47,6 +77,7 @@ test('staging puts the host core and every server runtime where the build and th
   // macOS x64 has no onnxruntime-node binding: its manifest names no library.
   assert.equal('ortLibrary' in jsRuntimeManifest('darwin', 'x64'), false);
   assert.deepEqual(Object.keys(manifest.binaries).sort(), ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64']);
+  assert.deepEqual([...verified].sort(), ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64'], 'every server payload is checked');
   // The ssh install reads exactly what was staged, and finds the same build.
   const payloads = await loadServerPayloads(join(runtimeDir, 'server-cores'));
   assert.equal(payloads.identity.build, manifest.build);
@@ -65,6 +96,7 @@ test('staging puts the host core and every server runtime where the build and th
     host: { platform: 'win32', arch: 'x64' },
     reportedVersion: () => '1.4.6',
     buildPayload: fakePayload(js),
+    verifyPayload,
   });
   assert.equal((await build('node')).build, manifest.build, 'staging is reproducible');
   assert.notEqual((await build('node-next')).build, manifest.build);
@@ -84,6 +116,7 @@ test('a missing target, or a host binary reporting another version, stops the st
       host: { platform: 'win32', arch: 'x64' },
       reportedVersion: () => '1.4.6',
       buildPayload: fakePayload(),
+    verifyPayload,
     }),
     /x86_64-unknown-linux-gnu is not built/
   );
@@ -91,7 +124,7 @@ test('a missing target, or a host binary reporting another version, stops the st
   // The host binary of the machine staging reports its own version.
   const host = { platform: 'win32', arch: 'x64' };
   await assert.rejects(
-    stageCore({ targetDir, runtimeDir, version: '1.4.6', host, hostRunnable: true, reportedVersion: () => '1.4.5', buildPayload: fakePayload() }),
+    stageCore({ targetDir, runtimeDir, version: '1.4.6', host, hostRunnable: true, reportedVersion: () => '1.4.5', buildPayload: fakePayload(), verifyPayload }),
     /reports version 1\.4\.5, but the release is 1\.4\.6/
   );
 });

@@ -3,7 +3,9 @@
 import { access, readdir, rm } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { onnxRuntimeSupported } from '../src/runtime/shared/onnx-runtime-support.mjs';
+
+// onnxruntime-node ships no macOS Intel (darwin-x64) native binding since 1.23.
+const onnxRuntimeSupported = (platform, arch) => !(platform === 'darwin' && arch === 'x64');
 
 const SUPPORTED_TARGETS = new Map([
   ['win32', new Set(['x64', 'arm64'])],
