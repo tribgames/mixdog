@@ -36,7 +36,8 @@ use serde_json::{json, Value};
 use tokio::sync::{mpsc, watch};
 
 use super::live_turn::LiveTurnPublisher;
-use super::watchdog::Watchdog;
+use super::watchdog::{StallSite, Watchdog, registration_id, stall_abort_ctx};
+use mixdog_agent::agent_tool::progress::Snapshot;
 use mixdog_agent::agent_tool::watchdog::{is_watchdog_abort, resolve_policy, AgentKind, Overrides};
 use super::message_row::{message_of, row_of};
 use mixdog_core_run::run_host::progress::ProgressPublisher;
@@ -141,6 +142,8 @@ pub struct Assembled {
     pub step_judge: Option<Arc<dyn mixdog_agent::step_effort::StepEffortJudge>>,
     pub artifacts: Option<Arc<dyn mixdog_agent::offload::ArtifactStore>>,
     pub images: Option<Arc<dyn mixdog_agent::offload::ImageCompactor>>,
+    /// Where the turn's failed tool calls are recorded (`history/tool-failures.jsonl`).
+    pub failures: Option<Arc<dyn mixdog_agent::env::ToolFailureLog>>,
     /// The attachment blob reader, for the display facts of a user row (a pasted text's body).
     pub blobs: Arc<dyn mixdog_agent::compact::blob_reads::BlobReads>,
     /// The guard state that outlives one ask (the session record).
@@ -946,7 +949,7 @@ async fn drive(
         Err(error) => return RunOutcome::Failed(error),
     };
     let Assembled {
-        provider, tools, tool_env, gate, worktree, mut config, clock, decider, guards, compactor, route, skills, hooks, reuse, reactions, reaction_scope: _reaction_scope, rows, tail, side, step_judge, artifacts, images, blobs, carry,
+        provider, tools, tool_env, gate, worktree, mut config, clock, decider, guards, compactor, route, skills, hooks, reuse, reactions, reaction_scope: _reaction_scope, rows, tail, side, step_judge, artifacts, images, failures, blobs, carry,
     } = assembled;
     // `backfillFallbackSessionTitle` (`precommitUserTurn`, `ask-turn-execute.mjs`): a titleless session is named
     // from the earliest human turn of its history, else this turn's prompt (an injected turn never names it),
@@ -1079,7 +1082,16 @@ async fn drive(
         let kind = AgentKind { name: agent, hidden: config.hidden_agent, stall_cap_idle_seconds: parts.stall_cap_idle_seconds(agent) };
         let policy = resolve_policy(kind, overrides, &|name: &str| std::env::var(name).ok());
         let (reaper, reaped_thread) = (parts.clone(), thread.clone());
-        Watchdog::arm(true, policy, signal.clone(), clock.clone(), move |now| watched.borrow().snapshot(now), move || reaper.reap_turn_shells(&reaped_thread, asked_at))
+        // The worker-turn registry's stop (`abortOnTimeout`, `agent-watchdog-registry.mjs:30-33`): the reap is armed, then the stop is
+        // recorded with what the sweep judged, then the abort.
+        let (stall_log, stall_agent, site) = (failures.clone(), agent.map(str::to_owned), StallSite::Registry { registration_id: registration_id() });
+        let anchor_ts = clock.now_ms();
+        Watchdog::arm(true, policy, signal.clone(), clock.clone(), move |now| watched.borrow().snapshot(now), move |snapshot: &Snapshot, message: &str, now: i64| {
+            reaper.reap_turn_shells(&reaped_thread, asked_at);
+            if let Some(log) = stall_log {
+                log.stall_abort(stall_abort_ctx(reaped_thread.as_str(), stall_agent.as_deref(), &site, &policy, anchor_ts, snapshot, message, now));
+            }
+        })
     } else {
         None
     };
@@ -1146,6 +1158,7 @@ async fn drive(
         step_judge,
         artifacts,
         images,
+        failures,
     };
     // Node's `_api_call_with_interrupt` spans `agentLoop`: an abort inside reads "during call".
     progress.model_loop(true);
@@ -1429,6 +1442,7 @@ mod tests {
                 step_judge: None,
                 artifacts: None,
                 images: None,
+                failures: None,
                 blobs: Arc::new(NoBlobs),
                 carry: RunCarry::default(),
             })
