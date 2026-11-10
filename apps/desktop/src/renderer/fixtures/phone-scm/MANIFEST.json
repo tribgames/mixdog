@@ -1,7 +1,14 @@
 {
   "calls": 62,
-  "cases": 263,
+  "cases": 303,
   "command": "node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-phone-scm.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "clock": "Date.now, new Date() and the run-limit timeouts are virtual; every other timer of the code under test is real and is printed, by delay, at the end of a recording",
+    "featureGit": "MIXDOG_FEATURE_GIT is unset, as in the product: no production code sets it (read at builtin-features.mjs:70,219)",
+    "git": "runChild on the calling thread. The daemon runs the same runChild in its process-runner worker pool (desktop-service.ts:1049-1053, process-runner.mjs:19-37, four threads): the same limits and errors; the spawns of one thread queue, which this recording does not reproduce",
+    "notRun": "the relay above it, which reads no source-control method or argument: the payload cap (remote-relay.ts:75,190), frame admission (remote-relay-clients.ts:215-217), the handshake and decryption (remote-relay-client-lifecycle.ts:86-99), the transport registrations and the state-resync frame of remote-relay-client-calls.ts:181-455",
+    "runs": "executeRemoteFrame over createRemoteMethods (remote-methods.ts:1256, :828): the frame parse, the method lookup, every argument check and the desktop operation"
+  },
   "fileCount": 3,
   "files": [
     {
@@ -15,9 +22,9 @@
       "sha256": "6063137a2f60cf6c118df3d1132b4e4910218ba814c964f2433a0d8f65e09b01"
     },
     {
-      "bytes": 1571824,
+      "bytes": 1788768,
       "path": "golden.json",
-      "sha256": "7c93ab860f7c967bceb51110cfa9fa6992614a69b717036af3e487194956ab7b"
+      "sha256": "3ad9d30c4913e3feedf1f698bc791420a9cbcfb806bf06781d43c8beb65f88b3"
     }
   ],
   "product": {
@@ -669,5 +676,5 @@
       }
     ]
   },
-  "totalBytes": 1595625
+  "totalBytes": 1812569
 }

@@ -114,7 +114,7 @@ impl ThreadWorktrees for Cwds {
     }
 }
 
-fn service(log: Log) -> ScmHandle {
+pub(crate) fn service(log: Log) -> ScmHandle {
     let scm = Scm::new(TestProcesses::shared(), mixdog_rt::testing::tokens().maintenance_io, std::env::temp_dir().join(format!("mixdog-scm-review-{}", std::process::id())));
     ScmHandle(ScmService::new(
         scm,

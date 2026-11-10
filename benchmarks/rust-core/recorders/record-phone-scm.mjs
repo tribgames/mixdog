@@ -92,7 +92,13 @@ function withDeadline(promise, message) {
 // A child of this recorder gets a bound, and a failure ends its whole process tree (taskkill /T), so nothing it started outlives it.
 const CHILD_BOUND_MS = 120_000;
 function endTree(pid) {
-  if (pid) spawnSync('taskkill', ['/T', '/F', '/PID', String(pid)], { stdio: 'ignore', timeout: 30_000 });
+  if (!pid) return;
+  const ended = spawnSync('taskkill', ['/T', '/F', '/PID', String(pid)], { encoding: 'utf8', timeout: 30_000 });
+  // 128: no such process (it had already ended). Anything else left a tree running: that fails the run and names the process.
+  if (ended.error || (ended.status !== 0 && ended.status !== 128)) {
+    console.error(`the process tree of pid ${pid} could not be ended: ${ended.error?.message ?? `taskkill exit ${ended.status} ${ended.stderr ?? ''}`}`);
+    process.exitCode = 1;
+  }
 }
 /** `spawnSync` with the bound; a child that failed or ran out of time is ended with everything it started, and the failure is thrown. */
 function boundedSync(file, args, options) {
@@ -132,6 +138,9 @@ mkdirSync(join(WORK, 'shim'), { recursive: true });
 await boundedTree('rustc', ['-O', '--edition', '2024', join(REPO_ROOT, 'benchmarks', 'rust-core', 'recorders', 'lib', 'scripted-tool.rs'), '-o', shimExe], { cwd: REPO_ROOT, env: { ...process.env, PATH: MACHINE_PATH, RUSTUP_HOME: join(REAL_HOME, '.rustup'), CARGO_HOME: join(REAL_HOME, '.cargo') } });
 const realGit = MACHINE_PATH.split(';').filter((dir) => dir !== join(WORK, 'bin')).map((dir) => join(dir, 'git.exe')).find((file) => existsSync(file));
 process.env.PHONE_SCM_REAL_GIT = realGit;
+// The git that really runs on the scratch repositories, for Node and for the core alike. (The scripted `git --version` of
+// gh-script.json is only what `gitCliStatus` is told.) It is recorded, and a replay with another git refuses to compare.
+const realGitVersion = boundedSync(realGit, ['--version'], { encoding: 'utf8', stdio: 'pipe' }).stdout.trim();
 if (!REPLAY) fs.copyFileSync(shimExe, join(WORK, 'bin', 'git.exe'));
 
 // Node's clock is virtual: `Date.now` stays where it is until `advance` moves it, and so does Node's 60 s run limit of a git read
@@ -157,8 +166,31 @@ const clock = {
   },
 };
 Date.now = () => clock.now;
+// `new Date()` and `Date()` read the same clock (the prototype is the real one, so `instanceof Date` holds for every date).
+const RealDate = Date;
+globalThis.Date = new Proxy(RealDate, {
+  construct: (target, given, newTarget) => Reflect.construct(target, given.length ? given : [clock.now], newTarget === globalThis.Date ? target : newTarget),
+  apply: () => new RealDate(clock.now).toString(),
+});
+// Every other timer of the code under test runs on real time. They are counted by delay, armed and fired, and an interval at all
+// is counted too: the recording prints them, so "no real timer decides anything recorded" is a measurement, not a belief.
+const realTimers = new Map();
+const countTimer = (delay, field) => {
+  const key = String(delay ?? 0);
+  const entry = realTimers.get(key) ?? { armed: 0, fired: 0 };
+  entry[field] += 1;
+  realTimers.set(key, entry);
+};
+const realSetInterval = globalThis.setInterval;
+globalThis.setInterval = (fire, delay, ...rest) => {
+  countTimer(`interval ${delay}`, 'armed');
+  return realSetInterval((...given) => (countTimer(`interval ${delay}`, 'fired'), fire(...given)), delay, ...rest);
+};
 globalThis.setTimeout = (fire, delay, ...rest) => {
-  if (!(clock.limit > 0 && delay === clock.limit)) return realSetTimeout(fire, delay, ...rest);
+  if (!(clock.limit > 0 && delay === clock.limit)) {
+    countTimer(delay, 'armed');
+    return realSetTimeout((...given) => (countTimer(delay, 'fired'), fire(...given)), delay, ...rest);
+  }
   const timer = { at: clock.now + delay, child: clock.tag, fire: () => fire(...rest), unref() {}, ref() {} };
   clock.timers.add(timer);
   for (const listener of clock.listeners.splice(0)) listener();
@@ -452,10 +484,23 @@ async function listenWire() {
 const toolName = (program) => basename(program).toLowerCase().replace(/\.exe$/, '');
 
 let replay = null;
+// However this run ends (a difference, a wait past its bound, an exception anywhere below), nothing it started outlives it: the
+// core and everything under it, by the pid of the child this process still holds, and then the world's folder.
+process.on('exit', () => {
+  const core = replay?.core;
+  if (core && core.exitCode === null && core.signalCode === null) endTree(core.pid);
+  try {
+    rmSync(WORK, { recursive: true, force: true });
+  } catch (error) {
+    console.error(`the world's folder ${WORK} could not be removed: ${error.message}`);
+    process.exitCode = 1;
+  }
+});
 const settingsChanges = [];
 let settingsWaiting = [];
 if (REPLAY) {
   const golden = JSON.parse(readFileSync(join(FIXTURES, 'golden.json'), 'utf8'));
+  assert.equal(realGitVersion, golden.realGit, `the recording was made with "${golden.realGit}" and this machine's git is "${realGitVersion}": record again before comparing`);
   const here = (path) => import(pathToFileURL(join(REPO_ROOT, path)).href);
   if (process.env.PHONE_SCM_VERBOSE) console.error('stage: imports');
   const { adapter } = await here('apps/desktop/src/renderer/remote-protocol-scm.ts');
@@ -741,12 +786,20 @@ function mapFlowIds(frame) {
 function expectedWires(ops) {
   return ops
     .filter((op) => op.name !== 'notifySettingsChanged')
-    .map((op) => {
+    .flatMap((op) => {
       const spawn = op.error?.code === 'ENOENT' ? /^spawn (\S+) ENOENT$/.exec(op.error.message) : null;
-      const outcome = op.error
-        ? { failed: spawn ? { capability: spawn[1] } : { message: op.error.message } }
-        : { result: op.name === 'githubCliLoginStart' ? { flowId: op.result.flowId } : op.result === undefined ? null : op.result };
-      return { ...clone(replay.routes[op.name](op.args)), outcome };
+      const failed = op.error && { failed: spawn ? { capability: spawn[1] } : { message: op.error.message } };
+      const request = clone(replay.routes[op.name](op.args));
+      // Node's sign-in start answered the started flow. The adapter takes the flow's id from the core's start and reads the flow
+      // with exactly one `github/login/status` of that id (scm-operation-route.ts SCM_REPLIES): both requests are expected, whole,
+      // and each answers the flow Node answered.
+      if (op.name === 'githubCliLoginStart' && !failed) {
+        return [
+          { ...request, outcome: { result: op.result } },
+          { method: 'github/login/status', params: { flowId: op.result.flowId }, outcome: { result: op.result } },
+        ];
+      }
+      return [{ ...request, outcome: failed || { result: op.result === undefined ? null : op.result } }];
     });
 }
 /** What the core answered each request of the adapter: its result, or its failure (a missing program is a missing capability). */
@@ -755,19 +808,15 @@ function actualWires(wires) {
     wires.map((wire) => {
       const outcome = wire.error
         ? { failed: wire.error.capability ? { capability: wire.error.capability } : { message: wire.error.message } }
-        : { result: wire.method === 'github/login/start' ? { flowId: wire.result.flowId } : wire.result };
+        : { result: wire.result };
       return { method: wire.method, ...(wire.params === undefined ? {} : { params: wire.params }), outcome };
     }),
   );
 }
-// The sign-in start answers the flow's id; the adapter then reads the flow itself with `github/login/status` requests (DS 5.4), which no
-// desktop operation of Node's recording stands for.
-const loginReads = (wires) => wires.every((wire) => wire.method === 'github/login/status');
 function opsDifference(ops, wires) {
   const expected = expectedWires(ops);
   const actual = actualWires(wires);
-  const asked = actual.slice(0, expected.length);
-  return isDeepStrictEqual(asked, expected) && loginReads(actual.slice(expected.length)) ? null : { node: expected, core: actual };
+  return isDeepStrictEqual(actual, expected) ? null : { node: expected, core: actual };
 }
 
 // The clock steps taken since the last call: they belong to the next call recorded (a status after the remote-list minute went by).
@@ -1479,6 +1528,55 @@ git(FAILING, 'commit', '-q', '-m', 'first');
   git(FAILING, 'checkout', '--', 'f.txt');
   rmSync(join(FAILING, 'g.txt'), { force: true });
 }
+{
+  // ═══ arguments Node's host refuses before it acts (remote-methods.ts over ipc-validation.ts and git-contract.mjs): no git runs ═══
+  // The phone's page refuses the same (the replay), and the core refuses them for a caller that skips the page
+  // (mixdog-scm src/input.rs, whose test reads these answers by name).
+  const head = git(FAILING, 'rev-parse', 'HEAD').trim();
+  const refused = [
+    ['gitReviewDiff-path-climbs-out', 'gitReviewDiff', [FAILING, '../outside.txt', true]],
+    ['gitReviewDiffs-path-climbs-out', 'gitReviewDiffs', [FAILING, [{ path: 'sub\\..\\..\\outside.txt', untracked: true }]]],
+    ['gitReviewDiffs-entry-not-an-object', 'gitReviewDiffs', [FAILING, ['f.txt']]],
+    ['gitDiff-absolute-path', 'gitDiff', [FAILING, 'C:\\outside\\x.txt', false, false, true]],
+    ['gitDiff-path-with-nul', 'gitDiff', [FAILING, 'f\0.txt', false, false, false]],
+    ['gitStage-no-paths', 'gitStage', [FAILING, []]],
+    ['gitStage-path-climbs-out', 'gitStage', [FAILING, ['a/../../b.txt']]],
+    ['gitUnstage-absolute-path', 'gitUnstage', [FAILING, ['/etc/passwd']]],
+    ['gitCommitPaths-path-climbs-out', 'gitCommitPaths', [FAILING, 'message', ['..']]],
+    ['gitCommit-blank-message', 'gitCommit', [FAILING, '   ']],
+    ['gitRevert-path-climbs-out', 'gitRevert', [FAILING, '../outside.txt', true, 'all']],
+    ['gitRevert-unknown-mode', 'gitRevert', [FAILING, 'f.txt', false, 'everything']],
+    ['gitApplyPatch-empty-patch', 'gitApplyPatch', [FAILING, 'f.txt', '']],
+    ['gitIgnore-unknown-scope', 'gitIgnore', [FAILING, 'f.txt', 'folder']],
+    ['gitIgnore-path-climbs-out', 'gitIgnore', [FAILING, '../x', 'file']],
+    ['gitRenameBranch-option-as-name', 'gitRenameBranch', [FAILING, 'main', '-D']],
+    ['gitDeleteBranch-option-as-name', 'gitDeleteBranch', [FAILING, '--force']],
+    ['gitDeleteBranch-two-lines', 'gitDeleteBranch', [FAILING, 'a\nb']],
+    ['gitCreateTag-blank-tag', 'gitCreateTag', [FAILING, ' ', head]],
+    ['gitCreateTag-not-a-hash', 'gitCreateTag', [FAILING, 'v1', 'HEAD']],
+    ['gitShow-not-a-hash', 'gitShow', [FAILING, 'main']],
+    ['gitShowDiff-not-a-hash', 'gitShowDiff', [FAILING, 'zzzz', 'f.txt']],
+    ['gitShowDiff-path-climbs-out', 'gitShowDiff', [FAILING, head, '../x']],
+    ['gitShowFile-not-a-revision', 'gitShowFile', [FAILING, 'HEAD~1', 'f.txt']],
+    ['gitShowFile-blank-revision', 'gitShowFile', [FAILING, ' ', 'f.txt']],
+    ['gitResetToCommit-unknown-mode', 'gitResetToCommit', [FAILING, head, 'keep']],
+    ['gitRevertCommit-not-a-hash', 'gitRevertCommit', [FAILING, '--no-edit']],
+    ['gitCherryPickCommit-not-a-hash', 'gitCherryPickCommit', [FAILING, 'abc']],
+    ['gitLog-long-query', 'gitLog', [FAILING, 'q'.repeat(201)]],
+    ['gitLog-offset-over-the-limit', 'gitLog', [FAILING, '', 1_000_001]],
+    ['gitLog-limit-over-the-limit', 'gitLog', [FAILING, '', 0, 101]],
+    ['gitLog-limit-zero', 'gitLog', [FAILING, '', 0, 0]],
+    ['gitReview-unknown-source', 'gitReview', [FAILING, 'staged']],
+    ['gitStash-message-with-nul', 'gitStash', [FAILING, 'wip\0']],
+    ['gitAmend-long-message', 'gitAmend', [FAILING, 'm'.repeat(20_001)]],
+    ['gitStashApply-long-ref', 'gitStashApply', [FAILING, 's'.repeat(65)]],
+    ['gitStashDrop-blank-ref', 'gitStashDrop', [FAILING, '']],
+    ['gitRequestContext-path-climbs-out', 'gitRequestContext', [FAILING, { paths: ['../x'] }]],
+    ['gitRequestContext-option-as-base', 'gitRequestContext', [FAILING, { paths: [], base: '-x' }]],
+    ['setGitGlobalConfig-long-value', 'setGitGlobalConfig', ['user.name', 'v'.repeat(501)]],
+  ];
+  for (const [name, call, params] of refused) await rec(`refused-${name}`, call, params);
+}
 // A repository whose only commit has no parent to go back to.
 await rec('gitUndoLastCommit-only-commit', 'gitUndoLastCommit', [FAILING]);
 const BIG = join(WORK, 'big');
@@ -1592,7 +1690,7 @@ if (missing.length || PH2_SCM_CALLS.length !== 62) throw new Error(`calls not re
 if (scripted.unscripted.length) throw new Error(`processes no rule of gh-script.json answers:\n${JSON.stringify(scripted.unscripted, null, 1)}`);
 // How each sign-in terminal child ended, taken before the host is disposed (which ends any left running).
 const ptyEnds = pty.spawned.map((entry) => ({ argv: entry.record.argv, cwd: entry.record.cwd, env: entry.record.env, ended: entry.record.record.ended }));
-await operations.dispose();
+await withDeadline(operations.dispose(), "Node's desktop operations never finished disposing");
 scripted.restore();
 rmSync(WORK, { recursive: true, force: true });
 
@@ -1601,6 +1699,7 @@ writeJson(join(stage, 'golden.json'), {
   note: 'The relay frame Node (b6f10295a) sent the phone for each source-control call, with the desktop operations it invoked and what they returned. gh, winget, soffice.com and `git --version` are the scripted rules of gh-script.json (`world` is the state when the call ran).',
   platform: process.platform,
   git: gitVersion,
+  realGit: realGitVersion,
   // What Node's host (`path.isAbsolute`, main/git-contract.mjs:1-6 and every git path check) says of each spelling, on each platform's rule.
   pathRules: Object.fromEntries(
     [['windows', win32], ['unix', posix]].map(([family, rules]) => [family, PATH_SPELLINGS.map((spelling) => ({ spelling, absolute: rules.isAbsolute(spelling), trimmedAbsolute: rules.isAbsolute(spelling.trim()) }))]),
@@ -1617,6 +1716,15 @@ writeSetManifest(stage, {
   extra: {
     cases: cases.length,
     calls: PH2_SCM_CALLS.length,
+    // What of Node's path from the phone's socket to the method table this recording runs, and what it does not.
+    entry: {
+      runs: 'executeRemoteFrame over createRemoteMethods (remote-methods.ts:1256, :828): the frame parse, the method lookup, every argument check and the desktop operation',
+      notRun:
+        'the relay above it, which reads no source-control method or argument: the payload cap (remote-relay.ts:75,190), frame admission (remote-relay-clients.ts:215-217), the handshake and decryption (remote-relay-client-lifecycle.ts:86-99), the transport registrations and the state-resync frame of remote-relay-client-calls.ts:181-455',
+      git: 'runChild on the calling thread. The daemon runs the same runChild in its process-runner worker pool (desktop-service.ts:1049-1053, process-runner.mjs:19-37, four threads): the same limits and errors; the spawns of one thread queue, which this recording does not reproduce',
+      featureGit: 'MIXDOG_FEATURE_GIT is unset, as in the product: no production code sets it (read at builtin-features.mjs:70,219)',
+      clock: 'Date.now, new Date() and the run-limit timeouts are virtual; every other timer of the code under test is real and is printed, by delay, at the end of a recording',
+    },
     // The stand-in's rules are input to both products, not recorded answers: say so, and what each imitates.
     syntheticInput: {
       file: 'gh-script.json',
@@ -1627,4 +1735,5 @@ writeSetManifest(stage, {
 });
 commitStage(stage, FIXTURES);
 console.log(`phone-scm: ${cases.length} cases over ${PH2_SCM_CALLS.length} calls`);
+console.log(`real timers of the code under test, by delay (ms): ${JSON.stringify(Object.fromEntries([...realTimers].sort()))}`);
 process.exit(0);
