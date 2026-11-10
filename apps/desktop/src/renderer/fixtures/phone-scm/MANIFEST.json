@@ -1,6 +1,6 @@
 {
   "calls": 62,
-  "cases": 235,
+  "cases": 253,
   "command": "node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-phone-scm.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "fileCount": 3,
   "files": [
@@ -15,9 +15,9 @@
       "sha256": "6063137a2f60cf6c118df3d1132b4e4910218ba814c964f2433a0d8f65e09b01"
     },
     {
-      "bytes": 1177439,
+      "bytes": 1264452,
       "path": "golden.json",
-      "sha256": "b0d79587d514ce7dca28921af381e10141c9803a0cf663b79706ab86a52c7aa6"
+      "sha256": "bff20aceeaf47c6b4deb4974b06ff84c2bd0e322fc188b295e08fa6e3af353c0"
     }
   ],
   "product": {
@@ -669,5 +669,5 @@
       }
     ]
   },
-  "totalBytes": 1201240
+  "totalBytes": 1288253
 }
