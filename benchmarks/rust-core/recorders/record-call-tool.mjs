@@ -107,13 +107,14 @@ const SCENARIOS = [
   { name: 'a target that needs approval, called directly', ask: ['probe_write'], answers: [{ approved: true }], script: [round(call('c1', 'probe_write', { q: 'x' })), FINAL] },
   { name: 'call_tool itself is never asked about', ask: ['call_tool'], answers: [], script: [round(bridged('c1', 'probe_write', { q: 'x' })), FINAL] },
   { name: 'an MCP target that needs approval, approved', mcp: true, ask: ['mcp__mail__send'], answers: [{ approved: true }], script: [round(bridged('c1', 'mcp__mail__send', { to: 'a@b.c' })), FINAL] },
-  { name: 'a mix: two approvals, a refusal and a plain run in one batch', ask: ['probe_write'], answers: [{ approved: true }, { approved: false, reason: 'no' }], script: [round(bridged('c1', 'probe_write', { q: '1' }), bridged('c2', 'nope', {}), bridged('c3', 'probe_write', { q: '2' }), bridged('c4', 'probe_read', { q: 'r' })), FINAL] },
+  { name: 'a mix: two approvals, a refusal and a plain run in one batch', ask: ['probe_write'], cardIds: ['c1', 'c3'], answers: [{ approved: true }, { approved: false, reason: 'no' }], script: [round(bridged('c1', 'probe_write', { q: '1' }), bridged('c2', 'nope', {}), bridged('c3', 'probe_write', { q: '2' }), bridged('c4', 'probe_read', { q: 'r' })), FINAL] },
   { name: 'a session that denies a tool', session: { disallowedTools: ['probe_write'] }, script: [round(bridged('c1', 'probe_write', { q: 'x' }), call('c2', 'probe_write', { q: 'x' }), bridged('c3', 'probe_read', {})), FINAL] },
   { name: 'a session whose settings closed a tool', session: { featureDeniedTools: ['probe_write'], disallowedTools: ['probe_write'] }, script: [round(call('c1', 'probe_write', { q: 'x' }), bridged('c2', 'probe_write', {})), FINAL] },
   { name: 'a session with a schema allowlist', session: { schemaAllowedTools: ['read', 'load_tool', 'call_tool', 'probe_read'] }, script: [round(call('c1', 'load_tool', { names: ['probe_write'] }), bridged('c2', 'probe_write', {}), bridged('c3', 'probe_read', {}), call('c4', 'probe_write', {})), FINAL] },
   { name: 'a read-only session', session: { toolSpec: 'readonly' }, script: [round(call('c1', 'load_tool', { names: ['probe_write', 'probe_read'] }), bridged('c2', 'probe_write', {}), bridged('c3', 'probe_read', {}), call('c4', 'probe_write', {})), FINAL] },
   { name: 'a session with no resolved tool mode', session: { toolSpec: null }, script: [round(bridged('c1', 'probe_write', {}), bridged('c2', 'probe_read', {}), call('c3', 'probe_write', {}), call('c4', 'probe_read', {})), FINAL] },
   { name: 'MCP tools called directly: connected, no longer listed, never listed', mcp: true, script: [round(call('c1', 'mcp__mail__send', { to: 'a@b.c' }), call('c2', 'mcp__mail__gone', {}), call('c3', 'mcp__mail__nope', {})), FINAL] },
+  { name: 'a kept MCP definition the live server no longer lists, through call_tool and called directly', mcp: true, staleMcp: true, script: [round(bridged('c1', 'mcp__mail__gone', {}), call('c2', 'mcp__mail__gone', {}), bridged('c3', 'mcp__mail__send', { to: 'a@b.c' })), FINAL] },
   { name: 'a session that is not a bridge session', nonBridge: true, script: [round(bridged('c1', 'probe_write', { q: 'x' }), call('c2', 'probe_write', { q: 'x' })), FINAL] },
   { name: 'a hook that rewrites the target', hookRewrite: { probe_read: { name: 'probe_write', args: { q: 'rewritten' } } }, script: [round(bridged('c1', 'probe_read', { q: 'x' })), FINAL] },
   { name: 'a PreToolUse hook that denies the target', hookDeny: ['probe_write'], script: [round(bridged('c1', 'probe_write', { q: 'x' }), call('c2', 'probe_write', { q: 'x' })), FINAL] },
@@ -218,11 +219,14 @@ async function runScenario(scenario) {
     },
   };
   const answers = [...(scenario.answers ?? [])];
+  const served = new Set();
   let result = null;
   await _withRegisteredProviderForTestAsync(providerName, provider, async () => {
     const session = createSession({ id: sessionId, provider: providerName, model: 'fake-model', cwd: workdir, skipSkills: true, mcpScopeId: scopeId, ...(scenario.session ?? {}) });
     sessionRef = session;
     if (scenario.mcp) refreshDeferredMcpToolCatalog(session);
+    // A definition the discovery history keeps although the live server snapshot no longer lists it (isDeferredToolAvailable).
+    if (scenario.staleMcp) session.deferredLateToolCatalog = [{ ...MCP_TOOLS[1], name: 'mcp__mail__gone' }];
     if (!scenario.nonBridge) applyDeferredToolSurface(session, 'lead', [], { provider: providerName });
     // Not createSession options: the session runtime sets them on the session after it is built.
     for (const key of ['toolSpec', 'featureDeniedTools']) if (scenario.session && key in scenario.session) session[key] = scenario.session[key];
@@ -239,7 +243,7 @@ async function runScenario(scenario) {
       hooks.after.push({ name: hookCall.name, args: clone(hookCall.args), result: hookCall.result });
       timeline.push({ ev: 'post', name: hookCall.name, args: clone(hookCall.args) });
     };
-    const surface = { exposure: session.toolExposureMode ?? null, toolSpec: session.toolSpec ?? null, tools: session.tools.map((t) => t.name), catalog: (session.deferredToolCatalog ?? []).map((t) => t.name), mcpNames: session.deferredMcpToolNames ?? null };
+    const surface = { exposure: session.toolExposureMode ?? null, toolSpec: session.toolSpec ?? null, tools: session.tools.map((t) => t.name), catalog: [...(session.deferredToolCatalog ?? []), ...(session.deferredLateToolCatalog ?? [])].map((t) => t.name), mcpNames: session.deferredMcpToolNames ?? null };
     const turn = await askSession(
       session.id,
       'go',
@@ -252,10 +256,14 @@ async function runScenario(scenario) {
       null,
       {
         onToolApproval: async (card) => {
+          // Node asks for the cards of one batch concurrently, in no fixed order: a scenario names the order its cards are served in (`cardIds`), so the recording is stable.
+          const before = (scenario.cardIds ?? []).slice(0, (scenario.cardIds ?? []).indexOf(card.toolCallId));
+          while (!before.every((id) => served.has(id))) await new Promise((resolve) => setImmediate(resolve));
           cards.push(clone(card));
           timeline.push({ ev: 'card', name: card.name, args: clone(card.args) });
           const answer = answers.shift();
           if (!answer) throw new Error(`${scenario.name}: an approval card nobody scripted`);
+          served.add(card.toolCallId);
           return { ...answer, device: 'Pixel' };
         },
         onToolResult: (message) => {

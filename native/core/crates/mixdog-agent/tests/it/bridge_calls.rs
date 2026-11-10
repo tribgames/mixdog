@@ -885,7 +885,7 @@ fn settled(timeline: &Value) -> Value {
 async fn differences(take: impl Fn(&Value) -> bool, skip: &[&str]) -> (usize, Vec<String>) {
     let golden: Value = serde_json::from_str(GOLDEN).expect("golden parses");
     let scenarios = golden["scenarios"].as_array().expect("scenarios");
-    assert_eq!(scenarios.len(), 38, "the recorded scenario list");
+    assert_eq!(scenarios.len(), 39, "the recorded scenario list");
     let mut failures = Vec::new();
     let mut compared = 0;
     for scenario in scenarios.iter().filter(|scenario| take(scenario)) {
