@@ -32,8 +32,12 @@ use super::error::classify;
 use super::request::Dialect;
 use super::request::build_request;
 use super::request::invalid;
+use super::maas;
+use super::maas::VertexModel;
+use super::maas::vertex_model;
 use super::serving::Route;
 use super::serving::Tier;
+use super::serving::VertexAccount;
 use super::serving::VertexPlace;
 use super::serving::Wire;
 use super::traits::ModelTraits;
@@ -194,17 +198,48 @@ impl GoogleCodec {
     /// project and location read from the base it was sent to.
     /// `global` is true when the request was resent there after a 404.
     pub fn classify_for(&self, response: &ErrorResponse, request: &ModelRequest, global: bool) -> ProviderError {
-        let mut error = classify(response, self.error_dialect());
-        if let (Target::Vertex { place }, Ok(model)) = (&self.target, self.model_id(&request.model)) {
-            let route = Route { publisher: "google", id: model, wire: Wire::Gemini };
+        let maas = self.maas_model(&request.model);
+        let mut error = match maas {
+            Some(_) => maas::classify(response),
+            None => classify(response, self.error_dialect()),
+        };
+        let vertex = match maas {
+            Some(model) => Some(model),
+            None => self.model_id(&request.model).ok().map(|id| VertexModel { publisher: "google".into(), id: id.to_owned(), wire: Wire::Gemini }),
+        };
+        if let (Target::Vertex { place }, Some(model)) = (&self.target, vertex) {
             let tier = Tier::requested(request.options.model_parameters.as_ref());
-            let chosen = if global { Ok("global".to_owned()) } else { place.choose(&route, tier) };
+            let chosen = if global { Ok("global".to_owned()) } else { place.choose(&model.route(), tier) };
             if let Ok(location) = chosen {
                 let project = place.project_id().unwrap_or("(unknown project)");
-                vertex_model_access(&mut error, response, "google", model, project, &location);
+                vertex_model_access(&mut error, response, &model.publisher, &model.id, project, &location);
             }
         }
         error
+    }
+
+    /// The open model `model` names on Vertex AI, when it names one (`vertexRoute(model).wire === 'maas'`).
+    pub fn maas_model(&self, model: &str) -> Option<VertexModel> {
+        if !matches!(self.target, Target::Vertex { .. }) {
+            return None;
+        }
+        vertex_model(model).ok().filter(|m| m.wire == Wire::Maas)
+    }
+
+    /// The HTTP request of an open-model send (`_sendMaas`); `global` sends it to `global`.
+    pub fn maas_wire(&self, request: &ModelRequest, model: &VertexModel, global: bool) -> Result<WireRequest, ProviderError> {
+        let Target::Vertex { place } = &self.target else {
+            return Err(invalid(format!("{} is not a Google-published Vertex AI model", model.qualified())));
+        };
+        if place.account == VertexAccount::Express {
+            return Err(invalid(format!(
+                "[vertex-ai] {} needs a service-account key or the gcloud login: a Vertex AI express mode API key serves Gemini models only",
+                model.qualified()
+            )));
+        }
+        let tier = Tier::requested(request.options.model_parameters.as_ref());
+        let location = if global { "global".to_owned() } else { place.choose(&model.route(), tier)? };
+        maas::wire(request, model, &place.base(&location)?)
     }
 
     fn error_dialect(&self) -> ErrorDialect {
@@ -213,21 +248,18 @@ impl GoogleCodec {
         }
     }
 
-    /// The model id as the endpoint's path names it. Vertex also accepts the
-    /// publisher-qualified forms; only Google's own publisher is served here.
+    /// The model id as the endpoint's path names it. Vertex routes the id ([`vertex_model`]); only Google's Gemini
+    /// models are sent here, open models through [`Self::maas_wire`].
     fn model_id<'a>(&self, model: &'a str) -> Result<&'a str, ProviderError> {
-        let id = model.strip_prefix("models/").unwrap_or(model);
         if !matches!(self.target, Target::Vertex { .. }) {
-            return Ok(id);
+            return Ok(model.strip_prefix("models/").unwrap_or(model));
         }
-        let id = id
-            .strip_prefix("publishers/google/models/")
-            .or_else(|| id.strip_prefix("google/"))
-            .unwrap_or(id);
-        if id.contains('/') {
+        if vertex_model(model)?.wire != Wire::Gemini {
             return Err(invalid(format!("{model} is not a Google-published Vertex AI model")));
         }
-        Ok(id)
+        // The id is the last path segment of the trimmed model.
+        let trimmed = mixdog_js::js_trim(model);
+        Ok(trimmed.rsplit('/').next().unwrap_or(trimmed))
     }
 }
 
@@ -237,6 +269,9 @@ impl WireCodec for GoogleCodec {
     }
 
     fn encode(&self, request: &ModelRequest) -> Result<WireRequest, ProviderError> {
+        if let Some(model) = self.maas_model(&request.model) {
+            return self.maas_wire(request, &model, false);
+        }
         let inner = self.build_inner(request)?;
         self.wire(request, &inner, None)
     }
@@ -277,11 +312,10 @@ impl GoogleCodec {
 
     /// Whether a 404 for `request` is resent once on Vertex's `global` location.
     pub fn falls_back_to_global(&self, request: &ModelRequest) -> bool {
-        let (Target::Vertex { place }, Ok(id)) = (&self.target, self.model_id(&request.model)) else {
+        let (Target::Vertex { place }, Ok(model)) = (&self.target, vertex_model(&request.model)) else {
             return false;
         };
-        let route = Route { publisher: "google", id, wire: Wire::Gemini };
-        place.falls_back_to_global(&route, Tier::requested(request.options.model_parameters.as_ref()))
+        place.falls_back_to_global(&model.route(), Tier::requested(request.options.model_parameters.as_ref()))
     }
 
     /// [`Self::wire`]; `global` sends a Vertex request to `global`.
@@ -354,6 +388,9 @@ impl GoogleCodec {
     }
 
     fn decoder_impl(&self, request: &ModelRequest) -> Box<dyn WireDecoder> {
+        if let Some(model) = self.maas_model(&request.model) {
+            return Box::new(maas::decoder(request, &model));
+        }
         Box::new(GeminiDecoder::new(DecodeDialect {
             owner: self.provider.clone(),
             envelope: matches!(self.target, Target::Antigravity { .. }),

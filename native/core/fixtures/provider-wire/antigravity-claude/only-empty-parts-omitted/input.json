@@ -1,0 +1,55 @@
+{
+  "provider": "antigravity-oauth",
+  "model": "claude-sonnet-5-5-low",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a fixture assistant."
+    },
+    {
+      "role": "user",
+      "content": "first"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "providerReplay": {
+        "version": 1,
+        "provider": "antigravity",
+        "items": [
+          {
+            "text": ""
+          },
+          {
+            "text": ""
+          }
+        ],
+        "requestContext": {
+          "model": "claude-sonnet-5-5-low"
+        }
+      }
+    },
+    {
+      "role": "user",
+      "content": "second"
+    }
+  ],
+  "tools": [
+    {
+      "name": "glob",
+      "description": "Find files",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "pattern"
+        ]
+      }
+    }
+  ],
+  "opts": {}
+}

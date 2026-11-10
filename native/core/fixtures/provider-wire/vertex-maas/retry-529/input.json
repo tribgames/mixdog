@@ -1,0 +1,12 @@
+{
+  "provider": "vertex-ai-adc",
+  "model": "zai-org/glm-5-maas",
+  "messages": [
+    {
+      "role": "user",
+      "content": "hi"
+    }
+  ],
+  "tools": null,
+  "opts": {}
+}

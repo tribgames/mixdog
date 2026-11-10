@@ -1,0 +1,38 @@
+{
+  "ok": {
+    "content": "The answer is 42.",
+    "model": "fixture",
+    "providerReplay": {
+      "version": 1,
+      "provider": "openai-responses",
+      "items": [
+        {
+          "type": "message",
+          "id": "m1",
+          "role": "assistant",
+          "content": [
+            {
+              "type": "output_text",
+              "text": "The answer is 42."
+            }
+          ]
+        }
+      ]
+    },
+    "usage": {
+      "inputTokens": 20,
+      "outputTokens": 8,
+      "cachedTokens": 0,
+      "cacheWriteTokens": 0,
+      "promptTokens": 20,
+      "raw": {
+        "input_tokens": 20,
+        "output_tokens": 8,
+        "total_tokens": 28
+      }
+    },
+    "responseId": "resp_x",
+    "generationMs": 0
+  },
+  "dispatchedToolCalls": []
+}

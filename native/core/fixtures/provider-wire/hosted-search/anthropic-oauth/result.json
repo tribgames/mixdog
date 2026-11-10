@@ -1,0 +1,40 @@
+{
+  "ok": {
+    "content": "The answer is 42.",
+    "model": "claude-sonnet-4-6",
+    "usage": {
+      "inputTokens": 20,
+      "outputTokens": 8,
+      "cachedTokens": 0,
+      "cacheWriteTokens": 0,
+      "raw": {
+        "input_tokens": 20,
+        "output_tokens": 8
+      },
+      "promptTokens": 20
+    },
+    "stopReason": "end_turn",
+    "hasThinkingContent": false,
+    "contentBlockTypes": [
+      "text_delta"
+    ],
+    "assistantBlocks": [
+      {
+        "type": "text",
+        "text": "The answer is 42."
+      }
+    ],
+    "providerReplay": {
+      "version": 1,
+      "provider": "anthropic",
+      "items": [
+        {
+          "type": "text",
+          "text": "The answer is 42."
+        }
+      ]
+    },
+    "generationMs": 0
+  },
+  "dispatchedToolCalls": []
+}

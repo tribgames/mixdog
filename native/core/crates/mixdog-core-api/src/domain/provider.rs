@@ -1004,6 +1004,12 @@ pub trait ProviderAdapter: Send + Sync {
     fn id(&self) -> &ProviderId;
     fn codec(&self) -> &dyn WireCodec;
     fn retry_policy(&self) -> &RetryPolicy;
+    /// The retry policy of a send to `model`: a provider that reaches some models through another engine (Vertex AI's
+    /// open models over Chat Completions) retries those as that engine does. The provider's own by default; a wrapper
+    /// forwards its inner provider's.
+    fn retry_policy_for(&self, _model: &str) -> &RetryPolicy {
+        self.retry_policy()
+    }
     fn keepalive(&self) -> &KeepaliveSchedule;
     /// Exactly one attempt; never retries internally. Dropping the future
     /// aborts the attempt.

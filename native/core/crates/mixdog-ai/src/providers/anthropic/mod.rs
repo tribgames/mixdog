@@ -26,6 +26,8 @@ mod threads;
 #[cfg(test)]
 mod effort_tests;
 #[cfg(test)]
+mod fallback_wire_tests;
+#[cfg(test)]
 mod fast_mode_tests;
 #[cfg(test)]
 mod leak_tests;

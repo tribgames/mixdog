@@ -54,6 +54,8 @@ pub struct GoogleAdapter {
     id: ProviderId,
     codec: GoogleCodec,
     policy: RetryPolicy,
+    /// The policy of Vertex AI's open models ([`ProviderAdapter::retry_policy_for`]).
+    maas_policy: RetryPolicy,
     keepalive: KeepaliveSchedule,
     http: Arc<dyn HttpSend>,
     auth: Arc<dyn RequestAuth>,
@@ -85,6 +87,7 @@ impl GoogleAdapter {
             id: codec.provider().clone(),
             codec,
             policy,
+            maas_policy: crate::providers::compat::retry::unprofiled(),
             keepalive: KeepaliveSchedule::SPEC,
             http,
             auth,
@@ -361,6 +364,12 @@ impl ProviderAdapter for GoogleAdapter {
         &self.policy
     }
 
+    /// An open model on Vertex AI retries as its OpenAI-compatible engine does (`withCompatRetryProfile('vertex-ai')`:
+    /// no profile, the shared default).
+    fn retry_policy_for(&self, model: &str) -> &RetryPolicy {
+        if self.codec.maas_model(model).is_some() { &self.maas_policy } else { &self.policy }
+    }
+
     fn keepalive(&self) -> &KeepaliveSchedule {
         &self.keepalive
     }
@@ -438,18 +447,26 @@ impl GoogleAdapter {
     /// `_doSend` up to the first answer: the cache to attach (made under `key`), the generate call, the replay
     /// without a cache the server refused, and the global location for a region that lacks the model.
     async fn exchange(&self, request: &Arc<ModelRequest>, key: Option<&str>) -> Result<Exchanged, ProviderError> {
+        let mut queue = VecDeque::new();
+        // An open model on Vertex AI (`_sendMaas`): the Chat Completions engine, no explicit cache.
+        if let Some(model) = self.codec.maas_model(&request.model) {
+            let mut response = self.dispatch(&self.codec.maas_wire(request, &model, false)?).await?;
+            let global = response.status == 404 && self.codec.falls_back_to_global(request);
+            if global {
+                response = self.dispatch(&self.codec.maas_wire(request, &model, true)?).await?;
+            }
+            return Ok(Exchanged { response, queue, global });
+        }
         // State changes reach the session only as stream events: Node persists
         // `providerState` from a delivered result alone (`ask-turn-settle.mjs:147`),
         // never from a failed send, so no error carries one.
         let inner = self.codec.build_inner(request)?;
-        let mut queue = VecDeque::new();
         let cache = self.cache.as_ref().map(|cache| cache.keyed(key.unwrap_or_default()));
         let mut cached = self.cached_prefix(cache.as_ref(), request, &inner).await;
         if let Some(state) = cached.as_ref().and_then(|c| c.changed.clone()) {
             queue.push_back(Ok(StreamEvent::ProviderState(state)));
         }
-        let created = cached.as_mut().map(|c| std::mem::take(&mut c.held));
-        let mut response = {
+        let created = cached.as_mut().map(|c| std::mem::take(&mut c.held));        let mut response = {
             let attach = cached.as_ref().map(|c| Attach { name: &c.name, state: &c.state });
             self.dispatch(&self.codec.wire(request, &inner, attach)?).await?
         };

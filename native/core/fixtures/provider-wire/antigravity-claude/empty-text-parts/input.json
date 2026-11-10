@@ -1,0 +1,78 @@
+{
+  "provider": "antigravity-oauth",
+  "model": "claude-sonnet-5-5-low",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a fixture assistant."
+    },
+    {
+      "role": "user",
+      "content": "find markdown"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "toolCalls": [
+        {
+          "id": "toolu_1",
+          "name": "glob",
+          "arguments": {
+            "pattern": "*.md"
+          }
+        }
+      ],
+      "providerReplay": {
+        "version": 1,
+        "provider": "antigravity",
+        "items": [
+          {
+            "text": ""
+          },
+          {
+            "functionCall": {
+              "name": "glob",
+              "args": {
+                "pattern": "*.md"
+              },
+              "id": "toolu_1"
+            }
+          },
+          {
+            "text": ""
+          },
+          {
+            "text": "",
+            "thoughtSignature": "sig"
+          }
+        ],
+        "requestContext": {
+          "model": "claude-sonnet-5-5-low"
+        }
+      }
+    },
+    {
+      "role": "tool",
+      "toolCallId": "toolu_1",
+      "content": "README.md"
+    }
+  ],
+  "tools": [
+    {
+      "name": "glob",
+      "description": "Find files",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "pattern"
+        ]
+      }
+    }
+  ],
+  "opts": {}
+}

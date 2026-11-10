@@ -1299,11 +1299,9 @@ mod responses_heads {
         assert_eq!(body("grok-4.3", "HIGH", None)["reasoning"], json!({"effort": "high"}));
         assert!(body("grok-4-fast", "high", None).get("reasoning").is_none());
         assert!(body("grok-4.3", "none", None).get("reasoning").is_none());
-        let forced = body("grok-4.3", "low", Some("Read"));
-        assert_eq!(forced["tool_choice"], json!({"type": "function", "name": "Read"}));
-        let keys: Vec<_> = forced.as_object().unwrap().keys().cloned().collect();
-        let at = |k: &str| keys.iter().position(|x| x == k).unwrap();
-        assert!(at("parallel_tool_calls") < at("tool_choice") && at("tool_choice") < at("reasoning"), "{keys:?}");
+        // xAI's Responses send forces no choice (`applyCompatToolChoice(params, opts)` without a wire context,
+        // openai-compat-xai-send.mjs:58; recorded in fixtures/provider-wire/hosted-search/grok-oauth).
+        assert!(body("grok-4.3", "low", Some("Read")).get("tool_choice").is_none());
     }
 
     /// Golden recorded from Node's real xAI send path (`sendXaiResponses`) and

@@ -275,7 +275,9 @@ impl CompatResponsesCodec {
             Some("" | "none" | "auto") | None => None,
             Some(name) => Some(json!({"type": "function", "name": name})),
         };
-        let allowed = self.profile.chat.tool_choice != ToolChoiceSupport::NoneOnly;
+        // xAI's Responses send applies `applyCompatToolChoice(params, opts)` with no wire context
+        // (openai-compat-xai-send.mjs:58): only `none` reaches its body, whatever the chat dialect forces.
+        let allowed = self.profile.chat.tool_choice != ToolChoiceSupport::NoneOnly && self.profile.responses != ResponsesShape::Xai;
         let Some(forced) = forced.filter(|_| allowed) else {
             return body;
         };
