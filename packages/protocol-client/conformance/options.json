@@ -18,6 +18,7 @@
       "queueBytes": 8388608,
       "controlReserveBytes": 524288,
       "eventBudgetBytes": 7864320,
+      "orderedQueueBytes": 75497472,
       "maxSnapshotBytes": 3145728,
       "ringBytes": 4194304,
       "appRingBytes": 1048576,

@@ -124,9 +124,28 @@ fn golden() -> Value {
 /// and for one that reads nothing until all three are queued.
 #[tokio::test]
 async fn an_event_of_the_ordered_class_queued_before_an_answer_is_written_before_it() {
+    replay_recorded_windows("terminal-dispose", true).await;
+}
+
+/// Every other recorded window, queued in Node's queue order on a socket read promptly or withheld
+/// until all is queued (the recorder's barrier on Node's socket writes): events after an answer and
+/// several never-dropped events in a row (`activity-after-answer`, ordered lane), catalog rows
+/// before their answer (`room-rename`, `thread-favorite`, ordered lane: never-droppable rosters,
+/// `remote-relay-catalog.ts:89`), and droppable states around an answer (`state-latest-wins`,
+/// a droppable lane) come out exactly as Node's phone got them.
+#[tokio::test]
+async fn every_recorded_window_is_written_in_the_order_nodes_phone_got_it() {
+    for (scenario, ordered) in [("activity-after-answer", true), ("room-rename", true), ("thread-favorite", true), ("state-latest-wins", false)] {
+        replay_recorded_windows(scenario, ordered).await;
+    }
+}
+
+/// Queues each recorded run's frames in the order Node's phone got them (events on one lane of the
+/// given class, answers on the control lane) and compares the socket's whole output with them.
+async fn replay_recorded_windows(scenario: &str, ordered: bool) {
     let golden = golden();
-    let modes = golden["scenarios"]["terminal-dispose"]["modes"].as_object().expect("modes");
-    assert_eq!(modes.len(), 4, "transport and legacy, each prompt and stalled");
+    let modes = golden["scenarios"][scenario]["modes"].as_object().expect("modes");
+    assert_eq!(modes.len(), 4, "{scenario}: transport and legacy, each prompt and stalled");
     for (mode, recorded) in modes {
         for run in recorded["runs"].as_array().expect("runs") {
             let frames: Vec<String> = run["frames"].as_array().expect("frames").iter().map(Value::to_string).collect();
@@ -138,17 +157,17 @@ async fn an_event_of_the_ordered_class_queued_before_an_answer_is_written_before
                 })
                 .collect();
             let (_hub, mut peer) = hub_and_peer(mode.ends_with("prompt"));
-            let activity = live_lane(&mut peer, "terminal-activity", true, Arc::new(NoRecovery)).await;
-            // Queued in Node's queue order: the event during the call, then the answers.
+            let events = live_lane(&mut peer, scenario, ordered, Arc::new(NoRecovery)).await;
+            // Queued in Node's queue order.
             for (frame, kind) in frames.iter().zip(&kinds) {
                 if *kind == "event" {
-                    push(&activity, frame);
+                    push(&events, frame);
                 } else {
                     answer(&peer, frame);
                 }
             }
-            let wire = texts(until_marker(&mut peer, frames.last().expect("a marker")).await);
-            assert_eq!(wire, frames, "{mode}: the writer's order is not the order Node's phone got");
+            let wire = texts(until_marker(&mut peer, frames.last().expect("a last frame")).await);
+            assert_eq!(wire, frames, "{scenario} {mode}: the writer's order is not the order Node's phone got");
         }
     }
 }
@@ -243,28 +262,148 @@ async fn live_lane_stalled(peer: &mut Peer) -> Arc<dyn Lane> {
     lane
 }
 
-/// D3: an ordered lane's frames hold the control reserve; once the lane has written something a
-/// failed reservation closes the connection with 4000 instead of lagging (dropping) it.
-#[tokio::test]
-async fn an_ordered_lane_past_the_control_reserve_closes_the_connection() {
-    let (_hub, mut peer) = hub_and_peer(false);
-    let sink = peer.connection.sink.clone();
-    let (lane, release) = sink.open_ordered_lane(SubscriptionId::from("o"), Arc::new(NoRecovery)).unwrap();
-    sink.send_control_release(Bytes::from_static(b"opened o"), release).unwrap();
-    peer.allow(2);
-    push(&lane, "first");
-    assert_eq!(texts(next_items(&mut peer, 2, "the response and the first frame").await), ["opened o", "first"]);
-    // The peer reads nothing more: 30 KB frames until the 64 KiB reserve refuses one.
-    let frame = "o".repeat(30_000);
-    let refused = (0..8).find(|_| match lane.try_reserve(frame.len()) {
-        Ok(reservation) => {
-            lane.push(reservation, Bytes::from(frame.clone()));
-            false
+/// What a feed does with one event frame (`CoreFeed::publish`, `mixdog-core-base/src/feed/mod.rs`):
+/// reserve its bytes on the lane and push it, or lag the lane when the reservation fails.
+fn publish(lane: &Arc<dyn Lane>, frame: Bytes) {
+    match lane.try_reserve(frame.len()) {
+        Ok(reservation) => lane.push(reservation, frame),
+        Err(_) => {
+            lane.lag();
         }
-        Err(_) => true,
+    }
+}
+
+/// An ordered lane whose first frame (its initial state) the peer has read, so it is live and has
+/// written something: from here a failed reservation would close the connection.
+async fn ordered_lane_past_its_first_frame(peer: &mut Peer, name: &str) -> Arc<dyn Lane> {
+    let lane = live_lane(peer, name, true, Arc::new(NoRecovery)).await;
+    publish(&lane, Bytes::from_static(b"initial"));
+    allow_up_to(peer, 1);
+    assert_eq!(texts(next_items(peer, 1, "the lane's initial frame").await), ["initial"]);
+    lane
+}
+
+/// `lsp/diagnostics/updated` for one document with 2,000 diagnostics of 300-byte messages, the
+/// most `mixdog-workspace/src/lsp.rs:756` forwards (Node: `language-server-process.ts:398`).
+fn diagnostics_frame() -> Bytes {
+    let diagnostics: Vec<Value> = (0..2000)
+        .map(|n| {
+            serde_json::json!({
+                "range": { "start": { "line": n, "character": 0 }, "end": { "line": n, "character": 80 } },
+                "severity": 1, "source": "ts", "code": 2322, "message": "m".repeat(300),
+            })
+        })
+        .collect();
+    let frame = serde_json::json!({
+        "method": "lsp/diagnostics/updated",
+        "params": { "projectPath": "C:/p", "relPath": "src/a.ts", "uri": "file:///C:/p/src/a.ts", "server": "ts", "diagnostics": diagnostics },
     });
-    assert!(refused.is_some(), "the ordered reserve must run out");
-    // What a feed does with a failed reservation.
-    lane.lag();
-    assert_eq!(sink.close_code(), Some(CloseCode::SlowConsumer), "the ordered lane closed the connection rather than lag");
+    Bytes::from(serde_json::to_vec(&frame).unwrap())
+}
+
+/// The reviewer's load: on an idle, reading connection one diagnostics event larger than the whole
+/// control reserve is written and the connection stays open (before the fix the ordered event
+/// held the 512 KiB control reserve, failed its reservation and closed the connection with 4000).
+#[tokio::test]
+async fn one_diagnostics_event_larger_than_the_control_reserve_is_written_and_the_connection_stays_open() {
+    install_rt();
+    let limits = mixdog_app_protocol::limits::Limits::default();
+    let hub = ConnectionHub::new(limits.clone()).unwrap();
+    let mut peer = connect(&hub, ConnectionOrigin::Loopback, true);
+    let lane = ordered_lane_past_its_first_frame(&mut peer, "lsp:C:/p").await;
+    let frame = diagnostics_frame();
+    assert!(frame.len() as u64 > limits.control_reserve_bytes, "the event exceeds the control reserve");
+    publish(&lane, frame.clone());
+    answer(&peer, "marker");
+    let expected = [String::from_utf8(frame.to_vec()).unwrap(), "marker".to_owned()];
+    assert_eq!(texts(until_marker(&mut peer, "marker").await), expected);
+    assert_eq!(peer.connection.sink.close_code(), None, "the connection stays open");
+}
+
+/// The largest frame each ordered feed can produce, alone on an empty room, is written:
+/// - `app`: one section value inline up to `maxItemFieldBytes` (larger values are stubs,
+///   `mixdog-core-base/src/state/mod.rs:48-58`), its frame within `maxFrameBytes`;
+/// - `lsp:` and `fs:`: no bound in the core (`lsp.rs:756` caps the count at 2,000, not the bytes;
+///   `watcher.rs:306-316` batches paths without a count) nor in Node, so a frame one byte larger
+///   than the whole ordered room stands for them: an empty room admits it.
+#[tokio::test]
+async fn the_largest_frame_of_each_ordered_feed_is_written_from_an_empty_room() {
+    let limits = mixdog_app_protocol::limits::Limits::default();
+    for (feed, bytes) in [("app", limits.max_frame_bytes), ("lsp:C:/p", limits.ordered_queue_bytes + 1), ("fs:w1", limits.ordered_queue_bytes + 1)] {
+        let (_hub, mut peer) = hub_and_peer(true);
+        let lane = ordered_lane_past_its_first_frame(&mut peer, feed).await;
+        let frame = Bytes::from(vec![b'x'; bytes as usize]);
+        publish(&lane, frame.clone());
+        answer(&peer, "marker");
+        let wire = texts(until_marker(&mut peer, "marker").await);
+        assert_eq!(wire.len(), 2, "{feed}: the frame and the marker");
+        assert!(wire[0].as_bytes() == &frame[..], "{feed}: the frame is written whole");
+        assert_eq!(wire[1], "marker");
+        assert_eq!(peer.connection.sink.close_code(), None, "{feed}: the connection stays open");
+    }
+}
+
+/// 1 MiB event frames, each starting with its index, as many as fill the ordered room exactly.
+fn room_filling_frames() -> Vec<Bytes> {
+    let room = mixdog_app_protocol::limits::Limits::default().ordered_queue_bytes as usize;
+    let size = 1 << 20;
+    assert_eq!(room % size, 0, "the room is a whole number of frames");
+    (0..room / size)
+        .map(|index| {
+            let mut frame = format!("{index:06}").into_bytes();
+            frame.resize(size, b'.');
+            Bytes::from(frame)
+        })
+        .collect()
+}
+
+/// A peer that takes no write: ordered events queue until they hold the whole ordered room
+/// (72 MiB, Node's assembly pool) and the connection is still open; the next event closes it with
+/// 4000. The stall is the socket's write completion withheld, not time.
+#[tokio::test]
+async fn a_peer_that_does_not_drain_is_closed_at_the_ordered_room_and_not_before() {
+    let (_hub, mut peer) = hub_and_peer(false);
+    let lane = ordered_lane_past_its_first_frame(&mut peer, "lsp:C:/p").await;
+    for (index, frame) in room_filling_frames().into_iter().enumerate() {
+        publish(&lane, frame);
+        assert_eq!(peer.connection.sink.close_code(), None, "open after {} MiB queued", index + 1);
+    }
+    publish(&lane, Bytes::from_static(b"one byte past the room"));
+    assert_eq!(peer.connection.sink.close_code(), Some(CloseCode::SlowConsumer), "closed once the room is passed");
+}
+
+/// With the ordered room full (the peer takes nothing), an answer still queues on the control
+/// reserve and a due ping still queues; once the peer drains, the ping goes first, then every
+/// event in order, then the answer.
+#[tokio::test]
+async fn an_answer_and_a_ping_still_queue_when_the_ordered_room_is_full() {
+    let (hub, mut peer) = hub_and_peer(false);
+    let lane = ordered_lane_past_its_first_frame(&mut peer, "app").await;
+    let frames = room_filling_frames();
+    for frame in &frames {
+        publish(&lane, frame.clone());
+    }
+    assert!(lane.try_reserve(1).is_err(), "the ordered room is full");
+    answer(&peer, "answer");
+    hub.heartbeat_tick();
+    hub.heartbeat_tick();
+    assert_eq!(peer.connection.sink.close_code(), None, "the connection is open");
+    let as_text = |frame: &Bytes| Wire::Text(String::from_utf8(frame.to_vec()).unwrap());
+    // The test runtime is single-threaded and the test has not yielded since the events were
+    // queued, so the writer task has taken none of them yet: the ping goes first.
+    let mut expected = vec![Wire::Ping];
+    expected.extend(frames.iter().map(as_text));
+    expected.push(Wire::Text("answer".to_owned()));
+    // Each item by its kind and first 16 characters, so a mismatch prints without 72 MiB of text.
+    let short = |wire: &[Wire]| -> Vec<String> {
+        wire.iter()
+            .map(|item| match item {
+                Wire::Text(text) => format!("text {} ({} bytes)", &text[..text.len().min(16)], text.len()),
+                other => format!("{other:?}"),
+            })
+            .collect()
+    };
+    let wire = until_marker(&mut peer, "answer").await;
+    assert_eq!(short(&wire), short(&expected), "in-flight frame, ping, the events in order, the answer");
+    assert!(wire == expected, "every frame written whole");
 }

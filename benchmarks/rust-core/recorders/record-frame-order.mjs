@@ -8,8 +8,17 @@
 // Modes: `transport` (the phone opts into the MXT stream: the coordinator's one outbound queue, coordinator.ts:1083-1172) and `legacy`
 // (no transport: the E2EE channel's send queue, remote-e2ee.ts:589-639, then the relay socket). The two order a frame by different code
 // (both are reached through `deliverEncryptedFrame`, remote-relay-delivery.ts:81-155), so both are recorded. Each runs with a prompt
-// phone and with a stalled one: the relay stops reading the desktop's socket before the cause is sent and reads again only once the
-// desktop has entered the marker's handler (every frame the cause produced is queued by then); the phone drains afterwards.
+// phone and with a stalled one. The stall is a barrier on the desktop leg's own socket writes: from before the cause until the
+// cause's answer has its place in the desktop's outbound order (the marker sent too), every `write` of the desktop's leg socket is
+// held with its completion callback, so the
+// producer's write never completes (legacy: `sendRawAndWait` waits on it, remote-e2ee.ts:155, and every later frame waits in the
+// E2EE send queue behind it; transport: the coordinator's records wait at the socket and in its queue, coordinator.ts:1083-1172).
+// Each stalled run records how many writes were held (`heldAtBarrier`, never 0: a run without one fails). Then the held writes are
+// released in order and the phone drains.
+//
+// Scenarios: a cause whose event Node queues while it handles the call (terminal-dispose, room-rename, thread-favorite); events
+// queued after an answer, several of a never-dropped kind in a row (activity-after-answer); successive droppable states while one
+// is in flight, with an answer behind them (state-latest-wins).
 //
 // Every run is a fresh phone on the same desktop. The order of a scenario is recorded over `--runs` runs per mode (default 10); where
 // runs differ, every distinct order is kept with its count, none is picked.
@@ -26,6 +35,7 @@
 //        --work <scratch dir> [--runs N] [--only <scenario>]
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import net from 'node:net';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
@@ -162,16 +172,35 @@ const operations = createDesktopOperations({
     for (const listener of listeners) listener({ name, value });
   },
 });
-// The marker: a host read whose entry proves the desktop has handled every frame the phone sent before it.
-let markerEntered = null;
+// `listProjects` is the marker (and in two scenarios the cause too): each entry takes the next hook of `projectEntries`, given the
+// promise of the host's answer. The marker's entry proves the desktop has handled every frame the phone sent before it.
+const projectEntries = [];
+// The relay's subscribers of the host's state (remote-relay-session-wiring.ts:193): state-latest-wins publishes through them.
+const stateListeners = new Set();
+// `handled(name)`: settles with the result (a promise) of the next call of the host method or desktop operation `name`.
+const handlers = new Map();
+const handled = (name) => new Promise((resolve) => handlers.set(name, [...(handlers.get(name) ?? []), resolve]));
+const entering = (name, result) => {
+  const waiting = handlers.get(name);
+  if (waiting?.length) waiting.shift()(result);
+  return result;
+};
 const host = new Proxy(sessionHost, {
   get(target, prop) {
-    if (prop === 'invokeDesktopOperation') return (name, operationArgs) => operations.invoke(name, operationArgs);
+    if (prop === 'invokeDesktopOperation') return (name, operationArgs) => entering(name, operations.invoke(name, operationArgs));
+    if (prop === 'agentRoomAction' || prop === 'setSessionFavorite') return (...rest) => entering(prop, target[prop](...rest));
     if (prop === 'subscribeDesktopEvents') return (listener) => (listeners.add(listener), () => listeners.delete(listener));
+    if (prop === 'subscribe')
+      return (listener) => {
+        stateListeners.add(listener);
+        const unsubscribe = target.subscribe(listener);
+        return () => (stateListeners.delete(listener), unsubscribe());
+      };
     if (prop === 'listProjects')
       return (...rest) => {
-        markerEntered?.();
-        return target.listProjects(...rest);
+        const answered = target.listProjects(...rest);
+        projectEntries.shift()?.(answered);
+        return answered;
       };
     const value = Reflect.get(target, prop, target);
     return typeof value === 'function' ? value.bind(target) : value;
@@ -223,7 +252,43 @@ for (const mode of MODES) {
   await deadline(`the ${mode} desktop leg registering`, legOpen);
   leg.send(JSON.stringify(relayCaps(mode)));
   handles[mode].leg = leg;
+  // The desktop's own end of this leg: the socket whose local port is the one the relay sees it from.
+  handles[mode].desktopPort = leg._socket.remotePort;
 }
+
+// ---- the barrier on the desktop leg's socket writes ---------------------------------------------------------------------------------
+// Armed for one leg: each `write` of the desktop's socket of that leg is held (bytes, encoding, completion callback) instead of
+// written, so the write the producer waits on does not complete. `release` writes the held calls in their order, then disarms.
+const realWrite = net.Socket.prototype.write;
+const barrier = {
+  port: null,
+  held: [],
+  onHeld: null,
+  arm(port) {
+    this.port = port;
+    this.held = [];
+  },
+  /** Settles once the barrier holds a write (at once if it holds one already). */
+  holding() {
+    return this.held.length ? Promise.resolve() : new Promise((resolve) => (this.onHeld = resolve));
+  },
+  release() {
+    const held = this.held;
+    this.port = null;
+    this.held = [];
+    for (const { socket, args } of held) realWrite.apply(socket, args);
+    return held.length;
+  },
+};
+net.Socket.prototype.write = function write(...args) {
+  if (barrier.port !== null && this.localPort === barrier.port && this.remotePort === wss.address().port) {
+    barrier.held.push({ socket: this, args });
+    barrier.onHeld?.();
+    barrier.onHeld = null;
+    return true;
+  }
+  return realWrite.apply(this, args);
+};
 
 // ---- a phone ------------------------------------------------------------------------------------------------------------------------
 async function openPhone(mode) {
@@ -327,62 +392,124 @@ const closePhone = (mode, phone) => {
 };
 
 // ---- the scenarios ------------------------------------------------------------------------------------------------------------------
-// setup(phone) runs before the window; cause(phone, run) is the call whose effects are recorded.
+// setup(phone, run) runs before the window; cause(phone, state) sends the call whose effects are recorded and answers its id.
+/** A terminal tab whose command runs (OSC 697;C from the scripted shell), seen by the phone; its id and its PTY. */
+async function runningTab(phone, id) {
+  const ensured = await phone.call('termEnsure', [id, join(work, 'workspace')]);
+  await phone.answer(ensured);
+  const pty = ptys.get(ptys.size - 1);
+  pty.data('\x1b]697;C\x07');
+  await phone.payload('the running dot', (p) => p?.event === 'termActivity' && p.payload?.id === id && p.payload.state === 'running');
+  return { id, pty };
+}
+/** Settles once `answered` (the host's answer to a `listProjects` entry) has and every microtask after it ran: by then Node has
+ *  taken the call's answer's place in its outbound order (remote-relay-client-calls.ts:487,501 → remote-relay-delivery.ts:81-101,
+ *  where the coordinator's queue or the E2EE send queue is entered synchronously). `setImmediate` runs after the microtask queue
+ *  drained; it is not a timer and no product timer runs (they are on the virtual clock). */
+const afterAnswerQueued = (answered) => Promise.resolve(answered).then(() => new Promise((resolve) => setImmediate(resolve)));
 const SCENARIOS = {
   'terminal-dispose': {
     what: 'termDispose of a tab whose command is running: its termActivity (null) is published while the call is handled',
-    setup: async (phone, run) => {
-      const id = `${INPUTS.terminalId}_${run}`;
-      const ensured = await phone.call('termEnsure', [id, join(work, 'workspace')]);
-      await phone.answer(ensured);
-      // The scripted shell reports a command started (OSC 697;C): the tab's activity is `running`.
-      const pty = ptys.get(ptys.size - 1);
-      pty.data('\x1b]697;C\x07');
-      await phone.payload('the running dot', (p) => p?.event === 'termActivity' && p.payload?.id === id && p.payload.state === 'running');
+    setup: async (phone, run) => (await runningTab(phone, `${INPUTS.terminalId}_${run}`)).id,
+    handler: 'termDispose',
+    cause: (phone, id) => phone.call('termDispose', [id]),
+  },
+  'activity-after-answer': {
+    what:
+      "a call answered (listProjects), then, once its answer has its place, three activity changes of a running tab (finished, running, finished: OSC 697;D;0, C, D;0): never-dropped events queued after an answer, one after another",
+    // A tab of its own per window (the tabs stay open).
+    setup: async (phone) => runningTab(phone, `${INPUTS.terminalId}_after_${++afterTabs}`),
+    cause: async (phone, tab) => {
+      const entered = new Promise((resolve) => projectEntries.push(resolve));
+      const id = await phone.call('listProjects', []);
+      await afterAnswerQueued(await deadline('the cause entering its handler', entered));
+      // Published synchronously (terminal-manager.ts:341 → desktop-operations.ts:530-531 → the bus → remote-relay-delivery.ts
+      // broadcastEncrypted), before the marker is sent.
+      for (const marker of ['\x1b]697;D;0\x07', '\x1b]697;C\x07', '\x1b]697;D;0\x07']) tab.pty.data(marker);
       return id;
     },
-    cause: (phone, id) => phone.call('termDispose', [id]),
+  },
+  'state-latest-wins': {
+    what:
+      "three successive host states published to the relay's state lane (remote-relay-session-wiring.ts:104-107), then a call: one state frame in flight, the later ones collapsed to the newest (desktop-service-protocol.ts:57-99), the answer queued behind the first",
+    setup: async () => null,
+    cause: async (phone) => {
+      for (let step = 1; step <= 3; step += 1) {
+        const snapshot = { ...sessionHost.getSnapshot(), frameOrderStep: step };
+        for (const listener of stateListeners) listener(snapshot);
+      }
+      const entered = new Promise((resolve) => projectEntries.push(resolve));
+      const id = await phone.call('listProjects', []);
+      await afterAnswerQueued(await deadline('the cause entering its handler', entered));
+      return id;
+    },
   },
   'room-rename': {
     what: "agentRoomAction update of the room's name: the room log's catalog row is republished while the call is handled",
     setup: async () => null,
+    handler: 'agentRoomAction',
     // Every window renames the room: a new name each time, so each one changes the row.
     cause: (phone) => phone.call('agentRoomAction', ['update', [INPUTS.room.id, { name: `Order room ${++renames}` }]]),
   },
   'thread-favorite': {
     what: "setSessionFavorite of a listed session: its catalog row is republished while the call is handled",
     setup: async () => null,
+    handler: 'setSessionFavorite',
     // Every window flips the flag, so each one changes the row.
     cause: (phone) => phone.call('setSessionFavorite', [INPUTS.sessions[0].id, ++favorites % 2 === 1]),
   },
 };
 let renames = 0;
 let favorites = 0;
+let afterTabs = 0;
 
 async function window(mode, stalled, name, run) {
   const scenario = SCENARIOS[name];
   const phone = await openPhone(mode);
   const state = await scenario.setup(phone, run);
   const from = phone.payloads.length;
-  const socket = handles[mode].leg._socket;
-  if (stalled) socket.pause();
-  const entered = new Promise((resolve) => (markerEntered = resolve));
+  if (stalled) barrier.arm(handles[mode].desktopPort);
+  // The cause's handler, awaited below; a scenario whose cause is a `listProjects` settles it itself.
+  const causeHandled = scenario.handler ? handled(scenario.handler) : null;
   const cause = await scenario.cause(phone, state, run);
+  projectEntries.push(() => {});
   const marker = await phone.call('listProjects', []);
-  await deadline(`${mode} ${name}: the marker's handler entered`, entered);
-  markerEntered = null;
-  if (stalled) socket.resume();
+  // The stall ends once the cause's answer has its place in Node's outbound order (every frame the cause made is queued by then).
+  // Not at the marker's entry: Node's call queue runs a read behind a mutation only once the mutation's answer was delivered
+  // (remote-relay-client-calls.ts:481-505 awaits sendEncryptedFrame inside the run), which the barrier withholds.
+  if (causeHandled) await afterAnswerQueued(await deadline(`${mode} ${name}: the cause's handler`, causeHandled));
+  // And the producer is writing: a write of the window is held (the transport's coordinator seals before it writes).
+  if (stalled) await deadline(`${mode} ${name}: a write of the desktop leg held at the barrier`, barrier.holding());
+  // Nothing of the window has reached the phone while the barrier held (counted before the release, which is synchronous).
+  const reachedBeforeRelease = phone.payloads.length - from;
+  const writesHeld = stalled ? barrier.release() : null;
+  if (stalled && (writesHeld === 0 || reachedBeforeRelease !== 0)) {
+    throw new Error(`${mode} ${name} run ${run}: ${writesHeld} writes held, ${reachedBeforeRelease} frames reached the phone before the release`);
+  }
   await phone.answer(cause);
   await phone.answer(marker);
+  // Everything the cause, the scenario and the marker queued has been sent by the marker's answer, except a state the mailbox
+  // still holds behind the one in flight (desktop-service-protocol.ts:57-99): its last publication is awaited too.
+  if (name === 'state-latest-wins') await phone.payload('the newest state', (p, at) => at >= from && stateStep(p) === 3);
   const frames = phone.payloads.slice(from);
   closePhone(mode, phone);
-  return { cause, marker, frames };
+  // Stalled: every frame of the window was queued while the desktop's write was withheld (the count of held socket writes is
+  // checked, not kept: it depends on how `ws` splits a frame into writes).
+  return { cause, marker, ...(stalled ? { queuedBehindBarrier: frames.length, reachedBeforeRelease } : {}), frames };
 }
+
+/** The `frameOrderStep` a state frame carries (state-latest-wins), or null. */
+const stateStep = (frame) => {
+  const text = JSON.stringify(frame?.event === 'state' ? frame.payload : frame?.e === 'S' ? frame.w : null);
+  const step = text?.match(/"frameOrderStep":(\d)/);
+  return step ? Number(step[1]) : null;
+};
 
 // A frame's place in the order: the call it answers, or the event it carries.
 const kindOf = (frame, { cause, marker }) => {
   if (frame?.id === cause) return 'answer:cause';
   if (frame?.id === marker) return 'answer:marker';
+  if (frame?.event === 'state' || frame?.e === 'S') return `event:state${stateStep(frame) ? `#${stateStep(frame)}` : ''}`;
   if (typeof frame?.event === 'string') return `event:${frame.event}`;
   throw new Error(`a frame that is neither an answer of the window nor an event: ${JSON.stringify(frame)}`);
 };
@@ -433,9 +560,31 @@ writeSetManifest(out, {
   command: `node --experimental-transform-types --import ./benchmarks/rust-core/recorders/lib/ts-register.mjs ${RECORDER} --tree <exact export of ${REF} with node_modules> --work <scratch dir> --runs ${RUNS}`,
   identity,
   extra: {
-    recorderSha256: createHash('sha256').update(readFileSync(join(REPO_ROOT, RECORDER))).digest('hex'),
+    // Every script that made the bytes: the recorder, the module it imports, and the loader its command line registers.
+    scripts: [RECORDER, 'benchmarks/rust-core/recorders/lib/common.mjs', 'benchmarks/rust-core/recorders/lib/ts-register.mjs', 'benchmarks/rust-core/recorders/lib/ts-resolve-hooks.mjs'].map((path) => ({
+      path,
+      sha256: createHash('sha256').update(readFileSync(join(REPO_ROOT, path))).digest('hex'),
+    })),
     nodeVersion: process.version,
     runsPerMode: RUNS,
+    causality: {
+      'terminal-dispose': 'the activity frame is published inside the call: terminal-manager.ts:536-541 (dispose → TerminalActivity.exit, :541) → terminal-activity.ts:137-155 → desktop-operations.ts:530-531 → the bus → remote-relay-delivery.ts:171-186; the answer is queued only after the handler settled, remote-relay-client-calls.ts:487,501',
+      'room-rename': 'the catalog row is republished inside the call: agent-rooms.ts:311-312 → session-host-lifecycle.ts:311 → remote-relay-catalog.ts:89 (never droppable); the answer after the handler, remote-relay-client-calls.ts:487,501',
+      'thread-favorite': 'the catalog row is republished inside the call: session-host-lifecycle.ts:311 → remote-relay-catalog.ts:89; the answer after the handler, remote-relay-client-calls.ts:487,501',
+    },
+    rules: {
+      eventBeforeAnswer: 'an event queued while a call is handled is written before its answer: one FIFO per phone, remote-relay-delivery.ts:81-101, coordinator.ts:483,1083-1172 (transport), remote-e2ee.ts:589-639 (legacy); scenarios terminal-dispose, room-rename, thread-favorite',
+      eventAfterAnswer: 'an event queued after an answer is written after it: the same FIFO; scenario activity-after-answer',
+      neverDroppedUnderCongestion: 'never-dropped events queued behind a withheld write are all written, in order, none merged: termActivity is not droppable (remote-relay-push-lanes.ts:150-152); a non-droppable frame waits in the coordinator queue (coordinator.ts:1097) or the E2EE send queue; scenario activity-after-answer, stalled',
+      droppableStateLatestWins: 'one state frame in flight; later publications collapse to the newest and are sent once it is delivered (desktop-service-protocol.ts:57-99, remote-state-lane.ts:18-26), droppable when not critical (remote-relay-client-lifecycle.ts:273-278); scenario state-latest-wins',
+      answerWhileStateRecovers:
+        "core-only: Node never drops a state lane to recover it from a snapshot, it coalesces (desktop-service-protocol.ts:57-99), so a recovery snapshot has no Node counterpart; the core's rule (an answer does not wait for a lagged lane's recovery snapshot) is tested in mixdog-app-server-transport order::an_answer_does_not_wait_for_a_lagged_lanes_recovery_snapshot. Node's nearest counterpart, an answer passing the newest state held behind the one in flight, is recorded in state-latest-wins",
+    },
+    stall:
+      "stalled: every write of the desktop leg's socket is held with its completion callback from before the cause until the marker's handler is entered, then released in order (heldAtBarrier per run). A backlog of calls ahead of the cause is not used: Node closes a phone with more than 256 inbound calls not yet answered (remote-relay-clients.ts:23,214-218,349-352; a call's frame is released only after its answer was delivered, remote-relay-client-lifecycle.ts:329-339, remote-relay-client-calls.ts:501)",
+    replayLeftOut: {
+      'core/health/updated': "the core's stall monitor, sent on any connection when its runtime stalls; Node's phone path has no counterpart frame and no cause of this recording makes one",
+    },
     desktopLinkNotRecorded:
       "Node's desktop link has no order between an answer and an event: each call is its own HTTP /call answered on its own socket (src/standalone/session-transport/call-route.mjs:118-136), events are SSE frames written at once or, on a stalled stream, merged latest-wins per key (src/standalone/session-frame-stream.mjs:199-291, desktop-service-registry.mjs:31-49).",
   },
