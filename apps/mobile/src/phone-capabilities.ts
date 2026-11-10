@@ -36,7 +36,9 @@ export function peerFlagsOf(capabilities: ServerCapabilities): PeerFlags {
     peerTermSizeOwner: true,
     peerHostDirectories: false,
     peerUsageRequests: false,
-    peerProjectRecovery: false,
+    // Every core serves `projectFs/recovery` (the phone's `projectRecovery`, remote-protocol-attachments.ts), as every Node PC of this
+    // release offered it (remote-relay-client-lifecycle.ts:133).
+    peerProjectRecovery: true,
     peerRouteAutoEffort: false,
     peerVisualize: false,
     peerFileDownloads: false,

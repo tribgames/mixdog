@@ -2745,7 +2745,12 @@ export type ProjectFsReadEditorSettingsParams = { root: string, rel: string, wor
 /**
  * Params of `projectFs/readLocal`.
  */
-export type ProjectFsReadLocalParams = { path: string, };
+export type ProjectFsReadLocalParams = { path: string,
+/**
+ * The file's bytes are not in the answer, which names a transfer of them to page through
+ * (`transfer/readRange`, then `transfer/endRead`): a 20 MB file is more than one answer carries.
+ */
+paged?: boolean | null, };
 
 /**
  * Params of `projectFs/readText`.
@@ -4402,7 +4407,15 @@ export type TransferFinishReadParams = { transferId: TransferId, };
 /**
  * Params of `transfer/grant/mint`.
  */
-export type TransferGrantMintParams = { path: string, sessionId?: string, };
+export type TransferGrantMintParams = {
+/**
+ * The local path to describe; absent when `attachmentId` names a conversation's attachment instead.
+ */
+path?: string, sessionId?: JsonValue,
+/**
+ * A conversation's attachment (with `sessionId`), staged in the PC's temp folder and granted to that conversation.
+ */
+attachmentId?: JsonValue, };
 
 /**
  * One read or write transfer.
