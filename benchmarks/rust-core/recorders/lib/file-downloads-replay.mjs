@@ -142,10 +142,15 @@ function talkFolder(dir) {
 function startRelay(clients) {
   const { WebSocketServer } = createRequire(join(REPO_ROOT, 'apps', 'desktop', 'package.json'))('ws');
   const server = new WebSocketServer({ port: 0, host: '127.0.0.1' });
-  const state = { socket: null, phones: new Map(), legWaiters: [] };
+  const state = { socket: null, phones: new Map(), legWaiters: [], dropWaiters: [] };
   const ready = within(new Promise((resolve) => server.once('listening', resolve)), 'the relay to listen', 30_000);
   server.on('connection', (socket) => {
     state.socket = socket;
+    socket.on('close', () => {
+      if (state.socket !== socket) return;
+      state.socket = null;
+      for (const waiter of state.dropWaiters.splice(0)) waiter();
+    });
     socket.send(JSON.stringify({ type: 'relay-capabilities', ...RELAY_CAPABILITIES }));
     for (const waiter of state.legWaiters.splice(0)) waiter();
     socket.on('message', (raw) => {
@@ -198,6 +203,7 @@ function startRelay(clients) {
     ready,
     port: () => server.address().port,
     leg: () => (state.socket ? Promise.resolve() : within(new Promise((resolve) => state.legWaiters.push(resolve)), 'the core to dial the relay', 120_000)),
+    dropped: () => (state.socket ? within(new Promise((resolve) => state.dropWaiters.push(resolve)), 'the core to close its relay leg', 30_000) : Promise.resolve()),
     openPhone,
     close: () => server.close(),
   };
@@ -364,23 +370,34 @@ export async function replayDownloads({ exe, recording, only = null, failSetup =
       const phones = new Map();
       const requested = [];
       const gaps = [];
-      for (const [device, id] of Object.entries(devices)) {
-        // A `connection:*` device is a relay connection the relay named no credential for: its own device (Node's `downloadRequester`).
-        const named = device.startsWith('connection') ? '' : id;
-        let client;
-        try {
-          client = await connect(base(await relay.openPhone(E2EE, `p${n}-${device}`, named, pairing), 'phone', 'mixdog-phone'));
-        } catch (error) {
-          gaps.push(`${device}: ${error.message}`);
-          continue;
+      /** Each device's connection through the relay; `round` names the connections made after a switch-off. */
+      const openDevices = async (round) => {
+        for (const [device, id] of Object.entries(devices)) {
+          // A `connection:*` device is a relay connection the relay named no credential for: its own device (Node's `downloadRequester`).
+          const named = device.startsWith('connection') ? '' : id;
+          let client;
+          try {
+            client = await connect(base(await relay.openPhone(E2EE, `p${n}-${device}${round}`, named, pairing), 'phone', 'mixdog-phone'));
+          } catch (error) {
+            gaps.push(`${device}: ${error.message}`);
+            continue;
+          }
+          clients.push(client);
+          const call = client.call.bind(client);
+          phones.set(device, { call });
+          client.call = (method, params) => (requested.push({ method, params: normalized(params) }), call(method, params));
+          const host = { ctx: { browserId: `p${n}-${device}${round}` }, client: () => client, declareLane() {} };
+          routers.set(device, createProtocolRouter([adapter], { host, started: async () => {}, synced: async () => {}, probe() {}, silentSince: () => false }));
         }
-        clients.push(client);
-        const call = client.call.bind(client);
-        phones.set(device, { call });
-        client.call =(method, params) => (requested.push({ method, params: normalized(params) }), call(method, params));
-        const host = { ctx: { browserId: `p${n}-${device}` }, client: () => client, declareLane() {} };
-        routers.set(device, createProtocolRouter([adapter], { host, started: async () => {}, synced: async () => {}, probe() {}, silentSince: () => false }));
-      }
+      };
+      await openDevices('');
+      /** The desktop switches remote access off, then on (`remoteAccess/setEnabled`): the relay leg closes, and every phone connection with
+       *  it; each device then connects again, a second connection that finds what the first one held. */
+      let switches = 0;
+      const switchOff = async () => {
+        switches += 1;
+        await openDevices(`-on${switches}`);
+      };
       const unexpected = [...gaps];
       /** An answer in the recording's terms, as the recorder wrote Node's: a text naming the world's folder names `<dir>`, with forward slashes. */
       const stagedPrefix = join(WORLDS, 'core', 'temp', 'mixdog-download-');
@@ -507,7 +524,7 @@ export async function replayDownloads({ exe, recording, only = null, failSetup =
               await unpair(step.device);
               break;
             case 'revokeAll':
-              for (const device of Object.keys(devices)) if (!device.startsWith('connection')) await unpair(device);
+              await switchOff();
               break;
             case 'sessions':
               await publish(step.ids);
@@ -572,6 +589,10 @@ export async function replayDownloads({ exe, recording, only = null, failSetup =
               settleRequests(from, sent, at + 1);
               if (event.op === 'revokeDevice') await unpair(event.device);
               else if (event.op === 'revokeAll') {
+                // A switch-off here would close the held call's own connection, so its phone gets no answer to compare (neither does Node's
+                // phone; the recorded frame is the service's). The answer of a read held at a relay close is the Rust replay's and the
+                // daemon's (`a_read_held_when_the_relay_closes_ends_as_nodes_and_lets_the_file_go`); here the unpair of every device ends
+                // the same downloads with the connection kept.
                 for (const device of Object.keys(devices)) if (!device.startsWith('connection')) await unpair(device);
               }
               else if (event.op === 'sessions') await publish(event.ids);
