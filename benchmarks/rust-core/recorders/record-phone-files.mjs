@@ -161,7 +161,14 @@ writeSetManifest(out, {
   command: `node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs ${RECORDER} --tree <git archive of ${REF} (src, apps)${identity.patch ? ` with ${identity.patch.file} applied` : ''}, with node_modules>${identity.patch ? ` --patch ${identity.patch.file}` : ''}`,
   identity,
   // The recorder and its modules as they ran, and the Node that ran them (process.version).
-  extra: { steps: scenarios.main.steps.length + scenarios.relay.steps.length, ...recordingProvenance(RECORDER, RECORDER_MODULES) },
+  extra: {
+    steps: scenarios.main.steps.length + scenarios.relay.steps.length,
+    notes: {
+      fileMtimeMs:
+        'A comparison rule, applied to both sides: a step\'s `fileMtimeMs` (only on a writeProjectFile that succeeded) is not compared; the replay removes it from Node\'s step and from the core\'s before comparing (benchmarks/rust-core/recorders/lib/phone-files-replay.mjs:221-222). It is the mtime the answer carried, which the operating system stamps at the write (Node: apps/desktop/src/main/project-files.ts:407 `handle.stat()` after the rewrite, :601 `stat(file)` after the write), so it differs between any two runs, of Node as of the core. It is checked independently on each side instead: `play` (benchmarks/rust-core/recorders/lib/phone-files-script.mjs:426-427) fails the run unless the answer\'s mtimeMs equals the written file\'s mtime on disk right after the call, and the answer keeps `{$fileMtime: true}` in its place, which is compared; every other field of the step is compared as recorded.',
+    },
+    ...recordingProvenance(RECORDER, RECORDER_MODULES),
+  },
 });
 commitStage(out, FIXTURES);
 console.log(`phone-files: ${scenarios.main.steps.length} + ${scenarios.relay.steps.length} steps`);
