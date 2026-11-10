@@ -910,6 +910,9 @@ impl ShellTool {
 }
 
 #[cfg(test)]
+mod deadline_plan_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
