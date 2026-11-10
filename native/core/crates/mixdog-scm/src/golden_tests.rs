@@ -158,6 +158,35 @@ async fn commit_transaction_commits_only_the_selection() {
     assert_eq!(git(&repo, &["status", "--porcelain"]), "M a.txt");
 }
 
+/// The index refresh after a commit holds `index.lock` from reading the index to publishing it (Node: refreshCommittedPaths,
+/// git-commit-transaction.ts:1010), so a stage another process makes in that window is refused by git instead of read and then
+/// overwritten. The same sequence is recorded from Node as `gitCommitPaths-competing-stage` (its `competing` answer).
+#[tokio::test]
+async fn a_stage_by_another_process_inside_the_index_refresh_is_never_overwritten() {
+    let (_guard, repo, _head) = fixture_repo();
+    std::fs::write(repo.join("other.txt"), "staged by another process\n").unwrap();
+    let scm = scm();
+    let cancel = CancellationToken::new();
+    let open = scm.open(&repo, &cancel).await.unwrap();
+    let git_dir = repo.join(".git");
+    let (reached, release) = crate::commit_tx::commit_gate::arm(&git_dir);
+    let competing = async {
+        tokio::time::timeout(std::time::Duration::from_secs(60), reached.notified()).await.expect("the refresh never reached its gate");
+        let ran = Command::new("git").args(["add", "other.txt"]).current_dir(&repo).output().unwrap();
+        release.notify_one();
+        ran
+    };
+    let selection = ["src/b.mjs".to_owned()];
+    let (committed, ran) = tokio::join!(open.commit_paths("only b", &selection), competing);
+    committed.unwrap();
+    assert!(!ran.status.success(), "git staged a file while the refresh held the index lock");
+    assert!(String::from_utf8_lossy(&ran.stderr).contains("index.lock"), "{}", String::from_utf8_lossy(&ran.stderr));
+    // The refused stage is simply made again afterwards, and the published index holds it next to the refreshed entry.
+    git(&repo, &["add", "other.txt"]);
+    let staged = git(&repo, &["diff", "--cached", "--name-only"]).replace('\r', "");
+    assert_eq!(staged, "other.txt");
+}
+
 #[tokio::test]
 async fn concurrent_status_reads_share_one_inspection_and_evidence_refreshes() {
     let (_guard, repo, _head) = fixture_repo();

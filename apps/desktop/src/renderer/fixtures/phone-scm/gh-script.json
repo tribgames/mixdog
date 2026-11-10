@@ -1,5 +1,5 @@
 {
-  "provenance": "Every rule is HAND-WRITTEN: no authenticated gh exists on the recording machine, so no reply was captured from the real gh. The texts follow gh 2.65.0's documented output. A rule with `effect` also runs those git commands in the child's directory (for `pr checkout`: fetch the pull request's head ref from the local origin into a branch and check it out, which is what gh does), so the repository changes as with the real tool.",
+  "provenance": "Synthetic stand-in input, not captured: no authenticated `gh` (and no winget, soffice.com) is available on the recording machine. Node and the core are both run against these same rules and compared with each other, so the rules are input, never expected values. Each rule's `imitates` names the command and the documented output shape it stands for, so a wrong imitation can be found later. A rule with `effect` also runs those git commands in the child's directory so the repository changes as with the real tool.",
   "note": "The scripted GitHub CLI (and its package managers) of the phone-scm recording: every process the Node host spawned for `gh`, `winget`, `soffice.com` and `git --version` is answered from these rules, never run. A rule matches argv token by token ('*' any one token, '**' the rest); the first rule whose `when` holds in the world and whose argv matches answers, then `set` changes the world. An argv no rule matches fails the recording. The Rust side scripts its gh runner with the same rules.",
   "world": {
     "ghInstalled": false,
@@ -16,49 +16,799 @@
   },
   "gitPath": "C:\\Program Files\\Git\\mingw64\\bin\\git.exe",
   "rules": [
-    { "tool": "gh", "argv": ["--version"], "reply": { "code": 0, "stdout": "gh version 2.65.0 (2026-01-02)\nhttps://github.com/cli/cli/releases/tag/v2.65.0\n" } },
-    { "tool": "gh", "argv": ["auth", "status", "--hostname", "github.com", "--active"], "when": { "ghAuth": true }, "reply": { "code": 0, "stdout": "github.com\n  ✓ Logged in to github.com account octo-dev (keyring)\n  - Active account: true\n" } },
-    { "tool": "gh", "argv": ["auth", "status", "--hostname", "github.com", "--active"], "reply": { "code": 1, "stderr": "You are not logged into any GitHub hosts. To log in, run: gh auth login\n" } },
-    { "tool": "gh", "argv": ["auth", "setup-git", "--hostname", "github.com"], "reply": { "code": 0 } },
-    { "tool": "gh", "argv": ["auth", "logout", "--hostname", "github.com"], "when": { "ghAuth": true }, "set": { "ghAuth": false }, "reply": { "code": 0, "stderr": "✓ Logged out of github.com account octo-dev\n" } },
-    { "tool": "gh", "argv": ["auth", "logout", "--hostname", "github.com"], "reply": { "code": 1, "stderr": "not logged in to any hosts\n" } },
-    { "tool": "gh", "argv": ["api", "user"], "when": { "ghApiDown": true }, "reply": { "code": 1, "stderr": "error connecting to api.github.com\n" } },
-    { "tool": "gh", "argv": ["api", "user"], "when": { "ghAuth": true }, "reply": { "code": 0, "stdout": "{\"login\":\"octo-dev\",\"id\":4242,\"name\":\"Octo Dev\",\"email\":null}\n" } },
-    { "tool": "gh", "argv": ["api", "user"], "reply": { "code": 1, "stderr": "gh: To use GitHub CLI, run: gh auth login\n" } },
-    { "tool": "gh", "argv": ["api", "user/starred/tribgames/mixdog", "--silent"], "when": { "starred": true }, "reply": { "code": 0 } },
-    { "tool": "gh", "argv": ["api", "user/starred/tribgames/mixdog", "--silent"], "when": { "ghApiDown": true }, "reply": { "code": 1, "stderr": "error connecting to api.github.com\n" } },
-    { "tool": "gh", "argv": ["api", "user/starred/tribgames/mixdog", "--silent"], "reply": { "code": 1, "stderr": "gh: Not Found (HTTP 404)\n" } },
-    { "tool": "gh", "argv": ["api", "-X", "PUT", "user/starred/tribgames/mixdog", "--silent"], "when": { "ghApiDown": true }, "reply": { "code": 1, "stderr": "error connecting to api.github.com\n" } },
-    { "tool": "gh", "argv": ["api", "-X", "PUT", "user/starred/tribgames/mixdog", "--silent"], "set": { "starred": true }, "reply": { "code": 0 } },
-    { "tool": "gh", "argv": ["repo", "view", "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"], "reply": { "code": 0, "stdout": "main\n" } },
-    { "tool": "gh", "argv": ["repo", "view", "--json", "nameWithOwner"], "reply": { "code": 0, "stdout": "{\"nameWithOwner\":\"octo/demo\"}\n" } },
-    { "tool": "gh", "argv": ["pr", "list", "--search", "is:open author:copilot assignee:@me", "**"], "reply": { "code": 1, "stderr": "GraphQL: Could not resolve to a User with the login of 'copilot'.\n" } },
-    { "tool": "gh", "argv": ["pr", "list", "--search", "is:open review-requested:@me", "**"], "reply": { "code": 0, "stdout": "[{\"number\":12,\"title\":\"Add retry\",\"author\":{\"login\":\"ada\"},\"headRefName\":\"retry\",\"baseRefName\":\"main\",\"isDraft\":false,\"state\":\"OPEN\",\"url\":\"https://github.com/octo/demo/pull/12\",\"updatedAt\":\"2026-01-02T03:04:05Z\",\"reviewDecision\":\"REVIEW_REQUIRED\",\"statusCheckRollup\":[{\"conclusion\":\"SUCCESS\"},{\"state\":\"PENDING\"}]}]\n" } },
-    { "tool": "gh", "argv": ["pr", "list", "--search", "is:open author:@me", "**"], "reply": { "code": 0, "stdout": "[]\n" } },
-    { "tool": "gh", "argv": ["pr", "list", "--search", "is:open", "**"], "reply": { "code": 0, "stdout": "[{\"number\":12,\"title\":\"Add retry\",\"author\":{\"login\":\"ada\"},\"headRefName\":\"retry\",\"baseRefName\":\"main\",\"isDraft\":false,\"state\":\"OPEN\",\"url\":\"https://github.com/octo/demo/pull/12\",\"updatedAt\":\"2026-01-02T03:04:05Z\",\"reviewDecision\":\"REVIEW_REQUIRED\",\"statusCheckRollup\":[]},{\"number\":9,\"title\":\"Fix typo\",\"author\":{\"login\":\"bo\"},\"headRefName\":\"typo\",\"baseRefName\":\"main\",\"isDraft\":true,\"state\":\"OPEN\",\"url\":\"https://github.com/octo/demo/pull/9\",\"updatedAt\":\"2026-01-01T00:00:00Z\",\"reviewDecision\":\"\",\"statusCheckRollup\":null}]\n" } },
-    { "tool": "gh", "argv": ["api", "repos/octo/demo/pulls?per_page=5&page=1&state=open", "--hostname", "github.com", "--method", "GET"], "reply": { "code": 0, "stdout": "[{\"number\":12,\"title\":\"Add retry\",\"state\":\"open\",\"user\":{\"login\":\"ada\"}}]\n" } },
-    { "tool": "gh", "argv": ["pr", "create", "**"], "reply": { "code": 0, "stdout": "https://github.com/octo/demo/pull/13\n" } },
-    { "tool": "gh", "argv": ["pr", "view", "13", "--json", "*"], "reply": { "code": 0, "stdout": "{\"number\":13,\"title\":\"Phone PR\",\"author\":{\"login\":\"octo-dev\"},\"headRefName\":\"phone\",\"baseRefName\":\"main\",\"isDraft\":false,\"state\":\"OPEN\",\"url\":\"https://github.com/octo/demo/pull/13\",\"updatedAt\":\"2026-01-02T03:04:05Z\",\"reviewDecision\":\"\",\"statusCheckRollup\":[]}\n" } },
-    { "tool": "gh", "argv": ["pr", "view", "12", "--json", "*"], "reply": { "code": 0, "stdout": "{\"number\":12,\"title\":\"Add retry\",\"author\":{\"login\":\"ada\"},\"headRefName\":\"retry\",\"baseRefName\":\"main\",\"isDraft\":false,\"state\":\"OPEN\",\"url\":\"https://github.com/octo/demo/pull/12\",\"updatedAt\":\"2026-01-02T03:04:05Z\",\"reviewDecision\":\"REVIEW_REQUIRED\",\"statusCheckRollup\":[{\"conclusion\":\"FAILURE\"}],\"body\":\"Retries the call.\",\"additions\":10,\"deletions\":2,\"changedFiles\":2,\"files\":[{\"path\":\"src/a.rs\",\"additions\":8,\"deletions\":1},{\"path\":\"\",\"additions\":1,\"deletions\":1}],\"mergeable\":\"MERGEABLE\",\"mergeStateStatus\":\"CLEAN\",\"createdAt\":\"2026-01-01T00:00:00Z\",\"labels\":[{\"name\":\"bug\"},{\"name\":\"\"}],\"comments\":[{\"body\":\"Looks good\",\"author\":{\"login\":\"bo\"},\"createdAt\":\"2026-01-01T12:00:00Z\"},{\"body\":\"  \",\"author\":{\"login\":\"x\"},\"createdAt\":\"2026-01-01T13:00:00Z\"}],\"reviews\":[{\"state\":\"CHANGES_REQUESTED\",\"body\":\"Please add a test\",\"author\":{\"login\":\"bo\"},\"submittedAt\":\"2026-01-01T14:00:00Z\"},{\"state\":\"COMMENTED\",\"body\":\"\",\"author\":{\"login\":\"cy\"},\"submittedAt\":\"2026-01-01T15:00:00Z\"},{\"state\":\"APPROVED\",\"body\":\"\",\"author\":{\"login\":\"bo\"},\"submittedAt\":\"2026-01-02T01:00:00Z\"}],\"reviewRequests\":[{\"login\":\"dee\"}]}\n" } },
-    { "tool": "gh", "argv": ["pr", "view", "404", "--json", "*"], "reply": { "code": 1, "stderr": "GraphQL: Could not resolve to a PullRequest with the number of 404.\n" } },
-    { "tool": "gh", "argv": ["pr", "checkout", "12"], "effect": [["fetch", "origin", "+refs/pull/12/head:refs/heads/retry"], ["checkout", "retry"]], "reply": { "code": 0, "stderr": "Switched to branch 'retry'\n" } },
-    { "tool": "gh", "argv": ["pr", "checkout", "404"], "reply": { "code": 1, "stderr": "GraphQL: Could not resolve to a PullRequest with the number of 404.\n" } },
-    { "tool": "gh", "argv": ["pr", "merge", "12", "--merge"], "reply": { "code": 0, "stdout": "✓ Merged pull request octo/demo#12\n" } },
-    { "tool": "gh", "argv": ["pr", "merge", "12", "--squash"], "reply": { "code": 0, "stdout": "✓ Squashed and merged pull request octo/demo#12\n" } },
-    { "tool": "gh", "argv": ["pr", "merge", "404", "--merge"], "reply": { "code": 1, "stderr": "GraphQL: Could not resolve to a PullRequest with the number of 404.\n" } },
-    { "tool": "gh", "argv": ["pr", "diff", "12"], "reply": { "code": 0, "stdout": "diff --git a/src/a.rs b/src/a.rs\n--- a/src/a.rs\n+++ b/src/a.rs\n@@ -1 +1 @@\n-old\n+new\n" } },
-    { "tool": "gh", "argv": ["pr", "diff", "404"], "reply": { "code": 1, "stderr": "GraphQL: Could not resolve to a PullRequest with the number of 404.\n" } },
-    { "tool": "winget", "argv": ["**"], "when": { "wingetMissing": true }, "reply": { "code": -1, "stderr": "ENOENT" } },
-    { "tool": "winget", "argv": ["**"], "when": { "wingetFails": true }, "reply": { "code": 1, "stdout": "Found Package\nInstaller hash does not match\n", "stderr": "" } },
-    { "tool": "winget", "argv": ["install", "--id", "GitHub.cli", "**"], "when": { "wingetInstallsGh": true }, "set": { "ghInstalled": true }, "reply": { "code": 0, "stdout": "Successfully installed\n" } },
-    { "tool": "winget", "argv": ["install", "--id", "GitHub.cli", "**"], "reply": { "code": 0, "stdout": "Successfully installed\n" } },
-    { "tool": "winget", "argv": ["install", "--id", "Git.Git", "**"], "when": { "wingetInstallsGit": true }, "set": { "gitMissing": false }, "reply": { "code": 0, "stdout": "Successfully installed\n" } },
-    { "tool": "winget", "argv": ["install", "--id", "Git.Git", "**"], "reply": { "code": 0, "stdout": "Successfully installed\n" } },
-    { "tool": "winget", "argv": ["install", "--id", "TheDocumentFoundation.LibreOffice", "**"], "when": { "wingetInstallsSoffice": true }, "set": { "soffice": true }, "reply": { "code": 0, "stdout": "Successfully installed\n" } },
-    { "tool": "winget", "argv": ["install", "--id", "TheDocumentFoundation.LibreOffice", "**"], "reply": { "code": 0, "stdout": "Successfully installed\n" } },
-    { "tool": "git", "argv": ["--version"], "when": { "gitMissing": true }, "reply": { "code": -1, "stderr": "ENOENT" } },
-    { "tool": "git", "argv": ["--version"], "reply": { "code": 0, "stdout": "git version 2.51.0.windows.1\n" } },
-    { "tool": "soffice.com", "argv": ["--version"], "when": { "soffice": true }, "reply": { "code": 0, "stdout": "LibreOffice 24.8.4.2 480(Build:2)\n" } },
-    { "tool": "soffice.com", "argv": ["--version"], "reply": { "code": -1, "stderr": "ENOENT" } }
+    {
+      "imitates": {
+        "command": "gh --version",
+        "shape": "two lines on stdout: \"gh version <semver> (<date>)\" then the release URL (cli.github.com manual: gh --version)"
+      },
+      "tool": "gh",
+      "argv": [
+        "--version"
+      ],
+      "reply": {
+        "code": 0,
+        "stdout": "gh version 2.65.0 (2026-01-02)\nhttps://github.com/cli/cli/releases/tag/v2.65.0\n"
+      }
+    },
+    {
+      "imitates": {
+        "command": "gh auth status --hostname github.com --active",
+        "shape": "exit 0; stdout \"<host>\" then an indented \"✓ Logged in to <host> account <login> (<store>)\" and \"- Active account: true\" (gh >= 2.40 format)"
+      },
+      "tool": "gh",
+      "argv": [
+        "auth",
+        "status",
+        "--hostname",
+        "github.com",
+        "--active"
+      ],
+      "when": {
+        "ghAuth": true
+      },
+      "reply": {
+        "code": 0,
+        "stdout": "github.com\n  ✓ Logged in to github.com account octo-dev (keyring)\n  - Active account: true\n"
+      }
+    },
+    {
+      "imitates": {
+        "command": "gh auth status --hostname github.com --active",
+        "shape": "exit 1; \"You are not logged into any GitHub hosts. To log in, run: gh auth login\" on stderr"
+      },
+      "tool": "gh",
+      "argv": [
+        "auth",
+        "status",
+        "--hostname",
+        "github.com",
+        "--active"
+      ],
+      "reply": {
+        "code": 1,
+        "stderr": "You are not logged into any GitHub hosts. To log in, run: gh auth login\n"
+      }
+    },
+    {
+      "imitates": {
+        "command": "gh auth setup-git --hostname github.com",
+        "shape": "exit 0, no output"
+      },
+      "tool": "gh",
+      "argv": [
+        "auth",
+        "setup-git",
+        "--hostname",
+        "github.com"
+      ],
+      "reply": {
+        "code": 0
+      }
+    },
+    {
+      "imitates": {
+        "command": "gh auth logout --hostname github.com",
+        "shape": "exit 0; \"✓ Logged out of <host> account <login>\" on stderr"
+      },
+      "tool": "gh",
+      "argv": [
+        "auth",
+        "logout",
+        "--hostname",
+        "github.com"
+      ],
+      "when": {
+        "ghAuth": true
+      },
+      "set": {
+        "ghAuth": false
+      },
+      "reply": {
+        "code": 0,
+        "stderr": "✓ Logged out of github.com account octo-dev\n"
+      }
+    },
+    {
+      "imitates": {
+        "command": "gh auth logout --hostname github.com",
+        "shape": "exit 1 with a \"not logged in\" message on stderr"
+      },
+      "tool": "gh",
+      "argv": [
+        "auth",
+        "logout",
+        "--hostname",
+        "github.com"
+      ],
+      "reply": {
+        "code": 1,
+        "stderr": "not logged in to any hosts\n"
+      }
+    },
+    {
+      "imitates": {
+        "command": "gh api user (network down)",
+        "shape": "exit 1; gh api reports a transport failure on stderr (\"error connecting to api.github.com\")"
+      },
+      "tool": "gh",
+      "argv": [
+        "api",
+        "user"
+      ],
+      "when": {
+        "ghApiDown": true
+      },
+      "reply": {
+        "code": 1,
+        "stderr": "error connecting to api.github.com\n"
+      }
+    },
+    {
+      "imitates": {
+        "command": "gh api user",
+        "shape": "exit 0; the REST \"Get the authenticated user\" object as JSON on stdout (login, id, name, email)"
+      },
+      "tool": "gh",
+      "argv": [
+        "api",
+        "user"
+      ],
+      "when": {
+        "ghAuth": true
+      },
+      "reply": {
+        "code": 0,
+        "stdout": "{\"login\":\"octo-dev\",\"id\":4242,\"name\":\"Octo Dev\",\"email\":null}\n"
+      }
+    },
+    {
+      "imitates": {
+        "command": "gh api user (not logged in)",
+        "shape": "exit 1; \"To use GitHub CLI, run: gh auth login\" on stderr"
+      },
+      "tool": "gh",
+      "argv": [
+        "api",
+        "user"
+      ],
+      "reply": {
+        "code": 1,
+        "stderr": "gh: To use GitHub CLI, run: gh auth login\n"
+      }
+    },
+    {
+      "imitates": {
+        "command": "gh api user/starred/<owner>/<repo> --silent",
+        "shape": "exit 0, no output (REST \"Check if a repository is starred\": 204)"
+      },
+      "tool": "gh",
+      "argv": [
+        "api",
+        "user/starred/tribgames/mixdog",
+        "--silent"
+      ],
+      "when": {
+        "starred": true
+      },
+      "reply": {
+        "code": 0
+      }
+    },
+    {
+      "imitates": {
+        "command": "gh api user/starred/<owner>/<repo> --silent (network down)",
+        "shape": "exit 1; transport failure on stderr"
+      },
+      "tool": "gh",
+      "argv": [
+        "api",
+        "user/starred/tribgames/mixdog",
+        "--silent"
+      ],
+      "when": {
+        "ghApiDown": true
+      },
+      "reply": {
+        "code": 1,
+        "stderr": "error connecting to api.github.com\n"
+      }
+    },
+    {
+      "imitates": {
+        "command": "gh api user/starred/<owner>/<repo> --silent",
+        "shape": "exit 1; \"gh: Not Found (HTTP 404)\" on stderr (REST: 404 when not starred)"
+      },
+      "tool": "gh",
+      "argv": [
+        "api",
+        "user/starred/tribgames/mixdog",
+        "--silent"
+      ],
+      "reply": {
+        "code": 1,
+        "stderr": "gh: Not Found (HTTP 404)\n"
+      }
+    },
+    {
+      "imitates": {
+        "command": "gh api -X PUT user/starred/<owner>/<repo> --silent (network down)",
+        "shape": "exit 1; transport failure on stderr"
+      },
+      "tool": "gh",
+      "argv": [
+        "api",
+        "-X",
+        "PUT",
+        "user/starred/tribgames/mixdog",
+        "--silent"
+      ],
+      "when": {
+        "ghApiDown": true
+      },
+      "reply": {
+        "code": 1,
+        "stderr": "error connecting to api.github.com\n"
+      }
+    },
+    {
+      "imitates": {
+        "command": "gh api -X PUT user/starred/<owner>/<repo> --silent",
+        "shape": "exit 0, no output (REST \"Star a repository\": 204)"
+      },
+      "tool": "gh",
+      "argv": [
+        "api",
+        "-X",
+        "PUT",
+        "user/starred/tribgames/mixdog",
+        "--silent"
+      ],
+      "set": {
+        "starred": true
+      },
+      "reply": {
+        "code": 0
+      }
+    },
+    {
+      "imitates": {
+        "command": "gh repo view --json defaultBranchRef --jq .defaultBranchRef.name",
+        "shape": "exit 0; the branch name and a newline on stdout"
+      },
+      "tool": "gh",
+      "argv": [
+        "repo",
+        "view",
+        "--json",
+        "defaultBranchRef",
+        "--jq",
+        ".defaultBranchRef.name"
+      ],
+      "reply": {
+        "code": 0,
+        "stdout": "main\n"
+      }
+    },
+    {
+      "imitates": {
+        "command": "gh repo view --json nameWithOwner",
+        "shape": "exit 0; {\"nameWithOwner\":\"<owner>/<repo>\"} on stdout"
+      },
+      "tool": "gh",
+      "argv": [
+        "repo",
+        "view",
+        "--json",
+        "nameWithOwner"
+      ],
+      "reply": {
+        "code": 0,
+        "stdout": "{\"nameWithOwner\":\"octo/demo\"}\n"
+      }
+    },
+    {
+      "imitates": {
+        "command": "gh pr list --search <query> --json ...",
+        "shape": "exit 1; GraphQL error \"Could not resolve to a User with the login of <login>.\" on stderr"
+      },
+      "tool": "gh",
+      "argv": [
+        "pr",
+        "list",
+        "--search",
+        "is:open author:copilot assignee:@me",
+        "**"
+      ],
+      "reply": {
+        "code": 1,
+        "stderr": "GraphQL: Could not resolve to a User with the login of 'copilot'.\n"
+      }
+    },
+    {
+      "imitates": {
+        "command": "gh pr list --search \"is:open review-requested:@me\" --json ...",
+        "shape": "exit 0; JSON array of pull requests with the --json fields (number, title, author.login, headRefName, baseRefName, isDraft, state, url, updatedAt, reviewDecision, statusCheckRollup)"
+      },
+      "tool": "gh",
+      "argv": [
+        "pr",
+        "list",
+        "--search",
+        "is:open review-requested:@me",
+        "**"
+      ],
+      "reply": {
+        "code": 0,
+        "stdout": "[{\"number\":12,\"title\":\"Add retry\",\"author\":{\"login\":\"ada\"},\"headRefName\":\"retry\",\"baseRefName\":\"main\",\"isDraft\":false,\"state\":\"OPEN\",\"url\":\"https://github.com/octo/demo/pull/12\",\"updatedAt\":\"2026-01-02T03:04:05Z\",\"reviewDecision\":\"REVIEW_REQUIRED\",\"statusCheckRollup\":[{\"conclusion\":\"SUCCESS\"},{\"state\":\"PENDING\"}]}]\n"
+      }
+    },
+    {
+      "imitates": {
+        "command": "gh pr list --search \"is:open author:@me\" --json ...",
+        "shape": "exit 0; JSON array, here empty"
+      },
+      "tool": "gh",
+      "argv": [
+        "pr",
+        "list",
+        "--search",
+        "is:open author:@me",
+        "**"
+      ],
+      "reply": {
+        "code": 0,
+        "stdout": "[]\n"
+      }
+    },
+    {
+      "imitates": {
+        "command": "gh pr list --search \"is:open\" --json ...",
+        "shape": "exit 0; JSON array of pull requests, same field shape as the review-requested list"
+      },
+      "tool": "gh",
+      "argv": [
+        "pr",
+        "list",
+        "--search",
+        "is:open",
+        "**"
+      ],
+      "reply": {
+        "code": 0,
+        "stdout": "[{\"number\":12,\"title\":\"Add retry\",\"author\":{\"login\":\"ada\"},\"headRefName\":\"retry\",\"baseRefName\":\"main\",\"isDraft\":false,\"state\":\"OPEN\",\"url\":\"https://github.com/octo/demo/pull/12\",\"updatedAt\":\"2026-01-02T03:04:05Z\",\"reviewDecision\":\"REVIEW_REQUIRED\",\"statusCheckRollup\":[]},{\"number\":9,\"title\":\"Fix typo\",\"author\":{\"login\":\"bo\"},\"headRefName\":\"typo\",\"baseRefName\":\"main\",\"isDraft\":true,\"state\":\"OPEN\",\"url\":\"https://github.com/octo/demo/pull/9\",\"updatedAt\":\"2026-01-01T00:00:00Z\",\"reviewDecision\":\"\",\"statusCheckRollup\":null}]\n"
+      }
+    },
+    {
+      "imitates": {
+        "command": "gh api repos/<owner>/<repo>/pulls?... --method GET",
+        "shape": "exit 0; the REST \"List pull requests\" array (number, title, state, user.login)"
+      },
+      "tool": "gh",
+      "argv": [
+        "api",
+        "repos/octo/demo/pulls?per_page=5&page=1&state=open",
+        "--hostname",
+        "github.com",
+        "--method",
+        "GET"
+      ],
+      "reply": {
+        "code": 0,
+        "stdout": "[{\"number\":12,\"title\":\"Add retry\",\"state\":\"open\",\"user\":{\"login\":\"ada\"}}]\n"
+      }
+    },
+    {
+      "imitates": {
+        "command": "gh pr create ...",
+        "shape": "exit 0; the new pull request URL on stdout"
+      },
+      "tool": "gh",
+      "argv": [
+        "pr",
+        "create",
+        "**"
+      ],
+      "reply": {
+        "code": 0,
+        "stdout": "https://github.com/octo/demo/pull/13\n"
+      }
+    },
+    {
+      "imitates": {
+        "command": "gh pr view <n> --json ...",
+        "shape": "exit 0; one pull request object with the requested --json fields"
+      },
+      "tool": "gh",
+      "argv": [
+        "pr",
+        "view",
+        "13",
+        "--json",
+        "*"
+      ],
+      "reply": {
+        "code": 0,
+        "stdout": "{\"number\":13,\"title\":\"Phone PR\",\"author\":{\"login\":\"octo-dev\"},\"headRefName\":\"phone\",\"baseRefName\":\"main\",\"isDraft\":false,\"state\":\"OPEN\",\"url\":\"https://github.com/octo/demo/pull/13\",\"updatedAt\":\"2026-01-02T03:04:05Z\",\"reviewDecision\":\"\",\"statusCheckRollup\":[]}\n"
+      }
+    },
+    {
+      "imitates": {
+        "command": "gh pr view <n> --json ...",
+        "shape": "exit 0; the pull request object plus body, additions, deletions, changedFiles, files, mergeable, mergeStateStatus, createdAt, labels, comments, reviews, reviewRequests"
+      },
+      "tool": "gh",
+      "argv": [
+        "pr",
+        "view",
+        "12",
+        "--json",
+        "*"
+      ],
+      "reply": {
+        "code": 0,
+        "stdout": "{\"number\":12,\"title\":\"Add retry\",\"author\":{\"login\":\"ada\"},\"headRefName\":\"retry\",\"baseRefName\":\"main\",\"isDraft\":false,\"state\":\"OPEN\",\"url\":\"https://github.com/octo/demo/pull/12\",\"updatedAt\":\"2026-01-02T03:04:05Z\",\"reviewDecision\":\"REVIEW_REQUIRED\",\"statusCheckRollup\":[{\"conclusion\":\"FAILURE\"}],\"body\":\"Retries the call.\",\"additions\":10,\"deletions\":2,\"changedFiles\":2,\"files\":[{\"path\":\"src/a.rs\",\"additions\":8,\"deletions\":1},{\"path\":\"\",\"additions\":1,\"deletions\":1}],\"mergeable\":\"MERGEABLE\",\"mergeStateStatus\":\"CLEAN\",\"createdAt\":\"2026-01-01T00:00:00Z\",\"labels\":[{\"name\":\"bug\"},{\"name\":\"\"}],\"comments\":[{\"body\":\"Looks good\",\"author\":{\"login\":\"bo\"},\"createdAt\":\"2026-01-01T12:00:00Z\"},{\"body\":\"  \",\"author\":{\"login\":\"x\"},\"createdAt\":\"2026-01-01T13:00:00Z\"}],\"reviews\":[{\"state\":\"CHANGES_REQUESTED\",\"body\":\"Please add a test\",\"author\":{\"login\":\"bo\"},\"submittedAt\":\"2026-01-01T14:00:00Z\"},{\"state\":\"COMMENTED\",\"body\":\"\",\"author\":{\"login\":\"cy\"},\"submittedAt\":\"2026-01-01T15:00:00Z\"},{\"state\":\"APPROVED\",\"body\":\"\",\"author\":{\"login\":\"bo\"},\"submittedAt\":\"2026-01-02T01:00:00Z\"}],\"reviewRequests\":[{\"login\":\"dee\"}]}\n"
+      }
+    },
+    {
+      "imitates": {
+        "command": "gh pr view <n> --json ... (no such pull request)",
+        "shape": "exit 1; GraphQL \"Could not resolve to a PullRequest with the number of <n>.\" on stderr"
+      },
+      "tool": "gh",
+      "argv": [
+        "pr",
+        "view",
+        "404",
+        "--json",
+        "*"
+      ],
+      "reply": {
+        "code": 1,
+        "stderr": "GraphQL: Could not resolve to a PullRequest with the number of 404.\n"
+      }
+    },
+    {
+      "imitates": {
+        "command": "gh pr checkout <n>",
+        "shape": "exit 0; \"Switched to branch '<head>'\" on stderr; and the repository change gh makes (fetch refs/pull/<n>/head into the branch, check it out), run here as real git by `effect`"
+      },
+      "tool": "gh",
+      "argv": [
+        "pr",
+        "checkout",
+        "12"
+      ],
+      "effect": [
+        [
+          "fetch",
+          "origin",
+          "+refs/pull/12/head:refs/heads/retry"
+        ],
+        [
+          "checkout",
+          "retry"
+        ]
+      ],
+      "reply": {
+        "code": 0,
+        "stderr": "Switched to branch 'retry'\n"
+      }
+    },
+    {
+      "imitates": {
+        "command": "gh pr checkout <n> (no such pull request)",
+        "shape": "exit 1; GraphQL \"Could not resolve to a PullRequest ...\" on stderr"
+      },
+      "tool": "gh",
+      "argv": [
+        "pr",
+        "checkout",
+        "404"
+      ],
+      "reply": {
+        "code": 1,
+        "stderr": "GraphQL: Could not resolve to a PullRequest with the number of 404.\n"
+      }
+    },
+    {
+      "imitates": {
+        "command": "gh pr merge <n> --merge",
+        "shape": "exit 0; \"✓ Merged pull request <owner>/<repo>#<n>\" on stdout"
+      },
+      "tool": "gh",
+      "argv": [
+        "pr",
+        "merge",
+        "12",
+        "--merge"
+      ],
+      "reply": {
+        "code": 0,
+        "stdout": "✓ Merged pull request octo/demo#12\n"
+      }
+    },
+    {
+      "imitates": {
+        "command": "gh pr merge <n> --squash",
+        "shape": "exit 0; \"✓ Squashed and merged pull request <owner>/<repo>#<n>\" on stdout"
+      },
+      "tool": "gh",
+      "argv": [
+        "pr",
+        "merge",
+        "12",
+        "--squash"
+      ],
+      "reply": {
+        "code": 0,
+        "stdout": "✓ Squashed and merged pull request octo/demo#12\n"
+      }
+    },
+    {
+      "imitates": {
+        "command": "gh pr merge <n> --merge (no such pull request)",
+        "shape": "exit 1; GraphQL \"Could not resolve to a PullRequest ...\" on stderr"
+      },
+      "tool": "gh",
+      "argv": [
+        "pr",
+        "merge",
+        "404",
+        "--merge"
+      ],
+      "reply": {
+        "code": 1,
+        "stderr": "GraphQL: Could not resolve to a PullRequest with the number of 404.\n"
+      }
+    },
+    {
+      "imitates": {
+        "command": "gh pr diff <n>",
+        "shape": "exit 0; a unified diff on stdout"
+      },
+      "tool": "gh",
+      "argv": [
+        "pr",
+        "diff",
+        "12"
+      ],
+      "reply": {
+        "code": 0,
+        "stdout": "diff --git a/src/a.rs b/src/a.rs\n--- a/src/a.rs\n+++ b/src/a.rs\n@@ -1 +1 @@\n-old\n+new\n"
+      }
+    },
+    {
+      "imitates": {
+        "command": "gh pr diff <n> (no such pull request)",
+        "shape": "exit 1; GraphQL \"Could not resolve to a PullRequest ...\" on stderr"
+      },
+      "tool": "gh",
+      "argv": [
+        "pr",
+        "diff",
+        "404"
+      ],
+      "reply": {
+        "code": 1,
+        "stderr": "GraphQL: Could not resolve to a PullRequest with the number of 404.\n"
+      }
+    },
+    {
+      "imitates": {
+        "command": "winget (not installed)",
+        "shape": "the program cannot be started: ENOENT"
+      },
+      "tool": "winget",
+      "argv": [
+        "**"
+      ],
+      "when": {
+        "wingetMissing": true
+      },
+      "reply": {
+        "code": -1,
+        "stderr": "ENOENT"
+      }
+    },
+    {
+      "imitates": {
+        "command": "winget install ... (installer failure)",
+        "shape": "exit 1; \"Found Package\" and \"Installer hash does not match\" on stdout (winget installer-hash failure)"
+      },
+      "tool": "winget",
+      "argv": [
+        "**"
+      ],
+      "when": {
+        "wingetFails": true
+      },
+      "reply": {
+        "code": 1,
+        "stdout": "Found Package\nInstaller hash does not match\n",
+        "stderr": ""
+      }
+    },
+    {
+      "imitates": {
+        "command": "winget install --id GitHub.cli",
+        "shape": "exit 0; \"Successfully installed\" on stdout; afterwards gh exists"
+      },
+      "tool": "winget",
+      "argv": [
+        "install",
+        "--id",
+        "GitHub.cli",
+        "**"
+      ],
+      "when": {
+        "wingetInstallsGh": true
+      },
+      "set": {
+        "ghInstalled": true
+      },
+      "reply": {
+        "code": 0,
+        "stdout": "Successfully installed\n"
+      }
+    },
+    {
+      "imitates": {
+        "command": "winget install --id GitHub.cli",
+        "shape": "exit 0; \"Successfully installed\" on stdout"
+      },
+      "tool": "winget",
+      "argv": [
+        "install",
+        "--id",
+        "GitHub.cli",
+        "**"
+      ],
+      "reply": {
+        "code": 0,
+        "stdout": "Successfully installed\n"
+      }
+    },
+    {
+      "imitates": {
+        "command": "winget install --id Git.Git",
+        "shape": "exit 0; \"Successfully installed\" on stdout; afterwards git exists"
+      },
+      "tool": "winget",
+      "argv": [
+        "install",
+        "--id",
+        "Git.Git",
+        "**"
+      ],
+      "when": {
+        "wingetInstallsGit": true
+      },
+      "set": {
+        "gitMissing": false
+      },
+      "reply": {
+        "code": 0,
+        "stdout": "Successfully installed\n"
+      }
+    },
+    {
+      "imitates": {
+        "command": "winget install --id Git.Git",
+        "shape": "exit 0; \"Successfully installed\" on stdout"
+      },
+      "tool": "winget",
+      "argv": [
+        "install",
+        "--id",
+        "Git.Git",
+        "**"
+      ],
+      "reply": {
+        "code": 0,
+        "stdout": "Successfully installed\n"
+      }
+    },
+    {
+      "imitates": {
+        "command": "winget install --id TheDocumentFoundation.LibreOffice",
+        "shape": "exit 0; \"Successfully installed\" on stdout; afterwards soffice exists"
+      },
+      "tool": "winget",
+      "argv": [
+        "install",
+        "--id",
+        "TheDocumentFoundation.LibreOffice",
+        "**"
+      ],
+      "when": {
+        "wingetInstallsSoffice": true
+      },
+      "set": {
+        "soffice": true
+      },
+      "reply": {
+        "code": 0,
+        "stdout": "Successfully installed\n"
+      }
+    },
+    {
+      "imitates": {
+        "command": "winget install --id TheDocumentFoundation.LibreOffice",
+        "shape": "exit 0; \"Successfully installed\" on stdout"
+      },
+      "tool": "winget",
+      "argv": [
+        "install",
+        "--id",
+        "TheDocumentFoundation.LibreOffice",
+        "**"
+      ],
+      "reply": {
+        "code": 0,
+        "stdout": "Successfully installed\n"
+      }
+    },
+    {
+      "imitates": {
+        "command": "git --version (git not installed)",
+        "shape": "the program cannot be started: ENOENT"
+      },
+      "tool": "git",
+      "argv": [
+        "--version"
+      ],
+      "when": {
+        "gitMissing": true
+      },
+      "reply": {
+        "code": -1,
+        "stderr": "ENOENT"
+      }
+    },
+    {
+      "imitates": {
+        "command": "git --version",
+        "shape": "\"git version <semver>.windows.<n>\" on stdout"
+      },
+      "tool": "git",
+      "argv": [
+        "--version"
+      ],
+      "reply": {
+        "code": 0,
+        "stdout": "git version 2.51.0.windows.1\n"
+      }
+    },
+    {
+      "imitates": {
+        "command": "soffice.com --version",
+        "shape": "\"LibreOffice <version> <build>\" on stdout"
+      },
+      "tool": "soffice.com",
+      "argv": [
+        "--version"
+      ],
+      "when": {
+        "soffice": true
+      },
+      "reply": {
+        "code": 0,
+        "stdout": "LibreOffice 24.8.4.2 480(Build:2)\n"
+      }
+    },
+    {
+      "imitates": {
+        "command": "soffice.com --version (not installed)",
+        "shape": "the program cannot be started: ENOENT"
+      },
+      "tool": "soffice.com",
+      "argv": [
+        "--version"
+      ],
+      "reply": {
+        "code": -1,
+        "stderr": "ENOENT"
+      }
+    }
   ]
 }

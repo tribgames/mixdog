@@ -36,7 +36,23 @@ fn main() {
                 }
             }
         }
-        let status = Command::new(std::env::var("PHONE_SCM_REAL_GIT").unwrap()).args(&args).status().unwrap();
+        let real = std::env::var("PHONE_SCM_REAL_GIT").unwrap();
+        let status = Command::new(&real).args(&args).status().unwrap();
+        // PHONE_SCM_AFTER_FILE: three lines - the leading arguments of the git to follow, the arguments of another git to run
+        // when it has ended with a scratch index (GIT_INDEX_FILE set: a commit's index refresh), and the file that gets that
+        // other git's exit code and stderr. It is another process using the repository inside the refresh's lock window,
+        // started by the same executable for Node's git and the core's alike.
+        if std::env::var_os("GIT_INDEX_FILE").is_some()
+            && let Ok(text) = std::fs::read_to_string(std::env::var("PHONE_SCM_AFTER_FILE").unwrap_or_default())
+        {
+            let mut lines = text.lines();
+            let (lead, other, out) = (lines.next().unwrap_or(""), lines.next().unwrap_or(""), lines.next().unwrap_or(""));
+            let lead: Vec<&str> = lead.split(' ').filter(|word| !word.is_empty()).collect();
+            if !lead.is_empty() && args.len() >= lead.len() && args.iter().zip(&lead).all(|(arg, word)| arg == word) {
+                let ran = Command::new(&real).args(other.split(' ').filter(|word| !word.is_empty())).env_remove("GIT_INDEX_FILE").output().unwrap();
+                std::fs::write(out, format!("{}\n{}", ran.status.code().unwrap_or(-1), String::from_utf8_lossy(&ran.stderr))).unwrap();
+            }
+        }
         exit(status.code().unwrap_or(1));
     }
     let mut stream = TcpStream::connect(std::env::var("PHONE_SCM_SHIM").unwrap()).unwrap();

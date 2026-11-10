@@ -125,7 +125,7 @@ async function boundedTree(file, args, options, accept = [0]) {
 // scripted-tool executable (lib/scripted-tool.rs), which runs the real git: both name the same path, on any machine.
 const shimExe = join(WORK, 'shim', 'scripted-tool.exe');
 mkdirSync(join(WORK, 'shim'), { recursive: true });
-await boundedTree('rustc', ['-O', '--edition', '2021', join(REPO_ROOT, 'benchmarks', 'rust-core', 'recorders', 'lib', 'scripted-tool.rs'), '-o', shimExe], { cwd: REPO_ROOT, env: { ...process.env, PATH: MACHINE_PATH, RUSTUP_HOME: join(REAL_HOME, '.rustup'), CARGO_HOME: join(REAL_HOME, '.cargo') } });
+await boundedTree('rustc', ['-O', '--edition', '2024', join(REPO_ROOT, 'benchmarks', 'rust-core', 'recorders', 'lib', 'scripted-tool.rs'), '-o', shimExe], { cwd: REPO_ROOT, env: { ...process.env, PATH: MACHINE_PATH, RUSTUP_HOME: join(REAL_HOME, '.rustup'), CARGO_HOME: join(REAL_HOME, '.cargo') } });
 const realGit = MACHINE_PATH.split(';').filter((dir) => dir !== join(WORK, 'bin')).map((dir) => join(dir, 'git.exe')).find((file) => existsSync(file));
 process.env.PHONE_SCM_REAL_GIT = realGit;
 if (!REPLAY) fs.copyFileSync(shimExe, join(WORK, 'bin', 'git.exe'));
@@ -167,6 +167,11 @@ const JS_ATTEMPTS_FILE = join(WORK, 'js-attempts.jsonl');
 // world's git status that does not return), for Node's git and the core's alike.
 const HANG_FILE = join(WORK, 'git-hangs.txt');
 process.env.PHONE_SCM_HANG_FILE = HANG_FILE;
+// The shim's "another process stages" switch (lib/scripted-tool.rs): after the commit's index refresh has built its copy, inside
+// the window the refresh holds index.lock, a second git runs and its exit code and stderr are written to AFTER_OUT.
+const AFTER_FILE = join(WORK, 'git-after.txt');
+const AFTER_OUT = join(WORK, 'git-after-out.txt');
+process.env.PHONE_SCM_AFTER_FILE = AFTER_FILE;
 
 // `ghlogin_<pid>_<n>` (github-cli.ts): the scripted host has a fixed pid.
 Object.defineProperty(process, 'pid', { value: 4242 });
@@ -911,6 +916,8 @@ async function rec(name, call, params, note, during) {
     // What the call left in the repository, read after the core's answer and every child it started ended.
     const left = repoState(R, ORIGIN);
     if (!isDeepStrictEqual(left, recorded.repository)) differ('repository', recorded.repository, left);
+    const competing = takeCompeting();
+    if (!isDeepStrictEqual(competing, recorded.competing ?? null)) differ('another process staging inside the refresh', recorded.competing ?? null, competing);
     replay.compared.push(name);
     if (!isDeepStrictEqual(core, recorded.frame)) replay.differences.push({ name, node: recorded.frame, core });
     return core;
@@ -940,9 +947,20 @@ async function rec(name, call, params, note, during) {
     ...(processes.length ? { processes: clone(processes) } : {}),
     ...(steps.length ? { clock: clone(steps) } : {}),
     repository: repoState(R, ORIGIN),
+    ...(afterOut() ? { competing: takeCompeting() } : {}),
     world: clone(world),
   });
   return answer;
+}
+function afterOut() {
+  return existsSync(AFTER_OUT);
+}
+/** What the git started inside the refresh's lock window answered (exit code, stderr); null when none ran. Reading it clears it. */
+function takeCompeting() {
+  if (!afterOut()) return null;
+  const [code, ...stderr] = readFileSync(AFTER_OUT, 'utf8').split('\n');
+  rmSync(AFTER_OUT, { force: true });
+  return { code: Number(code), stderr: stderr.join('\n') };
 }
 // ═══ 1. status and diff ═══
 write(R, 'a.txt', 'one\nTWO\nthree\nfour\nfive\n');
@@ -1028,6 +1046,13 @@ await rec('gitCommitPaths', 'gitCommitPaths', [R, 'Edit a through paths', ['a.tx
 await rec('gitCommitPaths-no-paths', 'gitCommitPaths', [R, 'No paths', []]);
 // The repository named in its verbatim (`\\?\`) spelling: Node compares the paths as strings after resolve().
 await rec('gitCommitPaths-verbatim-cwd', 'gitCommitPaths', ['\\\\?\\' + R, 'Verbatim cwd', ['a.txt']]);
+// Another process stages a file while the commit refreshes the index: git refuses it (index.lock is held until the refresh
+// publishes), so the commit and the staged index both stay whole. The competing git is the shim's (lib/scripted-tool.rs).
+write(R, 'compete.txt', 'committed\n');
+write(R, 'other.txt', 'staged by another process\n');
+writeFileSync(AFTER_FILE, `reset --quiet\nadd other.txt\n${AFTER_OUT}\n`);
+await rec('gitCommitPaths-competing-stage', 'gitCommitPaths', [R, 'Commit while another process stages', ['compete.txt']]);
+rmSync(AFTER_FILE, { force: true });
 write(R, 'a.txt', 'one\nTWO\nthree\nfour\nfive\nsix\n');
 git(R, 'add', 'a.txt');
 await rec('gitAmend-message', 'gitAmend', [R, 'Edit a through paths (amended)']);
@@ -1517,7 +1542,16 @@ writeSetManifest(stage, {
   recorder: 'benchmarks/rust-core/recorders/record-phone-scm.mjs',
   command: `node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-phone-scm.mjs --tree <git archive of ${REF} with node_modules>`,
   identity,
-  extra: { cases: cases.length, calls: PH2_SCM_CALLS.length },
+  extra: {
+    cases: cases.length,
+    calls: PH2_SCM_CALLS.length,
+    // The stand-in's rules are input to both products, not recorded answers: say so, and what each imitates.
+    syntheticInput: {
+      file: 'gh-script.json',
+      reason: 'no authenticated gh (and no winget or soffice.com) on the recording machine; Node and the core run against the same rules and are compared with each other',
+      rules: script.rules.map((rule) => ({ tool: rule.tool, argv: rule.argv, when: rule.when ?? null, imitates: rule.imitates })),
+    },
+  },
 });
 commitStage(stage, FIXTURES);
 console.log(`phone-scm: ${cases.length} cases over ${PH2_SCM_CALLS.length} calls`);

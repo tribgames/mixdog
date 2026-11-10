@@ -781,6 +781,9 @@ impl Repo {
                 args.extend(specs.iter().map(String::as_str));
                 let options = RunOptions { index_file: Some(staging.clone()), ..RunOptions::default() };
                 self.scm.git.text(&self.cancel, self.root().map_err(|failure| failure.to_string())?, &args, &options).await.map_err(|failure| failure.to_string())?;
+                // Node's commitRefreshProbe.betweenReadAndReplace (git-commit-transaction.ts): the window in which the lock is held.
+                #[cfg(test)]
+                commit_gate::between_read_and_replace(&self.identity.git_dir).await;
                 let read = staging.clone();
                 on_lane(self.scm.lane, &self.cancel, move || std::fs::read(read))
                     .await
@@ -894,6 +897,33 @@ fn plain_path(path: PathBuf) -> PathBuf {
     match path.to_str().and_then(|text| text.strip_prefix(r"\\?\")).and_then(crate::git_launch::normalize_verbatim) {
         Some(plain) => PathBuf::from(plain),
         None => path,
+    }
+}
+
+/// Test-only stand-in for Node's `commitRefreshProbe.betweenReadAndReplace`: the refresh stops here, lock held, until released.
+#[cfg(test)]
+pub(crate) mod commit_gate {
+    use std::collections::HashMap;
+    use std::path::{Path, PathBuf};
+    use std::sync::{Arc, Mutex};
+    use tokio::sync::Notify;
+
+    type Gate = (Arc<Notify>, Arc<Notify>);
+    static GATES: Mutex<Option<HashMap<PathBuf, Gate>>> = Mutex::new(None);
+
+    /// Arms the gate of one repository's git directory: `(reached, release)`.
+    pub(crate) fn arm(git_dir: &Path) -> Gate {
+        let gate: Gate = (Arc::new(Notify::new()), Arc::new(Notify::new()));
+        GATES.lock().unwrap().get_or_insert_with(HashMap::new).insert(git_dir.to_path_buf(), gate.clone());
+        gate
+    }
+
+    pub(super) async fn between_read_and_replace(git_dir: &Path) {
+        let gate = GATES.lock().unwrap().as_mut().and_then(|gates| gates.remove(git_dir));
+        if let Some((reached, release)) = gate {
+            reached.notify_one();
+            release.notified().await;
+        }
     }
 }
 
