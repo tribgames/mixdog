@@ -457,6 +457,12 @@ fn tunnel_error(err: TunnelError, surface: Surface) -> ProviderError {
     error
 }
 
+fn dns_error(surface: Surface) -> ProviderError {
+    let mut error = ProviderError::transport(TransportFault::Dns, DeliveryState::NotSent);
+    error.message = surface.text(|| format!("{:?}", TransportFault::Dns));
+    error
+}
+
 fn io_error(err: &io::Error, connecting: bool, delivery: DeliveryState, surface: Surface) -> ProviderError {
     let fault = fault_from_io(err, connecting);
     let message = surface.text(|| format!("{fault:?}"));
@@ -498,7 +504,7 @@ impl NodeClient {
                 None => {
                     let addrs = tokio::net::lookup_host((bare.as_str(), port))
                         .await
-                        .map_err(|_| ProviderError::transport(TransportFault::Dns, DeliveryState::NotSent))?;
+                        .map_err(|_| dns_error(surface))?;
                     let mut failure = None;
                     let mut connected = None;
                     for addr in addrs {
@@ -514,7 +520,7 @@ impl NodeClient {
                         Some(socket) => Box::new(socket),
                         None => {
                             return Err(failure.map_or_else(
-                                || ProviderError::transport(TransportFault::Dns, DeliveryState::NotSent),
+                                || dns_error(surface),
                                 |e| io_error(&e, true, DeliveryState::NotSent, surface),
                             ));
                         }
