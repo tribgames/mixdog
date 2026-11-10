@@ -339,6 +339,10 @@ impl SessionDirectory {
     pub(super) async fn start_new_task(&self, req: CoreRequest, params: ThreadStartParams) -> Result<Reply, CoreError> {
         let (submission, input) = signed_request(&req.params);
         let ctx = req.ctx.clone();
+        // The attempt runs without its caller (Node's promise does): a connection that ends while it runs, which loses the reply,
+        // must not cancel it, or a retry that joins it would get the cancellation instead of the task.
+        let mut req = req;
+        req.ctx.cancel = CancellationToken::new();
         let (directory, receipts) = (self.share(), self.deps().new_tasks.clone());
         let started = receipts
             .run(&submission.clone(), &input, move |request| async move { directory.new_task(&request, &req, params, &submission).await })
