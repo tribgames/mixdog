@@ -12,11 +12,10 @@
 //   node benchmarks/rust-core/recorders/record-mcp-cwd-scope.mjs --tree <exact export of b6f10295a with node_modules>
 //
 // Output: native/core/fixtures/mcp-cwd-scope/golden.json. The sandbox folder in every string becomes <SANDBOX>.
-import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { recorderProvenance } from './lib/provenance.mjs';
 // Import-time sweeps delete real user data: every user dir is a fresh temp dir first.
 const sandbox = mkdtempSync(join(process.env.MIXDOG_RECORDER_SCRATCH ?? tmpdir(), 'mcp-cwd-scope-'));
 for (const key of ['MIXDOG_DATA_DIR', 'MIXDOG_HOME', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA']) {
@@ -124,8 +123,7 @@ try {
     command: `node ${recorder} --tree <exact export of ${NODE_COMMIT}>`,
     identity,
     extra: {
-      nodeRuntime: process.version,
-      recorderSha256: createHash('sha256').update(readFileSync(fileURLToPath(import.meta.url))).digest('hex'),
+      ...recorderProvenance(import.meta.url),
       syntheticInputs: [
         'the registry: `_registerMcpServerForTest` with the servers of `registry`, whose callTool only records the call and answers `ran <server> <tool>`',
         'the scopes: `saveConfig({ extensionScopes })` into the sandbox profile',
