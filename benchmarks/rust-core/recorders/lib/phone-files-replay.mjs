@@ -35,11 +35,11 @@ function differences(a, b, path = '') {
 }
 
 /** The core and the database it started, ended by the process tree of the one pid this replay spawned (a pid already gone is no error). */
-function killTree(child) {
+export function killTree(child) {
   spawnSync('taskkill', ['/T', '/F', '/PID', String(child.pid)], { stdio: 'ignore' });
 }
 
-async function startCore(exe, coreRoot, relay, fresh = true) {
+export async function startCore(exe, coreRoot, relay, fresh = true, extraEnv = {}) {
   if (fresh) rmSync(coreRoot, { recursive: true, force: true });
   rmSync(join(coreRoot, 'runtime', 'daemon.json'), { force: true });
   for (const dir of ['runtime', 'data', 'home', 'config']) mkdirSync(join(coreRoot, dir), { recursive: true });
@@ -52,6 +52,7 @@ async function startCore(exe, coreRoot, relay, fresh = true) {
     MIXDOG_CONFIG_DIR: join(coreRoot, 'config'),
     MIXDOG_FIXED_NOW_MS: String(FIXED_NOW_MS),
     ...(relay ? { MIXDOG_RELAY_URL: `ws://127.0.0.1:${relay.port}` } : {}),
+    ...extraEnv,
   });
   // An install that has used remote access before: the core dials its relay at start.
   if (relay) writeFileSync(join(coreRoot, 'data', 'remote-activated.json'), '{"activatedAt":1}');

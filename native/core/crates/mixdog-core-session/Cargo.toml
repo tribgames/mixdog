@@ -53,6 +53,8 @@ tempfile = { workspace = true, optional = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [features]
+# A test build ends the process at the point MIXDOG_NEW_TASK_CRASH_AT names (session/new_task.rs); no normal build enables it.
+crash-gates = []
 test-support = ["dep:tempfile", "dep:mixdog-core-review", "mixdog-core-review/test-support", "mixdog-core-api/mock", "mixdog-rt/test-support", "mixdog-store/test-support"]
 
 [dev-dependencies]

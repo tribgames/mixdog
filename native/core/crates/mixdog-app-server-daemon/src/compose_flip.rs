@@ -2047,6 +2047,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 resumed_tools: route_facts_ai.clone(), // `AiRouteFacts` is the `ResumedTools` too
                 room_members: late_room_members.clone(),
                 new_tools: surface_host.clone(), // `thread/start` composes its tools and prompt through it (flip-surface-2, -6)
+                new_tasks: mixdog_core_session::session::new_task::NewTaskReceipts::new(&data_dir.join("userdata"), tokens.durability_io), // the receipts of `thread/start` new tasks (<data>/userdata/new-task-receipts)
                 new_place, // the registered Projects (`thread/fork`) and the draft's worktree step (`thread/start`); bound with the workspaces
                 task_workspace, // `thread/start` of `kind: task` begins in it (Node `taskWorkspace()`, `AgentDefinitions::task_workspace`)
                 empty_surface: surface_host.clone(), // `thread/clear` with `rebuildPrompt` rebuilds the emptied thread's surface and prompt through it

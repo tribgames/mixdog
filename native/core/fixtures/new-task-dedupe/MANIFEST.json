@@ -1,0 +1,40 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-new-task-dedupe.mjs --tree <exact export of b6f10295a with node_modules>",
+  "daemon": "the daemon is a model (leg.mjs) of the rules the new-task path uses; its calls are recorded for Node only",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 81056,
+      "path": "golden.json",
+      "sha256": "30e9eb3d461fd37fe4cb10185eee34e15e9f068e928918bb3f26bb203cd26b4c"
+    }
+  ],
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "random": {
+    "fresh session address": "a session address after a refusal reset or a changed-content retry is `sess_desktop_` + 32 random bytes in hex (freshSessionId, new-task-requests.ts:85); numbered `<fresh:N>` by first appearance in a scenario",
+    "scenariosWhereTheTwoRunsDiffered": [
+      "refusal-then-other-content",
+      "refusal-then-same-content",
+      "refusal-twice-then-other-content"
+    ]
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-new-task-dedupe.mjs",
+  "set": "new-task-dedupe",
+  "totalBytes": 81056
+}

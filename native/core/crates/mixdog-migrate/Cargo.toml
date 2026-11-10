@@ -23,6 +23,7 @@ mixdog-core-api = { workspace = true }
 mixdog-js = { workspace = true }
 mixdog-mcp = { workspace = true }
 mixdog-store = { workspace = true }
+mixdog-statefile = { workspace = true }
 mixdog-ledger = { workspace = true }
 mixdog-protocol = { workspace = true }
 regex = { workspace = true }

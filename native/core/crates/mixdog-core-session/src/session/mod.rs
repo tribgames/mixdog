@@ -153,6 +153,7 @@ pub mod user_facts;
 pub mod agent_route;
 pub mod route_cell;
 pub mod new_route;
+pub mod new_task;
 pub mod session_options;
 mod view;
 pub mod worktree;
@@ -186,6 +187,8 @@ mod assembly_tests;
 mod recorded_145_tests;
 #[cfg(test)]
 mod phone_chat_tests;
+#[cfg(test)]
+mod new_task_tests;
 
 use std::sync::Arc;
 
@@ -275,6 +278,8 @@ pub struct SessionDeps {
     pub task_workspace: Arc<dyn TaskWorkspace>,
     /// The registered Projects and the draft's worktree step for the threads the desktop starts and forks.
     pub new_place: Arc<dyn NewThreadPlace>,
+    /// The receipts of the new tasks `thread/start` starts: a request that arrives again starts no second task.
+    pub new_tasks: Arc<new_task::NewTaskReceipts>,
     /// The tool surface a stored thread opened for use takes (`_refreshResumedTools`).
     pub resumed_tools: Arc<dyn ResumedTools>,
     /// A room member's handed-off questions moved or its approval resolved: its room follows.
