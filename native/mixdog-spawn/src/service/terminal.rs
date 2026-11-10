@@ -276,15 +276,23 @@ const PUBLISH_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10)
 
 impl TerminalService {
     /// Resolves once every change queued before it is published: a reply that must not overtake the events its call caused. A publish
-    /// reaches the connection's queue at once, so the reply that follows is received after those events.
+    /// reaches the connection's app-feed lane at once; the connection's writer still sends control frames (answers) before lane frames
+    /// (mixdog-app-server-transport writer.rs `next_work`), so this orders the answer behind the events only up to the writer.
     ///
     /// Bounded by [`PUBLISH_DEADLINE`]: a section worker that has not reached the barrier by then (a publisher stuck downstream) does
-    /// not hold the call; the reply is sent and the events follow it when the worker moves. The worker ending (shutdown) ends the wait.
-    async fn published(&self) {
+    /// not hold the call, and the call fails (`terminal`/`PUBLISH_TIMEOUT`, naming the wait): its events may follow the answer, which a
+    /// plain answer would hide. The worker ending (shutdown) ends the wait.
+    async fn published(&self) -> Result<(), CoreError> {
         let (published, done) = tokio::sync::oneshot::channel();
-        if self.changes.send(Change::Barrier(published)).is_ok() {
-            let _ = tokio::time::timeout(PUBLISH_DEADLINE, done).await;
+        if self.changes.send(Change::Barrier(published)).is_ok() && tokio::time::timeout(PUBLISH_DEADLINE, done).await.is_err() {
+            return Err(CoreError::DomainError {
+                domain: "terminal".into(),
+                code: Some("PUBLISH_TIMEOUT".into()),
+                message: Some(format!("the events this call caused were not published within {PUBLISH_DEADLINE:?}").into()),
+                detail: None,
+            });
         }
+        Ok(())
     }
 }
 
@@ -359,7 +367,7 @@ impl DomainService for TerminalService {
                 let params: TerminalFocusParams = decode(&req.params)?;
                 self.tabs.focus(params.tab_id.as_str(), &client, params.focused);
                 // A focus that clears a finished tab forwards the activity change before the request is answered, as a disposal does.
-                self.published().await;
+                self.published().await?;
                 Ok(Reply::Value(json!({})))
             }
             "terminal/pause" => {
@@ -382,7 +390,7 @@ impl DomainService for TerminalService {
                 let _ = self.changes.send(Change::Tabs);
                 // Node's disposal forwards the tab's end (state: null) before it answers the request (terminal-manager.ts:541,
                 // remote-relay-push-lanes.ts:150, remote-methods.ts:1284).
-                self.published().await;
+                self.published().await?;
                 // The hold ends once the answer is in the connection's outgoing queue (or the request or the connection is gone), so
                 // nothing the pump publishes after it can be queued ahead of the answer.
                 req.ctx.after_answer.keep(held);
@@ -1001,5 +1009,46 @@ mod tests {
         within("the hold of a claim whose resize is blocked ended at its deadline", holds.wait_for(Vec::is_empty)).await.unwrap();
         drop(gate);
         received(&Arc::new(Mutex::new(claimed_rx)), "the claim's resize returned once its gate was let go").await;
+    }
+
+    /// A dispose is not answered before the tab's end it caused is published (Node: terminal-manager.ts:541, `activity.exit()` before
+    /// the answer): with that publication held at the publisher, the call waits through the barrier's whole deadline, and when the
+    /// deadline passes it fails (`PUBLISH_TIMEOUT`) instead of answering ahead of the tab's end.
+    #[cfg(windows)]
+    #[test]
+    fn a_dispose_whose_tabs_end_is_held_is_not_answered_first() {
+        let paused = tokio::runtime::Builder::new_current_thread().enable_all().start_paused(true).build().unwrap();
+        let sections = tokio::runtime::Builder::new_multi_thread().worker_threads(1).enable_all().build().unwrap();
+        paused.block_on(async {
+            let rig = ShellRig::start("dispose_held", &sections).await;
+            let (held, open) = (std::sync::mpsc::channel(), std::sync::mpsc::channel());
+            let id = rig.id.clone();
+            *rig.publisher.gate.lock().unwrap() = Some((Box::new(move |tabs, value: &Value| !tabs && value.get(&id).is_none()), held.0, open.1));
+            let request = CoreRequest {
+                method: Method("terminal/dispose"),
+                params: json!({ "tabId": rig.id, "opId": "op-dispose" }),
+                op: None,
+                ctx: mixdog_core_api::call::CallContext::internal("test"),
+            };
+            let mut reply = std::pin::pin!(rig.service.call(request));
+            assert!(still_pending(reply.as_mut()).await, "the dispose was answered while the tab's end was held at the publisher");
+            received(&Arc::new(Mutex::new(held.1)), "the tab's end reached the publisher").await;
+            tokio::time::advance(PUBLISH_DEADLINE - Duration::from_millis(1)).await;
+            assert!(still_pending(reply.as_mut()).await, "the dispose was answered before the barrier's deadline with the tab's end still held");
+            tokio::time::advance(Duration::from_millis(1)).await;
+            let answer = within("the dispose ended at the barrier's deadline", reply).await;
+            match answer {
+                Err(CoreError::DomainError { code: Some(code), .. }) if &*code == "PUBLISH_TIMEOUT" => {}
+                other => panic!("a dispose whose tab's end was never published was answered as {other:?}, not a PUBLISH_TIMEOUT error"),
+            }
+            open.0.send(()).unwrap();
+            within("the tab's end was published once the gate opened", rig.publisher.at(rig.ended())).await;
+        });
+    }
+
+    /// Polls `future` once: whether it is still pending.
+    #[cfg(windows)]
+    async fn still_pending<F: std::future::Future + ?Sized>(mut future: std::pin::Pin<&mut F>) -> bool {
+        std::future::poll_fn(|cx| std::task::Poll::Ready(future.as_mut().poll(cx).is_pending())).await
     }
 }
