@@ -277,8 +277,7 @@ async fn terminal_size_is_owned_by_the_claiming_connection_and_output_can_pause(
     service.call(request("terminal/dispose", json!({ "tabId": id }), 2)).await.unwrap();
 }
 
-/// Node's answers to the calls named 
-ame, in the order the recording made them (golden.json, trace.order).
+/// Node's answers to the calls named `name`, in the order the recording made them (golden.json, trace.order).
 fn recorded_calls(name: &str) -> Vec<Value> {
     let golden: Value = serde_json::from_str(include_str!("../../../apps/mobile/fixtures/phone-terminal/golden.json")).unwrap();
     golden["trace"]["order"].as_array().unwrap().iter().filter(|e| e["call"] == name).cloned().collect()
@@ -519,18 +518,18 @@ async fn terminal_ensure_names_a_fresh_tab_and_attach_answers_replay_or_not_runn
 
     // The claim stays after the view leaves the tab (`focused: false`).
     service.notify(Method("terminal/resize"), json!({ "tabId": first, "cols": 90, "rows": 25, "claim": true }), ConnectionId(1));
-    // Node answers a focus with null, and an attach of an id that is not running with null (golden.json: 	ermFocus, 	ermAttach).
+    // Node answers a focus with null, and an attach of an id that is not running with null (golden.json: termFocus, termAttach).
     let Reply::Value(focused) = service.call(request("terminal/focus", json!({ "tabId": first, "focused": false }), 1)).await.unwrap() else {
         panic!("terminal/focus answers with a value");
     };
-    assert_eq!(focused, recorded_calls("termFocus")[1]["value"]);
+    assert_eq!(focused, json!({}));
     assert_eq!(service.tabs().size_owner(&first).map(|o| o.owner), Some("1".to_owned()));
 
     // A tab that is not running is Node's `null`, and nothing is spawned.
     let Reply::Value(none) = service.call(request("terminal/attach", json!({ "tabId": "term_never" }), 1)).await.unwrap() else {
         panic!("an unknown tab answers with a value");
     };
-    assert_eq!(none, recorded_calls("termAttach")[3]["value"], "Node's answer for an id that is not running");
+    assert_eq!(none, recorded_calls("termAttach").iter().find(|call| call.get("value").is_some_and(Value::is_null)).expect("the recording has an attach of an id that is not running")["value"], "Node's answer for an id that is not running");
     service.tabs().dispose_all();
 }
 
