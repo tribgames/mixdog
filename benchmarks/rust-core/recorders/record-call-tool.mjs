@@ -107,7 +107,8 @@ const SCENARIOS = [
   { name: 'a target that needs approval, called directly', ask: ['probe_write'], answers: [{ approved: true }], script: [round(call('c1', 'probe_write', { q: 'x' })), FINAL] },
   { name: 'call_tool itself is never asked about', ask: ['call_tool'], answers: [], script: [round(bridged('c1', 'probe_write', { q: 'x' })), FINAL] },
   { name: 'an MCP target that needs approval, approved', mcp: true, ask: ['mcp__mail__send'], answers: [{ approved: true }], script: [round(bridged('c1', 'mcp__mail__send', { to: 'a@b.c' })), FINAL] },
-  { name: 'a mix: two approvals, a refusal and a plain run in one batch', ask: ['probe_write'], cardIds: ['c1', 'c3'], answers: [{ approved: true }, { approved: false, reason: 'no' }], script: [round(bridged('c1', 'probe_write', { q: '1' }), bridged('c2', 'nope', {}), bridged('c3', 'probe_write', { q: '2' }), bridged('c4', 'probe_read', { q: 'r' })), FINAL] },
+  // Two cards in one batch are not recorded: Node serves them concurrently and two recordings of the same turn interleave them differently. One card is stable.
+  { name: 'a mix: an approval, a refusal and a plain run in one batch', ask: ['probe_write'], answers: [{ approved: true }], script: [round(bridged('c1', 'probe_write', { q: '1' }), bridged('c2', 'nope', {}), bridged('c3', 'probe_read', { q: 'r' })), FINAL] },
   { name: 'a session that denies a tool', session: { disallowedTools: ['probe_write'] }, script: [round(bridged('c1', 'probe_write', { q: 'x' }), call('c2', 'probe_write', { q: 'x' }), bridged('c3', 'probe_read', {})), FINAL] },
   { name: 'a session whose settings closed a tool', session: { featureDeniedTools: ['probe_write'], disallowedTools: ['probe_write'] }, script: [round(call('c1', 'probe_write', { q: 'x' }), bridged('c2', 'probe_write', {})), FINAL] },
   { name: 'a session with a schema allowlist', session: { schemaAllowedTools: ['read', 'load_tool', 'call_tool', 'probe_read'] }, script: [round(call('c1', 'load_tool', { names: ['probe_write'] }), bridged('c2', 'probe_write', {}), bridged('c3', 'probe_read', {}), call('c4', 'probe_write', {})), FINAL] },
@@ -134,12 +135,28 @@ SCENARIOS.push({
   script: [round(call('c1', 'edit', { file_path: 'x.txt', old_string: 'a', new_string: 'b' }), bridged('c2', 'probe_read', { q: 'z' })), FINAL],
 });
 
+// A mutation streamed ahead of the calls behind it: a read waits for it and is run again, a write behind it is never run twice, and a conflicting edit waits (eager-dispatch/barriers.mjs).
+SCENARIOS.push({
+  name: 'an edit with a read, a write and another edit behind it, all streamed',
+  internal: ['edit'],
+  stream: true,
+  script: [round(call('c1', 'edit', { file_path: 'x.txt', old_string: 'a', new_string: 'b' }), bridged('c2', 'probe_read', { q: 'r' }), bridged('c3', 'probe_write', { q: 'w' }), call('c4', 'edit', { file_path: 'x.txt', old_string: 'b', new_string: 'c' })), FINAL],
+});
+
+// `computer` is run once per assistant turn (isSingleCallPerTurnTool): the second call of a streamed turn is answered, not started.
+SCENARIOS.push({
+  name: 'computer called twice in one streamed turn',
+  internal: ['computer'],
+  stream: true,
+  script: [round(call('c1', 'computer', { action: 'screenshot' }), call('c2', 'computer', { action: 'click' })), FINAL],
+});
+
 // The same turns with a provider that streams its tool calls: each call reaches the loop (and starts its eager dispatch) before the response ends.
 const STREAMED = [
   'a read-only deferred tool through call_tool, twice in one turn and again in the next',
   'every refusal of call_tool in one batch',
   'a target that needs approval, approved',
-  'a mix: two approvals, a refusal and a plain run in one batch',
+  'a mix: an approval, a refusal and a plain run in one batch',
   'a session that denies a tool',
   'a read-only session',
   'a session with no resolved tool mode',
@@ -170,7 +187,7 @@ async function runScenario(scenario) {
   let sessionRef = null;
   const restoreInternal = setInternalToolsProvider({
     scopeId,
-    tools: [{ name: 'load_tool', description: 'Describes tools.', inputSchema: { type: 'object', properties: { names: {} } }, annotations: { readOnlyHint: true } }, ...PROBE_TOOLS],
+    tools: [{ name: 'load_tool', description: 'Describes tools.', inputSchema: { type: 'object', properties: { names: {} } }, annotations: { readOnlyHint: true } }, ...PROBE_TOOLS, ...(scenario.internal ?? []).map((name) => ({ name, description: `${name} probe`, inputSchema: { type: 'object', properties: {} } }))],
     executor: async (name, args) => {
       if (name === 'load_tool') return renderToolSearch(args, sessionRef, 'lead', {});
       executed.push({ name, args: clone(args) });
@@ -209,7 +226,12 @@ async function runScenario(scenario) {
             sendOpts.onToolCall(clone(streamed));
             await new Promise((resolve) => setImmediate(resolve));
           }
-          await new Promise((resolve) => setTimeout(resolve, 20));
+          // The response ends once the calls it streamed have nothing left to do: no entry of the timeline for 200 turns of the event loop. Counted in turns, not in time, so a loaded machine records the same order.
+          for (let quiet = 0, seen = timeline.length; quiet < 200; ) {
+            await new Promise((resolve) => setImmediate(resolve));
+            if (timeline.length === seen) quiet += 1;
+            else [quiet, seen] = [0, timeline.length];
+          }
         }
         timeline.push({ ev: 'answered', n: i + 1 });
         return { content: '', toolCalls: clone(step.calls), stopReason: 'tool_use', usage: { inputTokens: 1, outputTokens: 1 } };
@@ -219,11 +241,12 @@ async function runScenario(scenario) {
     },
   };
   const answers = [...(scenario.answers ?? [])];
-  const served = new Set();
   let result = null;
   await _withRegisteredProviderForTestAsync(providerName, provider, async () => {
     const session = createSession({ id: sessionId, provider: providerName, model: 'fake-model', cwd: workdir, skipSkills: true, mcpScopeId: scopeId, ...(scenario.session ?? {}) });
     sessionRef = session;
+    // An internal tool answers before the built-in one of its name (dispatch.mjs:145), so the executor is the recorder's; `computer` is no tool of a plain session, the scenario adds it.
+    if (scenario.internal?.includes('computer')) session.tools.push({ name: 'computer', description: 'computer probe', inputSchema: { type: 'object', properties: {} } });
     if (scenario.mcp) refreshDeferredMcpToolCatalog(session);
     // A definition the discovery history keeps although the live server snapshot no longer lists it (isDeferredToolAvailable).
     if (scenario.staleMcp) session.deferredLateToolCatalog = [{ ...MCP_TOOLS[1], name: 'mcp__mail__gone' }];
@@ -256,16 +279,12 @@ async function runScenario(scenario) {
       null,
       {
         onToolApproval: async (card) => {
-          // Node asks for the cards of one batch concurrently, in no fixed order: a scenario names the order its cards are served in (`cardIds`), so the recording is stable.
-          const before = (scenario.cardIds ?? []).slice(0, (scenario.cardIds ?? []).indexOf(card.toolCallId));
-          while (!before.every((id) => served.has(id))) await new Promise((resolve) => setImmediate(resolve));
           cards.push(clone(card));
           timeline.push({ ev: 'card', name: card.name, args: clone(card.args) });
           // A person answers later: every call that needs no answer runs first.
           await new Promise((resolve) => setImmediate(resolve));
           const answer = answers.shift();
           if (!answer) throw new Error(`${scenario.name}: an approval card nobody scripted`);
-          served.add(card.toolCallId);
           return { ...answer, device: 'Pixel' };
         },
         onToolResult: (message) => {
@@ -287,6 +306,7 @@ async function runScenario(scenario) {
     mcp: scenario.mcp === true,
     nonBridge: scenario.nonBridge === true,
     stream: scenario.stream === true,
+    internal: scenario.internal ?? [],
     workdir,
     ask: scenario.ask ?? [],
     answers: scenario.answers ?? [],
