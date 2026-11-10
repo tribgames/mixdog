@@ -278,8 +278,8 @@ struct RequestSource<'a> {
     request: &'a str,
     injected: bool,
     provider_state: Option<mixdog_core_api::domain::provider::ProviderState>,
-    /// The thread's compaction count and the turn the request is for, when there is one.
-    window: u64,
+    /// The turn the request is for, when there is one. (The thread's compaction count is not a request fact: the wire
+    /// window is fixed at `<wire id>:0`, [`wire_thread`].)
     turn: Option<mixdog_core_api::ids::TurnId>,
 }
 
@@ -331,7 +331,6 @@ impl HostRunParts {
         header: &Header,
         surface: &mixdog_tools::policy::SessionSurface,
         prior: Vec<(mixdog_core_api::ids::ItemId, Value)>,
-        window: u64,
     ) -> Option<(Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>, mixdog_core_api::domain::provider::ModelRequest)> {
         if super::compaction_world::is_agent_owner(header) {
             return None;
@@ -341,7 +340,7 @@ impl HostRunParts {
             return None;
         }
         let provider_state = header.get("providerState").and_then(|state| serde_json::from_value(state.clone()).ok());
-        let source = RequestSource { thread, header, surface, prior: &rows, request: "", injected: false, provider_state, window, turn: None };
+        let source = RequestSource { thread, header, surface, prior: &rows, request: "", injected: false, provider_state, turn: None };
         let parts = self.request_parts(source).await.ok()?;
         let messages = rebuilt_messages(header, &rows)?;
         let mut options = parts.options;
@@ -463,7 +462,6 @@ impl RunParts for HostRunParts {
                 request: input.request,
                 injected: input.injected,
                 provider_state: input.port.provider_state().await,
-                window: directory.thread_window(thread),
                 turn: Some(input.turn.clone()),
             })
             .await?;
