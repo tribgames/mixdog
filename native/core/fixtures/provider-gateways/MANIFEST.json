@@ -128,6 +128,10 @@
   "provenance": {
     "inputs": [
       {
+        "path": "benchmarks/rust-core/recorders/record-provider-gateways.mjs",
+        "sha256": "4f051b607db0b7621a7c6054a32a8f49e18b9b37b67eca74dfcd82fde4e17401"
+      },
+      {
         "path": "benchmarks/rust-core/recorders/lib/common.mjs",
         "sha256": "1f65dbb615d53376c103b20d0df7a53b7ba1bfed8100be99716da900dfc58c66"
       },
@@ -137,7 +141,7 @@
       }
     ],
     "nodeVersion": "v22.20.0",
-    "recorderSha256": "683048ff0c5f2c81fe9154af5432365125b2a6471c7e530f0c8bda84ee5e626a"
+    "recorderSha256": "4f051b607db0b7621a7c6054a32a8f49e18b9b37b67eca74dfcd82fde4e17401"
   },
   "recorder": "benchmarks/rust-core/recorders/record-provider-gateways.mjs",
   "scenarios": [
@@ -163,6 +167,6 @@
     "xai-chat-api-mode",
     "xai-responses"
   ],
-  "set": "providers/gateways",
+  "set": "provider-gateways",
   "totalBytes": 90189
 }

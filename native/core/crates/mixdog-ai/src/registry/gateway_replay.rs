@@ -1,4 +1,4 @@
-//! Replays Node's end-to-end gateway and key-pool sends (`fixtures/providers/gateways`, recorded by
+//! Replays Node's end-to-end gateway and key-pool sends (`fixtures/provider-gateways`, recorded by
 //! `benchmarks/rust-core/recorders/record-provider-gateways.mjs` from `b6f10295a`) through the real registry, the
 //! real builder and the real codecs: every request the provider makes is compared with the one Node sent (method,
 //! URL, the headers the product sets, body bytes), in order and count, and the answer Node's endpoint gave is served
@@ -51,7 +51,7 @@ use crate::transport::HttpSend;
 use crate::transport::KeepaliveDialer;
 use crate::transport::KeepaliveSchedule;
 
-const DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/providers/gateways");
+const DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/provider-gateways");
 
 fn fixture(id: &str) -> Value {
     let path = format!("{DIR}/{id}.json");
