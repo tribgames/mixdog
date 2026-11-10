@@ -21,6 +21,8 @@ use mixdog_core_session::session::thread_list::ThreadListService;
 pub struct RoomPublication {
     pub summaries: Arc<RoomSummaries>,
     pub host: Arc<SessionRoomHost>,
+    /// The index's row writes on their way to the app feed ([`ThreadEdges::flushed`]).
+    pub edges: Arc<ThreadEdges>,
 }
 
 /// The index writer's row writes reach the app feed (`thread/started`, `thread/summary/updated`, `thread/deleted`), and the room
@@ -37,7 +39,8 @@ pub fn wire<A>(
 where
     A: TaskWorkspace + AgentCatalog + 'static,
 {
-    index.observe_rows(ThreadEdges::start(ThreadEdgePublisher::new(thread_list.clone(), sections.clone(), deletions, agents.clone())))?;
+    let edges = ThreadEdges::start(ThreadEdgePublisher::new(thread_list.clone(), sections.clone(), deletions, agents.clone()));
+    index.observe_rows(edges.clone())?;
     let summaries = RoomSummaries::new(thread_list, sections, directory);
     let republish: Republish = {
         let summaries = summaries.clone();
@@ -48,7 +51,7 @@ where
     };
     let sessions = Arc::new(RenameLists { sessions, summaries: summaries.clone() });
     let host = Arc::new(SessionRoomHost::new(agents, sessions, republish));
-    Ok(RoomPublication { summaries, host })
+    Ok(RoomPublication { summaries, host, edges })
 }
 
 /// The room sessions as Node's host serves them to the rooms: a room log's rename is the host's `renameSession`
@@ -242,10 +245,41 @@ mod tests {
         agents: Arc<Agents>,
         app: MockConnection,
         gate: Arc<Gate>,
+        /// Every row write so far on the app feed (the index's projection and the edge it reported).
+        rows: mixdog_core_session::session::thread_edges::IndexRowsPublished,
+        summaries: Arc<RoomSummaries>,
+        listings: Arc<Listings>,
         _held: (Rig, mixdog_core_session::session::testing::DataDir),
     }
 
+    /// Woken whenever the list shows rows (a whole listing included).
+    #[derive(Default)]
+    struct Listings(tokio::sync::Notify);
+    impl mixdog_core_api::state::CatalogObserver for Listings {
+        fn published(&self, _ids: &[&str]) {
+            self.0.notify_one();
+        }
+    }
+
     impl Composed {
+        /// A room call's background publication (started when the catalog was not loaded) has sent its rows: its listing marked
+        /// the catalog loaded while it holds the pass chain, which is then waited for.
+        async fn background_published(&self) {
+            while !self.list.catalog_loaded() {
+                self.listings.0.notified().await;
+            }
+            self.summaries.passes_done().await;
+        }
+
+        /// The ids of the listing in the catalog's order (which a whole publication follows), read without loading the catalog; a
+        /// listing that cannot be read (its task workspace lookup failing) orders nothing.
+        async fn listed_order(&self) -> Vec<String> {
+            let fails = self.agents.lookup_fails.swap(false, std::sync::atomic::Ordering::SeqCst);
+            let order = self.list.order().await.unwrap_or_default();
+            self.agents.lookup_fails.store(fails, std::sync::atomic::Ordering::SeqCst);
+            order
+        }
+
         async fn create(&self) -> tokio::task::JoinHandle<Result<Value, mixdog_core_api::CoreError>> {
             let service = self.service.clone();
             tokio::spawn(async move { value(&*service, request("room/create", with_op(json!({ "input": { "name": "Release", "members": ["gh", "rel"] } }), 1), Some(1))).await })
@@ -293,14 +327,45 @@ mod tests {
         let creating = world.create().await;
         tokio::time::timeout(DEADLINE, arrived).await.expect("the room create never published the catalog").expect("gate");
         assert!(!creating.is_finished(), "the room create answered while its publish was held");
-        drop(world.sent("thread/summary/updated"));
+        // The room's row as the feed carries it by the reply: from the index's edge of the log's write, or from the publish when the
+        // edge has not announced that row (a row is announced once, `ThreadListService::announce`).
+        let before = frames(&world.app);
         open.send(()).expect("the publish waits at the gate");
         let created = tokio::time::timeout(DEADLINE, creating).await.expect("room/create answered within the deadline").expect("task").expect("room/create");
         let room = log_of(&created);
-        assert!(world.sent("thread/summary/updated").contains(&room), "the publish sent the room's row before the reply");
+        let mut fold = Fold::default();
+        for frame in before.iter().chain(&frames(&world.app)) {
+            fold.apply(frame);
+        }
+        assert!(fold.row(&room).is_some_and(|row| row["agentRoom"]["name"] == "Release"), "the room's row was on the feed before the reply");
         let listed = value(world.list.as_ref(), request(LIST, json!({ "limit": 1000 }), None)).await.expect("thread/list");
         let ids: Vec<&str> = listed["data"].as_array().expect("data").iter().filter_map(|row| row["id"].as_str()).collect();
         assert!(ids.contains(&room.as_str()), "thread/list at the reply lists the room {room}: {ids:?}");
+    }
+
+    /// Node's room rename (`fixtures/frame-order` on `writer-order`, scenario `room-rename`) reaches the phone as one roster frame
+    /// carrying the room's row: its relay skips a publication that changes nothing (`remote-relay-catalog.ts:79-91`). The core's
+    /// rename writes the log's title (an index edge), lists the whole catalog and republishes the rooms: the app feed carries the
+    /// room's row once, with the new title and room name, and no other row, the background edge included.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_room_rename_announces_the_room_row_once() {
+        use mixdog_core_session::session::thread_edges::RowsPublished;
+        let world = composed().await;
+        world.load_catalog().await;
+        let created = tokio::time::timeout(DEADLINE, world.create().await).await.expect("room/create answered").expect("task").expect("room/create");
+        let room = log_of(&created);
+        tokio::time::timeout(DEADLINE, world.rows.published()).await.expect("the create's rows published");
+        drop(frames(&world.app));
+        world.call("room/update", json!({ "roomId": created["roomId"], "name": "Renamed" }), 2).await.expect("room/update");
+        tokio::time::timeout(DEADLINE, world.rows.published()).await.expect("the rename's rows published");
+        let rows: Vec<Value> = frames(&world.app)
+            .into_iter()
+            .filter(|frame| frame["method"] == "thread/summary/updated" || frame["method"] == "thread/started")
+            .map(|frame| frame["params"]["thread"].clone())
+            .collect();
+        assert_eq!(rows.len(), 1, "one announcement of one row: {rows:?}");
+        assert_eq!(rows[0]["id"], room.as_str());
+        assert_eq!((rows[0]["title"].as_str(), rows[0]["agentRoom"]["name"].as_str()), (Some("Renamed"), Some("Renamed")));
     }
 
     fn recorded(scenario: &str) -> Value {
@@ -348,13 +413,6 @@ mod tests {
         fn row(&self, id: &str) -> Option<&Value> {
             self.0.iter().find(|(seen, _)| seen == id).map(|(_, row)| row)
         }
-    }
-
-    /// The rows of the last publication pass in `frames` (the last run of `thread/summary/updated` frames), in the order sent.
-    fn last_pass(frames: &[Value]) -> Vec<&Value> {
-        let mut pass: Vec<&Value> = frames.iter().rev().take_while(|frame| frame["method"] == "thread/summary/updated").map(|frame| &frame["params"]["thread"]).collect();
-        pass.reverse();
-        pass
     }
 
     /// Where the two runs differ by what they are, not by what they do: the room's id (made at random) and each time field (each
@@ -518,7 +576,7 @@ mod tests {
                     match published(&events[..answered_at]) {
                         Some(catalog) => {
                             let node_rows: Vec<Value> = catalog.iter().map(|row| node_names.named(row)).collect();
-                            let core_rows = held(&fold, &sent, &mut core_names, &node_rows);
+                            let core_rows = held(&fold, &world.listed_order().await, &mut core_names, &node_rows);
                             assert_eq!(core_rows, node_rows, "{what}: the catalog the client holds when the call answers");
                         }
                         None => assert!(
@@ -528,19 +586,14 @@ mod tests {
                     }
                     // Node's background listing, awaited by the recorder after the answer: the core's pass runs after the answer too.
                     if let Some(catalog) = published(&events[answered_at..]) {
-                        let rows = catalog.len();
-                        let later = tokio::time::timeout(
-                            DEADLINE,
-                            world.app.drain_text_until(|texts| texts.iter().filter(|text| text.contains("\"thread/summary/updated\"")).count() >= rows),
-                        )
-                        .await
-                        .unwrap_or_else(|_| panic!("{what}: the core's background publication of {rows} rows did not come"));
-                        let later: Vec<Value> = later.iter().map(|text| serde_json::from_str::<Value>(&text[text.find('{').expect("json body")..]).expect("frame")).collect();
-                        for frame in &later {
+                        tokio::time::timeout(DEADLINE, world.background_published())
+                            .await
+                            .unwrap_or_else(|_| panic!("{what}: the core's background publication did not end"));
+                        for frame in &frames(&world.app) {
                             fold.apply(frame);
                         }
                         let node_rows: Vec<Value> = catalog.iter().map(|row| node_names.named(row)).collect();
-                        let core_rows = held(&fold, &later, &mut core_names, &node_rows);
+                        let core_rows = held(&fold, &world.listed_order().await, &mut core_names, &node_rows);
                         assert_eq!(core_rows, node_rows, "{what}: the catalog the client holds after the call's background listing");
                     }
                     assert_eq!(json!(world.list.catalog_loaded()), step["loadedAfter"], "{what}: loaded after the call");
@@ -549,13 +602,14 @@ mod tests {
         }
     }
 
-    /// The core client's catalog, named: every row of the fold, in the order of the last publication pass in `sent` when that pass
-    /// carried every row (a whole publication is in catalog order), else in the order the rows first came. A row Node holds in its live
+    /// The core client's catalog, named: every row of the fold, in the listing's order (`order`, the catalog's order a whole
+    /// publication follows; a row announced once is not sent again, so the last pass may not carry every row) when the listing
+    /// holds every folded row, else in the order the rows first came. A row Node holds in its live
     /// form is compared in that form (`live_form`).
-    fn held(fold: &Fold, sent: &[Value], names: &mut Names, node_rows: &[Value]) -> Vec<Value> {
-        let pass = last_pass(sent);
-        let ids: Vec<&str> = if pass.len() == fold.0.len() && fold.0.iter().all(|(id, _)| pass.iter().any(|row| row["id"] == id.as_str())) {
-            pass.iter().map(|row| row["id"].as_str().expect("id")).collect()
+    fn held(fold: &Fold, order: &[String], names: &mut Names, node_rows: &[Value]) -> Vec<Value> {
+        let listed = order.iter().filter(|id| fold.row(id).is_some()).map(String::as_str);
+        let ids: Vec<&str> = if order.iter().filter(|id| fold.row(id).is_some()).count() == fold.0.len() {
+            listed.collect()
         } else {
             fold.0.iter().map(|(id, _)| id.as_str()).collect()
         };
@@ -644,15 +698,19 @@ mod tests {
         let room_rows =Arc::new(RoomListRows::new(rooms.clone(), Arc::new(Idle), agents.clone()));
         let gate = Arc::new(Gate { armed: std::sync::Mutex::new(None), agents: agents.clone() });
         let list = Arc::new(ThreadListService::new(Arc::new(index.clone()), Arc::new(Quiet), room_rows, gate.clone()));
-        list.fence(store);
+        list.fence(store.clone());
         let sessions = Arc::new(DirectorySessions::new(directory.clone(), Arc::new(SessionThreads::new(directory.clone()))));
         let deletions = mixdog_core_session::session::thread_edges::ThreadDeletions::new(sections.clone());
+        let listings = Arc::new(Listings::default());
+        list.observe(listings.clone());
         let publication = wire(list.clone(), sections, deletions, agents.clone(), &index, directory, sessions.clone()).expect("wired");
+        let summaries = publication.summaries.clone();
+        let rows = mixdog_core_session::session::thread_edges::IndexRowsPublished { fence: store, edges: publication.edges.clone() };
         let ops = data.state(mixdog_core_base::support::testing::op_state(data.path()));
         let scopes = mixdog_core_base::support::testing::scopes_over(ops, "room").await;
         // The agent deletion's room ports, as `compose_flip.rs` composes them.
         let homes = SessionHomePorts::new(agents.clone(), sessions, rooms.clone(), publication.host.clone(), Arc::new(Idle));
         let service = Arc::new(RoomService::new(rooms.clone(), publication.host, Arc::new(Idle), scopes, agents.clone()));
-        Composed { service, list, homes, agents, app, gate, _held: (rig, data) }
+        Composed { service, list, homes, agents, app, gate, rows, summaries, listings, _held: (rig, data) }
     }
 }

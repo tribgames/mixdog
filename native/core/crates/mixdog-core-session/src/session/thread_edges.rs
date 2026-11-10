@@ -278,8 +278,10 @@ impl ThreadEdgePublisher {
     async fn send<P: serde::Serialize>(&self, id: &ThreadId, now: &LeadRow, workspace: &str, params: impl FnOnce(mixdog_protocol::ThreadSummary) -> (&'static str, P)) {
         match self.list.summary_of(id, now, workspace).await {
             Ok(Some(thread)) => {
-                let (method, params) = params(thread);
-                self.app.notify(method, &params);
+                // A row that newly became listed always goes out (it may come back after a deletion); a changed row only when it
+                // differs from the one last announced (a room rename's listing may have carried it already).
+                let (method, params) = params(thread.clone());
+                self.list.announce(thread, method == STARTED, |_| self.app.notify(method, &params));
             }
             Ok(None) => {}
             Err(error) => tracing::warn!(?error, thread = id.as_str(), "the row of a written session could not be read"),
@@ -287,9 +289,15 @@ impl ThreadEdgePublisher {
     }
 }
 
+enum Queued {
+    Edge(RowEdge),
+    /// Answered once every edge queued before it was published.
+    Flush(tokio::sync::oneshot::Sender<()>),
+}
+
 /// The sink the index writer calls: the edges go to one task, in write order, so the notifications keep it.
 pub struct ThreadEdges {
-    queue: tokio::sync::mpsc::UnboundedSender<RowEdge>,
+    queue: tokio::sync::mpsc::UnboundedSender<Queued>,
 }
 
 impl ThreadEdges {
@@ -297,16 +305,54 @@ impl ThreadEdges {
     pub fn start(publisher: ThreadEdgePublisher) -> Arc<Self> {
         let (queue, mut edges) = tokio::sync::mpsc::unbounded_channel();
         drop(mixdog_rt::spawn("thread-edges", mixdog_rt::TaskClass::Work, async move {
-            while let Some(edge) = edges.recv().await {
-                publisher.publish(edge).await;
+            while let Some(queued) = edges.recv().await {
+                match queued {
+                    Queued::Edge(edge) => publisher.publish(edge).await,
+                    Queued::Flush(done) => drop(done.send(())),
+                }
             }
         }));
         Arc::new(Self { queue })
+    }
+
+    /// Resolves once every edge the index reported before this call has been published.
+    pub fn flushed(&self) -> impl std::future::Future<Output = ()> + Send + 'static {
+        let (done, flushed) = tokio::sync::oneshot::channel();
+        let _ = self.queue.send(Queued::Flush(done));
+        async move {
+            let _ = flushed.await;
+        }
     }
 }
 
 impl RowSink for ThreadEdges {
     fn written(&self, edge: RowEdge) {
-        let _ = self.queue.send(edge);
+        let _ = self.queue.send(Queued::Edge(edge));
+    }
+}
+
+/// When a write's catalog row is on the app feed: what a call that publishes its session's row before answering waits for.
+pub trait RowsPublished: Send + Sync {
+    /// Resolves once the rows of every write made before this call are on the app feed.
+    fn published(&self) -> futures::future::BoxFuture<'static, ()>;
+}
+
+/// The index takes a write behind its projection ([`super::thread_list::ListFence`]), and the edge the index reports goes out
+/// from [`ThreadEdges`]' task: both are waited for.
+pub struct IndexRowsPublished {
+    pub fence: Arc<dyn super::thread_list::ListFence>,
+    pub edges: Arc<ThreadEdges>,
+}
+
+impl RowsPublished for IndexRowsPublished {
+    fn published(&self) -> futures::future::BoxFuture<'static, ()> {
+        let projected = self.fence.pending();
+        let edges = self.edges.clone();
+        Box::pin(async move {
+            if let Some(projected) = projected {
+                projected.await;
+            }
+            edges.flushed().await;
+        })
     }
 }
