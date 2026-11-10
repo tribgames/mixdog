@@ -166,14 +166,15 @@ mod tests {
         assert!(matches!(tokio::time::timeout(deadline, end).await, Ok(Ok(()))), "the refresh ended with no caller waiting");
     }
 
-    // A replay starts as a new process: a refresh left running by an earlier one is not joined.
+    // A replay starts as a new process: a refresh left running by an earlier one is not joined. The reset is the
+    // one a replay makes (`reset_process_state`), so dropping this module's call from it fails here.
     #[tokio::test(start_paused = true)]
     async fn after_a_reset_the_next_caller_starts_its_own_refresh() {
         let path = Path::new("reset-oauth.json");
         let mut left = Box::pin(refresh_once(path, std::future::pending::<u32>()));
         assert!((&mut left).now_or_never().is_none(), "the refresh is under way");
         drop(left);
-        reset();
+        crate::reset_process_state();
         assert_eq!(refresh_once(path, async { 9u32 }).await, Ok(9));
     }
 
