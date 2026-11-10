@@ -48,4 +48,4 @@ mixdog-rt = { workspace = true, features = ["test-support"] }
 mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core"] }
 mixdog-core-api = { workspace = true, features = ["mock"] }
 tempfile = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "process", "io-util"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "process", "io-util", "test-util"] }

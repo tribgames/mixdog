@@ -16,6 +16,13 @@ import { join } from 'node:path';
 import { FIXTURES_ROOT, commitStage, exactProductIdentity, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 
 const args = parseArgs();
+// `--replay <mixdogd>`: the phone's calls of the recording sent through the adapter to a real core (no Node tree is read).
+if (args.get('replay')) {
+  const { replayDownloads } = await import('./lib/file-downloads-replay.mjs');
+  const { readFileSync } = await import('node:fs');
+  const recording = JSON.parse(readFileSync(join(FIXTURES_ROOT, 'file-downloads', 'file-downloads.json'), 'utf8'));
+  process.exit(await replayDownloads({ exe: args.get('replay'), recording }));
+}
 const tree = resolveTree(args);
 const identity = exactProductIdentity(tree, args.get('commit') ?? (() => { throw new Error('--commit is required'); })());
 const recorder = 'benchmarks/rust-core/recorders/record-file-downloads.mjs';
@@ -35,6 +42,16 @@ const arm = (fn, ms, every) => {
 globalThis.setTimeout = (fn, ms) => arm(fn, ms);
 globalThis.setInterval = (fn, ms) => arm(fn, ms, ms);
 globalThis.clearTimeout = globalThis.clearInterval = (timer) => void (timer && clock.timers.delete(timer.id));
+/** A wait on something the recorder must see happen (a call's answer, a call reaching its gate, a release): it ends, after `ms` of real time,
+ *  in an error naming what did not happen. The virtual queue never runs a real deadline, so this is the one real timer of the recorder. */
+const within = (promise, what, ms = 20_000) =>
+  new Promise((resolve, reject) => {
+    const timer = real.setTimeout(() => reject(new Error(`the recorder waited ${ms} ms for ${what}, which did not happen`)), ms);
+    promise.then(
+      (value) => (real.clearTimeout(timer), resolve(value)),
+      (error) => (real.clearTimeout(timer), reject(error))
+    );
+  });
 const turn = () => new Promise((resolve) => setImmediate(resolve));
 /** Runs every promise continuation that can run without a timer. */
 const settle = async () => {
@@ -71,10 +88,11 @@ const OUTSIDE = join(dir, 'outside');
 for (const folder of [PROJECT, join(PROJECT, 'sub'), TASK, OUTSIDE]) mkdirSync(folder, { recursive: true });
 
 // The host's conversations: s1 is a project conversation, s2 a task conversation (no project).
-const sessions = [
+const allSessions = [
   { id: 's1', classification: 'project', projectPath: PROJECT, cwd: PROJECT },
   { id: 's2', classification: 'task', projectPath: null, cwd: TASK },
 ];
+const sessions = [...allSessions];
 const host = {
   listSessions: async () => sessions,
   projectDirectory: async (path) => realpathSync.native(path),
@@ -91,8 +109,24 @@ const gate = (name) => {
   let reached;
   const held = new Promise((resolve) => (release = resolve));
   const arrived = new Promise((resolve) => (reached = resolve));
-  gates.set(name, { hold: async () => { reached(); await held; }, arrived, release });
+  gates.set(name, { hold: async () => { reached(); await within(held, `the release of the ${name} gate`); }, arrived: within(arrived, `a call to reach the ${name} gate`), release });
   return gates.get(name);
+};
+/** The handles the service has opened and not closed: what a grant or a transfer holds (the service closes them when it drops one). */
+const openHandles = new Set();
+/** The closes the service has started and Node has not completed: a close is a file-system request, finished by the loop, not by a timer. */
+const closing = new Set();
+const trackHandle = (handle) => {
+  openHandles.add(handle);
+  const close = handle.close.bind(handle);
+  handle.close = (...given) => {
+    const done = close(...given).finally(() => {
+      openHandles.delete(handle);
+      closing.delete(done);
+    });
+    closing.add(done);
+    return done;
+  };
 };
 const wrapHandle = (handle) => {
   for (const method of ['read', 'stat']) {
@@ -107,7 +141,10 @@ const wrapHandle = (handle) => {
     };
   }
 };
-fileDownloadTestHooks.opened = wrapHandle;
+fileDownloadTestHooks.opened = (handle) => {
+  trackHandle(handle);
+  wrapHandle(handle);
+};
 fileDownloadTestHooks.afterResolve = async () => {
   const armed = gates.get('afterResolve');
   if (armed) {
@@ -123,6 +160,9 @@ let tables;
 const fresh = () => {
   clock.timers.clear();
   clock.now = CLOCK_START;
+  openHandles.clear();
+  closing.clear();
+  sessions.splice(0, sessions.length, ...allSessions);
   service = createFileDownloadService({ host, mediaLane: true, now: () => clock.now });
   tables = Object.fromEntries(Object.entries(devices).map(([name, requester]) => [name, fileDownloadRemoteMethods(service, () => requester)]));
 };
@@ -164,14 +204,14 @@ const call = async (device, method, params, { key } = {}) => {
     step({ op: 'send', key, device, method, params });
     return null;
   }
-  const frame = await promise;
+  const frame = await within(promise, `the answer to ${method}`);
   step({ op: 'call', device, method, params, frame });
   return frame;
 };
 const answer = async (key) => {
   const held = pending.get(key);
   pending.delete(key);
-  const frame = await held.promise;
+  const frame = await within(held.promise, `the answer to the held ${key} call`);
   step({ op: 'answer', key, frame });
   return frame;
 };
@@ -179,13 +219,25 @@ const wait = async (ms) => {
   step({ op: 'advance', ms });
   await advance(ms);
 };
-const revokeDevice = (deviceId) => {
-  service.revokeDevice(deviceId);
-  step({ op: 'revokeDevice', deviceId });
+const revokeDevice = (device) => {
+  service.revokeDevice(devices[device].deviceId);
+  step({ op: 'revokeDevice', device, deviceId: devices[device].deviceId });
 };
 const revokeAll = () => {
   service.revokeAll();
   step({ op: 'revokeAll' });
+};
+/** The host's catalog is published listing exactly `ids` (the relay's `onSessions` -> `retainSessions`): a conversation it no longer lists is deleted. */
+const catalog = (ids) => {
+  sessions.splice(0, sessions.length, ...allSessions.filter((row) => ids.includes(row.id)));
+  service.retainSessions(ids);
+  step({ op: 'sessions', ids });
+};
+/** How many handles the service holds open now, after everything that can run without a timer has run. */
+const handles = async () => {
+  await settle();
+  await within(Promise.allSettled([...closing]), 'the closes the service started to complete');
+  step({ op: 'handles', open: openHandles.size });
 };
 const release = async (name, held) => {
   step({ op: 'release', gate: name });
@@ -426,7 +478,7 @@ await call('connection:c2', 'fileDownloadBegin', [grantOf(grant)]);
 await call('connection:c1', 'fileDownloadBegin', [grantOf(grant)]);
 
 // ── 9. unpair ──
-begin('unpair', 'revoking a device ends its unbegun grants and its transfers at once, whatever connection asks; another device keeps its own; revoking everything ends all');
+begin('unpair', 'revoking a device ends its unbegun grants and its transfers at once, whatever connection asks; another device keeps its own');
 file('write', { file: 'a.bin', text: '0123456789abcdef' });
 const unbegun = await call('phone', 'fileDownloadAuthorize', [session('a.bin')]);
 grant = await call('phone', 'fileDownloadAuthorize', [session('a.bin')]);
@@ -434,16 +486,30 @@ lease = await call('phone', 'fileDownloadBegin', [grantOf(grant)]);
 grant = await call('tablet', 'fileDownloadAuthorize', [session('a.bin')]);
 const tabletLease = await call('tablet', 'fileDownloadBegin', [grantOf(grant)]);
 const tabletUnbegun = await call('tablet', 'fileDownloadAuthorize', [session('a.bin')]);
-revokeDevice('aaaaaaa1');
+revokeDevice('phone');
+await handles();
 await call('phone', 'fileDownloadRange', [transferOf(lease), 0, 4, versionOf(lease)]);
 await call('phone', 'fileDownloadBegin', [grantOf(unbegun)]);
 await call('phone', 'fileDownloadAbort', [transferOf(lease)]);
 await call('tablet', 'fileDownloadRange', [transferOf(tabletLease), 0, 4, versionOf(tabletLease)]);
 grant = await call('phone', 'fileDownloadAuthorize', [session('a.bin')]);
 await call('phone', 'fileDownloadBegin', [grantOf(grant)]);
-revokeAll();
+await handles();
 await call('tablet', 'fileDownloadBegin', [grantOf(tabletUnbegun)]);
 await call('tablet', 'fileDownloadRange', [transferOf(tabletLease), 0, 4, versionOf(tabletLease)]);
+
+begin('revoke all', 'revoking every device (the relay closing, or every pairing revoked) ends all unbegun grants and all transfers at once');
+file('write', { file: 'a.bin', text: '0123456789abcdef' });
+const phoneGrant = await call('phone', 'fileDownloadAuthorize', [session('a.bin')]);
+grant = await call('tablet', 'fileDownloadAuthorize', [session('a.bin')]);
+lease = await call('tablet', 'fileDownloadBegin', [grantOf(grant)]);
+await handles();
+revokeAll();
+await handles();
+await call('phone', 'fileDownloadBegin', [grantOf(phoneGrant)]);
+await call('tablet', 'fileDownloadRange', [transferOf(lease), 0, 4, versionOf(lease)]);
+grant = await call('phone', 'fileDownloadAuthorize', [session('a.bin')]);
+await call('phone', 'fileDownloadBegin', [grantOf(grant)]);
 
 // ── 10. an unpair while a call is in flight ──
 begin('unpair during a read', 'a read held at the file when the device is revoked answers expired, never bytes');
@@ -454,9 +520,10 @@ const reading = gate('read');
 step({ op: 'hold', gate: 'read' });
 await call('phone', 'fileDownloadRange', [transferOf(lease), 0, 4, versionOf(lease)], { key: 'read' });
 await reading.arrived;
-revokeDevice('aaaaaaa1');
+revokeDevice('phone');
 await release('read', reading);
 await answer('read');
+await handles();
 await call('phone', 'fileDownloadRange', [transferOf(lease), 0, 4, versionOf(lease)]);
 
 begin('unpair during begin', 'a begin held while the file is checked, revoked meanwhile, leaves no transfer behind');
@@ -466,9 +533,10 @@ const checking = gate('stat');
 step({ op: 'hold', gate: 'stat' });
 await call('phone', 'fileDownloadBegin', [grantOf(grant)], { key: 'begin' });
 await checking.arrived;
-revokeDevice('aaaaaaa1');
+revokeDevice('phone');
 await release('stat', checking);
 await answer('begin');
+await handles();
 await call('phone', 'fileDownloadBegin', [grantOf(grant)]);
 grant = await call('phone', 'fileDownloadAuthorize', [session('a.bin')]);
 await call('phone', 'fileDownloadBegin', [grantOf(grant)]);
@@ -479,10 +547,132 @@ const resolving = gate('afterResolve');
 step({ op: 'hold', gate: 'afterResolve' });
 await call('phone', 'fileDownloadAuthorize', [session('a.bin')], { key: 'authorize' });
 await resolving.arrived;
-revokeDevice('aaaaaaa1');
+revokeDevice('phone');
 await release('afterResolve', resolving);
 await answer('authorize');
+await handles();
 grant = await call('phone', 'fileDownloadAuthorize', [session('a.bin')]);
+await call('phone', 'fileDownloadBegin', [grantOf(grant)]);
+
+// ── 11. the sweeper: handles close at its ticks, with no call ──
+// Node's sweeper starts when the first grant or transfer is held and ticks every 15 000 ms from then; a grant is dropped at the first tick at or
+// after `expiresAt`. `handles` counts what the service holds open after each advance.
+begin('sweeper ticks', 'an expired grant is dropped at the first 15 s tick at or after its expiry, with no call: a grant held from 5 000 ms goes at 75 000 ms');
+file('write', { file: 'a.bin', text: '0123456789abcdef' });
+grant = await call('phone', 'fileDownloadAuthorize', [session('a.bin')]);
+await wait(5_000);
+const later = await call('phone', 'fileDownloadAuthorize', [session('a.bin')]);
+await handles();
+await wait(54_999);
+await handles();
+await wait(1);
+await handles();
+await wait(14_999);
+await handles();
+await wait(1);
+await handles();
+await call('phone', 'fileDownloadBegin', [grantOf(later)]);
+await call('phone', 'fileDownloadBegin', [grantOf(grant)]);
+
+begin('sweeper restarts', 'the ticks are counted from the first thing held after nothing was: aborted at 10 000 ms, a new grant at 22 000 ms goes at 82 000 ms');
+file('write', { file: 'a.bin', text: '0123456789abcdef' });
+grant = await call('phone', 'fileDownloadAuthorize', [session('a.bin')]);
+await wait(10_000);
+await call('phone', 'fileDownloadAbort', [grantOf(grant)]);
+await handles();
+await wait(12_000);
+grant = await call('phone', 'fileDownloadAuthorize', [session('a.bin')]);
+await wait(59_999);
+await handles();
+await wait(1);
+await handles();
+await call('phone', 'fileDownloadBegin', [grantOf(grant)]);
+
+begin('sweeper and transfers', 'a transfer unread for 120 000 ms is dropped at its tick, one read every 100 000 ms is dropped at 1 800 000 ms; a read renews the idle time');
+file('write', { file: 'a.bin', text: '0123456789abcdef' });
+grant = await call('phone', 'fileDownloadAuthorize', [session('a.bin')]);
+lease = await call('phone', 'fileDownloadBegin', [grantOf(grant)]);
+await handles();
+await wait(119_999);
+await handles();
+await wait(1);
+await handles();
+await call('phone', 'fileDownloadRange', [transferOf(lease), 0, 4, versionOf(lease)]);
+grant = await call('phone', 'fileDownloadAuthorize', [session('a.bin')]);
+lease = await call('phone', 'fileDownloadBegin', [grantOf(grant)]);
+for (let read = 0; read < 17; read += 1) {
+  await wait(100_000);
+  await call('phone', 'fileDownloadRange', [transferOf(lease), 0, 4, versionOf(lease)]);
+}
+await handles();
+await wait(99_999);
+await handles();
+await wait(1);
+await handles();
+await call('phone', 'fileDownloadFinish', [transferOf(lease)]);
+
+// ── 12. a conversation deleted ──
+// The host publishes its catalog (`catalog`); a conversation an earlier publication listed and this one does not is deleted, and what it held
+// ends at once (`retainSessions`). Another conversation keeps its own.
+const taskFile = () => session('task/work.txt', 's2');
+begin('session deleted before begin', 'a grant of a deleted conversation is gone, a new authorize is unavailable, the other conversation is untouched');
+file('write', { file: 'a.bin', text: '0123456789abcdef' });
+file('write', { file: 'task/work.txt', text: 'task bytes' });
+catalog(['s1', 's2']);
+grant = await call('phone', 'fileDownloadAuthorize', [session('a.bin')]);
+const kept = await call('phone', 'fileDownloadAuthorize', [taskFile()]);
+await handles();
+catalog(['s2']);
+await handles();
+await call('phone', 'fileDownloadBegin', [grantOf(grant)]);
+await call('phone', 'fileDownloadAuthorize', [session('a.bin')]);
+lease = await call('phone', 'fileDownloadBegin', [grantOf(kept)]);
+await call('phone', 'fileDownloadRange', [transferOf(lease), 0, 4, versionOf(lease)]);
+await handles();
+
+begin('session deleted between ranges', 'a transfer of a deleted conversation answers expired to the next range, finish and abort; its handle is closed when it is deleted');
+file('write', { file: 'a.bin', text: '0123456789abcdef' });
+catalog(['s1', 's2']);
+grant = await call('phone', 'fileDownloadAuthorize', [session('a.bin')]);
+lease = await call('phone', 'fileDownloadBegin', [grantOf(grant)]);
+await call('phone', 'fileDownloadRange', [transferOf(lease), 0, 4, versionOf(lease)]);
+catalog(['s2']);
+await handles();
+await call('phone', 'fileDownloadRange', [transferOf(lease), 4, 4, versionOf(lease)]);
+await call('phone', 'fileDownloadFinish', [transferOf(lease)]);
+await call('phone', 'fileDownloadAbort', [transferOf(lease)]);
+
+begin('session deleted during authorize', 'an authorize held between resolving the file and opening it, its conversation deleted meanwhile, answers unavailable and leaves no grant');
+file('write', { file: 'a.bin', text: '0123456789abcdef' });
+catalog(['s1', 's2']);
+const authorizing = gate('afterResolve');
+step({ op: 'hold', gate: 'afterResolve' });
+await call('phone', 'fileDownloadAuthorize', [session('a.bin')], { key: 'authorize' });
+await authorizing.arrived;
+catalog(['s2']);
+await release('afterResolve', authorizing);
+await answer('authorize');
+await handles();
+
+begin('session deleted during begin', 'a begin held while the file is checked, its conversation deleted meanwhile, answers unavailable and leaves no transfer');
+file('write', { file: 'a.bin', text: '0123456789abcdef' });
+catalog(['s1', 's2']);
+grant = await call('phone', 'fileDownloadAuthorize', [session('a.bin')]);
+const verifying = gate('stat');
+step({ op: 'hold', gate: 'stat' });
+await call('phone', 'fileDownloadBegin', [grantOf(grant)], { key: 'begin' });
+await verifying.arrived;
+catalog(['s2']);
+await release('stat', verifying);
+await answer('begin');
+await handles();
+await call('phone', 'fileDownloadBegin', [grantOf(grant)]);
+
+begin('session never listed', 'a conversation no published catalog listed is not gone: a publication that omits it ends nothing');
+file('write', { file: 'a.bin', text: '0123456789abcdef' });
+grant = await call('phone', 'fileDownloadAuthorize', [session('a.bin')]);
+catalog(['s2']);
+await handles();
 await call('phone', 'fileDownloadBegin', [grantOf(grant)]);
 
 // ── the remap ──

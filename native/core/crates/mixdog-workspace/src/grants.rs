@@ -114,7 +114,7 @@ impl GrantStore {
         bound.entry(connection).or_insert_with(|| self.devices.lock().expect("grants").entry(credential.to_owned()).or_default().clone()).clone()
     }
 
-    async fn conversation_gone(&self, session_id: &str) -> WsResult<bool> {
+    pub async fn conversation_gone(&self, session_id: &str) -> WsResult<bool> {
         if session_id.is_empty() || !self.seen.lock().expect("grant sessions").contains(session_id) {
             return Ok(false);
         }

@@ -2470,7 +2470,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let list_overlay = Arc::new(mixdog_core_session::session::thread_list::LiveListOverlay::new(directory.clone(), bot_work)); // wp-session-37: the overlay reads the directory's handles and `bot_work.by_session()`
     let catalog_handle = Arc::new(catalog_index.clone()); // the handle the idle sweep and the heartbeat's catalog read (Node listSessionCatalog)
     let thread_list = Arc::new(mixdog_core_session::session::thread_list::ThreadListService::new(catalog_handle.clone(), list_overlay.clone(), room_rows));
-    thread_list.observe(phone_grants.clone()); // a session counts as seen when a published catalog lists it (Node's retainSessions)
+    // A session counts as seen when a published catalog lists it, and the downloads of one the catalog no longer has end (Node's retainSessions).
+    thread_list.observe(workspace.catalog_observer(phone_grants.clone()));
     let heartbeat = mixdog_core::run_host::heartbeat_parts::production_heartbeat(mixdog_core::run_host::heartbeat_parts::HeartbeatHolds {
         clock: channel_clock.clone(),
         store: heartbeat_store.clone(),
