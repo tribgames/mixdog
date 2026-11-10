@@ -44,7 +44,7 @@ impl OpenAiCodec {
         Self { config, transport }
     }
 
-    fn headers(&self, request: &ModelRequest, tier: Option<&str>) -> Vec<(String, String)> {
+    fn headers(&self, request: &ModelRequest, tier: Option<&str>, body_cache_key: Option<&str>) -> Vec<(String, String)> {
         let ctx = &self.config.context;
         let ws = self.transport == TransportKind::WebSocket;
         let mut headers = Vec::new();
@@ -61,11 +61,18 @@ impl OpenAiCodec {
                 push("x-client-request-id", ctx.request_id());
             }
             Target::Codex(identity) => {
+                // The handshake lists `originator` first (`openai-ws-pool.mjs:490`), the HTTP request the beta first
+                // (`openai-oauth-http-sse.mjs:76`).
+                if ws {
+                    push("originator", CODEX_ORIGINATOR.into());
+                }
                 push(
                     "OpenAI-Beta",
                     if ws { CODEX_WS_BETA } else { CODEX_HTTP_BETA }.into(),
                 );
-                push("originator", CODEX_ORIGINATOR.into());
+                if !ws {
+                    push("originator", CODEX_ORIGINATOR.into());
+                }
                 if !ws {
                     push("x-client-request-id", ctx.request_id());
                 }
@@ -80,19 +87,14 @@ impl OpenAiCodec {
                         push(&name, value);
                     }
                 } else {
-                    if let Some(key) = request.options.prompt_cache_key.as_deref().filter(|k| !k.is_empty()) {
-                        push("session_id", key.to_owned());
-                        push("session-id", key.to_owned());
-                        push("thread-id", key.to_owned());
-                    }
-                    if let Some(thread) = &request.options.thread {
-                        push(
-                            "x-codex-window-id",
-                            format!("{}:{}", thread.id, thread.window),
-                        );
-                        if let Some(state) = self.turn_state(request) {
-                            push("x-codex-turn-state", state);
-                        }
+                    // `_buildOpenAIHttpFallbackHeaders`: the three anchors carry the body's cache key; the thread's
+                    // window and metadata ride only the WebSocket.
+                    let key = body_cache_key.unwrap_or_default().to_owned();
+                    push("session_id", key.clone());
+                    push("session-id", key.clone());
+                    push("thread-id", key);
+                    if let Some(state) = self.turn_state(request) {
+                        push("x-codex-turn-state", state);
                     }
                 }
             }
@@ -155,6 +157,17 @@ impl OpenAiCodec {
         Self { config: self.config.clone(), transport }
     }
 
+    /// The logical turn a socket's frame activates its turn state under (`_withCodexWsClientMetadata`: the v7 form of
+    /// the request's turn, or of the session's turn without one), which is not the HTTP request's key (the turn as
+    /// given, `openai-oauth-http-sse.mjs:147`). None off the Codex route and for a prewarm frame.
+    pub fn ws_turn(&self, request: &ModelRequest) -> Option<String> {
+        let Target::Codex(identity) = &self.config.target else {
+            return None;
+        };
+        let metadata = Metadata::of(request, &identity.installation_id, 0, false);
+        Some(metadata.turn_id().to_owned()).filter(|turn| !turn.is_empty())
+    }
+
     /// The token the request's turn was issued, if an earlier response of
     /// this turn gave one.
     fn turn_state(&self, request: &ModelRequest) -> Option<String> {
@@ -175,13 +188,14 @@ impl OpenAiCodec {
     }
 
     /// `frame` as sent: on the Codex route with the identity block of
-    /// [`Metadata`] in its `client_metadata`.
-    pub fn ws_frame(&self, request: &ModelRequest, frame: Map<String, Value>) -> Map<String, Value> {
+    /// [`Metadata`] in its `client_metadata`, and `turn_state`, the token the
+    /// socket's activation of the turn returned (`_withCodexWsClientMetadata`).
+    pub fn ws_frame(&self, request: &ModelRequest, frame: Map<String, Value>, turn_state: Option<&str>) -> Map<String, Value> {
         let Target::Codex(identity) = &self.config.target else {
             return frame;
         };
         let now = self.config.context.now_unix_ms();
-        Metadata::of(request, &identity.installation_id, now, false).frame(frame, now, self.turn_state(request).as_deref())
+        Metadata::of(request, &identity.installation_id, now, false).frame(frame, now, turn_state)
     }
 
     /// [`WireCodec::encode`] with the conversation's mid-turn effort updates.
@@ -192,12 +206,13 @@ impl OpenAiCodec {
     ) -> Result<WireRequest, ProviderError> {
         let ws = self.transport == TransportKind::WebSocket;
         let route = self.config.route();
-        let (map, tier) = if ws {
+        let (map, tier, key) = if ws {
             let (body, tier) = self.ws_body(request, effort);
-            (self.ws_frame(request, delta::response_create(&body, None, None)), tier)
+            // The frame's turn state is decided by the socket that sends it (`open_ws`), which rebuilds the metadata.
+            (self.ws_frame(request, delta::response_create(&body, None, None), None), tier, None)
         } else {
             let built = build_with(&self.config, request, effort);
-            (built.map, built.service_tier)
+            (built.map, built.service_tier, built.cache_key)
         };
         let body = serde_json::to_vec(&Value::Object(map))
             .expect("a JSON object with string keys always serializes");
@@ -205,7 +220,7 @@ impl OpenAiCodec {
             transport: self.transport,
             method: if ws { "GET" } else { "POST" }.into(),
             url: if ws { route.ws_url() } else { route.http_url() }.into(),
-            headers: self.headers(request, tier),
+            headers: self.headers(request, tier, key.as_deref()),
             body,
         })
     }

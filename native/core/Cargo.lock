@@ -3811,15 +3811,18 @@ dependencies = [
  "arc-swap",
  "async-trait",
  "base64 0.22.1",
+ "brotli",
  "bytes",
  "chrono",
  "flate2",
  "futures",
  "h2",
  "http-body-util",
+ "httparse",
  "hyper",
  "hyper-util",
  "jsonschema",
+ "mixdog-ai",
  "mixdog-core-api",
  "mixdog-js",
  "mixdog-protocol",
@@ -3828,6 +3831,7 @@ dependencies = [
  "mixdog-statefile",
  "mixdog-workspace-hack",
  "rand 0.9.5",
+ "rcgen",
  "regex",
  "reqwest",
  "ring",
@@ -3846,6 +3850,7 @@ dependencies = [
  "tracing",
  "url",
  "x25519-dalek",
+ "zstd",
 ]
 
 [[package]]
@@ -4015,7 +4020,9 @@ version = "1.4.5"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
+ "bytes",
  "chrono",
+ "flate2",
  "futures",
  "libc",
  "mixdog-agent",
@@ -4038,6 +4045,7 @@ dependencies = [
  "mixdog-js",
  "mixdog-ledger",
  "mixdog-mcp",
+ "mixdog-migrate",
  "mixdog-protocol",
  "mixdog-rt",
  "mixdog-secrets",
@@ -4048,15 +4056,20 @@ dependencies = [
  "mixdog-tools",
  "mixdog-workspace-hack",
  "rand 0.9.5",
+ "reqwest",
+ "rustls",
  "serde_json",
  "sha2 0.10.9",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
+ "tokio-rustls",
+ "tokio-tungstenite",
  "tokio-util",
  "tracing",
  "uuid",
  "windows-sys 0.61.2",
+ "zstd",
 ]
 
 [[package]]
@@ -4948,6 +4961,7 @@ version = "0.1.0"
 dependencies = [
  "aho-corasick",
  "bitflags 2.13.2",
+ "brotli",
  "byteorder",
  "cc",
  "chrono",
@@ -4960,6 +4974,7 @@ dependencies = [
  "displaydoc",
  "errno",
  "fastrand",
+ "flate2",
  "foldhash",
  "form_urlencoded",
  "futures",
@@ -5039,6 +5054,7 @@ dependencies = [
  "zeroize",
  "zerotrie",
  "zerovec",
+ "zlib-rs",
 ]
 
 [[package]]

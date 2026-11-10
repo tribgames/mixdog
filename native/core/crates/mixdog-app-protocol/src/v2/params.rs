@@ -4791,13 +4791,73 @@ pub struct TransferReadRangeParams {
     pub offset: u64,
     #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub length: u64,
+    /// A phone's read names the version it leased; another is `changed`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
 }
 
-/// Params of `transfer/endRead`.
+/// Params of `transfer/endRead`: the transfer, or the unredeemed grant, to release.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct TransferEndReadParams {
+    pub transfer_id: TransferId,
+}
+
+/// What a paired phone asks to download (`transfer/authorizeRead`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum DownloadSource {
+    /// A file of the conversation's project, by its path in the project. The project is the host catalog's, never the caller's.
+    File { rel: String },
+    /// A file the conversation names, by its absolute path or its path in the conversation's folder.
+    SessionFile { path: String },
+    /// A media asset of the host's media store, by its id; the conversation must still be in the catalog.
+    MediaAsset {
+        #[serde(rename = "assetId")]
+        asset_id: String,
+    },
+    /// A link the conversation shows, by its `href` as written (decoded by the core as the desktop decodes it); `itemId` names the row.
+    Link {
+        #[serde(rename = "itemId")]
+        item_id: String,
+        href: String,
+    },
+    /// An attachment the conversation's transcript names, by its content hash.
+    Attachment {
+        #[serde(rename = "attachmentId")]
+        attachment_id: String,
+    },
+    /// A folder the conversation names (absolute, or in its folder), served as a zip of its work files.
+    Folder { path: String },
+}
+
+/// Params of `transfer/authorizeRead`: the first stage of a phone's download, a grant that expires.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct TransferAuthorizeReadParams {
+    /// The conversation the phone names: the grant and the transfer it becomes end with it (Node's `Grant.sessionId`).
+    pub session_id: String,
+    pub source: DownloadSource,
+    /// `save`, `share` or `open`.
+    pub purpose: String,
+}
+
+/// Params of `transfer/redeemGrant`: the second stage, which consumes the grant once into a transfer.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct TransferRedeemGrantParams {
+    pub grant_id: String,
+}
+
+/// Params of `transfer/finishRead`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct TransferFinishReadParams {
     pub transfer_id: TransferId,
 }
 

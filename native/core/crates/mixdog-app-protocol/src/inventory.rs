@@ -1840,12 +1840,12 @@ pub static INVENTORY: &[(InventoryList, &str, Target)] = &[
     (
         InventoryList::Remote,
         "fileDownloadAuthorize",
-        Target::Method("transfer/beginRead"),
+        Target::Method("transfer/authorizeRead"),
     ),
     (
         InventoryList::Remote,
         "fileDownloadBegin",
-        Target::Method("transfer/beginRead"),
+        Target::Method("transfer/redeemGrant"),
     ),
     (
         InventoryList::Remote,
@@ -1855,7 +1855,7 @@ pub static INVENTORY: &[(InventoryList, &str, Target)] = &[
     (
         InventoryList::Remote,
         "fileDownloadFinish",
-        Target::Method("transfer/endRead"),
+        Target::Method("transfer/finishRead"),
     ),
     (
         InventoryList::Remote,

@@ -5,13 +5,17 @@
 //! only process of its data dir, so there is no secondary-attach protocol.
 
 //!
-//! Every child (`initdb`, `pg_ctl start|status|reload|stop`) runs under the one process manager
-//! through [`Processes`], with Node's limits (`runtime/memory/lib/pg/process.mjs`): `status` 3 s,
-//! `reload` 5 s, `stop` its `-t` seconds plus one; `initdb` has none, as in Node, and is ended by
-//! the caller's cancel; `pg_ctl start` is not waited for (the readiness poll, 30 s, is its bound).
+//! Every child but `pg_ctl start` (`initdb`, `pg_ctl status|reload|stop`) runs under the one process
+//! manager through [`Processes`], with Node's limits (`runtime/memory/lib/pg/process.mjs`): `status`
+//! 3 s, `reload` 5 s, `stop` its `-t` seconds plus one; `initdb` has none, as in Node, and is ended by
+//! the caller's cancel. `pg_ctl start` is spawned outside the manager and not waited for (the
+//! readiness poll, 30 s, is its bound), as Node spawns it: the manager holds each child's tree in a
+//! job that ends with this process, and the postmaster must outlive a killed core as Node's
+//! outlives a killed daemon, so the next core attaches to it.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use mixdog_rt::{DurabilityIo, TaskClass};
@@ -175,6 +179,178 @@ async fn healthcheck(port: u16) -> bool {
     tokio::time::timeout(HEALTH_LIMIT, probe).await.unwrap_or(false)
 }
 
+/// The text of a start a stop ended.
+const CANCELLED_START: &str = "the start was cancelled before postgres was ready";
+
+/// How long an alive postmaster that does not answer yet (crash recovery, a start another process began) is waited for (`waitForPostmasterReady`'s `timeoutMs`).
+const RECOVERY_WAIT: Duration = Duration::from_secs(30);
+
+/// `isPostgresPid`: the pid's process is a postgres (a pid a reboot handed to another program is not a postmaster). Where the name cannot be read it is taken as alive.
+async fn is_postgres_pid(processes: &Processes, pid: u32) -> bool {
+    if cfg!(windows) {
+        let args = ["/FI".to_owned(), format!("PID eq {pid}"), "/FO".to_owned(), "CSV".to_owned(), "/NH".to_owned()];
+        let done = processes.run("tasklist", &args, RunOptions { timeout: Duration::from_secs(15), ..RunOptions::new(Path::new(".")) }).await;
+        return done.code != 0 || done.stdout.to_lowercase().contains("postgres");
+    }
+    if cfg!(target_os = "linux") {
+        return std::fs::read_to_string(format!("/proc/{pid}/comm")).map_or(true, |comm| comm.contains("postgres"));
+    }
+    let args = ["-o".to_owned(), "comm=".to_owned(), "-p".to_owned(), pid.to_string()];
+    let done = processes.run("ps", &args, RunOptions { timeout: Duration::from_secs(15), ..RunOptions::new(Path::new(".")) }).await;
+    done.code != 0 || done.stdout.contains("postgres")
+}
+
+/// `healthcheckPg` as a test holds it: a postmaster that does not answer, and the moment each question is asked.
+#[cfg(test)]
+pub(crate) trait Health: Send + Sync {
+    fn healthy(&self, port: u16) -> futures::future::BoxFuture<'static, bool>;
+}
+
+/// What a start asks and waits on: the readiness probe, the wait for an alive postmaster that does not answer yet (`waitForPostmasterReady`'s
+/// `timeoutMs`, 30 s) and the wait for the spawn lock (`withFileLock(…, { timeoutMs: 30_000 })`, `supervisor.mjs:618`). A release build has only Node's
+/// (the session probe and the two 30 s waits) and carries nothing: the fields exist in a test build alone.
+#[derive(Clone)]
+pub(crate) struct Start {
+    #[cfg(test)]
+    pub health: std::sync::Arc<dyn Health>,
+    #[cfg(test)]
+    pub recovery_wait: Duration,
+    #[cfg(test)]
+    pub lock_wait: Duration,
+    /// Holds a start between its admission and the spawn of `pg_ctl start`.
+    #[cfg(test)]
+    pub before_spawn: Option<std::sync::Arc<dyn Fn() -> futures::future::BoxFuture<'static, ()> + Send + Sync>>,
+}
+
+impl Start {
+    /// Node's: the session probe and 30 s for each wait.
+    pub(crate) fn node() -> Self {
+        #[cfg(test)]
+        {
+            struct SessionHealth;
+            impl Health for SessionHealth {
+                fn healthy(&self, port: u16) -> futures::future::BoxFuture<'static, bool> {
+                    Box::pin(healthcheck(port))
+                }
+            }
+            Self { health: std::sync::Arc::new(SessionHealth), recovery_wait: RECOVERY_WAIT, lock_wait: SPAWN_LOCK_WAIT, before_spawn: None }
+        }
+        #[cfg(not(test))]
+        Self {}
+    }
+
+    #[cfg(not(test))]
+    async fn healthy(&self, port: u16) -> bool {
+        healthcheck(port).await
+    }
+
+    #[cfg(test)]
+    async fn healthy(&self, port: u16) -> bool {
+        self.health.healthy(port).await
+    }
+
+    #[cfg(not(test))]
+    fn recovery_wait(&self) -> Duration {
+        RECOVERY_WAIT
+    }
+
+    #[cfg(test)]
+    fn recovery_wait(&self) -> Duration {
+        self.recovery_wait
+    }
+
+    #[cfg(not(test))]
+    fn lock_wait(&self) -> Duration {
+        SPAWN_LOCK_WAIT
+    }
+
+    #[cfg(test)]
+    fn lock_wait(&self) -> Duration {
+        self.lock_wait
+    }
+}
+
+/// `<dataDir>/pg-spawn.lock`'s acquisition timeout (`supervisor.mjs:618`).
+const SPAWN_LOCK_WAIT: Duration = Duration::from_secs(30);
+
+/// What `waitForPostmasterReady` (`supervisor.mjs:339-352`) answers: the postmaster came up, stayed alive without coming up for `wait`, or exited while waited for.
+#[derive(Debug, PartialEq, Eq)]
+enum Recovery {
+    Ready,
+    AliveNotReady,
+    Gone,
+    /// The start's own cancel (a stop) came first.
+    Cancelled,
+}
+
+/// `waitForPostmasterReady`: probes every `READY_POLL` while the pid lives, giving up at `wait` (Node's `Date.now()` deadline; here the runtime's clock, which a test holds).
+async fn await_recovery(pid: u32, port: u16, start: &Start, cancel: &CancellationToken) -> Recovery {
+    let deadline = tokio::time::Instant::now() + start.recovery_wait();
+    while mixdog_statefile::process_exists(pid) {
+        if start.healthy(port).await {
+            return Recovery::Ready;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Recovery::AliveNotReady;
+        }
+        // A stop ends the wait (Node's wait is not cancellable; its stop gives up on an opening after 6 s, `supervisor.mjs:793`).
+        tokio::select! {
+            () = cancel.cancelled() => return Recovery::Cancelled,
+            () = tokio::time::sleep(READY_POLL) => {}
+        }
+    }
+    Recovery::Gone
+}
+
+/// What Node does with a `postmaster.pid` it finds while the cluster does not answer (`supervisor.mjs:571-613`): a postmaster that is alive owns the data
+/// directory, so it is waited for up to `wait` and attached to when it comes up (recovery after a kill), and a start beside it is refused; the file of a
+/// dead one is removed so the new postmaster does not start over it. `Some(port)` is an attached postmaster; `None` means the directory is free to start.
+async fn settle_leftover_postmaster(lane: DurabilityIo, processes: &Processes, data_dir: &Path, start: &Start, cancel: &CancellationToken) -> Result<Option<u16>> {
+    // `readPostmasterInfo` (`supervisor.mjs:288-300`): line one is the pid, line four the port.
+    let Some(pid) = read_postmaster_pid(lane, data_dir).await else { return Ok(None) };
+    // `pm.pid && pm.port && await isPostmasterAlive(pm.pid)`: a live pid (`isPidAlive`, EPERM counts as alive) whose process is a postgres.
+    if let Some(port) = read_postmaster_port(lane, data_dir).await
+        && mixdog_statefile::process_exists(pid)
+        && is_postgres_pid(processes, pid).await
+    {
+        mixdog_rt::memory_stderr!("[supervisor-pg] postmaster PID {pid} alive but not ready — awaiting recovery");
+        match await_recovery(pid, port, start, cancel).await {
+            Recovery::Ready => {
+                mixdog_rt::memory_stderr!("[supervisor-pg] attaching to recovered PG pid={pid} port={port}");
+                return Ok(Some(port));
+            }
+            Recovery::AliveNotReady => {
+                return Err(MemoryError::Runtime(format!("[supervisor-pg] existing postmaster PID {pid} remains alive but unhealthy; refusing concurrent start")));
+            }
+            Recovery::Cancelled => return Err(MemoryError::Runtime(CANCELLED_START.to_owned())),
+            Recovery::Gone => {}
+        }
+    }
+    mixdog_rt::memory_stderr!("[supervisor-pg] postmaster PID {pid} dead — removing stale postmaster.pid");
+    let _ = fsio::remove_file(lane, &data_dir.join("postmaster.pid")).await;
+    Ok(None)
+}
+
+/// `PG_LOG_MAX_BYTES` (`supervisor.mjs:67`).
+const LOG_MAX_BYTES: u64 = 10 * 1024 * 1024;
+
+/// `rotateLogIfNeeded` (`supervisor.mjs:92-108`), which `_startFresh` runs before every fresh start (`:359`), never on an attach: a log larger than
+/// 10 MB is renamed to `<log>.1`, the one archive kept (an older archive is removed first); a missing log, or any failure, leaves things as they are.
+#[allow(clippy::disallowed_methods, reason = "the call is a lane job")]
+async fn rotate_log_if_needed(lane: DurabilityIo, log: &Path) {
+    let log = log.to_owned();
+    let _ = crate::lane::io_on_lane(lane, move || {
+        if std::fs::metadata(&log)?.len() > LOG_MAX_BYTES {
+            let mut archive = log.clone().into_os_string();
+            archive.push(".1");
+            let _ = std::fs::remove_file(&archive);
+            std::fs::rename(&log, archive)?;
+        }
+        Ok(())
+    })
+    .await;
+}
+
 async fn free_port(preferred: u16) -> Result<u16> {
     let last = preferred.saturating_add(PORT_SPAN);
     for port in preferred..=last {
@@ -244,30 +420,172 @@ impl std::fmt::Debug for PgCluster {
 
 /// `pg_ctl start`'s outcome while it is being waited for: it is not waited for to exit (Node
 /// spawns it and polls readiness), so this only reports an exit that came before readiness.
-type StartRun = tokio::task::JoinHandle<Result<ProcessResult>>;
+type StartRun = tokio::task::JoinHandle<Result<()>>;
+
+/// `pg_ctl start` as Node's `startAndWaitReady` spawns it (`process.mjs:375-400`: `spawn` with piped output and `windowsHide`, never killed by its
+/// starter). On Windows Node's child is in libuv's job, which lets the processes it starts leave it silently, so the postmaster `pg_ctl` starts belongs to
+/// no job of the daemon and outlives it (`process.mjs:378-385`); this child is not given to the process manager, whose job would end the postmaster
+/// with this process: `tokio::process::Command` assigns its child to no job, unlike [`Processes`], whose every child is put in a kill-on-close job
+/// (`mixdog-spawn/src/contain.rs`, `Containment::create`). Its stdout and stderr are drained as they come, as Node's `data` listeners do, and the run
+/// ends when the child has exited and both pipes have closed (Node's `close` event): the postmaster inherits the pipe ends (pg_ctl starts it with handle
+/// inheritance on), so for a postmaster that started they stay open for its life and only the readiness probe ends the wait, as in Node.
+fn spawn_start(runtime: &PgRuntime, args: &[String]) -> Result<(StartRun, StartOutput)> {
+    use tokio::io::AsyncReadExt as _;
+    let mut command = tokio::process::Command::new(runtime.bin("pg_ctl"));
+    command
+        .args(args)
+        .env_clear()
+        .envs(runtime.env())
+        .current_dir(&runtime.dir)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(false);
+    #[cfg(windows)]
+    command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW, as Node's windowsHide
+    let mut child = command.spawn().map_err(|error| MemoryError::Runtime(format!("pg_ctl failed: {error}")))?;
+    let (stdout, stderr) = (child.stdout.take(), child.stderr.take());
+    let output = StartOutput::default();
+    let drain = |pipe: Option<Box<dyn tokio::io::AsyncRead + Unpin + Send>>, into: Arc<std::sync::Mutex<Vec<u8>>>| async move {
+        let Some(mut pipe) = pipe else { return };
+        let mut chunk = [0u8; 4096];
+        while let Ok(read) = pipe.read(&mut chunk).await
+            && read > 0
+        {
+            keep_tail(&mut into.lock().expect("output"), &chunk[..read]);
+        }
+    };
+    let (stdout, stderr) = (stdout.map(|pipe| Box::new(pipe) as Box<dyn tokio::io::AsyncRead + Unpin + Send>), stderr.map(|pipe| Box::new(pipe) as Box<dyn tokio::io::AsyncRead + Unpin + Send>));
+    let captured = output.clone();
+    let run = mixdog_rt::spawn("services.memory.pg-start", TaskClass::Work, async move {
+        let (status, (), ()) = tokio::join!(child.wait(), drain(stdout, captured.stdout.clone()), drain(stderr, captured.stderr.clone()));
+        let status = status.map_err(|error| MemoryError::Runtime(format!("pg_ctl failed: {error}")))?;
+        if status.success() {
+            return Ok(());
+        }
+        let text = captured.text().unwrap_or_else(|| format!("status {}", status.code().unwrap_or(-1)));
+        Err(MemoryError::Runtime(format!("pg_ctl failed: {text}")))
+    });
+    Ok((run, output))
+}
+
+/// What `pg_ctl start` and the postmaster that inherits its pipes have written so far: the last [`OUTPUT_TAIL`] bytes of each stream. Node keeps all of
+/// it (`process.mjs:401-406`); a start's output is a few lines, so its failure text is the same, and a chatty postmaster cannot grow this without bound.
+#[derive(Clone, Default)]
+struct StartOutput {
+    stdout: Arc<std::sync::Mutex<Vec<u8>>>,
+    stderr: Arc<std::sync::Mutex<Vec<u8>>>,
+}
+
+/// How much of each stream of `pg_ctl start` is kept.
+const OUTPUT_TAIL: usize = 64 * 1024;
+
+fn keep_tail(kept: &mut Vec<u8>, more: &[u8]) {
+    kept.extend_from_slice(more);
+    if kept.len() > OUTPUT_TAIL {
+        kept.drain(..kept.len() - OUTPUT_TAIL);
+    }
+}
+
+impl StartOutput {
+    /// Node's `r.stderr || r.stdout`, then trimmed (`startPg`, `startFailure`, `process.mjs:459-467`): a stderr of only whitespace is chosen over stdout
+    /// and trims to nothing. `None` when the chosen text is empty after the trim.
+    fn text(&self) -> Option<String> {
+        let read = |stream: &std::sync::Mutex<Vec<u8>>| String::from_utf8_lossy(&stream.lock().expect("output")).into_owned();
+        let stderr = read(&self.stderr);
+        let chosen = if stderr.is_empty() { read(&self.stdout) } else { stderr };
+        Some(chosen.trim().to_owned()).filter(|text| !text.is_empty())
+    }
+}
+
+/// Why the spawn lock was not taken.
+enum LockWait {
+    /// Another starter held it for the whole wait (`ELOCKTIMEOUT`).
+    Timeout(String),
+    Failed(String),
+}
+
+/// `withFileLock(join(dataDir, 'pg-spawn.lock'), …, { timeoutMs: 30_000 })`: the same file and the same lock (the shared lock implementation of
+/// `mixdog-statefile`, which a Node process takes by the same record), held until the returned guard is dropped.
+async fn take_spawn_lock(lock_file: &Path, wait: Duration, cancel: &CancellationToken) -> std::result::Result<mixdog_statefile::LockHold, LockWait> {
+    let (acquired, outcome) = tokio::sync::oneshot::channel();
+    let opts = mixdog_statefile::LockOpts { timeout: Some(wait), ..Default::default() };
+    let hold = mixdog_statefile::hold_lock(lock_file, &opts, move |outcome| {
+        let _ = acquired.send(outcome);
+    });
+    let outcome = tokio::select! {
+        outcome = outcome => outcome,
+        () = cancel.cancelled() => return Err(LockWait::Failed(CANCELLED_START.to_owned())),
+    };
+    match outcome {
+        Ok(Ok(())) => Ok(hold),
+        Ok(Err(error)) if error.code() == Some("ELOCKTIMEOUT") => Err(LockWait::Timeout(error.to_string())),
+        Ok(Err(error)) => Err(LockWait::Failed(error.to_string())),
+        Err(_) => Err(LockWait::Failed("the spawn lock holder ended".to_owned())),
+    }
+}
 
 impl PgCluster {
-    /// Attach to the cluster that serves `data_dir`, or initialise and start it. `cancel` ends an
-    /// `initdb` in progress (it has no time limit, as in Node).
-    pub async fn ensure(
+    /// `_doEnsure`'s cluster part (`supervisor.mjs:479-628`) for the profile data directory `profile`: the cluster is `<profile>/pgdata` (`_pgdataDir`), the
+    /// spawn lock `<profile>/pg-spawn.lock` (`:618`) and the server log `<profile>/pg.log` (`_startFresh`, `:358`), both outside the cluster as in Node (an
+    /// `initdb` refuses a directory that holds anything, and a postmaster in crash recovery fsyncs every file of its directory). The prelock reuse of a
+    /// postmaster that answers, then the spawn lock (30 s) around the reuse again, the leftover postmaster, `initdb` and the start. A lock another starter
+    /// holds for the whole wait falls back to one more reuse and else fails (`:619-627`). `cancel` ends an `initdb` in progress (it has no time limit, as in
+    /// Node), and a wait for another starter's lock or postmaster; a start is never begun once it is cancelled or `admit` refuses it, and one that was
+    /// begun is waited for until it is ready (so the caller, if still there, can stop it) or has failed.
+    pub(crate) async fn ensure(
         runtime: PgRuntime,
-        data_dir: impl Into<PathBuf>,
+        profile: &Path,
         preferred_port: u16,
         lane: DurabilityIo,
         processes: Processes,
         cancel: &CancellationToken,
+        start: &Start,
+        admit: &(dyn Fn() -> bool + Send + Sync),
     ) -> Result<Self> {
-        let data_dir = data_dir.into();
+        let data_dir = profile.join("pgdata");
         fsio::create_dir_all(lane, &data_dir).await?;
         if let Some(port) = read_postmaster_port(lane, &data_dir).await
-            && healthcheck(port).await {
-                return Ok(Self { runtime, data_dir, port, lane, processes });
+            && start.healthy(port).await
+        {
+            return Ok(Self { runtime, data_dir, port, lane, processes });
+        }
+        let _spawn_lock = match take_spawn_lock(&profile.join("pg-spawn.lock"), start.lock_wait(), cancel).await {
+            Ok(hold) => hold,
+            Err(LockWait::Timeout(error)) => {
+                if let Some(port) = read_postmaster_port(lane, &data_dir).await
+                    && start.healthy(port).await
+                {
+                    return Ok(Self { runtime, data_dir, port, lane, processes });
+                }
+                mixdog_rt::memory_stderr!("[supervisor-pg] spawn-lock wait ended: {error}");
+                return Err(MemoryError::Runtime("[supervisor-pg] spawn-lock acquire timeout (concurrent supervisor risk)".to_owned()));
             }
+            Err(LockWait::Failed(message)) => return Err(MemoryError::Runtime(message)),
+        };
+        if let Some(port) = read_postmaster_port(lane, &data_dir).await
+            && start.healthy(port).await
+        {
+            return Ok(Self { runtime, data_dir, port, lane, processes });
+        }
+        if let Some(port) = settle_leftover_postmaster(lane, &processes, &data_dir, start, cancel).await? {
+            return Ok(Self { runtime, data_dir, port, lane, processes });
+        }
+        let log = profile.join("pg.log");
+        rotate_log_if_needed(lane, &log).await;
         if !fsio::exists(lane, &data_dir.join("PG_VERSION")).await? {
             Self::init(lane, &processes, &runtime, &data_dir, cancel).await?;
         }
         let port = free_port(preferred_port).await?;
-        let log = data_dir.join("pg.log");
+        // The last check before the postmaster starts, made with the spawn: `admit` refuses once the owner's stop began (a cancelled start begins no
+        // postmaster: nothing would own it). An admitted start the stop gives up on at 6 s goes on as Node's does.
+        if cancel.is_cancelled() || !admit() {
+            return Err(MemoryError::Runtime(CANCELLED_START.to_owned()));
+        }
+        #[cfg(test)]
+        if let Some(gate) = &start.before_spawn {
+            gate().await;
+        }
         let args: Vec<String> = [
             "start".to_owned(),
             "-D".to_owned(),
@@ -280,16 +598,12 @@ impl PgCluster {
         .into();
         // Not waited for, as in Node: `pg_ctl start` is spawned and readiness is polled; the
         // postmaster outlives it. An exit before readiness is a start failure.
-        let mut started: Option<StartRun> = Some({
-            let (runtime, processes) = (runtime.clone(), processes.clone());
-            mixdog_rt::spawn("services.memory.pg-start", TaskClass::Work, async move {
-                runtime.run(&processes, "pg_ctl", &args, Duration::ZERO, None).await
-            })
-        });
+        let (run, output) = spawn_start(&runtime, &args).map_err(|error| MemoryError::Runtime(format!("pg_ctl start failed: {}", error.message())))?;
+        let mut started: Option<StartRun> = Some(run);
         let deadline = tokio::time::Instant::now() + START_DEADLINE;
         let mut early: Option<MemoryError> = None;
         loop {
-            if healthcheck(port).await && read_postmaster_port(lane, &data_dir).await == Some(port) {
+            if start.healthy(port).await && read_postmaster_port(lane, &data_dir).await == Some(port) {
                 return Ok(Self { runtime, data_dir, port, lane, processes });
             }
             if started.as_ref().is_some_and(tokio::task::JoinHandle::is_finished)
@@ -317,20 +631,19 @@ impl PgCluster {
                 return Err(MemoryError::Runtime(format!("pg_ctl start failed: {detail}")));
             }
             if tokio::time::Instant::now() >= deadline {
+                // Node's `startFailure` of a timed-out start (`process.mjs:459-467`): the output drained so far, then the server log.
                 let log_text = fsio::read_to_string(lane, &log).await.unwrap_or_default();
-                return Err(Self { runtime, data_dir, port, lane, processes }
-                    .abandon(MemoryError::Runtime(format!("postgres did not become ready on port {port}: {}", log_text.trim())))
-                    .await);
+                let detail = [output.text().unwrap_or_default(), if log_text.trim().is_empty() { String::new() } else { format!("postgres log:\n{}", log_text.trim()) }]
+                    .into_iter()
+                    .filter(|part| !part.is_empty())
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let detail = if detail.is_empty() { "(readiness probe timed out after 30s; no pg_ctl or postgres log output)".to_owned() } else { detail };
+                return Err(Self { runtime, data_dir, port, lane, processes }.abandon(MemoryError::Runtime(format!("pg_ctl start failed: {detail}"))).await);
             }
-            // A stop during startup ends the wait: the daemon is going down, not waiting for a database it will not use.
-            tokio::select! {
-                () = cancel.cancelled() => {
-                    return Err(Self { runtime, data_dir, port, lane, processes }
-                        .abandon(MemoryError::Runtime("the start was cancelled before postgres was ready".to_owned()))
-                        .await);
-                }
-                () = tokio::time::sleep(READY_POLL) => {}
-            }
+            // A stop does not end this wait (Node's `startAndWaitReady` takes none): a postmaster that is coming up has not written its pid file yet, so a
+            // stop now would miss it. It is waited for (30 s at most) and the caller, which sees the stop, stops it.
+            tokio::time::sleep(READY_POLL).await;
         }
     }
 
@@ -392,6 +705,12 @@ impl PgCluster {
         &self.data_dir
     }
 
+    /// The cluster of `<profile>/pgdata` on `port` as a start would hand it over, without starting anything.
+    #[cfg(test)]
+    pub(crate) fn over(runtime: PgRuntime, profile: &Path, port: u16, lane: DurabilityIo, processes: Processes) -> Self {
+        Self { runtime, data_dir: profile.join("pgdata"), port, lane, processes }
+    }
+
     /// `stopPg`: bounded fast shutdown, open transactions roll back and clients disconnect.
     /// `pg_ctl -t` is `timeout` in whole seconds (rounded up, at least one); the child is
     /// ended one second after that.
@@ -412,53 +731,5 @@ impl PgCluster {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
-    /// A postmaster that is starting up: it reads the startup packet and answers it with
-    /// `FATAL: the database system is starting up` (57P03).
-    async fn refuse_startup(mut socket: tokio::net::TcpStream) -> std::io::Result<()> {
-        let len = socket.read_u32().await?;
-        let mut rest = vec![0_u8; usize::try_from(len).unwrap() - 4];
-        socket.read_exact(&mut rest).await?;
-        let mut body = Vec::new();
-        for (code, text) in [(b'S', "FATAL"), (b'V', "FATAL"), (b'C', "57P03"), (b'M', "the database system is starting up")] {
-            body.push(code);
-            body.extend_from_slice(text.as_bytes());
-            body.push(0);
-        }
-        body.push(0);
-        let mut reply = vec![b'E'];
-        reply.extend_from_slice(&u32::try_from(body.len() + 4).unwrap().to_be_bytes());
-        reply.extend_from_slice(&body);
-        socket.write_all(&reply).await?;
-        socket.shutdown().await
-    }
-
-    /// A port another process holds is never chosen: the scan goes on above it, as Node's `findFreePort` does (each port probed by a
-    /// listener on 127.0.0.1, `pg/process.mjs:59,101`; `allocatePort`, `pg/supervisor.mjs:75,84`).
-    #[tokio::test]
-    async fn a_held_port_is_skipped_for_the_next_one() {
-        let held = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = held.local_addr().unwrap().port();
-        let chosen = free_port(port).await.expect("a free port above the held one");
-        assert_ne!(chosen, port, "the held port is not chosen");
-        assert!(chosen > port && chosen <= port.saturating_add(PORT_SPAN), "{chosen} lies in the scanned span above {port}");
-        drop(held);
-    }
-
-    #[tokio::test]
-    async fn a_postmaster_still_starting_up_is_not_ready() {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let server = tokio::spawn(async move {
-            while let Ok((socket, _)) = listener.accept().await {
-                let _ = refuse_startup(socket).await;
-            }
-        });
-        assert!(tokio::net::TcpStream::connect(("127.0.0.1", port)).await.is_ok(), "the port takes connections");
-        assert!(!healthcheck(port).await, "a refused session is not readiness");
-        server.abort();
-    }
-}
+#[path = "cluster_tests.rs"]
+mod tests;
