@@ -396,6 +396,10 @@ export async function replayDownloads({ exe, recording, only = null, failSetup =
       let switches = 0;
       const switchOff = async () => {
         switches += 1;
+        await ask('remoteAccess/setEnabled', { opId: opId(), enabled: false });
+        await relay.dropped();
+        await ask('remoteAccess/setEnabled', { opId: opId(), enabled: true });
+        await relay.leg();
         await openDevices(`-on${switches}`);
       };
       const unexpected = [...gaps];
