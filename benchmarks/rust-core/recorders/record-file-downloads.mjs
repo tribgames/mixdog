@@ -10,9 +10,9 @@
 // The recording is a script: each step is a file operation, a clock advance, a revoke, or a phone call with the whole frame the phone got.
 // The random ids and the file versions (they hold the file's inode) are replaced by `<kind#n>`, numbered by first appearance over the whole
 // recording; every other value is Node's.
-import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { FIXTURES_ROOT, commitStage, exactProductIdentity, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 
 const args = parseArgs();
@@ -100,10 +100,17 @@ const allSessions = [
   { id: 's2', classification: 'task', projectPath: null, cwd: TASK },
 ];
 const sessions = [...allSessions];
+/** The host's media store: asset id -> the file it resolves to (Node's `invokeCapability('resolveMediaFile', [id, { variant: 'original' }])`). An
+ *  asset the store does not know resolves to `null`; one whose bytes are gone is `available: false`. */
+const assets = new Map();
 const host = {
   listSessions: async () => sessions,
   projectDirectory: async (path) => realpathSync.native(path),
-  invokeCapability: async () => ({ value: null }),
+  invokeCapability: async (name, [assetId] = []) => {
+    if (name !== 'resolveMediaFile' || !assets.has(assetId)) return { value: null };
+    const { file, mime } = assets.get(assetId);
+    return { value: existsSync(file) ? { path: file, mime } : { available: false } };
+  },
   readSessionTranscript: async () => ({}),
   readSessionHistory: async () => ({}),
   readAttachmentImage: async () => null,
@@ -161,14 +168,25 @@ fileDownloadTestHooks.afterResolve = async () => {
 const devices = { phone: { deviceId: 'aaaaaaa1' }, tablet: { deviceId: 'bbbbbbb2' }, 'connection:c1': { deviceId: 'connection:c1' }, 'connection:c2': { deviceId: 'connection:c2' } };
 let service;
 let tables;
+/** What the method table asked of the service, in order, with the arguments it passed (less the requester): the five calls the service
+ *  serves. A call whose arguments the table refuses never reaches it. This is Node's own statement of what each phone call means to the
+ *  service, which the core's replays derive their expected requests from. */
+const SERVICE_CALLS = ['authorize', 'begin', 'readRange', 'finish', 'abort'];
+let reached = [];
+const watched = (inner) =>
+  Object.fromEntries(
+    Object.entries(inner).map(([name, member]) => [name, SERVICE_CALLS.includes(name) ? (requester, ...given) => (reached.push({ method: name, args: given }), member(requester, ...given)) : member])
+  );
 /** Each scenario runs on a service of its own, at the start of the clock, with no timer of an earlier one armed. */
 const fresh = () => {
   clock.timers.clear();
   clock.now = CLOCK_START;
   openHandles.clear();
   closing.clear();
+  assets.clear();
+  reached = [];
   sessions.splice(0, sessions.length, ...allSessions);
-  service = createFileDownloadService({ host, mediaLane: true, now: () => clock.now });
+  service = watched(createFileDownloadService({ host, mediaLane: true, now: () => clock.now }));
   tables = Object.fromEntries(Object.entries(devices).map(([name, requester]) => [name, fileDownloadRemoteMethods(service, () => requester)]));
 };
 
@@ -177,8 +195,9 @@ const pending = new Map();
 /** The whole frame the phone gets for one call (the wire executor of the relay's method table). */
 const wire = (device, method, params) => {
   const id = nextId++;
+  const from = reached.length;
   const frame = executeRemoteFrame(tables[device], JSON.stringify({ id, method, params }));
-  return { id, frame };
+  return { id, frame, from };
 };
 
 const path = (name) => join(dir, name);
@@ -211,20 +230,34 @@ const call = async (device, method, params, { key } = {}) => {
   const sent = wire(device, method, params);
   const promise = sent.frame;
   if (key) {
-    pending.set(key, { id: sent.id, promise });
-    step({ op: 'send', key, device, method, params });
+    const sending = { op: 'send', key, device, method, params };
+    pending.set(key, { id: sent.id, promise, from: sent.from, sending });
+    step(sending);
     return null;
   }
   const frame = await within(promise, `the answer to ${method}`);
-  step({ op: 'call', device, method, params, frame });
+  step({ op: 'call', device, method, params, service: reached.slice(sent.from), frame });
   return frame;
 };
 const answer = async (key) => {
   const held = pending.get(key);
   pending.delete(key);
   const frame = await within(held.promise, `the answer to the held ${key} call`);
+  held.sending.service = reached.slice(held.from);
   step({ op: 'answer', key, frame });
   return frame;
+};
+/** An asset the host's media store holds: a file of `assets/<name>` in the store, with the type the store states for it. */
+const media = ({ id, name, mime, text }) => {
+  const file = path(`media/assets/${name}`);
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, text);
+  assets.set(id, { file, mime });
+  step({ op: 'media', id, name, mime, text });
+};
+const unmedia = (id) => {
+  rmSync(assets.get(id).file);
+  step({ op: 'unmedia', id });
 };
 const wait = async (ms) => {
   step({ op: 'advance', ms });
@@ -678,6 +711,36 @@ await answer('begin');
 await handles();
 await call('phone', 'fileDownloadBegin', [grantOf(grant)]);
 
+begin('session deleted during a range read', 'a read held at the file when its conversation is deleted answers expired, never bytes; the handle is closed at the deletion');
+file('write', { file: 'a.bin', text: '0123456789abcdef' });
+catalog(['s1', 's2']);
+grant = await call('phone', 'fileDownloadAuthorize', [session('a.bin')]);
+lease = await call('phone', 'fileDownloadBegin', [grantOf(grant)]);
+const deleting = gate('read');
+step({ op: 'hold', gate: 'read' });
+await call('phone', 'fileDownloadRange', [transferOf(lease), 0, 4, versionOf(lease)], { key: 'read' });
+await deleting.arrived;
+catalog(['s2']);
+await release('read', deleting);
+await answer('read');
+await handles();
+await call('phone', 'fileDownloadRange', [transferOf(lease), 0, 4, versionOf(lease)]);
+
+begin('file truncated during a range read', 'a read held at the file when the file is cut short answers changed (the file ended before the window did), and the transfer is dropped with its handle');
+file('write', { file: 'a.bin', text: '0123456789abcdef' });
+grant = await call('phone', 'fileDownloadAuthorize', [session('a.bin')]);
+lease = await call('phone', 'fileDownloadBegin', [grantOf(grant)]);
+const cutting = gate('read');
+step({ op: 'hold', gate: 'read' });
+await call('phone', 'fileDownloadRange', [transferOf(lease), 8, 8, versionOf(lease)], { key: 'read' });
+await cutting.arrived;
+file('size', { file: 'a.bin', bytes: 10 });
+await release('read', cutting);
+await answer('read');
+await handles();
+await call('phone', 'fileDownloadRange', [transferOf(lease), 0, 4, versionOf(lease)]);
+await call('phone', 'fileDownloadFinish', [transferOf(lease)]);
+
 begin('session never listed', 'a conversation no published catalog listed is not gone: a publication that omits it ends nothing, but a new authorize needs the conversation in the catalog');
 file('write', { file: 'a.bin', text: '0123456789abcdef' });
 grant = await call('phone', 'fileDownloadAuthorize', [session('a.bin')]);
@@ -747,6 +810,50 @@ await call('phone', 'fileDownloadAuthorize', [{ source: { kind: 'session', sessi
 await call('phone', 'fileDownloadAuthorize', [{ source: { kind: 'session', sessionId: 's1', path: '\\\\server\\share\\x.txt' }, purpose: 'save' }]);
 await call('phone', 'fileDownloadAuthorize', [{ source: { kind: 'session', sessionId: 's1', path: '/\\server/share/x.txt' }, purpose: 'save' }]);
 await handles();
+
+// ── 14. a media asset ──
+// The host's media store resolves an asset id to a file and, when it states one, a type: the offer is named for the file, and typed by the
+// store's type if it gave one, else by the file's own extension. The conversation must be in the catalog; the asset is the store's, whichever
+// conversation asks.
+begin('media assets', 'a media asset is offered by the store\'s file name and type (the extension\'s when the store states none); an unknown asset, one whose bytes are gone and a conversation not in the catalog are refused');
+const png = (id, name, mime, text = `${name} bytes`) => media({ id, name, mime, text });
+png('m-typed', 'a1.png', 'image/png');
+png('m-custom', 'a2.png', 'application/x-custom');
+png('m-stated-by-extension', 'a3.png', '');
+png('m-unknown-extension', 'a4.zzz', '');
+png('m-upper-extension', 'A5.PNG', '');
+png('m-document', 'a6.PDF', '');
+const mediaOf = (assetId, sessionId = 's1') => ({ source: { kind: 'media', sessionId, assetId }, purpose: 'save' });
+for (const id of ['m-typed', 'm-custom', 'm-stated-by-extension', 'm-unknown-extension', 'm-upper-extension', 'm-document']) {
+  grant = await call('phone', 'fileDownloadAuthorize', [mediaOf(id)]);
+  lease = await call('phone', 'fileDownloadBegin', [grantOf(grant)]);
+  await call('phone', 'fileDownloadRange', [transferOf(lease), 0, 4, versionOf(lease)]);
+  await call('phone', 'fileDownloadFinish', [transferOf(lease)]);
+}
+await call('phone', 'fileDownloadAuthorize', [mediaOf('m-typed', 's2')]);
+await call('phone', 'fileDownloadAuthorize', [mediaOf('m-typed', 's9')]);
+await call('phone', 'fileDownloadAuthorize', [mediaOf('m-unknown')]);
+unmedia('m-typed');
+await call('phone', 'fileDownloadAuthorize', [mediaOf('m-typed')]);
+await call('phone', 'fileDownloadAuthorize', [mediaOf('a b')]);
+await call('phone', 'fileDownloadAuthorize', [mediaOf('')]);
+await call('phone', 'fileDownloadAuthorize', [mediaOf('x'.repeat(129))]);
+png('m-changes', 'a7.png', 'image/png');
+grant = await call('phone', 'fileDownloadAuthorize', [mediaOf('m-changes')]);
+file('append', { file: 'media/assets/a7.png', text: 'more' });
+await call('phone', 'fileDownloadBegin', [grantOf(grant)]);
+await handles();
+
+begin('media after the conversation was deleted', 'a media grant is the conversation\'s: when the conversation is deleted it is gone, and the conversation is no longer available for another');
+png('m-typed', 'a1.png', 'image/png');
+catalog(['s1', 's2']);
+grant = await call('phone', 'fileDownloadAuthorize', [mediaOf('m-typed')]);
+catalog(['s2']);
+await handles();
+await call('phone', 'fileDownloadBegin', [grantOf(grant)]);
+await call('phone', 'fileDownloadAuthorize', [mediaOf('m-typed')]);
+grant = await call('phone', 'fileDownloadAuthorize', [mediaOf('m-typed', 's2')]);
+await call('phone', 'fileDownloadBegin', [grantOf(grant)]);
 
 if (process.platform === 'win32') {
   begin('windows path names', 'a stream name, a device name, a namespace prefix and a drive-relative path, as this host\'s realpath and open treat them');

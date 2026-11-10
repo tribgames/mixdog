@@ -6,6 +6,7 @@
 //! sits in memory; every range re-checks the file's version.
 
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
@@ -162,11 +163,67 @@ struct Generations {
     all: u64,
     owners: HashMap<String, u64>,
     sessions: HashMap<String, u64>,
+    /// The conversations the host's catalog has dropped (Node's `sessionRemoved`): a call that finds its conversation here is
+    /// `unavailable`, ahead of any other revocation.
+    removed: HashSet<String>,
 }
 
 impl Generations {
     fn of(&self, owner: &str, session: &str) -> u64 {
         self.all + self.owners.get(owner).copied().unwrap_or(0) + self.sessions.get(session).copied().unwrap_or(0)
+    }
+
+    /// Node's `stillAuthorized`, after awaited work: the conversation left the catalog (`unavailable`), else anything revoked the owner,
+    /// the conversation or everything since `mark` (`expired`).
+    fn still_authorized(&self, owner: &str, session: &str, mark: u64) -> WsResult<()> {
+        if self.removed.contains(session) {
+            return Err(unavailable());
+        }
+        if self.of(owner, session) != mark {
+            return Err(WsError::expired());
+        }
+        Ok(())
+    }
+}
+
+/// Who a transfer belongs to. The origin is part of the owner, so a connection of this machine (a local client or an SSH window, which
+/// the daemon numbers) and a paired phone (which the relay names by its credential, a string a phone's pairing makes) can never be the
+/// same owner, whatever the credential spells: the key of each kind starts with its own tag.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Owner(String);
+
+impl Owner {
+    /// A connection of the daemon, by its number.
+    pub fn connection(id: u64) -> Self {
+        Self(format!("connection:{id}"))
+    }
+
+    /// A caller inside the daemon, by its name.
+    pub fn internal(name: &str) -> Self {
+        Self(format!("internal:{name}"))
+    }
+
+    /// A paired phone, by the credential the relay admitted it under.
+    pub fn device(credential: &str) -> Self {
+        Self(format!("device:{credential}"))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::ops::Deref for Owner {
+    type Target = str;
+
+    fn deref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for Owner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
     }
 }
 
@@ -545,34 +602,21 @@ impl Transfers {
         self.stop_sweeper_when_idle();
     }
 
-    /// The conversation was deleted: every grant and phone transfer on it ends now, and a call on it that is in flight finds it revoked
-    /// (Node's `retainSessions`).
-    pub fn revoke_session(&self, session: &str) {
+    /// The catalog dropped the conversation (Node's `retainSessions`): every grant and phone transfer on it ends now, in the same step
+    /// the catalog change is published, and a call on it that is in flight finds it removed.
+    pub fn remove_session(&self, session: &str) {
         let _reporting = Reporting(self);
         let mut gate = self.generations.lock().expect("generations");
         *gate.sessions.entry(session.to_owned()).or_default() += 1;
+        gate.removed.insert(session.to_owned());
         self.grants.lock().expect("transfer grants").retain(|(_, g)| g.session != session);
         self.reads.lock().expect("transfer reads").retain(|_, r| r.session != session);
         self.stop_sweeper_when_idle();
     }
 
-    /// The conversations the grants and phone transfers held belong to.
-    pub fn held_sessions(&self) -> Vec<String> {
-        let mut sessions: Vec<String> = self.grants.lock().expect("transfer grants").iter().map(|(_, g)| g.session.clone()).collect();
-        sessions.extend(self.reads.lock().expect("transfer reads").values().filter(|r| r.lease.is_some()).map(|r| r.session.clone()));
-        sessions.sort();
-        sessions.dedup();
-        sessions
-    }
-
-    /// The conversation a grant or phone transfer of `owners` belongs to, if one is held under `id`.
-    pub fn session_of(&self, owners: &[&str], id: &str) -> Option<String> {
-        let grants = self.grants.lock().expect("transfer grants");
-        if let Some((_, grant)) = grants.iter().find(|(grant, g)| grant == id && owners.contains(&g.owner.as_str())) {
-            return Some(grant.session.clone());
-        }
-        drop(grants);
-        self.reads.lock().expect("transfer reads").get(id).filter(|r| r.lease.is_some() && owners.contains(&r.owner.as_str())).map(|r| r.session.clone())
+    /// Whether `owners` still hold the transfer `id`: the last look a call takes before it answers.
+    pub fn holds(&self, owners: &[&str], id: &str) -> bool {
+        self.reads.lock().expect("transfer reads").get(id).is_some_and(|r| owners.contains(&r.owner.as_str()))
     }
 
     /// The relay closed, or this host unpaired every device.
@@ -598,9 +642,7 @@ impl Transfers {
         let grant_id = new_id();
         // Checking the marks and publishing the grant are one step for a revoke (Node's `stillAuthorized` and `addGrant`, synchronous).
         let gate = self.generations.lock().expect("generations");
-        if gate.of(owner, session) != mark {
-            return Err(WsError::expired());
-        }
+        gate.still_authorized(owner, session, mark)?;
         let expires_at = self.now_ms() + GRANT_TTL_MS;
         {
             let mut grants = self.grants.lock().expect("transfer grants");
@@ -652,9 +694,7 @@ impl Transfers {
         self.point("begin.verify");
         // The check and the publication of the transfer are one step for a revoke.
         let gate = self.generations.lock().expect("generations");
-        if gate.of(owner, &grant.session) != mark {
-            return Err(WsError::expired());
-        }
+        gate.still_authorized(owner, &grant.session, mark)?;
         let mut reads = self.reads.lock().expect("transfer reads");
         if reads.values().filter(|r| r.owner == owner && r.lease.is_some()).count() >= MAX_LEASES_PER_DEVICE {
             return Err(download("file-download:busy", "Too many downloads are in progress on this device."));
@@ -856,17 +896,26 @@ impl Transfers {
             return Err(WsError::invalid("offset is past the end of the file."));
         }
         let length = length.min(RANGE_MAX_BYTES).min(size - offset);
+        // Where Node's `handle.read` is held (and so where something else happens to the host meanwhile).
+        self.point("read.read");
         let mut data = vec![0u8; length as usize];
         let mut filled = 0usize;
         while filled < data.len() {
             let n = read_at(&file, &mut data[filled..], offset + filled as u64)?;
             if n == 0 {
+                // The file ended before the window did (truncated after it was checked): Node's `readExact` rejects `changed`, and
+                // `readLease` drops the lease on it.
+                if location.is_some() {
+                    self.reads.lock().expect("transfer reads").remove(id);
+                    self.stop_sweeper_when_idle();
+                    return Err(download_changed());
+                }
                 return Err(WsError::changed());
             }
             filled += n;
         }
-        self.point("read.read");
-        // Revoked while reading: nothing more leaves the transfer.
+        let data = STANDARD.encode(&data);
+        // Revoked while reading: nothing more leaves the transfer. This look is the last step before the answer is built.
         {
             let mut reads = self.reads.lock().expect("transfer reads");
             let read = reads.get_mut(id).filter(|r| owners.contains(&r.owner.as_str())).ok_or_else(WsError::expired)?;
@@ -874,14 +923,9 @@ impl Transfers {
                 lease.idle_until = self.now_ms() + LEASE_IDLE_MS;
             }
         }
-        Ok(Range {
-            transfer_id: id.to_owned(),
-            offset,
-            length,
-            eof: offset + length >= size,
-            version,
-            data: STANDARD.encode(&data),
-        })
+        let range = Range { transfer_id: id.to_owned(), offset, length, eof: offset + length >= size, version, data };
+        self.point("read.checked");
+        Ok(range)
     }
 
     /// Ends a transfer, or an unredeemed grant, of `owner`; whether anything was released.
@@ -1224,6 +1268,21 @@ pub fn open_session_download(path: &str, cwd: &str, project: Option<&Path>, proj
         return Err(download("file-download:outside-project", "The link resolves outside the conversation's project."));
     }
     Ok(offered(&requested, real, file))
+}
+
+/// A media asset, by the file the host resolved its id to (`authorizeMediaAsset`): an absolute path, opened and proved like any file. The
+/// offered name is the entry's, and the type is the entry's own when it states one, else the real path's.
+pub fn open_media_download(entry: Option<&crate::grants::MediaEntry>, between: &dyn Fn(&str)) -> WsResult<DownloadFile> {
+    let gone = || download("file-download:not-found", "This media file is not available.");
+    let entry = entry.ok_or_else(gone)?;
+    if !is_absolute_path(&entry.path) {
+        return Err(gone());
+    }
+    let path = Path::new(&entry.path);
+    let (real, file) = open_regular(path, between)?;
+    let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+    let mime_type = entry.mime.as_deref().filter(|mime| !mime.is_empty()).map_or_else(|| mime_type(&real).to_owned(), str::to_owned);
+    Ok(DownloadFile { file, location: real, name, mime_type })
 }
 
 fn upload_gone() -> WsError {
@@ -1627,39 +1686,38 @@ mod tests {
         assert!(range_of(&t, "other", &kept).is_ok());
     }
 
-    /// A deletion ends what the conversation held and nothing else, in every window: the table answers a call of a deleted conversation
-    /// as Node's does once the conversation is gone (`session deleted before begin`, `session deleted between ranges`); the service turns
-    /// a call whose conversation left meanwhile into `unavailable` (`transfer::replay`: session deleted during begin / authorize).
+    /// A deletion ends what the conversation held and nothing else, in every window, and the answer is Node's for the window: a begin or an
+    /// authorize that the deletion lands in the middle of is `unavailable` (`session deleted during begin` / `during authorize`), a call
+    /// that finds the grant or the transfer already gone is `expired` (`session deleted before begin`, `between ranges`). A conversation
+    /// that is gone stays gone, so each window has a conversation of its own.
     #[test]
     fn a_deleted_conversation_ends_its_grants_and_transfers_in_every_window() {
         let dir = tempfile::tempdir().unwrap();
         let t = Arc::new(Transfers::default());
         let grant = grant_of(&t, dir.path(), "dev", "s1");
-        let refused = frame_of_call("session deleted before begin", 2);
-        at(&t, "begin.taken", |t| t.revoke_session("s1"));
-        assert_refused_as(t.begin_grant("dev", &grant.grant_id).unwrap_err(), &refused);
-        let grant = grant_of(&t, dir.path(), "dev", "s1");
-        at(&t, "begin.verify", |t| t.revoke_session("s1"));
-        assert_refused_as(t.begin_grant("dev", &grant.grant_id).unwrap_err(), &refused);
+        at(&t, "begin.taken", |t| t.remove_session("s1"));
+        assert_refused_as(t.begin_grant("dev", &grant.grant_id).unwrap_err(), &frame_of_held("session deleted during begin"));
+        let grant = grant_of(&t, dir.path(), "dev", "s3");
+        at(&t, "begin.verify", |t| t.remove_session("s3"));
+        assert_refused_as(t.begin_grant("dev", &grant.grant_id).unwrap_err(), &frame_of_held("session deleted during begin"));
         t.on_point(None);
         assert_eq!(t.held_downloads(), open_in("session deleted during begin", 0));
-        let unbegun = grant_of(&t, dir.path(), "dev", "s1");
+        let unbegun = grant_of(&t, dir.path(), "dev", "s4");
         let kept = grant_of(&t, dir.path(), "dev", "s2");
         let live = t.begin_grant("dev", &kept.grant_id).unwrap();
         assert_eq!(t.held_downloads(), open_in("session deleted before begin", 0));
-        t.revoke_session("s1");
+        t.remove_session("s4");
         assert_eq!(t.held_downloads(), open_in("session deleted before begin", 1));
         assert_refused_as(t.begin_grant("dev", &unbegun.grant_id).unwrap_err(), &frame_of_call("session deleted before begin", 2));
         assert!(range_of(&t, "dev", &live).is_ok(), "the other conversation's transfer lives");
-        at(&t, "authorize.opened", |t| t.revoke_session("s2"));
+        at(&t, "authorize.opened", |t| t.remove_session("s2"));
         let opened = open_session_download(&dir.path().join("a.bin").to_string_lossy(), "", None, None, &|_| {}).unwrap();
         let mark = t.mark("dev", "s2");
-        assert!(t.authorize("dev", "s2", mark, opened).is_err());
+        assert_refused_as(t.authorize("dev", "s2", mark, opened).unwrap_err(), &frame_of_held("session deleted during authorize"));
         t.on_point(None);
         assert_refused_as(range_of(&t, "dev", &live).unwrap_err(), &frame_of_call("session deleted between ranges", 3));
         assert_eq!(t.held_downloads(), open_in("session deleted between ranges", 0));
     }
-
     /// A folder `link` that is another folder `target` (a junction on Windows, a symlink elsewhere): an ancestor swapped for a link.
     pub(super) fn link_folder(target: &Path, link: &Path) {
         #[cfg(windows)]

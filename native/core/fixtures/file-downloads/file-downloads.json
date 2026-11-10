@@ -32,6 +32,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 1,
             "ok": true,
@@ -51,6 +66,14 @@
           "method": "fileDownloadBegin",
           "params": [
             "<grantId#0>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#0>"
+              ]
+            }
           ],
           "frame": {
             "id": 2,
@@ -78,6 +101,14 @@
           "params": [
             "<grantId#0>"
           ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#0>"
+              ]
+            }
+          ],
           "frame": {
             "id": 3,
             "ok": false,
@@ -91,6 +122,14 @@
           "method": "fileDownloadBegin",
           "params": [
             "00000000-0000-4000-8000-000000000000"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "00000000-0000-4000-8000-000000000000"
+              ]
+            }
           ],
           "frame": {
             "id": 4,
@@ -106,6 +145,7 @@
           "params": [
             "not-an-id"
           ],
+          "service": [],
           "frame": {
             "id": 5,
             "ok": false,
@@ -117,6 +157,7 @@
           "device": "phone",
           "method": "fileDownloadBegin",
           "params": [],
+          "service": [],
           "frame": {
             "id": 6,
             "ok": false,
@@ -132,6 +173,17 @@
             0,
             4,
             "<version#0>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#0>",
+                0,
+                4,
+                "<version#0>"
+              ]
+            }
           ],
           "frame": {
             "id": 7,
@@ -165,6 +217,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 8,
             "ok": true,
@@ -184,6 +251,14 @@
           "method": "fileDownloadBegin",
           "params": [
             "<grantId#1>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#1>"
+              ]
+            }
           ],
           "frame": {
             "id": 9,
@@ -214,6 +289,17 @@
             4,
             "<version#1>"
           ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#1>",
+                0,
+                4,
+                "<version#1>"
+              ]
+            }
+          ],
           "frame": {
             "id": 10,
             "ok": true,
@@ -236,6 +322,17 @@
             4,
             4,
             "<version#1>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#1>",
+                4,
+                4,
+                "<version#1>"
+              ]
+            }
           ],
           "frame": {
             "id": 11,
@@ -260,6 +357,17 @@
             100,
             "<version#1>"
           ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#1>",
+                12,
+                100,
+                "<version#1>"
+              ]
+            }
+          ],
           "frame": {
             "id": 12,
             "ok": true,
@@ -282,6 +390,17 @@
             0,
             16,
             "<version#1>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#1>",
+                0,
+                16,
+                "<version#1>"
+              ]
+            }
           ],
           "frame": {
             "id": 13,
@@ -306,6 +425,17 @@
             4,
             "<version#1>"
           ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#1>",
+                16,
+                4,
+                "<version#1>"
+              ]
+            }
+          ],
           "frame": {
             "id": 14,
             "ok": true,
@@ -329,6 +459,17 @@
             4,
             "<version#1>"
           ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#1>",
+                17,
+                4,
+                "<version#1>"
+              ]
+            }
+          ],
           "frame": {
             "id": 15,
             "ok": false,
@@ -345,6 +486,7 @@
             0,
             "<version#1>"
           ],
+          "service": [],
           "frame": {
             "id": 16,
             "ok": false,
@@ -361,6 +503,7 @@
             4194305,
             "<version#1>"
           ],
+          "service": [],
           "frame": {
             "id": 17,
             "ok": false,
@@ -377,6 +520,7 @@
             4,
             "<version#1>"
           ],
+          "service": [],
           "frame": {
             "id": 18,
             "ok": false,
@@ -393,6 +537,7 @@
             4,
             "<version#1>"
           ],
+          "service": [],
           "frame": {
             "id": 19,
             "ok": false,
@@ -409,6 +554,7 @@
             4,
             "<version#1>"
           ],
+          "service": [],
           "frame": {
             "id": 20,
             "ok": false,
@@ -425,6 +571,7 @@
             4,
             "<version#1>"
           ],
+          "service": [],
           "frame": {
             "id": 21,
             "ok": false,
@@ -441,6 +588,7 @@
             4,
             "short"
           ],
+          "service": [],
           "frame": {
             "id": 22,
             "ok": false,
@@ -456,6 +604,17 @@
             0,
             4,
             "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#1>",
+                0,
+                4,
+                "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+              ]
+            }
           ],
           "frame": {
             "id": 23,
@@ -474,6 +633,17 @@
             4,
             "<version#1>"
           ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "00000000-0000-4000-8000-000000000000",
+                0,
+                4,
+                "<version#1>"
+              ]
+            }
+          ],
           "frame": {
             "id": 24,
             "ok": false,
@@ -491,6 +661,7 @@
             4,
             "<version#1>"
           ],
+          "service": [],
           "frame": {
             "id": 25,
             "ok": false,
@@ -506,6 +677,17 @@
             0,
             4,
             "<version#1>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#1>",
+                0,
+                4,
+                "<version#1>"
+              ]
+            }
           ],
           "frame": {
             "id": 26,
@@ -545,6 +727,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/empty.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 27,
             "ok": true,
@@ -564,6 +761,14 @@
           "method": "fileDownloadBegin",
           "params": [
             "<grantId#2>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#2>"
+              ]
+            }
           ],
           "frame": {
             "id": 28,
@@ -594,6 +799,17 @@
             4,
             "<version#2>"
           ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#2>",
+                0,
+                4,
+                "<version#2>"
+              ]
+            }
+          ],
           "frame": {
             "id": 29,
             "ok": true,
@@ -617,6 +833,17 @@
             4,
             "<version#2>"
           ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#2>",
+                1,
+                4,
+                "<version#2>"
+              ]
+            }
+          ],
           "frame": {
             "id": 30,
             "ok": false,
@@ -629,6 +856,14 @@
           "method": "fileDownloadFinish",
           "params": [
             "<transferId#2>"
+          ],
+          "service": [
+            {
+              "method": "finish",
+              "args": [
+                "<transferId#2>"
+              ]
+            }
           ],
           "frame": {
             "id": 31,
@@ -665,6 +900,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 32,
             "ok": true,
@@ -684,6 +934,14 @@
           "method": "fileDownloadBegin",
           "params": [
             "<grantId#3>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#3>"
+              ]
+            }
           ],
           "frame": {
             "id": 33,
@@ -711,6 +969,14 @@
           "params": [
             "<transferId#3>"
           ],
+          "service": [
+            {
+              "method": "finish",
+              "args": [
+                "<transferId#3>"
+              ]
+            }
+          ],
           "frame": {
             "id": 34,
             "ok": true,
@@ -727,6 +993,14 @@
           "method": "fileDownloadFinish",
           "params": [
             "<transferId#3>"
+          ],
+          "service": [
+            {
+              "method": "finish",
+              "args": [
+                "<transferId#3>"
+              ]
+            }
           ],
           "frame": {
             "id": 35,
@@ -745,6 +1019,17 @@
             4,
             "<version#3>"
           ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#3>",
+                0,
+                4,
+                "<version#3>"
+              ]
+            }
+          ],
           "frame": {
             "id": 36,
             "ok": false,
@@ -759,6 +1044,7 @@
           "params": [
             "x"
           ],
+          "service": [],
           "frame": {
             "id": 37,
             "ok": false,
@@ -777,6 +1063,21 @@
                 "path": "<dir>/a.bin"
               },
               "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
             }
           ],
           "frame": {
@@ -798,6 +1099,14 @@
           "method": "fileDownloadBegin",
           "params": [
             "<grantId#4>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#4>"
+              ]
+            }
           ],
           "frame": {
             "id": 39,
@@ -825,6 +1134,14 @@
           "params": [
             "<transferId#4>"
           ],
+          "service": [
+            {
+              "method": "abort",
+              "args": [
+                "<transferId#4>"
+              ]
+            }
+          ],
           "frame": {
             "id": 40,
             "ok": true,
@@ -838,6 +1155,14 @@
           "params": [
             "<transferId#4>"
           ],
+          "service": [
+            {
+              "method": "abort",
+              "args": [
+                "<transferId#4>"
+              ]
+            }
+          ],
           "frame": {
             "id": 41,
             "ok": true,
@@ -850,6 +1175,14 @@
           "method": "fileDownloadAbort",
           "params": [
             "<transferId#4>"
+          ],
+          "service": [
+            {
+              "method": "abort",
+              "args": [
+                "<transferId#4>"
+              ]
+            }
           ],
           "frame": {
             "id": 42,
@@ -866,6 +1199,17 @@
             0,
             4,
             "<version#3>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#4>",
+                0,
+                4,
+                "<version#3>"
+              ]
+            }
           ],
           "frame": {
             "id": 43,
@@ -888,6 +1232,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 44,
             "ok": true,
@@ -908,6 +1267,14 @@
           "params": [
             "<grantId#5>"
           ],
+          "service": [
+            {
+              "method": "abort",
+              "args": [
+                "<grantId#5>"
+              ]
+            }
+          ],
           "frame": {
             "id": 45,
             "ok": true,
@@ -921,6 +1288,14 @@
           "params": [
             "<grantId#5>"
           ],
+          "service": [
+            {
+              "method": "abort",
+              "args": [
+                "<grantId#5>"
+              ]
+            }
+          ],
           "frame": {
             "id": 46,
             "ok": true,
@@ -933,6 +1308,14 @@
           "method": "fileDownloadBegin",
           "params": [
             "<grantId#5>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#5>"
+              ]
+            }
           ],
           "frame": {
             "id": 47,
@@ -948,6 +1331,14 @@
           "params": [
             "00000000-0000-4000-8000-000000000000"
           ],
+          "service": [
+            {
+              "method": "abort",
+              "args": [
+                "00000000-0000-4000-8000-000000000000"
+              ]
+            }
+          ],
           "frame": {
             "id": 48,
             "ok": true,
@@ -961,6 +1352,7 @@
           "params": [
             "x"
           ],
+          "service": [],
           "frame": {
             "id": 49,
             "ok": false,
@@ -972,6 +1364,7 @@
           "device": "phone",
           "method": "fileDownloadAbort",
           "params": [],
+          "service": [],
           "frame": {
             "id": 50,
             "ok": false,
@@ -1003,6 +1396,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 51,
             "ok": true,
@@ -1026,6 +1434,14 @@
           "method": "fileDownloadBegin",
           "params": [
             "<grantId#6>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#6>"
+              ]
+            }
           ],
           "frame": {
             "id": 52,
@@ -1060,6 +1476,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 53,
             "ok": true,
@@ -1084,6 +1515,14 @@
           "params": [
             "<grantId#7>"
           ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#7>"
+              ]
+            }
+          ],
           "frame": {
             "id": 54,
             "ok": false,
@@ -1103,6 +1542,21 @@
                 "path": "<dir>/a.bin"
               },
               "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
             }
           ],
           "frame": {
@@ -1129,6 +1583,14 @@
           "params": [
             "<grantId#8>"
           ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#8>"
+              ]
+            }
+          ],
           "frame": {
             "id": 56,
             "ok": false,
@@ -1148,6 +1610,21 @@
                 "path": "<dir>/a.bin"
               },
               "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
             }
           ],
           "frame": {
@@ -1181,6 +1658,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 58,
             "ok": true,
@@ -1205,6 +1697,14 @@
           "params": [
             "<grantId#9>"
           ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#9>"
+              ]
+            }
+          ],
           "frame": {
             "id": 59,
             "ok": false,
@@ -1218,6 +1718,14 @@
           "method": "fileDownloadBegin",
           "params": [
             "<grantId#10>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#10>"
+              ]
+            }
           ],
           "frame": {
             "id": 60,
@@ -1252,6 +1760,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 61,
             "ok": true,
@@ -1275,6 +1798,14 @@
           "method": "fileDownloadAbort",
           "params": [
             "<grantId#11>"
+          ],
+          "service": [
+            {
+              "method": "abort",
+              "args": [
+                "<grantId#11>"
+              ]
+            }
           ],
           "frame": {
             "id": 62,
@@ -1307,6 +1838,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 63,
             "ok": true,
@@ -1326,6 +1872,14 @@
           "method": "fileDownloadBegin",
           "params": [
             "<grantId#12>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#12>"
+              ]
+            }
           ],
           "frame": {
             "id": 64,
@@ -1360,6 +1914,17 @@
             4,
             "<version#5>"
           ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#7>",
+                0,
+                4,
+                "<version#5>"
+              ]
+            }
+          ],
           "frame": {
             "id": 65,
             "ok": true,
@@ -1386,6 +1951,17 @@
             4,
             4,
             "<version#5>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#7>",
+                4,
+                4,
+                "<version#5>"
+              ]
+            }
           ],
           "frame": {
             "id": 66,
@@ -1414,6 +1990,17 @@
             4,
             "<version#5>"
           ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#7>",
+                8,
+                4,
+                "<version#5>"
+              ]
+            }
+          ],
           "frame": {
             "id": 67,
             "ok": false,
@@ -1435,6 +2022,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 68,
             "ok": true,
@@ -1454,6 +2056,14 @@
           "method": "fileDownloadBegin",
           "params": [
             "<grantId#13>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#13>"
+              ]
+            }
           ],
           "frame": {
             "id": 69,
@@ -1488,6 +2098,17 @@
             4,
             "<version#5>"
           ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#8>",
+                0,
+                4,
+                "<version#5>"
+              ]
+            }
+          ],
           "frame": {
             "id": 70,
             "ok": true,
@@ -1514,6 +2135,17 @@
             0,
             4,
             "<version#5>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#8>",
+                0,
+                4,
+                "<version#5>"
+              ]
+            }
           ],
           "frame": {
             "id": 71,
@@ -1542,6 +2174,17 @@
             4,
             "<version#5>"
           ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#8>",
+                0,
+                4,
+                "<version#5>"
+              ]
+            }
+          ],
           "frame": {
             "id": 72,
             "ok": true,
@@ -1568,6 +2211,17 @@
             0,
             4,
             "<version#5>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#8>",
+                0,
+                4,
+                "<version#5>"
+              ]
+            }
           ],
           "frame": {
             "id": 73,
@@ -1596,6 +2250,17 @@
             4,
             "<version#5>"
           ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#8>",
+                0,
+                4,
+                "<version#5>"
+              ]
+            }
+          ],
           "frame": {
             "id": 74,
             "ok": true,
@@ -1622,6 +2287,17 @@
             0,
             4,
             "<version#5>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#8>",
+                0,
+                4,
+                "<version#5>"
+              ]
+            }
           ],
           "frame": {
             "id": 75,
@@ -1650,6 +2326,17 @@
             4,
             "<version#5>"
           ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#8>",
+                0,
+                4,
+                "<version#5>"
+              ]
+            }
+          ],
           "frame": {
             "id": 76,
             "ok": true,
@@ -1676,6 +2363,17 @@
             0,
             4,
             "<version#5>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#8>",
+                0,
+                4,
+                "<version#5>"
+              ]
+            }
           ],
           "frame": {
             "id": 77,
@@ -1704,6 +2402,17 @@
             4,
             "<version#5>"
           ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#8>",
+                0,
+                4,
+                "<version#5>"
+              ]
+            }
+          ],
           "frame": {
             "id": 78,
             "ok": true,
@@ -1730,6 +2439,17 @@
             0,
             4,
             "<version#5>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#8>",
+                0,
+                4,
+                "<version#5>"
+              ]
+            }
           ],
           "frame": {
             "id": 79,
@@ -1758,6 +2478,17 @@
             4,
             "<version#5>"
           ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#8>",
+                0,
+                4,
+                "<version#5>"
+              ]
+            }
+          ],
           "frame": {
             "id": 80,
             "ok": true,
@@ -1784,6 +2515,17 @@
             0,
             4,
             "<version#5>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#8>",
+                0,
+                4,
+                "<version#5>"
+              ]
+            }
           ],
           "frame": {
             "id": 81,
@@ -1812,6 +2554,17 @@
             4,
             "<version#5>"
           ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#8>",
+                0,
+                4,
+                "<version#5>"
+              ]
+            }
+          ],
           "frame": {
             "id": 82,
             "ok": true,
@@ -1838,6 +2591,17 @@
             0,
             4,
             "<version#5>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#8>",
+                0,
+                4,
+                "<version#5>"
+              ]
+            }
           ],
           "frame": {
             "id": 83,
@@ -1866,6 +2630,17 @@
             4,
             "<version#5>"
           ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#8>",
+                0,
+                4,
+                "<version#5>"
+              ]
+            }
+          ],
           "frame": {
             "id": 84,
             "ok": true,
@@ -1892,6 +2667,17 @@
             0,
             4,
             "<version#5>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#8>",
+                0,
+                4,
+                "<version#5>"
+              ]
+            }
           ],
           "frame": {
             "id": 85,
@@ -1920,6 +2706,17 @@
             4,
             "<version#5>"
           ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#8>",
+                0,
+                4,
+                "<version#5>"
+              ]
+            }
+          ],
           "frame": {
             "id": 86,
             "ok": true,
@@ -1946,6 +2743,17 @@
             0,
             4,
             "<version#5>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#8>",
+                0,
+                4,
+                "<version#5>"
+              ]
+            }
           ],
           "frame": {
             "id": 87,
@@ -1974,6 +2782,17 @@
             4,
             "<version#5>"
           ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#8>",
+                0,
+                4,
+                "<version#5>"
+              ]
+            }
+          ],
           "frame": {
             "id": 88,
             "ok": false,
@@ -1987,6 +2806,14 @@
           "method": "fileDownloadFinish",
           "params": [
             "<transferId#8>"
+          ],
+          "service": [
+            {
+              "method": "finish",
+              "args": [
+                "<transferId#8>"
+              ]
+            }
           ],
           "frame": {
             "id": 89,
@@ -2020,6 +2847,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 90,
             "ok": true,
@@ -2045,6 +2887,21 @@
                 "path": "<dir>/a.bin"
               },
               "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
             }
           ],
           "frame": {
@@ -2074,6 +2931,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 92,
             "ok": true,
@@ -2099,6 +2971,21 @@
                 "path": "<dir>/a.bin"
               },
               "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
             }
           ],
           "frame": {
@@ -2128,6 +3015,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 94,
             "ok": true,
@@ -2153,6 +3055,21 @@
                 "path": "<dir>/a.bin"
               },
               "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
             }
           ],
           "frame": {
@@ -2182,6 +3099,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 96,
             "ok": true,
@@ -2207,6 +3139,21 @@
                 "path": "<dir>/a.bin"
               },
               "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
             }
           ],
           "frame": {
@@ -2236,6 +3183,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 98,
             "ok": true,
@@ -2263,6 +3225,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 99,
             "ok": true,
@@ -2283,6 +3260,14 @@
           "params": [
             "<grantId#14>"
           ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#14>"
+              ]
+            }
+          ],
           "frame": {
             "id": 100,
             "ok": false,
@@ -2296,6 +3281,14 @@
           "method": "fileDownloadBegin",
           "params": [
             "<grantId#15>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#15>"
+              ]
+            }
           ],
           "frame": {
             "id": 101,
@@ -2323,6 +3316,14 @@
           "params": [
             "<grantId#22>"
           ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#22>"
+              ]
+            }
+          ],
           "frame": {
             "id": 102,
             "ok": true,
@@ -2349,6 +3350,14 @@
           "params": [
             "<grantId#23>"
           ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#23>"
+              ]
+            }
+          ],
           "frame": {
             "id": 103,
             "ok": false,
@@ -2362,6 +3371,14 @@
           "method": "fileDownloadBegin",
           "params": [
             "<grantId#23>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#23>"
+              ]
+            }
           ],
           "frame": {
             "id": 104,
@@ -2407,6 +3424,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 105,
             "ok": true,
@@ -2426,6 +3458,14 @@
           "method": "fileDownloadBegin",
           "params": [
             "<grantId#24>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#24>"
+              ]
+            }
           ],
           "frame": {
             "id": 106,
@@ -2460,6 +3500,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 107,
             "ok": true,
@@ -2479,6 +3534,14 @@
           "method": "fileDownloadBegin",
           "params": [
             "<grantId#25>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#25>"
+              ]
+            }
           ],
           "frame": {
             "id": 108,
@@ -2513,6 +3576,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 109,
             "ok": true,
@@ -2532,6 +3610,14 @@
           "method": "fileDownloadBegin",
           "params": [
             "<grantId#26>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#26>"
+              ]
+            }
           ],
           "frame": {
             "id": 110,
@@ -2566,6 +3652,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 111,
             "ok": true,
@@ -2585,6 +3686,14 @@
           "method": "fileDownloadBegin",
           "params": [
             "<grantId#27>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#27>"
+              ]
+            }
           ],
           "frame": {
             "id": 112,
@@ -2619,6 +3728,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 113,
             "ok": true,
@@ -2639,6 +3763,14 @@
           "params": [
             "<grantId#28>"
           ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#28>"
+              ]
+            }
+          ],
           "frame": {
             "id": 114,
             "ok": false,
@@ -2652,6 +3784,14 @@
           "method": "fileDownloadBegin",
           "params": [
             "<grantId#28>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#28>"
+              ]
+            }
           ],
           "frame": {
             "id": 115,
@@ -2674,6 +3814,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 116,
             "ok": true,
@@ -2693,6 +3848,14 @@
           "method": "fileDownloadBegin",
           "params": [
             "<grantId#29>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#29>"
+              ]
+            }
           ],
           "frame": {
             "id": 117,
@@ -2727,6 +3890,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 118,
             "ok": true,
@@ -2747,6 +3925,14 @@
           "params": [
             "<transferId#12>"
           ],
+          "service": [
+            {
+              "method": "finish",
+              "args": [
+                "<transferId#12>"
+              ]
+            }
+          ],
           "frame": {
             "id": 119,
             "ok": true,
@@ -2763,6 +3949,14 @@
           "method": "fileDownloadBegin",
           "params": [
             "<grantId#30>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#30>"
+              ]
+            }
           ],
           "frame": {
             "id": 120,
@@ -2823,6 +4017,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/exact.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 121,
             "ok": true,
@@ -2842,6 +4051,14 @@
           "method": "fileDownloadBegin",
           "params": [
             "<grantId#31>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#31>"
+              ]
+            }
           ],
           "frame": {
             "id": 122,
@@ -2874,6 +4091,21 @@
                 "path": "<dir>/over.bin"
               },
               "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/over.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
             }
           ],
           "frame": {
@@ -2935,6 +4167,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "project",
+                    "sessionId": "s1",
+                    "relPath": "out.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 124,
             "ok": true,
@@ -2960,6 +4207,21 @@
                 "relPath": "sub/deep.txt"
               },
               "purpose": "share"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "project",
+                    "sessionId": "s1",
+                    "relPath": "sub/deep.txt"
+                  },
+                  "purpose": "share"
+                }
+              ]
             }
           ],
           "frame": {
@@ -2989,6 +4251,21 @@
               "purpose": "open"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "project",
+                    "sessionId": "s1",
+                    "relPath": "sub/../out.bin"
+                  },
+                  "purpose": "open"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 126,
             "ok": true,
@@ -3016,6 +4293,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "project",
+                    "sessionId": "s1",
+                    "relPath": "../outside/note.md"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 127,
             "ok": false,
@@ -3035,6 +4327,21 @@
                 "relPath": "missing.bin"
               },
               "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "project",
+                    "sessionId": "s1",
+                    "relPath": "missing.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
             }
           ],
           "frame": {
@@ -3058,6 +4365,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "project",
+                    "sessionId": "s1",
+                    "relPath": "folder"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 129,
             "ok": false,
@@ -3079,6 +4401,7 @@
               "purpose": "save"
             }
           ],
+          "service": [],
           "frame": {
             "id": 130,
             "ok": false,
@@ -3097,6 +4420,21 @@
                 "relPath": "work.txt"
               },
               "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "project",
+                    "sessionId": "s2",
+                    "relPath": "work.txt"
+                  },
+                  "purpose": "save"
+                }
+              ]
             }
           ],
           "frame": {
@@ -3120,6 +4458,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "project",
+                    "sessionId": "s9",
+                    "relPath": "work.txt"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 132,
             "ok": false,
@@ -3139,6 +4492,21 @@
                 "path": "<dir>/project/out.bin"
               },
               "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/project/out.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
             }
           ],
           "frame": {
@@ -3168,6 +4536,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/outside/note.md"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 134,
             "ok": true,
@@ -3193,6 +4576,21 @@
                 "path": "<dir>/task/work.txt"
               },
               "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s2",
+                    "path": "<dir>/task/work.txt"
+                  },
+                  "purpose": "save"
+                }
+              ]
             }
           ],
           "frame": {
@@ -3222,6 +4620,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/outside/missing.md"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 136,
             "ok": false,
@@ -3241,6 +4654,21 @@
                 "path": "<dir>/project/folder"
               },
               "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/project/folder"
+                  },
+                  "purpose": "save"
+                }
+              ]
             }
           ],
           "frame": {
@@ -3264,6 +4692,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/outside"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 138,
             "ok": false,
@@ -3283,6 +4726,21 @@
                 "path": "//server/share/x.txt"
               },
               "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "//server/share/x.txt"
+                  },
+                  "purpose": "save"
+                }
+              ]
             }
           ],
           "frame": {
@@ -3306,6 +4764,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s9",
+                    "path": "<dir>/outside/note.md"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 140,
             "ok": false,
@@ -3324,6 +4797,7 @@
           "device": "phone",
           "method": "fileDownloadAuthorize",
           "params": [],
+          "service": [],
           "frame": {
             "id": 141,
             "ok": false,
@@ -3337,6 +4811,7 @@
           "params": [
             null
           ],
+          "service": [],
           "frame": {
             "id": 142,
             "ok": false,
@@ -3350,6 +4825,7 @@
           "params": [
             []
           ],
+          "service": [],
           "frame": {
             "id": 143,
             "ok": false,
@@ -3365,6 +4841,7 @@
               "purpose": "save"
             }
           ],
+          "service": [],
           "frame": {
             "id": 144,
             "ok": false,
@@ -3384,6 +4861,7 @@
               }
             }
           ],
+          "service": [],
           "frame": {
             "id": 145,
             "ok": false,
@@ -3404,6 +4882,7 @@
               "purpose": "keep"
             }
           ],
+          "service": [],
           "frame": {
             "id": 146,
             "ok": false,
@@ -3423,6 +4902,7 @@
               "purpose": "save"
             }
           ],
+          "service": [],
           "frame": {
             "id": 147,
             "ok": false,
@@ -3443,6 +4923,7 @@
               "purpose": "save"
             }
           ],
+          "service": [],
           "frame": {
             "id": 148,
             "ok": false,
@@ -3463,6 +4944,7 @@
               "purpose": "save"
             }
           ],
+          "service": [],
           "frame": {
             "id": 149,
             "ok": false,
@@ -3482,6 +4964,7 @@
               "purpose": "save"
             }
           ],
+          "service": [],
           "frame": {
             "id": 150,
             "ok": false,
@@ -3502,6 +4985,7 @@
               "purpose": "save"
             }
           ],
+          "service": [],
           "frame": {
             "id": 151,
             "ok": false,
@@ -3522,6 +5006,7 @@
               "purpose": "save"
             }
           ],
+          "service": [],
           "frame": {
             "id": 152,
             "ok": false,
@@ -3542,6 +5027,7 @@
               "purpose": "save"
             }
           ],
+          "service": [],
           "frame": {
             "id": 153,
             "ok": false,
@@ -3562,6 +5048,7 @@
               "purpose": "save"
             }
           ],
+          "service": [],
           "frame": {
             "id": 154,
             "ok": false,
@@ -3582,6 +5069,7 @@
               "purpose": "save"
             }
           ],
+          "service": [],
           "frame": {
             "id": 155,
             "ok": false,
@@ -3613,6 +5101,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 156,
             "ok": true,
@@ -3638,6 +5141,14 @@
           "params": [
             "<grantId#38>"
           ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#38>"
+              ]
+            }
+          ],
           "frame": {
             "id": 157,
             "ok": false,
@@ -3651,6 +5162,14 @@
           "method": "fileDownloadBegin",
           "params": [
             "<grantId#38>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#38>"
+              ]
+            }
           ],
           "frame": {
             "id": 158,
@@ -3678,6 +5197,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 159,
             "ok": true,
@@ -3697,6 +5231,14 @@
           "method": "fileDownloadBegin",
           "params": [
             "<grantId#39>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#39>"
+              ]
+            }
           ],
           "frame": {
             "id": 160,
@@ -3727,6 +5269,17 @@
             4,
             "<version#14>"
           ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#19>",
+                0,
+                4,
+                "<version#14>"
+              ]
+            }
+          ],
           "frame": {
             "id": 161,
             "ok": true,
@@ -3755,6 +5308,17 @@
             4,
             "<version#14>"
           ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#19>",
+                0,
+                4,
+                "<version#14>"
+              ]
+            }
+          ],
           "frame": {
             "id": 162,
             "ok": false,
@@ -3771,6 +5335,17 @@
             0,
             4,
             "<version#14>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#19>",
+                0,
+                4,
+                "<version#14>"
+              ]
+            }
           ],
           "frame": {
             "id": 163,
@@ -3798,6 +5373,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 164,
             "ok": true,
@@ -3817,6 +5407,14 @@
           "method": "fileDownloadBegin",
           "params": [
             "<grantId#40>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#40>"
+              ]
+            }
           ],
           "frame": {
             "id": 165,
@@ -3849,6 +5447,14 @@
           "params": [
             "<transferId#20>"
           ],
+          "service": [
+            {
+              "method": "finish",
+              "args": [
+                "<transferId#20>"
+              ]
+            }
+          ],
           "frame": {
             "id": 166,
             "ok": false,
@@ -3865,6 +5471,17 @@
             0,
             4,
             "<version#15>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#20>",
+                0,
+                4,
+                "<version#15>"
+              ]
+            }
           ],
           "frame": {
             "id": 167,
@@ -3889,6 +5506,21 @@
                 "path": "<dir>/a.bin"
               },
               "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
             }
           ],
           "frame": {
@@ -3923,6 +5555,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 169,
             "ok": true,
@@ -3943,6 +5590,14 @@
           "params": [
             "<grantId#41>"
           ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#41>"
+              ]
+            }
+          ],
           "frame": {
             "id": 170,
             "ok": false,
@@ -3956,6 +5611,14 @@
           "method": "fileDownloadBegin",
           "params": [
             "<grantId#41>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#41>"
+              ]
+            }
           ],
           "frame": {
             "id": 171,
@@ -3986,6 +5649,17 @@
             4,
             "<version#16>"
           ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#21>",
+                0,
+                4,
+                "<version#16>"
+              ]
+            }
+          ],
           "frame": {
             "id": 172,
             "ok": false,
@@ -3999,6 +5673,14 @@
           "method": "fileDownloadFinish",
           "params": [
             "<transferId#21>"
+          ],
+          "service": [
+            {
+              "method": "finish",
+              "args": [
+                "<transferId#21>"
+              ]
+            }
           ],
           "frame": {
             "id": 173,
@@ -4016,6 +5698,17 @@
             0,
             4,
             "<version#16>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#21>",
+                0,
+                4,
+                "<version#16>"
+              ]
+            }
           ],
           "frame": {
             "id": 174,
@@ -4044,6 +5737,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 175,
             "ok": true,
@@ -4064,6 +5772,14 @@
           "params": [
             "<grantId#42>"
           ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#42>"
+              ]
+            }
+          ],
           "frame": {
             "id": 176,
             "ok": false,
@@ -4077,6 +5793,14 @@
           "method": "fileDownloadBegin",
           "params": [
             "<grantId#42>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#42>"
+              ]
+            }
           ],
           "frame": {
             "id": 177,
@@ -4122,6 +5846,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 178,
             "ok": true,
@@ -4149,6 +5888,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 179,
             "ok": true,
@@ -4168,6 +5922,14 @@
           "method": "fileDownloadBegin",
           "params": [
             "<grantId#44>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#44>"
+              ]
+            }
           ],
           "frame": {
             "id": 180,
@@ -4202,6 +5964,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 181,
             "ok": true,
@@ -4221,6 +5998,14 @@
           "method": "fileDownloadBegin",
           "params": [
             "<grantId#45>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#45>"
+              ]
+            }
           ],
           "frame": {
             "id": 182,
@@ -4255,6 +6040,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 183,
             "ok": true,
@@ -4287,6 +6087,17 @@
             4,
             "<version#17>"
           ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#23>",
+                0,
+                4,
+                "<version#17>"
+              ]
+            }
+          ],
           "frame": {
             "id": 184,
             "ok": false,
@@ -4301,6 +6112,14 @@
           "params": [
             "<grantId#43>"
           ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#43>"
+              ]
+            }
+          ],
           "frame": {
             "id": 185,
             "ok": false,
@@ -4314,6 +6133,14 @@
           "method": "fileDownloadAbort",
           "params": [
             "<transferId#23>"
+          ],
+          "service": [
+            {
+              "method": "abort",
+              "args": [
+                "<transferId#23>"
+              ]
+            }
           ],
           "frame": {
             "id": 186,
@@ -4330,6 +6157,17 @@
             0,
             4,
             "<version#17>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#24>",
+                0,
+                4,
+                "<version#17>"
+              ]
+            }
           ],
           "frame": {
             "id": 187,
@@ -4358,6 +6196,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 188,
             "ok": true,
@@ -4377,6 +6230,14 @@
           "method": "fileDownloadBegin",
           "params": [
             "<grantId#47>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#47>"
+              ]
+            }
           ],
           "frame": {
             "id": 189,
@@ -4408,6 +6269,14 @@
           "params": [
             "<grantId#46>"
           ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#46>"
+              ]
+            }
+          ],
           "frame": {
             "id": 190,
             "ok": true,
@@ -4436,6 +6305,17 @@
             0,
             4,
             "<version#17>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#24>",
+                0,
+                4,
+                "<version#17>"
+              ]
+            }
           ],
           "frame": {
             "id": 191,
@@ -4475,6 +6355,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 192,
             "ok": true,
@@ -4502,6 +6397,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 193,
             "ok": true,
@@ -4521,6 +6431,14 @@
           "method": "fileDownloadBegin",
           "params": [
             "<grantId#49>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#49>"
+              ]
+            }
           ],
           "frame": {
             "id": 194,
@@ -4559,6 +6477,14 @@
           "params": [
             "<grantId#48>"
           ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#48>"
+              ]
+            }
+          ],
           "frame": {
             "id": 195,
             "ok": false,
@@ -4575,6 +6501,17 @@
             0,
             4,
             "<version#18>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#27>",
+                0,
+                4,
+                "<version#18>"
+              ]
+            }
           ],
           "frame": {
             "id": 196,
@@ -4597,6 +6534,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 197,
             "ok": true,
@@ -4616,6 +6568,14 @@
           "method": "fileDownloadBegin",
           "params": [
             "<grantId#50>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#50>"
+              ]
+            }
           ],
           "frame": {
             "id": 198,
@@ -4661,6 +6621,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 199,
             "ok": true,
@@ -4680,6 +6655,14 @@
           "method": "fileDownloadBegin",
           "params": [
             "<grantId#51>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#51>"
+              ]
+            }
           ],
           "frame": {
             "id": 200,
@@ -4714,6 +6697,17 @@
             0,
             4,
             "<version#19>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#29>",
+                0,
+                4,
+                "<version#19>"
+              ]
+            }
           ]
         },
         {
@@ -4749,6 +6743,17 @@
             4,
             "<version#19>"
           ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#29>",
+                0,
+                4,
+                "<version#19>"
+              ]
+            }
+          ],
           "frame": {
             "id": 202,
             "ok": false,
@@ -4781,6 +6786,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 203,
             "ok": true,
@@ -4805,6 +6825,14 @@
           "method": "fileDownloadBegin",
           "params": [
             "<grantId#52>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#52>"
+              ]
+            }
           ]
         },
         {
@@ -4837,6 +6865,14 @@
           "params": [
             "<grantId#52>"
           ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#52>"
+              ]
+            }
+          ],
           "frame": {
             "id": 205,
             "ok": false,
@@ -4858,6 +6894,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 206,
             "ok": true,
@@ -4877,6 +6928,14 @@
           "method": "fileDownloadBegin",
           "params": [
             "<grantId#53>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#53>"
+              ]
+            }
           ],
           "frame": {
             "id": 207,
@@ -4926,6 +6985,21 @@
               },
               "purpose": "save"
             }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
           ]
         },
         {
@@ -4965,6 +7039,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 209,
             "ok": true,
@@ -4984,6 +7073,14 @@
           "method": "fileDownloadBegin",
           "params": [
             "<grantId#54>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#54>"
+              ]
+            }
           ],
           "frame": {
             "id": 210,
@@ -5029,6 +7126,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 211,
             "ok": true,
@@ -5058,6 +7170,21 @@
                 "path": "<dir>/a.bin"
               },
               "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
             }
           ],
           "frame": {
@@ -5116,6 +7243,14 @@
           "params": [
             "<grantId#56>"
           ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#56>"
+              ]
+            }
+          ],
           "frame": {
             "id": 213,
             "ok": false,
@@ -5129,6 +7264,14 @@
           "method": "fileDownloadBegin",
           "params": [
             "<grantId#55>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#55>"
+              ]
+            }
           ],
           "frame": {
             "id": 214,
@@ -5162,6 +7305,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 215,
             "ok": true,
@@ -5185,6 +7343,14 @@
           "method": "fileDownloadAbort",
           "params": [
             "<grantId#57>"
+          ],
+          "service": [
+            {
+              "method": "abort",
+              "args": [
+                "<grantId#57>"
+              ]
+            }
           ],
           "frame": {
             "id": 216,
@@ -5212,6 +7378,21 @@
                 "path": "<dir>/a.bin"
               },
               "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
             }
           ],
           "frame": {
@@ -5250,6 +7431,14 @@
           "params": [
             "<grantId#58>"
           ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#58>"
+              ]
+            }
+          ],
           "frame": {
             "id": 218,
             "ok": false,
@@ -5282,6 +7471,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 219,
             "ok": true,
@@ -5301,6 +7505,14 @@
           "method": "fileDownloadBegin",
           "params": [
             "<grantId#59>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#59>"
+              ]
+            }
           ],
           "frame": {
             "id": 220,
@@ -5351,6 +7563,17 @@
             4,
             "<version#24>"
           ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#32>",
+                0,
+                4,
+                "<version#24>"
+              ]
+            }
+          ],
           "frame": {
             "id": 221,
             "ok": false,
@@ -5372,6 +7595,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 222,
             "ok": true,
@@ -5391,6 +7629,14 @@
           "method": "fileDownloadBegin",
           "params": [
             "<grantId#60>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#60>"
+              ]
+            }
           ],
           "frame": {
             "id": 223,
@@ -5425,6 +7671,17 @@
             4,
             "<version#24>"
           ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#33>",
+                0,
+                4,
+                "<version#24>"
+              ]
+            }
+          ],
           "frame": {
             "id": 224,
             "ok": true,
@@ -5451,6 +7708,17 @@
             0,
             4,
             "<version#24>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#33>",
+                0,
+                4,
+                "<version#24>"
+              ]
+            }
           ],
           "frame": {
             "id": 225,
@@ -5479,6 +7747,17 @@
             4,
             "<version#24>"
           ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#33>",
+                0,
+                4,
+                "<version#24>"
+              ]
+            }
+          ],
           "frame": {
             "id": 226,
             "ok": true,
@@ -5505,6 +7784,17 @@
             0,
             4,
             "<version#24>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#33>",
+                0,
+                4,
+                "<version#24>"
+              ]
+            }
           ],
           "frame": {
             "id": 227,
@@ -5533,6 +7823,17 @@
             4,
             "<version#24>"
           ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#33>",
+                0,
+                4,
+                "<version#24>"
+              ]
+            }
+          ],
           "frame": {
             "id": 228,
             "ok": true,
@@ -5559,6 +7860,17 @@
             0,
             4,
             "<version#24>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#33>",
+                0,
+                4,
+                "<version#24>"
+              ]
+            }
           ],
           "frame": {
             "id": 229,
@@ -5587,6 +7899,17 @@
             4,
             "<version#24>"
           ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#33>",
+                0,
+                4,
+                "<version#24>"
+              ]
+            }
+          ],
           "frame": {
             "id": 230,
             "ok": true,
@@ -5613,6 +7936,17 @@
             0,
             4,
             "<version#24>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#33>",
+                0,
+                4,
+                "<version#24>"
+              ]
+            }
           ],
           "frame": {
             "id": 231,
@@ -5641,6 +7975,17 @@
             4,
             "<version#24>"
           ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#33>",
+                0,
+                4,
+                "<version#24>"
+              ]
+            }
+          ],
           "frame": {
             "id": 232,
             "ok": true,
@@ -5667,6 +8012,17 @@
             0,
             4,
             "<version#24>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#33>",
+                0,
+                4,
+                "<version#24>"
+              ]
+            }
           ],
           "frame": {
             "id": 233,
@@ -5695,6 +8051,17 @@
             4,
             "<version#24>"
           ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#33>",
+                0,
+                4,
+                "<version#24>"
+              ]
+            }
+          ],
           "frame": {
             "id": 234,
             "ok": true,
@@ -5721,6 +8088,17 @@
             0,
             4,
             "<version#24>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#33>",
+                0,
+                4,
+                "<version#24>"
+              ]
+            }
           ],
           "frame": {
             "id": 235,
@@ -5749,6 +8127,17 @@
             4,
             "<version#24>"
           ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#33>",
+                0,
+                4,
+                "<version#24>"
+              ]
+            }
+          ],
           "frame": {
             "id": 236,
             "ok": true,
@@ -5775,6 +8164,17 @@
             0,
             4,
             "<version#24>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#33>",
+                0,
+                4,
+                "<version#24>"
+              ]
+            }
           ],
           "frame": {
             "id": 237,
@@ -5803,6 +8203,17 @@
             4,
             "<version#24>"
           ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#33>",
+                0,
+                4,
+                "<version#24>"
+              ]
+            }
+          ],
           "frame": {
             "id": 238,
             "ok": true,
@@ -5830,6 +8241,17 @@
             4,
             "<version#24>"
           ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#33>",
+                0,
+                4,
+                "<version#24>"
+              ]
+            }
+          ],
           "frame": {
             "id": 239,
             "ok": true,
@@ -5856,6 +8278,17 @@
             0,
             4,
             "<version#24>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#33>",
+                0,
+                4,
+                "<version#24>"
+              ]
+            }
           ],
           "frame": {
             "id": 240,
@@ -5896,6 +8329,14 @@
           "method": "fileDownloadFinish",
           "params": [
             "<transferId#33>"
+          ],
+          "service": [
+            {
+              "method": "finish",
+              "args": [
+                "<transferId#33>"
+              ]
+            }
           ],
           "frame": {
             "id": 241,
@@ -5941,6 +8382,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 242,
             "ok": true,
@@ -5966,6 +8422,21 @@
                 "path": "<dir>/task/work.txt"
               },
               "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s2",
+                    "path": "<dir>/task/work.txt"
+                  },
+                  "purpose": "save"
+                }
+              ]
             }
           ],
           "frame": {
@@ -6002,6 +8473,14 @@
           "params": [
             "<grantId#61>"
           ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#61>"
+              ]
+            }
+          ],
           "frame": {
             "id": 244,
             "ok": false,
@@ -6023,6 +8502,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 245,
             "ok": false,
@@ -6036,6 +8530,14 @@
           "method": "fileDownloadBegin",
           "params": [
             "<grantId#62>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#62>"
+              ]
+            }
           ],
           "frame": {
             "id": 246,
@@ -6065,6 +8567,17 @@
             0,
             4,
             "<version#26>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#34>",
+                0,
+                4,
+                "<version#26>"
+              ]
+            }
           ],
           "frame": {
             "id": 247,
@@ -6115,6 +8628,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 248,
             "ok": true,
@@ -6134,6 +8662,14 @@
           "method": "fileDownloadBegin",
           "params": [
             "<grantId#63>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#63>"
+              ]
+            }
           ],
           "frame": {
             "id": 249,
@@ -6163,6 +8699,17 @@
             0,
             4,
             "<version#27>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#35>",
+                0,
+                4,
+                "<version#27>"
+              ]
+            }
           ],
           "frame": {
             "id": 250,
@@ -6197,6 +8744,17 @@
             4,
             "<version#27>"
           ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#35>",
+                4,
+                4,
+                "<version#27>"
+              ]
+            }
+          ],
           "frame": {
             "id": 251,
             "ok": false,
@@ -6211,6 +8769,14 @@
           "params": [
             "<transferId#35>"
           ],
+          "service": [
+            {
+              "method": "finish",
+              "args": [
+                "<transferId#35>"
+              ]
+            }
+          ],
           "frame": {
             "id": 252,
             "ok": false,
@@ -6224,6 +8790,14 @@
           "method": "fileDownloadAbort",
           "params": [
             "<transferId#35>"
+          ],
+          "service": [
+            {
+              "method": "abort",
+              "args": [
+                "<transferId#35>"
+              ]
+            }
           ],
           "frame": {
             "id": 253,
@@ -6266,6 +8840,21 @@
                 "path": "<dir>/a.bin"
               },
               "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
             }
           ]
         },
@@ -6325,6 +8914,21 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
             "id": 255,
             "ok": true,
@@ -6349,6 +8953,14 @@
           "method": "fileDownloadBegin",
           "params": [
             "<grantId#64>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#64>"
+              ]
+            }
           ]
         },
         {
@@ -6382,8 +8994,376 @@
           "params": [
             "<grantId#64>"
           ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#64>"
+              ]
+            }
+          ],
           "frame": {
             "id": 257,
+            "ok": false,
+            "error": "This download is no longer available.",
+            "errorCode": "file-download:expired"
+          }
+        }
+      ]
+    },
+    {
+      "name": "session deleted during a range read",
+      "note": "a read held at the file when its conversation is deleted answers expired, never bytes; the handle is closed at the deletion",
+      "steps": [
+        {
+          "op": "write",
+          "file": "a.bin",
+          "text": "0123456789abcdef"
+        },
+        {
+          "op": "sessions",
+          "ids": [
+            "s1",
+            "s2"
+          ]
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "session",
+                "sessionId": "s1",
+                "path": "<dir>/a.bin"
+              },
+              "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
+          "frame": {
+            "id": 258,
+            "ok": true,
+            "value": {
+              "grantId": "<grantId#65>",
+              "name": "a.bin",
+              "size": 16,
+              "mime": "application/octet-stream",
+              "version": "<version#29>",
+              "expiresAt": 1924992060000
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadBegin",
+          "params": [
+            "<grantId#65>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#65>"
+              ]
+            }
+          ],
+          "frame": {
+            "id": 259,
+            "ok": true,
+            "value": {
+              "transferId": "<transferId#36>",
+              "name": "a.bin",
+              "size": 16,
+              "mime": "application/octet-stream",
+              "version": "<version#29>",
+              "expiresAt": 1924993800000,
+              "rangeMaxBytes": 4194304,
+              "media": {
+                "assetId": "<assetId#36>",
+                "variant": "download",
+                "expiresAt": 1924993800000
+              }
+            }
+          }
+        },
+        {
+          "op": "hold",
+          "gate": "read"
+        },
+        {
+          "op": "send",
+          "key": "read",
+          "device": "phone",
+          "method": "fileDownloadRange",
+          "params": [
+            "<transferId#36>",
+            0,
+            4,
+            "<version#29>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#36>",
+                0,
+                4,
+                "<version#29>"
+              ]
+            }
+          ]
+        },
+        {
+          "op": "sessions",
+          "ids": [
+            "s2"
+          ]
+        },
+        {
+          "op": "release",
+          "gate": "read"
+        },
+        {
+          "op": "answer",
+          "key": "read",
+          "frame": {
+            "id": 260,
+            "ok": false,
+            "error": "This download is no longer available.",
+            "errorCode": "file-download:expired"
+          }
+        },
+        {
+          "op": "handles",
+          "open": 0
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadRange",
+          "params": [
+            "<transferId#36>",
+            0,
+            4,
+            "<version#29>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#36>",
+                0,
+                4,
+                "<version#29>"
+              ]
+            }
+          ],
+          "frame": {
+            "id": 261,
+            "ok": false,
+            "error": "This download is no longer available.",
+            "errorCode": "file-download:expired"
+          }
+        }
+      ]
+    },
+    {
+      "name": "file truncated during a range read",
+      "note": "a read held at the file when the file is cut short answers changed (the file ended before the window did), and the transfer is dropped with its handle",
+      "steps": [
+        {
+          "op": "write",
+          "file": "a.bin",
+          "text": "0123456789abcdef"
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "session",
+                "sessionId": "s1",
+                "path": "<dir>/a.bin"
+              },
+              "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
+          "frame": {
+            "id": 262,
+            "ok": true,
+            "value": {
+              "grantId": "<grantId#66>",
+              "name": "a.bin",
+              "size": 16,
+              "mime": "application/octet-stream",
+              "version": "<version#30>",
+              "expiresAt": 1924992060000
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadBegin",
+          "params": [
+            "<grantId#66>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#66>"
+              ]
+            }
+          ],
+          "frame": {
+            "id": 263,
+            "ok": true,
+            "value": {
+              "transferId": "<transferId#37>",
+              "name": "a.bin",
+              "size": 16,
+              "mime": "application/octet-stream",
+              "version": "<version#30>",
+              "expiresAt": 1924993800000,
+              "rangeMaxBytes": 4194304,
+              "media": {
+                "assetId": "<assetId#37>",
+                "variant": "download",
+                "expiresAt": 1924993800000
+              }
+            }
+          }
+        },
+        {
+          "op": "hold",
+          "gate": "read"
+        },
+        {
+          "op": "send",
+          "key": "read",
+          "device": "phone",
+          "method": "fileDownloadRange",
+          "params": [
+            "<transferId#37>",
+            8,
+            8,
+            "<version#30>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#37>",
+                8,
+                8,
+                "<version#30>"
+              ]
+            }
+          ]
+        },
+        {
+          "op": "size",
+          "file": "a.bin",
+          "bytes": 10
+        },
+        {
+          "op": "release",
+          "gate": "read"
+        },
+        {
+          "op": "answer",
+          "key": "read",
+          "frame": {
+            "id": 264,
+            "ok": false,
+            "error": "The file changed on the host.",
+            "errorCode": "file-download:changed"
+          }
+        },
+        {
+          "op": "handles",
+          "open": 0
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadRange",
+          "params": [
+            "<transferId#37>",
+            0,
+            4,
+            "<version#30>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#37>",
+                0,
+                4,
+                "<version#30>"
+              ]
+            }
+          ],
+          "frame": {
+            "id": 265,
+            "ok": false,
+            "error": "This download is no longer available.",
+            "errorCode": "file-download:expired"
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadFinish",
+          "params": [
+            "<transferId#37>"
+          ],
+          "service": [
+            {
+              "method": "finish",
+              "args": [
+                "<transferId#37>"
+              ]
+            }
+          ],
+          "frame": {
+            "id": 266,
             "ok": false,
             "error": "This download is no longer available.",
             "errorCode": "file-download:expired"
@@ -6414,15 +9394,30 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
-            "id": 258,
+            "id": 267,
             "ok": true,
             "value": {
-              "grantId": "<grantId#65>",
+              "grantId": "<grantId#67>",
               "name": "a.bin",
               "size": 16,
               "mime": "application/octet-stream",
-              "version": "<version#29>",
+              "version": "<version#31>",
               "expiresAt": 1924992060000
             }
           }
@@ -6442,21 +9437,29 @@
           "device": "phone",
           "method": "fileDownloadBegin",
           "params": [
-            "<grantId#65>"
+            "<grantId#67>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#67>"
+              ]
+            }
           ],
           "frame": {
-            "id": 259,
+            "id": 268,
             "ok": true,
             "value": {
-              "transferId": "<transferId#36>",
+              "transferId": "<transferId#38>",
               "name": "a.bin",
               "size": 16,
               "mime": "application/octet-stream",
-              "version": "<version#29>",
+              "version": "<version#31>",
               "expiresAt": 1924993800000,
               "rangeMaxBytes": 4194304,
               "media": {
-                "assetId": "<assetId#36>",
+                "assetId": "<assetId#38>",
                 "variant": "download",
                 "expiresAt": 1924993800000
               }
@@ -6477,8 +9480,23 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
-            "id": 260,
+            "id": 269,
             "ok": false,
             "error": "This conversation is not available.",
             "errorCode": "file-download:unavailable"
@@ -6498,8 +9516,23 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "never-existed",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
-            "id": 261,
+            "id": 270,
             "ok": false,
             "error": "This conversation is not available.",
             "errorCode": "file-download:unavailable"
@@ -6519,8 +9552,23 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "project",
+                    "sessionId": "s1",
+                    "relPath": "a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
-            "id": 262,
+            "id": 271,
             "ok": false,
             "error": "This conversation is not available.",
             "errorCode": "file-download:unavailable"
@@ -6560,6 +9608,21 @@
               },
               "purpose": "save"
             }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "project",
+                    "sessionId": "s1",
+                    "relPath": "sub/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
           ]
         },
         {
@@ -6575,7 +9638,7 @@
           "op": "answer",
           "key": "authorize",
           "frame": {
-            "id": 263,
+            "id": 272,
             "ok": false,
             "error": "The file changed on the host.",
             "errorCode": "file-download:changed"
@@ -6599,8 +9662,23 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "project",
+                    "sessionId": "s1",
+                    "relPath": "sub/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
-            "id": 264,
+            "id": 273,
             "ok": false,
             "error": "The file is outside the conversation's project.",
             "errorCode": "file-download:outside-project"
@@ -6620,8 +9698,23 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/project/sub/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
-            "id": 265,
+            "id": 274,
             "ok": false,
             "error": "The link resolves outside the conversation's project.",
             "errorCode": "file-download:outside-project"
@@ -6656,15 +9749,30 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
-            "id": 266,
+            "id": 275,
             "ok": true,
             "value": {
-              "grantId": "<grantId#66>",
+              "grantId": "<grantId#68>",
               "name": "a.bin",
               "size": 16,
               "mime": "application/octet-stream",
-              "version": "<version#30>",
+              "version": "<version#32>",
               "expiresAt": 1924992060000
             }
           }
@@ -6679,10 +9787,18 @@
           "device": "phone",
           "method": "fileDownloadBegin",
           "params": [
-            "<grantId#66>"
+            "<grantId#68>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#68>"
+              ]
+            }
           ],
           "frame": {
-            "id": 267,
+            "id": 276,
             "ok": false,
             "error": "The file changed on the host.",
             "errorCode": "file-download:changed"
@@ -6711,15 +9827,30 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
-            "id": 268,
+            "id": 277,
             "ok": true,
             "value": {
-              "grantId": "<grantId#67>",
+              "grantId": "<grantId#69>",
               "name": "a.bin",
               "size": 16,
               "mime": "application/octet-stream",
-              "version": "<version#30>",
+              "version": "<version#32>",
               "expiresAt": 1924992060000
             }
           }
@@ -6739,21 +9870,29 @@
           "device": "phone",
           "method": "fileDownloadBegin",
           "params": [
-            "<grantId#67>"
+            "<grantId#69>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#69>"
+              ]
+            }
           ],
           "frame": {
-            "id": 269,
+            "id": 278,
             "ok": true,
             "value": {
-              "transferId": "<transferId#37>",
+              "transferId": "<transferId#39>",
               "name": "a.bin",
               "size": 16,
               "mime": "application/octet-stream",
-              "version": "<version#30>",
+              "version": "<version#32>",
               "expiresAt": 1924993800000,
               "rangeMaxBytes": 4194304,
               "media": {
-                "assetId": "<assetId#37>",
+                "assetId": "<assetId#39>",
                 "variant": "download",
                 "expiresAt": 1924993800000
               }
@@ -6765,20 +9904,31 @@
           "device": "phone",
           "method": "fileDownloadRange",
           "params": [
-            "<transferId#37>",
+            "<transferId#39>",
             0,
             4,
-            "<version#30>"
+            "<version#32>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#39>",
+                0,
+                4,
+                "<version#32>"
+              ]
+            }
           ],
           "frame": {
-            "id": 270,
+            "id": 279,
             "ok": true,
             "value": {
-              "transferId": "<transferId#37>",
+              "transferId": "<transferId#39>",
               "offset": 0,
               "length": 4,
               "data": "MDEyMw==",
-              "version": "<version#30>",
+              "version": "<version#32>",
               "eof": false
             }
           }
@@ -6793,13 +9943,24 @@
           "device": "phone",
           "method": "fileDownloadRange",
           "params": [
-            "<transferId#37>",
+            "<transferId#39>",
             4,
             4,
-            "<version#30>"
+            "<version#32>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#39>",
+                4,
+                4,
+                "<version#32>"
+              ]
+            }
           ],
           "frame": {
-            "id": 271,
+            "id": 280,
             "ok": false,
             "error": "The file changed on the host.",
             "errorCode": "file-download:changed"
@@ -6814,13 +9975,24 @@
           "device": "phone",
           "method": "fileDownloadRange",
           "params": [
-            "<transferId#37>",
+            "<transferId#39>",
             4,
             4,
-            "<version#30>"
+            "<version#32>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#39>",
+                4,
+                4,
+                "<version#32>"
+              ]
+            }
           ],
           "frame": {
-            "id": 272,
+            "id": 281,
             "ok": false,
             "error": "This download is no longer available.",
             "errorCode": "file-download:expired"
@@ -6845,15 +10017,30 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
-            "id": 273,
+            "id": 282,
             "ok": true,
             "value": {
-              "grantId": "<grantId#68>",
+              "grantId": "<grantId#70>",
               "name": "a.bin",
               "size": 16,
               "mime": "application/octet-stream",
-              "version": "<version#30>",
+              "version": "<version#32>",
               "expiresAt": 1924992060000
             }
           }
@@ -6863,21 +10050,29 @@
           "device": "phone",
           "method": "fileDownloadBegin",
           "params": [
-            "<grantId#68>"
+            "<grantId#70>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#70>"
+              ]
+            }
           ],
           "frame": {
-            "id": 274,
+            "id": 283,
             "ok": true,
             "value": {
-              "transferId": "<transferId#38>",
+              "transferId": "<transferId#40>",
               "name": "a.bin",
               "size": 16,
               "mime": "application/octet-stream",
-              "version": "<version#30>",
+              "version": "<version#32>",
               "expiresAt": 1924993800000,
               "rangeMaxBytes": 4194304,
               "media": {
-                "assetId": "<assetId#38>",
+                "assetId": "<assetId#40>",
                 "variant": "download",
                 "expiresAt": 1924993800000
               }
@@ -6894,10 +10089,18 @@
           "device": "phone",
           "method": "fileDownloadFinish",
           "params": [
-            "<transferId#38>"
+            "<transferId#40>"
+          ],
+          "service": [
+            {
+              "method": "finish",
+              "args": [
+                "<transferId#40>"
+              ]
+            }
           ],
           "frame": {
-            "id": 275,
+            "id": 284,
             "ok": false,
             "error": "The file changed on the host.",
             "errorCode": "file-download:changed"
@@ -6926,15 +10129,30 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
-            "id": 276,
+            "id": 285,
             "ok": true,
             "value": {
-              "grantId": "<grantId#69>",
+              "grantId": "<grantId#71>",
               "name": "a.bin",
               "size": 16,
               "mime": "application/octet-stream",
-              "version": "<version#30>",
+              "version": "<version#32>",
               "expiresAt": 1924992060000
             }
           }
@@ -6948,10 +10166,18 @@
           "device": "phone",
           "method": "fileDownloadBegin",
           "params": [
-            "<grantId#69>"
+            "<grantId#71>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#71>"
+              ]
+            }
           ],
           "frame": {
-            "id": 277,
+            "id": 286,
             "ok": false,
             "error": "The file changed on the host.",
             "errorCode": "file-download:changed"
@@ -6976,15 +10202,30 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/a.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
-            "id": 278,
+            "id": 287,
             "ok": true,
             "value": {
-              "grantId": "<grantId#70>",
+              "grantId": "<grantId#72>",
               "name": "a.bin",
               "size": 16,
               "mime": "application/octet-stream",
-              "version": "<version#31>",
+              "version": "<version#33>",
               "expiresAt": 1924992060000
             }
           }
@@ -6994,21 +10235,29 @@
           "device": "phone",
           "method": "fileDownloadBegin",
           "params": [
-            "<grantId#70>"
+            "<grantId#72>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#72>"
+              ]
+            }
           ],
           "frame": {
-            "id": 279,
+            "id": 288,
             "ok": true,
             "value": {
-              "transferId": "<transferId#39>",
+              "transferId": "<transferId#41>",
               "name": "a.bin",
               "size": 16,
               "mime": "application/octet-stream",
-              "version": "<version#31>",
+              "version": "<version#33>",
               "expiresAt": 1924993800000,
               "rangeMaxBytes": 4194304,
               "media": {
-                "assetId": "<assetId#39>",
+                "assetId": "<assetId#41>",
                 "variant": "download",
                 "expiresAt": 1924993800000
               }
@@ -7024,13 +10273,24 @@
           "device": "phone",
           "method": "fileDownloadRange",
           "params": [
-            "<transferId#39>",
+            "<transferId#41>",
             0,
             4,
-            "<version#31>"
+            "<version#33>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#41>",
+                0,
+                4,
+                "<version#33>"
+              ]
+            }
           ],
           "frame": {
-            "id": 280,
+            "id": 289,
             "ok": false,
             "error": "The file changed on the host.",
             "errorCode": "file-download:changed"
@@ -7070,15 +10330,30 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "rel.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
-            "id": 281,
+            "id": 290,
             "ok": true,
             "value": {
-              "grantId": "<grantId#71>",
+              "grantId": "<grantId#73>",
               "name": "rel.bin",
               "size": 14,
               "mime": "application/octet-stream",
-              "version": "<version#32>",
+              "version": "<version#34>",
               "expiresAt": 1924992060000
             }
           }
@@ -7097,15 +10372,30 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "sub/../rel.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
-            "id": 282,
+            "id": 291,
             "ok": true,
             "value": {
-              "grantId": "<grantId#72>",
+              "grantId": "<grantId#74>",
               "name": "rel.bin",
               "size": 14,
               "mime": "application/octet-stream",
-              "version": "<version#32>",
+              "version": "<version#34>",
               "expiresAt": 1924992060000
             }
           }
@@ -7124,15 +10414,30 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "../outside/note.md"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
-            "id": 283,
+            "id": 292,
             "ok": true,
             "value": {
-              "grantId": "<grantId#73>",
+              "grantId": "<grantId#75>",
               "name": "note.md",
               "size": 13,
               "mime": "text/markdown",
-              "version": "<version#33>",
+              "version": "<version#35>",
               "expiresAt": 1924992060000
             }
           }
@@ -7151,8 +10456,23 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "missing.bin"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
-            "id": 284,
+            "id": 293,
             "ok": false,
             "error": "The file no longer exists.",
             "errorCode": "file-download:not-found"
@@ -7172,8 +10492,23 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "\\\\server\\share\\x.txt"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
-            "id": 285,
+            "id": 294,
             "ok": false,
             "error": "Only files on this PC can be downloaded.",
             "errorCode": "file-download:not-a-file"
@@ -7193,8 +10528,23 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "/\\server/share/x.txt"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
-            "id": 286,
+            "id": 295,
             "ok": false,
             "error": "Only files on this PC can be downloaded.",
             "errorCode": "file-download:not-a-file"
@@ -7203,6 +10553,1367 @@
         {
           "op": "handles",
           "open": 3
+        }
+      ]
+    },
+    {
+      "name": "media assets",
+      "note": "a media asset is offered by the store's file name and type (the extension's when the store states none); an unknown asset, one whose bytes are gone and a conversation not in the catalog are refused",
+      "steps": [
+        {
+          "op": "media",
+          "id": "m-typed",
+          "name": "a1.png",
+          "mime": "image/png",
+          "text": "a1.png bytes"
+        },
+        {
+          "op": "media",
+          "id": "m-custom",
+          "name": "a2.png",
+          "mime": "application/x-custom",
+          "text": "a2.png bytes"
+        },
+        {
+          "op": "media",
+          "id": "m-stated-by-extension",
+          "name": "a3.png",
+          "mime": "",
+          "text": "a3.png bytes"
+        },
+        {
+          "op": "media",
+          "id": "m-unknown-extension",
+          "name": "a4.zzz",
+          "mime": "",
+          "text": "a4.zzz bytes"
+        },
+        {
+          "op": "media",
+          "id": "m-upper-extension",
+          "name": "A5.PNG",
+          "mime": "",
+          "text": "A5.PNG bytes"
+        },
+        {
+          "op": "media",
+          "id": "m-document",
+          "name": "a6.PDF",
+          "mime": "",
+          "text": "a6.PDF bytes"
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "media",
+                "sessionId": "s1",
+                "assetId": "m-typed"
+              },
+              "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "media",
+                    "sessionId": "s1",
+                    "assetId": "m-typed"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
+          "frame": {
+            "id": 296,
+            "ok": true,
+            "value": {
+              "grantId": "<grantId#76>",
+              "name": "a1.png",
+              "size": 12,
+              "mime": "image/png",
+              "version": "<version#36>",
+              "expiresAt": 1924992060000
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadBegin",
+          "params": [
+            "<grantId#76>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#76>"
+              ]
+            }
+          ],
+          "frame": {
+            "id": 297,
+            "ok": true,
+            "value": {
+              "transferId": "<transferId#42>",
+              "name": "a1.png",
+              "size": 12,
+              "mime": "image/png",
+              "version": "<version#36>",
+              "expiresAt": 1924993800000,
+              "rangeMaxBytes": 4194304,
+              "media": {
+                "assetId": "<assetId#42>",
+                "variant": "download",
+                "expiresAt": 1924993800000
+              }
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadRange",
+          "params": [
+            "<transferId#42>",
+            0,
+            4,
+            "<version#36>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#42>",
+                0,
+                4,
+                "<version#36>"
+              ]
+            }
+          ],
+          "frame": {
+            "id": 298,
+            "ok": true,
+            "value": {
+              "transferId": "<transferId#42>",
+              "offset": 0,
+              "length": 4,
+              "data": "YTEucA==",
+              "version": "<version#36>",
+              "eof": false
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadFinish",
+          "params": [
+            "<transferId#42>"
+          ],
+          "service": [
+            {
+              "method": "finish",
+              "args": [
+                "<transferId#42>"
+              ]
+            }
+          ],
+          "frame": {
+            "id": 299,
+            "ok": true,
+            "value": {
+              "transferId": "<transferId#42>",
+              "size": 12,
+              "version": "<version#36>"
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "media",
+                "sessionId": "s1",
+                "assetId": "m-custom"
+              },
+              "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "media",
+                    "sessionId": "s1",
+                    "assetId": "m-custom"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
+          "frame": {
+            "id": 300,
+            "ok": true,
+            "value": {
+              "grantId": "<grantId#77>",
+              "name": "a2.png",
+              "size": 12,
+              "mime": "application/x-custom",
+              "version": "<version#37>",
+              "expiresAt": 1924992060000
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadBegin",
+          "params": [
+            "<grantId#77>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#77>"
+              ]
+            }
+          ],
+          "frame": {
+            "id": 301,
+            "ok": true,
+            "value": {
+              "transferId": "<transferId#43>",
+              "name": "a2.png",
+              "size": 12,
+              "mime": "application/x-custom",
+              "version": "<version#37>",
+              "expiresAt": 1924993800000,
+              "rangeMaxBytes": 4194304,
+              "media": {
+                "assetId": "<assetId#43>",
+                "variant": "download",
+                "expiresAt": 1924993800000
+              }
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadRange",
+          "params": [
+            "<transferId#43>",
+            0,
+            4,
+            "<version#37>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#43>",
+                0,
+                4,
+                "<version#37>"
+              ]
+            }
+          ],
+          "frame": {
+            "id": 302,
+            "ok": true,
+            "value": {
+              "transferId": "<transferId#43>",
+              "offset": 0,
+              "length": 4,
+              "data": "YTIucA==",
+              "version": "<version#37>",
+              "eof": false
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadFinish",
+          "params": [
+            "<transferId#43>"
+          ],
+          "service": [
+            {
+              "method": "finish",
+              "args": [
+                "<transferId#43>"
+              ]
+            }
+          ],
+          "frame": {
+            "id": 303,
+            "ok": true,
+            "value": {
+              "transferId": "<transferId#43>",
+              "size": 12,
+              "version": "<version#37>"
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "media",
+                "sessionId": "s1",
+                "assetId": "m-stated-by-extension"
+              },
+              "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "media",
+                    "sessionId": "s1",
+                    "assetId": "m-stated-by-extension"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
+          "frame": {
+            "id": 304,
+            "ok": true,
+            "value": {
+              "grantId": "<grantId#78>",
+              "name": "a3.png",
+              "size": 12,
+              "mime": "image/png",
+              "version": "<version#38>",
+              "expiresAt": 1924992060000
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadBegin",
+          "params": [
+            "<grantId#78>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#78>"
+              ]
+            }
+          ],
+          "frame": {
+            "id": 305,
+            "ok": true,
+            "value": {
+              "transferId": "<transferId#44>",
+              "name": "a3.png",
+              "size": 12,
+              "mime": "image/png",
+              "version": "<version#38>",
+              "expiresAt": 1924993800000,
+              "rangeMaxBytes": 4194304,
+              "media": {
+                "assetId": "<assetId#44>",
+                "variant": "download",
+                "expiresAt": 1924993800000
+              }
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadRange",
+          "params": [
+            "<transferId#44>",
+            0,
+            4,
+            "<version#38>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#44>",
+                0,
+                4,
+                "<version#38>"
+              ]
+            }
+          ],
+          "frame": {
+            "id": 306,
+            "ok": true,
+            "value": {
+              "transferId": "<transferId#44>",
+              "offset": 0,
+              "length": 4,
+              "data": "YTMucA==",
+              "version": "<version#38>",
+              "eof": false
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadFinish",
+          "params": [
+            "<transferId#44>"
+          ],
+          "service": [
+            {
+              "method": "finish",
+              "args": [
+                "<transferId#44>"
+              ]
+            }
+          ],
+          "frame": {
+            "id": 307,
+            "ok": true,
+            "value": {
+              "transferId": "<transferId#44>",
+              "size": 12,
+              "version": "<version#38>"
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "media",
+                "sessionId": "s1",
+                "assetId": "m-unknown-extension"
+              },
+              "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "media",
+                    "sessionId": "s1",
+                    "assetId": "m-unknown-extension"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
+          "frame": {
+            "id": 308,
+            "ok": true,
+            "value": {
+              "grantId": "<grantId#79>",
+              "name": "a4.zzz",
+              "size": 12,
+              "mime": "application/octet-stream",
+              "version": "<version#39>",
+              "expiresAt": 1924992060000
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadBegin",
+          "params": [
+            "<grantId#79>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#79>"
+              ]
+            }
+          ],
+          "frame": {
+            "id": 309,
+            "ok": true,
+            "value": {
+              "transferId": "<transferId#45>",
+              "name": "a4.zzz",
+              "size": 12,
+              "mime": "application/octet-stream",
+              "version": "<version#39>",
+              "expiresAt": 1924993800000,
+              "rangeMaxBytes": 4194304,
+              "media": {
+                "assetId": "<assetId#45>",
+                "variant": "download",
+                "expiresAt": 1924993800000
+              }
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadRange",
+          "params": [
+            "<transferId#45>",
+            0,
+            4,
+            "<version#39>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#45>",
+                0,
+                4,
+                "<version#39>"
+              ]
+            }
+          ],
+          "frame": {
+            "id": 310,
+            "ok": true,
+            "value": {
+              "transferId": "<transferId#45>",
+              "offset": 0,
+              "length": 4,
+              "data": "YTQueg==",
+              "version": "<version#39>",
+              "eof": false
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadFinish",
+          "params": [
+            "<transferId#45>"
+          ],
+          "service": [
+            {
+              "method": "finish",
+              "args": [
+                "<transferId#45>"
+              ]
+            }
+          ],
+          "frame": {
+            "id": 311,
+            "ok": true,
+            "value": {
+              "transferId": "<transferId#45>",
+              "size": 12,
+              "version": "<version#39>"
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "media",
+                "sessionId": "s1",
+                "assetId": "m-upper-extension"
+              },
+              "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "media",
+                    "sessionId": "s1",
+                    "assetId": "m-upper-extension"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
+          "frame": {
+            "id": 312,
+            "ok": true,
+            "value": {
+              "grantId": "<grantId#80>",
+              "name": "A5.PNG",
+              "size": 12,
+              "mime": "image/png",
+              "version": "<version#40>",
+              "expiresAt": 1924992060000
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadBegin",
+          "params": [
+            "<grantId#80>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#80>"
+              ]
+            }
+          ],
+          "frame": {
+            "id": 313,
+            "ok": true,
+            "value": {
+              "transferId": "<transferId#46>",
+              "name": "A5.PNG",
+              "size": 12,
+              "mime": "image/png",
+              "version": "<version#40>",
+              "expiresAt": 1924993800000,
+              "rangeMaxBytes": 4194304,
+              "media": {
+                "assetId": "<assetId#46>",
+                "variant": "download",
+                "expiresAt": 1924993800000
+              }
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadRange",
+          "params": [
+            "<transferId#46>",
+            0,
+            4,
+            "<version#40>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#46>",
+                0,
+                4,
+                "<version#40>"
+              ]
+            }
+          ],
+          "frame": {
+            "id": 314,
+            "ok": true,
+            "value": {
+              "transferId": "<transferId#46>",
+              "offset": 0,
+              "length": 4,
+              "data": "QTUuUA==",
+              "version": "<version#40>",
+              "eof": false
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadFinish",
+          "params": [
+            "<transferId#46>"
+          ],
+          "service": [
+            {
+              "method": "finish",
+              "args": [
+                "<transferId#46>"
+              ]
+            }
+          ],
+          "frame": {
+            "id": 315,
+            "ok": true,
+            "value": {
+              "transferId": "<transferId#46>",
+              "size": 12,
+              "version": "<version#40>"
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "media",
+                "sessionId": "s1",
+                "assetId": "m-document"
+              },
+              "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "media",
+                    "sessionId": "s1",
+                    "assetId": "m-document"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
+          "frame": {
+            "id": 316,
+            "ok": true,
+            "value": {
+              "grantId": "<grantId#81>",
+              "name": "a6.PDF",
+              "size": 12,
+              "mime": "application/pdf",
+              "version": "<version#41>",
+              "expiresAt": 1924992060000
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadBegin",
+          "params": [
+            "<grantId#81>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#81>"
+              ]
+            }
+          ],
+          "frame": {
+            "id": 317,
+            "ok": true,
+            "value": {
+              "transferId": "<transferId#47>",
+              "name": "a6.PDF",
+              "size": 12,
+              "mime": "application/pdf",
+              "version": "<version#41>",
+              "expiresAt": 1924993800000,
+              "rangeMaxBytes": 4194304,
+              "media": {
+                "assetId": "<assetId#47>",
+                "variant": "download",
+                "expiresAt": 1924993800000
+              }
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadRange",
+          "params": [
+            "<transferId#47>",
+            0,
+            4,
+            "<version#41>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#47>",
+                0,
+                4,
+                "<version#41>"
+              ]
+            }
+          ],
+          "frame": {
+            "id": 318,
+            "ok": true,
+            "value": {
+              "transferId": "<transferId#47>",
+              "offset": 0,
+              "length": 4,
+              "data": "YTYuUA==",
+              "version": "<version#41>",
+              "eof": false
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadFinish",
+          "params": [
+            "<transferId#47>"
+          ],
+          "service": [
+            {
+              "method": "finish",
+              "args": [
+                "<transferId#47>"
+              ]
+            }
+          ],
+          "frame": {
+            "id": 319,
+            "ok": true,
+            "value": {
+              "transferId": "<transferId#47>",
+              "size": 12,
+              "version": "<version#41>"
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "media",
+                "sessionId": "s2",
+                "assetId": "m-typed"
+              },
+              "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "media",
+                    "sessionId": "s2",
+                    "assetId": "m-typed"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
+          "frame": {
+            "id": 320,
+            "ok": true,
+            "value": {
+              "grantId": "<grantId#82>",
+              "name": "a1.png",
+              "size": 12,
+              "mime": "image/png",
+              "version": "<version#36>",
+              "expiresAt": 1924992060000
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "media",
+                "sessionId": "s9",
+                "assetId": "m-typed"
+              },
+              "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "media",
+                    "sessionId": "s9",
+                    "assetId": "m-typed"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
+          "frame": {
+            "id": 321,
+            "ok": false,
+            "error": "This conversation is not available.",
+            "errorCode": "file-download:unavailable"
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "media",
+                "sessionId": "s1",
+                "assetId": "m-unknown"
+              },
+              "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "media",
+                    "sessionId": "s1",
+                    "assetId": "m-unknown"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
+          "frame": {
+            "id": 322,
+            "ok": false,
+            "error": "This media file is not available.",
+            "errorCode": "file-download:not-found"
+          }
+        },
+        {
+          "op": "unmedia",
+          "id": "m-typed"
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "media",
+                "sessionId": "s1",
+                "assetId": "m-typed"
+              },
+              "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "media",
+                    "sessionId": "s1",
+                    "assetId": "m-typed"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
+          "frame": {
+            "id": 323,
+            "ok": false,
+            "error": "This media file is not available.",
+            "errorCode": "file-download:not-found"
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "media",
+                "sessionId": "s1",
+                "assetId": "a b"
+              },
+              "purpose": "save"
+            }
+          ],
+          "service": [],
+          "frame": {
+            "id": 324,
+            "ok": false,
+            "error": "asset id is invalid."
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "media",
+                "sessionId": "s1",
+                "assetId": ""
+              },
+              "purpose": "save"
+            }
+          ],
+          "service": [],
+          "frame": {
+            "id": 325,
+            "ok": false,
+            "error": "asset id is invalid."
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "media",
+                "sessionId": "s1",
+                "assetId": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              },
+              "purpose": "save"
+            }
+          ],
+          "service": [],
+          "frame": {
+            "id": 326,
+            "ok": false,
+            "error": "asset id is invalid."
+          }
+        },
+        {
+          "op": "media",
+          "id": "m-changes",
+          "name": "a7.png",
+          "mime": "image/png",
+          "text": "a7.png bytes"
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "media",
+                "sessionId": "s1",
+                "assetId": "m-changes"
+              },
+              "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "media",
+                    "sessionId": "s1",
+                    "assetId": "m-changes"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
+          "frame": {
+            "id": 327,
+            "ok": true,
+            "value": {
+              "grantId": "<grantId#83>",
+              "name": "a7.png",
+              "size": 12,
+              "mime": "image/png",
+              "version": "<version#42>",
+              "expiresAt": 1924992060000
+            }
+          }
+        },
+        {
+          "op": "append",
+          "file": "media/assets/a7.png",
+          "text": "more"
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadBegin",
+          "params": [
+            "<grantId#83>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#83>"
+              ]
+            }
+          ],
+          "frame": {
+            "id": 328,
+            "ok": false,
+            "error": "The file changed on the host.",
+            "errorCode": "file-download:changed"
+          }
+        },
+        {
+          "op": "handles",
+          "open": 1
+        }
+      ]
+    },
+    {
+      "name": "media after the conversation was deleted",
+      "note": "a media grant is the conversation's: when the conversation is deleted it is gone, and the conversation is no longer available for another",
+      "steps": [
+        {
+          "op": "media",
+          "id": "m-typed",
+          "name": "a1.png",
+          "mime": "image/png",
+          "text": "a1.png bytes"
+        },
+        {
+          "op": "sessions",
+          "ids": [
+            "s1",
+            "s2"
+          ]
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "media",
+                "sessionId": "s1",
+                "assetId": "m-typed"
+              },
+              "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "media",
+                    "sessionId": "s1",
+                    "assetId": "m-typed"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
+          "frame": {
+            "id": 329,
+            "ok": true,
+            "value": {
+              "grantId": "<grantId#84>",
+              "name": "a1.png",
+              "size": 12,
+              "mime": "image/png",
+              "version": "<version#43>",
+              "expiresAt": 1924992060000
+            }
+          }
+        },
+        {
+          "op": "sessions",
+          "ids": [
+            "s2"
+          ]
+        },
+        {
+          "op": "handles",
+          "open": 0
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadBegin",
+          "params": [
+            "<grantId#84>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#84>"
+              ]
+            }
+          ],
+          "frame": {
+            "id": 330,
+            "ok": false,
+            "error": "This download is no longer available.",
+            "errorCode": "file-download:expired"
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "media",
+                "sessionId": "s1",
+                "assetId": "m-typed"
+              },
+              "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "media",
+                    "sessionId": "s1",
+                    "assetId": "m-typed"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
+          "frame": {
+            "id": 331,
+            "ok": false,
+            "error": "This conversation is not available.",
+            "errorCode": "file-download:unavailable"
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "media",
+                "sessionId": "s2",
+                "assetId": "m-typed"
+              },
+              "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "media",
+                    "sessionId": "s2",
+                    "assetId": "m-typed"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
+          "frame": {
+            "id": 332,
+            "ok": true,
+            "value": {
+              "grantId": "<grantId#85>",
+              "name": "a1.png",
+              "size": 12,
+              "mime": "image/png",
+              "version": "<version#43>",
+              "expiresAt": 1924992060000
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadBegin",
+          "params": [
+            "<grantId#85>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#85>"
+              ]
+            }
+          ],
+          "frame": {
+            "id": 333,
+            "ok": true,
+            "value": {
+              "transferId": "<transferId#48>",
+              "name": "a1.png",
+              "size": 12,
+              "mime": "image/png",
+              "version": "<version#43>",
+              "expiresAt": 1924993800000,
+              "rangeMaxBytes": 4194304,
+              "media": {
+                "assetId": "<assetId#48>",
+                "variant": "download",
+                "expiresAt": 1924993800000
+              }
+            }
+          }
         }
       ]
     },
@@ -7229,8 +11940,23 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/outside/note.md:alt"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
-            "id": 287,
+            "id": 334,
             "ok": false,
             "error": "The file no longer exists.",
             "errorCode": "file-download:not-found"
@@ -7250,15 +11976,30 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/outside/note.md::$DATA"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
-            "id": 288,
+            "id": 335,
             "ok": true,
             "value": {
-              "grantId": "<grantId#74>",
+              "grantId": "<grantId#86>",
               "name": "note.md-$DATA",
               "size": 13,
               "mime": "application/octet-stream",
-              "version": "<version#34>",
+              "version": "<version#44>",
               "expiresAt": 1924992060000
             }
           }
@@ -7277,8 +12018,23 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/outside/NUL"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
-            "id": 289,
+            "id": 336,
             "ok": false,
             "error": "The file no longer exists.",
             "errorCode": "file-download:not-found"
@@ -7298,8 +12054,23 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "NUL"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
-            "id": 290,
+            "id": 337,
             "ok": false,
             "error": "The file no longer exists.",
             "errorCode": "file-download:not-found"
@@ -7319,8 +12090,23 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "//?/<dir>/outside/note.md"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
-            "id": 291,
+            "id": 338,
             "ok": false,
             "error": "Only files on this PC can be downloaded.",
             "errorCode": "file-download:not-a-file"
@@ -7340,8 +12126,23 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/outside/note.md."
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
-            "id": 292,
+            "id": 339,
             "ok": false,
             "error": "The file no longer exists.",
             "errorCode": "file-download:not-found"
@@ -7361,15 +12162,30 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/outside/note.md"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
-            "id": 293,
+            "id": 340,
             "ok": true,
             "value": {
-              "grantId": "<grantId#75>",
+              "grantId": "<grantId#87>",
               "name": "note.md",
               "size": 13,
               "mime": "text/markdown",
-              "version": "<version#34>",
+              "version": "<version#44>",
               "expiresAt": 1924992060000
             }
           }
@@ -7388,15 +12204,30 @@
               "purpose": "save"
             }
           ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "session",
+                    "sessionId": "s1",
+                    "path": "<dir>/outside/NOTE.MD"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
           "frame": {
-            "id": 294,
+            "id": 341,
             "ok": true,
             "value": {
-              "grantId": "<grantId#76>",
+              "grantId": "<grantId#88>",
               "name": "NOTE.MD",
               "size": 13,
               "mime": "text/markdown",
-              "version": "<version#34>",
+              "version": "<version#44>",
               "expiresAt": 1924992060000
             }
           }

@@ -42,6 +42,20 @@ pub trait SessionCatalog: Send + Sync {
     async fn row(&self, _session_id: &str) -> WsResult<Option<SessionRow>> {
         Ok(None)
     }
+
+    /// The file the host's media store holds for an asset id (Node's `invokeCapability('resolveMediaFile', [id, { variant: 'original',
+    /// generate: false }])`): `None` for an asset the store does not know or whose bytes are gone (Node's `null` or `available: false`).
+    /// A catalog without a media store has none.
+    async fn media(&self, _asset_id: &str) -> WsResult<Option<MediaEntry>> {
+        Ok(None)
+    }
+}
+
+/// What the host's media store resolves an asset to: the file's path and, when the store states one, its type.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MediaEntry {
+    pub path: String,
+    pub mime: Option<String>,
 }
 
 /// What a download needs of a conversation (Node's `DesktopSessionSummary`): whether it is a project conversation, its project as the
@@ -80,6 +94,8 @@ pub struct GrantStore {
     /// Conversations the published catalog has contained: only these can be "gone" (Node: `seenSessions.has(id) && !catalog.has(id)`,
     /// `seenSessions` filled by `retainCatalog` on each publication, `file-downloads.ts:472`).
     seen: Mutex<HashSet<String>>,
+    /// Told the credential of a device that unpaired, so what else the device holds ends in the same step (the downloads).
+    unpaired: std::sync::OnceLock<Arc<dyn Fn(&str) + Send + Sync>>,
 }
 
 /// `selectedFileGrantKey`.
@@ -108,7 +124,17 @@ fn required(value: &str, name: &str, maximum: usize) -> WsResult<String> {
 
 impl GrantStore {
     pub fn new(clock: Arc<dyn IdleClock>, catalog: Arc<dyn SessionCatalog>) -> Self {
-        Self { clock, catalog, devices: Mutex::default(), bound: Mutex::default(), seen: Mutex::default() }
+        Self { clock, catalog, devices: Mutex::default(), bound: Mutex::default(), seen: Mutex::default(), unpaired: std::sync::OnceLock::new() }
+    }
+
+    /// Connects what else ends when a device unpairs. Set once.
+    pub fn on_unpaired(&self, hook: Arc<dyn Fn(&str) + Send + Sync>) {
+        let _ = self.unpaired.set(hook);
+    }
+
+    /// Whether a published catalog has listed the conversation (Node's `seenSessions`): only such a conversation can be gone.
+    pub fn has_seen(&self, session_id: &str) -> bool {
+        self.seen.lock().expect("grant sessions").contains(session_id)
     }
 
     /// Unpair (`dropFileGrants`): the device's table is dropped, so a connection of it that arrives afterwards starts with no grant.
@@ -116,6 +142,14 @@ impl GrantStore {
     /// (`remote-relay-device-methods.ts` `methodsFor` / `dropFileGrants`); the relay ends such a connection when it removed the pairing.
     pub fn revoke_device(&self, credential: &str) {
         self.devices.lock().expect("grants").remove(credential);
+        if let Some(unpaired) = self.unpaired.get() {
+            unpaired(credential);
+        }
+    }
+
+    /// Node's `session_row` is the catalog's; the media store's file for an asset is too (see [`SessionCatalog::media`]).
+    pub async fn media(&self, asset_id: &str) -> WsResult<Option<MediaEntry>> {
+        self.catalog.media(asset_id).await
     }
 
     /// The connection ended: it holds no table any more.

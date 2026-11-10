@@ -60,6 +60,7 @@ use crate::recovery::RecoveryStore;
 use crate::search::SearchSessions;
 use crate::search::SessionConfig;
 use crate::textsearch::TextQuery;
+use crate::transfer::Owner;
 use crate::transfer::Transfers;
 use crate::watcher::ChangeKind;
 use crate::watcher::ChangeSink;
@@ -434,6 +435,9 @@ impl WorkspaceService {
         store: Arc<crate::grants::GrantStore>,
         credential_of: Arc<dyn Fn(ConnectionId) -> Option<String> + Send + Sync>,
     ) {
+        // A device that unpairs loses its downloads in the same step as its grants, whether or not any connection of it is attached.
+        let transfers = self.transfers.clone();
+        store.on_unpaired(Arc::new(move |credential| transfers.revoke_owner(&Owner::device(credential))));
         let _ = self.phone_grants.set(PhoneGrants { store, credential_of });
     }
 
@@ -475,7 +479,7 @@ impl WorkspaceService {
 
     /// A connection closed: its watches, searches and transfers end with it.
     pub fn connection_closed(&self, connection: &ConnectionId) {
-        let owner = connection.to_string();
+        let owner = Owner::connection(connection.0).to_string();
         self.transfers.end_owner(&owner);
         if let Some(grants) = self.phone_grants.get() {
             grants.store.release(connection.0);
@@ -493,70 +497,34 @@ impl WorkspaceService {
         }
     }
 
-    /// Whether the conversation a phone's download names has left the catalog (Node's `sessionRemoved`); false until a published
-    /// catalog listed it, and without paired-device state.
-    async fn session_gone(&self, session: &str) -> WsResult<bool> {
-        match self.phone_grants.get() {
-            Some(grants) => grants.store.conversation_gone(session).await,
-            None => Ok(false),
+    /// The host's catalog dropped a conversation, and this is told in the step that publishes the change (Node's `retainSessions`): the
+    /// downloads on it end at once, a call of them in flight finds it removed, and a conversation no published catalog ever listed ends
+    /// nothing (Node's `seenSessions`).
+    pub fn session_removed(&self, session: &str) {
+        if self.phone_grants.get().is_some_and(|grants| grants.store.has_seen(session)) {
+            self.transfers.remove_session(session);
         }
     }
 
-    /// Node's `retainSessions` (`remote-relay.ts:450`, at each publication of the session list): every conversation the downloads
-    /// hold that the catalog no longer has ends its grants and transfers.
-    pub async fn retire_gone_download_sessions(&self) {
-        for session in self.transfers.held_sessions() {
-            if self.session_gone(&session).await.unwrap_or(false) {
-                self.transfers.revoke_session(&session);
-            }
+    /// An unpair ends what the device holds. `connection` is the number of one of the device's attached connections, which the unpair
+    /// walks (`PairedDeviceCleanup::unpaired`): what the connection owns ends, and so do the downloads of the credential it is attached
+    /// under. The downloads of a device with no connection attached end through the grant store, which is told the credential
+    /// (see [`Self::set_phone_grants`]).
+    pub fn revoke_device(&self, connection: &str) {
+        let Ok(id) = connection.parse::<u64>() else { return };
+        self.transfers.revoke_owner(&Owner::connection(id));
+        if let Some(credential) = self.phone_grants.get().and_then(|grants| (grants.credential_of)(ConnectionId(id))).filter(|credential| !credential.is_empty()) {
+            self.transfers.revoke_owner(&Owner::device(&credential));
         }
     }
 
-    /// The observer of the published session catalog: `seen` records which conversations the catalog has listed (the paired devices'
-    /// grants), then the downloads of a conversation the catalog no longer has end.
-    pub fn catalog_observer(self: &Arc<Self>, seen: Arc<dyn mixdog_core_api::state::CatalogObserver>) -> Arc<dyn mixdog_core_api::state::CatalogObserver> {
-        struct Retiring {
-            seen: Arc<dyn mixdog_core_api::state::CatalogObserver>,
-            service: Weak<WorkspaceService>,
-        }
-        impl mixdog_core_api::state::CatalogObserver for Retiring {
-            fn published(&self, session_ids: &[&str]) {
-                self.seen.published(session_ids);
-                if let Some(service) = self.service.upgrade().filter(|service| !service.transfers.held_sessions().is_empty()) {
-                    drop(mixdog_rt::spawn("download-retain-sessions", mixdog_rt::TaskClass::Work, async move {
-                        service.retire_gone_download_sessions().await;
-                    }));
-                }
-            }
-        }
-        Arc::new(Retiring { seen, service: Arc::downgrade(self) })
-    }
-
-    /// Node's `retainSessions` for the one call at hand: a conversation that is gone ends the grants and transfers on it before the
-    /// call looks for them.
-    async fn retire_download_session(&self, owners: &[&str], id: &str) -> WsResult<()> {
-        if let Some(session) = self.transfers.session_of(owners, id)
-            && self.session_gone(&session).await?
-        {
-            self.transfers.revoke_session(&session);
-        }
-        Ok(())
-    }
-
-    /// An unpair ends what the device holds. `device` names a connection of it (the unpair walks the device's attached connections,
-    /// still attached under its credential) or the credential itself: a phone's grants and transfers belong to its credential.
-    pub fn revoke_device(&self, device: &str) {
-        self.transfers.revoke_owner(device);
-        let credential = device.parse::<u64>().ok().and_then(|id| self.phone_grants.get().and_then(|grants| (grants.credential_of)(ConnectionId(id))));
-        if let Some(credential) = credential.filter(|credential| !credential.is_empty()) {
-            self.transfers.revoke_owner(&credential);
-        }
-    }
-
-    /// Who a phone's download calls belong to: its paired credential, else (a local client) the connection (Node's `downloadRequester`).
-    fn download_owner(&self, req: &CoreRequest) -> String {
+    /// Who a phone's download calls belong to: its paired credential (only a relay peer admitted under one has it), else (a local
+    /// client) the connection (Node's `downloadRequester`).
+    fn download_owner(&self, req: &CoreRequest) -> Owner {
         match (&req.ctx.caller, self.phone_grants.get()) {
-            (mixdog_core_api::call::Caller::Connection(id), Some(grants)) => (grants.credential_of)(*id).filter(|c| !c.is_empty()).unwrap_or_else(|| id.to_string()),
+            (mixdog_core_api::call::Caller::Connection(id), Some(grants)) => {
+                (grants.credential_of)(*id).filter(|c| !c.is_empty()).map_or_else(|| Owner::connection(id.0), |credential| Owner::device(&credential))
+            }
             _ => Self::owner(req),
         }
     }
@@ -643,10 +611,10 @@ impl WorkspaceService {
         Ok((self.root(req.ctx.origin, params).await?, s(params, "rel")?.to_owned()))
     }
 
-    fn owner(req: &CoreRequest) -> String {
+    fn owner(req: &CoreRequest) -> Owner {
         match &req.ctx.caller {
-            mixdog_core_api::call::Caller::Connection(id) => id.to_string(),
-            mixdog_core_api::call::Caller::Internal(name) => (*name).to_owned(),
+            mixdog_core_api::call::Caller::Connection(id) => Owner::connection(id.0),
+            mixdog_core_api::call::Caller::Internal(name) => Owner::internal(name),
         }
     }
 
@@ -935,12 +903,12 @@ impl WorkspaceService {
                     self.router.fs.lock().expect("fs watches").remove(&id);
                     return Err(error);
                 }
-                self.watches.lock().expect("watches").insert(id, Owned { connection: Self::owner(req), publisher: publisher.clone() });
+                self.watches.lock().expect("watches").insert(id, Owned { connection: Self::owner(req).to_string(), publisher: publisher.clone() });
                 Ok(Reply::Subscribe(Subscribe { result: json!({}), feed: publisher.source(), window: Window::Fixed, resume_from: None }))
             }
             "fs/unwatch" => {
                 let id = s(params, "watchId")?;
-                let owned = self.watches.lock().expect("watches").get(id).is_some_and(|w| w.connection == Self::owner(req));
+                let owned = self.watches.lock().expect("watches").get(id).is_some_and(|w| w.connection == *Self::owner(req));
                 if owned {
                     self.unwatch(id);
                 }
@@ -971,7 +939,7 @@ impl WorkspaceService {
                     beyond_budget: None,
                 };
                 let publisher = self.search.start(&id, config)?;
-                self.search_owner.lock().expect("search owners").insert(id, Self::owner(req));
+                self.search_owner.lock().expect("search owners").insert(id, Self::owner(req).to_string());
                 Ok(Reply::Subscribe(Subscribe { result: json!({}), feed: publisher.source(), window: Window::Fixed, resume_from: None }))
             }
             "search/update" => {
@@ -1043,9 +1011,17 @@ impl WorkspaceService {
                 }
                 let id = s(params, "transferId")?.to_owned();
                 let (owner, connection, t) = (self.download_owner(req), Self::owner(req), self.transfers.clone());
-                self.retire_download_session(&[owner.as_str(), connection.as_str()], &id).await?;
+                let owners = [owner.as_str(), connection.as_str()];
                 let version = params.get("version").and_then(Value::as_str).map(str::to_owned);
-                let range = run_fallible(self.lanes.interactive, &cancel, move || t.read_range(&[owner.as_str(), connection.as_str()], &id, offset, length, version.as_deref())).await?;
+                let range = run_fallible(self.lanes.interactive, &cancel, {
+                    let (owners, id) = (owners.map(str::to_owned), id.clone());
+                    move || t.read_range(&[owners[0].as_str(), owners[1].as_str()], &id, offset, length, version.as_deref())
+                })
+                .await?;
+                // The lane answered some time after the range took its last look: a revoke that landed since is never followed by bytes.
+                if !self.transfers.holds(&owners, &id) {
+                    return Err(WsError::expired());
+                }
                 value(json!(range))
             }
             "transfer/authorizeRead" => {
@@ -1078,43 +1054,26 @@ impl WorkspaceService {
                         })
                         .await?
                     }
+                    Some("mediaAsset") => {
+                        // Node's `authorizeMediaAsset`: the conversation is in the catalog (above), the asset is the media store's.
+                        let entry = grants.store.media(s(source, "assetId")?).await?;
+                        run_fallible(self.lanes.interactive, &cancel, move || crate::transfer::open_media_download(entry.as_ref(), &|point| t.point(point))).await?
+                    }
                     _ => return Err(WsError::invalid("source.kind is invalid.")),
                 };
                 let t = self.transfers.clone();
-                let granted = t.authorize(&owner, &session, mark, opened)?;
-                // Node's `stillAuthorized`: a conversation that left the catalog while the file was opened leaves no grant behind.
-                if self.session_gone(&session).await? {
-                    self.transfers.revoke_session(&session);
-                    return Err(unavailable());
-                }
-                value(json!(granted))
+                value(json!(t.authorize(&owner, &session, mark, opened)?))
             }
             "transfer/redeemGrant" => {
                 let (owner, t, id) = (self.download_owner(req), self.transfers.clone(), s(params, "grantId")?.to_owned());
-                self.retire_download_session(&[owner.as_str()], &id).await?;
-                let session = self.transfers.session_of(&[owner.as_str()], &id);
-                let leased = run_fallible(self.lanes.interactive, &cancel, {
-                    let (owner, id) = (owner.clone(), id.clone());
-                    move || t.begin_grant(&owner, &id)
-                })
-                .await?;
-                // The conversation left the catalog while the file was checked: no transfer is left behind.
-                if let Some(session) = session
-                    && self.session_gone(&session).await?
-                {
-                    self.transfers.revoke_session(&session);
-                    return Err(unavailable());
-                }
-                value(json!(leased))
+                value(json!(run_fallible(self.lanes.interactive, &cancel, move || t.begin_grant(&owner, &id)).await?))
             }
             "transfer/finishRead" => {
                 let (owner, t, id) = (self.download_owner(req), self.transfers.clone(), s(params, "transferId")?.to_owned());
-                self.retire_download_session(&[owner.as_str()], &id).await?;
                 value(json!(run_fallible(self.lanes.interactive, &cancel, move || t.finish_read(&owner, &id)).await?))
             }
             "transfer/endRead" => {
                 let (owner, connection, id) = (self.download_owner(req), Self::owner(req), s(params, "transferId")?);
-                self.retire_download_session(&[owner.as_str(), connection.as_str()], id).await?;
                 value(json!({ "ended": self.transfers.end_read(&[owner.as_str(), connection.as_str()], id) }))
             }
             "transfer/beginWrite" if params.get("scope").is_some() => {
