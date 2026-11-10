@@ -9,8 +9,9 @@ import { createRemoteShimContext } from '../remote-shim-state.ts';
 
 const GLOBALS = ['window', 'document', 'localStorage', 'location'];
 
-/** Runs `run` against a phone API whose adapter holds `handlers` (Node method name -> `(params) => result`), registered as calls and fires. */
-export async function withPhoneApi(handlers, run) {
+/** Runs `run` against a phone API whose adapter holds `handlers` (Node method name -> `(params) => result`), registered as calls and fires.
+ *  `synced` replaces the view sync the router's gated calls wait for (default: already synced). */
+export async function withPhoneApi(handlers, run, { synced } = {}) {
   const saved = GLOBALS.map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]);
   const define = (key, value) => Object.defineProperty(globalThis, key, { value, configurable: true, writable: true });
   define('window', Object.assign(new EventTarget(), { setTimeout, clearTimeout, Event, CustomEvent }));
@@ -33,7 +34,7 @@ export async function withPhoneApi(handlers, run) {
     const router = createProtocolRouter([adapter], {
       host: { ctx, client: () => { throw new Error('the test adapter does not reach a core'); }, declareLane() {} },
       started: () => ready,
-      synced: () => ready,
+      synced: synced ?? (() => ready),
       probe() {},
       silentSince: () => false,
           });
