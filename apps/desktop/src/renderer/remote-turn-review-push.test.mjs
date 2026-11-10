@@ -1,25 +1,23 @@
+// Node's version of this test (b6f10295a) delivered the desktop's `turn-review-changed` push over a fake relay socket to the shim's dispatch,
+// which fanned it out to `ctx.turnReviewChangedListeners` (remote-shim-dispatch.ts:288-290) -- the set `subscribeTurnReviewChanged` adds to
+// (remote-shim-api.ts:488, today :467). The table and the set are the product's; the push reaches the set through the adapter that carries
+// the event, so the test hands it to the set as that adapter does (ctx.fanOut). Node's other check there (`if (!authenticated) return`, "clear
+// relay data is ignored") has no counterpart: the phone's relay connector opens every frame that is not one of the relay's own words as a
+// sealed one (apps/mobile/src/relay-connector.ts `handle`), so no cleartext event reaches the page.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { TURN_REVIEW_CHANGED_EVENT } from '../shared/turn-review-changed.ts';
-import { createRemoteApi } from './remote-shim-api.ts';
-import { publishedCeilings, withShim } from './remote-shim-test-harness.mjs';
+import { withPhoneApi } from './test-support/phone-api-rig.mjs';
 
-test("a relayed review-changed push reaches the phone's review, authenticated only", async () => {
-  await withShim({}, async ({ ctx, dial }) => {
-    ctx.turnReviewChangedListeners = new Set();
-    const api = createRemoteApi(ctx);
-    const leg = await dial({ ready: publishedCeilings(4096, 4096) });
+test("a review-changed push reaches the phone's review until it unsubscribes", async () => {
+  await withPhoneApi({}, async ({ ctx, api }) => {
     let rereads = 0;
     const off = api.subscribeTurnReviewChanged(() => (rereads += 1));
 
-    ctx.handleMessage({ event: TURN_REVIEW_CHANGED_EVENT, payload: null }, false);
-    assert.equal(rereads, 0, 'clear relay data is ignored');
-
-    await leg.deliver({ event: TURN_REVIEW_CHANGED_EVENT, payload: null });
+    ctx.fanOut(ctx.turnReviewChangedListeners, undefined);
     assert.equal(rereads, 1);
 
     off();
-    await leg.deliver({ event: TURN_REVIEW_CHANGED_EVENT, payload: null });
+    ctx.fanOut(ctx.turnReviewChangedListeners, undefined);
     assert.equal(rereads, 1);
   });
 });
