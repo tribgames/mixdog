@@ -368,6 +368,26 @@
           "calls": []
         }
       ]
+    },
+    {
+      "name": "a failed call whose row is still queued when the process stops",
+      "holdFlushTimer": true,
+      "replies": [
+        {
+          "text": "go",
+          "calls": [
+            {
+              "id": "q1",
+              "name": "read",
+              "args": {}
+            }
+          ]
+        },
+        {
+          "text": "done",
+          "calls": []
+        }
+      ]
     }
   ],
   "files": {
@@ -413,7 +433,10 @@
     [
       "{\"ts\":\"<ts>\",\"session_id\":\"<session:9>\",\"iteration\":1,\"tool_name\":\"mcp__fx__big\",\"tool_kind\":\"mcp\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":\"lead\",\"model\":\"fake-model\",\"cwd\":\"<WS>\",\"tool_ms\":\"<ms>\",\"tool_args\":null,\"error_first_line\":\"[tool output offloaded: mcp__fx__big → <DATA>/tool-results/<session:9>/e831fcf155454e5566d53c48c1912e8f34c5b3cf146f501ace1f4436d9efa201.txt (98 KB, 1 lines)]\",\"error_preview\":\"[tool output offloaded: mcp__fx__big → <DATA>/tool-results/<session:9>/e831fcf155454e5566d53c48c1912e8f34c5b3cf146f501ace1f4436d9efa201.txt (98 KB, 1 lines)]\\n\\nError: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\\n... [preview middle omitted — 97 KB] ...\\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\\n[preview truncated; full output preserved at the artifact path above]\",\"result_bytes_est\":787,\"result_lines_est\":6}"
     ],
-    []
+    [],
+    [
+      "{\"ts\":\"<ts>\",\"session_id\":\"<session:11>\",\"iteration\":1,\"tool_name\":\"read\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":\"lead\",\"model\":\"fake-model\",\"cwd\":\"<WS>\",\"tool_ms\":\"<ms>\",\"tool_args\":null,\"error_first_line\":\"Error: read requires \\\"path\\\" (or alias file_path).\",\"error_preview\":\"Error: read requires \\\"path\\\" (or alias file_path).\",\"result_bytes_est\":49,\"result_lines_est\":1}"
+    ]
   ],
   "results": [
     {
@@ -557,6 +580,24 @@
           "{\"content\":[{\"type\":\"text\",\"text\":\"Error: drawn\"},{\"type\":\"image\",\"data\":\"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==\",\"mimeType\":\"image/png\"}]}"
         ]
       ]
+    },
+    {
+      "name": "a failed call whose row is still queued when the process stops",
+      "outcome": {
+        "answer": "done"
+      },
+      "sends": 2,
+      "toolMessages": [
+        [
+          "Error: read requires \"path\" (or alias file_path)."
+        ]
+      ],
+      "atStop": {
+        "heldFlushTimers": [
+          1000
+        ],
+        "fileAtStop": ""
+      }
     }
   ],
   "leftAtExit": [
@@ -568,21 +609,25 @@
     [
       {
         "name": "node",
-        "parent": "<runtime>"
+        "parent": "<runtime>",
+        "commandLine": "\"C:\\Program Files\\nodejs\\node.exe\" fx-mcp.mjs"
       },
       {
         "name": "conhost",
-        "parent": "#0"
+        "parent": "#0",
+        "commandLine": "\\??\\C:\\WINDOWS\\system32\\conhost.exe 0xffffffff -ForceV1"
       }
     ],
     [
       {
         "name": "node",
-        "parent": "<runtime>"
+        "parent": "<runtime>",
+        "commandLine": "\"C:\\Program Files\\nodejs\\node.exe\" fx-mcp.mjs"
       },
       {
         "name": "conhost",
-        "parent": "#0"
+        "parent": "#0",
+        "commandLine": "\\??\\C:\\WINDOWS\\system32\\conhost.exe 0xffffffff -ForceV1"
       }
     ],
     [],
@@ -590,22 +635,27 @@
     [
       {
         "name": "node",
-        "parent": "<runtime>"
+        "parent": "<runtime>",
+        "commandLine": "\"C:\\Program Files\\nodejs\\node.exe\" fx-mcp.mjs"
       },
       {
         "name": "conhost",
-        "parent": "#0"
+        "parent": "#0",
+        "commandLine": "\\??\\C:\\WINDOWS\\system32\\conhost.exe 0xffffffff -ForceV1"
       }
     ],
     [
       {
         "name": "node",
-        "parent": "<runtime>"
+        "parent": "<runtime>",
+        "commandLine": "\"C:\\Program Files\\nodejs\\node.exe\" fx-mcp.mjs"
       },
       {
         "name": "conhost",
-        "parent": "#0"
+        "parent": "#0",
+        "commandLine": "\\??\\C:\\WINDOWS\\system32\\conhost.exe 0xffffffff -ForceV1"
       }
-    ]
+    ],
+    []
   ]
 }
