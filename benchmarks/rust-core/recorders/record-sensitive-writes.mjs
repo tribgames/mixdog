@@ -15,7 +15,6 @@
 //   MIXDOG_RECORDER_SCRATCH=<scratch parent> node benchmarks/rust-core/recorders/record-sensitive-writes.mjs --tree <tree> --patch <patch>,<patch>
 //
 // Output: native/core/fixtures/sensitive-writes/golden.json (+ MANIFEST.json).
-import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
@@ -25,8 +24,6 @@ import { CODE, FAILED, MODEL, REPLIES, SECRET, TURNS, browserAnswer } from './li
 const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
 const recorder = 'benchmarks/rust-core/recorders/record-sensitive-writes.mjs';
 const SELF = fileURLToPath(import.meta.url);
-const SCENARIO_FILE = fileURLToPath(new URL('./lib/sensitive-writes-scenario.mjs', import.meta.url));
-const FILES_LIB = fileURLToPath(new URL('./lib/sensitive-writes-files.mjs', import.meta.url));
 const DEADLINE_MS = 300_000;
 const deadline = (p, ms, what) => {
   let timer;
@@ -172,7 +169,7 @@ if (process.argv[2] === '--child') {
   process.exit(0);
 }
 
-const { FIXTURES_ROOT, commitStage, parseArgs, patchedProductIdentity, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
+const { FIXTURES_ROOT, commitStage, parseArgs, patchedProductIdentity, recordingProvenance, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
 const { readJobReport, spawnInJob } = await import('./lib/job-run.mjs');
 const { normalizeTree, scanSecrets } = await import('./lib/sensitive-writes-files.mjs');
 const args = parseArgs();
@@ -180,7 +177,6 @@ for (const name of args.keys()) if (!['tree', 'patch'].includes(name)) throw new
 const tree = resolveTree(args);
 if (!args.get('patch')) throw new Error('pass --patch node-patches/node-fix-sensitive-side-writes.patch,node-patches/node-fix-sensitive-header-summary.patch');
 const identity = patchedProductIdentity(tree, NODE_COMMIT, args.get('patch'));
-const sha256 = (path) => createHash('sha256').update(readFileSync(path)).digest('hex');
 const scratch = process.env.MIXDOG_RECORDER_SCRATCH;
 if (!scratch) throw new Error('MIXDOG_RECORDER_SCRATCH must name the scratch parent (under D:\\mixdog-build\\tmp\\<slot>)');
 
@@ -265,11 +261,8 @@ try {
     command: `MIXDOG_RECORDER_SCRATCH=<scratch parent> node ${recorder} --tree <export of ${NODE_COMMIT} with the patches applied> --patch ${identity.patches.map((p) => `benchmarks/rust-core/recorders/node-patches/${p.file}`).join(',')}`,
     identity,
     extra: {
-      node: process.version,
-      recorderSha256: sha256(SELF),
-      scenarioSha256: sha256(SCENARIO_FILE),
-      filesLibSha256: sha256(FILES_LIB),
-      inputs: { tree: `export of ${NODE_COMMIT} with ${identity.patches.map((p) => `${p.file} (sha256 ${p.sha256})`).join(', then ')} applied`, scenario: 'lib/sensitive-writes-scenario.mjs' },
+      ...recordingProvenance(recorder, ['lib/sensitive-writes-scenario.mjs', 'lib/sensitive-writes-files.mjs', 'lib/common.mjs', 'lib/job-run.mjs'].map((file) => `benchmarks/rust-core/recorders/${file}`)),
+      recorded: { tree: `export of ${NODE_COMMIT} with ${identity.patches.map((p) => `${p.file} (sha256 ${p.sha256})`).join(', then ')} applied`, scenario: 'lib/sensitive-writes-scenario.mjs' },
       normalised: 'lib/sensitive-writes-files.mjs: the session id as <session>, the workspace as <ws>, the profile folder as <profile>, every other run-specific id (uuid, prefixed random id) as <id:N> by first appearance in file order, every ISO time as <iso> and every epoch time in milliseconds as <ms>, file names with the same substitutions; a binary file (SQLite, WAL) is listed by name and size only and searched for the values',
     },
   });
