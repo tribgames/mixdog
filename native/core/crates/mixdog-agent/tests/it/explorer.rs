@@ -189,6 +189,7 @@ fn env() -> RunEnv {
         step_judge: None,
         artifacts: None,
         images: None,
+        failures: None,
     }
 }
 
