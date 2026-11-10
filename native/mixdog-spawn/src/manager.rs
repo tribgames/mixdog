@@ -91,6 +91,9 @@ pub trait OutputFilter: Send {
     fn filter(&mut self, bytes: &[u8]) -> Vec<u8>;
     /// Output still held back when the stream ends.
     fn finish(&mut self) -> Vec<u8>;
+    /// The chunk the last `filter` or `finish` returned is entering the feed (its flow gate let it in): called under the feed's lock,
+    /// never for a chunk the feed drops.
+    fn admitted(&mut self) {}
 }
 
 /// Runs on the process's waiter thread once the root has ended and its output pipes are finished
@@ -704,7 +707,10 @@ fn read_loop(
         match reader.read(&mut buffer) {
             Ok(0) => break,
             Ok(n) => match filter.as_mut() {
-                Some(filter) => feed.push_output(stream, &filter.filter(&buffer[..n])),
+                Some(filter) => {
+                    let bytes = filter.filter(&buffer[..n]);
+                    feed.admit(stream, &bytes, || filter.admitted());
+                }
                 None => feed.push_output(stream, &buffer[..n]),
             },
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
@@ -713,7 +719,8 @@ fn read_loop(
         }
     }
     if let Some(filter) = filter.as_mut() {
-        feed.push_output(stream, &filter.finish());
+        let bytes = filter.finish();
+        feed.admit(stream, &bytes, || filter.admitted());
     }
 }
 
@@ -1022,6 +1029,23 @@ impl LocalProcessManager {
     /// Output bytes the process's reader has put into its feed so far.
     pub fn output_pushed(&self, handle: &ProcessHandle) -> Result<u64, ProcessError> {
         Ok(self.inner.lookup(handle)?.feed.pushed())
+    }
+
+    /// The output offset reached so far, cut there: output after it comes in events of its own (see `Feed::mark`).
+    pub(crate) fn output_mark(&self, handle: &ProcessHandle) -> Result<u64, ProcessError> {
+        Ok(self.inner.lookup(handle)?.feed.mark())
+    }
+
+    /// [`ProcessManager::subscribe`] with the output offset where the subscription's first event starts (more than zero when the
+    /// ring has dropped the start of the output).
+    pub(crate) fn subscribe_at(
+        &self,
+        handle: &ProcessHandle,
+        from_seq: Option<u64>,
+    ) -> Result<(Box<dyn EventSource<ProcessEvent>>, u64), ProcessError> {
+        let subscription = self.inner.lookup(handle)?.feed.subscribe(from_seq)?;
+        let start = subscription.start();
+        Ok((Box::new(subscription), start))
     }
 
     /// Input accepted but not yet written to the process.
