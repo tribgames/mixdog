@@ -359,7 +359,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let surface_generation = mixdog_core::run_host::surface_host::SurfaceGeneration::default();
 
     // ---- 2. policy, hub, hook bus; the late views and the one secret input ---------------------
-    let PolicyParts { policy, connectors, grants, connector_policy } = build_policy(&b.tokens, &b.data_dir);
+    let PolicyParts { policy: _, connectors, grants, connector_policy } = build_policy(&b.tokens, &b.data_dir);
     // The hook event log (`createHookEventLog`, the hook bus's observer) and the one `HookStatus` over it that the doctor and the `hooks` status read; the first
     // config lookup starts at the process's directory. The bus emits into this log (run-host-34).
     let startup_cwd = std::env::current_dir().map_err(ComposeError::StateDir)?; // the folder the daemon started in: a session with no folder of its own runs hooks here
@@ -371,6 +371,12 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     hub.set_sign_in_notices(Arc::new(mixdog_core::run_host::desktop_notices::ConnectorDesktopNotices(desktop_notices.clone())));
     let late = Arc::new(LateDirectory::default());
     hook_bus.bind_scopes(compose_parts::hook_scope(late.clone())).map_err(|_| ComposeError::AlreadyBound("hook scopes"))?;
+    // The PreToolUse bridge (`attachSessionHooks` `beforeToolHook`): the tool gate asks the hook bus before every call, so a hook's deny or ask reaches the model and the failure log.
+    let policy = {
+        let common = compose_parts::hook_common(late.clone());
+        let source: mixdog_mcp::pre_tool::CommonSource = Arc::new(move |thread: &mixdog_protocol::ThreadId| common(thread.as_str()));
+        Arc::new(mixdog_tools::policy::ToolPolicy::new(grants.clone(), connectors.clone()).with_hook(Arc::new(mixdog_mcp::pre_tool::BusPreToolHook::new(hook_bus.clone(), source))))
+    };
     // The heartbeat state file: the user-activity probe and the `session` tool's suggestions share the one store.
     let heartbeat_store = mixdog_services::bots::beat::HeartbeatStore::new(mixdog_services::bots::state_json::StateJson::new(b.data_dir.join("heartbeat.json"), b.tokens.durability_io));
     // The one UserActivity: the setup/user-activity domain and Mixy's heartbeat both read it (heartbeat-1).
