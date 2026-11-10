@@ -634,6 +634,165 @@ async fn interrupted_batch_is_listed_inspected_and_restored_to_the_pre_image() {
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "one\n");
 }
 
+/// An unwatch whose request was cancelled before it ran still ends the OS watch: its record never goes without it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_cancelled_unwatch_still_ends_the_os_watch() {
+    let env = env();
+    env.service
+        .call(request("fs/watch", json!({ "watchId": "w", "path": env.root.to_string_lossy(), "recursive": false })))
+        .await
+        .unwrap();
+    assert_eq!(env.service.open_os_watches(), 1);
+    let unwatch = request("fs/unwatch", json!({ "watchId": "w" }));
+    unwatch.ctx.cancel.cancel();
+    let _ = env.service.call(unwatch).await;
+    assert_eq!(env.service.open_os_watches(), 0, "the record went and the OS watch with it");
+}
+
+/// Node's `folderWatch` took any absolute path (`absoluteLocalPath`, then `fs.watch`): a folder outside every project is watched, and a
+/// missing one fails with the text `fs.watch` gives.
+#[tokio::test(flavor = "multi_thread")]
+async fn watch_takes_any_absolute_folder_and_a_missing_one_fails_like_fs_watch() {
+    let env = env();
+    let outside = std::env::temp_dir().join(format!("mixdog-watch-outside-{}", std::process::id()));
+    std::fs::create_dir_all(&outside).unwrap();
+    let reply = env
+        .service
+        .call(request("fs/watch", json!({ "watchId": "out", "path": outside.to_string_lossy(), "recursive": false })))
+        .await
+        .unwrap();
+    assert!(matches!(reply, Reply::Subscribe(_)), "a folder outside the project is watched");
+    std::fs::remove_dir_all(&outside).unwrap();
+
+    let missing = std::env::temp_dir().join(format!("mixdog-watch-missing-{}", std::process::id()));
+    let error = env
+        .service
+        .call(request("fs/watch", json!({ "watchId": "gone", "path": missing.to_string_lossy(), "recursive": false })))
+        .await
+        .err()
+        .expect("a missing folder cannot be watched");
+    let CoreError::DomainError { message: Some(message), .. } = &error else { panic!("a domain error, got {error:?}") };
+    assert_eq!(&**message, format!("ENOENT: no such file or directory, watch '{}'", missing.display()));
+}
+
+/// Node's `folderWatch` runs `absoluteLocalPath` first and a relative path never reaches `fs.watch` (recorded:
+/// apps/mobile/fixtures/phone-terminal/golden.json, `folderWatch` of `relative/dir` -> `path must be absolute.`). A relative path that
+/// exists from the core's directory must be refused the same, not resolved and watched.
+#[tokio::test(flavor = "multi_thread")]
+async fn watch_refuses_a_relative_path_even_when_it_exists_from_the_working_directory() {
+    let env = env();
+    for relative in [".", "..", "src", "./src"] {
+        let error = env
+            .service
+            .call(request("fs/watch", json!({ "watchId": "rel", "path": relative, "recursive": false })))
+            .await
+            .err()
+            .unwrap_or_else(|| panic!("{relative:?} is relative and must not be watched"));
+        assert!(format!("{error:?}").contains("path must be absolute."), "{relative:?}: {error:?}");
+    }
+    assert_eq!(env.service.open_os_watches(), 0);
+}
+
+/// Every input Node's `absoluteLocalPath` refused (apps/mobile/fixtures/absolute-local-path/golden.json, the recording with the working
+/// directory on this process's drive) is refused by `fs/watch` with Node's message, and nothing is watched; a non-string `path` included.
+#[cfg(windows)]
+#[tokio::test(flavor = "multi_thread")]
+async fn watch_refuses_every_input_node_refuses_with_nodes_message() {
+    let golden: Value = serde_json::from_str(include_str!("../../../../../../apps/mobile/fixtures/absolute-local-path/golden.json")).unwrap();
+    let drive = std::env::current_dir().unwrap().to_string_lossy().chars().next().unwrap().to_ascii_uppercase().to_string();
+    let recorded = golden["drives"].get(&drive).unwrap_or_else(|| panic!("absolute-local-path has no recording with the working directory on drive {drive}"));
+    let env = env();
+    let mut refused = 0;
+    for (input, answer) in golden["inputs"].as_array().unwrap().iter().zip(recorded.as_array().unwrap()) {
+        let Some(message) = answer["error"]["message"].as_str() else { continue };
+        let mut params = json!({ "watchId": "refused", "recursive": false });
+        if input.get("absent").is_none() {
+            params["path"] = input["value"].clone();
+        }
+        let error = env.service.call(request("fs/watch", params)).await.err().unwrap_or_else(|| panic!("{}: Node refused it and it was watched", input["name"]));
+        assert!(format!("{error:?}").contains(message), "{}: Node says {message:?}, got {error:?}", input["name"]);
+        refused += 1;
+    }
+    assert!(refused > 0);
+    assert_eq!(env.service.open_os_watches(), 0);
+}
+
+/// Every class of project path answered as Node answers it (apps/mobile/fixtures/project-path-classes/golden.json, recorded by
+/// record-project-path-classes.mjs from the real registry, the real store and `addProject`): the registry's lookup (`project/read`, and
+/// `transfer/trash/info`, which Node hands `projectDirectory`), the folder `project/ensureDirectory` makes and the path `project/create`
+/// registers. The working directory is the project's parent, as in the recording; the test needs a process of its own (nextest runs one).
+#[cfg(windows)]
+#[tokio::test(flavor = "multi_thread")]
+async fn project_paths_are_read_as_nodes_registry_reads_them() {
+    let golden: Value = serde_json::from_str(include_str!("../../../../../../apps/mobile/fixtures/project-path-classes/golden.json")).unwrap();
+    let env = env();
+    let tmp = env.root.parent().unwrap().to_path_buf();
+    let proj = tmp.join("proj");
+    std::fs::create_dir(&proj).unwrap();
+    let row = mixdog_store::state::ProjectRow { path: proj.to_string_lossy().into_owned(), alias: None, hidden: false, hidden_rank: None, last_used_at: None, name: None };
+    env.state.write(move |tx| tx.put_project(&row)).await.unwrap();
+    std::env::set_current_dir(&tmp).unwrap();
+
+    let text = |path: &std::path::Path| path.to_string_lossy().into_owned();
+    let (proj_text, tmp_text) = (text(&proj), text(&tmp));
+    let rooted = tmp_text[2..].to_owned();
+    let fill: Vec<(&str, String)> = vec![
+        ("{proj}", proj_text.clone()),
+        ("{tmp}", tmp_text.clone()),
+        ("{PROJ}", proj_text.to_uppercase()),
+        ("{TMP}", tmp_text.to_uppercase()),
+        ("{projSlash}", proj_text.replace('\\', "/")),
+        ("{projUpper}", proj_text.to_uppercase()),
+        ("{tmpName}", tmp.file_name().unwrap().to_string_lossy().into_owned()),
+        ("{drive}", tmp_text[..2].to_owned()),
+        ("{tmpRooted}", rooted.clone()),
+        ("{tmpRootedSlash}", rooted.replace('\\', "/")),
+    ];
+    let expand = |template: &str| fill.iter().fold(template.to_owned(), |text, (token, value)| text.replace(token, value));
+
+    let inputs = golden["inputs"].as_array().unwrap();
+    let mut replayed = 0;
+    // In the recording's order: `inspect` before `ensure`, which makes the folders later inputs name. `known` is the registry's lookup behind
+    // `project/directory` (the registered folder is its own real path here).
+    for (operation, method) in [("known", "project/directory"), ("inspect", "project/read"), ("trash", "transfer/trash/info"), ("ensure", "project/ensureDirectory"), ("add", "project/create")] {
+        // Node's lookup answers the trash call too: its `projectDirectory` is the registry's lookup, then a folder.
+        let recorded = golden["answers"][if operation == "trash" { "known" } else { operation }].as_array().unwrap();
+        for (input, answer) in inputs.iter().zip(recorded) {
+            let given = expand(input["template"].as_str().unwrap());
+            let got = call(&env, method, json!({ "path": given })).await;
+            let name = format!("{operation} {}: {given:?}", input["name"]);
+            match answer.get("result") {
+                Some(want) => {
+                    let got = got.unwrap_or_else(|error| panic!("{name}: Node answered {want}, got {error:?}"));
+                    if operation == "trash" {
+                        assert!(got.get("available").is_some(), "{name}: {got}");
+                    } else if operation == "inspect" {
+                        let mut want: Value = serde_json::from_str(want.as_str().unwrap()).unwrap();
+                        want["path"] = json!(expand(want["path"].as_str().unwrap()));
+                        assert_eq!(got, want, "{name}");
+                    } else {
+                        let path = if operation == "add" { &got["project"]["path"] } else { &got["path"] };
+                        assert_eq!(path.as_str().unwrap(), expand(want.as_str().unwrap()), "{name}");
+                    }
+                }
+                None => {
+                    let message = answer["error"]["message"].as_str().unwrap();
+                    let error = got.err().unwrap_or_else(|| panic!("{name}: Node refused it with {message:?}"));
+                    // Node's own wording where the answer is Node's (the registry and the catalog); an operating-system error of a path Node
+                    // never reached (`ENOENT ... realpath`, a NUL) is a refusal here as well.
+                    if answer["error"].get("code").and_then(Value::as_str) == Some("PROJECT_UNAVAILABLE") {
+                        assert!(unavailable::<Value>(&Err(error)), "{name}");
+                    } else if !message.starts_with("ENOENT") && !message.starts_with("The argument 'path'") {
+                        assert!(format!("{error:?}").contains(message), "{name}: Node says {message:?}, got {error:?}");
+                    }
+                }
+            }
+            replayed += 1;
+        }
+    }
+    assert_eq!(replayed, inputs.len() * 5);
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn watch_pushes_batched_changes_and_connection_close_drops_the_os_watch() {
     let env = env();
@@ -668,6 +827,131 @@ async fn watch_pushes_batched_changes_and_connection_close_drops_the_os_watch() 
     assert!((0..300).all(|i| all.contains(&format!("t{i}.txt"))), "every path is covered");
     env.service.connection_closed(&ConnectionId(1));
     assert_eq!(env.service.open_os_watches(), 0);
+}
+
+/// A folder of the recording's shape (apps/mobile/fixtures/folder-watch/golden.json): `actual`, a junction `alias` to it, a folder Everyone
+/// is denied listing, a file. The deny is undone and the folder removed when it goes, whatever the test did.
+#[cfg(windows)]
+struct WatchFolder(PathBuf);
+
+#[cfg(windows)]
+impl WatchFolder {
+    fn new() -> Self {
+        let root = std::env::temp_dir().join(format!("mixdog-folder-watch-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("actual")).unwrap();
+        std::fs::create_dir(root.join("locked")).unwrap();
+        std::fs::write(root.join("afile.txt"), "a").unwrap();
+        let folder = Self(root);
+        folder.run("cmd", &["/c", "mklink", "/J", &folder.at("alias"), &folder.at("actual")]);
+        folder.run("icacls", &[&folder.at("locked"), "/deny", "*S-1-1-0:(RD)"]);
+        folder
+    }
+
+    fn at(&self, name: &str) -> String {
+        self.0.join(name).to_string_lossy().into_owned()
+    }
+
+    fn fill(&self, template: &str) -> String {
+        template.replace("{root}", &self.0.to_string_lossy())
+    }
+
+    fn run(&self, program: &str, args: &[&str]) {
+        let status = std::process::Command::new(program).args(args).stdout(std::process::Stdio::null()).status().unwrap();
+        assert!(status.success(), "{program} {args:?}: {status}");
+    }
+}
+
+#[cfg(windows)]
+impl Drop for WatchFolder {
+    fn drop(&mut self) {
+        let _ = std::process::Command::new("icacls").args([&self.at("locked"), "/remove:d", "*S-1-1-0"]).stdout(std::process::Stdio::null()).status();
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// Node keys a folder watch by the path as resolved (lower-cased on Windows) and watches that path, so a folder and a junction to it are
+/// two watches, each reporting under its own name; a path `fs.watch` refuses fails with `fs.watch`'s own code and text, and a file is
+/// watched (apps/mobile/fixtures/folder-watch/golden.json, recorded with the real registry and `fs.watch`). The core's watches are the
+/// same: one OS watch per name, every changed path under the name the watch was asked for, and the recorded failures.
+#[cfg(windows)]
+#[tokio::test(flavor = "multi_thread")]
+async fn watches_are_keyed_and_reported_by_the_resolved_name_and_fail_as_fs_watch() {
+    let golden: Value = serde_json::from_str(include_str!("../../../../../../apps/mobile/fixtures/folder-watch/golden.json")).unwrap();
+    let env = env();
+    let folder = WatchFolder::new();
+    let conn = MockConnection::new(ConnectionId(1), env.limits);
+    let watch = |id: &'static str, path: String, recursive: bool| {
+        let service = Arc::clone(&env.service);
+        let conn = &conn;
+        async move {
+            let reply = service.call(request("fs/watch", json!({ "watchId": id, "path": path, "recursive": recursive }))).await?;
+            let Reply::Subscribe(sub) = reply else { panic!("fs/watch must subscribe") };
+            let attached = subscribe(&sub.feed, SubscriptionId::from(id), sub.window, None, conn).unwrap();
+            conn.send_control_release(bytes::Bytes::from_static(b"ok"), attached.release).unwrap();
+            Ok::<(), CoreError>(())
+        }
+    };
+    let changed = |frames: &[String], id: &str| -> Vec<String> {
+        frames
+            .iter()
+            .filter_map(|frame| serde_json::from_str::<Value>(frame.split_once(':').map_or("", |(_, text)| text)).ok())
+            .filter(|frame| frame["method"] == "fs/changed" && frame["params"]["watchId"] == id)
+            .flat_map(|frame| frame["params"]["changedPaths"].as_array().unwrap().iter().map(|p| p.as_str().unwrap().to_owned()).collect::<Vec<_>>())
+            .collect()
+    };
+
+    // Two names of one folder: Node gave fs.watch each name, and reported each change under each name.
+    let two = &golden["twoNames"];
+    let paths: Vec<String> = two["fsWatchPaths"].as_array().unwrap().iter().map(|p| folder.fill(p.as_str().unwrap())).collect();
+    let ids = ["name-1", "name-2"];
+    for (id, path) in ids.iter().zip(&paths) {
+        watch(id, path.clone(), true).await.unwrap();
+    }
+    assert_eq!(env.service.open_os_watches(), paths.len(), "one OS watch per name, as Node's {} fs.watch calls", paths.len());
+    std::fs::write(folder.0.join("actual").join("changed.txt"), "1").unwrap();
+    let frames = tokio::time::timeout(Duration::from_secs(60), conn.drain_text_until(|texts| ids.iter().all(|id| !changed(texts, id).is_empty()))).await.expect("a change under each name within 60 s");
+    for (id, reported) in ids.iter().zip(two["reportedUnder"].as_array().unwrap()) {
+        let dir = folder.fill(reported["dir"].as_str().unwrap());
+        let paths = changed(&frames, id);
+        assert!(paths.iter().all(|path| path.starts_with(&format!("{dir}\\"))), "{id}: every change is reported under {dir}: {paths:?}");
+    }
+    env.service.connection_closed(&ConnectionId(1));
+    assert_eq!(env.service.open_os_watches(), 0);
+
+    // The failures: fs.watch's own code and text, and a file that is watched.
+    let conn = MockConnection::new(ConnectionId(1), env.limits);
+    let watch = |id: &'static str, path: String| {
+        let service = Arc::clone(&env.service);
+        let conn = &conn;
+        async move {
+            let reply = service.call(request("fs/watch", json!({ "watchId": id, "path": path, "recursive": false }))).await?;
+            let Reply::Subscribe(sub) = reply else { panic!("fs/watch must subscribe") };
+            let attached = subscribe(&sub.feed, SubscriptionId::from(id), sub.window, None, conn).unwrap();
+            conn.send_control_release(bytes::Bytes::from_static(b"ok"), attached.release).unwrap();
+            Ok::<(), CoreError>(())
+        }
+    };
+    let failures = golden["failures"].as_array().unwrap();
+    let ids = ["fail-1", "fail-2", "fail-3"];
+    for (id, case) in ids.iter().zip(failures) {
+        let path = folder.fill(case["path"].as_str().unwrap());
+        let got = watch(id, path.clone()).await;
+        match case["answer"].get("error") {
+            Some(error) => {
+                let Err(CoreError::DomainError { code, message, .. }) = got else { panic!("{}: Node failed with {error}, got {got:?}", case["name"]) };
+                assert_eq!(message.as_deref(), Some(folder.fill(error["message"].as_str().unwrap()).as_str()), "{}", case["name"]);
+                assert_eq!(code.as_deref(), error["code"].as_str(), "{}", case["name"]);
+            }
+            None => {
+                got.unwrap_or_else(|error| panic!("{}: Node watched it, got {error:?}", case["name"]));
+                std::fs::write(&path, "b").unwrap();
+                let frames = tokio::time::timeout(Duration::from_secs(60), conn.drain_text_until(|texts| !changed(texts, id).is_empty())).await.expect("the watched file's change within 60 s");
+                let under = folder.fill(case["reportedUnder"].as_str().unwrap());
+                assert!(changed(&frames, id).iter().all(|p| *p == under), "{}: reported under {under}: {:?}", case["name"], changed(&frames, id));
+            }
+        }
+    }
+    env.service.connection_closed(&ConnectionId(1));
 }
 
 #[tokio::test(flavor = "multi_thread")]

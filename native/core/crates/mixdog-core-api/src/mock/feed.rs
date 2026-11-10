@@ -186,7 +186,7 @@ impl FeedSource for MockFeed {
         };
         let mut encode = None;
         if decision.mode == AttachMode::Snapshot {
-            match reservation.or_else(|| lane.try_reserve(shared.limits.max_snapshot_bytes).ok()) {
+            match reservation.or_else(|| lane.try_reserve_snapshot(shared.limits.max_snapshot_bytes).ok()) {
                 Some(reservation) => {
                     encode = Some(Encode {
                         slot: lane.push_slot(reservation),
@@ -277,6 +277,10 @@ impl ScopedFeed for MockFeed {
         for (_, subscriber) in state.subs.drain() {
             subscriber.lane.close();
         }
+    }
+
+    fn subscribers(&self) -> usize {
+        MockFeed::subscribers(self)
     }
 }
 

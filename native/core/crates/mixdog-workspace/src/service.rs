@@ -51,9 +51,7 @@ use crate::lanes::run_fallible;
 use crate::lsp::DocumentInput;
 use crate::lsp::LspManager;
 use crate::lsp::LspSink;
-use crate::pathguard::canonical;
 use crate::pathguard::canonical_through_existing;
-use crate::pathguard::is_within;
 use crate::pathguard::project_entry_path;
 use crate::recovery::Action;
 use crate::recovery::RecoveryStore;
@@ -125,7 +123,7 @@ impl LspFeeds {
     fn with<R>(&self, project: &str, f: impl FnOnce(&mut LspProject) -> R) -> R {
         let mut projects = self.by_project.lock().expect("lsp feeds");
         let entry = projects.entry(project.to_owned()).or_insert_with(|| LspProject {
-            publisher: Publisher::create(self.feeds.as_ref(), &format!("lsp:{project}"), json!({})),
+            publisher: Publisher::create_ordered(self.feeds.as_ref(), &format!("lsp:{project}"), json!({})),
             revisions: HashMap::new(),
             state: json!({}),
         });
@@ -428,6 +426,19 @@ impl WorkspaceService {
         let _ = self.managed.set(managed);
     }
 
+    /// `projectDirectory`: the managed worktree's folder, else the Project's real path. `owner` asks for the Project's real path even for
+    /// a worktree (`startProjectTask`'s `canonicalDirectory(knownProject(path))`).
+    async fn project_directory(&self, path: &str, owner: bool, cancel: &CancellationToken) -> WsResult<PathBuf> {
+        let (project, worktree) = self.scope(path).await?;
+        match worktree.filter(|_| !owner) {
+            Some(folder) => Ok(folder),
+            None => {
+                let given = project.to_string_lossy().into_owned();
+                run_fallible(self.lanes.interactive, cancel, move || crate::catalog::canonical_directory(&project, &given)).await
+            }
+        }
+    }
+
     /// Node's `projectScope`: the registered Project a path names, or the owner of the managed worktree it names (with
     /// that worktree's folder). Any other path is the registry's refusal.
     async fn scope(&self, path: &str) -> WsResult<(PathBuf, Option<PathBuf>)> {
@@ -553,11 +564,16 @@ impl WorkspaceService {
     }
 
     fn unwatch(&self, id: &str) {
+        self.forget_watch(id);
+        self.watcher.unwatch(id);
+    }
+
+    /// The watch's routing and feed, without the OS watch.
+    fn forget_watch(&self, id: &str) {
         self.router.fs.lock().expect("fs watches").remove(id);
         if let Some(owned) = self.watches.lock().expect("watches").remove(id) {
             owned.publisher.close();
         }
-        self.watcher.unwatch(id);
     }
 
     fn map_error(&self, req: &CoreRequest, error: WsError) -> CoreError {
@@ -706,7 +722,9 @@ impl WorkspaceService {
                 value(json!({ "projects": projects }))
             }
             "project/read" => {
-                let path = self.catalog.resolve(s(params, "path")?).await?;
+                // Node's `inspectProjectPath` (project-catalog.mjs:32): any path, registered or not (the TUI asks it about a folder before
+                // adding it as a project), resolved by `resolveProjectPath` and probed.
+                let path = crate::pathguard::project_path(s(params, "path")?).ok_or_else(|| WsError::invalid("project path is required"))?;
                 let probe = path.clone();
                 let (exists, directory) = run_fallible(self.lanes.interactive, &cancel, move || {
                     #[allow(clippy::disallowed_methods, reason = "lane job")]
@@ -744,14 +762,7 @@ impl WorkspaceService {
             "project/directory" => {
                 // `projectDirectory`: the managed worktree's folder, else the Project's real path. `owner` asks for the
                 // Project's real path even for a worktree (`startProjectTask`'s `canonicalDirectory(knownProject(path))`).
-                let (project, worktree) = self.scope(s(params, "path")?).await?;
-                let folder = match worktree.filter(|_| !opt_bool(params, "owner")) {
-                    Some(folder) => folder,
-                    None => {
-                        let given = project.to_string_lossy().into_owned();
-                        run_fallible(self.lanes.interactive, &cancel, move || crate::catalog::canonical_directory(&project, &given)).await?
-                    }
-                };
+                let folder = self.project_directory(s(params, "path")?, opt_bool(params, "owner"), &cancel).await?;
                 value(json!({ "path": folder.to_string_lossy() }))
             }
             "project/recoveryDirectory" => {
@@ -966,13 +977,14 @@ impl WorkspaceService {
             }
             "fs/watch" => {
                 let id = s(params, "watchId")?.to_owned();
-                let path = canonical(Path::new(s(params, "path")?)).map_err(|_| WsError::denied("Path is outside the project."))?;
-                let inside = self.catalog.list().await?.iter().any(|p| is_within(Path::new(&p.path), &path));
-                if !inside {
-                    return Err(WsError::denied("Path is outside the project."));
-                }
+                // Any absolute path, as Node's `folderWatch` (`absoluteLocalPath`, then `fs.watch` of that resolved string,
+                // desktop-operations.ts:185-213): the watch is of the path as resolved, not of its real path, so a junction
+                // watched under two names is two watches that each report under their own name, and a failure is `fs.watch`'s own
+                // (`ENOENT: no such file or directory, watch '<path>'`). Every touch of the file system is on the lane below.
+                let Some(given) = params.get("path").and_then(Value::as_str) else { return Err(WsError::invalid("path must be a string.")) };
+                let path = crate::pathguard::absolute_local_path(given)?;
                 let recursive = opt_bool(params, "recursive");
-                let publisher = Arc::new(Publisher::create(self.search_feeds(), &format!("fs:{id}"), json!({})));
+                let publisher = Arc::new(Publisher::create_ordered(self.search_feeds(), &format!("fs:{id}"), json!({})));
                 self.router.fs.lock().expect("fs watches").insert(id.clone(), publisher.clone());
                 let (watcher, watch_id, watch_path) = (self.watcher.clone(), id.clone(), path.clone());
                 let attached = run_fallible(self.lanes.interactive, &cancel, move || watcher.watch(&watch_id, &watch_path, recursive)).await;
@@ -987,7 +999,14 @@ impl WorkspaceService {
                 let id = s(params, "watchId")?;
                 let owned = self.watches.lock().expect("watches").get(id).is_some_and(|w| w.connection == *Self::owner(req));
                 if owned {
-                    self.unwatch(id);
+                    // Ending the OS watch closes its handle, which a path that does not answer can hold: on the lane, not here. The job is
+                    // admitted before the watch's record goes, with a token no cancel reaches, so the OS watch never outlives its record:
+                    // a lane that refuses it leaves the watch whole, and a request cancelled meanwhile does not drop it.
+                    let (watcher, watch_id) = (self.watcher.clone(), id.to_owned());
+                    let job = move |_: &mixdog_rt::InLane<mixdog_rt::InteractiveIo>| crate::lanes::counted(move || watcher.unwatch(&watch_id))();
+                    let cleanup = mixdog_rt::LaneToken::submit(self.lanes.interactive, &CancellationToken::new(), job)?;
+                    self.forget_watch(id);
+                    let _ = cleanup.await;
                 }
                 value(json!({}))
             }
@@ -1240,7 +1259,9 @@ impl WorkspaceService {
             }
             "transfer/abort" => value(json!({ "aborted": self.transfers.abort(&Self::owner(req), s(params, "transferId")?) })),
             "transfer/trash/info" => {
-                let root = crate::pathguard::absolute_local_path(s(params, "path")?)?;
+                // `serverTrashInfo` is handed `projectDirectory` of a registered project (ipc-server-files.ts:132), whatever the
+                // connection: a path that names none is the registry's refusal, and a relative one is read by the registry's rule.
+                let root = self.project_directory(s(params, "path")?, false, &cancel).await?;
                 value(run_fallible(self.lanes.interactive, &cancel, move || Ok(crate::servertrash::info(&root))).await?)
             }
             "transfer/grant/mint" => {

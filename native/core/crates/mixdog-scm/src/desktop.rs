@@ -12,7 +12,6 @@ use crate::engine::Scm;
 use crate::error::ScmFailure;
 use crate::git::RunOptions;
 use crate::inspect::history;
-use crate::inspect::status::not_a_repository;
 use crate::inspect::status::path_text;
 use crate::repo::on_lane;
 
@@ -34,33 +33,21 @@ fn clip(text: String, limit: usize) -> String {
 impl Scm {
     /// `git/status`: a folder outside any repository answers `repository: false`.
     pub async fn git_status(self: &Arc<Self>, cwd: &Path, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
-        self.git_status_counting(cwd, cancel, true).await
+        self.git_status_counting(cwd, cancel, true, false).await
     }
 
-    /// `git/status` with the pane's line-stats hint: `skipLineStats` answers without add/delete
-    /// counts (`line_stats` false). `reuseLineStats` needs no branch: the inspector already
-    /// serves the counted scan of an unchanged repository from its cache.
+    /// `git/status` with the pane's line-stats hints: `skipLineStats` answers without add/delete counts (`line_stats` false),
+    /// `reuseLineStats` keeps the counts of the last read while the listed files stand. The reads are `gitStatus`'s own
+    /// (`inspect::status::node_status`), kept per directory as Node keeps them.
     pub async fn git_status_counting(
         self: &Arc<Self>,
         cwd: &Path,
         cancel: &CancellationToken,
         line_stats: bool,
+        reuse_line_stats: bool,
     ) -> Result<Value, ScmFailure> {
-        let repo = match self.open(cwd, cancel).await {
-            Ok(repo) => repo,
-            Err(ScmFailure::NotARepository) => return to_value(not_a_repository()),
-            Err(other) => return Err(other),
-        };
-        let reference = repo.repo_ref()?;
-        let scan = if line_stats {
-            self.inspector.scan(self.lane, reference).await
-        } else {
-            self.inspector.scan_without_line_stats(self.lane, reference).await
-        }
-        .map_err(crate::mutate::scm_error)?;
-        to_value(&scan.json)
+        to_value(crate::inspect::status::node_status(&self.git, self.lane, cancel, cwd, !line_stats, reuse_line_stats).await?)
     }
-
     pub async fn git_branches(self: &Arc<Self>, cwd: &Path, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
         to_value(history::branches(&self.git, cancel, cwd).await?)
     }
@@ -73,7 +60,11 @@ impl Scm {
         skip: u32,
         limit: u32,
     ) -> Result<Value, ScmFailure> {
-        to_value(history::log(&self.git, cancel, cwd, query, skip, limit).await?)
+        // git-history.ts gitLog: [] reads as an empty history for any failure but a deadline, a git that cannot start too.
+        match history::log(&self.git, cancel, cwd, query, skip, limit).await {
+            Err(ScmFailure::Unavailable { .. }) => to_value(Vec::<crate::inspect::history::GitLogEntry>::new()),
+            other => to_value(other?),
+        }
     }
 
     pub async fn git_show(self: &Arc<Self>, cwd: &Path, cancel: &CancellationToken, hash: &str) -> Result<Value, ScmFailure> {
@@ -109,8 +100,8 @@ impl Scm {
         worktree_only: bool,
         untracked: bool,
     ) -> Result<Value, ScmFailure> {
-        let repo = self.open(cwd, cancel).await?;
-        let root = repo.root()?.to_path_buf();
+        // gitDiff asks git for the root (cachedGitRoot) before anything else.
+        let root = std::path::PathBuf::from(crate::inspect::status::cached_git_root(&self.git, cancel, cwd).await?);
         to_value(history::diff(&self.git, cancel, &root, path, staged, worktree_only, untracked).await?)
     }
 
@@ -179,13 +170,13 @@ impl Scm {
                 "truncated": truncated,
             })
         }));
-        let (status_short, diff_stat, subjects, branch_commits, branch_diff_stat, files, pr) = tokio::join!(
+        let (status_short, diff_stat, files, subjects, branch_commits, branch_diff_stat, pr) = tokio::join!(
             status_short,
             diff_stat,
+            file_patches,
             subjects,
             branch_commits,
             branch_diff_stat,
-            file_patches,
             self.current_pull_request(cwd, cancel),
         );
         Ok(json!({
@@ -199,25 +190,38 @@ impl Scm {
         }))
     }
 
-    pub async fn git_cli_status(self: &Arc<Self>, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
-        let home = home_dir();
-        match self.git.run(cancel, &home, &["--version"]).await {
-            Ok(out) => {
-                let version = out.trim().strip_prefix("git version ").unwrap_or("").split_whitespace().next().unwrap_or("");
-                Ok(if version.is_empty() {
-                    json!({ "installed": true })
-                } else {
-                    json!({ "installed": true, "version": version })
-                })
+    /// `refresh` looks again; otherwise the last probe answers, as Node's `resolveGit`.
+    pub async fn git_cli_status(self: &Arc<Self>, cancel: &CancellationToken, refresh: bool) -> Result<Value, ScmFailure> {
+        let home = process_dir();
+        let known = {
+            let mut probes = self.cli_probes.lock().expect("cli probes");
+            if refresh {
+                probes.git = None;
             }
-            Err(ScmFailure::Unavailable { .. }) => Ok(json!({ "installed": false })),
-            Err(other) => Err(other),
-        }
+            probes.git.clone()
+        };
+        let version = match known {
+            Some(version) => version,
+            None => {
+                let found = match self.git.text(cancel, &home, &["--version"], &RunOptions { bare_env: true, read_limit: true, ..RunOptions::default() }).await {
+                    Ok(out) => Some(out.trim().strip_prefix("git version ").unwrap_or("").split_whitespace().next().unwrap_or("").to_owned()),
+                    Err(ScmFailure::Unavailable { .. }) => None,
+                    Err(other) => return Err(other),
+                };
+                self.cli_probes.lock().expect("cli probes").git = Some(found.clone());
+                found
+            }
+        };
+        Ok(match version {
+            None => json!({ "installed": false }),
+            Some(version) if version.is_empty() => json!({ "installed": true }),
+            Some(version) => json!({ "installed": true, "version": version }),
+        })
     }
 
     /// The global identity and default branch, empty where unset.
     pub async fn git_global_config(self: &Arc<Self>, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
-        let home = home_dir();
+        let home = process_dir();
         let read = |key: &'static str| {
             let git = self.git.clone();
             let home = home.clone();
@@ -225,7 +229,7 @@ impl Scm {
             async move {
                 // Exit 1 is "not set"; a git that cannot run reads as empty here, the save
                 // path reports the real error when the user acts.
-                git.outcome(&cancel, &home, &["config", "--global", "--get", key], &RunOptions::default())
+                git.outcome(&cancel, &home, &["config", "--global", "--get", key], &RunOptions { bare_env: true, ..RunOptions::default() })
                     .await
                     .ok()
                     .filter(|out| out.success())
@@ -244,15 +248,13 @@ impl Scm {
         key: &str,
         value: &str,
     ) -> Result<Value, ScmFailure> {
-        if !matches!(key, "user.name" | "user.email" | "init.defaultBranch") {
-            return Err(ScmFailure::invalid("key", "`user.name`, `user.email` or `init.defaultBranch`"));
-        }
-        let home = home_dir();
-        let trimmed = value.trim();
+        // The key is one of the three (`input.rs`, Node's `requiredGitGlobalConfigKey`) before this runs.
+        let home = process_dir();
+        let trimmed = mixdog_js::js_trim(value);
         let outcome = if trimmed.is_empty() {
-            self.git.outcome(cancel, &home, &["config", "--global", "--unset", key], &RunOptions::default()).await?
+            self.git.outcome(cancel, &home, &["config", "--global", "--unset", key], &RunOptions { bare_env: true, ..RunOptions::default() }).await?
         } else {
-            self.git.outcome(cancel, &home, &["config", "--global", key, trimmed], &RunOptions::default()).await?
+            self.git.outcome(cancel, &home, &["config", "--global", key, trimmed], &RunOptions { bare_env: true, ..RunOptions::default() }).await?
         };
         // Unsetting an already-unset key exits 5 (or 1): that outcome is the requested state.
         let unset_ok = trimmed.is_empty() && matches!(outcome.code, Some(1 | 5));
@@ -279,7 +281,12 @@ impl Scm {
     }
 }
 
-/// The user's home folder, where global git config and `gh` are read from.
+/// The folder Node's dependency probes run in: they pass no `cwd`, so a child inherits the process's own.
+pub fn process_dir() -> std::path::PathBuf {
+    std::env::current_dir().unwrap_or_else(|_| home_dir())
+}
+
+/// The user's home folder, where the sign-in terminal starts.
 pub fn home_dir() -> std::path::PathBuf {
     std::env::var_os("USERPROFILE")
         .or_else(|| std::env::var_os("HOME"))

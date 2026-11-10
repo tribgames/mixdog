@@ -158,7 +158,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn a_closed_connection_releases_its_terminal_ownership_and_screen_sessions() {
+    async fn a_closed_connection_is_told_to_every_owner_and_releases_its_screen_sessions() {
         let tokens = mixdog_rt::testing::tokens();
         let manager = LocalProcessManager::new(tokens.spawn_io, ProcessConfig::default());
         let feeds = ProcessFeeds::new(manager.clone(), Arc::new(MockScopedFeeds::new(MockLimits::default())));
@@ -168,7 +168,9 @@ mod tests {
         let recorder = Arc::new(Recorder(Mutex::default()));
         let owners = ConnectionOwners::of(vec![terminal.clone(), screen.clone(), registry, recorder.clone()]);
 
-        // Connection 5 opens a tab, focuses it (so owns its size) and reports a screen set; connection 6 only watches.
+        // Connection 5 opens a tab, focuses it and reports a screen set; connection 6 only watches. Focus is activity only and a size
+        // claim outlives its connection (Node's lease lapses it; `Tabs::connection_closed`, proven in mixdog-spawn), so the terminal's
+        // part here is that the close reaches it with a live tab.
         let cwd = std::env::temp_dir();
         let ensure = json!({ "tabId": "tab_close", "options": { "cwd": cwd.to_string_lossy() } });
         // `ensure` names the tab itself; the id in the request is only a hint, so every later call uses the answered one.
@@ -178,17 +180,14 @@ mod tests {
         let tab = ensured["id"].as_str().expect("the ensured tab has an id").to_owned();
         terminal.call(request("terminal/focus", json!({ "tabId": tab, "focused": true }), 5)).await.unwrap();
         screen.notify(Method("ui/screenSessions/changed"), json!({ "sessionIds": ["s1", "s2"] }), ConnectionId(5));
-        let owner = terminal.tabs().size_owner(&tab).expect("the focused tab has a size owner");
-        assert_eq!(owner.owner, "5");
         assert!(screen.shows("s1") && screen.shows("s2"));
 
         // Another connection closing releases nothing of connection 5's.
         owners.connection_closed(ConnectionId(6));
-        assert_eq!(terminal.tabs().size_owner(&tab).map(|o| o.owner), Some("5".to_owned()));
         assert!(screen.shows("s1"));
 
         owners.connection_closed(ConnectionId(5));
-        assert_eq!(terminal.tabs().size_owner(&tab).map(|o| o.owner), None, "the closed connection no longer owns the tab's size");
+        assert!(terminal.tabs().list_tabs().iter().any(|entry| entry.id == tab), "a close ends the connection's focus, not its tab");
         assert!(!screen.shows("s1") && !screen.shows("s2"), "a closed UI shows no session");
         assert_eq!(*recorder.0.lock().unwrap(), vec![ConnectionId(6), ConnectionId(5)], "every owner is told, once per close");
         terminal.tabs().dispose_all();

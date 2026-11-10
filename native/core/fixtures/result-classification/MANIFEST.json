@@ -1,0 +1,79 @@
+{
+  "cases": 9192,
+  "command": "node benchmarks/rust-core/recorders/record-result-classification.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 964821,
+      "path": "golden.json",
+      "sha256": "1fa0c650736faa228e37378d32e2375bc1b61e3b6fb0b0ed10ce2a72c100ef41"
+    }
+  ],
+  "node": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-result-classification.mjs",
+  "recorderSha256": "f584bce8a27da4095face1254c69773a618e4bf778bf2127a58e55879a36801c",
+  "set": "result-classification",
+  "syntheticInputs": {
+    "gridCases": 8606,
+    "neighbours": [
+      "",
+      " ",
+      "a",
+      "0",
+      "_",
+      "-",
+      "é"
+    ],
+    "phrases": [
+      "enoent",
+      "enotdir",
+      "path does not exist",
+      "directory does not exist",
+      "no such file",
+      "no such path",
+      "not found at this path",
+      "file not found",
+      "symbol \"x\" not found in ",
+      "symbol \"x\ny\" not found in ",
+      "eacces",
+      "eperm",
+      "access is denied",
+      "permission denied",
+      "operation not permitted"
+    ],
+    "texts": 45,
+    "tools": [
+      "",
+      "read",
+      "READ",
+      "grep",
+      "find",
+      "glob",
+      "list",
+      "code_graph",
+      "edit",
+      "shell",
+      "agent",
+      "Skill",
+      "mcp__fx__fail"
+    ]
+  },
+  "totalBytes": 964821
+}

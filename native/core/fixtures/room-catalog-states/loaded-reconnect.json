@@ -5,15 +5,20 @@
   "calls": [
     "create"
   ],
-  "taskWorkspace": "D:\\mixdog-build\\tmp\\room-catalog-loaded-reconnect-2X091T\\home\\AppData\\Roaming\\workspace\\unclassified",
+  "taskWorkspace": "D:\\mixdog-build\\tmp\\room-catalog-loaded-reconnect-U2RSiU\\home\\AppData\\Roaming\\workspace\\unclassified",
   "bots": [
     "alpha",
     "beta",
     "gamma"
   ],
+  "botNames": {
+    "alpha": "Alpha",
+    "beta": "Beta",
+    "gamma": "Gamma"
+  },
   "room": {
-    "sessionId": "sess_room_mwah3iwb1a3d4e03",
-    "roomId": "mwah3iwb1a3d4e03"
+    "sessionId": "sess_room_mwb4yl551a338c4e",
+    "roomId": "mwb4yl551a338c4e"
   },
   "steps": [
     {
@@ -39,57 +44,20 @@
           "origin": "room-rename",
           "sessions": [
             {
-              "id": "sess_room_mwah3iwb1a3d4e03",
+              "id": "sess_room_mwb4yl551a338c4e",
               "preview": "",
               "title": "Room One",
-              "updatedAt": 1794302024640,
-              "activityAt": 1794302024640,
+              "updatedAt": 1794342105083,
+              "activityAt": 1794342105083,
               "messageCount": 0,
-              "cwd": "D:\\mixdog-build\\tmp\\room-catalog-loaded-reconnect-2X091T\\home\\AppData\\Roaming\\workspace\\unclassified",
+              "cwd": "D:\\mixdog-build\\tmp\\room-catalog-loaded-reconnect-U2RSiU\\home\\AppData\\Roaming\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794302024617,
+              "createdAt": 1794342105057,
               "agentRoom": {
-                "id": "mwah3iwb1a3d4e03",
-                "name": "Room One",
-                "members": [
-                  "alpha",
-                  "beta",
-                  "gamma"
-                ],
-                "maxRounds": 3,
-                "maxMessages": 8,
-                "shareTools": false,
-                "memberNames": {
-                  "alpha": "Alpha",
-                  "beta": "Beta",
-                  "gamma": "Gamma"
-                }
-              }
-            }
-          ]
-        },
-        {
-          "kind": "published",
-          "origin": "room-call",
-          "sessions": [
-            {
-              "id": "sess_room_mwah3iwb1a3d4e03",
-              "preview": "",
-              "title": "Room One",
-              "updatedAt": 1794302024640,
-              "activityAt": 1794302024640,
-              "messageCount": 0,
-              "cwd": "D:\\mixdog-build\\tmp\\room-catalog-loaded-reconnect-2X091T\\home\\AppData\\Roaming\\workspace\\unclassified",
-              "classification": "task",
-              "projectPath": null,
-              "provider": "custom-harness",
-              "model": "harness-model",
-              "createdAt": 1794302024617,
-              "agentRoom": {
-                "id": "mwah3iwb1a3d4e03",
+                "id": "mwb4yl551a338c4e",
                 "name": "Room One",
                 "members": [
                   "alpha",
@@ -111,8 +79,8 @@
         {
           "kind": "answered",
           "value": {
-            "sessionId": "sess_room_mwah3iwb1a3d4e03",
-            "roomId": "mwah3iwb1a3d4e03"
+            "sessionId": "sess_room_mwb4yl551a338c4e",
+            "roomId": "mwb4yl551a338c4e"
           }
         }
       ]

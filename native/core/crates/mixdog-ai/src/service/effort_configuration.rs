@@ -58,18 +58,11 @@ impl UnsupportedEfforts {
     }
 }
 
-fn version_at_least((major, minor): (u32, u32), (min_major, min_minor): (u32, u32)) -> bool {
-    major > min_major || (major == min_major && minor >= min_minor)
-}
-
 fn anthropic_version_supported(provider: &str, id: &str) -> bool {
-    let pattern = Regex::new(r"^claude-([a-z]+)-([0-9]+)(?:-([0-9]{1,2}))?$").expect("static pattern");
-    let Some(m) = pattern.captures(id) else { return false };
-    let number = |text: &str| text.parse::<u32>().unwrap_or(u32::MAX);
-    let version = (number(&m[2]), m.get(3).map_or(0, |g| number(g.as_str())));
-    match ANTHROPIC_MIN_VERSION.iter().find(|(family, _)| *family == &m[1]) {
-        Some((_, floor)) => version_at_least(version, *floor),
-        None => provider == "anthropic-oauth" && version.0 >= ANTHROPIC_FIRST_MAJOR,
+    let Some((family, major, minor)) = crate::claude_floors::family_version(id) else { return false };
+    match ANTHROPIC_MIN_VERSION.iter().find(|(f, _)| *f == family) {
+        Some((_, (min_major, min_minor))) => crate::claude_floors::version_at_least((major, minor), (*min_major, *min_minor)),
+        None => provider == "anthropic-oauth" && major >= f64::from(ANTHROPIC_FIRST_MAJOR),
     }
 }
 

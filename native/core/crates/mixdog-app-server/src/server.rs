@@ -42,6 +42,7 @@ use mixdog_app_protocol::v2::op::OpStatusResponse;
 use mixdog_app_protocol::v2::thread::TurnInterruptParams;
 use mixdog_app_protocol::v2::thread::TurnSteerParams;
 use mixdog_app_protocol::v2::thread::TurnSteerResponse;
+use mixdog_core_api::AfterAnswer;
 use mixdog_core_api::CallContext;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::CoreHandle;
@@ -340,7 +341,9 @@ impl Shared {
             return Inbound::Continue;
         }
         let cap = self.config.limits.inflight.cap(spec.class);
-        let Ok(slot) = conn.admit(spec.class, cap, || self.core.request_started()) else {
+        let no_params = serde_json::Value::Null;
+        let params = request.params.as_ref().unwrap_or(&no_params);
+        let Ok(slot) = conn.admit(spec.class, cap, || self.core.request_started(&request.method, params)) else {
             let limit = ErrorData::InflightLimit {
                 class: spec.class,
                 limit: cap,
@@ -370,10 +373,13 @@ impl Shared {
         }
         let scope = typed.serialization_scope();
         let params = params.unwrap_or_else(empty_result);
-        match self.dispatch(conn, &id, origin, typed, params, spec) {
+        // What the call keeps until its answer is queued ends right after `finish` queues it, or with the request if it never is.
+        let after = AfterAnswer::default();
+        match self.dispatch(conn, &id, origin, typed, params, spec, &after) {
             Dispatch::Ready(outcome) => {
                 drop(slot);
                 self.finish(conn, &id, outcome);
+                after.release();
             }
             Dispatch::Later(class, work) => {
                 let shared = Arc::clone(self);
@@ -382,6 +388,7 @@ impl Shared {
                     let outcome = work.await;
                     drop(slot);
                     shared.finish(&owner, &id, outcome);
+                    after.release();
                 };
                 match scope {
                     Some(scope) => {
@@ -557,6 +564,7 @@ impl Shared {
         request: ClientRequest,
         params: Value,
         spec: &'static MethodSpec,
+        after: &AfterAnswer,
     ) -> Dispatch {
         match request {
             ClientRequest::AppSubscribe { params: app, .. } => {
@@ -643,7 +651,7 @@ impl Shared {
             }
             _ => {
                 let op = request.op().map(|(_, op)| op.clone());
-                self.route(conn, origin, spec, params, op)
+                self.route(conn, origin, spec, params, op, after)
             }
         }
     }
@@ -660,8 +668,10 @@ impl Shared {
         spec: &'static MethodSpec,
         params: Value,
         op: Option<OpId>,
+        after: &AfterAnswer,
     ) -> Dispatch {
-        let ctx = CallContext::connection(conn.id, origin, conn.cancel.clone());
+        let mut ctx = CallContext::connection(conn.id, origin, conn.cancel.clone());
+        ctx.after_answer = after.clone();
         let namespace = namespace(spec.method);
         let thread = THREAD_NAMESPACES
             .contains(&namespace)

@@ -3,8 +3,13 @@
 // by a library: the request line, the headers (name, value, in the order sent) and the body come from the bytes read off
 // the socket; a WebSocket frame is read from its header (fin, rsv bits, opcode, mask bit, length) and its payload unmasked.
 //
-// The recording is a list of events in the order the server received them:
-//   { kind: 'http', conn, line, headers: [[name, value]...], body: { encoding, bytes, sha256, text } | null }
+// The recording is a list of events in the order the server received them (an http request when its whole body has
+// arrived):
+//   { kind: 'http', conn, line, headers: [[name, value]...], body: { encoding, bytes, sha256, text } | null, started,
+//     completed }
+// `started` and `completed` are two moments of one sequence the scenario counts from 1 (`traffic.order`, which the caller
+// resets per scenario): when the request line and headers had been read, and when the body was complete. The client
+// decides the order requests start in; when a body completes also depends on how the client writes it after its head.
 //   { kind: 'ws-upgrade', conn, line, headers }
 //   { kind: 'ws-frame', opcode, fin, rsv, masked, bytes, text | hex }
 //   { kind: 'closed', conn }                 (only when the script awaits it)
@@ -51,7 +56,9 @@ const serverFrame = (opcode, payload) => {
  *   ws:      one per data message received: a list of events (sent as text frames), or { events, then: 'close' | 'reset'
  *            | 'hold' | 'mute' } ('hold': nothing more is sent, and `traffic.held()` is called once the events are
  *            written; 'mute': the client's close frames on this connection are no longer answered)
- *   http:    one per request: a list of events (a 200 event stream), or { status, headers, events | body, then: 'reset' }
+ *   http:    one per request: a list of events (a 200 event stream), or { status, headers, events | body, then: 'reset'
+ *            | 'withhold' } ('withhold': the answer is written when the caller calls `release()`, and `traffic.held()` is
+ *            called once it is withheld)
  *   awaitClose: a connection number the scenario ends on once it closed
  * A request with nothing left to answer it is recorded, and `traffic.unanswered(kind)` is called.
  */
@@ -59,6 +66,8 @@ export async function startWireServer({ traffic, keepRandom = false }) {
   const live = new Set();
   const ended = new Map();
   const upgraded = new Set();
+  // The writers of withheld http answers (`then: 'withhold'`), across connections.
+  const withheld = [];
   let next = 0;
   const server = net.createServer((socket) => {
     live.add(socket);
@@ -70,6 +79,8 @@ export async function startWireServer({ traffic, keepRandom = false }) {
       if (!conn) { conn = ++next; ended.set(conn, closedPromise); }
       if (!traffic.paused) traffic.sink.push({ ...event, conn });
     };
+    // The next moment of the scenario's sequence (`started`, `completed`); nothing is counted while the recorder is paused.
+    const moment = () => (traffic.paused ? null : (traffic.order = (traffic.order ?? 0) + 1));
     let buffer = Buffer.alloc(0);
     let mode = 'head';
     let pending = null;
@@ -87,14 +98,14 @@ export async function startWireServer({ traffic, keepRandom = false }) {
             mode = 'frames';
           } else {
             if (headerOf(head.headers, 'transfer-encoding')) throw new Error('the recorder reads content-length bodies only');
-            pending = { ...head, length: Number(headerOf(head.headers, 'content-length') ?? 0) };
+            pending = { ...head, length: Number(headerOf(head.headers, 'content-length') ?? 0), started: moment() };
             mode = 'body';
           }
         } else if (mode === 'body') {
           if (buffer.length < pending.length) return;
           const body = buffer.subarray(0, pending.length);
           buffer = buffer.subarray(pending.length);
-          record({ kind: 'http', line: pending.line, headers: pending.headers, body: bodyRecord(body, pending.headers) });
+          record({ kind: 'http', line: pending.line, headers: pending.headers, body: bodyRecord(body, pending.headers), started: pending.started, completed: moment() });
           answerHttp(pending.line);
           pending = null;
           mode = 'head';
@@ -162,9 +173,14 @@ export async function startWireServer({ traffic, keepRandom = false }) {
       const text = events ? events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join('') : body ?? '';
       const bytes = Buffer.from(text);
       const fields = { ...(events ? { 'content-type': 'text/event-stream' } : {}), ...headers, 'content-length': bytes.length };
-      socket.write(`HTTP/1.1 ${status} X\r\n${Object.entries(fields).map(([n, v]) => `${n}: ${v}\r\n`).join('')}\r\n`);
-      socket.write(bytes);
-      if (then === 'reset') socket.destroy();
+      const answer = () => {
+        socket.write(`HTTP/1.1 ${status} X\r\n${Object.entries(fields).map(([n, v]) => `${n}: ${v}\r\n`).join('')}\r\n`);
+        socket.write(bytes);
+        if (then === 'reset') socket.destroy();
+      };
+      if (then !== 'withhold') return answer();
+      withheld.push(answer);
+      traffic.held?.();
     };
     socket.on('data', (chunk) => {
       buffer = Buffer.concat([buffer, chunk]);
@@ -184,6 +200,8 @@ export async function startWireServer({ traffic, keepRandom = false }) {
     },
     /** The numbers of the connections that upgraded to a WebSocket. */
     openSockets: () => [...ended.keys()].filter((conn) => upgraded.has(conn)),
+    /** Writes the withheld http answers, in the order they were withheld. */
+    release: () => { for (const write of withheld.splice(0)) write(); },
     stop: () => { for (const socket of live) socket.destroy(); server.close(); },
   };
 }

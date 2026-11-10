@@ -104,6 +104,12 @@ impl SessionHandle {
         &self.cell.stepped
     }
 
+    /// The actor's `turn_busy()` after its last step: a next turn is queued while it holds.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn turn_busy(&self) -> bool {
+        self.cell.busy.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
     fn closing(&self) -> CoreError {
         CoreError::ThreadClosing {
             thread_id: self.id.clone(),
@@ -504,7 +510,7 @@ impl SessionHandle {
         }
         // The heir owns a Codex wire identity of its own: Node's cold heir drops the source's and mints one (`cold-heir.mjs:70`,
         // `:143` `ensureCodexWireSessionId`), so the two sessions never share a `session_id` on the wire.
-        header.remove("codexWireSessionId");
+        header.shift_remove("codexWireSessionId");
         if header.get("provider").and_then(Value::as_str) == Some("openai-oauth") {
             header.insert("codexWireSessionId".into(), Value::String(uuid::Uuid::now_v7().to_string()));
         }
@@ -594,7 +600,7 @@ fn fresh_heir_state(header: &mut mixdog_store::schema::record::Header) {
         "archivedAt", "favoriteAt", "name", "title", "titleLocked", "titleSource", "importOrigin", "codexWireSessionId", "detachedReason", "sessionVisibility", "task_id", "taskId",
     ];
     for key in NOT_CARRIED {
-        header.remove(key);
+        header.shift_remove(key);
     }
     header.retain(|key, _| !key.starts_with("contextPressureBaseline"));
     // `ensureCodexWireSessionId`: the heir's own wire id on an `openai-oauth` route, none on any other.

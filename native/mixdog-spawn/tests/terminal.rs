@@ -383,13 +383,27 @@ async fn terminal_commands_behave_like_the_node_twin() {
 enum Ev {
     Activity(String, Option<ActivityState>),
     Owner(SizeOwnerChange),
+    Forgotten(String),
 }
 
 #[derive(Default)]
 struct Events {
     log: Mutex<Vec<Ev>>,
     changed: Condvar,
+    /// Woken by each event, for the waits that run on a runtime thread (`announced`).
+    logged: tokio::sync::Notify,
+    /// A test's hold on the next announcement that a disposed tab's claims were forgotten: the announcement says it is in hand and
+    /// returns once the gate opens, as a slow consumer would.
+    hold_forgotten: Mutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
+    /// The same for the next size-owner announcement (made under the id's claim gate).
+    hold_owner: Mutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
+    /// The ids whose claim gate a caller found taken and waited for (`TerminalConfig::gate_waiting`), in order.
+    gate_waits: Mutex<Vec<String>>,
+    gate_waited: Condvar,
 }
+
+/// How long a wait for an event of the product may take before it is a failure that names what was awaited.
+const EVENT_DEADLINE: Duration = Duration::from_secs(60);
 
 impl Events {
     fn all(&self) -> Vec<Ev> {
@@ -416,11 +430,62 @@ impl Events {
             .collect()
     }
 
-    fn wait_for(&self, _what: &str, predicate: impl Fn(&[Ev]) -> bool) {
+    fn wait_for(&self, what: &str, predicate: impl Fn(&[Ev]) -> bool) {
+        let started = std::time::Instant::now();
         let mut log = self.log.lock().unwrap();
         while !predicate(&log) {
-            log = self.changed.wait(log).unwrap();
+            let left = EVENT_DEADLINE.checked_sub(started.elapsed()).unwrap_or_else(|| panic!("no event within {EVENT_DEADLINE:?} for: {what}"));
+            let (next, timeout) = self.changed.wait_timeout(log, left).unwrap();
+            log = next;
+            assert!(!timeout.timed_out() || predicate(&log), "no event within {EVENT_DEADLINE:?} for: {what}");
         }
+    }
+
+    /// Returns once `ready` holds for the events logged, woken by each event (no polling). The deadline fails a wait that never ends.
+    async fn announced(&self, what: &str, ready: impl Fn(&[Ev]) -> bool) {
+        let waited = tokio::time::timeout(EVENT_DEADLINE, async {
+            loop {
+                let logged = self.logged.notified();
+                tokio::pin!(logged);
+                // Registered before the check, so an event between check and await still wakes it.
+                logged.as_mut().enable();
+                if ready(&self.log.lock().unwrap()) {
+                    return;
+                }
+                logged.await;
+            }
+        })
+        .await;
+        assert!(waited.is_ok(), "no event within {EVENT_DEADLINE:?} for: {what}");
+    }
+
+    /// Holds the next forgotten-claims announcement. Returns the receiver that says it is in hand and the sender that opens the gate.
+    fn hold_next_forgotten(&self) -> (std::sync::mpsc::Receiver<()>, std::sync::mpsc::Sender<()>) {
+        let (held_tx, held_rx) = std::sync::mpsc::channel();
+        let (open_tx, open_rx) = std::sync::mpsc::channel();
+        *self.hold_forgotten.lock().unwrap() = Some((held_tx, open_rx));
+        (held_rx, open_tx)
+    }
+
+    /// Holds the next size-owner announcement, as [`Self::hold_next_forgotten`] does.
+    fn hold_next_owner(&self) -> (std::sync::mpsc::Receiver<()>, std::sync::mpsc::Sender<()>) {
+        let (held_tx, held_rx) = std::sync::mpsc::channel();
+        let (open_tx, open_rx) = std::sync::mpsc::channel();
+        *self.hold_owner.lock().unwrap() = Some((held_tx, open_rx));
+        (held_rx, open_tx)
+    }
+
+    fn gate_waited(&self, id: &str) {
+        self.gate_waits.lock().unwrap().push(id.to_owned());
+        self.gate_waited.notify_all();
+    }
+
+    /// Returns once a caller waits for the claim gate of `id` (the product's own signal, given just before it blocks).
+    fn wait_gate(&self, id: &str, what: &str) {
+        let waits = self.gate_waits.lock().unwrap();
+        let (waits, timeout) = self.gate_waited.wait_timeout_while(waits, EVENT_DEADLINE, |waits| !waits.iter().any(|w| w == id)).unwrap();
+        drop(waits);
+        assert!(!timeout.timed_out(), "{what}: nothing waited for the claim gate of {id} within {EVENT_DEADLINE:?}");
     }
 }
 
@@ -428,11 +493,29 @@ impl TerminalEvents for Events {
     fn activity(&self, id: &str, state: Option<ActivityState>) {
         self.log.lock().unwrap().push(Ev::Activity(id.to_owned(), state));
         self.changed.notify_all();
+        self.logged.notify_waiters();
     }
 
     fn size_owner(&self, change: &SizeOwnerChange) {
+        let hold = self.hold_owner.lock().unwrap().take();
+        if let Some((held, open)) = hold {
+            held.send(()).expect("the test waits for the held announcement");
+            open.recv_timeout(EVENT_DEADLINE).expect("the test never opened the gate on the held owner announcement");
+        }
         self.log.lock().unwrap().push(Ev::Owner(change.clone()));
         self.changed.notify_all();
+        self.logged.notify_waiters();
+    }
+
+    fn size_claims_forgotten(&self, id: &str) {
+        let hold = self.hold_forgotten.lock().unwrap().take();
+        if let Some((held, open)) = hold {
+            held.send(()).expect("the test waits for the held announcement");
+            open.recv_timeout(EVENT_DEADLINE).expect("the test never opened the gate on the held announcement");
+        }
+        self.log.lock().unwrap().push(Ev::Forgotten(id.to_owned()));
+        self.changed.notify_all();
+        self.logged.notify_waiters();
     }
 }
 
@@ -446,6 +529,10 @@ struct Rig {
 }
 
 async fn rig(name: &str) -> Rig {
+    rig_with(name, |_| {}).await
+}
+
+async fn rig_with(name: &str, set: impl FnOnce(&mut TerminalConfig)) -> Rig {
     let manager = manager();
     let events = Arc::new(Events::default());
     let clock_reads = Arc::new(AtomicUsize::new(0));
@@ -456,6 +543,9 @@ async fn rig(name: &str) -> Rig {
         1_700_000_000_000
     });
     config.shell_integration_dir = Some(scratch_dir(&format!("{name}-integration")));
+    let waits = Arc::clone(&events);
+    config.gate_waiting = Some(Arc::new(move |id: &str| waits.gate_waited(id)));
+    set(&mut config);
     let tabs = Arc::new(TerminalTabs::new(manager.clone(), config));
     let profile = tabs.resolve_profile("").await.expect("this machine has a shell");
     Rig {
@@ -525,19 +615,35 @@ impl Rig {
         }
     }
 
-    fn wait_text(&self, id: &str, needle: &str) {
-        loop {
-            if self.tabs.snapshot(id, None).is_some_and(|s| s.text.contains(needle)) {
-                return;
+    /// Returns once the tab's output feed has carried `needle` (its exit line included: the exit hook's bytes are the feed's last output).
+    /// The replay window is appended before the feed publishes, so the replay then holds it too. The deadline fails a text that never comes.
+    async fn wait_text(&self, id: &str, needle: &str) {
+        use mixdog_core_api::domain::process::ProcessEvent;
+        let mut events = self.manager.subscribe(&mixdog_protocol::ProcessHandle::from(id), Some(0)).expect("subscribe");
+        let mut bytes = Vec::new();
+        let seen = tokio::time::timeout(EVENT_DEADLINE, async {
+            while let Some(event) = events.next().await {
+                if let ProcessEvent::Output { bytes: chunk, .. } = event {
+                    bytes.extend_from_slice(&chunk);
+                    if bytes.windows(needle.len()).any(|w| w == needle.as_bytes()) {
+                        return true;
+                    }
+                }
             }
-            std::thread::sleep(Duration::from_millis(25));
-        }
+            false
+        })
+        .await
+        .unwrap_or_else(|_| panic!("{id}: {needle:?} never reached the output feed within {EVENT_DEADLINE:?}"));
+        assert!(seen, "{id}: the output feed ended without {needle:?}");
+        assert!(self.tabs.snapshot(id, None).is_some_and(|s| s.text.contains(needle)), "{id}: {needle:?} was fed but is not in the replay");
     }
 }
 
-/// DS-PROC-3: size ownership follows focus and connection close, with no timer anywhere.
+/// Node's size-owner claim model (`terminal-manager.ts` `resize`): a phone's claim sets the size and the
+/// newest claim owns, a claim of zero size releases it, a resize without a claim is ignored while any
+/// claim stands, and a connection closing releases nothing (the lease does).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn size_owner_follows_focus_and_connection_close_without_timers() {
+async fn size_owner_follows_claims_not_focus() {
     let rig = rig("size-owner").await;
     let attached = rig.tabs.ensure(Some("term_sizeowner"), rig.request()).await.unwrap();
     let id = attached.id.as_str();
@@ -547,33 +653,45 @@ async fn size_owner_follows_focus_and_connection_close_without_timers() {
     // The only reading of the clock is the cursor epoch of the spawn.
     assert_eq!(rig.clock_reads.load(Ordering::SeqCst), 1);
 
-    // Nobody owns the size: any view's resize applies.
-    rig.tabs.resize(id, 110, 31, "A");
+    // No claim stands: a view without a claim fits the PTY.
+    rig.tabs.resize(id, 110, 31, "");
     assert_eq!(rig.pty(id), Some(PtySize { cols: 110, rows: 31 }));
     assert_eq!(rig.tabs.size_owner(id), None);
 
+    // Focus is activity only; it claims nothing.
     rig.tabs.focus(id, "A", true);
-    assert_eq!(rig.tabs.size_owner(id), Some(SizeOwner { cols: 110, rows: 31, owner: "A".into() }));
-    rig.tabs.resize(id, 50, 20, "B");
-    assert_eq!(rig.pty(id), Some(PtySize { cols: 110, rows: 31 }), "a non-owner's resize is ignored");
-
-    // Another focus takes over, at the size B last reported.
-    rig.tabs.focus(id, "B", true);
-    assert_eq!(rig.tabs.size_owner(id), Some(SizeOwner { cols: 50, rows: 20, owner: "B".into() }));
-    assert_eq!(rig.pty(id), Some(PtySize { cols: 50, rows: 20 }));
-    rig.tabs.resize(id, 70, 25, "B");
-    assert_eq!(rig.pty(id), Some(PtySize { cols: 70, rows: 25 }));
-    rig.tabs.resize(id, 1, 1, "A");
-    assert_eq!(rig.pty(id), Some(PtySize { cols: 70, rows: 25 }));
-
-    // The owner's connection closes: ownership is released at once.
-    rig.tabs.connection_closed("B");
     assert_eq!(rig.tabs.size_owner(id), None);
-    rig.tabs.resize(id, 90, 40, "A");
-    assert_eq!(rig.pty(id), Some(PtySize { cols: 90, rows: 40 }));
+
+    rig.tabs.resize(id, 50, 20, "A");
+    assert_eq!(rig.tabs.size_owner(id), Some(SizeOwner { cols: 50, rows: 20, owner: "A".into() }));
+    assert_eq!(rig.pty(id), Some(PtySize { cols: 50, rows: 20 }));
+    rig.tabs.resize(id, 90, 40, "");
+    assert_eq!(rig.pty(id), Some(PtySize { cols: 50, rows: 20 }), "a resize without a claim is ignored while one stands");
+
+    // The newest claim owns; a renewal by the older claimant keeps its place.
+    rig.tabs.resize(id, 60, 25, "B");
+    assert_eq!(rig.pty(id), Some(PtySize { cols: 60, rows: 25 }));
+    rig.tabs.resize(id, 70, 26, "A");
+    assert_eq!(rig.tabs.size_owner(id), Some(SizeOwner { cols: 60, rows: 25, owner: "B".into() }));
+    assert_eq!(rig.pty(id), Some(PtySize { cols: 60, rows: 25 }));
+
+    // The owner releases: the next claimant still holding one owns, at the size it last claimed.
+    rig.tabs.resize(id, 0, 0, "B");
+    assert_eq!(rig.tabs.size_owner(id), Some(SizeOwner { cols: 70, rows: 26, owner: "A".into() }));
+    assert_eq!(rig.pty(id), Some(PtySize { cols: 70, rows: 26 }));
+
+    // A closing connection releases nothing.
+    rig.tabs.connection_closed("A");
+    assert_eq!(rig.tabs.size_owner(id), Some(SizeOwner { cols: 70, rows: 26, owner: "A".into() }));
+
+    // Sizes clamp to 2..500 x 2..200.
+    rig.tabs.resize(id, 1, 900, "A");
+    assert_eq!(rig.tabs.size_owner(id), Some(SizeOwner { cols: 2, rows: 200, owner: "A".into() }));
+    rig.tabs.resize(id, 0, 0, "A");
+    assert_eq!(rig.tabs.size_owner(id), None);
 
     // A reattaching view learns the owner's size.
-    rig.tabs.focus(id, "A", true);
+    rig.tabs.resize(id, 90, 40, "A");
     let again = rig.tabs.attach(id).await.unwrap();
     assert_eq!(again.size_owner, Some(SizeOwner { cols: 90, rows: 40, owner: "A".into() }));
 
@@ -581,32 +699,307 @@ async fn size_owner_follows_focus_and_connection_close_without_timers() {
     assert_eq!(
         owners,
         vec![
-            ("A".to_owned(), 110, 31),
-            ("B".to_owned(), 50, 20),
-            ("B".to_owned(), 70, 25),
+            ("A".to_owned(), 50, 20),
+            ("B".to_owned(), 60, 25),
+            ("A".to_owned(), 70, 26),
+            ("A".to_owned(), 2, 200),
             (String::new(), 0, 0),
             ("A".to_owned(), 90, 40),
         ]
     );
 
-    // No lease lapses, no timer fires: ownership changes only through the calls above. Each call
-    // announced its change before returning, so the owner log is already complete; the shell's own
-    // asynchronous activity lands in the same log as `Ev::Activity` and is not size ownership.
     // Disposing kills the shell, and draining its feed to the exit event is the barrier: the
-    // process has ended, so nothing that belongs to the tab can still be pending. Only the
-    // disposal's own release may follow, and the clock was never read again.
+    // process has ended, so nothing that belongs to the tab can still be pending. The claims go
+    // with the tab without an owner event (Node's `forgetSizeClaims` emits none), and the clock was never read again.
     rig.tabs.dispose(id);
     let (_, exit) = collect(&rig.manager, &mixdog_protocol::ProcessHandle::from(id)).await;
-    assert!(exit.killed.is_some(), "the shell ended because the tab was disposed");
-    let mut released = owners;
-    released.push((String::new(), 0, 0));
+    // On Windows the disposal closes the shell's terminal and the shell ends itself (its code is its own answer, which the replay
+    // compares with Node's exit lines); elsewhere the tree is killed.
+    if !cfg!(windows) {
+        assert!(exit.killed.is_some(), "the shell ended because the tab was disposed");
+    }
+    assert_eq!(rig.tabs.size_owner(id), None);
     let after: Vec<(String, u16, u16)> = rig.events.owners(id).into_iter().map(|c| (c.owner, c.cols, c.rows)).collect();
-    assert_eq!(after, released);
+    assert_eq!(after, owners, "a disposal announces no owner change");
+    // The shell's end follows when node-pty would have raised it (after the disposal), so the forgetting need not be the last event.
+    assert_eq!(
+        rig.events.all().iter().filter(|ev| **ev == Ev::Forgotten(id.to_owned())).count(),
+        1,
+        "and tells its consumer the claims are forgotten, once"
+    );
     assert_eq!(rig.clock_reads.load(Ordering::SeqCst), 1);
-    // The thread count is process-wide and sibling tests of this binary start threads in
-    // parallel, so it cannot witness "no thread appears"; the clock and event checks above do.
 }
 
+/// Node forgets a disposed tab's claims synchronously (terminal-manager.ts:549) and announces nothing. Here the announcement that the
+/// claims are forgotten is made under the claims lock, so a claim that arrives meanwhile is queued behind it and its owner event follows
+/// the forgetting; made after the lock, the claim's event came first and the forgetting wiped the owner it had just announced.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_claim_made_while_a_disposal_is_announced_is_not_undone_by_it() {
+    let rig = rig("forget-gate").await;
+    rig.tabs.ensure(Some("term_gate"), rig.request()).await.unwrap();
+    rig.tabs.resize("term_gate", 50, 20, "A");
+    let (held, open) = rig.events.hold_next_forgotten();
+    let tabs = Arc::clone(&rig.tabs);
+    let disposing = std::thread::spawn(move || tabs.dispose("term_gate"));
+    held.recv_timeout(EVENT_DEADLINE).expect("the disposal never announced the forgetting of the claims");
+    let tabs = Arc::clone(&rig.tabs);
+    let (claimed, claim_done) = std::sync::mpsc::channel();
+    let claiming = std::thread::spawn(move || {
+        tabs.resize("term_gate", 60, 25, "B");
+        claimed.send(()).unwrap();
+    });
+    // The claim reaches the gate the held disposal holds and waits there (the product's signal, given just before it blocks).
+    rig.events.wait_gate("term_gate", "the claim made while the disposal's announcement is held");
+    assert!(claim_done.try_recv().is_err(), "a claim was applied while the disposal's announcement was held: it is not ordered behind it");
+    open.send(()).unwrap();
+    disposing.join().unwrap();
+    claim_done.recv_timeout(EVENT_DEADLINE).expect("the claim was never applied after the announcement was let go");
+    claiming.join().unwrap();
+    let ours: Vec<Ev> = rig.events.all().into_iter().filter(|e| matches!(e, Ev::Forgotten(id) if id == "term_gate") || matches!(e, Ev::Owner(c) if c.id == "term_gate")).collect();
+    let owner = |owner: &str, cols, rows| Ev::Owner(SizeOwnerChange { id: "term_gate".into(), cols, rows, owner: owner.into() });
+    assert_eq!(ours, vec![owner("A", 50, 20), Ev::Forgotten("term_gate".into()), owner("B", 60, 25)], "the claim follows the forgetting");
+    rig.tabs.dispose_all();
+}
+
+/// Node runs a claim and a dispose of one id one after the other (terminal-manager.ts:455, :536; recorded in golden.json,
+/// trace.claims.order: the owner pushed, then the tab's end and the dispose's answer). A dispose that comes while a claim of the same
+/// id is announcing its owner waits for it: the owner, then the tab's end, then its claims forgotten. Without the gate around the whole
+/// disposal the tab's end came between the claim's change and its announcement, and the forgetting wiped the owner just announced.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_dispose_during_a_claims_announcement_waits_for_it() {
+    let rig = rig("dispose-gate").await;
+    rig.tabs.ensure(Some("term_dgate"), rig.request()).await.unwrap();
+    rig.events.wait_for("the tab's first prompt", |log| log.iter().any(|e| matches!(e, Ev::Activity(id, Some(_)) if id == "term_dgate")));
+    let (held, open) = rig.events.hold_next_owner();
+    let tabs = Arc::clone(&rig.tabs);
+    let claiming = std::thread::spawn(move || tabs.resize("term_dgate", 50, 20, "A"));
+    held.recv_timeout(EVENT_DEADLINE).expect("the claim never announced its owner");
+    let tabs = Arc::clone(&rig.tabs);
+    let disposing = std::thread::spawn(move || tabs.dispose("term_dgate"));
+    rig.events.wait_gate("term_dgate", "the dispose made during the claim's announcement");
+    open.send(()).unwrap();
+    claiming.join().unwrap();
+    disposing.join().unwrap();
+    let ours: Vec<Ev> = rig
+        .events
+        .all()
+        .into_iter()
+        .filter(|e| match e {
+            Ev::Activity(id, None) | Ev::Forgotten(id) => id == "term_dgate",
+            Ev::Owner(c) => c.id == "term_dgate",
+            Ev::Activity(..) => false,
+        })
+        .collect();
+    let owner = Ev::Owner(SizeOwnerChange { id: "term_dgate".into(), cols: 50, rows: 20, owner: "A".into() });
+    assert_eq!(ours, vec![owner, Ev::Activity("term_dgate".into(), None), Ev::Forgotten("term_dgate".into())], "the dispose ran wholly after the claim");
+}
+
+/// An attach made while a claim is announcing its owner waits for the announcement (the owner is read under the id's gate): it never
+/// shows an owner whose PTY fit and announcement are still to come, which Node, one thread, never could.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_attach_during_a_claims_announcement_waits_for_it() {
+    let rig = rig("attach-gate").await;
+    rig.tabs.ensure(Some("term_agate"), rig.request()).await.unwrap();
+    let (held, open) = rig.events.hold_next_owner();
+    let tabs = Arc::clone(&rig.tabs);
+    let claiming = std::thread::spawn(move || tabs.resize("term_agate", 50, 20, "A"));
+    held.recv_timeout(EVENT_DEADLINE).expect("the claim never announced its owner");
+    let tabs = Arc::clone(&rig.tabs);
+    let attaching = tokio::spawn(async move { tabs.attach("term_agate").await });
+    rig.events.wait_gate("term_agate", "the attach made during the claim's announcement");
+    // The waiter is the attach: it has not answered while the announcement is held (a lapse 30 s on would wait for the gate too).
+    assert!(!attaching.is_finished(), "the attach answered while the claim's announcement was still held");
+    open.send(()).unwrap();
+    claiming.join().unwrap();
+    let attached = attaching.await.unwrap().expect("the tab runs");
+    assert_eq!(attached.size_owner, Some(SizeOwner { cols: 50, rows: 20, owner: "A".into() }));
+    rig.tabs.dispose("term_agate");
+}
+
+/// One connection holds claims on at most 256 ids at once; a claim on one more id is ignored (no owner, no announcement), while a
+/// renewal of a held claim still works. Node bounded nothing (`sizeClaims`, terminal-manager.ts:455).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_connection_holds_claims_on_a_bounded_number_of_ids() {
+    let rig = rig("claim-cap").await;
+    for n in 0..256 {
+        rig.tabs.resize(&format!("term_cap_{n}"), 50, 20, "A");
+    }
+    rig.tabs.resize("term_cap_over", 50, 20, "A");
+    assert_eq!(rig.tabs.size_owner("term_cap_over"), None, "the claim beyond the bound is ignored");
+    assert!(rig.events.owners("term_cap_over").is_empty());
+    rig.tabs.resize("term_cap_over", 50, 20, "B");
+    assert!(rig.tabs.size_owner("term_cap_over").is_some(), "another connection still claims");
+    rig.tabs.resize("term_cap_0", 60, 21, "A");
+    assert_eq!(rig.tabs.size_owner("term_cap_0"), Some(SizeOwner { cols: 60, rows: 21, owner: "A".into() }), "a renewal is not a new claim");
+}
+
+/// A claim that is not renewed lapses after `SIZE_OWNER_LEASE` (30 s) and the PTY is fitted to the
+/// next claimant; a renewal restarts the lease. Time is the paused tokio clock the core ticker follows.
+#[tokio::test(start_paused = true)]
+async fn a_size_claim_lapses_after_its_lease_unless_renewed() {
+    let rig = rig("size-lease").await;
+    let attached = rig.tabs.ensure(Some("term_sizelease"), rig.request()).await.unwrap();
+    let id = attached.id.as_str();
+    rig.tabs.resize(id, 50, 20, "A");
+    rig.tabs.resize(id, 60, 25, "B");
+    let held = |tabs: &TerminalTabs| tabs.size_owner(id).map(|o| (o.owner, o.cols, o.rows));
+    tokio::time::advance(std::time::Duration::from_secs(20)).await;
+    rig.tabs.resize(id, 61, 26, "B");
+    tokio::time::advance(std::time::Duration::from_secs(20)).await;
+    // A's lease ended at 30 s, B renewed at 20 s: B still owns and A is gone.
+    assert_eq!(held(&rig.tabs), Some(("B".to_owned(), 61, 26)));
+    tokio::time::advance(std::time::Duration::from_secs(11)).await;
+    // The ticker's callback only hands the lapse to a task it spawns, so `advance` returning does not say the lapse has run: the
+    // release event the task announces does. The wait is on that event; with the clock paused, a task that never announces leaves the
+    // runtime idle, the clock then jumps to the wait's deadline, and the test fails naming the event instead of hanging.
+    rig.events.announced(
+        "the 30 s lease lapsed and announced the release",
+        |log| log.iter().any(|e| matches!(e, Ev::Owner(c) if c.id == id && c.owner.is_empty() && c.cols == 0)),
+    )
+    .await;
+    assert_eq!(held(&rig.tabs), None, "B's lease ended 30 s after its renewal");
+    let owners: Vec<(String, u16, u16)> = rig.events.owners(id).into_iter().map(|c| (c.owner, c.cols, c.rows)).collect();
+    assert_eq!(owners, vec![("A".into(), 50, 20), ("B".into(), 60, 25), ("B".into(), 61, 26), (String::new(), 0, 0)]);
+    rig.tabs.dispose(id);
+}
+/// A rig on the manual lease clock (its own directory and secret, given in the rig's config, not the process environment) and one tab.
+/// The tests step the clock through the socket the core publishes in that directory, as the replay does.
+#[cfg(feature = "lease-clock")]
+async fn manual_lease_rig(name: &str) -> (Rig, String, LeaseClock) {
+    let clock_dir = std::env::temp_dir().join(format!("mixdog-lease-clock-{}-{name}", std::process::id()));
+    std::fs::create_dir_all(&clock_dir).unwrap();
+    let setting = mixdog_spawn::terminal::LeaseClockSetting { dir: clock_dir, secret: Some(LEASE_CLOCK_SECRET.to_owned()) };
+    let rig = rig_with(name, |config| config.lease_clock = Some(setting)).await;
+    let attached = rig.tabs.ensure(Some("term_manual"), rig.request()).await.unwrap();
+    let id = attached.id.clone();
+    let clock = LeaseClock::admitted(lease_clock_port(name));
+    (rig, id, clock)
+}
+/// The run's secret this test process gives its core; a connection that does not send it moves nothing.
+#[cfg(feature = "lease-clock")]
+const LEASE_CLOCK_SECRET: &str = "terminal-test-secret";
+/// The port the core published in the rig's clock directory: the seam as the replay uses it.
+#[cfg(feature = "lease-clock")]
+fn lease_clock_port(name: &str) -> u16 {
+    let dir = std::env::temp_dir().join(format!("mixdog-lease-clock-{}-{name}", std::process::id()));
+    std::fs::read_to_string(dir.join("port")).unwrap().parse().unwrap()
+}
+#[cfg(feature = "lease-clock")]
+fn lease_clock_stream(port: u16) -> std::net::TcpStream {
+    let stream = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    // A clock that never answers fails the test by its message instead of blocking it.
+    stream.set_read_timeout(Some(std::time::Duration::from_secs(30))).unwrap();
+    stream
+}
+/// The replay's end of the manual lease clock: a command line out, the core's answer line back (a blocking read).
+#[cfg(feature = "lease-clock")]
+struct LeaseClock {
+    reader: std::io::BufReader<std::net::TcpStream>,
+}
+#[cfg(feature = "lease-clock")]
+impl LeaseClock {
+    /// A connection that has sent the run's secret.
+    fn admitted(port: u16) -> Self {
+        let mut clock = LeaseClock { reader: std::io::BufReader::new(lease_clock_stream(port)) };
+        assert_eq!(clock.send(&format!("secret {LEASE_CLOCK_SECRET}")), "admitted");
+        clock
+    }
+    fn send(&mut self, line: &str) -> String {
+        use std::io::{BufRead, Write};
+        writeln!(self.reader.get_mut(), "{line}").unwrap();
+        let mut answer = String::new();
+        self.reader.read_line(&mut answer).unwrap_or_else(|error| panic!("the lease clock did not answer `{line}` within 30 s: {error}"));
+        answer.trim_end().to_owned()
+    }
+    fn advance(&mut self, ms: u64) -> String {
+        self.send(&format!("advance {ms}"))
+    }
+}
+/// A claim renewed at 10 s holds until 40 s and lapses at that edge, to the instant.
+#[cfg(feature = "lease-clock")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_manual_lease_clock_moves_the_edge_with_a_renewal() {
+    let (rig, id, mut clock) = manual_lease_rig("manual-renewal").await;
+    rig.tabs.resize(&id, 50, 20, "A");
+    assert_eq!(clock.advance(10_000), "lapsed 0");
+    rig.tabs.resize(&id, 50, 20, "A");
+    assert_eq!(clock.advance(29_999), "lapsed 0", "a renewal at 10 s holds until 40 s");
+    assert!(rig.tabs.size_owner(&id).is_some());
+    assert_eq!(clock.advance(1), "lapsed 1", "the renewed lease lapses at 40 s, to the instant");
+    assert_eq!(rig.tabs.size_owner(&id), None);
+    rig.tabs.dispose(&id);
+}
+/// An unrenewed claim holds until its 30 s edge, not a millisecond before, and lapses there.
+#[cfg(feature = "lease-clock")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_manual_lease_clock_lapses_an_unrenewed_claim_at_exactly_30_seconds() {
+    let (rig, id, mut clock) = manual_lease_rig("manual-edge").await;
+    rig.tabs.resize(&id, 50, 20, "A");
+    assert_eq!(clock.advance(29_999), "lapsed 0", "an unrenewed claim holds until its 30 s edge");
+    assert_eq!(clock.advance(1), "lapsed 1", "and lapses at the 30 s edge");
+    assert_eq!(rig.tabs.size_owner(&id), None);
+    rig.tabs.dispose(&id);
+}
+/// A line that is not `advance <ms>` is refused and moves nothing; the clock answers the next command on the same connection.
+#[cfg(feature = "lease-clock")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_manual_lease_clock_refuses_what_is_not_an_advance() {
+    let (rig, id, mut clock) = manual_lease_rig("manual-refuse").await;
+    rig.tabs.resize(&id, 50, 20, "A");
+    assert_eq!(clock.send("advance soon"), "refused");
+    assert_eq!(clock.send("rewind 1"), "refused");
+    assert_eq!(clock.advance(29_999), "lapsed 0", "the refused lines moved no time");
+    assert_eq!(clock.advance(1), "lapsed 1");
+    rig.tabs.dispose(&id);
+}
+/// A local process that does not know the run's secret moves nothing: its first line is refused and its connection closed.
+#[cfg(feature = "lease-clock")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_manual_lease_clock_refuses_a_client_without_the_secret() {
+    use std::io::BufRead;
+    let (rig, id, mut clock) = manual_lease_rig("manual-secret").await;
+    rig.tabs.resize(&id, 50, 20, "A");
+    let mut stranger = LeaseClock { reader: std::io::BufReader::new(lease_clock_stream(lease_clock_port("manual-secret"))) };
+    assert_eq!(stranger.send("advance 30000"), "refused: the first line must be `secret <the run's secret>`");
+    let mut rest = String::new();
+    assert_eq!(stranger.reader.read_line(&mut rest).unwrap(), 0, "the stranger's connection is closed");
+    assert_eq!(clock.advance(29_999), "lapsed 0", "the stranger moved no time");
+    rig.tabs.dispose(&id);
+}
+/// A control connection that leaves a line unfinished must not stop another connection's dvance from being answered.
+#[cfg(feature = "lease-clock")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stalled_clock_connection_does_not_block_another() {
+    use std::io::Write;
+    let (rig, id, _first) = manual_lease_rig("manual-stalled").await;
+    let port = lease_clock_port("manual-stalled");
+    let mut stalled = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    stalled.write_all(b"advance 1").unwrap();
+    let mut late = LeaseClock::admitted(port);
+    rig.tabs.resize(&id, 50, 20, "A");
+    assert_eq!(late.advance(30_000), "lapsed 1", "a connection after a stalled one is still served");
+    rig.tabs.dispose(&id);
+}
+/// The control connection has deadlines: a line left unfinished is answered with what was awaited, and the connection is closed (its
+/// thread and socket are released), not held for ever.
+#[cfg(feature = "lease-clock")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_connection_that_leaves_a_line_unfinished_is_refused_and_closed() {
+    use std::io::{BufRead, Write};
+    let (rig, id, _first) = manual_lease_rig("manual-unfinished").await;
+    let port = lease_clock_port("manual-unfinished");
+    let mut stalled = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    // The test's own guard, longer than the core's line deadline: a core without one fails here by its message instead of hanging.
+    stalled.set_read_timeout(Some(std::time::Duration::from_secs(60))).unwrap();
+    stalled.write_all(b"advance 1").unwrap();
+    let mut reader = std::io::BufReader::new(stalled);
+    let mut told = String::new();
+    reader.read_line(&mut told).unwrap_or_else(|e| panic!("the core never answered a line left unfinished: {e}"));
+    assert_eq!(told, "refused: the `advance <ms>` command was not finished with a newline within 10 s\n");
+    let mut rest = String::new();
+    assert_eq!(reader.read_line(&mut rest).unwrap(), 0, "the connection is closed after the refusal");
+    rig.tabs.dispose(&id);
+}
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn activity_follows_the_shell_markers_and_focus() {
     let rig = rig("activity").await;
@@ -619,20 +1012,20 @@ async fn activity_follows_the_shell_markers_and_focus() {
     // The prompt appears: idle. No marker text ever reaches the replay.
     rig.events.wait_for("the first prompt", |log| log.iter().any(|e| matches!(e, Ev::Activity(_, Some(ActivityState::Idle)))));
     assert_eq!(rig.tabs.activity_snapshot(), vec![(id.clone(), ActivityState::Idle)]);
-    rig.tabs.write(&id, "Start-Sleep -Milliseconds 600; Write-Output MIXDOG_DONE_$((1+1))\r");
+    let _ = rig.tabs.write(&id, "Start-Sleep -Milliseconds 600; Write-Output MIXDOG_DONE_$((1+1))\r");
     rig.events.wait_for("running then finished", |log| {
         let states: Vec<_> = log.iter().filter_map(|e| if let Ev::Activity(_, s) = e { Some(*s) } else { None }).collect();
         states.ends_with(&[Some(ActivityState::Running), Some(ActivityState::Finished)])
     });
-    rig.wait_text(&id, "MIXDOG_DONE_2");
+    rig.wait_text(&id, "MIXDOG_DONE_2").await;
     let snapshot = rig.tabs.snapshot(&id, None).unwrap();
     assert!(!snapshot.text.contains("]697;"), "marker text leaked into the replay: {:?}", snapshot.text);
     // Focusing the finished tab clears it.
     rig.tabs.focus(&id, "view-1", true);
     assert_eq!(rig.events.activity(&id).last(), Some(&Some(ActivityState::Idle)));
     // With a view focused, a finished command goes straight back to idle.
-    rig.tabs.write(&id, "Write-Output MIXDOG_SECOND\r");
-    rig.wait_text(&id, "MIXDOG_SECOND");
+    let _ = rig.tabs.write(&id, "Write-Output MIXDOG_SECOND\r");
+    rig.wait_text(&id, "MIXDOG_SECOND").await;
     rig.events.wait_for("second command cycle", |log| log.iter().filter(|e| matches!(e, Ev::Activity(_, Some(ActivityState::Running)))).count() >= 2);
     rig.tabs.connection_closed("view-1");
     rig.tabs.dispose(&id);
@@ -657,8 +1050,8 @@ async fn tabs_reuse_ids_share_one_spawn_and_report_exit() {
     assert!(generated.id.starts_with("term_"), "{}", generated.id);
     assert_ne!(generated.id, "not a valid id");
 
-    rig.tabs.write("term_shared", "exit 3\r");
-    rig.wait_text("term_shared", "[process exited with code 3]");
+    let _ = rig.tabs.write("term_shared", "exit 3\r");
+    rig.wait_text("term_shared", "[process exited with code 3]").await;
     assert_eq!(rig.tabs.attach("term_shared").await, None, "an exited tab is not running");
     let before = rig.tabs.snapshot("term_shared", None).unwrap();
     // Ensuring an exited tab starts a new process whose cursors begin above the old ones.
@@ -748,11 +1141,11 @@ async fn terminal_corpus_replays_on_a_real_tab() {
             "termWrite" => {
                 let target = if args.unwrap()[0] == "<id>" { id.as_str() } else { args.unwrap()[0].as_str().unwrap() };
                 // The recorded line has a literal backslash-r: typed, echoed, never submitted.
-                rig.tabs.write(target, args.unwrap()[1].as_str().unwrap());
+                let _ = rig.tabs.write(target, args.unwrap()[1].as_str().unwrap());
                 assert_eq!(expect, &Value::Null);
             }
             "termSnapshot" => {
-                rig.wait_text(&id, "MIXDOG_FIXTURE_MARKER");
+                rig.wait_text(&id, "MIXDOG_FIXTURE_MARKER").await;
                 let snapshot = rig.tabs.snapshot(&id, None).unwrap();
                 // `containsMarker` is when the recorder looked, not behaviour: the Node recorder
                 // snapshots right after the write, and the two recordings of this corpus
@@ -856,7 +1249,7 @@ async fn terminal_tool_lists_runs_and_reads_in_process() {
     assert!(run.text.contains("The terminal is shown in the desktop window."), "{}", run.text);
     assert_eq!(host.reveals.load(Ordering::SeqCst), 1);
     let cursor: u64 = run.text.split("cursor=").nth(1).unwrap().lines().next().unwrap().parse().unwrap();
-    rig.wait_text("session-terminal:sess8", "bridge line 500");
+    rig.wait_text("session-terminal:sess8", "bridge line 500").await;
     // The shell stays live; this is the barrier after which it is quiet until the next input.
     rig.wait_prompt_frame_after("session-terminal:sess8", "bridge line 500").await;
 
@@ -922,7 +1315,7 @@ async fn terminal_tool_lists_runs_and_reads_in_process() {
     let other = bridge.execute(&json!({ "action": "list" }), "other-session", &options).await;
     assert_eq!(other.text, "No terminal tabs open for this session.");
     // Only now does the shell leave, on its own.
-    rig.tabs.write("session-terminal:sess8", "exit\r");
+    let _ = rig.tabs.write("session-terminal:sess8", "exit\r");
     let (_, exit) = collect(&rig.manager, &mixdog_protocol::ProcessHandle::from("session-terminal:sess8")).await;
     assert!(exit.killed.is_none(), "the shell left on its own");
     rig.tabs.dispose_all();
@@ -948,26 +1341,15 @@ fn is_generated(id: &str) -> bool {
 /// (`record-terminal-ops.mjs`). The replay runs every recorded case on real tabs whose child is `scripted::profile()` over pipes: it
 /// prints the recorded script's lines, nothing else, so the text is Node's own. Each answer is compared whole with the recording:
 /// text, cursors (relative to the tab's base), flags, the tab list with every field. A recorded case that no arm consumes fails the
-/// test. The phone's size claim is the one thing not replayed: in Node a view's resize claims the size and a non-positive resize
-/// releases it (with a 30 s lease); that model is ported elsewhere, and its five cases are listed here until it lands.
+/// test. A view's resize claims the size and a non-positive resize releases it, as the five size-claim cases record.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn terminal_operation_failure_paths_equal_nodes_recording() {
     use mixdog_spawn::scripted;
     const S: &str = "session-terminal:S";
-    const NOT_REPLAYED: [&str; 5] = [
-        "a phone claims the size",
-        "attach while the phone owns the size",
-        "ensure while the phone owns the size",
-        "the phone releases it",
-        "attach after the release",
-    ];
     let recorded = fixture("../core/fixtures/terminal-ops/failure-paths.json");
     let rig = scripted_rig("failure-paths").await;
     let tabs = &*rig.tabs;
     let cases = recorded["cases"].as_array().unwrap();
-    for name in NOT_REPLAYED {
-        assert!(cases.iter().any(|case| case["name"] == name), "{name} is recorded");
-    }
     let script = &recorded["script"];
     let lines = |key: &str| -> Vec<String> { script[key].as_array().unwrap().iter().map(|line| line.as_str().unwrap().to_owned()).collect() };
     let say = |key: &str| {
@@ -979,13 +1361,12 @@ async fn terminal_operation_failure_paths_equal_nodes_recording() {
     let cwd = serde_json::to_string(&rig.dir.display().to_string()).unwrap();
     let cwd = &cwd[1..cwd.len() - 1];
     let placed = |value: &Value| -> Value { serde_json::from_str(&value.to_string().replace(recorded["cwd"].as_str().unwrap(), cwd)).unwrap() };
-    let unmapped = |size_owner: &Option<SizeOwner>| size_owner.as_ref().map(|_| json!("<a size owner, which the replay does not model>"));
     let payload = |attached: Option<Attached>| match attached {
         None => Value::Null,
         Some(attached) => {
             let mut value = json!({ "id": attached.id, "replay": attached.replay });
-            if let Some(owner) = unmapped(&attached.size_owner) {
-                value["sizeOwner"] = owner;
+            if let Some(owner) = &attached.size_owner {
+                value["sizeOwner"] = json!({ "cols": owner.cols, "rows": owner.rows, "owner": owner.owner });
             }
             value
         }
@@ -1000,9 +1381,6 @@ async fn terminal_operation_failure_paths_equal_nodes_recording() {
     let mut seen = 0;
     for case in cases {
         let name = case["name"].as_str().unwrap();
-        if NOT_REPLAYED.contains(&name) {
-            continue;
-        }
         seen += 1;
         let args = case["args"].as_array().unwrap();
         // What the tab did before this case, in the recording's order.
@@ -1043,7 +1421,11 @@ async fn terminal_operation_failure_paths_equal_nodes_recording() {
                 Value::Null
             }
             "termWrite" => {
-                tabs.write(&coerced(args.first()), args[1].as_str().unwrap());
+                let _ = tabs.write(&coerced(args.first()), args[1].as_str().unwrap());
+                Value::Null
+            }
+            "termResize" => {
+                tabs.resize(&coerced(args.first()), args[1].as_u64().unwrap() as u32, args[2].as_u64().unwrap() as u32, args[3].as_str().unwrap());
                 Value::Null
             }
             other => panic!("unmapped recorded operation {other} in case {name}"),
@@ -1051,7 +1433,7 @@ async fn terminal_operation_failure_paths_equal_nodes_recording() {
         let want = if case.get("error").is_some_and(|error| !error.is_null()) { panic!("{name}: Node failed: {}", case["error"]) } else { placed(&case["result"]) };
         assert_eq!(got, want, "{name}");
     }
-    assert_eq!(seen, cases.len() - NOT_REPLAYED.len(), "every recorded case outside the size claim was replayed");
+    assert_eq!(seen, cases.len(), "every recorded case was replayed");
     tabs.dispose_all();
 }
 
@@ -1062,6 +1444,66 @@ async fn scripted_rig(name: &str) -> Rig {
     let mut config = TerminalConfig::new(events.clone());
     config.piped = true;
     config.shell_integration_dir = Some(scratch_dir(&format!("{name}-integration")));
+    let waits = Arc::clone(&events);
+    config.gate_waiting = Some(Arc::new(move |id: &str| waits.gate_waited(id)));
     let tabs = Arc::new(TerminalTabs::new(manager.clone(), config));
     Rig { tabs, manager, events, clock_reads, profile: mixdog_spawn::scripted::profile(), dir: scratch_dir(name) }
+}
+
+/// The window a late reader gets is Node's `TerminalReplayBuffer` at its boundary (golden.json, trace.replayWindow, recorded from Node): 200,000
+/// UTF-16 units, so two-byte characters count as one and a non-BMP character on the cut loses its first unit. Node keeps the lone low
+/// surrogate left first; the core's answer carries it as `replayLeadUnit` before `replay` (which a Rust string can hold), and the units of
+/// the two together are Node's, unit for unit. The adapter's half (the JSON text the phone gets) is remote-protocol-terminal-replay.test.mjs.
+#[test]
+fn the_replay_window_is_nodes_at_its_boundary() {
+    let golden: Value = serde_json::from_str(include_str!("../../../apps/mobile/fixtures/phone-terminal/golden.json")).unwrap();
+    let cases = golden["trace"]["replayWindow"].as_array().unwrap();
+    assert_eq!(cases.len(), 6);
+    for case in cases {
+        let mut buffer = ReplayBuffer::new(REPLAY_BUFFER_LIMIT, 0);
+        for chunk in case["chunks"].as_array().unwrap() {
+            let text: String = chunk.as_array().unwrap().iter().map(|part| part[0].as_str().unwrap().repeat(part[1].as_u64().unwrap() as usize)).collect();
+            buffer.append(&text);
+        }
+        let (replay_lead, replay) = buffer.read_window();
+        let reply = mixdog_spawn::service::attached_reply(&Attached { id: "term_window".into(), replay, replay_lead, size_owner: None }, "");
+        let units: Vec<u64> = reply
+            .get("replayLeadUnit")
+            .map(|lead| lead.as_u64().unwrap())
+            .into_iter()
+            .chain(reply["replay"].as_str().unwrap().encode_utf16().map(u64::from))
+            .collect();
+        let node = |at: &Value| -> Vec<u64> { at.as_array().unwrap().iter().map(|u| u.as_u64().unwrap()).collect() };
+        let name = case["name"].as_str().unwrap();
+        assert_eq!(units.len() as u64, case["length"].as_u64().unwrap(), "{name}: length in units");
+        assert_eq!(buffer.cursor(), case["cursor"].as_u64().unwrap(), "{name}: cursor");
+        assert_eq!(buffer.trimmed(), case["trimmed"].as_bool().unwrap(), "{name}: trimmed");
+        assert_eq!(&units[..4], node(&case["head"]).as_slice(), "{name}: first units");
+        assert_eq!(&units[units.len() - 4..], node(&case["tail"]).as_slice(), "{name}: last units");
+    }
+}
+
+/// Node is one thread, so a claim's change, its PTY fit and its announcement are one step. Here they are one step per id (a gate), and the claims
+/// map's own lock is held only to change the map: an announcement held for one tab does not hold back the claims of another.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_held_announcement_does_not_hold_back_another_tabs_claims() {
+    let rig = rig("gate-other").await;
+    rig.tabs.ensure(Some("term_held"), rig.request()).await.unwrap();
+    rig.tabs.ensure(Some("term_free"), rig.request()).await.unwrap();
+    rig.tabs.resize("term_held", 50, 20, "A");
+    let (held, open) = rig.events.hold_next_forgotten();
+    let tabs = Arc::clone(&rig.tabs);
+    let disposing = std::thread::spawn(move || tabs.dispose("term_held"));
+    held.recv_timeout(EVENT_DEADLINE).expect("the disposal never announced the forgetting of the claims");
+    let tabs = Arc::clone(&rig.tabs);
+    let (claimed, claim_done) = std::sync::mpsc::channel();
+    let claiming = std::thread::spawn(move || {
+        tabs.resize("term_free", 60, 25, "B");
+        claimed.send(()).unwrap();
+    });
+    claim_done.recv_timeout(EVENT_DEADLINE).expect("a claim on another tab waited for the announcement held for this one");
+    open.send(()).unwrap();
+    disposing.join().unwrap();
+    claiming.join().unwrap();
+    rig.tabs.dispose_all();
 }

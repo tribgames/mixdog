@@ -235,6 +235,22 @@ pub fn missing(entry_id: Option<String>, worktree_id: Option<String>, path: Opti
     )
 }
 
+/// `settleSessionAttempts` (manager.mjs:1387-1391): the transaction made a worktree another session retains.
+pub fn transaction_of_another_session(tx_id: String) -> ScmFailure {
+    ScmFailure::coded_with_message(
+        WORKTREE_REVISION_CONFLICT,
+        DomainErrorDetail::WorktreeRevisionConflict {
+            entry_id: None,
+            remaining: None,
+            branch: None,
+            tx_id: Some(tx_id),
+            expected_revision: None,
+            revision: None,
+        },
+        "This transaction belongs to another session.",
+    )
+}
+
 pub fn revision_conflict(entry_id: Option<String>) -> ScmFailure {
     ScmFailure::coded(
         WORKTREE_REVISION_CONFLICT,

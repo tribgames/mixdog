@@ -1,57 +1,27 @@
 {
-  "determinism": {
-    "cryptoRandom": {
-      "algorithm": "mulberry32 bytes",
-      "note": "only calls with a product frame on the stack; temp-file/lock names from shared/file-lock.mjs and shared/atomic-file.mjs are omitted (background cache writers, a race with the scenario window)",
-      "samples": [],
-      "seedDerivation": "one stream per product call site: fnv1a32(scenarioId) ^ fnv1a32(site) ^ 0x9e3779b9"
-    },
-    "notRecorded": "the local agent-trace flush timers (fire-and-forget; their presence in a scenario window is a race), delays of watchdog/deadline timers, timers created by Node internals (undici, ws, AbortSignal.timeout), and any wall-clock value",
-    "otherProductTimerSites": [
-      "src/runtime/agent/orchestrator/providers/openai-compat-stream-common.mjs#armIdle",
-      "src/runtime/agent/orchestrator/providers/retry-executor.mjs#withRetry",
-      "src/runtime/agent/orchestrator/stall-policy.mjs#createTimeoutSignal",
-      "src/runtime/shared/llm/http-agent.mjs#<anonymous>"
-    ],
-    "retrySleeps": [],
-    "rng": {
-      "algorithm": "mulberry32",
-      "samples": [
-        {
-          "n": 1,
-          "site": "src/runtime/agent/orchestrator/providers/retry-executor.mjs#withRetry",
-          "value": 0.41179748182184994
-        }
-      ],
-      "scenarioId": "openai-compat-chat/text",
-      "seed": 1370222461,
-      "seedDerivation": "fnv1a32(scenarioId)"
-    }
-  },
   "requests": [
     {
-      "bodyText": "{\"model\":\"fixture-model\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a fixture assistant.\"},{\"role\":\"user\",\"content\":\"Look up the answer.\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
-      "headers": {
-        "accept": "application/json",
-        "accept-encoding": "gzip, deflate",
-        "accept-language": "*",
-        "authorization": "Bearer <redacted>",
-        "connection": "keep-alive",
-        "content-length": "376",
-        "content-type": "application/json",
-        "host": "api.groq.com",
-        "sec-fetch-mode": "cors",
-        "user-agent": "OpenAI/JS 6.49.0",
-        "x-stainless-arch": "x64",
-        "x-stainless-lang": "js",
-        "x-stainless-os": "Windows",
-        "x-stainless-package-version": "6.49.0",
-        "x-stainless-retry-count": "0",
-        "x-stainless-runtime": "node",
-        "x-stainless-runtime-version": "v22.20.0"
-      },
       "method": "POST",
       "path": "/v1/chat/completions",
+      "headers": {
+        "host": "api.groq.com",
+        "connection": "keep-alive",
+        "accept": "application/json",
+        "user-agent": "OpenAI/JS 6.49.0",
+        "x-stainless-retry-count": "0",
+        "x-stainless-lang": "js",
+        "x-stainless-package-version": "6.49.0",
+        "x-stainless-os": "Windows",
+        "x-stainless-arch": "x64",
+        "x-stainless-runtime": "node",
+        "x-stainless-runtime-version": "v22.20.0",
+        "authorization": "Bearer <redacted>",
+        "content-type": "application/json",
+        "accept-language": "*",
+        "sec-fetch-mode": "cors",
+        "accept-encoding": "gzip, deflate",
+        "content-length": "376"
+      },
       "rawHeaderOrder": [
         "host",
         "connection",
@@ -70,7 +40,37 @@
         "sec-fetch-mode",
         "accept-encoding",
         "content-length"
-      ]
+      ],
+      "bodyText": "{\"model\":\"fixture-model\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a fixture assistant.\"},{\"role\":\"user\",\"content\":\"Look up the answer.\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}"
     }
-  ]
+  ],
+  "determinism": {
+    "rng": {
+      "algorithm": "mulberry32",
+      "seedDerivation": "fnv1a32(scenarioId)",
+      "scenarioId": "openai-compat-chat/text",
+      "seed": 1370222461,
+      "samples": [
+        {
+          "n": 1,
+          "value": 0.41179748182184994,
+          "site": "src/runtime/agent/orchestrator/providers/retry-executor.mjs#withRetry"
+        }
+      ]
+    },
+    "cryptoRandom": {
+      "algorithm": "mulberry32 bytes",
+      "seedDerivation": "one stream per product call site: fnv1a32(scenarioId) ^ fnv1a32(site) ^ 0x9e3779b9",
+      "note": "only calls with a product frame on the stack; temp-file/lock names from shared/file-lock.mjs and shared/atomic-file.mjs are omitted (background cache writers, a race with the scenario window)",
+      "samples": []
+    },
+    "retrySleeps": [],
+    "otherProductTimerSites": [
+      "src/runtime/agent/orchestrator/providers/openai-compat-stream-common.mjs#armIdle",
+      "src/runtime/agent/orchestrator/providers/retry-executor.mjs#withRetry",
+      "src/runtime/agent/orchestrator/stall-policy.mjs#createTimeoutSignal",
+      "src/runtime/shared/llm/http-agent.mjs#<anonymous>"
+    ],
+    "notRecorded": "the local agent-trace flush timers (fire-and-forget; their presence in a scenario window is a race), delays of watchdog/deadline timers, timers created by Node internals (undici, ws, AbortSignal.timeout), and any wall-clock value"
+  }
 }

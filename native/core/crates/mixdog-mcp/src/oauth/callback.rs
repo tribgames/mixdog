@@ -333,6 +333,7 @@ pub static LOGIN_DEADLINE_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::
 
 /// The listener's handle: stops it from accepting and destroys the connections it owns.
 #[derive(Clone)]
+#[allow(clippy::disallowed_types, reason = "the lock is held for the wait itself: every shutdown waits on the one receiver until the connection tasks have ended")]
 pub struct Stopper {
     stop: CancellationToken,
     closed: CancellationToken,
@@ -532,6 +533,7 @@ async fn answer(mut stream: TcpStream, port: u16, state: String, server: String,
 /// Listens on the loopback `port` (0: any free one) for the callback of the login whose state is
 /// `state`; valid callbacks arrive on `tx`. The listener owns the connections it accepted: it stops accepting and
 /// destroys them through its [`Stopper`].
+#[allow(clippy::disallowed_types, reason = "makes the Stopper's drain lock (see Stopper)")]
 pub async fn listen(
     port: u16,
     state: String,

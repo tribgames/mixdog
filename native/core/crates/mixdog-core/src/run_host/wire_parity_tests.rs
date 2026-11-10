@@ -106,6 +106,12 @@ fn request(session: &Value, scenario: &Value, model: &str, stored: &StoredSessio
         .collect();
     let thread = stored.thread.clone();
     let mut options = RequestOptions { session_id: Some(thread.clone()), ..RequestOptions::default() };
+    if scenario["provider"] == "grok-oauth" {
+        // A Grok turn: the cache key a session of the provider is created with, the turn's effort, the loop's iteration.
+        options.prompt_cache_key = Some(super::route_change::provider_cache_key("grok-oauth"));
+        options.effort = scenario["sendOpts"]["effort"].as_str().map(str::to_owned);
+        options.iteration = scenario["sendOpts"]["iteration"].as_u64().expect("a Grok scenario names its iteration") as u32;
+    }
     if scenario["provider"] == "openai-oauth" {
         options.prompt_cache_key = Some("mixdog-codex".into());
         // The turn's effort and the session's fast flag (`buildRequestSendOptions` `effort: turnEffort`,
@@ -167,6 +173,27 @@ impl RetryDecider for RecordedBackoff {
     }
 }
 
+/// The clock and pause of the token refreshes: the recording's clock, a pause recorded as a `sleep` event that moves the
+/// clock on by its delay without waiting, and the recorder's fixed `Math.random()` (0.5).
+struct RecordedPace(Arc<Loopback>, Arc<AtomicU64>);
+
+#[async_trait::async_trait]
+impl mixdog_ai::oauth::Pace for RecordedPace {
+    fn now_ms(&self) -> u64 {
+        self.1.load(Ordering::SeqCst)
+    }
+
+    async fn wait(&self, duration: Duration) {
+        let ms = duration.as_millis() as u64;
+        self.0.push(json!({ "kind": "sleep", "ms": ms }));
+        self.1.fetch_add(ms, Ordering::SeqCst);
+    }
+
+    fn draw(&self) -> f64 {
+        0.5
+    }
+}
+
 /// The events of the attempt in progress, folded as the loop folds them; a retry starts over.
 struct Folded(ResponseBuilder, String);
 
@@ -179,16 +206,13 @@ impl AttemptSink for Folded {
     }
 }
 
-/// The scenarios a run records: all, or the one `only` names with the ones of its conversation before it (from the last
-/// `fresh` one), as `node-wire-capture.mjs --only` selects them.
+/// The scenarios a run records: all, or the one `only` names with the ones of its conversation before it (the run of its
+/// provider's scenarios back to the last `fresh` one), as `node-wire-capture.mjs --only` selects them.
 fn selected<'a>(scenarios: &'a [Value], only: Option<&str>) -> &'a [Value] {
     let Some(only) = only else { return scenarios };
     let at = scenarios.iter().position(|s| s["id"] == only).unwrap_or_else(|| panic!("no scenario {only}"));
-    if scenarios[at]["provider"] != "openai-oauth" {
-        return &scenarios[at..=at];
-    }
     let mut start = at;
-    while start > 0 && scenarios[start]["fresh"] != true && scenarios[start - 1]["provider"] == "openai-oauth" {
+    while start > 0 && scenarios[start]["fresh"] != true && scenarios[start - 1]["provider"] == scenarios[at]["provider"] {
         start -= 1;
     }
     &scenarios[start..=at]
@@ -196,14 +220,22 @@ fn selected<'a>(scenarios: &'a [Value], only: Option<&str>) -> &'a [Value] {
 
 /// Every scenario through the production adapters and transports; the recording per scenario, in Node's shape.
 async fn record_all(only: Option<&str>, node: &[Value]) -> Vec<Value> {
+    // Node recorded in a new process: a replay starts from that state by its own doing, with nothing an earlier replay
+    // of this process left (a compression latch, a message thread, a warmed origin, a Gemini cache) and no other
+    // replay running beside it.
+    static REPLAY: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _alone = within("the end of this process's other replay", REPLAY.lock()).await;
+    mixdog_ai::reset_process_state();
     let session: Value = serde_json::from_str(SESSION).unwrap();
     let doc: Value = serde_json::from_str(SCENARIOS).unwrap();
     let now = doc["nowMs"].as_u64().unwrap();
 
     let model = "gpt-6.1-sol";
     let mut records = vec![ModelRecord::new(ProviderId::from("openai-oauth"), model)];
-    // A scenario that names its own model has that row offer the `priority` service tier, as Node's catalog does.
-    let mut tier_models: Vec<&str> = doc["scenarios"].as_array().unwrap().iter().filter_map(|s| s["model"].as_str()).collect();
+    // A scenario that names its own model has that row offer the `priority` service tier, as Node's catalog does. The
+    // catalog is the Codex one: the other providers' scenarios (Grok's name models too) are left out of it, as
+    // `node-wire-capture.mjs` (`tierModels`) leaves them out of Node's.
+    let mut tier_models: Vec<&str> = doc["scenarios"].as_array().unwrap().iter().filter(|s| s["provider"] == "openai-oauth").filter_map(|s| s["model"].as_str()).collect();
     tier_models.dedup();
     for id in tier_models {
         let mut record = ModelRecord::new(ProviderId::from("openai-oauth"), id);
@@ -226,10 +258,12 @@ async fn record_all(only: Option<&str>, node: &[Value]) -> Vec<Value> {
     // Every connect of the pinned link and dialer goes to the loopback server (`ReqwestLink::pinned`,
     // `KeepaliveDialer::pinned`), a token refresh too (the OpenAI credential refreshes over `env.http`): nothing leaves
     // the machine. `auth.openai.com` is the refresh's host.
-    let hosts = ["chatgpt.com", "api.anthropic.com", "generativelanguage.googleapis.com", "cli-chat-proxy.grok.com", "auth.openai.com"];
+    // `auth.x.ai` is the Grok token endpoint's and discovery's host.
+    let hosts = ["chatgpt.com", "api.anthropic.com", "generativelanguage.googleapis.com", "cli-chat-proxy.grok.com", "auth.openai.com", "auth.x.ai"];
     let server = Arc::new(Loopback::start(&hosts).await);
     let schedule = KeepaliveSchedule::SPEC;
     let link = Arc::new(ReqwestLink::pinned(&schedule, server.addr, server.tls.clone()));
+    let tapped = link.clone();
     let mut env = builder_env(&w.services);
     env.http = link.clone();
     env.bidi = link;
@@ -241,11 +275,14 @@ async fn record_all(only: Option<&str>, node: &[Value]) -> Vec<Value> {
     let clock = Arc::new(AtomicU64::new(now));
     let reading = clock.clone();
     env.openai_context = Arc::new(SessionContext::with_sources(move || reading.load(Ordering::SeqCst), || "0".repeat(32)).with_var(move |name| read.lock().unwrap().get(name).cloned()));
+    // The token refreshes read the same clock, and their backoffs are recorded as Node's recorder records them.
+    env.pace = Arc::new(RecordedPace(server.clone(), clock.clone()));
     let builder = DefaultProviderBuilder::new(env);
     let config = |provider: &str| if provider == "gemini" { json!({ "enabled": true, "apiKey": FAKE }) } else { json!({ "enabled": true }) };
 
     let mut out = Vec::new();
     let mut openai = None;
+    let mut grok = None;
     // The latest send of the run and its reply: what a compaction scenario forks.
     let mut last_send: Option<(ModelRequest, ModelResponse)> = None;
     for scenario in selected(doc["scenarios"].as_array().unwrap(), only) {
@@ -255,8 +292,19 @@ async fn record_all(only: Option<&str>, node: &[Value]) -> Vec<Value> {
             "openai-oauth" => scenario["model"].as_str().unwrap_or("gpt-6.1-sol"),
             "anthropic-oauth" => "claude-opus-5-5",
             "gemini" => "gemini-3.8-flash",
-            _ => "grok-4.7",
+            _ => scenario["model"].as_str().unwrap_or("grok-4.7"),
         };
+        // The scenario's credential files, written before its provider loads them; an expiry `{ fromNow }` is that many
+        // ms after the recording's clock at the scenario's start.
+        for (file, body) in scenario["credentials"].as_object().into_iter().flatten() {
+            let mut body = body.clone();
+            if let Some(from_now) = body["expires_at"]["fromNow"].as_i64() {
+                body["expires_at"] = json!(clock.load(Ordering::SeqCst) as i64 + from_now);
+            }
+            fixture_fs::write(data.join(file), body.to_string());
+        }
+        // Node's recorder numbers its `randomUUID` draws from one again for each scenario.
+        mixdog_ai::providers::grok::number_request_ids_from_one();
         if provider == "openai-oauth" && (scenario["fresh"] == true || openai.is_none()) {
             // Closing the previous conversation's sockets is the harness's doing: the recorder is paused until every one
             // of them has closed, so nothing of it is in the recording.
@@ -270,7 +318,17 @@ async fn record_all(only: Option<&str>, node: &[Value]) -> Vec<Value> {
         }
         *settings.lock().unwrap() = scenario["env"].as_object().into_iter().flatten().map(|(k, v)| (k.clone(), text(v))).collect();
         server.begin(script_of(scenario));
-        let adapter = if provider == "openai-oauth" { openai.clone().unwrap() } else { builder.build(provider, &config(provider)).await.unwrap() };
+        let adapter = if provider == "openai-oauth" {
+            openai.clone().unwrap()
+        } else if provider == "grok-oauth" {
+            // `sameProvider`: the process's Grok adapter the previous scenario sent with; otherwise one built anew.
+            if scenario["sameProvider"] != true || grok.is_none() {
+                grok = Some(builder.build(provider, &config(provider)).await.unwrap());
+            }
+            grok.clone().unwrap()
+        } else {
+            builder.build(provider, &config(provider)).await.unwrap()
+        };
         let stored = stored_session(&session, scenario, node);
         let outcome = if scenario["compaction"] == true {
             // The compaction summary as the core's compaction sends it (`RequestFork`, the fork of the session's
@@ -312,7 +370,31 @@ async fn record_all(only: Option<&str>, node: &[Value]) -> Vec<Value> {
             let sent = request(&session, scenario, model, &stored);
             // `abortWhenHeld`: the turn is cancelled (its stream let go of) once the server has written a held reply.
             let cancel_when_held = scenario["abortWhenHeld"] == true;
-            within(format_args!("the reply of {id}"), async {
+            // `sendWhenHeld`: once the server withholds an answer, the same adapter sends the scenario's request once
+            // more, alongside the send still waiting, and the withheld answer is written when that second send has
+            // ended; it must succeed.
+            let again = Arc::new(sent.clone());
+            let second = async {
+                if scenario["sendWhenHeld"] != true {
+                    return;
+                }
+                server.held().await;
+                let ended = match adapter.attempt(again).await {
+                    Ok(mut stream) => {
+                        let mut ended = Ok(());
+                        while let Some(next) = stream.next().await {
+                            ended = ended.and(next.map(drop));
+                        }
+                        ended
+                    }
+                    Err(error) => Err(error),
+                };
+                server.release();
+                if let Err(error) = ended {
+                    panic!("{id}: the second send failed: {error:?}");
+                }
+            };
+            let first = async {
                 match adapter.attempt(Arc::new(sent.clone())).await {
                     Ok(mut stream) => {
                         // The reply folded as the loop folds it, for a later compaction's fork.
@@ -341,8 +423,15 @@ async fn record_all(only: Option<&str>, node: &[Value]) -> Vec<Value> {
                     }
                     Err(_) => "error",
                 }
-            })
-            .await
+            };
+            let started = extras_with_resend(&id, scenario, &tapped);
+            let ended = within(format_args!("the reply of {id}"), beside(async { tokio::join!(first, second).0 }, &started)).await;
+            tapped.tap(None);
+            assert!(
+                scenario["extraWithResend"].is_null() || started.fired.load(Ordering::SeqCst),
+                "{id}: the POST the extra requests go out with was never sent"
+            );
+            ended
         };
         let mut entry = json!({ "id": id, "provider": provider, "model": model, "outcome": outcome });
         if let Some(kind) = server.unanswered() {
@@ -371,6 +460,82 @@ async fn record_all(only: Option<&str>, node: &[Value]) -> Vec<Value> {
         fixture_fs::write(path, serde_json::to_string_pretty(&json!({ "scenarios": out })).unwrap());
     }
     out
+}
+
+/// The requests a scenario sends beside its own once its tap fired, and whether it fired.
+#[derive(Default)]
+struct Extras {
+    fired: std::sync::atomic::AtomicBool,
+    queued: std::sync::Mutex<Vec<futures::future::BoxFuture<'static, ()>>>,
+}
+
+/// `extraWithResend` (`node-wire-capture.mjs`): when the scenario's `at`-th POST is dispatched (its connection chosen; a
+/// refused request's plain resend), `count` GETs of `/parity/extra` to its origin go out beside it through the same
+/// client. Node dispatches them in the same turn of the event loop (`gap: "none"`) or one `setImmediate` later
+/// (`"immediate"`); here a turn is one poll of the replay's task ([`beside`]), so they are polled in the poll the resend
+/// was dispatched in, or after the task yielded once. Each reads its whole answer.
+fn extras_with_resend(id: &str, scenario: &Value, link: &Arc<ReqwestLink>) -> Arc<Extras> {
+    let extras = Arc::new(Extras::default());
+    let plan = &scenario["extraWithResend"];
+    if plan.is_null() {
+        return extras;
+    }
+    let at = plan["at"].as_u64().expect("the POST the extras go out with") as usize;
+    let count = plan["count"].as_u64().unwrap_or(1);
+    let immediate = match plan["gap"].as_str() {
+        Some("none") => false,
+        Some("immediate") => true,
+        gap => panic!("{id}: no gap {gap:?}"),
+    };
+    let (posts, queue, http, id) = (std::sync::atomic::AtomicUsize::new(0), extras.clone(), link.clone(), id.to_owned());
+    link.tap(Some(Box::new(move |request: &mixdog_core_api::domain::provider::WireRequest| {
+        if request.method != "POST" || posts.fetch_add(1, Ordering::SeqCst) + 1 != at {
+            return;
+        }
+        queue.fired.store(true, Ordering::SeqCst);
+        // `scheme://host`: the url up to its path.
+        let origin = request.url.splitn(4, '/').take(3).collect::<Vec<_>>().join("/");
+        for _ in 0..count {
+            let (http, url, id) = (http.clone(), format!("{origin}/parity/extra"), id.clone());
+            queue.queued.lock().unwrap().push(Box::pin(async move {
+                if immediate {
+                    tokio::task::yield_now().await;
+                }
+                let get = mixdog_core_api::domain::provider::WireRequest {
+                    transport: mixdog_core_api::domain::keepalive::TransportKind::Http1,
+                    method: "GET".into(),
+                    url,
+                    headers: Vec::new(),
+                    body: Vec::new(),
+                };
+                let answer = mixdog_ai::transport::HttpSend::send(http.as_ref(), get, mixdog_ai::transport::deadlines::NODE_DISPATCHER).await;
+                if let Err(error) = async { answer?.read_all().await }.await {
+                    panic!("{id}: an extra request failed: {error:?}");
+                }
+            }));
+        }
+    })));
+    extras
+}
+
+/// `main` with the requests it starts ([`extras_with_resend`]) polled beside it in a fixed order: `main` first, then
+/// what it started during that poll, so one poll of this task is one turn. Ends when `main` and every extra have.
+async fn beside<T>(main: impl std::future::Future<Output = T>, extras: &Extras) -> T {
+    use futures::StreamExt as _;
+    let mut main = std::pin::pin!(main);
+    let mut ended = None;
+    let mut running = futures::stream::FuturesUnordered::new();
+    std::future::poll_fn(|cx| {
+        if ended.is_none()
+            && let std::task::Poll::Ready(value) = main.as_mut().poll(cx)
+        {
+            ended = Some(value);
+        }
+        running.extend(extras.queued.lock().unwrap().drain(..));
+        while let std::task::Poll::Ready(Some(())) = running.poll_next_unpin(cx) {}
+        if ended.is_some() && running.is_empty() { std::task::Poll::Ready(ended.take().unwrap()) } else { std::task::Poll::Pending }
+    })
+    .await
 }
 
 // ---- the comparison ------------------------------------------------------------------------------
@@ -412,10 +577,55 @@ fn diff(path: &str, node: &Value, rust: &Value, out: &mut Vec<String>) {
     }
 }
 
+/// The gzip bytes of a request body, where the content they carry is Node's: Node's zlib is Chromium's, whose deflate
+/// hashes with ANZAC++ instead of zlib's rolling hash, so the same text compresses to other bytes than any other zlib
+/// does (`content-length` follows them). The review of this branch decided that compressed bytes need not be equal, the
+/// decoded text, the `Content-Encoding` and the fact of compression must; the user's decision on the compressor is
+/// open. Each such event of Rust's takes Node's three compressor-made values once its own are shown consistent (its
+/// `content-length` is its byte count) and its decoded text is Node's; everything else is compared as recorded.
+fn with_nodes_gzip_bytes(node: &[Value], rust: &mut [Value]) {
+    for (node, rust) in node.iter().zip(rust.iter_mut()) {
+        let (Some(node), Some(rust)) = (node["traffic"].as_array(), rust["traffic"].as_array_mut()) else { continue };
+        for (n, r) in node.iter().zip(rust.iter_mut()) {
+            let gzip = |e: &Value| e["kind"] == "http" && e["body"]["encoding"] == "gzip";
+            if !gzip(n) || !gzip(r) || n["body"]["text"] != r["body"]["text"] {
+                continue;
+            }
+            let length_at = |e: &Value| e["headers"].as_array().unwrap().iter().position(|h| h[0] == "content-length");
+            let (Some(at_n), Some(at_r)) = (length_at(n), length_at(r)) else { continue };
+            assert_eq!(r["headers"][at_r][1], r["body"]["bytes"].to_string(), "Rust's content-length is not its gzip byte count");
+            r["headers"][at_r][1] = n["headers"][at_n][1].clone();
+            r["body"]["bytes"] = n["body"]["bytes"].clone();
+            r["body"]["sha256"] = n["body"]["sha256"].clone();
+        }
+    }
+}
+
+/// Each http event's `started` and `completed` moment as its place among the scenario's starts and among its
+/// completions: the order requests start in (the client's choice) and the order their bodies complete in are compared
+/// exactly, how the server's reads of different connections interleave the two is not (it is the server's).
+fn with_order_ranks(scenarios: &mut [Value]) {
+    for scenario in scenarios {
+        let Some(traffic) = scenario["traffic"].as_array_mut() else { continue };
+        for field in ["started", "completed"] {
+            let mut moments: Vec<u64> = traffic.iter().filter_map(|e| e[field].as_u64()).collect();
+            moments.sort_unstable();
+            for event in traffic.iter_mut() {
+                if let Some(moment) = event[field].as_u64() {
+                    event[field] = json!(moments.iter().position(|m| *m == moment).unwrap() + 1);
+                }
+            }
+        }
+    }
+}
+
 /// The scenarios of `provider` in both recordings, compared whole: the same scenarios in the same order, then everything in each.
 fn compare(node: &[Value], rust: &[Value], provider: &str) -> Vec<String> {
     let of = |list: &[Value]| list.iter().filter(|s| s["provider"] == provider).cloned().collect::<Vec<_>>();
-    let (node, rust) = (of(node), of(rust));
+    let (mut node, mut rust) = (of(node), of(rust));
+    with_order_ranks(&mut node);
+    with_order_ranks(&mut rust);
+    with_nodes_gzip_bytes(&node, &mut rust);
     let mut out = Vec::new();
     diff("scenarios", &Value::Array(node), &Value::Array(rust), &mut out);
     out
@@ -438,6 +648,45 @@ fn verify_manifest(node: &Value, only: Option<&str>) {
     assert_eq!(manifest["replaced"].as_array().unwrap().len(), 1, "only the websocket key is replaced");
     assert_eq!(manifest["replaced"][0]["header"], "Sec-WebSocket-Key");
     assert_eq!(manifest["replaced"][0]["value"], RANDOM);
+    // The recorded payload itself: the text of `scenarios` as the recorder wrote it, hashed before it was written.
+    if only.is_none() {
+        assert_eq!(manifest["scenariosRecordedSha256"], sha256(recorded_scenarios_text(NODE).as_bytes()), "node-recording.json's scenarios changed since the recording (re-record, never hand-edit)");
+    }
+}
+
+/// The text of the recording's `scenarios` member exactly as `node-wire-capture.mjs` wrote it: everything after its key
+/// up to the document's closing brace.
+fn recorded_scenarios_text(recording: &str) -> &str {
+    const KEY: &str = "\n \"scenarios\": ";
+    let start = recording.rfind(KEY).expect("the recording's scenarios member") + KEY.len();
+    recording[start..].strip_suffix("\n}\n").expect("the recording ends with its closing brace")
+}
+
+/// Which test compares each provider's recorded scenarios: every recorded scenario is claimed by exactly one.
+const CLAIMS: [(&str, &str); 4] = [
+    ("every_openai_request_equals_nodes_recording", "openai-oauth"),
+    ("every_grok_request_equals_nodes_recording", "grok-oauth"),
+    ("every_anthropic_request_equals_nodes_recording", "anthropic-oauth"),
+    ("every_gemini_request_equals_nodes_recording", "gemini"),
+];
+
+#[test]
+fn every_recorded_scenario_is_claimed_by_exactly_one_test() {
+    let node: Value = serde_json::from_str(NODE).unwrap();
+    let unclaimed: Vec<String> = node["scenarios"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|s| CLAIMS.iter().filter(|(_, provider)| s["provider"] == *provider).count() != 1)
+        .map(|s| format!("{} ({})", s["id"], s["provider"]))
+        .collect();
+    assert!(unclaimed.is_empty(), "recorded scenarios no test compares, or more than one: {unclaimed:?}");
+}
+
+/// The differences for the provider `test` claims.
+async fn claimed_differences(test: &str) -> Vec<String> {
+    let (_, provider) = CLAIMS.iter().find(|(name, _)| *name == test).unwrap_or_else(|| panic!("{test} claims no provider"));
+    differences(provider).await
 }
 
 /// Every difference between Node's recording and Rust's for the scenarios of `provider`. `MIXDOG_WIRE_ONLY=<scenario>`
@@ -459,7 +708,25 @@ async fn differences(provider: &str) -> Vec<String> {
 
 #[tokio::test]
 async fn every_openai_request_equals_nodes_recording() {
-    let differences = differences("openai-oauth").await;
+    let differences = claimed_differences("every_openai_request_equals_nodes_recording").await;
+    assert!(differences.is_empty(), "{} differences from Node's recording:\n{}", differences.len(), differences.join("\n"));
+}
+
+#[tokio::test]
+async fn every_grok_request_equals_nodes_recording() {
+    let differences = claimed_differences("every_grok_request_equals_nodes_recording").await;
+    assert!(differences.is_empty(), "{} differences from Node's recording:\n{}", differences.len(), differences.join("\n"));
+}
+
+#[tokio::test]
+async fn every_anthropic_request_equals_nodes_recording() {
+    let differences = claimed_differences("every_anthropic_request_equals_nodes_recording").await;
+    assert!(differences.is_empty(), "{} differences from Node's recording:\n{}", differences.len(), differences.join("\n"));
+}
+
+#[tokio::test]
+async fn every_gemini_request_equals_nodes_recording() {
+    let differences = claimed_differences("every_gemini_request_equals_nodes_recording").await;
     assert!(differences.is_empty(), "{} differences from Node's recording:\n{}", differences.len(), differences.join("\n"));
 }
 
@@ -495,4 +762,25 @@ fn the_comparator_reports_what_a_looser_one_hides() {
     assert!(!extra.is_empty(), "an extra scenario goes unreported");
     let provider = mutate(&|list| list[0]["provider"] = json!("gemini"));
     assert!(!provider.is_empty(), "a changed provider goes unreported");
+    // Two requests that start in the other order.
+    let anthropic = |change: &dyn Fn(&mut Vec<Value>)| {
+        let mut other = scenarios.clone();
+        change(&mut other);
+        compare(&scenarios, &other, "anthropic-oauth")
+    };
+    let swapped = anthropic(&|list| {
+        let traffic = list.iter_mut().find(|s| s["provider"] == "anthropic-oauth").unwrap()["traffic"].as_array_mut().unwrap();
+        let (first, second) = (traffic[0]["started"].clone(), traffic[1]["started"].clone());
+        traffic[0]["started"] = second;
+        traffic[1]["started"] = first;
+    });
+    assert!(!swapped.is_empty(), "a changed start order goes unreported");
+    // Of a gzip body only the compressor's bytes are Node's to give: its text, its encoding and its other headers are
+    // compared.
+    fn gzip_body(list: &mut [Value]) -> &mut Value {
+        list.iter_mut().flat_map(|s| s["traffic"].as_array_mut().unwrap().iter_mut()).find(|e| e["body"]["encoding"] == "gzip").unwrap()
+    }
+    assert!(anthropic(&|list| gzip_body(list)["body"]["sha256"] = json!("0")).is_empty(), "the compressor's bytes are compared");
+    assert!(!anthropic(&|list| gzip_body(list)["body"]["text"] = json!("{}")).is_empty(), "a changed gzip text goes unreported");
+    assert!(!anthropic(&|list| gzip_body(list)["body"]["encoding"] = json!(null)).is_empty(), "a body sent plain goes unreported");
 }

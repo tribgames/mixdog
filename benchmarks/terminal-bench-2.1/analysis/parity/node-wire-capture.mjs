@@ -4,10 +4,12 @@
 // receives. The only substitution is the connection: `tls.connect` hands the client a plain socket to the loopback server,
 // so the clients write what they would write inside TLS to the real host (url, `Host`, headers, upgrade request, frames).
 //
-// Inputs that are fixed, not observed: the clock (`Date.now`), `randomUUID`, `Math.random` (0.5: a jittered backoff is its
-// step exactly), the host the User-Agent describes. A backoff sleep (the one in retry-backoff.mjs, and the WebSocket send's
-// own, `openai-ws-send-attempts/policy.mjs` `_defaultSleep`) does not wait: it is recorded as a `sleep` event with its
-// delay, and the clock advances by exactly that delay before the retry goes out. Every other timer is the real one.
+// Inputs that are fixed, not observed: the clock (`Date.now`), `randomUUID` (a sequence that starts over with each
+// scenario: its 1st id, its 2nd id, ..., so the recording shows which draw each use is), `Math.random` (0.5: a jittered
+// backoff is its step exactly), the host the User-Agent describes. A backoff sleep (the one in retry-backoff.mjs, the
+// WebSocket send's own, `openai-ws-send-attempts/policy.mjs` `_defaultSleep`, and the Grok token refresh's,
+// `grok-oauth-tokens.mjs` `_postRefreshWithRetry`) does not wait: it is recorded as a `sleep` event with its delay, and
+// the clock advances by exactly that delay before the retry goes out. Every other timer is the real one.
 //
 // Run it under the runtime the product runs its core under: the desktop's Electron in node mode
 // (`ELECTRON_RUN_AS_NODE=1 electron node-wire-capture.mjs ...`); the manifest names the runtime and the client versions.
@@ -35,14 +37,17 @@ const session = read(arg('--session'));
 const doc = read(arg('--scenarios'));
 const keepRandom = process.argv.includes('--keep-random');
 const only = process.argv.includes('--only') ? arg('--only') : null;
-/** The scenarios a run records: all, or the one `--only` names with the ones of its conversation before it. */
+/**
+ * The scenarios a run records: all, or the one `--only` names with the ones of its conversation before it: the run of
+ * scenarios of its provider back to the last `fresh` one (a provider's process-wide state, its sockets, caches and
+ * latches, carries from one scenario to the next).
+ */
 function selected(scenarios) {
   if (!only) return scenarios;
   const at = scenarios.findIndex((s) => s.id === only);
   if (at < 0) throw new Error(`no scenario ${only}`);
-  if (scenarios[at].provider !== 'openai-oauth') return [scenarios[at]];
   let start = at;
-  while (start > 0 && !scenarios[start].fresh && scenarios[start - 1].provider === 'openai-oauth') start -= 1;
+  while (start > 0 && !scenarios[start].fresh && scenarios[start - 1].provider === scenarios[at].provider) start -= 1;
   return scenarios.slice(start, at + 1);
 }
 
@@ -55,7 +60,8 @@ Date.now = () => virtualNow;
 // random: that value is observed and replaced (wire-server.mjs RANDOM), not made up. Everything the providers draw
 // (request ids) comes from the fixed source below.
 await import(pathToFileURL(join(root, 'node_modules/ws/wrapper.mjs')).href);
-crypto.randomUUID = () => '00000000-0000-4000-8000-000000000000';
+let uuidDraws = 0;
+crypto.randomUUID = () => `00000000-0000-4000-8000-${String(++uuidDraws).padStart(12, '0')}`;
 Math.random = () => 0.5;
 crypto.randomBytes = (size) => Buffer.alloc(size);
 os.type = () => session.host.type;
@@ -67,7 +73,7 @@ const traffic = { sink: [], script: { dials: [], replies: [], http: [] }, unansw
 globalThis.setTimeout = (fn, ms, ...args) => {
   // The caller of `setTimeout` is the second frame of the stack.
   const caller = new Error().stack.split('\n')[2] ?? '';
-  if (!caller.includes('retry-backoff.mjs') && !caller.includes('openai-ws-send-attempts')) return realSetTimeout(fn, ms, ...args);
+  if (!['retry-backoff.mjs', 'openai-ws-send-attempts', 'grok-oauth-tokens.mjs'].some((file) => caller.includes(file))) return realSetTimeout(fn, ms, ...args);
   traffic.sink.push({ kind: 'sleep', ms });
   virtualNow += ms;
   return setImmediate(fn, ...args);
@@ -110,16 +116,22 @@ const FAKE = 'fake-credential-not-a-secret';
 writeFakeCredentials(dataDir, (file, value) => writeFileSync(file, JSON.stringify(value)));
 // The catalog Node would hold after it listed the Codex models: one row per model of the scenarios, nothing else known.
 // A scenario that names its own model has that row offer the `priority` service tier (`modelSupportsServiceTier`).
-const tierModels = [...new Set(doc.scenarios.filter((s) => s.model).map((s) => s.model))];
+const tierModels = [...new Set(doc.scenarios.filter((s) => s.provider === 'openai-oauth' && s.model).map((s) => s.model))];
 const rows = [{ id: ROUTES[0].model }, ...tierModels.map((id) => ({ id, serviceTiers: [{ id: 'priority', name: 'Fast', description: '' }] }))];
 writeFileSync(join(dataDir, 'openai-oauth-models.json'), JSON.stringify({ version: 7, fetchedAt: doc.nowMs, models: rows }));
 
 const sha256 = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
 const load = (path) => within(`loading ${path}`, import(pathToFileURL(join(root, path)).href));
 const P = 'src/runtime/agent/orchestrator/providers/';
+// The Anthropic catalog Node would hold after it listed the models: the scenarios' model by id only (no capability
+// fields, so the request builder decides as with no catalog). A reply naming a model the catalog lacks makes Node
+// refresh the catalog in the background (`anthropic-oauth.mjs:994`), a request no scenario scripts.
+(await load(P + 'anthropic-model-resolve.mjs'))._setInMemoryCatalog([{ id: ROUTES.find((r) => r.provider === 'anthropic-oauth').model }]);
 const providerOf = {
   gemini: async () => new (await load(P + 'gemini.mjs')).GeminiProvider({ apiKey: FAKE }),
-  'grok-oauth': async () => new (await load(P + 'grok-oauth.mjs')).GrokOAuthProvider({ preconnect: false }),
+  // As the product registers it (`registry.mjs` `_registerLazyOAuthProvider`: `new Ctor({})`), so its socket warm-up
+  // (`preconnect`, a HEAD to the proxy) is part of the recording.
+  'grok-oauth': async () => new (await load(P + 'grok-oauth.mjs')).GrokOAuthProvider({}),
   'anthropic-oauth': async () => new (await load(P + 'anthropic-oauth.mjs')).AnthropicOAuthProvider({}),
   'openai-oauth': async () => new (await load(P + 'openai-oauth.mjs')).OpenAIOAuthProvider({}),
 };
@@ -130,6 +142,26 @@ const { _clearWebSocketPoolForTest } = await load(P + 'openai-ws-pool.mjs');
 const { captureSideQuestionRequest } = await load('src/runtime/agent/orchestrator/session/side-question-store.mjs');
 const { summarizeOnSharedPrefix } = await load('src/runtime/agent/orchestrator/session/compact/forked-summary.mjs');
 const { disposeTransportScope } = await load(P + 'transport-scope.mjs');
+const { providerCacheKey } = await load('src/runtime/agent/orchestrator/session/manager/provider-cache-key.mjs');
+const { getLlmDispatcher } = await load('src/runtime/shared/llm/http-agent.mjs');
+/**
+ * Taps the dispatches of the global dispatcher every provider fetch rides (the proxy-policy router `getLlmDispatcher`
+ * installs; a first provider request installed it already): `traffic.dispatched(opts)` runs right after each dispatch.
+ * Installed by the first scenario that needs it, so no scenario before it rides anything but Node's own dispatcher.
+ */
+let tapped = false;
+function tapDispatches() {
+  if (tapped) return;
+  tapped = true;
+  getLlmDispatcher();
+  const dispatcher = globalThis[Symbol.for('undici.globalDispatcher.1')];
+  const dispatch = dispatcher.dispatch;
+  dispatcher.dispatch = function tappedDispatch(opts, handler) {
+    const accepted = dispatch.call(this, opts, handler);
+    traffic.dispatched?.(opts);
+    return accepted;
+  };
+}
 
 const tools = session.tools.map(({ name, description, inputSchema }) => ({ name, description, inputSchema }));
 if (session.system.length !== 4) throw new Error(`the session document holds ${session.system.length} system texts; Node's session seeds four (base rules, stable context, session marker, environment)`);
@@ -141,9 +173,14 @@ const stampOf = (uuid) => Number.parseInt(uuid.replaceAll('-', '').slice(0, 12),
 const results = [];
 const ENV_NAMES = [...new Set(doc.scenarios.flatMap((s) => Object.keys(s.env || {})))];
 let openaiProvider = null;
+let grokProvider = null;
 /** The latest send of the run and its reply: what a compaction scenario forks. */
 let lastSend = null;
 for (const scenario of selected(doc.scenarios)) {
+  // The event loop turns once between scenarios, as it does between two turns of a session: undici gives a socket
+  // whose answer ended back to its pool one `setImmediate` later (`client-h1.js:842-846`), so a scenario started in the
+  // same turn as the previous one ended would find the connections that turn finished busy.
+  await new Promise((resolve) => setImmediate(resolve));
   const route = { ...ROUTES.find((r) => r.provider === scenario.provider) };
   if (scenario.model) route.model = scenario.model;
   const entry = { id: scenario.id, provider: scenario.provider, model: route.model };
@@ -151,6 +188,9 @@ for (const scenario of selected(doc.scenarios)) {
   for (const name of ENV_NAMES) delete process.env[name];
   Object.assign(process.env, scenario.env || {});
   traffic.sink = [];
+  uuidDraws = 0;
+  traffic.order = 0;
+  traffic.dispatched = null;
   traffic.script = { dials: structuredClone(scenario.dials || []), replies: structuredClone(scenario.ws || []), http: structuredClone(scenario.http || []) };
   const controller = new AbortController();
   // `abortWhenHeld`: the turn is cancelled (the session's abort signal) once the server has written a held reply.
@@ -167,6 +207,17 @@ for (const scenario of selected(doc.scenarios)) {
     ownAborts.add(reason);
     controller.abort(reason);
   };
+  // A Grok turn starts once the previous turn's connections are back in the pool, as the turns of a session are (between
+  // two there is always I/O: tools, the user): undici returns a socket one event-loop turn after its response ended
+  // (`client-h1.js` onMessageComplete, `setImmediate(client[kResume])`).
+  if (scenario.provider === 'grok-oauth') await within(`the event-loop turn before ${scenario.id}`, new Promise((resolve) => setImmediate(resolve)));
+  // `credentials`: the credential files of the scenario's account (an expiring token, a stored token endpoint or none, a
+  // user id), written before its provider loads them. An expiry `{ fromNow }` is that many ms after the recording's clock
+  // at the scenario's start, which earlier scenarios' backoffs have moved on.
+  for (const [file, value] of Object.entries(scenario.credentials || {})) {
+    const expiresAt = value.expires_at?.fromNow;
+    writeFileSync(join(dataDir, file), JSON.stringify(expiresAt === undefined ? value : { ...value, expires_at: virtualNow + expiresAt }));
+  }
   let provider;
   if (scenario.provider === 'openai-oauth') {
     if (scenario.fresh || !openaiProvider) {
@@ -179,6 +230,11 @@ for (const scenario of selected(doc.scenarios)) {
       openaiProvider = await providerOf['openai-oauth']();
     }
     provider = openaiProvider;
+  } else if (scenario.provider === 'grok-oauth') {
+    // `sameProvider`: the turn of the process's Grok provider the previous scenario sent with (its grace window, its
+    // tokens), as the product holds one provider per process; otherwise a provider loaded anew.
+    if (!scenario.sameProvider || !grokProvider) grokProvider = await providerOf['grok-oauth']();
+    provider = grokProvider;
   } else {
     provider = await providerOf[scenario.provider]();
   }
@@ -212,12 +268,53 @@ for (const scenario of selected(doc.scenarios)) {
     // The record as a resumed session has it: through the store's JSON (`saveSession`, `loadSession`).
     record = JSON.parse(JSON.stringify(record));
     opts = buildRequestSendOptions({ sessionId, session: record, turnEffort: sendOpts.effort, effortConfiguration: undefined, stepAutoEffort: null, codexTurnId: turnId, startedAtMs: stampOf(turnId), signal: controller.signal });
+  } else if (scenario.provider === 'grok-oauth') {
+    // The send options of a Grok turn as Node's loop hands them to the provider: the session's request options
+    // (`buildRequestSendOptions`, its cache key the one a session of the provider is created with, `providerCacheKey`),
+    // the loop's iteration (`send-phase.mjs:100`) and the admission owner (`send-with-recovery.mjs:263`). `sendOpts`
+    // are the turn's effort and iteration.
+    const { sendOpts = {} } = scenario;
+    const record = { id: session.threadId, provider: 'grok-oauth', model: route.model, promptCacheKey: providerCacheKey('grok-oauth') };
+    opts = {
+      ...buildRequestSendOptions({ sessionId: session.threadId, session: record, turnEffort: sendOpts.effort, effortConfiguration: undefined, stepAutoEffort: null, codexTurnId: undefined, startedAtMs: undefined, signal: controller.signal }),
+      iteration: sendOpts.iteration,
+      admissionOwner: session.threadId,
+    };
   }
   if (scenario.disposeWhenHeld) {
     // `disposeWhenHeld`: the send's transport scope is disposed (`disposeTransportScope`, transport-scope.mjs) once the
     // server has written a held reply, while the response is still running.
     const scope = opts.transportScope || opts.sessionId;
     traffic.held = () => disposeTransportScope(scope, provider);
+  }
+  // `sendWhenHeld`: once the server withholds an answer, the same provider sends the scenario's request once more,
+  // alongside the send still waiting, and the withheld answer is written when that second send has ended; it must
+  // succeed.
+  let second = null;
+  if (scenario.sendWhenHeld) {
+    traffic.held = () => {
+      second = provider.send(messages, route.model, tools, opts).finally(() => server.release());
+      second.catch(() => {});
+    };
+  }
+  // `extraWithResend`: when the scenario's `at`-th POST is dispatched (a refused request's plain resend), `count` more
+  // requests to its origin (GET /parity/extra, through the global dispatcher the providers' fetch rides,
+  // `getLlmDispatcher` in http-agent.mjs) are dispatched beside it, back to back: with `gap: 'none'` in the same turn of
+  // the event loop as the resend, with `gap: 'immediate'` one `setImmediate` later. Each takes the next scripted answer;
+  // the scenario lasts until every one has been read.
+  let extras = null;
+  if (scenario.extraWithResend) {
+    const { at, gap, count = 1 } = scenario.extraWithResend;
+    let posts = 0;
+    traffic.dispatched = (opts) => {
+      if (String(opts.method).toUpperCase() !== 'POST' || ++posts !== at) return;
+      traffic.dispatched = null;
+      const origin = new URL(String(opts.origin)).origin;
+      const send = () => Array.from({ length: count }, () => fetch(`${origin}/parity/extra`).then((res) => res.text()));
+      extras = gap === 'none' ? Promise.all(send()) : new Promise((resolve) => setImmediate(resolve)).then(() => Promise.all(send()));
+      extras.catch(() => {});
+    };
+    tapDispatches();
   }
   try {
     if (scenario.compaction) {
@@ -239,6 +336,14 @@ for (const scenario of selected(doc.scenarios)) {
     if (error instanceof Deadline) throw error;
     if (!scenario.expectError) throw error;
     entry.outcome = entry.unanswered ? 'unanswered' : 'error';  }
+  if (scenario.sendWhenHeld) {
+    if (!second) throw new Error(`${scenario.id}: no answer was withheld, so the second send never went out`);
+    await within(`the second send of ${scenario.id}`, second);
+  }
+  if (scenario.extraWithResend) {
+    if (!extras) throw new Error(`${scenario.id}: the POST the extra requests go out with was never dispatched`);
+    await within(`the extra requests of ${scenario.id}`, extras);
+  }
   if (!scenario.expectError && entry.unanswered) throw new Error(`${scenario.id}: a ${entry.unanswered} request had no scripted answer`);
   if (traffic.script.dials.length || traffic.script.replies.length || traffic.script.http.length) throw new Error(`${scenario.id}: the script was not consumed (${JSON.stringify(traffic.script).slice(0, 200)})`);
   if (scenario.awaitClose === 'first') {
@@ -253,10 +358,11 @@ for (const scenario of selected(doc.scenarios)) {
   results.push(entry);
 }
 server.stop();
-rmSync(dataDir, { recursive: true, force: true });
 // The manifest says what the recording is a function of: the Node commit it was recorded from, the input documents and the
 // harness files, and which observed values were replaced.
 const fileHash = (file) => sha256(readFileSync(resolve(file)));
+// The text `scenarios` has in the written document (one more space of indent per line), hashed into the manifest.
+const recorded = JSON.stringify(results, null, 1).replaceAll('\n', '\n ');
 const manifest = {
   exact: true,
   nodeCommit: arg('--node-commit'),
@@ -267,8 +373,16 @@ const manifest = {
   scenariosSha256: fileHash(arg('--scenarios')),
   harness: Object.fromEntries(['node-wire-capture.mjs', 'wire-server.mjs'].map((name) => [name, fileHash(join(here, name))])),
   replaced: keepRandom ? [] : [{ kind: 'ws-upgrade', header: 'Sec-WebSocket-Key', value: RANDOM, why: 'drawn at random per connection (RFC 6455 4.1); wire-random-proof.mjs shows two runs differ in nothing else' }],
+  scenariosRecordedSha256: sha256(recorded),
   ...(only ? { only } : {}),
 };
-writeFileSync(resolve(arg('--out')), `${JSON.stringify({ manifest, scenarios: results }, null, 1)}\n`);
+const written = `${JSON.stringify({ manifest, scenarios: results }, null, 1)}\n`;
+if (!written.endsWith(`\n "scenarios": ${recorded}\n}\n`)) throw new Error('the written scenarios are not the hashed text');
+writeFileSync(resolve(arg('--out')), written);
 console.log(results.map((r) => `${r.id}: ${r.traffic.length} events, ${r.outcome}`).join('\n'));
+// Written before anything is awaited again, so what a send left running records nothing after the loop. The product's
+// trace spool appends to the data directory asynchronously; drained before the directory is removed.
+const { drainAgentTrace } = await load('src/runtime/agent/orchestrator/agent-trace-io.mjs');
+await within('the drain of the agent trace', drainAgentTrace());
+rmSync(dataDir, { recursive: true, force: true });
 process.exit(0);

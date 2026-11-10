@@ -10,7 +10,7 @@
 // replay registers; a case's `provider` array names its tools in wire order, each pointing at the
 // definition it carries (`definitions`), so a definition that differs between cases (the Lead's and
 // an agent's `git`/`task`, the edit dialect, the bridge pair) is recorded once per variant.
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 // Import-time sweeps delete real user data: every user dir is a fresh temp dir first.
@@ -18,12 +18,13 @@ const sandbox = mkdtempSync(join(tmpdir(), 'tool-resolution-'));
 for (const key of ['MIXDOG_DATA_DIR', 'MIXDOG_HOME', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA']) process.env[key] = sandbox;
 process.env.MIXDOG_SKIP_USER_DATA_BACKUP = '1';
 process.env.TZ = 'UTC';
-const { FIXTURES_ROOT, commitStage, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
+const { FIXTURES_ROOT, importFrom, parseArgs, recordingProvenance, resolveTree, exactProductIdentity, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
 
 const { writeJsonCompact } = await import('./lib/tool-definitions.mjs');
 const tree = resolveTree(parseArgs());
 const finalDir = join(FIXTURES_ROOT, 'tool-resolution');
-const stage = stageSet(finalDir);
+// `harness-request.json` beside it is `record-harness-request-tools.mjs`'s and is kept.
+const stage = stageSet(finalDir, ['golden.json', 'MANIFEST.json']);
 const recorder = 'benchmarks/rust-core/recorders/record-tool-resolution.mjs';
 const at = (path) => importFrom(tree, path);
 const orch = 'src/runtime/agent/orchestrator/';
@@ -39,6 +40,9 @@ const { BUILTIN_TOOLS, bindAgentOwner } = await at(`${orch}tools/builtin/builtin
 const { TODO_TOOL } = await at(`${orch}runtime-core/todo-tool-defs.mjs`);
 const mcp = await at(`${orch}mcp/client.mjs`);
 const { deferredSurfaceModeForLead, toolSpecForMode } = await at(`${orch}runtime-core/effort.mjs`);
+const { HEADLESS_MODEL_TOOL_NAMES, HEARTBEAT_MODEL_TOOL_NAMES } = await at(`${orch}runtime-core/tool-profile.mjs`);
+const { featureDisallowedToolsFor } = await at('src/session-runtime/builtin-features.mjs');
+const pristine = JSON.parse(readFileSync(join(tree, 'src/runtime/shared/pristine-execution-contract.json'), 'utf8'));
 const defs = async (path, key = 'TOOL_DEFS') => (await at(path))[key];
 
 const { GOAL_TOOL_DEFS } = await at(`${orch}runtime-core/goal-tool-defs.mjs`);
@@ -113,7 +117,7 @@ const poolTools = [...poolByName.values()].map((tool) => {
 function record(name, input) {
   const {
     kind = 'lead', provider = 'anthropic', model = 'claude-opus-4-6', mode = 'full', agent = null, schemaAllowedTools = null,
-    callerDisallowed = [], featureDenied = [], mcpConnected = false, sessionId = 'sess_recorder', tools = null,
+    callerDisallowed = [], featureDenied = [], mcpConnected = false, sessionId = 'sess_recorder', tools = null, toolProfile = 'interactive',
   } = input;
   const worker = kind === 'worker';
   if (mcpConnected && !mcpRegistered) registerMcp();
@@ -147,7 +151,7 @@ function record(name, input) {
     const route = { provider, model };
     const toolSurface = createToolSurface({
       mgr: { previewSessionTools }, mode: readonlyLead ? 'readonly' : 'lead', standaloneTools, agentToolNames,
-      getSession: () => session, getRoute: () => route, getConfig: () => ({}), cfgMod: { getPluginData: () => sandbox },
+      getSession: () => session, getRoute: () => route, getConfig: () => ({}), getToolProfile: () => toolProfile, cfgMod: { getPluginData: () => sandbox },
       delegatableAgentIds: () => [], dataDir: sandbox, getFeatureDisallowedTools: () => featureDenied,
     });
     const connected = mcpConnected ? mcp.getMcpTools(null) : [];
@@ -161,7 +165,7 @@ function record(name, input) {
   const sent = snapshotProviderRequestTools({ provider, tools: session.tools, nativeTools: [], messages: [], session });
   return {
     name,
-    input: { kind, provider, model, mode: readonlyLead ? 'readonly' : mode, agent, schemaAllowedTools, callerDisallowed, featureDenied, mcpConnected, sessionId },
+    input: { kind, provider, model, mode: readonlyLead ? 'readonly' : mode, agent, schemaAllowedTools, callerDisallowed, featureDenied, mcpConnected, sessionId, toolProfile },
     // `getHiddenAgent(agent)`: the replay's role policy for a worker.
     hiddenAgent: worker && Boolean(getHiddenAgent(opts.agent)),
     toolSpec: surface.toolSpec,
@@ -188,6 +192,14 @@ add('lead, feature gates off (web, memory, git, explore), native', { provider: '
 add('lead, feature gates off (desktop bridges), bridge route', { provider: 'xai', model: 'grok-4', featureDenied: ['browser', 'browser_devtools', 'computer', 'terminal', 'office', 'media'] });
 add('lead, caller denylist', { provider: 'anthropic', model: 'claude-opus-4-6', callerDisallowed: ['Skill', 'shell'] });
 add('lead, caller allowlist', { provider: 'anthropic', model: 'claude-opus-4-6', schemaAllowedTools: ['Read', 'GREP', 'todo', 'shell', 'nope'] });
+// A headless exec thread (`mixdog exec`) carries its runtime's profile as the session's schema allowlist; the features
+// its config turns off are the harness's (web search on, memory off, git available), the profile's own denials added.
+const headlessDenied = () => featureDisallowedToolsFor({ ...pristine.agentDefaults, modules: { webSearch: { enabled: true } }, memoryTools: { enabled: false } }, { toolProfile: 'headless', gitAvailable: true });
+add('lead, headless profile, anthropic native', { provider: 'anthropic', model: 'claude-opus-4-6', toolProfile: 'headless', schemaAllowedTools: [...HEADLESS_MODEL_TOOL_NAMES], featureDenied: headlessDenied() });
+add('lead, headless profile, openai native', { provider: 'openai', model: 'gpt-5', toolProfile: 'headless', schemaAllowedTools: [...HEADLESS_MODEL_TOOL_NAMES], featureDenied: headlessDenied() });
+add('lead, headless profile, bridge route', { provider: 'xai', model: 'grok-4', toolProfile: 'headless', schemaAllowedTools: [...HEADLESS_MODEL_TOOL_NAMES], featureDenied: headlessDenied() });
+add('lead, headless profile, manifest route', { provider: 'gemini', model: 'gemini-3-pro', toolProfile: 'headless', schemaAllowedTools: [...HEADLESS_MODEL_TOOL_NAMES], featureDenied: headlessDenied() });
+add('lead, heartbeat profile, native', { provider: 'anthropic', model: 'claude-opus-4-6', toolProfile: 'heartbeat', schemaAllowedTools: [...HEARTBEAT_MODEL_TOOL_NAMES] });
 add('worker, native, no allowlist', { kind: 'worker', provider: 'anthropic', model: 'claude-opus-4-6' });
 add('worker, openai native, no allowlist', { kind: 'worker', provider: 'openai', model: 'gpt-5' });
 add('worker, bridge route, no allowlist', { kind: 'worker', provider: 'xai', model: 'grok-4' });
@@ -198,6 +210,37 @@ add('hidden worker with allowlist, bridge route', { kind: 'worker', agent: 'expl
 add('hidden worker with an empty allowlist', { kind: 'worker', agent: 'cycle1-agent', provider: 'anthropic', model: 'claude-opus-4-6', schemaAllowedTools: [] });
 add('worker, feature gates off, native', { kind: 'worker', provider: 'anthropic', model: 'claude-opus-4-6', featureDenied: ['web_search', 'web_fetch', 'memory', 'recall', 'git', 'github'] });
 add('worker, feature gates off, bridge route', { kind: 'worker', provider: 'xai', model: 'grok-4', featureDenied: ['web_search', 'web_fetch', 'memory', 'recall', 'git', 'github'] });
+// The grid of what Node distinguishes: every tool profile x provider family x lead mode, and every family's workers (the
+// plain one and the hidden role with an allowlist). The cases above are the readable anchors; a combination one of them
+// already recorded is not recorded twice.
+{
+  const FAMILIES = [['anthropic', 'claude-opus-4-6'], ['openai', 'gpt-5'], ['xai', 'grok-4'], ['gemini', 'gemini-3-pro']];
+  const PROFILES = {
+    interactive: {},
+    headless: { schemaAllowedTools: [...HEADLESS_MODEL_TOOL_NAMES], featureDenied: headlessDenied() },
+    heartbeat: { schemaAllowedTools: [...HEARTBEAT_MODEL_TOOL_NAMES] },
+  };
+  const shape = ({ kind = 'lead', provider, model, mode = 'full', agent = null, schemaAllowedTools = null, callerDisallowed = [], featureDenied = [], toolProfile = 'interactive' }) =>
+    json({ kind, provider, model, mode, agent, schemaAllowedTools, callerDisallowed, featureDenied, toolProfile });
+  // Which inputs were already recorded, to record each once: a membership question about inputs (the key keeps
+  // every array in its order), not a comparison of Node's output; `cases` stays in recording order.
+  const recorded = new Set(cases.map((c) => shape(c.input)));
+  const addNew = (name, input) => {
+    if (!recorded.has(shape(input))) {
+      recorded.add(shape(input));
+      add(name, input);
+    }
+  };
+  for (const [profile, extra] of Object.entries(PROFILES)) {
+    for (const [provider, model] of FAMILIES) {
+      for (const mode of ['full', 'readonly']) addNew(`grid: lead ${mode}, ${profile} profile, ${provider}`, { provider, model, mode, toolProfile: profile, ...extra });
+    }
+  }
+  for (const [provider, model] of FAMILIES) {
+    addNew(`grid: worker, ${provider}`, { kind: 'worker', provider, model });
+    addNew(`grid: hidden worker with allowlist, ${provider}`, { kind: 'worker', agent: 'explore-agent', provider, model, schemaAllowedTools: ['grep', 'read', 'glob', 'todo'] });
+  }
+}
 // MCP tools connected (registered by the first of these, so they come last).
 add('lead with MCP tools, native', { provider: 'anthropic', model: 'claude-opus-4-6', mcpConnected: true });
 add('lead with MCP tools, bridge route', { provider: 'xai', model: 'grok-4', mcpConnected: true });
@@ -221,6 +264,16 @@ await writeJsonCompact(tree, join(stage, 'golden.json'), {
   definitions,
   cases,
 });
-writeSetManifest(stage, { set: 'tool-resolution', recorder, command: `node ${recorder} --tree <tree>`, identityTree: tree });
-commitStage(stage, finalDir);
+writeSetManifest(stage, {
+  set: 'tool-resolution',
+  recorder,
+  command: `node ${recorder} --tree <tree>`,
+  identity: exactProductIdentity(tree, 'b6f10295a2f698afc85332467192de28500bd146'),
+  extra: recordingProvenance(recorder, ['benchmarks/rust-core/recorders/lib/common.mjs', 'benchmarks/rust-core/recorders/lib/tool-definitions.mjs']),
+});
+// Only this recorder's two files are swapped in: `commitStage` replaces every file of the folder with the staged copy,
+// `harness-request.json` included, which would undo a change made to it meanwhile and leave it missing if this run were cut
+// between its removal and its rename.
+for (const name of ['golden.json', 'MANIFEST.json']) renameSync(join(stage, name), join(finalDir, name));
+rmSync(stage, { recursive: true, force: true });
 console.log(`tool resolution: ${cases.length} cases, ${Object.keys(definitions).length} definitions`);

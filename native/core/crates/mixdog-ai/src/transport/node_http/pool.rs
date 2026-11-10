@@ -2,7 +2,7 @@
 //! clients were created, and a client's idle socket closes when its keep-alive runs out (`client-h1.js`
 //! `keepAliveTimeout`), not when another request next looks at it.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::PoisonError;
@@ -48,6 +48,11 @@ struct State {
     /// used was decided; one that meets a later count when it would go into the pool is closed instead, so a
     /// connection dialled or checked out while the route changed does not idle under its old route.
     generation: u64,
+    /// Connections whose answer was read whole by a caller that sends again at once ([`Pool::hold_h1`]), by key: each
+    /// with its hold's number and its keep-alive.
+    held: HashMap<String, Vec<(u64, Conn, Duration)>>,
+    /// The keys whose holds a request has claimed ([`Pool::claim_hold`]).
+    claimed: HashSet<String>,
 }
 
 impl State {
@@ -154,6 +159,57 @@ impl Pool {
         }
     }
 
+    /// `conn`'s answer was read whole by a caller that sends its next request at once: undici gives the socket back one
+    /// `setImmediate` after the body ended (`client-h1.js:842-846`, undici 8.12.3), so that request, and any other
+    /// dispatched in the same turn of the event loop, finds it busy and a request a turn later finds it free
+    /// (`resendIfEncodingRejected`, request-compression.mjs:60-68). It stays out of the pool until the next request of
+    /// `key` has its connection and its task has yielded once ([`Pool::free_held`]) or the hold ends
+    /// ([`Pool::end_hold`]); the hold's number is returned.
+    pub fn hold_h1(&self, key: String, conn: Conn, ttl: Duration) -> u64 {
+        let hold = self.birth();
+        self.lock().held.entry(key).or_default().push((hold, conn, ttl));
+        hold
+    }
+
+    /// Whether a connection of `key` is held ([`Pool::hold_h1`]) and no request has claimed it yet; the caller claims
+    /// it, so it frees it ([`Pool::free_held`]) after its task has yielded once. A request dispatched after it in the
+    /// same turn does not wait for the hold: in undici the held socket is resumed by its own `setImmediate`, which no
+    /// other request's dispatch waits on.
+    pub fn claim_hold(&self, key: &str) -> bool {
+        let mut state = self.lock();
+        state.held.contains_key(key) && state.claimed.insert(key.to_owned())
+    }
+
+    /// The next request of `key` has its connection and a turn has passed: every connection held for it goes into the
+    /// pool.
+    pub fn free_held(self: &Arc<Self>, key: &str) {
+        let freed = {
+            let mut state = self.lock();
+            state.claimed.remove(key);
+            state.held.remove(key).unwrap_or_default()
+        };
+        for (_, conn, ttl) in freed {
+            self.put_h1(key.to_owned(), conn, ttl);
+        }
+    }
+
+    /// The hold `hold` of `key` ends with no request after it: its connection goes into the pool if it is still held.
+    pub fn end_hold(self: &Arc<Self>, key: &str, hold: u64) {
+        let freed = {
+            let mut state = self.lock();
+            let Some(list) = state.held.get_mut(key) else { return };
+            let freed = list.iter().position(|(h, ..)| *h == hold).map(|at| list.remove(at));
+            if list.is_empty() {
+                state.held.remove(key);
+                state.claimed.remove(key);
+            }
+            freed
+        };
+        if let Some((_, conn, ttl)) = freed {
+            self.put_h1(key.to_owned(), conn, ttl);
+        }
+    }
+
     /// The new HTTP/2 connection `id`, dialled under route `generation`, with its first stream open: it is shared
     /// from now on, unless the route changed since `generation`, when it serves this stream alone and closes after it.
     pub fn put_h2(self: &Arc<Self>, key: String, id: u64, send: h2::client::SendRequest<Bytes>, generation: u64) -> H2Guard {
@@ -239,19 +295,32 @@ impl Pool {
         drop(all);
     }
 
-    /// The oldest idle connection of `key` that is still open. A socket that was used is looked at again after one
-    /// turn of the scheduler, so a close that has arrived is seen (`client-h1.js` `scheduleIdleSocketValidation`).
+    /// The connection [`Pool::checkout`] chooses, once [`Pool::validated`].
     pub async fn take(self: &Arc<Self>, key: &str) -> Option<Taken> {
-        // Without an idle connection nothing waits: the caller dials within the same poll.
-        if !self.lock().idle.contains_key(key) {
-            return None;
-        }
-        tokio::task::yield_now().await;
-        self.checkout(key)
+        let chosen = self.checkout(key);
+        self.validated(key, chosen).await
     }
 
-    /// [`Pool::take`] after its turn of the scheduler.
-    fn checkout(self: &Arc<Self>, key: &str) -> Option<Taken> {
+    /// `chosen` ready to be written to: a socket that was used is written to after one turn of the scheduler, so a close
+    /// that has arrived by then is seen and another one is chosen (`client-h1.js` `scheduleIdleSocketValidation`).
+    /// Without a connection nothing waits: the caller dials within the same poll.
+    pub async fn validated(self: &Arc<Self>, key: &str, mut chosen: Option<Taken>) -> Option<Taken> {
+        loop {
+            let taken = chosen?;
+            tokio::task::yield_now().await;
+            match taken {
+                Taken::H1(conn) if conn.is_closed() => {
+                    drop(conn);
+                    chosen = self.checkout(key);
+                }
+                taken => return Some(taken),
+            }
+        }
+    }
+
+    /// The oldest idle connection of `key` that is still open. It is chosen at once, as undici's pool picks a free
+    /// client inside `dispatch`, so a request after this one in the same turn finds it busy.
+    pub fn checkout(self: &Arc<Self>, key: &str) -> Option<Taken> {
         loop {
             let found = {
                 let mut state = self.lock();

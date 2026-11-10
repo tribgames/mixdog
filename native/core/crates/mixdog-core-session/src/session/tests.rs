@@ -2759,6 +2759,32 @@ async fn a_deleted_base_stays_readable_by_its_fork() {
     assert_eq!(rows(&reopened).len(), 2, "the base's history shows in the fork");
 }
 
+/// The heir drops what it does not carry as Node's `delete` drops a key: the source's header keys it keeps stay in their order.
+#[tokio::test(start_paused = true)]
+async fn a_fork_keeps_the_order_of_the_header_keys_it_carries() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let ctx = CallContext::internal("test");
+    let id = ThreadId::from("sess_key_order");
+    // More dropped keys than the heir appends after the carried ones, so a swap-remove would pull a carried key forward.
+    let header = json!({
+        "cwd": "/ws", "provider": "custom-harness", "model": "harness-model", "codexWireSessionId": "wire", "alpha": 1, "todo": [],
+        "beta": 2, "closeProvenance": "user", "gamma": 3, "bp3Cursor": 4, "delta": 5, "lastInputTokens": 6, "epsilon": 7,
+        "lastOutputTokens": 8, "zeta": 9, "lastContextTokens": 10, "eta": 11, "turnHop": 12, "theta": 13, "usageReadout": 14, "iota": 15,
+        "todoCheck": 16, "kappa": 17, "transcriptEpoch": 18, "lambda": 19,
+    });
+    directory.create_with_id(id.clone(), header.as_object().cloned().expect("header"), json!({})).await.expect("create the source");
+    let source = directory.open_handle(&id, &ctx).await.expect("open the source");
+    give_conversation(&source).await;
+    let reply = source.request(request("thread/fork", json!({ "threadId": id, "opId": "op-fork" }), "op-fork")).await.expect("thread/fork");
+    let Reply::Value(value) = reply else { panic!("thread/fork answers a value") };
+    let heir = directory.open_handle(&ThreadId::from(value["thread"]["id"].as_str().expect("heir id")), &ctx).await.expect("open the heir");
+    let header = heir.cell.header.load();
+    let kept = ["cwd", "provider", "model", "alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta", "iota", "kappa", "lambda"];
+    let carried: Vec<&str> = header.keys().map(String::as_str).filter(|key| kept.contains(key)).collect();
+    assert_eq!(carried, kept);
+}
+
 /// `thread/delete` with `ifIdle` (`deleteSessionIfIdle`): each refusal in Node's order deletes
 /// nothing; an archived, unfavored, idle and unchanged session is deleted.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -262,6 +262,14 @@
             "null"
           ]
         },
+        "minimumValidityMs": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "opId": {
           "type": "string"
         },
@@ -274,6 +282,13 @@
         "refresh": {
           "type": [
             "boolean",
+            "null"
+          ]
+        },
+        "renewCredential": {
+          "description": "A provider id whose current account's OAuth token is refreshed now unless it lasts `minimumValidityMs` more (the host preflight of a benchmark run); needs `minimumValidityMs`.",
+          "type": [
+            "string",
             "null"
           ]
         },
@@ -2942,6 +2957,17 @@
     },
     "ConfigValueWriteParams": {
       "properties": {
+        "announce": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SettingsScope"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The scope the writer announces once the write is saved (Node's `notifySettingsChanged(scope)` after `updateSetting`, remote-methods.ts:1098): `ui/settings/changed` is published even when the write changed nothing, before the `agent` change the write itself makes."
+        },
         "mode": {
           "anyOf": [
             {
@@ -5674,6 +5700,12 @@
           "minimum": 0.0,
           "type": "integer"
         },
+        "orderedQueueBytes": {
+          "description": "The ordered class's event room (events never dropped, P §6.5), apart from `queueBytes`: one event of any size enters an empty room; behind it, events queue while the queued bytes stay within this bound, and the connection closes 4000 when the peer has not drained them.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
         "queueBytes": {
           "format": "uint64",
           "minimum": 0.0,
@@ -5712,6 +5744,7 @@
         "maxMediaFrameBytes",
         "maxProcesses",
         "maxSnapshotBytes",
+        "orderedQueueBytes",
         "queueBytes",
         "ringBytes",
         "terminalInputBufferBytes",
@@ -7973,6 +8006,27 @@
           "description": "Today's `DesktopNewTaskWorktree`."
         }
       },
+      "type": "object"
+    },
+    "NotifyStateParams": {
+      "description": "Params of `notify/state`: none.",
+      "type": "object"
+    },
+    "NotifyStateResult": {
+      "description": "Result of `notify/state`.",
+      "properties": {
+        "notifications": {
+          "description": "The config's `notifications` subtree after the defaults were written (`null` while it has none)."
+        },
+        "supported": {
+          "description": "The desktop host answered that this PC shows OS notifications (`Notification.isSupported()`).",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "notifications",
+        "supported"
+      ],
       "type": "object"
     },
     "NotifyTestParams": {
@@ -10342,6 +10396,13 @@
         "message": {
           "type": "string"
         },
+        "notices": {
+          "description": "The display-only notices the failed call raised before it failed (`ProviderError::notices`).",
+          "items": {
+            "$ref": "#/definitions/ProxyNotice"
+          },
+          "type": "array"
+        },
         "outcome": {
           "$ref": "#/definitions/ProxyOutcome"
         },
@@ -10450,6 +10511,7 @@
         "delivery",
         "kind",
         "message",
+        "notices",
         "outcome",
         "reauthRequired",
         "textEmitted",
@@ -11081,6 +11143,22 @@
         "manual",
         "picker",
         "reasoningLevels"
+      ],
+      "type": "object"
+    },
+    "ProxyNotice": {
+      "description": "One display-only transcript notice (`StreamEvent::Notice`).",
+      "properties": {
+        "message": {
+          "type": "string"
+        },
+        "warn": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "message",
+        "warn"
       ],
       "type": "object"
     },
@@ -12882,6 +12960,17 @@
         "full",
         "readonly",
         "lead"
+      ],
+      "type": "string"
+    },
+    "SettingsScope": {
+      "description": "Node's `SettingsChange.scope` (shared/settings-changed.ts `SETTINGS_SCOPES`).",
+      "enum": [
+        "desktop",
+        "git",
+        "permissions",
+        "notifications",
+        "agent"
       ],
       "type": "string"
     },
@@ -16454,6 +16543,20 @@
             "null"
           ]
         },
+        "snapshot": {
+          "description": "`true`: the reply also carries `requestSnapshot`, the provider request the thread's next send would carry (needs `threadId`).",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "snapshotUserMessage": {
+          "description": "With snapshot: the user message the snapshot's request carries as its last turn, as the send of that message would; a thread with no user turn yet cannot be encoded by every provider (Gemini refuses a request with nothing to send).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "threadId": {
           "type": [
             "string",
@@ -17240,6 +17343,30 @@
       ],
       "type": "object"
     },
+    "UiProviderModelsChangedParams": {
+      "description": "`ui/providerModels/changed` (app feed) and `ui/providerModels/announce`: Node's `provider-models-changed` desktop event `{origin}` (ipc-state-bridge.ts:113, remote-relay-push-lanes.ts:53).",
+      "properties": {
+        "origin": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "origin"
+      ],
+      "type": "object"
+    },
+    "UiSettingsChangedParams": {
+      "description": "`ui/settings/changed` (app feed) and `ui/settings/announce`: Node's `settings-changed` desktop event, which reached the windows and every paired device (ipc-state-bridge.ts:114, remote-relay-push-lanes.ts:54).",
+      "properties": {
+        "scope": {
+          "$ref": "#/definitions/SettingsScope"
+        }
+      },
+      "required": [
+        "scope"
+      ],
+      "type": "object"
+    },
     "UpdateCheckForUpdateParams": {
       "description": "Params of `update/checkForUpdate`.",
       "properties": {
@@ -17264,6 +17391,13 @@
       "properties": {
         "action": {
           "$ref": "#/definitions/UpdaterAction"
+        },
+        "confirmed": {
+          "description": "`install` only: the user confirmed installing past running agent tasks (Node's relay `showDesktopUpdate` argument, remote-methods.ts:1062-1063), passed on to the host as `host/update/command`'s `confirmed`.",
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "opId": {
           "type": "string"
@@ -19907,6 +20041,14 @@
         "$ref": "#/definitions/ModelProxyResult"
       }
     },
+    "notify/state": {
+      "params": {
+        "$ref": "#/definitions/NotifyStateParams"
+      },
+      "result": {
+        "$ref": "#/definitions/NotifyStateResult"
+      }
+    },
     "notify/test": {
       "params": {
         "$ref": "#/definitions/NotifyTestParams"
@@ -21093,6 +21235,22 @@
       },
       "result": {
         "$ref": "#/definitions/TurnSteerResponse"
+      }
+    },
+    "ui/providerModels/announce": {
+      "params": {
+        "$ref": "#/definitions/UiProviderModelsChangedParams"
+      },
+      "result": {
+        "$ref": "#/definitions/EmptyResult"
+      }
+    },
+    "ui/settings/announce": {
+      "params": {
+        "$ref": "#/definitions/UiSettingsChangedParams"
+      },
+      "result": {
+        "$ref": "#/definitions/EmptyResult"
       }
     },
     "update/checkForUpdate": {
