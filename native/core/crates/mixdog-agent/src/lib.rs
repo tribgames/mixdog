@@ -10,6 +10,7 @@
 
 pub mod agent_tool;
 pub mod attachments;
+mod barriers;
 mod batch;
 pub mod cache_scope;
 pub mod coerce;

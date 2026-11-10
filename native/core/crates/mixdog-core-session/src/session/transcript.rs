@@ -39,6 +39,72 @@ mod transcript_convert;
 mod transcript_divider;
 #[path = "transcript_live.rs"]
 mod transcript_live;
+/// `promptDisplayText` (`queue-helpers.mjs`) of a prompt whose text parts hold no stored attachment: `promptContentText` over the parts
+/// that are not media references (`idle-auto-clear-gate.mjs:10-24`, the one `queue-helpers.mjs:10` imports): a string part as it is, the
+/// text of a text part, `[Image]` for an image, `[File]` for a file, the text of any other part, one per line.
+/// `None` for a prompt with a text part holding a stored attachment (`isAttachmentReference`), whose text Node reads from the store.
+fn inline_prompt_text(message: &Value) -> Option<String> {
+    let Some(parts) = message.as_array() else { return None };
+    let held = |part: &Value| part.get("attachmentRef").and_then(Value::as_str).is_some_and(is_attachment_ref);
+    let kind = |part: &Value| part.get("type").and_then(Value::as_str).map(str::to_owned);
+    let media_reference = |part: &Value| kind(part).as_deref() == Some("text") && part.get("attachmentReference").is_some_and(|held| held.as_bool() != Some(false) && !held.is_null()) && part.get("text").is_some_and(Value::is_string);
+    if parts.iter().any(|part| !media_reference(part) && kind(part).as_deref() == Some("text") && held(part)) {
+        return None;
+    }
+    let lines: Vec<&str> = parts
+        .iter()
+        .filter(|part| !media_reference(part))
+        .map(|part| match (part.as_str(), kind(part).as_deref()) {
+            (Some(text), _) => text,
+            (None, Some("image")) => "[Image]",
+            (None, Some("file")) => "[File]",
+            _ => part.get("text").and_then(Value::as_str).unwrap_or_default(),
+        })
+        .filter(|line| !line.is_empty())
+        .collect();
+    Some(lines.join("\n"))
+}
+
+/// `promptContentImageMeta` (`queue-helpers.mjs:146`): the image parts of a queued prompt, byte-free, each named by the pasted image
+/// at its position (`options.pastedImages`, in the order Node's `Object.values` gives).
+fn image_meta(entry: &Value) -> Vec<Value> {
+    let Some(parts) = entry.get("message").and_then(Value::as_array) else { return Vec::new() };
+    let named: Vec<&Value> = entry.pointer("/options/pastedImages").and_then(Value::as_object).map(|map| map.values().collect()).unwrap_or_default();
+    parts
+        .iter()
+        .filter(|part| part.get("type").and_then(Value::as_str) == Some("image"))
+        .enumerate()
+        .map(|(index, part)| {
+            let meta = named.get(index).filter(|meta| meta.is_object());
+            let held = |key: &str| meta.and_then(|meta| meta.get(key)).filter(|value| !value.is_null());
+            // `part.data` when it is a string, else `part.content` when that is (`queue-helpers.mjs:152-154`); its UTF-16 length is the fallback size.
+            let data = part.get("data").and_then(Value::as_str).or_else(|| part.get("content").and_then(Value::as_str)).unwrap_or_default();
+            // `Number(part.sizeBytes) || data.length`: a numeric string, a float or a boolean counts; NaN and 0 fall back.
+            let size = mixdog_js::to_number_of(part.get("sizeBytes"));
+            let bytes = if size.is_nan() || size == 0.0 { data.encode_utf16().count() as f64 } else { size };
+            // `String(a || b || c)`: the first truthy of the part's `mimeType`, its `mediaType`, the pasted image's `mediaType`.
+            let truthy = |value: &&Value| match value {
+                Value::Null => false,
+                Value::Bool(flag) => *flag,
+                Value::Number(number) => number.as_f64().is_some_and(|number| number != 0.0 && !number.is_nan()),
+                Value::String(text) => !text.is_empty(),
+                _ => true,
+            };
+            let mime = part.get("mimeType").filter(truthy).or_else(|| part.get("mediaType").filter(truthy)).or_else(|| held("mediaType").filter(truthy));
+            let mut image = json!({
+                "id": held("id").cloned().unwrap_or(Value::Null),
+                "name": held("filename").filter(truthy).map_or_else(|| format!("Image {}", index + 1), mixdog_js::value_to_string),
+                "mimeType": mime.map_or_else(|| "image/png".to_owned(), mixdog_js::value_to_string),
+                "bytes": mixdog_js::json_number(bytes),
+            });
+            if let Some(reference) = part.get("attachmentRef").and_then(Value::as_str).filter(|reference| reference.len() == 64 && reference.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))) {
+                image["attachmentRef"] = json!(reference);
+            }
+            image
+        })
+        .collect()
+}
+
 #[cfg(test)]
 #[path = "transcript_golden.rs"]
 mod transcript_golden;
@@ -63,6 +129,7 @@ pub(super) use self::transcript_live::idle_notice_item;
 pub(super) use self::transcript_live::notice_item;
 pub(super) use self::transcript_response::has_body;
 pub(super) use self::transcript_convert::live_end;
+pub(super) use self::transcript_convert::position_of_id;
 
 /// `MessageRows` of one run: every history message the run holds is registered with the
 /// `item.body` the store holds for it (the `Value` read back at load, or the body the run
@@ -203,7 +270,8 @@ impl Transcript for RecordTranscript {
         }
     }
 
-    /// `{id, text, enqueuedAt?}`: the entry's display text as the composer showed it.
+    /// `{id, text, enqueuedAt?, clientSubmissionId?}`: the entry's display text as the composer showed it, and the submission it
+    /// answers (Node's queue entry is named by it, `makeQueueEntry`; a client matches its pending bubble by that id).
     fn queued(&self, qid: &str, entry: &Value) -> Value {
         let shown = entry
             .pointer("/options/displayText")
@@ -212,13 +280,39 @@ impl Transcript for RecordTranscript {
         let text = match shown {
             Some(text) => text.to_owned(),
             None => {
-                let mut budget = PASTED_LINE_READ_BUDGET_BYTES;
-                user_display_text(entry.get("message").unwrap_or(&Value::Null), &mut NoAttachments, &mut budget)
+                let message = entry.get("message").unwrap_or(&Value::Null);
+                match inline_prompt_text(message) {
+                    Some(text) => text,
+                    None => {
+                        let mut budget = PASTED_LINE_READ_BUDGET_BYTES;
+                        user_display_text(message, &mut NoAttachments, &mut budget)
+                    }
+                }
             }
         };
-        let mut row = json!({ "id": qid, "text": text });
+        // The fields Node's client projection reads of a queue entry (`session-state-projection.mjs:33-49`): the text cut to 2000 UTF-16
+        // units, the mode (`prompt` when the entry names none), the priority (`next` when none, `defaultQueuePriority`), the sender's
+        // source fields (`transcriptSourceFields`) and the image list when the prompt has images (`promptContentImageMeta`).
+        let mut row = json!({
+            "id": qid,
+            "text": mixdog_js::slice_utf16(&text, 2_000),
+            "mode": entry.get("mode").and_then(Value::as_str).filter(|mode| !mode.is_empty()).unwrap_or("prompt"),
+            "priority": entry.get("priority").and_then(Value::as_str).filter(|priority| !priority.is_empty()).unwrap_or("next"),
+        });
+        for key in ["sender", "device", "fromAgent"] {
+            if let Some(held) = entry.pointer(&format!("/transcriptMeta/{key}")).and_then(Value::as_str).filter(|held| !held.is_empty()) {
+                row[key] = json!(held);
+            }
+        }
+        let images = image_meta(entry);
+        if !images.is_empty() {
+            row["images"] = Value::Array(images);
+        }
         if let Some(at) = entry.get("enqueuedAt").filter(|at| at.is_number()) {
             row["enqueuedAt"] = at.clone();
+        }
+        if let Some(submission) = entry.pointer("/options/clientSubmissionId").and_then(Value::as_str).filter(|id| !id.is_empty()) {
+            row["clientSubmissionId"] = json!(submission);
         }
         row
     }
@@ -228,6 +322,11 @@ impl Transcript for RecordTranscript {
             PromptContent::Text(text) => json!(text),
             // The parts are the model content as they are: the same fields on the wire, a stored
             // attachment named by its `attachmentRef` included.
+            // `mergePromptContents` (`queue-helpers.mjs:120`): one inline text part is its plain string.
+            PromptContent::Parts(parts) if matches!(parts.as_slice(), [PromptPart::Text { text: Some(_), .. }]) => {
+                let PromptPart::Text { text: Some(text), .. } = &parts[0] else { unreachable!() };
+                json!(text)
+            }
             PromptContent::Parts(parts) => Value::Array(parts.iter().map(|part| serde_json::to_value(part).expect("protocol types serialize")).collect()),
         };
         let options = input.options.as_ref();
@@ -308,17 +407,42 @@ pub(super) fn summary_of_list_row(id: &ThreadId, list: &Value, archived: bool) -
         "classification": desktop.get("classification").cloned().unwrap_or_else(|| json!({})),
         "projectPath": desktop.get("projectPath").cloned().unwrap_or(Value::Null),
         "compactCount": list["compactCount"],
-        "archived": archived,
-        "sessionMode": list["sessionMode"],
-        "lastMessagePreview": list["lastMessagePreview"],
     });
-    for (field, source) in [("parentThreadId", "parentSessionId"), ("forkedFromId", "inheritedFromSessionId")] {
-        if let Some(value) = some_text(&list[source]) {
-            out[field] = value;
-        }
+    // The roster states these only when they are so (`desktop-state.ts:273-276`, `withArchiveFlags`).
+    if archived {
+        out["archived"] = json!(true);
+    }
+    if list["sessionMode"] == "agent" {
+        out["sessionMode"] = json!("agent");
+    }
+    if let Some(preview) = list["lastMessagePreview"].as_str().map(str::trim).filter(|s| !s.is_empty()) {
+        out["lastMessagePreview"] = json!(preview);
+    }
+    // `cleanIncomingTail`: whole places, at most the last hundred.
+    if let Some(tail) = list["incomingTail"].as_array() {
+        let places: Vec<i64> = tail.iter().filter_map(|place| place.as_i64().filter(|place| *place > 0)).collect();
+        out["incomingTail"] = json!(&places[places.len().saturating_sub(100)..]);
+    }
+    // The roster names no parent: an agent's child session is marked `agentSession` (`on_roster`), not linked.
+    if let Some(value) = some_text(&list["inheritedFromSessionId"]) {
+        out["forkedFromId"] = value;
     }
     if let Some(activity) = list["lastUsedAt"].as_f64().filter(|at| *at > 0.0) {
         out["activityAt"] = json!(activity as i64);
+    }
+    if let Some(created) = list["createdAt"].as_f64().filter(|at| *at > 0.0) {
+        out["createdAt"] = json!(created as i64);
+    }
+    // `withFavoriteFlags`, `withReadCursors`, `withRetiredFlags` of `desktop-session-metadata.ts`.
+    if list["favoriteAt"].as_f64().is_some_and(|at| at > 0.0) {
+        out["favorite"] = json!(true);
+    }
+    if list["retiredAt"].as_f64().is_some_and(|at| at > 0.0) {
+        out["agentDeleted"] = json!(true);
+    }
+    if let Some(cursor) = super::thread_settings::settle_read_cursor(list["readState"].as_object(), list.get("compactCount"), list.get("messageCount")) {
+        out["readMessageCount"] = json!(cursor.get("messageCount").and_then(Value::as_f64).unwrap_or(0.0) as i64);
+        out["readRevision"] = json!(cursor.get("revision").and_then(Value::as_f64).unwrap_or(0.0) as i64);
     }
     serde_json::from_value(out).expect("summary shape")
 }

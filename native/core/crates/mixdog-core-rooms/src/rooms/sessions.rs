@@ -155,7 +155,7 @@ impl<S: RoomStore + 'static> HomePorts for SessionHomePorts<S> {
         for gone in &left {
             self.runner.cancel_owed_to(&gone.room_id, std::slice::from_ref(&gone.agent_id));
         }
-        self.room_host.republish_catalog();
+        self.room_host.republish_catalog().await?;
         let sessions: Vec<String> = left.iter().filter_map(|l| l.session_id()).collect();
         let failed = self.room_host.delete_sessions(&sessions).await;
         if failed > 0 {
@@ -185,11 +185,14 @@ impl<S: RoomStore + 'static> HomePorts for SessionHomePorts<S> {
 pub struct SessionRoomHost {
     catalog: Arc<dyn AgentCatalog>,
     sessions: Arc<dyn SessionOps>,
-    republish: Arc<dyn Fn() + Send + Sync>,
+    republish: Republish,
 }
 
+/// A catalog publish that ends when the catalog is published, or says why it was not.
+pub type Republish = Arc<dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), RoomError>> + Send>> + Send + Sync>;
+
 impl SessionRoomHost {
-    pub fn new(catalog: Arc<dyn AgentCatalog>, sessions: Arc<dyn SessionOps>, republish: Arc<dyn Fn() + Send + Sync>) -> Self {
+    pub fn new(catalog: Arc<dyn AgentCatalog>, sessions: Arc<dyn SessionOps>, republish: Republish) -> Self {
         Self { catalog, sessions, republish }
     }
 }
@@ -234,8 +237,27 @@ impl RoomHost for SessionRoomHost {
         failed
     }
 
-    fn republish_catalog(&self) {
-        (self.republish)();
+    async fn republish_catalog(&self) -> Result<(), RoomError> {
+        (self.republish)().await
+    }
+
+    /// As an agent home's reset: the archive mark is written before the copy exists, so the copy never lists as a live chat.
+    async fn start_over(&self, session_id: &str) -> Result<Option<String>, RoomError> {
+        let archive_id = format!("sess_{}_{}_{}", std::process::id(), chrono::Utc::now().timestamp_millis(), uuid::Uuid::new_v4().simple());
+        self.sessions.set_archived(&archive_id, true).await?;
+        if let Err(error) = self.sessions.clear(session_id, &archive_id).await {
+            let _ = self.sessions.set_archived(&archive_id, false).await;
+            return Err(error);
+        }
+        if self.sessions.route(&archive_id).await?.is_some() {
+            return Ok(Some(archive_id));
+        }
+        self.sessions.set_archived(&archive_id, false).await?;
+        Ok(None)
+    }
+
+    async fn reset_member(&self, session_id: &str) -> Result<(), RoomError> {
+        self.sessions.clear(session_id, "").await
     }
 }
 
@@ -309,7 +331,15 @@ mod tests {
         async fn delete_sessions(&self, _: &[String]) -> usize {
             0
         }
-        fn republish_catalog(&self) {}
+        async fn republish_catalog(&self) -> Result<(), RoomError> {
+            Ok(())
+        }
+        async fn start_over(&self, _: &str) -> Result<Option<String>, RoomError> {
+            Ok(None)
+        }
+        async fn reset_member(&self, _: &str) -> Result<(), RoomError> {
+            Ok(())
+        }
     }
 
     /// Records what the home ports ask of sessions.
@@ -430,9 +460,61 @@ mod tests {
         assert_eq!(*spy.0.lock().unwrap(), vec![("home_gone".to_owned(), json!("Gone (deleted)"))]);
     }
 
+    /// Records the clears a room reset asks for: the log's keeps a copy under a fresh archived id, a member's keeps none.
+    #[derive(Default)]
+    struct Clears(std::sync::Mutex<Vec<(String, String)>>, std::sync::Mutex<Vec<(String, bool)>>);
+    #[async_trait]
+    impl SessionOps for Clears {
+        async fn route(&self, id: &str) -> Result<Option<Value>, RoomError> {
+            let copied = self.0.lock().unwrap().iter().any(|(_, archive)| archive == id);
+            Ok(copied.then(|| json!({})))
+        }
+        async fn create(&self, _: &str, _: &Value) -> Result<(), RoomError> {
+            Ok(())
+        }
+        async fn set_route(&self, _: &str, _: &Value) -> Result<(), RoomError> {
+            Ok(())
+        }
+        async fn set_archived(&self, id: &str, archived: bool) -> Result<(), RoomError> {
+            self.1.lock().unwrap().push((id.into(), archived));
+            Ok(())
+        }
+        async fn is_retired(&self, _: &str) -> Result<bool, RoomError> {
+            Ok(false)
+        }
+        async fn set_retired(&self, _: &str, _: bool) -> Result<(), RoomError> {
+            Ok(())
+        }
+        async fn set_retired_title(&self, _: &str, _: &str) -> Result<(), RoomError> {
+            Ok(())
+        }
+        async fn rename(&self, _: &str, _: &str) -> Result<(), RoomError> {
+            Ok(())
+        }
+        async fn clear(&self, id: &str, archive_as: &str) -> Result<(), RoomError> {
+            self.0.lock().unwrap().push((id.into(), archive_as.into()));
+            Ok(())
+        }
+        async fn delete(&self, _: &str) -> Result<(), RoomError> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn a_room_reset_archives_the_log_and_empties_a_member_keeping_nothing() {
+        let clears = Arc::new(Clears::default());
+        let host = SessionRoomHost::new(Arc::new(Catalog), clears.clone(), Arc::new(|| Box::pin(async { Ok(()) })));
+        let archived = host.start_over("room_log").await.unwrap().expect("the log had a conversation to keep");
+        assert!(archived.starts_with("sess_"));
+        assert_eq!(clears.0.lock().unwrap()[0], ("room_log".to_owned(), archived.clone()));
+        assert_eq!(clears.1.lock().unwrap()[0], (archived, true), "the copy is marked archived before it exists");
+        host.reset_member("member").await.unwrap();
+        assert_eq!(clears.0.lock().unwrap()[1], ("member".to_owned(), String::new()));
+    }
+
     #[tokio::test]
     async fn deleting_sessions_counts_the_failures() {
-        let host = SessionRoomHost::new(Arc::new(Catalog), Arc::new(Spy::default()), Arc::new(|| {}));
+        let host = SessionRoomHost::new(Arc::new(Catalog), Arc::new(Spy::default()), Arc::new(|| Box::pin(async { Ok(()) })));
         assert_eq!(host.delete_sessions(&["a".into(), "bad".into(), "b".into()]).await, 1);
     }
 }

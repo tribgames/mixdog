@@ -20,7 +20,8 @@ use super::SessionHandle;
 use super::control::Ctl;
 use super::seams::RunOutcome;
 use super::testing::Rig;
-use super::tests::eventually_on;
+use super::tests::caught_up;
+use crate::eventually_on;
 use super::tests::idle;
 use super::tests::start_thread;
 use super::tests::turn;
@@ -59,7 +60,7 @@ async fn thread_with_toast(rig: &Rig) -> (SessionDirectory, Arc<SessionHandle>, 
     let directory = SessionDirectory::new(rig.deps());
     let handle = start_thread(&directory).await;
     turn(&handle, "write the report", "op-1").await;
-    let shown = eventually_on(&[&handle.cell.stepped], || published_toasts(rig, &handle.id).filter(|toasts| !toasts.is_empty())).await;
+    let shown = eventually_on!(&[&handle.cell.stepped], || published_toasts(rig, &handle.id).filter(|toasts| !toasts.is_empty())).await;
     (directory, handle, shown)
 }
 
@@ -75,11 +76,11 @@ async fn a_toast_stays_three_seconds_then_is_removed_and_published() {
     assert!(shown[0]["id"].as_str().is_some_and(|id| !id.is_empty()));
 
     tokio::time::advance(Duration::from_millis(2999)).await;
-    tokio::task::yield_now().await;
+    caught_up(&handle).await;
     assert_eq!(published_toasts(&rig, &handle.id), Some(shown.clone()), "2999 ms in, the toast is still published");
 
     tokio::time::advance(Duration::from_millis(1)).await;
-    let gone = eventually_on(&[&handle.cell.stepped], || published_toasts(&rig, &handle.id).filter(|toasts| toasts.is_empty())).await;
+    let gone = eventually_on!(&[&handle.cell.stepped], || published_toasts(&rig, &handle.id).filter(|toasts| toasts.is_empty())).await;
     assert!(gone.is_empty(), "at 3000 ms the removal is published");
 }
 
@@ -89,8 +90,8 @@ async fn a_toast_stays_three_seconds_then_is_removed_and_published() {
 async fn the_turns_close_leaves_its_toast_in_the_runtime_state() {
     let rig = failing_rig();
     let (_directory, handle, shown) = thread_with_toast(&rig).await;
-    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    eventually_on(&[&handle.cell.stepped], || {
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || {
         rig.feeds.frames(handle.id.as_str()).iter().any(|(_, method, _)| method == "turn/completed").then_some(())
     })
     .await;
@@ -194,7 +195,7 @@ fn toast_frames(rig: &Rig, thread: &ThreadId) -> Vec<Value> {
 async fn a_cleared_session_publishes_no_expiry() {
     let rig = failing_rig();
     let (_directory, handle, _shown) = thread_with_toast(&rig).await;
-    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     let clear = CoreRequest {
         method: Method("thread/clear"),
         params: json!({ "threadId": handle.id, "opId": "op-clear" }),
@@ -202,11 +203,11 @@ async fn a_cleared_session_publishes_no_expiry() {
         ctx: CallContext::connection(ConnectionId(1), mixdog_protocol::Origin::Local, CancellationToken::new()),
     };
     handle.request(clear).await.expect("clear");
-    eventually_on(&[&handle.cell.stepped], || published_toasts(&rig, &handle.id).filter(|toasts| toasts.is_empty())).await;
+    eventually_on!(&[&handle.cell.stepped], || published_toasts(&rig, &handle.id).filter(|toasts| toasts.is_empty())).await;
     let published = runtime_frames(&rig, &handle.id);
 
     tokio::time::advance(Duration::from_millis(3000)).await;
-    tokio::task::yield_now().await;
+    caught_up(&handle).await;
     assert_eq!(runtime_frames(&rig, &handle.id), published, "no timer of the cleared queue publishes");
 }
 
@@ -220,12 +221,10 @@ async fn a_closed_session_publishes_no_expiry() {
 
     handle.cell.close();
     handle.cell.ctl_tx.try_send(Ctl::Unsubscribed).expect("the control lane has room");
-    // The actor's last step; yielding moves no clock.
-    while !rig.snapshots.0.lock().unwrap().contains(&stopped) {
-        tokio::task::yield_now().await;
-    }
+    // The actor's last step, announced by the snapshot sink.
+    eventually_on!(&[&rig.snapshots.1], || rig.snapshots.0.lock().unwrap().contains(&stopped).then_some(())).await;
 
+    // The actor has ended, so nothing it owned can publish again.
     tokio::time::advance(Duration::from_millis(3000)).await;
-    tokio::task::yield_now().await;
     assert_eq!(runtime_frames(&rig, &handle.id), published, "no timer of the closed thread publishes");
 }

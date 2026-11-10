@@ -98,6 +98,14 @@ impl ProviderAdapter for VersionedAdapter {
     async fn settle_send(&self, group: &str, end: SendEnd) {
         self.inner.settle_send(group, end).await;
     }
+
+    fn release_session(&self, session_id: &str) {
+        self.inner.release_session(session_id);
+    }
+
+    fn release_transport_scope(&self, scope: &str) {
+        self.inner.release_transport_scope(scope);
+    }
 }
 
 #[cfg(test)]

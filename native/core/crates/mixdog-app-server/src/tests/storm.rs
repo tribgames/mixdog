@@ -223,7 +223,7 @@ async fn g5_reconnect_storm_replays_by_position_loads_once_and_keeps_its_bounds(
     aborter.request(7, "turn/interrupt", json!({ "threadId": "t0", "turnId": "turn1" }));
     let reply = aborter.response(7).await;
     let abort_took = asked.elapsed();
-    assert_eq!(reply["result"], json!({ "cancelRequested": true, "turnId": "turn1" }));
+    assert_eq!(reply["result"], json!({ "cancelRequested": true, "turnId": "turn1", "aborted": true, "restoreText": "", "pastedImages": null, "pastedTexts": null, "discardPastedImages": null, "discardPastedTexts": null, "restoredSubmissionIds": [] }));
     assert!(
         abort_took <= ABORT_REPLY_WITHIN,
         "the abort reply took {abort_took:?} during the storm"

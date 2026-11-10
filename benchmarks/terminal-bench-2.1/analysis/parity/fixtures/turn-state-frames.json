@@ -1,0 +1,60 @@
+{
+ "manifest": {
+  "exact": true,
+  "nodeCommit": "b6f10295a",
+  "node": "v22.20.0",
+  "harness": {
+   "turn-state-capture.mjs": "7bace249c5f019f9e7cb8a4ee65c9a22eb79d9571031c357989885848318eb93"
+  }
+ },
+ "cases": [
+  {
+   "frame": "{\"type\":\"response.created\",\"headers\":{\"x-codex-turn-state\":\"ts-plain\"}}",
+   "turnState": "ts-plain"
+  },
+  {
+   "frame": "{\"type\":\"response.created\",\"headers\":{\"x-codex-turn-\\u0073tate\":\"ts-escaped-name\"}}",
+   "turnState": "ts-escaped-name"
+  },
+  {
+   "frame": "{\"type\":\"response.created\",\"headers\":{\"X-Codex-Turn-State\":\"ts-letter-case\"}}",
+   "turnState": "ts-letter-case"
+  },
+  {
+   "frame": "{\"type\":\"response.created\",\"headers\":{\"x-codex-turn-state\":\"ts-\\u00e9scaped-value\"}}",
+   "turnState": "ts-éscaped-value"
+  },
+  {
+   "frame": "{\"type\":\"response.created\",\"response\":{\"headers\":{\"x-codex-turn-state\":\"ts-response\"}}}",
+   "turnState": "ts-response"
+  },
+  {
+   "frame": "{\"type\":\"response.created\",\"response\":{\"metadata\":{\"headers\":{\"x-codex-turn-state\":\"ts-response-metadata\"}}}}",
+   "turnState": "ts-response-metadata"
+  },
+  {
+   "frame": "{\"type\":\"response.metadata\",\"metadata\":{\"headers\":{\"x-codex-turn-state\":\"ts-event-metadata\"}}}",
+   "turnState": "ts-event-metadata"
+  },
+  {
+   "frame": "{\"type\":\"response.created\",\"headers\":{\"x-codex-turn-state\":42}}",
+   "turnState": "42"
+  },
+  {
+   "frame": "{\"type\":\"response.created\",\"headers\":{\"x-codex-turn-state\":[\"\",\"ts-list\"]}}",
+   "turnState": "ts-list"
+  },
+  {
+   "frame": "{\"type\":\"response.created\",\"headers\":{\"x-codex-turn-state\":\"\"},\"response\":{\"headers\":{\"x-codex-turn-state\":\"ts-second-carrier\"}}}",
+   "turnState": "ts-second-carrier"
+  },
+  {
+   "frame": "{\"type\":\"response.output_text.delta\",\"delta\":\"x-codex-turn-state\"}",
+   "turnState": null
+  },
+  {
+   "frame": "{\"type\":\"response.output_text.delta\",\"delta\":\"line\\nbreak\"}",
+   "turnState": null
+  }
+ ]
+}

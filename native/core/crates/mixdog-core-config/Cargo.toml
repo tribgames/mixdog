@@ -38,6 +38,11 @@ uuid = { workspace = true, features = ["v4"] }
 mixdog-core-base = { workspace = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
+[features]
+# Counters of the config file reads and agent-section rebuilds (mixdog_core_config::work): for the dev-dependency of the crate
+# whose tests count them, never a normal build.
+count-work = []
+
 [dev-dependencies]
 tempfile = { workspace = true }
 mixdog-core-api = { workspace = true, features = ["mock"] }

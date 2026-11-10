@@ -557,6 +557,9 @@ struct PortObserver {
     /// The turn's live messages, which an early tool notice joins until its result commits.
     live: LiveTurnPublisher,
     rows: Arc<StoredRows>,
+    /// The run's token: once it is cancelled the interruption's record is closed (Node finalizes the interrupted turn in the
+    /// abort's own step, so a call that settles after the abort is closed as cancelled).
+    cancel: tokio_util::sync::CancellationToken,
 }
 
 impl PortObserver {
@@ -717,9 +720,11 @@ impl RunObserver for PortObserver {
                 if let Some(id) = message.tool_call_id() {
                     self.live.early(id, mixdog_agent::compact::execution_tail::MessageRows::row(&*self.rows, &message));
                 }
-                let mut observed = lock(&self.observed);
-                observed.started = true;
-                observed.results.push(message);
+                if !self.cancel.is_cancelled() {
+                    let mut observed = lock(&self.observed);
+                    observed.started = true;
+                    observed.results.push(message);
+                }
             }
             _ => {}
         }
@@ -1109,7 +1114,7 @@ async fn drive(
     let hears_search = search_usage.register(thread.as_str(), Arc::new(move |delta| {
         let _ = search_tx.send(Shown::SearchUsage(delta));
     }));
-    let observer = Arc::new(PortObserver { observed: observed.clone(), progress: progress.clone(), out: shown_tx, streaming, reasoning: Mutex::new(None), last_send_tools: Mutex::new(Vec::new()), chunked: std::sync::atomic::AtomicBool::new(false), live: live.clone(), rows: rows.clone() });
+    let observer = Arc::new(PortObserver { observed: observed.clone(), progress: progress.clone(), out: shown_tx, streaming, reasoning: Mutex::new(None), last_send_tools: Mutex::new(Vec::new()), chunked: std::sync::atomic::AtomicBool::new(false), live: live.clone(), rows: rows.clone(), cancel: cancel.clone() });
     let closing = observer.clone();
 
     config.thread_id = thread.clone();
@@ -1264,7 +1269,7 @@ mod tests {
     use mixdog_store::schema::record::Record;
 
     use super::*;
-    use mixdog_core_session::session::testing::Rig;
+    use mixdog_core_session::session::testing::{Rig, eventually_on_awaiting};
     use mixdog_core_session::session::SessionDirectory;
 
     struct Steps(VecDeque<StreamEvent>);
@@ -1488,17 +1493,8 @@ mod tests {
                 })
                 .collect()
         };
-        // Woken by each step of the thread's actor, which acknowledges each row after the store holds
-        // it; registered before the check so a step in between is not missed. No clock judges it.
-        loop {
-            let stepped = handle.stepped().notified();
-            tokio::pin!(stepped);
-            stepped.as_mut().enable();
-            if roles().len() >= 4 {
-                break;
-            }
-            stepped.await;
-        }
+        // Woken by each step of the thread's actor, which acknowledges each row after the store holds it.
+        eventually_on_awaiting(|| "the four-role transcript (user, assistant, tool, assistant) in the store".to_owned(), &[handle.stepped()], || (roles().len() >= 4).then_some(())).await;
         let rows = roles();
         assert_eq!(rows.iter().map(|(role, _)| role.as_str()).collect::<Vec<_>>(), ["user", "assistant", "tool", "assistant"]);
         assert_eq!(rows[1].1["content"], "looking");
@@ -1537,16 +1533,11 @@ mod tests {
         let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
         let handle = directory.handle(&id).expect("loaded");
         handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
-        loop {
-            let stepped = handle.stepped().notified();
-            tokio::pin!(stepped);
-            stepped.as_mut().enable();
+        eventually_on_awaiting(|| "the assistant's answer in the store".to_owned(), &[handle.stepped()], || {
             let answered = rig.store.records(&id).into_iter().any(|(_, record)| matches!(record, Record::Item(item) if matches!(&item.body, Slot::Inline(body) if body["role"] == "assistant")));
-            if answered {
-                break;
-            }
-            stepped.await;
-        }
+            answered.then_some(())
+        })
+        .await;
         let seen = lock(&settle.seen).clone();
         assert_eq!(seen.len(), 1);
         assert_eq!(seen[0]["featureDeniedTools"], json!(["web_search"]));
@@ -1595,18 +1586,8 @@ mod tests {
                 // so both answers are right; the first turn, on an idle thread, can only start.
                 let kind = started["kind"].as_str().expect("turn/start names its answer");
                 assert!(kind == "queued" && want > 1 || kind == "started", "turn {op}: {started}");
-                // Woken by each step of the thread's actor, which is where a run's end is acknowledged
-                // after its record is stored; registered before the check so a step in between is not
-                // missed. The wait is not judged by the clock.
-                loop {
-                    let stepped = handle.stepped().notified();
-                    tokio::pin!(stepped);
-                    stepped.as_mut().enable();
-                    if ended() >= want {
-                        break;
-                    }
-                    stepped.await;
-                }
+                // Woken by each step of the thread's actor, which is where a run's end is acknowledged after its record is stored.
+                eventually_on_awaiting(|| format!("the end record of run {want} in the store (turn {op})"), &[handle.stepped()], || (ended() >= want).then_some(())).await;
             }
         };
         turn(json!({ "prompt": "fix it" }), "op-1", 1).await;
@@ -1690,16 +1671,15 @@ mod tests {
             let (handle, op, thread, prompt) = (handle.clone(), op.to_owned(), id.clone(), prompt.to_owned());
             let ended = &ended;
             async move {
+                // The settle writes the acknowledgement of what the turn carried, then the run's end record, then the
+                // turn's coverage stamp (`actor.rs` settle; Node: `commitAskTurn` acknowledges, `ask-turn-settle.mjs:148-164`,
+                // before the turn is published). The header a client reads follows only once each is acked, and the store
+                // already holds the end record before that, so the end record alone does not say the header is settled:
+                // the coverage stamp, the last of them, does.
+                let covered = || handle.header_snapshot().get("turnCoverage").cloned();
+                let before = covered();
                 handle.request(request("turn/start", json!({ "threadId": thread, "opId": op, "input": { "prompt": prompt } }), &op)).await.expect("turn/start");
-                loop {
-                    let stepped = handle.stepped().notified();
-                    tokio::pin!(stepped);
-                    stepped.as_mut().enable();
-                    if ended() >= want {
-                        break;
-                    }
-                    stepped.await;
-                }
+                eventually_on_awaiting(|| format!("the end record of run {want} and the changed turnCoverage stamp (turn {op})"), &[handle.stepped()], || (ended() >= want && covered() != before).then_some(())).await;
             }
         };
         let header = || async { threads.header(&id).await.expect("header") };
@@ -1800,15 +1780,7 @@ mod tests {
         let patch = json!({ "threadId": id, "set": { "provider": route["provider"], "model": route["model"] }, "unset": [] });
         handle.request(CoreRequest { method: Method("thread/header/patch"), params: patch, op: None, ctx: CallContext::internal("test") }).await.expect("route");
         handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
-        let entry = loop {
-            let queued = woke.notified();
-            tokio::pin!(queued);
-            queued.as_mut().enable();
-            if let Some(entry) = rig.quota.entry(id.as_str()) {
-                break entry;
-            }
-            queued.await;
-        };
+        let entry = eventually_on_awaiting(|| "the quota entry for the failed run's thread".to_owned(), &[&*woke], || rig.quota.entry(id.as_str())).await;
         assert_eq!(entry.to_value()["resetAt"].as_f64(), Some(reset as f64), "the resume waits for the reset the provider named");
 
         let completion = rig
@@ -1909,18 +1881,10 @@ mod tests {
                 .map(|(_, _, params)| params["value"]["progressHint"].clone())
                 .collect()
         };
-        tokio::time::timeout(Duration::from_secs(10), reported.notified()).await.expect("the tool ran");
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-        while !hints().contains(&json!({ "outputTail": "compiling" })) {
-            assert!(tokio::time::Instant::now() < deadline, "the hint was not published: {:?}", hints());
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
+        mixdog_core_session::session::testing::awaiting(|| "the report tool to be called".to_owned(), reported.notified()).await;
+        eventually_on_awaiting(|| "the tool-output hint with outputTail \"compiling\" published to the thread's clients".to_owned(), &[&rig.feeds.published], || hints().contains(&json!({ "outputTail": "compiling" })).then_some(())).await;
         release.notify_one();
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-        while hints().last() != Some(&Value::Null) {
-            assert!(tokio::time::Instant::now() < deadline, "the hint was not withdrawn: {:?}", hints());
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
+        eventually_on_awaiting(|| "the tool-output hint withdrawn (a null hint published last) after the tool ends".to_owned(), &[&rig.feeds.published], || (hints().last() == Some(&Value::Null)).then_some(())).await;
     }
 
     /// A tool that spends like a hosted web search: it reports its delta to the usage registry under the asking thread.
@@ -1993,16 +1957,8 @@ mod tests {
         let heard = || -> Vec<Value> {
             rig.feeds.frames(id.as_str()).into_iter().filter(|(_, method, _)| method == "thread/tokenUsage/updated").map(|(_, _, params)| params["usage"].clone()).collect()
         };
-        // Woken by each step of the thread's actor; registered before the check so a step in between is not missed.
-        loop {
-            let stepped = handle.stepped().notified();
-            tokio::pin!(stepped);
-            stepped.as_mut().enable();
-            if heard().contains(&delta) {
-                break;
-            }
-            stepped.await;
-        }
+        // Woken by each step of the thread's actor.
+        eventually_on_awaiting(|| "the thread/tokenUsage/updated frame carrying the usage delta".to_owned(), &[handle.stepped()], || heard().contains(&delta).then_some(())).await;
         assert_eq!(heard().iter().filter(|usage| **usage == delta).count(), 1);
     }
 
@@ -2140,11 +2096,12 @@ mod tests {
     }
 
     #[derive(Default)]
-    struct Ledger(Mutex<Vec<mixdog_ai::registry::accounting::UsageRow>>);
+    struct Ledger(Mutex<Vec<mixdog_ai::registry::accounting::UsageRow>>, tokio::sync::Notify);
     #[async_trait]
     impl mixdog_ai::registry::accounting::UsageSink for Ledger {
         async fn record_queued(&self, row: mixdog_ai::registry::accounting::UsageRow) -> Result<(), String> {
             lock(&self.0).push(row);
+            self.1.notify_waiters();
             Ok(())
         }
     }
@@ -2436,11 +2393,7 @@ mod tests {
                 })
                 .collect()
         };
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-        while roles().len() < 4 || lock(&ledger.0).len() < 2 {
-            assert!(tokio::time::Instant::now() < deadline, "the turn did not settle: {:?} ledger={}", roles(), lock(&ledger.0).len());
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
+        eventually_on_awaiting(|| "the four-role transcript in the store and two usage rows in the ledger".to_owned(), &[&rig.store.committed, &ledger.1], || (roles().len() >= 4 && lock(&ledger.0).len() >= 2).then_some(())).await;
         assert_eq!(roles(), ["user", "assistant", "tool", "assistant"]);
         // The turn's two approval entry points (the policy gate and the tool environment a nested call is judged with) both went through the composition's choice.
         assert_eq!(*lock(&asked.0), [id.as_str(), id.as_str()]);

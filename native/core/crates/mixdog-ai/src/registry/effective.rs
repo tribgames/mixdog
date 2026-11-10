@@ -47,7 +47,7 @@ impl EffectiveProviders {
     async fn defaults(&self, detect: bool) -> Map<String, Value> {
         let mut providers = Map::new();
         for (name, variable) in KEY_PROVIDERS {
-            let key = if detect { self.env.var(variable).filter(|key| !key.is_empty()) } else { None };
+            let key = if detect { self.env.key_var(variable).filter(|key| !key.is_empty()) } else { None };
             let mut entry = Map::new();
             entry.insert("enabled".into(), Value::Bool(key.is_some()));
             if let Some(key) = key {
@@ -92,6 +92,8 @@ impl EffectiveProviders {
     /// `loadConfig({ secrets: include_secrets }).providers` over the stored agent section. `Err`
     /// only when a keychain read never ran: a missing key would read as "not configured".
     pub async fn load(&self, agent: &Map<String, Value>, include_secrets: bool) -> Result<Map<String, Value>, String> {
+        #[cfg(feature = "count-work")]
+        crate::work::providers_loaded();
         let stored = agent.get("providers").and_then(Value::as_object);
         let mut merged = self.defaults(include_secrets).await;
         for (name, value) in stored.into_iter().flatten() {
@@ -138,7 +140,7 @@ impl EffectiveProviders {
                 if let Some(variable) = entry.get("apiKeyEnv").and_then(Value::as_str).filter(|v| !v.is_empty()).map(str::to_owned) {
                     // Env mode: the named variable is the only key source.
                     entry = entry.into_iter().filter(|(key, _)| key != "apiKey").collect();
-                    if let Some(key) = self.env.var(&variable).filter(|key| !key.is_empty()) {
+                    if let Some(key) = self.env.key_var(&variable).filter(|key| !key.is_empty()) {
                         entry.insert("apiKey".into(), Value::String(key));
                     }
                 } else if let Some(key) = self.keys.get(&name).await.map_err(|error| error.message)? {

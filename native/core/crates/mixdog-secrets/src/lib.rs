@@ -14,6 +14,8 @@
 
 mod fallback;
 mod status;
+#[cfg(feature = "count-work")]
+pub mod work;
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "macos")]
@@ -143,6 +145,8 @@ pub struct MemoryStore {
 #[async_trait]
 impl SecretStore for MemoryStore {
     async fn get(&self, account: &str) -> Result<Option<String>, SecretError> {
+        #[cfg(feature = "count-work")]
+        work::secret_read();
         Ok(self.entries.lock().unwrap_or_else(|e| e.into_inner()).get(account).cloned())
     }
 

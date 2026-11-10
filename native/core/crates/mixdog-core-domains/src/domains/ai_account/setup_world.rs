@@ -64,7 +64,7 @@ pub struct PrefetchedWorld {
 
 impl CustomFacts for PrefetchedWorld {
     fn env(&self, name: &str) -> Option<String> {
-        self.env.var(name)
+        self.env.key_var(name)
     }
     fn has_stored_secret(&self, account: &str) -> bool {
         self.stored.contains(account)
@@ -117,7 +117,7 @@ impl SetupWorld for PrefetchedWorld {
 impl PrefetchedWorld {
     /// `vertexEnvLocation()`.
     fn vertex_env_location_value(&self) -> Option<String> {
-        env_location(|name| self.env.var(name), "")
+        env_location(|name| self.env.key_var(name), "")
     }
 }
 
