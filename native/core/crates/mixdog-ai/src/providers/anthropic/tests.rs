@@ -776,6 +776,8 @@ fn malformed_tool_input_is_a_call_carrying_the_parse_failure() {
     assert_eq!(folded.tool_calls.len(), 1);
     assert_eq!(folded.tool_calls[0].arguments["__invalidToolArgs"], true);
     assert_eq!(folded.tool_calls[0].arguments["__rawArguments"], "{oops");
+    // V8's text (`JSON.parse('{oops')` on Node v22.20.0), which is what the model is shown.
+    assert_eq!(folded.tool_calls[0].arguments["__parseError"], "Expected property name or '}' in JSON at position 1 (line 1 column 2)");
 }
 
 #[test]

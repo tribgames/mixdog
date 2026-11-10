@@ -153,6 +153,37 @@ async fn file_tools_match_golden_fixtures_on_disk() {
     run_golden(&ctx, &root, &cases).await;
 }
 
+/// What Node's `executeBuiltinTool('edit', …)` answers for a target it cannot read (missing, a directory, an over-long
+/// name, one that cannot be stat'ed): `fixtures/tools/arg-answers/answers.json` (`record-tool-arg-answers.mjs`),
+/// recorded on Windows, where the paths in the texts are written with backslashes.
+#[cfg(windows)]
+#[tokio::test]
+async fn edit_read_failures_are_answered_as_node_answers_them() {
+    let dir = tempfile::tempdir().unwrap();
+    let ws = dir.path().join("ws");
+    std::fs::create_dir_all(ws.join("sub")).unwrap();
+    std::fs::write(ws.join("a.txt"), "hello\n").unwrap();
+    let root = AbsPath::new(&ws).unwrap();
+    let ctx = context_seeded(&root, Arc::new(mixdog_workspace::localfs::LocalFileService::new()), Vec::new()).await;
+    let answers: JsonValue = serde_json::from_str(
+        &std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/tools/arg-answers/answers.json")).unwrap(),
+    )
+    .unwrap();
+    let edit = EditTool::new();
+    let mut failures = Vec::new();
+    let mut compared = 0;
+    for case in answers["cases"].as_array().unwrap().iter().filter(|c| c["tool"] == "edit") {
+        let (_, text) = text_of(edit.call(&ctx, schema_args("edit", case["input"].clone())).await);
+        let text = text.replace(&ws.to_string_lossy().into_owned(), "<ROOT>");
+        if text != case["text"].as_str().unwrap() {
+            failures.push(format!("{}:\n  want {:?}\n  got  {text:?}", case["name"], case["text"]));
+        }
+        compared += 1;
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    assert_eq!(compared, 9);
+}
+
 struct NoRoots;
 
 #[async_trait::async_trait]
