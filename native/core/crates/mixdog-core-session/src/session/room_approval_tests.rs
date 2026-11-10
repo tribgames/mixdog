@@ -21,7 +21,7 @@ use super::*;
 use crate::session::SessionDirectory;
 use crate::session::seams::RunOutcome;
 use crate::session::testing::Rig;
-use crate::session::tests::eventually;
+use crate::eventually_on;
 use crate::session::tests::start_thread;
 use crate::session::tests::turn;
 
@@ -156,7 +156,7 @@ async fn a_room_reads_and_answers_the_members_approval() {
     let handle = start_thread(&directory).await;
     assert_eq!(directory.member_approval(&handle.id), None, "nothing waits yet");
     turn(&handle, "ask me", "op-1").await;
-    let shown = eventually(|| directory.member_approval(&handle.id)).await;
+    let shown = eventually_on!(&[&handle.cell.stepped], || directory.member_approval(&handle.id)).await;
     assert_eq!((shown["name"].as_str(), shown["kind"].as_str()), (Some("ask_user"), Some("question")));
     assert_eq!(shown["sessionId"], json!(handle.id.as_str()));
     let snapshot = directory.member_snapshot(&handle.id).await.expect("snapshot");
@@ -168,7 +168,7 @@ async fn a_room_reads_and_answers_the_members_approval() {
     };
     assert!(!answer("999").expect("refused"), "not the approval the member shows");
     assert!(answer(&id).expect("answered"));
-    let resolution = eventually(|| resolved.lock().unwrap().clone()).await;
+    let resolution = eventually_on!(&[&handle.cell.stepped], || resolved.lock().unwrap().clone()).await;
     assert!(matches!(resolution, ApprovalResolution::Decided { .. }), "{resolution:?}");
-    eventually(|| directory.member_approval(&handle.id).is_none().then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || directory.member_approval(&handle.id).is_none().then_some(())).await;
 }

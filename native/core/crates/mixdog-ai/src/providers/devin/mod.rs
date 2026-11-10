@@ -187,6 +187,8 @@ fn account_key(session_token: &str) -> String {
 
 impl DevinAdapter {
     pub fn new(base_url: Option<String>, http: Arc<dyn HttpSend>, token: Arc<dyn SessionToken>) -> Self {
+        #[cfg(feature = "count-work")]
+        crate::work::provider_built();
         let base_url = base_url.unwrap_or_else(|| session::DEFAULT_BASE_URL.to_owned());
         Self {
             id: ProviderId::from(PROVIDER_ID),

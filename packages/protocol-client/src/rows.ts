@@ -544,7 +544,9 @@ function userRow(item: Obj, m: Obj): Obj {
     });
   return {
     kind: 'user',
-    id: item.id as Json,
+    // Node's row id is the submission id (`pushUserOrSyntheticItem(text, id)`), which a client matches its pending bubble by
+    // (conversation-prompt-items.ts `pendingPromptTranscriptItems`); the core carries it as `clientSubmissionId`.
+    id: (text(item.clientSubmissionId) || item.id) as Json,
     text: parts.filter((p) => p.type === 'text' || p.type === 'pastedText').map((p) => text(p.text)).join(''),
     ...present('messageId', m.messageId),
     ...atField(m),

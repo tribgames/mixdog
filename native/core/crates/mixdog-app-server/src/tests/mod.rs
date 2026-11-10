@@ -10,6 +10,7 @@ mod errors;
 mod handshake;
 mod host;
 mod lane_pushes;
+mod phone_chat;
 mod queues;
 mod routing;
 mod sample;

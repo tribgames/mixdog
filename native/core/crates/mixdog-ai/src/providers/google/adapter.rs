@@ -71,6 +71,8 @@ impl GoogleAdapter {
         auth: Arc<dyn RequestAuth>,
         identity: String,
     ) -> Self {
+        #[cfg(feature = "count-work")]
+        crate::work::provider_built();
         Self {
             id: codec.provider().clone(),
             codec,

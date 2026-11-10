@@ -36,6 +36,35 @@ const MISMATCH: &str = "The selected-file permission does not match this path.";
 #[async_trait::async_trait]
 pub trait SessionCatalog: Send + Sync {
     async fn has(&self, session_id: &str) -> WsResult<bool>;
+
+    /// The conversation's row in the host's current catalog (Node's `host.listSessions()` entry, `sessionRow`): `None` for one the
+    /// catalog does not list. A catalog that cannot say lists none, so a download of it is refused.
+    async fn row(&self, _session_id: &str) -> WsResult<Option<SessionRow>> {
+        Ok(None)
+    }
+
+    /// The file the host's media store holds for an asset id (Node's `invokeCapability('resolveMediaFile', [id, { variant: 'original',
+    /// generate: false }])`): `None` for an asset the store does not know or whose bytes are gone (Node's `null` or `available: false`).
+    /// A catalog without a media store has none.
+    async fn media(&self, _asset_id: &str) -> WsResult<Option<MediaEntry>> {
+        Ok(None)
+    }
+}
+
+/// What the host's media store resolves an asset to: the file's path and, when the store states one, its type.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MediaEntry {
+    pub path: String,
+    pub mime: Option<String>,
+}
+
+/// What a download needs of a conversation (Node's `DesktopSessionSummary`): whether it is a project conversation, its project as the
+/// conversation states it, and its folder.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionRow {
+    pub project: bool,
+    pub project_path: Option<String>,
+    pub cwd: String,
 }
 
 type Table = Mutex<Vec<(String, Grant)>>;
@@ -65,6 +94,10 @@ pub struct GrantStore {
     /// Conversations the published catalog has contained: only these can be "gone" (Node: `seenSessions.has(id) && !catalog.has(id)`,
     /// `seenSessions` filled by `retainCatalog` on each publication, `file-downloads.ts:472`).
     seen: Mutex<HashSet<String>>,
+    /// Told the credential of a device that unpaired, so what else the device holds ends in the same step (the downloads).
+    unpaired: std::sync::OnceLock<Arc<dyn Fn(&str) + Send + Sync>>,
+    /// Told the conversations each publication lists, in the step it is published (the downloads' catalog membership).
+    listed: std::sync::OnceLock<Arc<dyn Fn(&[&str]) + Send + Sync>>,
 }
 
 /// `selectedFileGrantKey`.
@@ -93,7 +126,22 @@ fn required(value: &str, name: &str, maximum: usize) -> WsResult<String> {
 
 impl GrantStore {
     pub fn new(clock: Arc<dyn IdleClock>, catalog: Arc<dyn SessionCatalog>) -> Self {
-        Self { clock, catalog, devices: Mutex::default(), bound: Mutex::default(), seen: Mutex::default() }
+        Self { clock, catalog, devices: Mutex::default(), bound: Mutex::default(), seen: Mutex::default(), unpaired: std::sync::OnceLock::new(), listed: std::sync::OnceLock::new() }
+    }
+
+    /// Connects what is told the conversations each catalog publication lists. Set once.
+    pub fn on_listed(&self, hook: Arc<dyn Fn(&[&str]) + Send + Sync>) {
+        let _ = self.listed.set(hook);
+    }
+
+    /// Connects what else ends when a device unpairs. Set once.
+    pub fn on_unpaired(&self, hook: Arc<dyn Fn(&str) + Send + Sync>) {
+        let _ = self.unpaired.set(hook);
+    }
+
+    /// Whether a published catalog has listed the conversation (Node's `seenSessions`): only such a conversation can be gone.
+    pub fn has_seen(&self, session_id: &str) -> bool {
+        self.seen.lock().expect("grant sessions").contains(session_id)
     }
 
     /// Unpair (`dropFileGrants`): the device's table is dropped, so a connection of it that arrives afterwards starts with no grant.
@@ -101,6 +149,31 @@ impl GrantStore {
     /// (`remote-relay-device-methods.ts` `methodsFor` / `dropFileGrants`); the relay ends such a connection when it removed the pairing.
     pub fn revoke_device(&self, credential: &str) {
         self.devices.lock().expect("grants").remove(credential);
+        if let Some(unpaired) = self.unpaired.get() {
+            unpaired(credential);
+        }
+    }
+
+    /// The relay handle closed. Node's download service and device grant tables are the handle's own (`remote-relay.ts:185`), so its
+    /// `close` ends every device's grants (`clearFileGrants`, `:654`) and the next handle starts with no seen conversation: the grant
+    /// tables and the seen conversations go together (dropping the seen set alone would let a held grant outlive its conversation's
+    /// removal). This is the only bound Node's `seenSessions` has.
+    pub fn relay_closed(&self) {
+        // The grants themselves end, also in a table a connection still holds until its teardown: nothing granted before the close is
+        // redeemed after it (Node's method tables die with the old handle's connections).
+        for table in self.bound.lock().expect("grants").values() {
+            table.lock().expect("grants").clear();
+        }
+        for table in self.devices.lock().expect("grants").values() {
+            table.lock().expect("grants").clear();
+        }
+        self.devices.lock().expect("grants").clear();
+        self.seen.lock().expect("grant sessions").clear();
+    }
+
+    /// Node's `session_row` is the catalog's; the media store's file for an asset is too (see [`SessionCatalog::media`]).
+    pub async fn media(&self, asset_id: &str) -> WsResult<Option<MediaEntry>> {
+        self.catalog.media(asset_id).await
     }
 
     /// The connection ended: it holds no table any more.
@@ -114,7 +187,12 @@ impl GrantStore {
         bound.entry(connection).or_insert_with(|| self.devices.lock().expect("grants").entry(credential.to_owned()).or_default().clone()).clone()
     }
 
-    async fn conversation_gone(&self, session_id: &str) -> WsResult<bool> {
+    /// Node's `sessionRow`: the conversation a download names, as the catalog lists it now.
+    pub async fn session_row(&self, session_id: &str) -> WsResult<Option<SessionRow>> {
+        self.catalog.row(session_id).await
+    }
+
+    pub async fn conversation_gone(&self, session_id: &str) -> WsResult<bool> {
         if session_id.is_empty() || !self.seen.lock().expect("grant sessions").contains(session_id) {
             return Ok(false);
         }
@@ -200,6 +278,9 @@ impl mixdog_core_api::state::CatalogObserver for GrantStore {
     /// A catalog publication: every session in it is seen from now on.
     fn published(&self, session_ids: &[&str]) {
         self.seen.lock().expect("grant sessions").extend(session_ids.iter().map(|id| (*id).to_owned()));
+        if let Some(listed) = self.listed.get() {
+            listed(session_ids);
+        }
     }
 }
 
@@ -414,6 +495,25 @@ mod tests {
         mixdog_core_api::state::CatalogObserver::published(&store, &["s1"]);
         let gone = store.redeem("dev", 1, &token, dir.to_str().unwrap(), "a.txt").await.unwrap_err();
         assert_eq!(gone.reason.code(), GRANT_UNAVAILABLE_CODE);
+    }
+
+    /// A relay close ends the grants themselves: a grant whose conversation was removed before the close, held in a table a connection
+    /// keeps until its teardown, is not redeemed after the close resets what the store has seen (Node's old service keeps its history).
+    #[tokio::test]
+    async fn nothing_granted_before_a_relay_close_is_redeemed_after_it() {
+        let clock = Arc::new(Manual(Instant::now(), AtomicU64::new(0)));
+        // `Catalog` holds the conversations that are gone.
+        let catalog = Arc::new(Catalog::default());
+        let store = GrantStore::new(clock, catalog.clone());
+        let dir = std::env::temp_dir().join("outside");
+        let token = store.mint("dev", 1, &dir.join("a.txt"), "s1").await.unwrap();
+        mixdog_core_api::state::CatalogObserver::published(&store, &["s1"]);
+        catalog.0.lock().unwrap().insert("s1".to_owned());
+        // An unpair dropped the device's table; connection 1 still holds it until its teardown.
+        store.revoke_device("dev");
+        store.relay_closed();
+        let after = store.redeem("dev", 1, &token, dir.to_str().unwrap(), "a.txt").await.unwrap_err();
+        assert_eq!(after.reason.code(), GRANT_UNAVAILABLE_CODE, "the still-bound connection's grant ended with the relay");
     }
 
     #[tokio::test]

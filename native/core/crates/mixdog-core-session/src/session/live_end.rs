@@ -49,13 +49,13 @@ pub(crate) fn live_form(mut item: mixdog_protocol::ThreadItem, attempt: Option<&
             if let Some(attempt) = attempt {
                 meta.ext.insert("attemptId".into(), json!(attempt));
             } else if let Some(turn) = turn.and_then(Value::as_object) {
-                for key in ["agent", "model", "modelId", "provider", "attemptId"] {
+                for key in ["agent", "model", "modelId", "provider", "attemptId", "device"] {
                     if let Some(value) = turn.get(key).filter(|value| value.as_str().is_some_and(|text| !text.is_empty())) {
                         meta.ext.entry(key.to_owned()).or_insert_with(|| value.clone());
                     }
                 }
                 meta.ext.entry("at").or_insert_with(|| json!(at));
-                meta.ext.entry("messageId").or_insert_with(|| json!(super::new_id()));
+                meta.ext.entry("messageId").or_insert_with(|| json!(format!("msg_{}", uuid::Uuid::new_v4().simple())));
                 if let (MaybeBlob::Inline(shown), Some(raw)) = (&mut *text, raw)
                     && js_trim(raw) == *shown
                 {

@@ -261,7 +261,7 @@ fn input_at(agent: &Obj, input: &Obj, stored_key: &str, env: &dyn Environment) -
     let keyless = config["auth"] == "none";
     let env_name = if keyless { "" } else { config.get("apiKeyEnv").and_then(Value::as_str).unwrap_or_default() }.to_owned();
     let api_key = if !env_name.is_empty() {
-        env.var(&env_name).unwrap_or_default()
+        env.key_var(&env_name).unwrap_or_default()
     } else if keyless {
         String::new()
     } else if !typed.is_empty() {
@@ -471,7 +471,7 @@ struct Prefetched {
 
 impl CustomFacts for Prefetched {
     fn env(&self, name: &str) -> Option<String> {
-        self.env.var(name)
+        self.env.key_var(name)
     }
     fn has_stored_secret(&self, account: &str) -> bool {
         account == self.account && self.stored
@@ -776,7 +776,7 @@ impl CustomProbeHost for CustomHost {
     }
 
     fn env(&self, name: &str) -> Option<String> {
-        self.env.var(name)
+        self.env.key_var(name)
     }
 }
 
@@ -1137,5 +1137,36 @@ impl CustomProviders for CustomAdmin {
 
     async fn discover_models(&self, input: Value) -> Result<Value, Failure> {
         self.probes.discover_models(input).await
+    }
+}
+
+#[cfg(test)]
+mod key_variable_reads {
+    use super::*;
+
+    struct Vars;
+    impl Environment for Vars {
+        fn var(&self, name: &str) -> Option<String> {
+            (name == "CUSTOM_KEY").then(|| "v".to_owned())
+        }
+    }
+
+    /// Every read of a key variable the custom-provider setup makes is one counted credential read
+    /// (`mixdog_ai::work`), through `Environment::key_var`: a direct `var` would move nothing.
+    #[test]
+    fn a_key_variable_read_of_the_custom_setup_moves_the_credential_counter() {
+        let input: Obj = serde_json::from_value(json!({
+            "name": "Mine", "type": "custom", "protocol": "openai-chat", "baseURL": "http://127.0.0.1:1/v1", "apiKeyEnv": "CUSTOM_KEY"
+        }))
+        .unwrap();
+        let before = mixdog_ai::work::credential_reads();
+        let resolved = input_at(&Obj::new(), &input, "", &Vars).unwrap_or_else(|_| panic!("input"));
+        assert_eq!(resolved.api_key, "v");
+        assert!(mixdog_ai::work::credential_reads() > before, "input_at read a key variable without counting it");
+
+        let facts = Prefetched { account: String::new(), stored: false, fallback: false, key_ids: Vec::new(), env: Arc::new(Vars) };
+        let before = mixdog_ai::work::credential_reads();
+        assert_eq!(CustomFacts::env(&facts, "CUSTOM_KEY").as_deref(), Some("v"));
+        assert!(mixdog_ai::work::credential_reads() > before, "Prefetched::env read a key variable without counting it");
     }
 }

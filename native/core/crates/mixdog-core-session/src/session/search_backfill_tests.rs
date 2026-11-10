@@ -8,7 +8,6 @@
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
 
 use mixdog_core_api::domain::ext::DocumentText;
 use mixdog_core_api::domain::ext::ExtError;
@@ -170,16 +169,11 @@ async fn a_changed_record_is_stamped_anew_and_a_deleted_one_is_not_listed() {
     let directory = Arc::new(SessionDirectory::new(rig.deps_on(threads.clone())));
     let set = [("title".to_owned(), json!("Heron survey"))].into_iter().collect();
     SessionThreads::new(directory).patch_header(&ThreadId::from("sess_plain"), set, Vec::new()).await.expect("patched");
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-    loop {
-        let now = stored.record_stamp("sess_plain").await;
-        if now.as_ref() != Some(&before) {
-            assert!(now.is_some(), "the changed record is still stamped");
-            break;
-        }
-        assert!(tokio::time::Instant::now() < deadline, "the stamp never moved");
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
+    // The patch is answered once durable; the stamp moves when the projection behind it lands.
+    threads.projected().await;
+    let now = stored.record_stamp("sess_plain").await;
+    assert!(now.is_some(), "the changed record is still stamped");
+    assert_ne!(now, Some(before), "the stamp moved");
 
     threads.index().mark_deleted("sess_child").await.expect("delete mark");
     let ids = stored.session_ids().await.expect("listing");

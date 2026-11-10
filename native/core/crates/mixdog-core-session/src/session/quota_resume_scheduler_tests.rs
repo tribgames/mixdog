@@ -7,7 +7,6 @@
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use async_trait::async_trait;
 use mixdog_core_base::quota_resume::{QUOTA_RESUME_FILE, QuotaResumeStore};
@@ -24,6 +23,8 @@ struct ManualClock {
     now: Mutex<f64>,
     sleepers: Arc<Mutex<Vec<Sleeper>>>,
     next: Mutex<u64>,
+    /// Signals every change a test waits on: a timer set or cleared, a line logged.
+    changed: Arc<Notify>,
 }
 
 struct Sleeper {
@@ -37,17 +38,19 @@ struct Sleeper {
 struct Registered {
     sleepers: Arc<Mutex<Vec<Sleeper>>>,
     id: u64,
+    changed: Arc<Notify>,
 }
 
 impl Drop for Registered {
     fn drop(&mut self) {
         self.sleepers.lock().unwrap().retain(|s| s.id != self.id);
+        self.changed.notify_waiters();
     }
 }
 
 impl ManualClock {
     fn new(now: f64) -> Self {
-        Self { now: Mutex::new(now), sleepers: Arc::default(), next: Mutex::new(0) }
+        Self { now: Mutex::new(now), sleepers: Arc::default(), next: Mutex::new(0), changed: Arc::default() }
     }
 
     fn advance(&self, ms: f64) {
@@ -81,19 +84,17 @@ impl ResumeClock for ManualClock {
         };
         let deadline = self.now_ms() + ms as f64;
         self.sleepers.lock().unwrap().push(Sleeper { id, ms, deadline, wake: wake.clone() });
-        let _registered = Registered { sleepers: self.sleepers.clone(), id };
+        self.changed.notify_waiters();
+        let _registered = Registered { sleepers: self.sleepers.clone(), id, changed: self.changed.clone() };
         wake.notified().await;
     }
 }
 
-async fn wait_until(what: &str, mut ready: impl FnMut() -> bool) {
-    for _ in 0..500 {
-        if ready() {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    panic!("timed out waiting for {what}");
+/// Waits until $ready holds; a failure names its text.
+macro_rules! wait_until {
+    ($wakes:expr, $ready:expr) => {
+        crate::eventually_on!($wakes, || ($ready).then_some(()))
+    };
 }
 
 async fn open_store(dir: &Path) -> Arc<QuotaResumeStore> {
@@ -115,19 +116,24 @@ fn golden() -> Value {
 
 fn scheduler_over(store: &Arc<QuotaResumeStore>, host: Arc<dyn ResumeHost>, clock: &Arc<ManualClock>, log: &Arc<Mutex<Vec<String>>>) -> Arc<QuotaResumeScheduler> {
     let sink = log.clone();
-    let line_log: ResumeLog = Arc::new(move |line: &str| sink.lock().unwrap().push(line.to_owned()));
+    let changed = clock.changed.clone();
+    let line_log: ResumeLog = Arc::new(move |line: &str| {
+        sink.lock().unwrap().push(line.to_owned());
+        changed.notify_waiters();
+    });
     Arc::new(QuotaResumeScheduler::new(store.clone(), host, clock.clone(), Arc::new(|| true), line_log))
 }
 
 /// Holds every fire until the test lets it through.
 struct GateHost {
     fires: Mutex<Vec<(String, u64)>>,
+    fired: Notify,
     gate: Semaphore,
 }
 
 impl GateHost {
     fn new() -> Arc<Self> {
-        Arc::new(Self { fires: Mutex::default(), gate: Semaphore::new(0) })
+        Arc::new(Self { fires: Mutex::default(), fired: Notify::new(), gate: Semaphore::new(0) })
     }
 }
 
@@ -144,6 +150,7 @@ impl ResumeHost for GateHost {
     }
     async fn fire(&self, session_id: &str, generation: u64) -> Result<FireOutcome, String> {
         self.fires.lock().unwrap().push((session_id.to_owned(), generation));
+        self.fired.notify_waiters();
         self.gate.acquire().await.unwrap().forget();
         Ok(FireOutcome::Fired)
     }
@@ -310,12 +317,12 @@ async fn the_timer_matches_node() {
                 store = open_store(dir.path()).await;
                 scheduler = scheduler_over(&store, host.clone(), &clock, &log);
                 scheduler.start();
-                wait_until(&format!("{at}: the timer is set again"), || clock.armed() == armed).await;
+                wait_until!(&[&clock.changed], clock.armed() == armed).await;
                 assert_eq!(queue(&store, now, base), step["queue"], "{at}: the pending resumes survive");
                 continue;
             }
             let wait = step["wait"].as_u64();
-            wait_until(&format!("{at}: the timer is set for {wait:?}"), || clock.armed() == wait).await;
+            wait_until!(&[&clock.changed], clock.armed() == wait).await;
             log.lock().unwrap().clear();
             {
                 let mut calls = host.calls.lock().unwrap();
@@ -324,7 +331,7 @@ async fn the_timer_matches_node() {
             }
             clock.advance(step["advance"].as_f64().unwrap());
             let want_log = step["log"].as_array().unwrap().iter().map(|l| l.as_str().unwrap().to_owned()).collect::<Vec<_>>();
-            wait_until(&format!("{at}: the pass ran and the timer is set for {armed:?}"), || *log.lock().unwrap() == want_log && clock.armed() == armed).await;
+            wait_until!(&[&clock.changed], *log.lock().unwrap() == want_log && clock.armed() == armed).await;
             assert_eq!(Value::Array(host.calls.lock().unwrap().usable.clone()), step["usable"], "{at}: usable");
             let fired: Vec<Value> = host.calls.lock().unwrap().fire.iter().map(|f| json!({ "sessionId": f["sessionId"], "generation": f["generation"].as_u64().unwrap() - base })).collect();
             assert_eq!(Value::Array(fired), step["fire"], "{at}: fire");
@@ -334,7 +341,7 @@ async fn the_timer_matches_node() {
     }
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn overlapping_ticks_fire_once() {
     let golden = golden();
     let want = &golden["coalesce"];
@@ -345,16 +352,23 @@ async fn overlapping_ticks_fire_once() {
     let host = GateHost::new();
     let clock = Arc::new(ManualClock::new(now));
     let scheduler = scheduler_over(&store, host.clone(), &clock, &Arc::default());
-    let first = tokio::spawn({
+    let mut first = tokio::spawn({
         let scheduler = scheduler.clone();
         async move { scheduler.tick().await }
     });
-    wait_until("the first pass reaches the fire", || host.fires.lock().unwrap().len() == 1).await;
-    let second = tokio::spawn({
+    crate::eventually_on_until!(&[&host.fired], || (host.fires.lock().unwrap().len() == 1).then_some(()), &mut first).await;
+    let mut second = tokio::spawn({
         let scheduler = scheduler.clone();
         async move { scheduler.tick().await }
     });
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    crate::session::testing::awaiting(|| "the second tick to find the pass in flight and wait for it".to_owned(), async {
+        tokio::select! {
+            biased;
+            () = scheduler.joined() => {}
+            ended = &mut second => panic!("the second tick ended instead of waiting for the pass in flight: {ended:?}"),
+        }
+    })
+    .await;
     assert!(!second.is_finished(), "the second tick waits for the pass in flight");
     assert_eq!(host.fires.lock().unwrap().len() as u64, want["firesWhileHeld"].as_u64().unwrap());
     host.gate.add_permits(1);
@@ -365,7 +379,7 @@ async fn overlapping_ticks_fire_once() {
     assert_eq!(store.list().len() as u64, want["queue"].as_u64().unwrap());
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn nothing_fires_after_stop() {
     let now = golden()["now"].as_f64().unwrap();
     let dir = tempfile::tempdir().unwrap();
@@ -376,14 +390,13 @@ async fn nothing_fires_after_stop() {
     let clock = Arc::new(ManualClock::new(now));
     let scheduler = scheduler_over(&store, host.clone(), &clock, &Arc::default());
     scheduler.start();
-    wait_until("the timer is set", || clock.armed() == Some(5000)).await;
+    wait_until!(&[&clock.changed], clock.armed() == Some(5000)).await;
     scheduler.stop().await;
     assert_eq!(clock.armed(), None, "the timer is gone once stop returns");
     clock.advance(5000.0);
     assert_eq!(scheduler.tick().await, None, "a tick after stop runs nothing");
     scheduler.start();
     assert_eq!(clock.armed(), None, "a stopped clock stays stopped");
-    tokio::time::sleep(Duration::from_millis(100)).await;
     assert!(host.fires.lock().unwrap().is_empty(), "nothing fired after stop");
     assert_eq!(store.list().len(), 1, "the resume is still pending");
 }
@@ -436,6 +449,7 @@ async fn a_hung_host_call_fails_its_entry_and_the_pass_goes_on() {
 struct OnceHost {
     effective: Mutex<Vec<(String, u64)>>,
     asked: Mutex<Vec<(String, u64)>>,
+    answered: Notify,
 }
 
 #[async_trait]
@@ -452,6 +466,7 @@ impl ResumeHost for OnceHost {
     async fn fire(&self, session_id: &str, generation: u64) -> Result<FireOutcome, String> {
         let key = (session_id.to_owned(), generation);
         self.asked.lock().unwrap().push(key.clone());
+        self.answered.notify_waiters();
         if self.effective.lock().unwrap().contains(&key) {
             return Ok(FireOutcome::Stale);
         }
@@ -469,13 +484,13 @@ async fn a_fire_abandoned_at_stop_is_asked_again_under_the_same_generation_and_t
     let dir = tempfile::tempdir().unwrap();
     let store = open_store(dir.path()).await;
     schedule(&store, "s1", now).await;
-    let host = Arc::new(OnceHost { effective: Mutex::default(), asked: Mutex::default() });
+    let host = Arc::new(OnceHost { effective: Mutex::default(), asked: Mutex::default(), answered: Notify::new() });
     let clock = Arc::new(ManualClock::new(now));
     let first = scheduler_over(&store, host.clone(), &clock, &Arc::default());
     first.start();
-    wait_until("the timer is set", || clock.armed() == Some(0)).await;
+    wait_until!(&[&clock.changed], clock.armed() == Some(0)).await;
     clock.advance(0.0);
-    wait_until("the fire is in flight", || host.asked.lock().unwrap().len() == 1).await;
+    wait_until!(&[&host.answered], host.asked.lock().unwrap().len() == 1).await;
     first.stop().await;
     assert_eq!(store.list().len(), 1, "the abandoned fire's entry stays queued");
     // Nothing of the stopped scheduler fires again.
@@ -503,9 +518,9 @@ async fn stop_releases_a_fire_in_flight_and_starts_no_further_entry() {
     let clock = Arc::new(ManualClock::new(now));
     let scheduler = scheduler_over(&store, host.clone(), &clock, &Arc::default());
     scheduler.start();
-    wait_until("the timer is set", || clock.armed() == Some(0)).await;
+    wait_until!(&[&clock.changed], clock.armed() == Some(0)).await;
     clock.advance(0.0);
-    wait_until("the first fire is held", || host.fires.lock().unwrap().len() == 1).await;
+    wait_until!(&[&host.fired], host.fires.lock().unwrap().len() == 1).await;
     // The gate stays shut: the fire answers nothing, and stop still returns.
     scheduler.stop().await;
     let fired: Vec<String> = host.fires.lock().unwrap().iter().map(|(id, _)| id.clone()).collect();
