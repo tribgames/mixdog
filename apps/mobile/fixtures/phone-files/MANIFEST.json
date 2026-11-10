@@ -1,21 +1,28 @@
 {
-  "command": "node benchmarks/rust-core/recorders/record-phone-files.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 (src, apps) with node_modules>",
+  "command": "node benchmarks/rust-core/recorders/record-phone-files.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 (src, apps) with benchmarks/rust-core/recorders/node-patches/node-fix-relay-optional-args.patch applied, with node_modules>",
   "fileCount": 1,
   "files": [
     {
-      "bytes": 5375326,
+      "bytes": 5375838,
       "path": "golden.json",
-      "sha256": "128c705980d76d0127dd3d492802e5b560ebe10f557e4fffea50371a07d8f870"
+      "sha256": "f18635ea5c7d701e888497f6d5306f76e66454d5c71353e5311c85217198b505"
     }
   ],
   "product": {
-    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
-    "commit": "b6f10295a2f698afc85332467192de28500bd146",
-    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "appsSha256": "841fa7c35d344615b8c4d139f864e24916cc50a69a289456cc94232a23d2c85d",
+    "base": "b6f10295a2f698afc85332467192de28500bd146",
+    "commit": "35c272b4d86c8b7b76c235adf4da177add34c46a",
+    "comparedAgainst": "35c272b4d86c8b7b76c235adf4da177add34c46a",
     "exact": true,
-    "files": 9139,
+    "files": 9140,
+    "patches": [
+      {
+        "path": "benchmarks/rust-core/recorders/node-patches/node-fix-relay-optional-args.patch",
+        "sha256": "65b71087d1e63e4a62f4285f746d0a75ddf25feec6f98d7e9e5d3ef9b306a923"
+      }
+    ],
     "refComparison": {
-      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "closestCommit": "35c272b4d86c8b7b76c235adf4da177add34c46a",
       "commitFilesMissingFromTree": 0,
       "exact": true,
       "filesDifferingFromCommit": 0
@@ -27,6 +34,6 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-phone-files.mjs",
   "set": "phone-files",
-  "steps": 251,
-  "totalBytes": 5375326
+  "steps": 252,
+  "totalBytes": 5375838
 }

@@ -33,7 +33,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join, posix, resolve, win32 } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
-import { commitStage, exactProductIdentity, importFrom, parseArgs, REPO_ROOT, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
+import { commitStage, exactPatchedIdentity, importFrom, parseArgs, REPO_ROOT, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 import { envDelta, installScriptedProcesses, scriptedPty, serveShims } from './lib/phone-scm-world.mjs';
 
 const REAL_HOME = process.env.USERPROFILE;
@@ -64,7 +64,10 @@ if (ONLY !== null && !GROUPS[ONLY]) throw new Error(`--only takes one of ${Objec
 const ONLY_OUT = args.get('out') ?? null;
 if (ONLY !== null && !REPLAY && !ONLY_OUT) throw new Error('--only records into --out <file>, never into the fixture');
 const tree = resolveTree(args);
-const identity = exactProductIdentity(tree, REF);
+// b6f10295a with the Node fixes this recording is made with (AGENT-RULES: a clear Node bug is fixed on both sides): the relay's methods
+// take an optional argument the page left out (`null` after the relay's JSON) as omitted.
+const NODE_PATCHES = ['benchmarks/rust-core/recorders/node-patches/node-fix-relay-optional-args.patch'];
+const identity = exactPatchedIdentity(tree, REF, NODE_PATCHES);
 // The recorder and every file of lib/ it runs, each by the hash of its committed (LF) text: the manifest names them, and a replay
 // compares them with the files of the running recorder before it compares anything else.
 const RECORDER_FILES = ['record-phone-scm.mjs', 'lib/common.mjs', 'lib/phone-scm-world.mjs', 'lib/scripted-tool.rs', 'lib/spawn-log.cjs'].map((file) => `benchmarks/rust-core/recorders/${file}`);
@@ -216,7 +219,7 @@ if (ONLY === null) {
   if (missing.length || PH2_SCM_CALLS.length !== 62) throw new Error(`calls not recorded: ${missing.join(', ')} (${PH2_SCM_CALLS.length} listed)`);
   const stage = stageSet(FIXTURES, ['golden.json']);
   writeJson(join(stage, 'golden.json'), {
-    note: 'The relay frame Node (b6f10295a) sent the phone for each source-control call, with the desktop operations it invoked and what they returned. gh, winget, soffice.com and `git --version` are the scripted rules of gh-script.json (`world` is the state when the call ran).',
+    note: 'The relay frame Node (b6f10295a with node-patches/node-fix-relay-optional-args.patch) sent the phone for each source-control call, with the desktop operations it invoked and what they returned. gh, winget, soffice.com and `git --version` are the scripted rules of gh-script.json (`world` is the state when the call ran).',
     platform: process.platform,
     git: script.rules.find((rule) => rule.tool === 'git' && !rule.when).reply.stdout.trim(),
     realGit: realGits[0],
@@ -233,7 +236,7 @@ if (ONLY === null) {
   writeSetManifest(stage, {
     set: 'phone-scm',
     recorder: 'benchmarks/rust-core/recorders/record-phone-scm.mjs',
-    command: `node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-phone-scm.mjs --tree <git archive of ${REF} with node_modules>`,
+    command: `node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-phone-scm.mjs --tree <git archive of ${REF} with ${NODE_PATCHES.join(', ')} applied, with node_modules>`,
     identity,
     extra: {
       // The Node that ran the recorder and the code under test.
@@ -1637,7 +1640,8 @@ async function recordInputChecks() {
     const [label, call, params] = entry.length === 3 ? entry : [entry[0], entry[0], entry[1]];
     await rec(`input-two-invalid-${label}`, call, params);
   }
-  // ── an explicit null where Node takes a missing argument as the default and refuses null; the missing ones beside them ──
+  // ── an explicit null where Node's shared checks take only a missing argument as the default: what the app leaves out reaches the PC
+  //    as null, and the relay's methods (node-fix-relay-optional-args.patch) take it as left out; the missing ones beside them ──
   await rec('input-null-gitRevert-mode', 'gitRevert', [I, 'f.txt', false, null]);
   await rec('input-missing-gitRevert-mode', 'gitRevert', [I, 'f.txt', false]);
   await rec('input-null-gitIgnore-scope', 'gitIgnore', [I, 'f.txt', null]);
@@ -1786,6 +1790,11 @@ async function recordInputChecks() {
   for (const [label, call, text] of spelled) await rec(`input-spelled-${label}`, call, JSON.parse(text), undefined, undefined, text);
   // ── a lone surrogate in a string: Node's string checks take it; the core cannot decode it into a string at all ──
   if (!replay) await recordLimit('lone-surrogate-gitLog-query', 'gitLog', `[${JSON.stringify(I)},"\\ud800"]`, 'A JSON string escape of a lone surrogate (\\ud800) is a string to Node, which checks it as any other and acts on it; the core reads every frame into Rust strings, which cannot hold it, so its frame decoder closes the connection (1007) before any check runs. An open difference of the whole core.');
+  // ── the rest of the optional arguments remote-shim-api.ts passes as the app gave them: left out, they reach the PC as null. Last in
+  //    the group, as the amend and the stash change the repository ──
+  await rec('input-null-gitStatus-options', 'gitStatus', [I, null]);
+  await rec('input-null-gitAmend-message', 'gitAmend', [I, null]);
+  await rec('input-null-gitStash-message', 'gitStash', [I, null]);
 }
 if (ONLY === 'input') {
   await recordInputChecks();
@@ -2138,6 +2147,8 @@ first.print('Open https://github.com/login/device in your browser\n');
 await settled(flowId, (state) => state?.url);
 await rec('githubCliLoginOpenBrowser', 'githubCliLoginOpenBrowser', [flowId, { openBrowser: false }]);
 await rec('githubCliLoginOpenBrowser-no-options', 'githubCliLoginOpenBrowser', [flowId]);
+// The options the app left out, as the relay's JSON carried them.
+await rec('githubCliLoginOpenBrowser-null-options', 'githubCliLoginOpenBrowser', [flowId, null]);
 await rec('githubCliLoginOpenBrowser-bad-options', 'githubCliLoginOpenBrowser', [flowId, 'yes']);
 await rec('githubCliLoginOpenBrowser-unknown-flow', 'githubCliLoginOpenBrowser', ['ghlogin_unknown']);
 await rec('githubCliLoginStatus-unknown-flow', 'githubCliLoginStatus', ['ghlogin_unknown']);
