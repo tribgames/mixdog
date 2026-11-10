@@ -43,27 +43,33 @@ const server = http.createServer((req, res) => {
   });
 });
 // One deadline per awaited thing, and a message naming it.
+class Expired extends Error {}
 const withDeadline = (promise, label) => {
   let timer;
   const expired = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`${label}: not done after 30000 ms`)), 30_000);
+    timer = setTimeout(() => reject(new Expired(`${label}: not done after 30000 ms`)), 30_000);
   });
   return Promise.race([promise, expired]).finally(() => clearTimeout(timer));
 };
-await withDeadline(new Promise((resolve, reject) => server.once('error', reject).listen(0, '127.0.0.1', resolve)), 'the local server listening');
 const dispatched = [];
 let error = null;
 try {
-  await new AnthropicProvider({ apiKey: 'fixture-key-not-a-credential', baseURL: `http://127.0.0.1:${server.address().port}`, maxRetries: 0 }).send(MESSAGES, 'claude-sonnet-4-6', TOOLS, {
-    onToolCall: (call) => dispatched.push({ id: call.id, name: call.name, arguments: call.arguments }),
-  });
-} catch (thrown) {
-  error = {
-    code: thrown?.code ?? null,
-    truncatedStream: thrown?.truncatedStream ?? null,
-    pendingToolUse: thrown?.pendingToolUse ?? null,
-    partialToolCalls: (thrown?.partialToolCalls ?? []).map((call) => ({ id: call.id, name: call.name, arguments: call.arguments })),
-  };
+  await withDeadline(new Promise((resolve, reject) => server.once('error', reject).listen(0, '127.0.0.1', resolve)), 'the local server listening');
+  try {
+    const sent = new AnthropicProvider({ apiKey: 'fixture-key-not-a-credential', baseURL: `http://127.0.0.1:${server.address().port}`, maxRetries: 0 }).send(MESSAGES, 'claude-sonnet-4-6', TOOLS, {
+      onToolCall: (call) => dispatched.push({ id: call.id, name: call.name, arguments: call.arguments }),
+    });
+    await withDeadline(sent, "the adapter's send");
+  } catch (thrown) {
+    // The recording's own deadline is its failure, never the adapter's error.
+    if (thrown instanceof Expired) throw thrown;
+    error = {
+      code: thrown?.code ?? null,
+      truncatedStream: thrown?.truncatedStream ?? null,
+      pendingToolUse: thrown?.pendingToolUse ?? null,
+      partialToolCalls: (thrown?.partialToolCalls ?? []).map((call) => ({ id: call.id, name: call.name, arguments: call.arguments })),
+    };
+  }
 } finally {
   server.closeAllConnections();
   await withDeadline(new Promise((resolve) => server.close(resolve)), 'the local server closing');
