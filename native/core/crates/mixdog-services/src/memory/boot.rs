@@ -166,9 +166,12 @@ pub(crate) async fn resolve_dims(data_dir: &Path, lane: DurabilityIo, identity: 
 
 /// Where the PostgreSQL runtime comes from: an unpacked directory, or an install that runs when the database is first needed
 /// (Node's `ensureRuntime`, `supervisor.mjs:484`, runs inside the memory start, never at daemon boot).
+/// What runs to bring the PostgreSQL runtime when the database is first opened.
+pub type PgInstall = Arc<dyn Fn(CancellationToken) -> BoxFuture<'static, Result<PathBuf>> + Send + Sync>;
+
 pub enum PgRuntimeSource {
     Dir(PathBuf),
-    Install(Arc<dyn Fn(CancellationToken) -> BoxFuture<'static, Result<PathBuf>> + Send + Sync>),
+    Install(PgInstall),
 }
 
 /// What an opening produced: the running cluster and the two schemas' open handles.
@@ -224,7 +227,7 @@ impl MemoryStack {
         };
         let identity = config::identity(embedding_provider.as_deref(), &model_id, dtype.as_deref());
         let runtime = embedder.clone().map(|provider| MemoryRuntime::new(provider, flags, progress));
-        Ok(Arc::new_cyclic(|me: &std::sync::Weak<MemoryStack>| {
+        let built = Arc::new_cyclic(|me: &std::sync::Weak<MemoryStack>| {
             let deferred = |schema: Schema| {
                 let me = me.clone();
                 Db::deferred(
@@ -307,7 +310,8 @@ impl MemoryStack {
                 backfill: std::sync::Mutex::new(None),
                 backfill_cancel: CancellationToken::new(),
             }
-        }))
+        });
+        Ok(built)
     }
 
     /// The opened database, opening it first when nobody has: the first use pays for the runtime install, `initdb`
@@ -394,7 +398,8 @@ impl MemoryStack {
 
     /// After the daemon is ready (`startPostgresInBackground`, `daemon.mjs:881`): a data directory that already holds a
     /// cluster opens it off the request path; one with none starts nothing, so a fresh profile downloads and initialises nothing at boot.
-    pub fn open_in_background(self: &Arc<Self>) {
+    /// The returned handle ends when that decision and the opening it led to are over.
+    pub fn open_in_background(self: &Arc<Self>) -> tokio::task::JoinHandle<()> {
         let stack = self.clone();
         mixdog_rt::spawn("services.memory.open-existing", TaskClass::Work, async move {
             if matches!(fsio::exists(stack.lane, &stack.data_dir.join("pgdata").join("PG_VERSION")).await, Ok(true))
@@ -402,7 +407,7 @@ impl MemoryStack {
             {
                 tracing::warn!(error = %error.message(), "postgres background start failed");
             }
-        });
+        })
     }
 
     /// The cycle scheduler (`awaitCycle1Run`, `startCycle1Run`, the health ledger); `None` in a

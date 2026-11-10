@@ -69,6 +69,11 @@ fn the_stored_model_identity_is_nodes_meta_key() {
     );
 }
 
+/// One deadline for a thing a test waits for, so a hang fails naming it instead of stalling the suite.
+async fn within<T>(what: &str, waited: impl std::future::Future<Output = T>) -> T {
+    tokio::time::timeout(std::time::Duration::from_secs(5), waited).await.unwrap_or_else(|_| panic!("timed out waiting for {what}"))
+}
+
 /// Node starts the memory runtime at the first memory call, never at daemon boot (`registerMemoryRuntimeLazy`, `daemon.mjs:202`), and its ready signal does not wait
 /// for PostgreSQL: a fresh profile must not download or initialise anything while the stack is built, and a data directory that holds a cluster opens it only
 /// when the host asks for the background start. Neither the install nor the start needs a network or a postmaster here: the install is a counter that fails.
@@ -103,8 +108,7 @@ async fn a_stack_installs_and_starts_nothing_until_the_database_is_used() {
     assert_eq!(installs.load(Ordering::SeqCst), 0, "building the stack installs nothing");
 
     // A fresh profile has no cluster: the background start has nothing to open.
-    stack.open_in_background();
-    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    within("the background start on a fresh profile to decide", stack.open_in_background()).await.expect("the background task");
     assert_eq!(installs.load(Ordering::SeqCst), 0, "no cluster on disk, so no background start");
 
     // The first use opens the database, and a failed opening is tried again by the next use.
@@ -116,11 +120,7 @@ async fn a_stack_installs_and_starts_nothing_until_the_database_is_used() {
     // A cluster on disk is opened by the background start.
     std::fs::create_dir_all(dir.path().join("pgdata")).expect("pgdata");
     std::fs::write(dir.path().join("pgdata").join("PG_VERSION"), "16\n").expect("version");
-    stack.open_in_background();
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    while installs.load(Ordering::SeqCst) < 3 && std::time::Instant::now() < deadline {
-        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-    }
+    within("the background start of an existing cluster to end", stack.open_in_background()).await.expect("the background task");
     assert_eq!(installs.load(Ordering::SeqCst), 3, "an existing cluster starts after ready");
 
     stack.stop().await.expect("a stack that never opened has nothing to stop");
@@ -128,20 +128,23 @@ async fn a_stack_installs_and_starts_nothing_until_the_database_is_used() {
 
 /// Two first uses while the runtime is still downloading share the one install (Node's callers all await the one `initPromise`, `http-router.mjs:34-46`), wait for
 /// it rather than fail, and both see its outcome; a stop while it is held ends it and starts nothing.
-#[tokio::test(flavor = "multi_thread")]
+///
+/// The runtime is current-thread, so the order is the scheduler's: both uses are spawned before the test waits, the first is polled first and raises `entered` from inside
+/// the install, and the second, queued before the test's own wake-up, has been polled (and is parked on the one opening) by the time the test resumes.
+#[tokio::test]
 async fn two_first_uses_share_one_install_and_a_stop_ends_it() {
     use crate::memory::boot::PgRuntimeSource;
     use std::sync::atomic::{AtomicUsize, Ordering};
     let installs = Arc::new(AtomicUsize::new(0));
-    let entered = Arc::new(tokio::sync::Notify::new());
+    let (entered, mut entries) = tokio::sync::mpsc::unbounded_channel::<()>();
     let dir = tempfile::tempdir().expect("dir");
-    let (counted, signal) = (installs.clone(), entered.clone());
+    let (counted, signal) = (installs.clone(), entered);
     let stack = MemoryStack::start(MemoryBoot {
         data_dir: dir.path().to_owned(),
         // The install is held until the stack's own cancel (what `stop` raises) releases it, as a download in progress is.
         pg_runtime: PgRuntimeSource::Install(Arc::new(move |cancel| {
             counted.fetch_add(1, Ordering::SeqCst);
-            signal.notify_one();
+            signal.send(()).expect("the test listens");
             Box::pin(async move {
                 cancel.cancelled().await;
                 Err(crate::memory::error::MemoryError::Runtime("cancelled".to_owned()))
@@ -165,15 +168,13 @@ async fn two_first_uses_share_one_install_and_a_stop_ends_it() {
     let (first, second) = (stack.db(), stack.db());
     let one = tokio::spawn(async move { first.client().await.is_err() });
     let two = tokio::spawn(async move { second.client().await.is_err() });
-    entered.notified().await;
-    // Yielding lets the second use reach the held install if it were going to start its own.
-    for _ in 0..200 {
-        tokio::task::yield_now().await;
-    }
+    within("the first use to enter the install", entries.recv()).await.expect("the install was entered");
     assert!(!one.is_finished() && !two.is_finished(), "both uses wait for the install");
     assert_eq!(installs.load(Ordering::SeqCst), 1, "one install for two uses");
+    assert!(entries.try_recv().is_err(), "the second use did not enter an install of its own");
     stack.stop().await.expect("stop ends the install in progress");
-    assert!(one.await.unwrap() && two.await.unwrap(), "both uses see the install's end");
+    let (first, second) = (within("the first use to end", one).await.unwrap(), within("the second use to end", two).await.unwrap());
+    assert!(first && second, "both uses see the install's end");
     assert_eq!(installs.load(Ordering::SeqCst), 1);
     assert!(!dir.path().join("pgdata").join("PG_VERSION").exists(), "a cancelled install initialises nothing");
 }
