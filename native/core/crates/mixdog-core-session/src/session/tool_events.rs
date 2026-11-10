@@ -132,7 +132,7 @@ impl ToolEventsLog {
     #[cfg(test)]
     pub async fn flush(&self) {
         let drained = lock(&self.queue).drained.clone();
-        super::testing::awaiting("the tool-events queue to drain", async {
+        super::testing::awaiting(|| "the tool-events queue to drain".to_owned(), async {
             loop {
                 let idle = drained.notified();
                 tokio::pin!(idle);

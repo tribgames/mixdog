@@ -193,7 +193,7 @@ pub(crate) fn prompt_list(handle: &SessionHandle) -> Vec<String> {
 pub(crate) async fn caught_up(handle: &SessionHandle) {
     let (tx, taken) = tokio::sync::oneshot::channel();
     handle.inbox.send(super::actor::Inbox::QuotaFacts { tx }).await.expect("the actor takes the inbox");
-    crate::session::testing::awaiting("the actor to take a message of its inbox", taken).await.expect("the actor answers");
+    crate::session::testing::awaiting(|| "the actor to take a message of its inbox".to_owned(), taken).await.expect("the actor answers");
 }
 
 pub(crate) fn idle(handle: &SessionHandle) -> bool {
@@ -4525,23 +4525,4 @@ async fn a_rename_is_refused_and_leaves_the_session_as_nodes_runtime_does() {
         }
     }
     assert!(refused > 15, "the twin refuses {refused} renames");
-}
-
-/// A wait whose condition is withheld fails at the real deadline with its message, and the paused clock has not moved: a pending
-/// 16 ms timer (the actor's status settling) is not fired by the wait.
-#[tokio::test(start_paused = true)]
-async fn a_withheld_wait_fails_at_the_real_deadline_with_the_paused_clock_untouched() {
-    let timer_fired = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let flag = timer_fired.clone();
-    tokio::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_millis(16)).await;
-        flag.store(true, std::sync::atomic::Ordering::SeqCst);
-    });
-    let wake = tokio::sync::Notify::new();
-    let started = tokio::time::Instant::now();
-    let failed = tokio::spawn(async move { super::testing::awaiting("the withheld thing", wake.notified()).await }).await.expect_err("the wait fails");
-    let message = failed.into_panic().downcast::<String>().map(|text| *text).unwrap_or_default();
-    assert!(message.contains("waiting for the withheld thing"), "{message}");
-    assert_eq!(tokio::time::Instant::now(), started, "the paused clock did not move");
-    assert!(!timer_fired.load(std::sync::atomic::Ordering::SeqCst), "the 16 ms timer was not fired by the wait");
 }

@@ -85,7 +85,7 @@ fn ms(duration: Duration) -> u64 {
 /// has not come by the wait's deadline: a feed that stops (or panics) without sending, or that waits for a time nobody advances to,
 /// is the test's failure with its output shown, not a wait with no end. The tests hold the clock, so time moves only by their advance.
 async fn next<T>(what: &str, rx: &mut mpsc::UnboundedReceiver<T>, feed: &mut tokio::task::JoinHandle<()>) -> T {
-    mixdog_core_session::session::testing::awaiting(what, async {
+    mixdog_core_session::session::testing::awaiting(|| what.to_owned(), async {
         tokio::select! {
             biased;
             message = rx.recv() => message.expect("the channel closed"),
@@ -224,7 +224,7 @@ async fn the_feed_ends_with_its_source_and_with_its_writer() {
     let feed = tokio::spawn(run(Arc::downgrade(&source), STATS_KEY, changes, None, push_into(publisher.clone()), REFRESH_INTERVAL));
     drop(source);
     changed.usage_changed();
-    awaiting("the feed to end once its source is gone", feed).await.unwrap();
+    awaiting(|| "the feed to end once its source is gone".to_owned(), feed).await.unwrap();
     assert!(published.try_recv().is_err(), "a closed ledger publishes nothing");
 
     let (source, _reads) = scripted(vec![Ok(json!({}))]);
@@ -232,7 +232,7 @@ async fn the_feed_ends_with_its_source_and_with_its_writer() {
     let mut feed = tokio::spawn(run(Arc::downgrade(&source), STATS_KEY, changes, None, push_into(publisher), REFRESH_INTERVAL));
     inline(next("the startup publication", &mut published, &mut feed).await);
     drop(changed);
-    awaiting("the feed to end once its writer is gone", feed).await.unwrap();
+    awaiting(|| "the feed to end once its writer is gone".to_owned(), feed).await.unwrap();
 }
 
 #[tokio::test(start_paused = true)]
@@ -407,8 +407,8 @@ async fn the_ledger_sources_pushed_entries_equal_nodes_answers() {
         }
         // One change, two entries: the statistics (every 30 s at most) and the dashboard (every 5 min at most), in either order.
         let (first, second) = (
-            awaiting("the step's first entry", published.recv()).await.unwrap(),
-            awaiting("the step's second entry", published.recv()).await.unwrap(),
+            awaiting(|| "the step's first entry".to_owned(), published.recv()).await.unwrap(),
+            awaiting(|| "the step's second entry".to_owned(), published.recv()).await.unwrap(),
         );
         let (stats, dashboard) = if first.1.as_deref() == Some(STATS_KEY) { (first, second) } else { (second, first) };
         let got = inline(stats);

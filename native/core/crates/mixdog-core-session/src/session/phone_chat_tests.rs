@@ -25,7 +25,7 @@ use super::seams::RunOutcome;
 use super::testing::Rig;
 use super::testing::awaiting;
 use super::testing::awaiting_for;
-use super::tests::eventually_on;
+use crate::eventually_on;
 use super::tests::idle;
 use super::tests::rows;
 use super::tests::start_thread;
@@ -98,7 +98,7 @@ async fn a_withheld_wait_fails_at_the_real_deadline_with_the_paused_clock_untouc
     });
     let wake = tokio::sync::Notify::new();
     let started = tokio::time::Instant::now();
-    let failed = tokio::spawn(async move { awaiting_for(std::time::Duration::from_millis(200), || "the withheld thing".to_owned(), eventually_on(&[&wake], || None::<()>)).await }).await.expect_err("the wait fails");
+    let failed = tokio::spawn(async move { awaiting_for(std::time::Duration::from_millis(200), || "the withheld thing".to_owned(), eventually_on!(&[&wake], || None::<()>)).await }).await.expect_err("the wait fails");
     let message = failed.into_panic().downcast::<String>().map(|text| *text).unwrap_or_default();
     assert!(message.contains("waiting for the withheld thing"), "{message}");
     assert_eq!(tokio::time::Instant::now(), started, "the paused clock did not move");
@@ -115,12 +115,12 @@ async fn the_sender_stopping_gets_the_prompt_back_and_the_row_leaves() {
     let rig = Rig::new();
     let (_directory, handle) = running(&rig).await;
     submit(&handle, 1, "op-1", "draft", "sub1").await.expect("started");
-    eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || (rows(&handle).len() == 1).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped, &*rig.feeds.published], || (rows(&handle).len() == 1).then_some(())).await;
     let reply = stop(&handle, 1, None).await;
     assert_eq!(reply["aborted"], true);
     assert_eq!(reply["restoreText"], "draft");
     assert_eq!(reply["restoredSubmissionIds"], json!(["sub1"]));
-    eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || idle(&handle).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped, &*rig.feeds.published], || idle(&handle).then_some(())).await;
     assert_eq!(rows(&handle), vec![], "the handed-back prompt left the transcript");
     assert!(prompt_restores(&rig, &handle).is_empty(), "the sender is told in the reply, not through the state");
 }
@@ -131,16 +131,16 @@ async fn another_device_stopping_sends_the_prompt_to_the_sender_through_prompt_r
     let rig = Rig::new();
     let (_directory, handle) = running(&rig).await;
     submit(&handle, 1, "op-1", "draft", "sub1").await.expect("started");
-    eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || (rows(&handle).len() == 1).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped, &*rig.feeds.published], || (rows(&handle).len() == 1).then_some(())).await;
     // The rig's clock at the moment of the restore, set by the test: `PromptRestore` is stamped from it (Node: `Date.now()`, `abort.mjs:72,76`).
     let clock: u64 = 7777;
     rig.clock.0.store(clock, std::sync::atomic::Ordering::SeqCst);
     let reply = stop(&handle, 2, None).await;
     assert_eq!((reply["aborted"].clone(), reply["restoreText"].clone(), reply["restoredSubmissionIds"].clone()), (json!(true), json!(""), json!([])));
-    eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || idle(&handle).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped, &*rig.feeds.published], || idle(&handle).then_some(())).await;
     let restores = awaiting(
         || "the prompt restore frame".to_owned(),
-        eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || Some(prompt_restores(&rig, &handle)).filter(|frames| !frames.is_empty())),
+        eventually_on!(&[&handle.cell.stepped, &*rig.feeds.published], || Some(prompt_restores(&rig, &handle)).filter(|frames| !frames.is_empty())),
     )
     .await;
     let all: Value = serde_json::from_str(include_str!("../../../../fixtures/phone-chat-core/phone-chat-core.json")).unwrap();
@@ -189,7 +189,7 @@ async fn an_idle_stop_hands_back_the_queued_submission_it_names() {
     rig.store.seed(&id, vec![entry("sub1", "queued one"), entry("sub2", "queued two")]);
     let directory = SessionDirectory::new(rig.deps());
     let handle = directory.open_handle(&id, &CallContext::internal("test")).await.expect("open");
-    eventually_on(&[&handle.cell.stepped], || (handle.cell.queue.load().len() == 2).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || (handle.cell.queue.load().len() == 2).then_some(())).await;
     let reply = stop(&handle, 1, Some("sub1")).await;
     assert_eq!(reply["aborted"], false);
     assert_eq!(reply["restoreText"], "queued one");
@@ -594,7 +594,7 @@ async fn every_recorded_submit_is_accepted_or_refused_as_nodes_is() {
         if case["busy"] == true {
             submit(&handle, 1, "op-busy", "running", "busy1").await.expect("the run ahead");
             // Its row, its history entry and its turn start: the setup is done when all three were published.
-            eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || (frames().len() == 3).then_some(())).await;
+            eventually_on!(&[&handle.cell.stepped, &*rig.feeds.published], || (frames().len() == 3).then_some(())).await;
         }
         if case["admission"] == "terminal" {
             directory.shutdown_for("recorded terminal admission").await;
@@ -619,7 +619,7 @@ async fn every_recorded_submit_is_accepted_or_refused_as_nodes_is() {
         }
         if notification {
             // The call returned once the notice was in the thread's inbox; the actor puts it on the queue in a step, which signals `stepped`.
-            awaiting(|| format!("{name}: the channel notification on the thread's queue (held entries: {})", handle.cell.queue.load().len()), eventually_on(&[&handle.cell.stepped], || (handle.cell.queue.load().len() == 1).then_some(()))).await;
+            awaiting(|| format!("{name}: the channel notification on the thread's queue (held entries: {})", handle.cell.queue.load().len()), eventually_on!(&[&handle.cell.stepped], || (handle.cell.queue.load().len() == 1).then_some(()))).await;
         }
         let since = || frames().into_iter().skip(base_frames).collect::<Vec<_>>();
         let node = &case["after"];
@@ -629,7 +629,7 @@ async fn every_recorded_submit_is_accepted_or_refused_as_nodes_is() {
         let want_frames: Vec<(String, Value)> = node_frames(node["publications"].as_array().unwrap(), at, clock).into_iter().map(|(method, params)| (method, renumber(&params, &mut node_labels))).collect();
         awaiting(
             || format!("{name}: the {} frames Node published (Rust's so far: {:?})", want_frames.len(), since()),
-            eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || (since().len() >= want_frames.len()).then_some(())),
+            eventually_on!(&[&handle.cell.stepped, &*rig.feeds.published], || (since().len() >= want_frames.len()).then_some(())),
         )
         .await;
         let store: Vec<Value> = rig.store.records(&handle.id)[base_records..].iter().map(|(_, record)| serde_json::to_value(record).unwrap()).collect();
@@ -823,11 +823,11 @@ async fn every_recorded_rewind_resolves_the_displayed_id_as_nodes_does() {
             submit(&handle, 1, &ops[turn], case["prompt"].as_str().unwrap(), &format!("sub{}", turn + 1)).await.expect("the prompt");
             if !busy {
                 // The prompt, its answer and the turn's live end: the rows Node held (`before.items`).
-                awaiting(|| format!("{name}: never reached; rows {:?}", rows(&handle)), eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || (idle(&handle) && rows(&handle).len() == 3 * (turn + 1)).then_some(()))).await;
+                awaiting(|| format!("{name}: never reached; rows {:?}", rows(&handle)), eventually_on!(&[&handle.cell.stepped, &*rig.feeds.published], || (idle(&handle) && rows(&handle).len() == 3 * (turn + 1)).then_some(()))).await;
             }
         }
         if busy {
-            awaiting(|| format!("{name}: never reached; rows {:?}", rows(&handle)), eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || (rows(&handle).len() == 1).then_some(()))).await;
+            awaiting(|| format!("{name}: never reached; rows {:?}", rows(&handle)), eventually_on!(&[&handle.cell.stepped, &*rig.feeds.published], || (rows(&handle).len() == 1).then_some(()))).await;
         } else {
             let clock = rig.clock.0.load(std::sync::atomic::Ordering::SeqCst);
             let items: Vec<Value> = handle.cell.view.load_full().items.iter().map(|item| serde_json::to_value(item.as_ref()).unwrap()).collect();
@@ -875,7 +875,7 @@ async fn every_recorded_rewind_resolves_the_displayed_id_as_nodes_does() {
                 assert_eq!(real["options"]["text"], reply["text"]);
                 assert_eq!(real["result"]["removed"], reply["messages"], "the messages the runtime removed");
                 let left = case["after"]["items"].as_array().unwrap();
-                awaiting(|| format!("{name}: never reached; rows {:?}", rows(&handle)), eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || (rows(&handle).len() == left.len()).then_some(()))).await;
+                awaiting(|| format!("{name}: never reached; rows {:?}", rows(&handle)), eventually_on!(&[&handle.cell.stepped, &*rig.feeds.published], || (rows(&handle).len() == left.len()).then_some(()))).await;
                 // What stays, whole: the rows of the turns before the one rewound, as Node's transcript holds them.
                 let clock = rig.clock.0.load(std::sync::atomic::Ordering::SeqCst);
                 let items: Vec<Value> = handle.cell.view.load_full().items.iter().map(|item| serde_json::to_value(item.as_ref()).unwrap()).collect();

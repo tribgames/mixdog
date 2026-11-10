@@ -88,7 +88,7 @@ async fn a_runtime_shows_the_questions_waiting_for_it_and_those_that_come_until_
     drop(hub);
     drop(host);
     for publisher in publishers {
-        crate::session::testing::awaiting("a drain task to end once every owner of its queue is gone", publisher).await.unwrap();
+        crate::session::testing::awaiting(|| "a drain task to end once every owner of its queue is gone".to_owned(), publisher).await.unwrap();
     }
     assert_eq!(ids(&feed), ["q2"]);
 }

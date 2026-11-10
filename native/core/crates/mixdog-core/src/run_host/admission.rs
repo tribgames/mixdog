@@ -612,7 +612,7 @@ mod tests {
 
     /// A spawned acquire's end: its result, or the failure naming what it was awaited for.
     async fn finished<T>(what: &str, task: tokio::task::JoinHandle<T>) -> T {
-        mixdog_core_session::session::testing::awaiting(what, task).await.unwrap()
+        mixdog_core_session::session::testing::awaiting(|| what.to_owned(), task).await.unwrap()
     }
 
     /// Returns once `n` waiters are in the queue; fails by assertion if `task`, the acquire that should be queuing, ends first.
@@ -807,7 +807,7 @@ mod tests {
                 ev.lock().unwrap().push(format!("A-restored:{}", value.unwrap()));
             })
         };
-        mixdog_core_session::session::testing::awaiting("the yielded run's request to start", async {
+        mixdog_core_session::session::testing::awaiting(|| "the yielded run's request to start".to_owned(), async {
             tokio::select! {
                 biased;
                 () = started.notified() => {}
@@ -815,14 +815,14 @@ mod tests {
             }
         })
         .await;
-        let b = mixdog_core_session::session::testing::awaiting("B to be granted the slot the yielded run gave up", b_rx).await.unwrap();
+        let b = mixdog_core_session::session::testing::awaiting(|| "B to be granted the slot the yielded run gave up".to_owned(), b_rx).await.unwrap();
         push(&ev, format!("active-while-B:{}", a.active(Pool::Agent)));
         gate.notify_one();
         // The request ends and A joins the queue behind C.
         queued_is(&a, 2, &mut run).await;
         push(&ev, format!("A-waiting-for-slot:{}", a.queued() > 0));
         b.release().await;
-        let c = mixdog_core_session::session::testing::awaiting("C to be granted the slot B released", c_rx).await.unwrap();
+        let c = mixdog_core_session::session::testing::awaiting(|| "C to be granted the slot B released".to_owned(), c_rx).await.unwrap();
         push(&ev, "C-held".into());
         c.release().await;
         finished("the yielded run to be given its slot back and end", run).await;
@@ -886,7 +886,7 @@ mod tests {
         let (parent, call) = (Cancel::new(), Cancel::new());
         let linked = Cancel::linked(&[parent.clone(), call.clone()]);
         call.abort("call stopped");
-        mixdog_core_session::session::testing::awaiting("the composed signal to carry the call's abort", linked.cancelled()).await;
+        mixdog_core_session::session::testing::awaiting(|| "the composed signal to carry the call's abort".to_owned(), linked.cancelled()).await;
         parent.abort("too late");
         assert_eq!(linked.reason(), "call stopped");
     }

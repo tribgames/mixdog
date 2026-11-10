@@ -563,7 +563,7 @@ async fn the_daemon_jobs_reconcile_at_start_and_clean_up_on_the_hour() {
         announce.notify_one();
     }), CancellationToken::new());
     // The sink's notification keeps its permit, so a line logged before this wait still wakes it.
-    crate::session::testing::awaiting("the startup reconcile to log what it did", logged.notified()).await;
+    crate::session::testing::awaiting(|| "the startup reconcile to log what it did".to_owned(), logged.notified()).await;
     assert_eq!(*lines.lock().unwrap(), ["worktree reconcile: removed 1, recovered 0, pruned 0, incomplete 0, errors 0"]);
     let (due, hour) = (1_000 + 3 * 60_000, 60 * 60_000);
     assert!(schedule.run_tasks(false, due - 1).await.ran.is_empty());

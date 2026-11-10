@@ -1790,82 +1790,33 @@ impl mixdog_ai::registry::accounting::UsagePricing for NoPricing {
     }
 }
 
-/// How long a wait for a signal may last before the wait is the test's failure. It is measured on the machine's clock, never the
-/// runtime's: a paused runtime clock moves only when the test advances it (or by itself when the runtime is idle, which is not
-/// time passing for the awaited work), so a deadline on it would say nothing about the signal. A wait ends on its signal; this is
-/// only the failure path of a signal that never comes, so it is never what makes a test pass.
-const DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
-
-/// A running deadline: a thread that reports `DEADLINE` of the machine's time after it started, and ends at once when the
-/// wait that started it is over.
-struct Deadline {
-    fired: tokio::sync::oneshot::Receiver<()>,
-    _over: std::sync::mpsc::Sender<()>,
-}
-
-impl Deadline {
-    fn start() -> Self {
-        let (over, ended) = std::sync::mpsc::channel::<()>();
-        let (fire, fired) = tokio::sync::oneshot::channel();
-        // A blocking task, not a bare thread: while one runs, a paused runtime does not advance its clock by itself, so the wait
-        // cannot be made true by a timer nobody advanced to.
-        #[allow(clippy::disallowed_methods, reason = "test setup")]
-        tokio::task::spawn_blocking(move || {
-            if ended.recv_timeout(DEADLINE) == Err(std::sync::mpsc::RecvTimeoutError::Timeout) {
-                let _ = fire.send(());
-            }
-        });
-        Self { fired, _over: over }
-    }
-
-    async fn expired(&mut self) {
-        match (&mut self.fired).await {
-            Ok(()) => {}
-            Err(_) => std::future::pending().await,
-        }
-    }
-}
-
-/// Awaits `wait`, failing by assertion naming `what` if it has not ended by the deadline.
-pub async fn awaiting<T>(what: &str, wait: impl Future<Output = T>) -> T {
-    let mut deadline = Deadline::start();
-    tokio::select! {
-        biased;
-        value = wait => value,
-        () = deadline.expired() => panic!("timed out after {DEADLINE:?} waiting for {what}"),
-    }
-}
-
 /// Waits until `probe` holds, woken by a change of the state it reads, never by the clock (the real store's writer is an OS
 /// thread, so a paused clock cannot pace it): `wakes` are the signals of what the probe reads (the thread actor's steps, the
 /// directory losing a thread, the delete log), each registered before the probe runs so no change between probe and wait is
-/// missed. A probe that never holds fails by the deadline, naming `what` (use `eventually_on!`, which names the probe itself).
-pub async fn eventually_on_awaiting<T>(what: &str, wakes: &[&tokio::sync::Notify], mut probe: impl FnMut() -> Option<T>) -> T {
-    let mut deadline: Option<Deadline> = None;
-    loop {
-        let mut waits: Vec<std::pin::Pin<Box<tokio::sync::futures::Notified<'_>>>> = wakes.iter().map(|wake| Box::pin(wake.notified())).collect();
-        for wait in &mut waits {
-            wait.as_mut().enable();
+/// missed. A probe that never holds fails by the deadline of `awaiting`, with `what` (`eventually_on!` names the probe itself).
+pub async fn eventually_on_awaiting<T>(what: impl FnOnce() -> String, wakes: &[&tokio::sync::Notify], mut probe: impl FnMut() -> Option<T>) -> T {
+    awaiting(what, async {
+        loop {
+            let mut waits: Vec<std::pin::Pin<Box<tokio::sync::futures::Notified<'_>>>> = wakes.iter().map(|wake| Box::pin(wake.notified())).collect();
+            for wait in &mut waits {
+                wait.as_mut().enable();
+            }
+            if let Some(value) = probe() {
+                return value;
+            }
+            futures::future::select_all(waits).await;
         }
-        if let Some(value) = probe() {
-            return value;
-        }
-        let running = deadline.get_or_insert_with(Deadline::start);
-        tokio::select! {
-            biased;
-            _ = futures::future::select_all(waits) => {}
-            () = running.expired() => panic!("timed out after {DEADLINE:?} waiting until {what}"),
-        }
-    }
+    })
+    .await
 }
 
 /// `eventually_on!`, failing by assertion when `task` (the work that should produce the signal) ends first: a task that returns
 /// without signalling is the test's failure with its output shown, not a wait that never ends. The signal wins a tie.
-pub async fn eventually_on_until_awaiting<T, E: std::fmt::Debug>(what: &str, wakes: &[&tokio::sync::Notify], probe: impl FnMut() -> Option<T>, task: &mut tokio::task::JoinHandle<E>) -> T {
+pub async fn eventually_on_until_awaiting<T, E: std::fmt::Debug>(what: impl Fn() -> String, wakes: &[&tokio::sync::Notify], probe: impl FnMut() -> Option<T>, task: &mut tokio::task::JoinHandle<E>) -> T {
     tokio::select! {
         biased;
-        value = eventually_on_awaiting(what, wakes, probe) => value,
-        ended = task => panic!("the task ended before {what}: {ended:?}"),
+        value = eventually_on_awaiting(&what, wakes, probe) => value,
+        ended = task => panic!("the task ended before waiting for {}: {ended:?}", what()),
     }
 }
 
@@ -1873,7 +1824,7 @@ pub async fn eventually_on_until_awaiting<T, E: std::fmt::Debug>(what: &str, wak
 #[macro_export]
 macro_rules! eventually_on {
     ($wakes:expr, $probe:expr $(,)?) => {
-        $crate::session::testing::eventually_on_awaiting(::core::stringify!($probe), $wakes, $probe)
+        $crate::session::testing::eventually_on_awaiting(|| ::std::format!("until {}", ::core::stringify!($probe)), $wakes, $probe)
     };
 }
 
@@ -1881,7 +1832,7 @@ macro_rules! eventually_on {
 #[macro_export]
 macro_rules! eventually_on_until {
     ($wakes:expr, $probe:expr, $task:expr $(,)?) => {
-        $crate::session::testing::eventually_on_until_awaiting(::core::stringify!($probe), $wakes, $probe, $task)
+        $crate::session::testing::eventually_on_until_awaiting(|| ::std::format!("until {}", ::core::stringify!($probe)), $wakes, $probe, $task)
     };
 }
 

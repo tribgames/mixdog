@@ -160,7 +160,7 @@ mod tests {
     /// Waits until `want` sweeps have run in all, after the clock was advanced by `by`; see `advance_until`.
     async fn reached(by: Duration, want: u64, sweeps: &Sweeps, dogs: &[(&Watchdog, &Cancel)]) {
         let wakes: [&tokio::sync::Notify; 1] = [&sweeps.woke];
-        eventually_on_awaiting(&format!("{want} sweeps to have run after advancing {by:?} (the clock moves only by this advance)"), &wakes, || {
+        eventually_on_awaiting(|| format!("{want} sweeps to have run after advancing {by:?} (the clock moves only by this advance)"), &wakes, || {
             if let Some((dog, _)) = dogs.iter().find(|(dog, signal)| dog.0.is_finished() && !signal.is_aborted()) {
                 panic!("a sweep task ended without aborting its run, with {} of {want} sweeps seen (finished: {})", sweeps.seen(), dog.0.is_finished());
             }

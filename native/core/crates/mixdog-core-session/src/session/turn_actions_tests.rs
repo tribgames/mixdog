@@ -398,7 +398,7 @@ async fn staged_originals_expire_on_their_own_deadline() {
                 let before = *passes.borrow();
                 originals.start_prune(tokens.durability_io, clock.clone(), mixdog_rt::CancellationToken::new());
                 // The task has read the index and armed its first deadline.
-                crate::session::testing::awaiting("the prune task's first pass", passes.wait_for(|n| *n > before)).await.unwrap();
+                crate::session::testing::awaiting(|| "the prune task's first pass".to_owned(), passes.wait_for(|n| *n > before)).await.unwrap();
             }
             "claim" => {
                 let refs: Vec<String> = step["refs"].as_array().unwrap().iter().map(|t| sha(t.as_str().unwrap().as_bytes())).collect();
@@ -416,7 +416,7 @@ async fn staged_originals_expire_on_their_own_deadline() {
                 clock.0.store(target, std::sync::atomic::Ordering::SeqCst);
                 tokio::time::advance(Duration::from_millis(ms)).await;
                 if due {
-                    crate::session::testing::awaiting("the prune pass the tick reaches", passes.wait_for(|n| *n > before)).await.unwrap();
+                    crate::session::testing::awaiting(|| "the prune pass the tick reaches".to_owned(), passes.wait_for(|n| *n > before)).await.unwrap();
                 }
                 if let Some(at) = recorded.get("stagedAt") {
                     let limits = StageLimits { now_ms: at.as_i64().unwrap(), ..FRESH };

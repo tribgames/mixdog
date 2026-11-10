@@ -466,13 +466,13 @@ mod tests {
         let providers = HostProxyProviders::new(pc.clone(), Epoch::new(), Arc::new(|| 1_000_000));
         let mut caller = Box::pin(providers.providers(false));
         assert!(futures::poll!(caller.as_mut()).is_pending());
-        mixdog_core_session::session::testing::awaiting("the PC read to start", pc.started.notified()).await;
+        mixdog_core_session::session::testing::awaiting(|| "the PC read to start".to_owned(), pc.started.notified()).await;
         let mut joined = providers.inner.state().joinable().expect("the read is in flight").1;
         drop(caller);
         pc.gate.notify_one();
         // Nobody polls the read now but its own task: it still reaches the PC's answer.
         // Biased: the answer precedes the join, so when both are ready the answer's kept permit is taken first.
-        mixdog_core_session::session::testing::awaiting("the PC to answer the read", async {
+        mixdog_core_session::session::testing::awaiting(|| "the PC to answer the read".to_owned(), async {
             tokio::select! {
                 biased;
                 () = pc.answered.notified() => {}
@@ -480,7 +480,7 @@ mod tests {
             }
         })
         .await;
-        let outcome = mixdog_core_session::session::testing::awaiting("the read to end once the PC has answered", joined).await;
+        let outcome = mixdog_core_session::session::testing::awaiting(|| "the read to end once the PC has answered".to_owned(), joined).await;
         assert_eq!(without_traits(outcome.unwrap().unwrap()).keys().collect::<Vec<_>>(), ["openai"]);
         {
             let state = providers.inner.state();

@@ -392,7 +392,7 @@ impl ReapingShells {
     async fn released(&self) {
         let tasks = std::mem::take(&mut *self.releases.lock().unwrap_or_else(PoisonError::into_inner));
         for task in tasks {
-            mixdog_core_session::session::testing::awaiting("a session's computer release to end", task).await.expect("a session's computer release");
+            mixdog_core_session::session::testing::awaiting(|| "a session's computer release to end".to_owned(), task).await.expect("a session's computer release");
         }
     }
 }
@@ -435,7 +435,7 @@ impl SettlingSnapshots {
     async fn settled(&self) {
         let tasks = std::mem::take(&mut *self.settlements.lock().unwrap_or_else(PoisonError::into_inner));
         for task in tasks {
-            mixdog_core_session::session::testing::awaiting("a turn's computer settlement to end", task).await.expect("a turn's computer settlement");
+            mixdog_core_session::session::testing::awaiting(|| "a turn's computer settlement to end".to_owned(), task).await.expect("a turn's computer settlement");
         }
     }
 }
@@ -757,7 +757,7 @@ mod tests {
         let read = ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
         let mut call = tokio::spawn(async move { backend.run(read, CancellationToken::new()).await });
         // The call's spawn is the helper that never answers; a call that ends without spawning it is the failure.
-        awaiting("the call to spawn the helper", async {
+        awaiting(|| "the call to spawn the helper".to_owned(), async {
             tokio::select! {
                 biased;
                 () = stuck.0.notified() => {}
@@ -772,7 +772,7 @@ mod tests {
         tokio::time::advance(SHUTDOWN_RELEASE - Duration::from_millis(1)).await;
         assert!(futures::poll!(release.as_mut()).is_pending(), "the release is given its whole bound");
         tokio::time::advance(Duration::from_millis(1)).await;
-        assert_eq!(awaiting("the stuck release to end at the timeout", release).await, 0, "the stuck release is unconfirmed");
+        assert_eq!(awaiting(|| "the stuck release to end at the timeout".to_owned(), release).await, 0, "the stuck release is unconfirmed");
         assert!(!pool.entries().contains_key("stuck"), "the session's state goes anyway");
         call.abort();
     }

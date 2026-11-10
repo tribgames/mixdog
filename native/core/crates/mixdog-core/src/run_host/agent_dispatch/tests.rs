@@ -490,7 +490,7 @@ async fn the_inline_host_hands_the_dispatcher_what_nodes_host_handed_it() {
     verify("duplicate-id", go(&host, &case("duplicate-id")["outcome"]["input"]).await);
     assert_eq!(watch.live(), 1, "a refused duplicate is not a run");
     host.abort_all("host closing");
-    verify("abort-all", match mixdog_core_session::session::testing::awaiting("the hanging run to end once the host aborts all", hanging).await.unwrap() {
+    verify("abort-all", match mixdog_core_session::session::testing::awaiting(|| "the hanging run to end once the host aborts all".to_owned(), hanging).await.unwrap() {
         Ok(answer) => json!({ "ok": answer }),
         Err(error) => json!({ "error": error }),
     });
