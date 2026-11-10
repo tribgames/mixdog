@@ -7,7 +7,10 @@
 // workspace.
 export const MODEL = 'fake-model';
 // `fx-mcp.mjs` is the stdio MCP server the `full` scenarios connect: no SDK, three tools (`fail` answers an `isError` result, `boom` a
-// JSON-RPC error, `ok` a success), so Node's client and the core's speak to the same bytes.
+// JSON-RPC error, `ok` a success), so Node's client and the core's speak to the same bytes. `boom`'s code is an internal error
+// (-32603): Node takes -32000 and -32001 for the SDK's own closed-connection and timeout codes and reconnects the server before it
+// answers (`isMcpServerResponseError`, mcp/client.mjs:917-925, and the reconnect at :542-600), which the core does not do; that gap
+// is reported, not recorded here.
 const MCP_SERVER = `
 let buffered = '';
 const send = (message) => process.stdout.write(JSON.stringify(message) + '\\n');
@@ -25,7 +28,7 @@ process.stdin.on('data', (chunk) => {
     if (message.method === 'initialize') reply({ protocolVersion: message.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: 'fx', version: '1' } });
     else if (message.method === 'tools/list') reply({ tools: TOOLS });
     else if (message.method === 'tools/call' && message.params.name === 'fail') reply({ content: [{ type: 'text', text: 'it broke' }], isError: true });
-    else if (message.method === 'tools/call' && message.params.name === 'boom') send({ jsonrpc: '2.0', id: message.id, error: { code: -32000, message: 'server exploded' } });
+    else if (message.method === 'tools/call' && message.params.name === 'boom') send({ jsonrpc: '2.0', id: message.id, error: { code: -32603, message: 'server exploded' } });
     else if (message.method === 'tools/call') reply({ content: [{ type: 'text', text: 'fine' }] });
     else send({ jsonrpc: '2.0', id: message.id, error: { code: -32601, message: 'no such method' } });
   }
@@ -110,11 +113,9 @@ export function scenarios(workspace) {
       ],
     },
     {
-      // The core offers an MCP server's tools behind `load_tool` / `call_tool`, not by their `mcp__fx__*` names (its request carries
-      // neither), so a direct call is answered `unknown tool` there: `coreDiffers` names that, and the replay reports it as a difference.
+      // MCP tools called by their `mcp__fx__*` names: an `isError` result, a JSON-RPC error, a success.
       name: 'MCP tool failures',
       full: true,
-      coreDiffers: 'the core does not offer mcp__ tools by name in a full session (they are reached through load_tool / call_tool)',
       replies: [
         {
           text: 'go',
@@ -132,6 +133,23 @@ export function scenarios(workspace) {
       abortWhenFile: 'started.flag',
       replies: [
         { text: 'go', calls: [{ id: 'a1', name: 'shell', args: { command: 'node -e "require(\'fs\').writeFileSync(\'started.flag\',\'1\');setTimeout(()=>{},20000)"' } }] },
+        DONE,
+      ],
+    },
+    {
+      // Calls that failed before the turn is ended, in the batch the end cancels: Node throws at the abort check after the call it was
+      // taking (`processToolBatch`, tool-batch.mjs:36) before `finalizeBatchResults`, where the failure rows are written.
+      name: 'a turn ended while a batch with failed calls runs',
+      abortWhenFile: 'batch.flag',
+      replies: [
+        {
+          text: 'go',
+          calls: [
+            { id: 'b1', name: 'read', args: {} },
+            { id: 'b2', name: 'frobnicate', args: {} },
+            { id: 'b3', name: 'shell', args: { command: 'node -e "require(\'fs\').writeFileSync(\'batch.flag\',\'1\');setTimeout(()=>{},20000)"' } },
+          ],
+        },
         DONE,
       ],
     },
