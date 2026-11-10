@@ -33,7 +33,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-tool-failures.mjs",
-  "recorderSha256": "49022900d6a3ca5516798da7ac36148afa901f43397ff17e759ea63dd173a063",
+  "recorderSha256": "616b76d40f2a9ad72ed931155f4a8a9017481505b164a844caa5f2d8e281da13",
   "rows": 18,
   "rowsLibSha256": "c59af01bd8d627d2217c9ae02d40afd53b64db9f29039940247588230d95c5a7",
   "scenariosSha256": "31256eabfb512dac8e3cfd4a4b20bc9c2ea44e35610b582b749500d706844291",
