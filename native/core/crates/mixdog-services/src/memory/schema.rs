@@ -183,17 +183,29 @@ pub async fn ensure_memory_schema(db: &Db, dims: usize, model_identity: &serde_j
     Ok(())
 }
 
-async fn install_core_key_index(db: &Db) -> Result<()> {
+pub(crate) async fn install_core_key_index(db: &Db) -> Result<()> {
     let conflict = db
         .query_opt(
             "SELECT 1 FROM core_entries GROUP BY project_id, agent_id, element HAVING COUNT(*) > 1 LIMIT 1",
             &[],
         )
         .await?;
-    if conflict.is_none() {
-        db.batch(CORE_KEY_INDEX).await?;
+    if conflict.is_some() {
+        mixdog_rt::memory_stderr!(
+            "[core-memory] duplicate keys preserved; resolve them with explicit edits/deletes before installing the unique index"
+        );
+        return Ok(());
     }
-    Ok(())
+    // The pool key replaces the legacy (project_id, element) key, which would refuse an agent
+    // memory sharing an element with a common one.
+    match db.batch(&format!("{CORE_KEY_INDEX};\nDROP INDEX IF EXISTS core_entries_unique_proj_elem")).await {
+        Err(crate::memory::error::MemoryError::Pg(error)) if error.code() == Some(&tokio_postgres::error::SqlState::UNIQUE_VIOLATION) => {
+            // A write raced the conflict check: keep both rows, install the index later.
+            mixdog_rt::memory_stderr!("[core-memory] concurrent key conflict preserved; unique index deferred until explicit resolution");
+            Ok(())
+        }
+        other => other,
+    }
 }
 
 async fn reset_vectors_for_model(db: &Db, dims: usize, identity: &serde_json::Value) -> Result<()> {
