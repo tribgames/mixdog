@@ -219,15 +219,30 @@ async fn record_all(only: Option<&str>) -> Vec<Value> {
             }
         } else {
             let sent = request(&session, scenario, model);
+            // `abortWhenHeld`: the turn is cancelled (its stream let go of) once the server has written a held reply.
+            let cancel_when_held = scenario["abortWhenHeld"] == true;
             within(format_args!("the reply of {id}"), async {
                 match adapter.attempt(Arc::new(sent.clone())).await {
                     Ok(mut stream) => {
                         // The reply folded as the loop folds it, for a later compaction's fork.
                         let mut reply = ResponseBuilder::new(model, ToolCallIds::new(&[]));
-                        while let Some(event) = stream.next().await {
-                            match event {
-                                Ok(event) => reply.push(event),
-                                Err(_) => return "error",
+                        loop {
+                            let next = if cancel_when_held {
+                                tokio::select! {
+                                    biased;
+                                    () = server.held() => {
+                                        drop(stream);
+                                        return "error";
+                                    }
+                                    next = stream.next() => next,
+                                }
+                            } else {
+                                stream.next().await
+                            };
+                            match next {
+                                None => break,
+                                Some(Ok(event)) => reply.push(event),
+                                Some(Err(_)) => return "error",
                             }
                         }
                         last_send = Some((sent, reply.finish()));

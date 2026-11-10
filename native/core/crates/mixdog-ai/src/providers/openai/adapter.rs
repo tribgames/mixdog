@@ -964,6 +964,19 @@ impl ResponsesStream {
     }
 }
 
+impl Drop for ResponsesStream {
+    /// The consumer let go of the response. Before its terminal event that is a cancel (the user's, or a stall
+    /// watchdog's): `onAbort` closes the socket with `4002 aborted`. After it, the socket goes back to the pool as on
+    /// the next read. A failed exchange has no source left.
+    fn drop(&mut self) {
+        if self.decoder.terminal_seen() {
+            self.park();
+        } else if let Some(Source::Ws { checkout, .. }) = self.source.as_mut() {
+            checkout.abandon(4002, "aborted");
+        }
+    }
+}
+
 #[async_trait]
 impl ModelStream for ResponsesStream {
     async fn next(&mut self) -> Option<Result<StreamEvent, ProviderError>> {

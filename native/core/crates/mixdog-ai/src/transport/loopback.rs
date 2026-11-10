@@ -41,6 +41,8 @@ struct Inner {
     ended: Mutex<HashMap<usize, watch::Receiver<bool>>>,
     upgraded: Mutex<Vec<usize>>,
     unanswered: Mutex<Option<String>>,
+    /// A reply that holds (`then: 'hold'`) has been written.
+    held: tokio::sync::Notify,
 }
 
 pub struct Loopback {
@@ -122,6 +124,11 @@ impl Loopback {
     pub fn script_left(&self) -> usize {
         let script = self.inner.script.lock().unwrap();
         script.dials.len() + script.replies.len() + script.http.len()
+    }
+
+    /// Resolves once a reply that holds has been written; the caller puts the deadline on it.
+    pub async fn held(&self) {
+        self.inner.held.notified().await;
     }
 
     /// The numbers of the connections that upgraded to a WebSocket.
@@ -359,6 +366,10 @@ async fn serve(inner: Arc<Inner>, acceptor: TlsAcceptor, tcp: TcpStream) {
                         }
                         if plan["then"] == "reset" {
                             break 'serving;
+                        }
+                        if plan["then"] == "hold" {
+                            io.flush().await.ok();
+                            inner.held.notify_one();
                         }
                     }
                 }

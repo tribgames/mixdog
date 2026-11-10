@@ -48,7 +48,8 @@ const serverFrame = (opcode, payload) => {
 /**
  * Listens on 127.0.0.1 and records into `traffic.sink`; `traffic.script` says what to answer:
  *   dials:   one per upgrade request: { accept: true, headers } or { accept: false, status, headers, body }
- *   ws:      one per data message received: a list of events (sent as text frames), or { events, then: 'close' | 'reset' }
+ *   ws:      one per data message received: a list of events (sent as text frames), or { events, then: 'close' | 'reset'
+ *            | 'hold' } ('hold': nothing more is sent, and `traffic.held()` is called once the events are written)
  *   http:    one per request: a list of events (a 200 event stream), or { status, headers, events | body, then: 'reset' }
  *   awaitClose: a connection number the scenario ends on once it closed
  * A request with nothing left to answer it is recorded, and `traffic.unanswered(kind)` is called.
@@ -146,6 +147,7 @@ export async function startWireServer({ traffic, keepRandom = false }) {
       for (const event of events || []) socket.write(serverFrame(1, Buffer.from(JSON.stringify(event))));
       if (then === 'close') socket.end(serverFrame(8, Buffer.from([3, 232])));
       if (then === 'reset') socket.destroy();
+      if (then === 'hold') socket.write('', () => traffic.held?.());
     };
     const answerHttp = (line) => {
       // A HEAD request is a socket warm-up (Node's `preconnect`), not a turn: it is recorded and answered empty.
