@@ -49,7 +49,7 @@ const platformFamily = (host: PhoneProtocolHost): string | undefined => (host.cl
 /** The string `code`s Node's source-control errors carried onto the relay frame (remote-methods.ts `errorCode`): the contract
  *  code of a reset that needs the user's confirmation (git-mutations.ts GIT_RESET_DIRTY_CODE), the git runner's own deadline and
  *  overflow codes (git-runner.ts EGITTIMEOUT, EMAXBUFFER), and a child's system error (`spawn git ENOENT`, code ENOENT). */
-const NODE_CODE = /^(git-reset-dirty-worktree|EGITTIMEOUT|EMAXBUFFER|E[A-Z0-9]{3,})$/;
+const NODE_CODE = /^(git-reset-dirty-worktree|EGITTIMEOUT|EMAXBUFFER|UNKNOWN|E[A-Z0-9]{3,})$/;
 
 /** The core names the same failures with codes of its own (mixdog-scm/src/error.rs); every other core code (`COMMAND_FAILED`,
  *  `NOT_A_REPOSITORY`, `IO_ERROR`, `NO_OPERATION`, ...) is bookkeeping where Node's error had no code, so it does not reach the page. */

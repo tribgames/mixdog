@@ -210,7 +210,15 @@ export async function serveShims({ engine, onSpawn, shim, places }) {
     present(places.gh, world.ghInstalled);
     present(places.ghOnPath, world.ghInstalled);
     present(places.winget, !world.wingetMissing);
-    present(places.git, !world.gitMissing);
+    // A git that is a file no loader can run: Node's spawn answers spawn UNKNOWN.
+    if (world.gitBroken) {
+      fs.mkdirSync(dirname(places.git), { recursive: true });
+      fs.writeFileSync(places.git, 'not an executable');
+    } else {
+      // The stand-in replaces the unrunnable file the broken world left.
+      if (fs.existsSync(places.git) && fs.statSync(places.git).size < 1024) fs.rmSync(places.git);
+      present(places.git, !world.gitMissing);
+    }
     present(places.soffice, world.soffice);
   }
   const server = net.createServer((socket) => {

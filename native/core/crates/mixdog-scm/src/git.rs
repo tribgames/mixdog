@@ -241,6 +241,9 @@ pub fn readable_remote_error(failure: ScmFailure) -> ScmFailure {
     if let ScmFailure::Unavailable { capability } = &failure {
         return ScmFailure::git(format!("spawn {capability} ENOENT"));
     }
+    if let ScmFailure::Spawn { .. } = &failure {
+        return ScmFailure::git(failure.to_string());
+    }
     let message = failure.to_string().to_lowercase();
     let asks_for_credentials = ["authentication failed", "could not read username", "terminal prompts disabled", "permission denied", "publickey"]
         .iter()

@@ -46,7 +46,7 @@ const clone = (value) => JSON.parse(JSON.stringify(value));
 
 const MACHINE_PATH = process.env.PATH;
 rmSync(WORK, { recursive: true, force: true });
-for (const dir of ['home', 'bin', 'data', 'ud', 'app']) mkdirSync(join(WORK, dir), { recursive: true });
+for (const dir of ['home', 'bin', 'data', 'ud', 'app', 'tmp']) mkdirSync(join(WORK, dir), { recursive: true });
 // One fixed identity and clock, so a repository built twice has the same objects; the global git config is the scratch one.
 Object.assign(process.env, {
   HOME: join(WORK, 'home'),
@@ -63,6 +63,10 @@ Object.assign(process.env, {
   // git's own clock for "10 months ago": 2026-11-02T03:04:05Z. The Rust side runs git with the same variable.
   GIT_TEST_DATE_NOW: '1793588645',
   MIXDOG_DATA_DIR: join(WORK, 'data'),
+  // A commit's scratch index lives under the temp folder (git-commit-transaction.ts mkdtemp) and its path is in the recorded
+  // environment of every git of the commit: the temp folder is this world's, not the one of whoever runs the recorder.
+  TEMP: join(WORK, 'tmp'),
+  TMP: join(WORK, 'tmp'),
   // Node's world is the core's world (the replay builds the same): this world's bin first, the Windows folders, and install places
   // that are folders of this world, so no tool of this machine is found by either.
   PATH: [join(WORK, 'bin'), join(process.env.SystemRoot, 'System32'), process.env.SystemRoot].join(';'),
@@ -166,6 +170,10 @@ const JS_ATTEMPTS_FILE = join(WORK, 'js-attempts.jsonl');
 // The shim's "git hangs" switch: while the file names a word, a git given that word as an argument never answers (the scripted
 // world's git status that does not return), for Node's git and the core's alike.
 const HANG_FILE = join(WORK, 'git-hangs.txt');
+const FAIL_FILE = join(WORK, 'git-fails.txt');
+process.env.PHONE_SCM_FAIL_FILE = FAIL_FILE;
+// A git that fails with the given exit code and stderr (written `repeat` times) when it is given `word`, for the cases that follow.
+const gitFailing = (word, code, message, repeat = 1) => writeFileSync(FAIL_FILE, [word, code, message, repeat].join('\n'));
 process.env.PHONE_SCM_HANG_FILE = HANG_FILE;
 // The shim's "another process stages" switch (lib/scripted-tool.rs): after the commit's index refresh has built its copy, inside
 // the window the refresh holds index.lock, a second git runs and its exit code and stderr are written to AFTER_OUT.
@@ -224,7 +232,8 @@ setGitProcessRunner((command, runArgs, options) => {
   clock.tag = null;
   run.then(
     (result) => (attempt.reply = { code: result.code }),
-    (error) => (attempt.reply = error?.code === 'ENOENT' ? { code: -1, stderr: 'ENOENT' } : { error: error?.code ?? 'error' }),
+    // A program the system refused to start (ENOENT, or UNKNOWN for a file no loader can run) never started.
+    (error) => (attempt.reply = String(error?.syscall ?? '').startsWith('spawn') ? { code: -1, stderr: error.code } : { error: error?.code ?? 'error' }),
   );
   const entry = { settled: run.then(() => gitInFlight.delete(entry), () => gitInFlight.delete(entry)), argv: runArgs };
   gitInFlight.add(entry);
@@ -900,7 +909,11 @@ async function rec(name, call, params, note, during) {
       const started = since.filter((event) => event.event === 'spawned' && event.started).map((event) => event.seq);
       return started.every((seq) => done.has(seq) || since.some((event) => event.event === 'begin' && event.seq === seq && event.pty));
     }, `the core left a child of ${name} running`);
-    const differ = (what, node, coreSide) => replay.differences.push({ name: `${name} (${what})`, node, core: coreSide });
+    const differ = (what, node, coreSide) => {
+      replay.differences.push({ name: `${name} (${what})`, node, core: coreSide });
+      // A later wait that never ends loses the list printed at the end; the first difference is the one to read.
+      console.error(`DIFF ${name} (${what})\n  node: ${JSON.stringify(node)}\n  core: ${JSON.stringify(coreSide)}`);
+    };
     const events = settingsChanges.slice(settingsBefore);
     if (!isDeepStrictEqual(events, recorded.events ?? [])) differ('events', recorded.events ?? [], events);
     if (!isDeepStrictEqual(steps, recorded.clock ?? [])) differ('clock', recorded.clock ?? [], steps);
@@ -1425,6 +1438,46 @@ git(FAILING, 'commit', '-q', '-m', 'first');
   await rec('gitGlobalConfig-git-missing', 'gitGlobalConfig', []);
   process.env.PATH = path;
   world.gitMissing = false;
+}
+{
+  // A git the loader cannot run: Node's spawn throws spawn UNKNOWN (libuv has no name for the system's bad-image error).
+  const BADGIT = join(WORK, 'badgit');
+  mkdirSync(BADGIT, { recursive: true });
+  writeFileSync(join(BADGIT, 'git.exe'), 'not an executable');
+  world.gitBroken = true;
+  const path = process.env.PATH;
+  process.env.PATH = [BADGIT, join(process.env.SystemRoot, 'System32'), process.env.SystemRoot].join(';');
+  await rec('gitStatus-git-broken', 'gitStatus', [FAILING]);
+  await rec('gitStash-git-broken', 'gitStash', [FAILING, 'wip']);
+  await rec('gitFetch-git-broken', 'gitFetch', [FAILING]);
+  process.env.PATH = path;
+  world.gitBroken = false;
+}
+{
+  // ═══ what one git command answers when it fails: its stderr whole, its exit code when silent, the fallbacks a failure triggers ═══
+  const failsWith = async (name, call, params, word, code, message, repeat) => {
+    gitFailing(word, code, message, repeat);
+    try {
+      await rec(name, call, params);
+    } finally {
+      rmSync(FAIL_FILE, { force: true });
+    }
+  };
+  await failsWith('gitStash-long-stderr', 'gitStash', [FAILING, 'wip'], 'stash', 1, 'fatal: stash failed ', 6000);
+  await failsWith('gitStash-silent-failure', 'gitStash', [FAILING, 'wip'], 'stash', 3, '', 1);
+  write(FAILING, 'g.txt', 'g\n');
+  git(FAILING, 'add', 'g.txt');
+  // The message goes through `git stripspace` on git's stdin, whose failure Node words by the exit code.
+  await failsWith('gitCommit-stripspace-silent', 'gitCommit', [FAILING, 'Stage g'], 'stripspace', 7, '', 1);
+  await failsWith('gitUnstage-restore-fails', 'gitUnstage', [FAILING, ['g.txt']], 'restore', 1, 'git: restore is not a git command', 1);
+  write(FAILING, 'f.txt', 'changed\n');
+  await failsWith('gitRevertFile-worktree-restore-fails', 'gitRevert', [FAILING, 'f.txt', false, 'worktree'], 'restore', 1, 'git: restore is not a git command', 1);
+  const head = git(FAILING, 'rev-parse', 'HEAD').trim();
+  await failsWith('gitCherryPickCommit-conflict-text', 'gitCherryPickCommit', [FAILING, head], 'cherry-pick', 1, 'error: could not apply: CONFLICT (content) in f.txt', 1);
+  await failsWith('gitCherryPickCommit-plain-failure', 'gitCherryPickCommit', [FAILING, head], 'cherry-pick', 1, 'fatal: bad object', 1);
+  // The repository is the one the cases after this block expect.
+  git(FAILING, 'checkout', '--', 'f.txt');
+  rmSync(join(FAILING, 'g.txt'), { force: true });
 }
 // A repository whose only commit has no parent to go back to.
 await rec('gitUndoLastCommit-only-commit', 'gitUndoLastCommit', [FAILING]);
