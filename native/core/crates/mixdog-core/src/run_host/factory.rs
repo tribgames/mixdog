@@ -2599,10 +2599,18 @@ mod tests {
         (status["requestSnapshot"].clone(), handed)
     }
 
-    /// Waits until `count` runs of the thread have completed in the store.
-    async fn completed_runs(world: &World, id: &ThreadId, count: usize) {
+    /// Waits until `count` runs of the thread have completed in the store and the last turn's settlement is over: the end
+    /// record is written before the settle's last step, the turn's coverage stamp (`actor.rs` settle), and a turn started
+    /// before that stamp is queued behind the settlement. `covered_before` is the stamp before the turn started.
+    async fn settled_turns(world: &World, id: &ThreadId, handle: &Arc<mixdog_core_session::session::SessionHandle>, count: usize, covered_before: Option<Value>) {
         let done = || world.rig.store.records(id).into_iter().filter(|(_, record)| matches!(record, Record::Run(run) if run.phase == mixdog_store::schema::record::RunPhase::Completed)).count();
-        eventually_on_awaiting(|| format!("{count} completed runs of {}", id.as_str()), &[&world.rig.store.committed], || (done() >= count).then_some(())).await;
+        let covered = || handle.header_snapshot().get("turnCoverage").cloned();
+        eventually_on_awaiting(
+            || format!("{count} completed runs of {} and the changed turnCoverage stamp", id.as_str()),
+            &[&world.rig.store.committed, handle.stepped()],
+            || (done() >= count && covered() != covered_before).then_some(()),
+        )
+        .await;
     }
 
     /// A setting that moved after the thread was created reaches the snapshot as the turn start would bring it: the
@@ -2627,9 +2635,10 @@ mod tests {
         let (provider, mut heard) = handing();
         let world = turn_world(provider.clone()).await;
         let (id, handle) = started_thread(&world, json!({ "provider": "scripted", "model": "claude-opus-5-5" })).await;
+        let covered_before = handle.header_snapshot().get("turnCoverage").cloned();
         let (first, handed) = snapshot_then_turn(&world, &provider, &mut heard, &id, &handle, "op-1").await;
         assert_eq!(first, handed, "first turn");
-        completed_runs(&world, &id, 1).await;
+        settled_turns(&world, &id, &handle, 1, covered_before).await;
         let (second, handed) = snapshot_then_turn(&world, &provider, &mut heard, &id, &handle, "op-2").await;
         assert_eq!(second, handed, "second turn: the snapshot is not the request the turn handed the provider");
         assert_ne!(first, second, "the history is in the second request");
