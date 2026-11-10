@@ -34,7 +34,7 @@ const within = (promise, what, ms = 60_000) =>
     );
   });
 
-const killTree = (child) => void spawnSync('taskkill', ['/T', '/F', '/PID', String(child.pid)], { stdio: 'ignore' });
+const killTree = (child) => void spawnSync('taskkill', ['/T', '/F', '/PID', String(child.pid)], { stdio: 'ignore', timeout: 30_000 });
 
 /** The core, started on a data dir of its own with the relay it dials and the clock file it reads; up when it has written its discovery file. */
 async function startCore(exe, root, relayPort, clockFile) {
@@ -96,7 +96,7 @@ async function startRelay(clients) {
   const { WebSocketServer } = createRequire(join(REPO_ROOT, 'apps', 'desktop', 'package.json'))('ws');
   const E2EE = await here('apps/desktop/src/shared/remote-e2ee.ts');
   const server = new WebSocketServer({ port: 0, host: '127.0.0.1' });
-  await new Promise((resolve) => server.once('listening', resolve));
+  await within(new Promise((resolve) => server.once('listening', resolve)), 'the relay to listen', 30_000);
   const state = { socket: null, phones: new Map(), legWaiters: [] };
   server.on('connection', (socket) => {
     state.socket = socket;

@@ -27,9 +27,11 @@ test('the core is asked for the stage each call names, with the conversation and
   await adapter.calls.fileDownloadFinish([id], host);
   assert.equal(await adapter.calls.fileDownloadAbort([id], host), true);
   assert.deepEqual(
-    sent.filter(([method]) => method !== 'thread/read'),
+    sent,
     [
+      ['thread/read', { threadId: 's1' }],
       ['transfer/authorizeRead', { sessionId: 's1', source: { kind: 'file', root: PROJECT, rel: 'out.bin' }, purpose: 'save' }],
+      ['thread/read', { threadId: 's2' }],
       ['transfer/authorizeRead', { sessionId: 's2', source: { kind: 'sessionFile', path: 'C:/replay/a.bin' }, purpose: 'open' }],
       ['transfer/redeemGrant', { grantId: id }],
       ['transfer/readRange', { transferId: id, offset: 0, length: 4, version }],
