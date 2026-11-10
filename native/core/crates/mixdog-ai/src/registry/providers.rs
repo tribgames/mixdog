@@ -129,8 +129,9 @@ struct State {
     /// `_lastAppliedSig`: the signature of the config the last successful `init_providers` applied; `None` once a
     /// provider has been removed since.
     last_applied: Option<String>,
-    /// The catalog epoch: moves whenever the provider set changes (an instance registered, rebuilt or removed), which is
-    /// when Node drops its memoized startup catalog refresh (`_startupCatalogRefreshPromise = null`, registry.mjs:440,458,479).
+    /// The catalog epoch: moves whenever an apply or a lazy registration changes the provider set (an instance
+    /// registered, rebuilt or removed), which is when Node drops its memoized startup catalog refresh
+    /// (`_startupCatalogRefreshPromise = null`, registry.mjs:440,458,479); `disable` keeps it, as `disableProvider` does.
     refresh_epoch: u64,
 }
 
@@ -440,12 +441,21 @@ impl ProviderRegistry {
         state.refresh_epoch += 1;
     }
 
+    /// Removes `name` as an apply does, which opens a new catalog epoch (`_startupCatalogRefreshPromise = null`).
     fn remove(state: &mut State, name: &str) -> bool {
+        let had = Self::unregister(state, name);
+        if had {
+            state.refresh_epoch += 1;
+        }
+        had
+    }
+
+    /// Removes `name`, the catalog epoch kept.
+    fn unregister(state: &mut State, name: &str) -> bool {
         state.init_errors.remove(name);
         let had = state.providers.remove(name).is_some();
         if had {
             state.catalog_revision += 1;
-            state.refresh_epoch += 1;
             // `disableProvider`: the live registry no longer reflects the last applied config.
             state.last_applied = None;
         }
@@ -568,7 +578,9 @@ impl ProviderRegistry {
         }
         let mut state = self.state();
         state.explicitly_disabled.insert(id.to_owned());
-        Self::remove(&mut state, id)
+        // `disableProvider` keeps the startup catalog refresh of the epoch (registry.mjs:621-632): the next readiness call
+        // joins it instead of starting one, and the refreshes after it no longer ask this provider.
+        Self::unregister(&mut state, id)
     }
 
     /// Custom providers whose config failed to build, by name.
