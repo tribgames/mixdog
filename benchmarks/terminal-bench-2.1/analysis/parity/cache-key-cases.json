@@ -2,6 +2,8 @@
   "_": "Inputs of node-cache-key-capture.mjs: each case is (env, options, prefix) handed to Node's buildStableProviderPromptCacheKey('openai-oauth', options, prefix). The keys are recorded, never written here.",
   "cases": [
     { "name": "thread-session", "options": { "sessionId": "01a1c203-1d1e-7689-970e-9d71ae87052b", "promptCacheKey": "mixdog-codex" } },
+    { "name": "codex-identity-alone", "options": { "codexSessionId": "0190f0a0-aaaa-7bbb-8ccc-123456789abc", "promptCacheKey": "mixdog-codex" } },
+    { "name": "codex-identity-before-session", "options": { "codexSessionId": "0190f0a0-aaaa-7bbb-8ccc-123456789abc", "sessionId": "01a1c203-1d1e-7689-970e-9d71ae87052b", "promptCacheKey": "mixdog-codex" } },
     { "name": "no-session-named-key", "options": { "promptCacheKey": "mixdog-codex" } },
     { "name": "nothing", "options": {} },
     { "name": "named-key-needs-normalizing", "options": { "promptCacheKey": " my key! " } },

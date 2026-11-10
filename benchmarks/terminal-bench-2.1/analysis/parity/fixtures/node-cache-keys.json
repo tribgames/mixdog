@@ -2,7 +2,7 @@
  "manifest": {
   "exact": true,
   "nodeCommit": "b6f10295a",
-  "casesSha256": "e6c632a27a36ccb0b8080f8e35d37d140f7d913580993de4802c6c56343cc944",
+  "casesSha256": "76b767765af6847277e1ebe41b463bc74bf3613de0517682f6ac02a501f78de5",
   "harness": {
    "node-cache-key-capture.mjs": "7c46f908c8e78d205fcb5a730f5a076f40221a5c89edbc0dbc468948407d1533"
   }
@@ -15,6 +15,23 @@
     "promptCacheKey": "mixdog-codex"
    },
    "key": "01a1c203-1d1e-7689-970e-9d71ae87052b"
+  },
+  {
+   "name": "codex-identity-alone",
+   "options": {
+    "codexSessionId": "0190f0a0-aaaa-7bbb-8ccc-123456789abc",
+    "promptCacheKey": "mixdog-codex"
+   },
+   "key": "0190f0a0-aaaa-7bbb-8ccc-123456789abc"
+  },
+  {
+   "name": "codex-identity-before-session",
+   "options": {
+    "codexSessionId": "0190f0a0-aaaa-7bbb-8ccc-123456789abc",
+    "sessionId": "01a1c203-1d1e-7689-970e-9d71ae87052b",
+    "promptCacheKey": "mixdog-codex"
+   },
+   "key": "0190f0a0-aaaa-7bbb-8ccc-123456789abc"
   },
   {
    "name": "no-session-named-key",
