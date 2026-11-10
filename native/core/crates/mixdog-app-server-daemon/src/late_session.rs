@@ -658,14 +658,20 @@ impl LateDraftSettings {
         self.0.set(service).map_err(|_| "draft settings")
     }
 
-    /// The method as the host's `invokeSession` calls it: the thread and the one argument, no options.
-    async fn call(&self, method: &'static str, params: Value) -> Result<(), mixdog_core_api::CoreError> {
+    /// The method as the host's `invokeSession` calls it: the one argument, no options. Without the `session` scope Node's runtime
+    /// writes the configured value, which the empty session takes at its first turn (workflow-packs.mjs:53-71, style-and-mode.mjs:40-61),
+    /// and its answer is not read (session-host-lifecycle.ts:766-776): the call names no thread, whose record the core writes only
+    /// after the route (`begin_thread`), so the op is the domain's. Both are mutations, which the service refuses without an op
+    /// id: each call is its own operation.
+    async fn call(&self, method: &'static str, mut params: Value) -> Result<(), mixdog_core_api::CoreError> {
         let service = self.0.get().expect("draft settings bound (compose::verify_bound)");
+        let op = uuid::Uuid::now_v7().to_string();
+        params["opId"] = Value::String(op.clone());
         service
             .call(mixdog_core_api::call::CoreRequest {
                 method: mixdog_core_api::ids::Method(method),
                 params,
-                op: None,
+                op: Some(mixdog_core_api::ids::OpId::from(op)),
                 ctx: mixdog_core_api::call::CallContext::internal("draft"),
             })
             .await
@@ -675,12 +681,12 @@ impl LateDraftSettings {
 
 #[async_trait]
 impl mixdog_core_session::session::DraftSettings for LateDraftSettings {
-    async fn set_workflow(&self, thread: &ThreadId, workflow_id: &str) -> Result<(), mixdog_core_api::CoreError> {
-        self.call("thread/setWorkflow", serde_json::json!({ "threadId": thread, "workflowId": workflow_id })).await
+    async fn set_workflow(&self, _thread: &ThreadId, workflow_id: &str) -> Result<(), mixdog_core_api::CoreError> {
+        self.call("thread/setWorkflow", serde_json::json!({ "workflowId": workflow_id })).await
     }
 
-    async fn set_orchestration_mode(&self, thread: &ThreadId, mode: &str) -> Result<(), mixdog_core_api::CoreError> {
-        self.call("thread/setOrchestrationMode", serde_json::json!({ "threadId": thread, "mode": mode })).await
+    async fn set_orchestration_mode(&self, _thread: &ThreadId, mode: &str) -> Result<(), mixdog_core_api::CoreError> {
+        self.call("thread/setOrchestrationMode", serde_json::json!({ "mode": mode })).await
     }
 }
 

@@ -29,7 +29,7 @@
     },
     "translated": {
       "recorded[].receipts": "the files of `<userdata>/new-task-receipts`, by name, byte for byte (latin1), as the recorder reads them",
-      "recorded[].reply": "`submitNewTask` through the desktop's service lane (service-route.ts: `thread/start`), as received on both sides (`asReceived`): an answer is compared with `thread.id` as `sessionId` and `accepted: true` (the core answers only a started task, Node's `accepted` answer), less the paths of `coreNotCompared`; a rejection is its message and every own field of the error on both sides; a crash step's reply is `{crashed: at}` on both sides; a quit step's reply is `{quit: at}` on both sides: nobody receives it (Node's quit detaches the callers' carriers before the host is disposed, index.ts:1662-1664; the core closes its connections before its directory shuts down), and the core's call is checked to end unanswered",
+      "recorded[].reply": "`submitNewTask` through the desktop's service lane (service-route.ts: `thread/start`), as received on both sides (`asReceived`): an answer is compared with `thread.id` as `sessionId` and `accepted: true` (the core answers only a started task, Node's `accepted` answer), less the paths of `coreNotCompared`; a rejection is its message and every own field of the error on both sides; a crash step's reply is `{crashed: at}` on both sides",
       "recorded[].sessions": "every thread `thread/list` lists, with `prompts` = its `userMessage` items (`thread/items/list`) and `reserved` = no prompt yet (Node's daemon model sets `reserved` false exactly when it records a prompt, leg.mjs `submit`, and removes a reserved session without one on `unsubscribe`)",
       "recorded[].step": "the step the replay drives (scenarios.mjs), the same list the recording ran"
     }
@@ -38,9 +38,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 107081,
+      "bytes": 101174,
       "path": "golden.json",
-      "sha256": "8c9a584c2b5de6ec6b3c7516d6eebf0540b6758cc078ac1650d908436d7e9a2e"
+      "sha256": "cc3a2d16407fc2976117dbccb25f4bc9a4ddc2eaec883dd67e70ec5d666dd5fc"
     }
   ],
   "product": {
@@ -63,8 +63,6 @@
   "random": {
     "fresh session address": "a session address after a refusal reset or a changed-content retry is `sess_desktop_` + 32 random bytes in hex (freshSessionId, new-task-requests.ts:85); numbered `<fresh:N>` by first appearance in a scenario",
     "scenariosWhereTheTwoRunsDiffered": [
-      "quit-in-set-route",
-      "quit-in-request-worktree",
       "refusal-then-other-content",
       "refusal-then-same-content",
       "refusal-twice-then-other-content"
@@ -72,5 +70,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-new-task-dedupe.mjs",
   "set": "new-task-dedupe",
-  "totalBytes": 107081
+  "totalBytes": 101174
 }

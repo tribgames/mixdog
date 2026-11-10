@@ -3985,6 +3985,7 @@ dependencies = [
  "tokio-tungstenite",
  "tokio-util",
  "tracing",
+ "uuid",
  "windows-sys 0.61.2",
 ]
 

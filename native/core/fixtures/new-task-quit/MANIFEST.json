@@ -4,12 +4,21 @@
     "method": "each case whole: every recorded step, the core side built as `translated` states",
     "normalised": {
       "fresh session address": "numbered `<fresh:N>` by first appearance in the case on both sides",
-      "key order": "objects without regard to key order; arrays in order"
+      "key order": "objects without regard to key order; arrays in order",
+      "recorded[].stored": "a set of ids, sorted once the addresses are numbered (sorted by raw id its order would follow the random addresses)"
     },
     "notRecorded": {
       "recorded[].reply.snapshot": "the session snapshot Node's answer carries (session-host-lifecycle.ts:922,951); its workflow and orchestration mode are recorded as `settings`. The core's answer carries no snapshot (its session state travels on the subscription's feed)"
     },
-    "translated": {}
+    "translated": {
+      "recorded[0].reply (a held case)": "the interrupted request's answer: Node's is the app's own client's rejection of its pending call when the quit disposes it (desktop-service-client.ts:1065-1080 `rejectPending`, `Mixdog desktop service client is disposed.`); no daemon answers it. Both sides are `{ok: false, unanswered: true}` when no answer reached the caller before its connection closed (the core's answer after that is the protocol client's own rejection)",
+      "recorded[].listed": "the ids the app lists while the attempt is held: Node's `listSessions` (host), the core's `thread/list`",
+      "recorded[].receipts": "the files of `<userdata>/new-task-receipts`, by name, byte for byte (latin1)",
+      "recorded[].reply": "an answer through the desktop's service lane (service-route.ts: `thread/start`), the core's translated as the new-task-dedupe replay's (`thread.id` is `sessionId`, `accepted: true`, less its `coreNotCompared` paths); a rejection is its message and every own field of the error",
+      "recorded[].settings": "the workflow and orchestration mode of the accepted task: Node's from the answer's snapshot (`workflow`, `orchestrationMode`), the core's from the thread's `thread/workflow/updated` section after its first turn",
+      "recorded[].stop": "Node's `stopInTreeDaemon` outcome `{stopped, request}`; the core's is its exit after `mixdogd ctl stop --when-idle --reason userStop` (the stop request that does not wait for a new task, as Node's `/stop {force:true}`), the replay failing when it does not exit",
+      "recorded[].stored": "the sessions stored after the step, by id: Node's `<data>/sessions/<id>.log.jsonl`, the core's `<data>/sessions/<id>` that `thread/items/list` reads"
+    }
   },
   "desktopService": {
     "module": "daemon.cjs built from the export by apps/desktop/scripts/build-daemon.mjs (its scripts/ and package-lock.json taken from the commit with git archive); the daemon loads it as the app names it (index.ts:467-485, desktop-service-registry.mjs:111-205)",
@@ -20,7 +29,7 @@
     {
       "bytes": 7227,
       "path": "golden.json",
-      "sha256": "c63d646dfd4000a1698f1350045ad122c77b64610f466a9bdabbbf6970a32186"
+      "sha256": "097eb67960809551712a3f95addccd919910949241c9b2d2b7070031dd3613d7"
     }
   ],
   "product": {
@@ -39,6 +48,12 @@
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
     "version": "1.4.5"
+  },
+  "quit": {
+    "heldCallReleased": "once the daemon answered the stop request: the held call settles while the daemon shuts down (the session service is closed first, session-service.mjs:257; the host is disposed, session-host.ts:1208-1229)",
+    "notHeld": "create, setWorkflow and setOrchestrationMode wait on nothing outside the daemon (cases.mjs): a quit there is the kill at that point",
+    "outstandingAtExit": "Node's other outcome, the call still outstanding at `process.exit` (daemon.mjs:412): nothing rejects it (the in-process bridge rejects only on an abort signal, daemon-local-session-bridge.mjs:32-51, and the host passes none, session-host-transport.ts:202), so the attempt ends where it stands, as a kill does there: the new-task-dedupe set's `crash` scenarios record that state, and both exist for that reason",
+    "sequence": "the app's own (index.ts:1634-1725 disposeDesktopResources): the carriers and the local connection are detached first (index.ts:1662-1665, 1684-1685; desktop-connection.ts:513-523 `client.dispose()`, which rejects the app's pending calls with `Mixdog desktop service client is disposed.`), then `transport.stopInTreeDaemon(DESKTOP_DAEMON_STOP_TIMEOUT_MS)` (index.ts:1710-1712) sends `POST /stop {force:true}` (session-client.mjs:667-707) to the daemon this process forked into its tree (`process.type` browser on win32, session-client.mjs:59-63); the route answers, then raises SIGTERM (routes.mjs:200-209, 40-43) and the daemon's `shutdown` runs to `process.exit` (daemon.mjs:272-413) without `drainDeferral` (consulted by the self-shutdown only, daemon.mjs:506-566)"
   },
   "random": {
     "casesWhereTheTwoRunsDiffered": [

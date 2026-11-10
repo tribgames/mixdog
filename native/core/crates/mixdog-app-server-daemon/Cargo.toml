@@ -64,6 +64,7 @@ sha2 = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["sync", "signal", "rt", "time"] }
 tracing = { workspace = true }
+uuid = { workspace = true, features = ["v7"] }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [target.'cfg(unix)'.dependencies]
