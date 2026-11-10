@@ -300,6 +300,16 @@ pub(super) trait Timers: Send + Sync {
     fn spawn(&self, task: BoxFuture<()>);
     /// Runs `callback` after `after` unless the handle is cleared first (Node's `setTimeout`).
     fn set_timeout(&self, after: std::time::Duration, callback: Box<dyn FnOnce() + Send>) -> TimerHandle;
+
+    /// Node's `answer.then(reaction)` on an answer already asked for: `task` awaits the answer, then reacts. It is
+    /// polled once here, so an answer that is already settled is taken up by the task's first turn, as Node's
+    /// reaction job is; otherwise the task waits like any other.
+    fn react(&self, mut task: BoxFuture<()>) {
+        let waker = futures::task::noop_waker();
+        if task.as_mut().poll(&mut std::task::Context::from_waker(&waker)).is_pending() {
+            self.spawn(task);
+        }
+    }
 }
 
 /// Timers on the tokio runtime the caller is in.

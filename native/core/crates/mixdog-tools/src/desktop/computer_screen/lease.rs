@@ -209,7 +209,7 @@ impl<T> ListenerSet<T> {
         }
     }
 
-    fn clear(&self) {
+    pub(super) fn clear(&self) {
         self.lock().1.clear();
     }
 }
