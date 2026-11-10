@@ -225,7 +225,8 @@ async fn replay(scenario: &Value) {
     // Per operation, what the core did that a window can observe: how many deliveries it had made when the operation's own action
     // ended and after each answered request, and (below) the frames of each.
     let mut made: Vec<(usize, usize, Vec<usize>)> = Vec::new();
-    let mut reconnects: HashMap<usize, Value> = HashMap::new();
+    // The core's snapshot of the app feed as a connection that dials in at the end of an operation receives it.
+    let mut snapshots: HashMap<usize, Value> = HashMap::new();
     for (index, op) in scenario["ops"].as_array().unwrap().iter().enumerate() {
         let want = &scenario["results"][index];
         assert_eq!(want["op"], index);
@@ -290,17 +291,22 @@ async fn replay(scenario: &Value) {
                     revisions.insert(checkpoint.to_owned(), reply["revision"].as_f64().unwrap());
                 }
             }
-            // Node has no link to the core to lose. Here the desktop's connection drops and dials again, and the core answers the
-            // new subscription with its snapshot as it is now (the feed's own encoding), which the replay hands to the client.
-            "coreReconnect" => {
-                let feed: Arc<dyn ScopedFeed> = world.app.clone();
-                let tap = FeedTap::attach_as(&feed, 2 + index as u64);
-                let seen = within("the app feed's snapshot for a new subscriber", tap.notifications_until(|seen| !seen.is_empty())).await;
-                reconnects.insert(index, seen[0].clone());
-            }
+            // Node has no link to the core to lose, and a phone page's leg is the relay's. Here a connection drops and dials again
+            // (below), and nothing happens in the core itself.
+            "coreReconnect" | "phoneLink" => {}
             other => panic!("{label}: unknown op {other}"),
         }
         world.shadow.review_signal_settled().await;
+        // A connection that dials in at the end of this operation (a reconnect of the desktop, an operation run while its link was
+        // down, a phone that attaches or whose leg is back) is answered with the core's snapshot of the app feed as it is now
+        // (the feed's own encoding), which the replay hands to that client.
+        let dials = kind == "coreReconnect" || op["coreLinkDown"] == true || (kind == "client" && op["kind"] == "phone") || (kind == "phoneLink" && op["state"] == "up");
+        if dials {
+            let feed: Arc<dyn ScopedFeed> = world.app.clone();
+            let tap = FeedTap::attach_as(&feed, 2 + index as u64);
+            let seen = within("the app feed's snapshot for a new subscriber", tap.notifications_until(|seen| !seen.is_empty())).await;
+            snapshots.insert(index, seen[0].clone());
+        }
         let before = world.delivered() - start;
         // The windows then read in the order they asked, and a read may raise the next delivery. The requests, and what Node
         // answered each, are the recording's; the core's own answer to each must be that answer whole.
@@ -338,57 +344,74 @@ async fn replay(scenario: &Value) {
         .enumerate()
         .map(|(index, (start, before, after_answer))| {
             let end = after_answer.last().copied().unwrap_or(*before);
-            serde_json::json!({ "before": before, "afterAnswer": after_answer, "deliveries": &delivery_frames[*start..*start + end], "snapshot": reconnects.get(&index) })
+            serde_json::json!({ "before": before, "afterAnswer": after_answer, "deliveries": &delivery_frames[*start..*start + end], "snapshot": snapshots.get(&index) })
         })
         .collect();
     let frames_of = |index: usize| rust[index]["deliveries"].as_array().unwrap().iter().map(|delivery| delivery.as_array().unwrap().len()).sum::<usize>();
+    // The relay's pushes that carry a tell: one per frame, except in an operation run while the desktop's connection was down, where
+    // the tells made meanwhile reach the windows as the one tell of the connection's snapshot (a whole-store replace), not as a push.
+    let pushes_of = |index: usize| if scenario["ops"][index]["coreLinkDown"] == true { 0 } else { frames_of(index) };
     let ops = scenario["ops"].as_array().unwrap().len();
-    let bursts = BURSTS.iter().find(|(prefix, _)| name.starts_with(prefix)).map_or(&[][..], |(_, ops)| *ops);
-    assert_eq!(
-        bursts.to_vec(),
-        (0..ops).filter(|index| scenario["results"][*index]["deliveries"].as_u64().unwrap() > 1).collect::<Vec<_>>(),
-        "{name}: BURSTS lists exactly the operations in which Node made several deliveries"
-    );
+    // The operations in which Node made several deliveries. The rule for them is stated at the check below.
+    let bursts: Vec<usize> = (0..ops).filter(|index| scenario["results"][*index]["deliveries"].as_u64().unwrap() > 1).collect();
+    let input = |bursts: &[usize]| serde_json::json!({ "ops": scenario["ops"], "recorded": scenario["results"], "snapshot": snapshot, "rust": rust, "bursts": bursts });
+    let whole = |index: usize, trace: &Value| {
+        let want = &scenario["results"][index];
+        assert_eq!(trace["pushes"], pushes_of(index), "{name}: op {index}: pushes of the relay");
+        let expected = serde_json::json!({ "op": index, "deliveries": want["deliveries"], "requests": want["requests"], "shows": want["shows"], "pushes": pushes_of(index) });
+        assert_eq!(*trace, expected, "{name}: op {index} {}: what the windows asked and showed", scenario["ops"][index]);
+    };
 
-    // Tells that arrive apart: exactly Node's trace, and one push of the relay per frame.
-    let apart = windows_trace(&base, &serde_json::json!({ "ops": scenario["ops"], "recorded": scenario["results"], "snapshot": snapshot, "rust": rust, "bursts": [] })).await;
-    let apart = apart.as_array().expect("the replay answers a trace per operation");
+    // Tells that arrive apart: exactly Node's trace, and one push of the relay per tell.
+    let apart = windows_trace(&base, &input(&[])).await;
+    let apart = apart["traces"].as_array().expect("the replay answers a trace per operation");
     assert_eq!(apart.len(), ops, "{name}: a trace per operation");
     for (index, trace) in apart.iter().enumerate() {
-        let want = &scenario["results"][index];
-        let expected = serde_json::json!({ "op": index, "deliveries": want["deliveries"], "requests": want["requests"], "shows": want["shows"], "pushes": frames_of(index) });
-        assert_eq!(*trace, expected, "{name}: op {index} {}: what the windows asked and showed", scenario["ops"][index]);
+        whole(index, trace);
     }
 
-    // Tells that arrive together (BURSTS): the relay may hand them over as one push, so a pane may read fewer times than in Node.
-    let together = windows_trace(&base, &serde_json::json!({ "ops": scenario["ops"], "recorded": scenario["results"], "snapshot": snapshot, "rust": rust, "bursts": bursts })).await;
-    let together = together.as_array().expect("the replay answers a trace per operation");
-    assert_eq!(together.len(), ops, "{name}: a trace per operation");
+    // Tells that arrive together (the operations in which Node made several): the relay hands tells that reach it together to the
+    // windows as one push, so a pane may read fewer times than in Node, and nothing else may differ. The rule, stated once. For every
+    // pane that Node read in the operation, the pane's reads are an ordered subsequence of Node's (each of Node's matched at most once,
+    // each whole: the request, the answer, and what the pane rendered while waiting for it and after it); its last read is made after
+    // the burst's last tell reached it; every state of Node's that a skipped read had (rendered while waiting, rendered after the
+    // answer) is a state the pane still renders in the replay, or one it rendered before the operation or ends with; and the panes
+    // end as Node's do.
+    let together = windows_trace(&base, &input(&bursts)).await;
+    let (traces, told) = (together["traces"].as_array().expect("a trace per operation"), together["told"].as_array().expect("the told counts per operation"));
+    assert_eq!(traces.len(), ops, "{name}: a trace per operation");
     let mut coalesced = false;
-    for (index, trace) in together.iter().enumerate() {
-        let want = &scenario["results"][index];
+    for (index, trace) in traces.iter().enumerate() {
         if !bursts.contains(&index) {
-            // Not a burst, but the state it starts from is the one the bursts before it left: the bars must agree with Node's.
-            let expected = serde_json::json!({ "op": index, "deliveries": want["deliveries"], "requests": want["requests"], "shows": want["shows"], "pushes": frames_of(index) });
-            assert_eq!(*trace, expected, "{name}: op {index} {}: what the windows asked and showed", scenario["ops"][index]);
+            // Not a burst, but the state it starts from is the one the bursts before it left: the panes must agree with Node's.
+            whole(index, trace);
             continue;
         }
+        let want = &scenario["results"][index];
         let label = format!("{name}: burst op {index} {}", scenario["ops"][index]);
         assert_eq!(trace["deliveries"], want["deliveries"], "{label}: deliveries");
-        assert_eq!(trace["shows"], want["shows"], "{label}: what the bars show after the burst is what they show in Node after its last read");
+        assert_eq!(trace["shows"], want["shows"], "{label}: what the panes render after the burst is what they render in Node after its last read");
         let before = if index == 0 { Value::Null } else { scenario["results"][index - 1]["shows"].clone() };
         let panes: std::collections::BTreeSet<&str> = want["requests"].as_array().unwrap().iter().map(|read| read["client"].as_str().unwrap()).collect();
         for pane in panes {
-            let of = |reads: &Value| reads.as_array().unwrap().iter().filter(|read| read["client"] == pane).cloned().collect::<Vec<_>>();
-            let (node, rust_reads) = (of(&want["requests"]), of(&trace["requests"]));
-            assert!(!rust_reads.is_empty(), "{label}: {pane} read nothing after the burst, and Node's pane did");
-            for read in &rust_reads {
-                assert!(node.iter().any(|made| without_after(made) == without_after(read)), "{label}: {pane} made a read Node never made: {read}");
+            let reads_of = |reads: &Value| reads.as_array().unwrap().iter().enumerate().filter(|(_, read)| read["client"] == pane).map(|(at, read)| (at, read.clone())).collect::<Vec<_>>();
+            let (node, mine) = (reads_of(&want["requests"]), reads_of(&trace["requests"]));
+            assert!(!mine.is_empty(), "{label}: {pane} read nothing after the burst, and Node's pane did");
+            let mut kept = vec![false; node.len()];
+            let mut next = 0;
+            for (_, read) in &mine {
+                let at = node[next..].iter().position(|(_, made)| without_after(made) == without_after(read)).unwrap_or_else(|| panic!("{label}: {pane} made a read that is no later read of Node's than the one before it: {read}"));
+                kept[next + at] = true;
+                next += at + 1;
             }
-            // A read the relay saved is not a state a user could have seen: after each of Node's reads but its last, the bar showed
-            // what it shows once the burst is over, or what it showed before the operation.
-            for read in &node[..node.len() - 1] {
-                assert!(read["shown"] == want["shows"][pane] || read["shown"] == before[pane], "{label}: Node's bar of {pane} showed {} between reads", read["shown"]);
+            let last = mine.last().unwrap().0;
+            assert_eq!(told[index][last], frames_of(index), "{label}: the last read of {pane} was made before the burst's last tell reached it");
+            let mut rendered = vec![before[pane].clone(), trace["shows"][pane].clone()];
+            rendered.extend(mine.iter().flat_map(|(_, read)| [read["waiting"].clone(), read["shown"].clone()]));
+            for ((_, read), kept) in node.iter().zip(&kept) {
+                for state in [&read["waiting"], &read["shown"]] {
+                    assert!(*kept || rendered.contains(state), "{label}: Node's pane {pane} rendered a state in a read the replay skipped that the replay's never renders: {state}");
+                }
             }
         }
         coalesced |= trace["pushes"].as_u64().unwrap() < frames_of(index) as u64;
@@ -396,14 +419,8 @@ async fn replay(scenario: &Value) {
     assert!(bursts.is_empty() || coalesced, "{name}: no burst reached the windows as fewer pushes than frames, so the relay's coalescing was not exercised");
 }
 
-/// The operations in which Node made several deliveries, per scenario (by the start of its name): their tells are sent to the
-/// relay before it flushes. The rule for them, stated once: the relay may hand tells that reach it together to the windows as one
-/// push, so a pane may read fewer times than in Node and nothing else may differ. For every pane that Node read in the operation:
-/// it reads at least once after the last tell; every read it makes is one Node made (the whole request, the whole answer, what the
-/// bar showed after it; only the count of deliveries before the read is not compared); each read of Node's that it saved left the
-/// bar showing what the burst ends with or what it showed before; and the bars end as Node's do.
-const BURSTS: &[(&str, &[usize])] = &[("command tool", &[21]), ("Undo of", &[8, 9, 13, 15])];
-
+/// A read without the count of tells made before it: a read that comes later (the relay handed it the tells together) is stamped
+/// with a later count than the Node read it matches.
 fn without_after(read: &Value) -> Value {
     let mut read = read.clone();
     read.as_object_mut().unwrap().remove("after");

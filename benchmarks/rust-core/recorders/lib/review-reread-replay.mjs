@@ -43,6 +43,8 @@ const kit = await loadWindowKit(tree);
 const { connect, sessionReducer, MockNetwork } = await fromTree('packages/protocol-client/src/index.ts');
 const { createProtocolConnection } = await fromTree('apps/desktop/src/main/protocol/connection.ts');
 const { registerProtocolWindowIpc } = await fromTree('apps/desktop/src/main/protocol/window-ipc.ts');
+const { createPhoneSections } = await fromTree('apps/mobile/src/phone-sections.ts');
+const { sectionsSourceFromFoldStore } = await fromTree('apps/desktop/src/renderer/section-store.ts');
 const { DESKTOP_IPC } = await fromTree('apps/desktop/src/shared/contract.ts');
 const { SECTIONS_IPC } = await fromTree('apps/desktop/src/shared/contract-sections.ts');
 const { build } = await import(pathToFileURL(createRequire(join(tree, 'apps/desktop/package.json')).resolve('esbuild')).href);
@@ -64,15 +66,42 @@ const canonical = (value) => JSON.stringify(value, (_key, item) => (item && type
 
 let unanswered = [];
 let where = '';
+// What the replay alone can measure, per answered request in the order the windows asked: how many review frames the connection of
+// the asking window had folded when it asked.
+let toldAtRead = [];
+// The device (the Electron windows share the desktop's connection; a phone page has its own) each session's pane belongs to.
+const deviceOf = new Map();
+const counts = new Map();
 const windows = new ReviewWindows(kit, async ({ session, request }) => {
   const at = unanswered.findIndex((recorded) => recorded.client === session && canonical(recorded.request) === canonical(request));
   if (at < 0) throw new Error(`the window of ${session} asked ${canonical(request)}, which the recording never saw at this point (${where}; recorded for this operation: ${unanswered.map((r) => r.client + ' ' + canonical(r.request.args)).join(' | ')})`);
+  toldAtRead.push(counts.get(deviceOf.get(session)) ?? 0);
   return unanswered.splice(at, 1)[0].answer;
 });
 
-// The connection to the core: the socket is the only stand-in. The relay runs with its production scheduling (`setImmediate`):
-// whatever reaches it before that callback is one push, whatever reaches it after is another. `relayTick` lets the callbacks
-// queued so far run (the relay's was queued first), inside `act` so the panes' effects are flushed with it.
+/** A count that can be waited on: `reach(n)` settles once `bump` has made it at least `n`. */
+const counter = () => {
+  let n = 0;
+  const waiting = [];
+  return {
+    get n() {
+      return n;
+    },
+    bump() {
+      n += 1;
+      for (const check of waiting.splice(0)) check();
+    },
+    reach: (target) =>
+      new Promise((resolve) => {
+        const check = () => (n >= target ? resolve() : waiting.push(check));
+        check();
+      }),
+  };
+};
+
+// The desktop's connection to the core: the socket is the only stand-in. The relay runs with its production scheduling
+// (`setImmediate`): whatever reaches it before that callback is one push, whatever reaches it after is another. `relayTick` lets
+// the callbacks queued so far run (the relay's was queued first), inside `act` so the panes' effects are flushed with it.
 const network = new MockNetwork();
 const connection = createProtocolConnection({
   open: () =>
@@ -111,32 +140,97 @@ const handshake = async (conn, first) => {
   const initialize = JSON.parse(await within('the client sending initialize', conn.nextSent()));
   conn.serverSend({ id: initialize.id, result: { ...options.initializeResult, serverInstanceId: first ? 'replay' : 'replay-again' } });
   await within('the client sending initialized', conn.nextSent());
-  const subscribe = JSON.parse(await within('the client sending app/subscribe', conn.nextSent()));
-  return subscribe;
 };
-let socket;
-/** The core accepts the app subscription with `snapshot` (the core's own snapshot frame, whole). */
-const attachApp = async (snapshot) => {
-  const subscribe = await handshake(socket, snapshot === input.snapshot);
+const readSubscribe = async (conn) => JSON.parse(await within('the client sending app/subscribe', conn.nextSent()));
+/** The core accepts the app subscription on `sock` with `snapshot` (the core's own snapshot frame, whole). */
+const attachApp = async (sock, snapshot, first) => {
+  await handshake(sock, first);
+  const subscribe = await readSubscribe(sock);
   const feed = snapshot.feed;
-  socket.serverSend({ id: subscribe.id, result: { subscription: { id: 'app', mode: 'snapshot', epoch: feed.epoch, startSeq: feed.seq + 1 } } });
-  socket.serverSend(snapshot);
+  sock.serverSend({ id: subscribe.id, result: { subscription: { id: 'app', mode: 'snapshot', epoch: feed.epoch, startSeq: feed.seq + 1 } } });
+  sock.serverSend(snapshot);
 };
+
+// Every connection that frames of the core reach: the desktop's (all its windows share it) and one per phone page. A frame goes to
+// a live connection only if the connection's snapshot did not already hold it, and in the order the connections were made.
+const main = { socket: null, seq: 0, live: true, folds: counter() };
 const started = connection.start();
-socket = await within('the client dialing the core', network.accept());
-await attachApp(input.snapshot);
+main.socket = await within('the client dialing the core', network.accept());
+await attachApp(main.socket, input.snapshot, true);
+main.seq = input.snapshot.feed.seq;
 await within('the connection folding the core\'s app snapshot', Promise.all([started, connection.whenSynced()]));
+connection.watchSection('reviewDiff', () => main.folds.bump());
 await relayTick();
 
-/** The core drops the connection and the client dials again; the core answers with its snapshot as it is now. */
-const reconnect = async (snapshot) => {
+/** The core drops the desktop's connection (the windows stay), and later the client dials again; the core answers with its snapshot as it is then. */
+const dropMain = () => {
+  main.live = false;
+  main.socket.serverClose(1006);
+};
+const reconnectMain = async (snapshot) => {
   const committed = awaitCommit();
-  socket.serverClose(1006);
-  socket = await within('the client dialing the core again', network.accept());
-  await attachApp(snapshot);
+  main.socket = await within('the client dialing the core again', network.accept());
+  await attachApp(main.socket, snapshot, false);
+  main.seq = snapshot.feed.seq;
+  main.live = true;
   await within('the relay committing the replaced store', committed);
   await relayTick();
 };
+
+// A phone page: its own client of the core, the phone's section source (`createPhoneSections`) over that client's fold store, and no
+// relay in between. The page's own events (`mixdog:remote-reconnected`, dispatched by the phone's boot once its leg is synced again)
+// are not part of what is replayed: the replay raises them the way the recording does.
+const phones = new Map();
+const connectPhone = async (name, snapshot) => {
+  const net = new MockNetwork();
+  const connecting = connect({
+    target: { id: 'core' },
+    connector: net,
+    clientInfo: options.clientInfo,
+    capabilities: options.capabilities,
+    threadReducer: sessionReducer,
+    clock: { sleep: () => Promise.resolve() },
+    random: () => options.jitterUnit,
+  });
+  const phone = { net, socket: await within(`the phone ${name} dialing the core`, net.accept()), seq: snapshot.feed.seq, live: true, folds: counter(), client: null };
+  // A phone page subscribes to the app feed itself once it is connected (phone-view.ts ttach), unlike the desktop connection.
+  await handshake(phone.socket, true);
+  phone.client = await within(`the phone ${name} syncing with the core`, connecting);
+  const subscribed = phone.client.subscribeApp();
+  const subscribe = await readSubscribe(phone.socket);
+  phone.socket.serverSend({ id: subscribe.id, result: { subscription: { id: 'app', mode: 'snapshot', epoch: snapshot.feed.epoch, startSeq: snapshot.feed.seq + 1 } } });
+  phone.socket.serverSend(snapshot);
+  await within(`the phone ${name} subscribing to the app feed`, subscribed);
+  phone.client.store.subscribe((change) => {
+    if (change.type === 'section' && change.section === 'reviewDiff') phone.folds.bump();
+  });
+  phones.set(name, phone);
+  return phone;
+};
+const dropPhone = (name) => {
+  const phone = phones.get(name);
+  phone.live = false;
+  phone.socket.serverClose(1006);
+};
+const reconnectPhone = async (name, snapshot) => {
+  const phone = phones.get(name);
+  const synced = new Promise((resolve) => {
+    const stop = phone.client.store.subscribe((change) => {
+      if (change.type === 'appSnapshot') (stop(), resolve());
+    });
+  });
+  phone.socket = await within(`the phone ${name} dialing the core again`, phone.net.accept());
+  await attachApp(phone.socket, snapshot, false);
+  phone.seq = snapshot.feed.seq;
+  phone.live = true;
+  await within(`the phone ${name} folding the core's snapshot`, synced);
+  await kit.act(async () => {});
+};
+const phoneApi = (phone) => ({
+  sections: createPhoneSections({ start: async () => ({ client: phone.client }) }, sectionsSourceFromFoldStore),
+  invokeCapability: (request) => windows.invoke(request),
+});
+
 /** One window of the connection per recorded window name: its IPC, its handlers and its preload. */
 const appWindows = new Map();
 const attachWindow = (name) => {
@@ -168,30 +262,43 @@ const attachWindow = (name) => {
   });
   return api;
 };
-const open = async ({ session, checkpoint, window }) => {
+const open = async ({ session, checkpoint, window, kind }, rust) => {
+  deviceOf.set(session, kind === 'phone' ? window : 'desktop');
+  if (kind === 'phone') {
+    if (phones.has(window)) throw new Error(`the phone ${window} is already open`);
+    await windows.open({ session, checkpoint, window, api: phoneApi(await connectPhone(window, rust.snapshot)) });
+    return;
+  }
   if (!appWindows.has(window)) appWindows.set(window, attachWindow(window));
-  await windows.open({ session, checkpoint, api: appWindows.get(window) });
+  await windows.open({ session, checkpoint, window, api: appWindows.get(window) });
 };
 
-/** One frame of a tell, apart from every other: sent, folded by the client, flushed by the relay and rendered by every pane that listens. */
-const deliverApart = async (frame) => {
-  await deliverTogether([frame]);
-};
-/** Frames sent one after the other with nothing run between them but the client folding each; the relay flushes once, after the last. */
-const deliverTogether = async (frames) => {
-  let folded = 0;
-  const all = new Promise((resolve) => {
-    const stop = connection.watchSection('reviewDiff', () => {
-      folded += 1;
-      if (folded === frames.length) (stop(), resolve());
-    });
-  });
-  for (const frame of frames) socket.serverSend(frame);
-  await within(`the client folding ${frames.length} review/diff/updated frame(s) (from seq ${frames[0].feed.seq})`, all);
-  await relayTick();
+/** Frames sent one after the other to every live connection that does not hold them yet, nothing run between them but the client
+ *  folding each; the desktop's relay flushes once after the last. A device's count of told frames is raised once its client folded them. */
+const deliverFrames = async (frames) => {
+  const fresh = main.live ? frames.filter((frame) => frame.feed.seq > main.seq) : [];
+  if (fresh.length) {
+    const folded = main.folds.reach(main.folds.n + fresh.length);
+    for (const frame of fresh) main.socket.serverSend(frame);
+    main.seq = fresh.at(-1).feed.seq;
+    await within(`the client folding ${fresh.length} review/diff/updated frame(s) (from seq ${fresh[0].feed.seq})`, folded);
+    counts.set('desktop', (counts.get('desktop') ?? 0) + fresh.length);
+    await relayTick();
+  }
+  for (const [name, phone] of phones) {
+    const mine = phone.live ? frames.filter((frame) => frame.feed.seq > phone.seq) : [];
+    if (!mine.length) continue;
+    const folded = phone.folds.reach(phone.folds.n + mine.length);
+    for (const frame of mine) phone.socket.serverSend(frame);
+    phone.seq = mine.at(-1).feed.seq;
+    await within(`the phone ${name} folding ${mine.length} review/diff/updated frame(s) (from seq ${mine[0].feed.seq})`, folded);
+    counts.set(name, (counts.get(name) ?? 0) + mine.length);
+    await kit.act(async () => {});
+  }
 };
 
 const traces = [];
+const told = [];
 for (const [index, op] of input.ops.entries()) {
   const rust = input.rust[index];
   const together = input.bursts.includes(index);
@@ -199,22 +306,38 @@ for (const [index, op] of input.ops.entries()) {
   where = `op ${index} ${op.op}, ${together ? 'tells together' : 'tells apart'}`;
   windows.startOperation();
   pushes = 0;
-  if (op.op === 'client') await open(op);
-  if (op.op === 'coreReconnect') await reconnect(rust.snapshot);
-  await relayTick();
+  toldAtRead = [];
+  counts.clear();
+  if (op.op === 'client') await open(op, rust);
+  if (op.op === 'phoneLink' && op.state === 'down') dropPhone(op.window);
+  if (op.op === 'coreReconnect') dropMain();
+  if (op.coreLinkDown) dropMain();
   let delivered = 0;
+  if (op.coreLinkDown) {
+    // The tells the core made while the link was down reach the desktop as the one tell its snapshot carries (a newer revision of
+    // `reviewDiff` than the store holds), not as frames: Node's deliveries of the operation are that one.
+    windows.deliveries += Math.min(1, rust.deliveries.length);
+    counts.set('desktop', rust.deliveries.flat().length);
+    delivered = rust.deliveries.length;
+  }
+  if (op.op === 'coreReconnect' || op.coreLinkDown) await reconnectMain(rust.snapshot);
+  if (op.op === 'phoneLink' && op.state === 'up') {
+    await reconnectPhone(op.window, rust.snapshot);
+    await windows.reconnected(op.window);
+  }
+  await relayTick();
   const deliverUpTo = async (count) => {
     if (together) {
       if (count <= delivered) return;
       const frames = rust.deliveries.slice(delivered, count).flat();
       windows.deliveries += count - delivered;
       delivered = count;
-      if (frames.length) await deliverTogether(frames);
+      if (frames.length) await deliverFrames(frames);
       return;
     }
     while (delivered < count) {
       windows.deliveries += 1;
-      for (const frame of rust.deliveries[delivered++]) await deliverApart(frame);
+      for (const frame of rust.deliveries[delivered++]) await deliverFrames([frame]);
     }
   };
   await deliverUpTo(together ? rust.deliveries.length : rust.before);
@@ -223,8 +346,9 @@ for (const [index, op] of input.ops.entries()) {
   await deliverUpTo(rust.deliveries.length);
   await windows.settle();
   traces.push({ op: index, ...windows.trace(), pushes });
+  told.push(toldAtRead);
 }
 await windows.close();
 await connection.close();
 // The client library's liveness ticker would keep the process open; the trace is written, so leave once it is flushed.
-process.stdout.write(JSON.stringify(traces), () => process.exit(0));
+process.stdout.write(JSON.stringify({ traces, told }), () => process.exit(0));

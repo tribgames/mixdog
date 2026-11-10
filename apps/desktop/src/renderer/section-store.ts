@@ -22,6 +22,8 @@ export interface FoldStoreLike {
   sections(section: string): readonly DesktopSectionEntry[];
   section(section: string, key?: string | null): DesktopSectionEntry | undefined;
   subscribe(listener: (change: { type: string; section?: string; key?: string | null }) => void): () => void;
+  /** Set while the changes a snapshot swapped in are still being announced (the client library's `FoldStore.owed`). */
+  readonly owed?: unknown;
 }
 
 /** Adapts a client-library store (the phone's `connectPhone().store`) to a source. `names` is the section registry. */
@@ -35,6 +37,9 @@ export function sectionsSourceFromFoldStore(
     subscribe: (listener) =>
       store.subscribe((change) => {
         if (change.type !== 'section' || change.section === undefined) return;
+        // A tell is not state: the announcement of a snapshot (a late attach, a leg that came back) is not one. A phone whose leg
+        // was down is not told what was pushed meanwhile (the relay does not replay it); its page reads again on its own reconnect.
+        if (store.owed && EVENT_SECTIONS.includes(change.section)) return;
         const key = change.key ?? null;
         listener({
           kind: 'sections',
@@ -75,7 +80,19 @@ export function createSectionStore(source: SectionsSource): SectionStore {
   let pushedWholeStore = false;
   let pushedStatus = false;
   const pushedPairs = new Set<string>();
-  // The chunks of a 
+  // The newest revision of a tell this store has taken in or been told of, per section and key. A tell is not state, so a whole
+  // store never makes a listener act on a tell it was not there for; but one that carries a tell newer than the one this store
+  // already holds is a tell it missed while its link was down, and it is announced once.
+  const tellRevisions = new Map<string, number>();
+  // `whole`: the revision comes from a whole store, which the core is the authority of (a restarted core numbers from the start
+  // again); a push only ever moves the held revision forward.
+  const noteTell = (section: string, key: string | null, revision: number, whole = false): boolean => {
+    const at = `${section}\u0000${keyOf(key)}`;
+    const held = tellRevisions.get(at);
+    if (!whole && held !== undefined && held >= revision) return false;
+    tellRevisions.set(at, revision);
+    return held !== undefined && held < revision;
+  };
   // The chunks of a replace between its begin and its commit.
   let staged: DesktopSectionEntry[] | null = null;
 
@@ -92,6 +109,7 @@ export function createSectionStore(source: SectionsSource): SectionStore {
     } else {
       if (current && current.revision >= change.entry.revision) return;
       bucket.set(k, change.entry);
+      if (EVENT_SECTIONS.includes(change.section)) noteTell(change.section, change.key, change.entry.revision);
     }
     lists.delete(change.section);
     touched.add(change.section);
@@ -118,7 +136,10 @@ export function createSectionStore(source: SectionsSource): SectionStore {
         if (!loaded) pushedWholeStore = true;
         sections.clear();
         lists.clear();
-        for (const entry of staged ?? []) if (!EVENT_SECTIONS.includes(entry.section)) apply({ section: entry.section, key: entry.key, entry }, touched);
+        for (const entry of staged ?? []) {
+          if (!EVENT_SECTIONS.includes(entry.section)) apply({ section: entry.section, key: entry.key, entry }, touched);
+          else if (noteTell(entry.section, entry.key, entry.revision, true)) touched.add(entry.section);
+        }
         staged = null;
         notify(touched);
       }
@@ -140,7 +161,10 @@ export function createSectionStore(source: SectionsSource): SectionStore {
     const touched = new Set<string>();
     if (!pushedWholeStore) {
       for (const entry of snapshot.entries) {
-        if (EVENT_SECTIONS.includes(entry.section)) continue;
+        if (EVENT_SECTIONS.includes(entry.section)) {
+          noteTell(entry.section, entry.key, entry.revision, true);
+          continue;
+        }
         if (pushedPairs.has(`${entry.section}\u0000${keyOf(entry.key)}`)) continue;
         apply({ section: entry.section, key: entry.key, entry }, touched);
       }
