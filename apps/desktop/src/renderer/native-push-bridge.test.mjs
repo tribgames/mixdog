@@ -6,7 +6,29 @@ import {
   subscribeNativeNotificationActions,
   syncNativePush,
 } from './native-push-bridge.ts';
-import { publishedCeilings, until, withShim } from './remote-shim-test-harness.mjs';
+import { withPhoneApi } from './test-support/phone-api-rig.mjs';
+
+/** What the stand-ins below changed (a parked action acknowledged, an answer attempted): each change re-checks the waits. */
+const changes = new Set();
+const changed = () => {
+  for (const check of [...changes]) check();
+};
+/** Resolves once `condition()` holds after a change; fails naming `what` once 5 s pass without it. */
+const until = (condition, what = 'condition') =>
+  new Promise((resolve, reject) => {
+    if (condition()) return resolve();
+    const check = () => {
+      if (!condition()) return;
+      changes.delete(check);
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      changes.delete(check);
+      reject(new Error(`${what} did not settle within 5 s`));
+    }, 5_000);
+    changes.add(check);
+  });
 
 const granted = { platform: 'fcm', token: 'tok-1', publicKey: 'pub-1', permission: 'granted' };
 
@@ -69,19 +91,16 @@ test('a plain browser (no native bridge) never registers', async () => {
   assert.equal(await syncNativePush({ native: { platform: 'ios', version: '1' }, host: on.host }), 'no-native');
 });
 
+// Node's version (b6f10295a) set the flag from the relay challenge of each leg (remote-shim-socket.ts:292 and :389). On the phone the flag is
+// the context's `peerNativePush`, set from the core's capabilities each time a connection is ready (apps/mobile/src/phone-boot.ts applyFlags,
+// phone-capabilities.ts peerFlagsOf); the host reads it on the product's shim context.
 test('the shim host reads the live capability flag and calls registerNativePush', async () => {
-  await withShim({}, async (shim) => {
-    const host = createNativePushHost(shim.ctx);
+  await withPhoneApi({}, async ({ ctx }) => {
+    const host = createNativePushHost(ctx);
     assert.equal(host.available(), false);
-    const leg = await shim.dial({ nativePush: true, ready: publishedCeilings(4096, 4096) });
-    await until(() => shim.ctx.peerNativePush === true);
+    ctx.peerNativePush = true;
     assert.equal(host.available(), true);
-    assert.ok(leg);
-    shim.ctx.connectionReady = false;
-    shim.ctx.socket = null;
-    shim.ctx.openPromise = null;
-    await shim.dial({ nativePush: false, ready: publishedCeilings(4096, 4096) });
-    await until(() => shim.ctx.peerNativePush === false);
+    ctx.peerNativePush = false;
     assert.equal(host.available(), false);
   });
 });
@@ -112,7 +131,11 @@ const answering = (answer) => {
       register: async () => {},
       answerApproval: async (sessionId, id, action) => {
         answered.push([sessionId, id, action]);
-        return typeof answer === 'function' ? answer() : answer;
+        try {
+          return typeof answer === 'function' ? answer() : answer;
+        } finally {
+          changed();
+        }
       },
     },
   };
@@ -171,6 +194,7 @@ const parkedShell = (items) => ({
     if (method === 'ackPendingAction') {
       const at = items.findIndex((a) => a.id === args.id);
       if (at >= 0) items.splice(at, 1);
+      changed();
       return true;
     }
     throw new Error(`unexpected ${method}`);

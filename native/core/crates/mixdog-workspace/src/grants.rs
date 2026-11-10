@@ -274,6 +274,26 @@ impl GrantStore {
     }
 }
 
+impl GrantStore {
+    /// Whether this device holds a live grant for exactly `path` (the grant `redeem` would honour for a token naming it:
+    /// alive, its conversation present). A file call that names the file by its path, not by the token, is the
+    /// device's own grant only when this holds.
+    pub async fn holds(&self, credential: &str, connection: u64, path: &Path) -> WsResult<bool> {
+        let held: Vec<(String, Instant)> = {
+            let table = self.table(credential, connection);
+            let grants = table.lock().expect("grants");
+            grants.iter().filter(|(_, grant)| same_path(&grant.path, path)).map(|(_, grant)| (grant.session_id.clone(), grant.expires_at)).collect()
+        };
+        let now = self.clock.now();
+        for (session_id, expires_at) in held {
+            if expires_at > now && !self.conversation_gone(&session_id).await? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+}
+
 impl mixdog_core_api::state::CatalogObserver for GrantStore {
     /// A catalog publication: every session in it is seen from now on.
     fn published(&self, session_ids: &[&str]) {

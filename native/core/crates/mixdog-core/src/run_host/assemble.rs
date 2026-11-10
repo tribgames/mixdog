@@ -191,6 +191,40 @@ pub struct HostRunParts {
     services: HostServices,
 }
 
+/// The thread a Codex request names. Node's `codexWireSendOpts` fixes the wire window at `<wire id>:0` whatever the
+/// compaction count, and `buildRequestSendOptions` sends the turn's start as the stamp its id was minted from.
+pub(crate) fn wire_thread(id: ThreadId, turn: Option<mixdog_core_api::ids::TurnId>) -> RequestThread {
+    let turn_started_at_ms = turn.as_ref().and_then(|t| mixdog_ai::providers::openai::client_meta::v7_stamp(t.as_str()));
+    RequestThread { id, window: 0, turn, turn_started_at_ms }
+}
+
+/// `isUuidV7`: the canonical 8-4-4-4-12 form of a version 7, variant `[89ab]` id.
+fn is_uuid_v7(value: &str) -> bool {
+    let parts: Vec<&str> = value.split('-').collect();
+    parts.len() == 5
+        && parts.iter().zip([8, 4, 4, 4, 12]).all(|(part, len)| part.len() == len && part.bytes().all(|b| b.is_ascii_hexdigit()))
+        && parts[2].starts_with(['7'])
+        && parts[3].starts_with(['8', '9', 'a', 'b', 'A', 'B'])
+}
+
+/// The thread a request of the stored session `header` names: a Codex session sends its stored wire identity
+/// (`codexWireSessionId`, `ensureCodexWireSessionId`), which is not the thread's id, as the id of every request of the
+/// session, compaction summaries included; any other route names the thread itself. A Codex header with no valid stored
+/// identity falls back to the thread id only for requests built outside a turn; `assemble` mints and stores one first.
+pub(crate) fn request_identity(thread: &ThreadId, header: &Header, turn: Option<mixdog_core_api::ids::TurnId>) -> RequestThread {
+    let stored = text(header, "codexWireSessionId").to_lowercase();
+    let wire = (text(header, "provider") == "openai-oauth" && is_uuid_v7(&stored)).then(|| ThreadId::from(stored.as_str()));
+    wire_thread(wire.unwrap_or_else(|| thread.clone()), turn)
+}
+
+/// The identity fields of a request's options, shared by the turn's assembly and the parity test: Node's
+/// `codexSessionId`, thread and cache key are all the stored wire identity (`cache-strategy.mjs:312`).
+pub(crate) fn apply_identity(options: &mut mixdog_core_api::domain::provider::RequestOptions, thread: &ThreadId, header: &Header, turn: Option<mixdog_core_api::ids::TurnId>) {
+    let identity = request_identity(thread, header, turn);
+    options.session_id = Some(identity.id.to_string());
+    options.thread = Some(identity);
+}
+
 impl HostRunParts {
     pub fn new(services: HostServices) -> Self {
         Self { services }
@@ -244,8 +278,8 @@ struct RequestSource<'a> {
     request: &'a str,
     injected: bool,
     provider_state: Option<mixdog_core_api::domain::provider::ProviderState>,
-    /// The thread's compaction count and the turn the request is for, when there is one.
-    window: u64,
+    /// The turn the request is for, when there is one. (The thread's compaction count is not a request fact: the wire
+    /// window is fixed at `<wire id>:0`, [`wire_thread`].)
     turn: Option<mixdog_core_api::ids::TurnId>,
 }
 
@@ -289,13 +323,12 @@ impl HostRunParts {
             },
         );
         let mut options = mixdog_core_api::domain::provider::RequestOptions::default();
-        options.session_id = Some(thread.as_str().to_owned());
+        apply_identity(&mut options, thread, header, source.turn);
         options.effort = Some(text(header, "effort").to_owned()).filter(|e| !e.is_empty());
         options.fast = header.get("fast").and_then(Value::as_bool) == Some(true);
         options.prompt_cache_key = Some(text(header, "promptCacheKey").to_owned()).filter(|k| !k.is_empty());
         options.model_parameters = header.get("modelParameters").filter(|v| v.is_object()).cloned();
         options.model_max_output_tokens = settings.model_max_output_tokens;
-        options.thread = Some(RequestThread { id: thread.clone(), window: source.window, turn: source.turn });
         options.provider_state = source.provider_state;
         Ok(RequestParts { provider, cwd, tool_set, settings, options })
     }
@@ -309,7 +342,6 @@ impl HostRunParts {
         header: &Header,
         surface: &mixdog_tools::policy::SessionSurface,
         prior: Vec<(mixdog_core_api::ids::ItemId, Value)>,
-        window: u64,
     ) -> Option<(Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>, mixdog_core_api::domain::provider::ModelRequest)> {
         if super::compaction_world::is_agent_owner(header) {
             return None;
@@ -319,7 +351,7 @@ impl HostRunParts {
             return None;
         }
         let provider_state = header.get("providerState").and_then(|state| serde_json::from_value(state.clone()).ok());
-        let source = RequestSource { thread, header, surface, prior: &rows, request: "", injected: false, provider_state, window, turn: None };
+        let source = RequestSource { thread, header, surface, prior: &rows, request: "", injected: false, provider_state, turn: None };
         let parts = self.request_parts(source).await.ok()?;
         let messages = rebuilt_messages(header, &rows)?;
         let mut options = parts.options;
@@ -411,6 +443,28 @@ impl RunParts for HostRunParts {
         let (thread, header) = (input.thread, input.header);
         let provider_id = text(header, "provider");
         let directory = s.directory.upgrade().ok_or_else(|| refuse("the session directory is closed"))?;
+        // `ensureCodexWireSessionId` (`ask-turn-open.mjs:85`): a Codex session with no valid stored wire identity (a fork
+        // or a cold heir does not carry the source's, `cold-heir.mjs:70`) mints one and stores it before its first request.
+        let ensured;
+        let header = if provider_id == "openai-oauth" && !is_uuid_v7(&text(header, "codexWireSessionId").to_lowercase()) {
+            directory
+                .update_header(
+                    thread,
+                    Box::new(|stored| {
+                        let mut set = serde_json::Map::new();
+                        if !is_uuid_v7(&text(stored, "codexWireSessionId").to_lowercase()) {
+                            set.insert("codexWireSessionId".into(), json!(uuid::Uuid::now_v7().to_string()));
+                        }
+                        mixdog_store::schema::record::HeaderChange { set, unset: Vec::new() }
+                    }),
+                )
+                .await
+                .map_err(|error| refuse(error.to_string()))?;
+            ensured = directory.handle(thread).map(|handle| handle.live_header().header());
+            ensured.as_deref().unwrap_or(header)
+        } else {
+            header
+        };
         let RequestParts { provider, cwd, tool_set, settings, options } = self
             .request_parts(RequestSource {
                 thread,
@@ -420,7 +474,6 @@ impl RunParts for HostRunParts {
                 request: input.request,
                 injected: input.injected,
                 provider_state: input.port.provider_state().await,
-                window: directory.thread_window(thread),
                 turn: Some(input.turn.clone()),
             })
             .await?;
@@ -610,5 +663,56 @@ mod rebuilt_tests {
         // A complete transcript is untouched.
         let whole = vec![rows[0].clone(), rows[1].clone(), json!({ "role": "tool", "toolCallId": "c1", "content": { "content": "ok" } })];
         assert_eq!(rebuilt_messages(&header, &whole).unwrap().last().unwrap().text(), "ok");
+    }
+}
+
+/// The identity a request carries is read from the session's stored header, whichever way the session came to be
+/// opened (`ensureCodexWireSessionId`, `ask-turn-open.mjs:85`): a resumed session sends the id it was stored with, a
+/// sub-agent session the id of its own header and not its parent's, and a fork the id the fork minted for itself
+/// (`mixdog-core-session`, `a_fork_has_a_codex_wire_identity_of_its_own`).
+#[cfg(test)]
+mod identity_tests {
+    use serde_json::json;
+
+    use super::*;
+
+    fn stored(thread: &str, provider: &str, wire: serde_json::Value) -> (ThreadId, Header) {
+        let header = json!({ "provider": provider, "codexWireSessionId": wire }).as_object().unwrap().clone();
+        // Through the store's own text, as a resumed session's header comes back.
+        let header: Header = serde_json::from_str(&serde_json::to_string(&header).unwrap()).unwrap();
+        (ThreadId::from(thread), header)
+    }
+
+    fn request_of(thread: &ThreadId, header: &Header) -> mixdog_core_api::domain::provider::RequestOptions {
+        let mut options = mixdog_core_api::domain::provider::RequestOptions::default();
+        apply_identity(&mut options, thread, header, None);
+        options
+    }
+
+    #[test]
+    fn a_resumed_session_sends_its_stored_identity_in_every_request_field() {
+        let (thread, header) = stored("thread_a", "openai-oauth", json!("0190F0A0-1C2D-7E3F-8A4B-5C6D7E8F9A0D"));
+        let options = request_of(&thread, &header);
+        let wire = "0190f0a0-1c2d-7e3f-8a4b-5c6d7e8f9a0d";
+        assert_eq!(options.session_id.as_deref(), Some(wire));
+        assert_eq!(options.thread.as_ref().unwrap().id.as_str(), wire);
+        // Resumed again from the same stored header: the same identity.
+        assert_eq!(request_of(&thread, &header).session_id, options.session_id);
+    }
+
+    #[test]
+    fn a_sub_agent_session_sends_its_own_stored_identity_not_its_parents() {
+        let (parent, parent_header) = stored("thread_parent", "openai-oauth", json!("0190f0a0-1c2d-7e3f-8a4b-5c6d7e8f9a0d"));
+        let (child, child_header) = stored("thread_child", "openai-oauth", json!("0190f0a1-2222-7333-9444-555566667777"));
+        assert_eq!(request_of(&parent, &parent_header).session_id.as_deref(), Some("0190f0a0-1c2d-7e3f-8a4b-5c6d7e8f9a0d"));
+        assert_eq!(request_of(&child, &child_header).session_id.as_deref(), Some("0190f0a1-2222-7333-9444-555566667777"));
+    }
+
+    #[test]
+    fn another_route_or_an_invalid_stored_identity_names_the_thread_itself() {
+        let (thread, other) = stored("thread_b", "anthropic-oauth", json!("0190f0a0-1c2d-7e3f-8a4b-5c6d7e8f9a0d"));
+        assert_eq!(request_of(&thread, &other).session_id.as_deref(), Some("thread_b"));
+        let (thread, bad) = stored("thread_c", "openai-oauth", json!("not-a-uuid"));
+        assert_eq!(request_of(&thread, &bad).session_id.as_deref(), Some("thread_c"));
     }
 }
