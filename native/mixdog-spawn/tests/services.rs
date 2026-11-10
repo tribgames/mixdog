@@ -546,6 +546,67 @@ async fn terminal_ensure_opens_the_output_feed_without_an_attach() {
     service.tabs().dispose_all();
 }
 
+/// The text of the output frames a tap has seen, in order.
+fn output_text(frames: &[Value]) -> String {
+    use base64::Engine;
+    frames
+        .iter()
+        .filter(|frame| frame["method"] == "process/outputDelta")
+        .map(|frame| {
+            let bytes = base64::engine::general_purpose::STANDARD.decode(frame["params"]["bytesB64"].as_str().expect("output carries bytes")).unwrap();
+            String::from_utf8_lossy(&bytes).into_owned()
+        })
+        .collect()
+}
+
+/// A phone that ensures a tab gets the shell's first output (Node's relay lane took it for a phone reading the terminal lane: golden.json
+/// trace.order, the `termData` of `ESC[?9001h ESC[?1004h` right after the first `termEnsure` of term_ph2a). The phone's lanes subscribe
+/// the tab's relay feed once the tab is listed; here that subscription comes after the pump has taken the shell's first output, which a
+/// loaded machine's phone also does, and the phone must still have that output: its ensure's answer subscribed it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_phone_that_ensures_a_tab_gets_the_shells_first_output() {
+    use mixdog_core_api::feed::ScopedFeeds;
+    use mixdog_core_api::ids::FeedId;
+    use mixdog_core_api::mock::FeedTap;
+
+    let manager = manager();
+    let made = scoped();
+    let feeds = ProcessFeeds::new(manager.clone(), made.clone());
+    let service = TerminalService::new(manager, feeds, Arc::new(SectionLog::default()), TerminalServiceConfig::default());
+    let cwd = temp_dir().as_path().to_string_lossy().into_owned();
+    let tab = "term_first";
+    let ensure = request("terminal/ensure", json!({ "tabId": tab, "options": { "cwd": cwd, "relayFeed": true } }), 1);
+    let after = ensure.ctx.after_answer.clone();
+    let reply = service.call(ensure).await.unwrap();
+    let relay = FeedId::from(format!("process:relay:{tab}"));
+    // The server attaches a subscribing answer's feed before it queues the answer and releases the call's holds (server.rs
+    // `finish_subscribe`); the tap stands for that subscription.
+    let by_answer = match &reply {
+        Reply::Subscribe(sub) => {
+            assert_eq!(sub.feed.feed_id(), relay, "the phone's ensure subscribes it to the tab's relay feed");
+            Some(FeedTap::attach(&made.find(&relay).expect("the relay feed exists")))
+        }
+        Reply::Value(_) => None,
+    };
+    let raw = FeedTap::attach(&made.find(&FeedId::from(format!("process:{tab}"))).expect("the raw feed exists"));
+    after.release();
+    let taken = tokio::time::timeout(EVENT_DEADLINE, raw.notifications_until(|frames| !output_text(frames).is_empty()))
+        .await
+        .expect("the shell wrote no output");
+    let first = output_text(&taken);
+    // The lanes' own subscription, now that the pump has taken the first output (a subscriber of its own in the mock).
+    let late = FeedTap::attach_as(&made.find(&relay).expect("the relay feed exists"), 2);
+    let phone = by_answer.as_ref().unwrap_or(&late);
+    let mark = "mixdog_first_output_mark";
+    let _ = service.notify(Method("terminal/input"), json!({ "tabId": tab, "data": format!("echo {mark}\r") }), ConnectionId(1));
+    let got = tokio::time::timeout(EVENT_DEADLINE, phone.notifications_until(|frames| output_text(frames).contains(mark)))
+        .await
+        .expect("the phone never got the echoed mark");
+    let text = output_text(&got);
+    assert!(text.starts_with(&first), "the phone's output does not start with the shell's first output {first:?}: {text:?}");
+    service.tabs().dispose_all();
+}
+
 /// An ensure that names no profile spawns the shell `terminal/profiles` marks as the default (Node's `resolveShellProfile('')`):
 /// on Windows that is pwsh before Windows PowerShell, not the manager's bare `powershell.exe`.
 #[tokio::test(flavor = "multi_thread")]

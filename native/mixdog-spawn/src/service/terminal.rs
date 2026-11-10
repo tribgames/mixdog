@@ -324,7 +324,16 @@ impl DomainService for TerminalService {
                 let held = self.feeds.open_terminal(&attached.id, || self.tabs.relay_order(&attached.id));
                 let _ = self.changes.send(Change::Tabs);
                 req.ctx.after_answer.keep(held);
-                Ok(Reply::Value(attached_reply(&attached, &client)))
+                let result = attached_reply(&attached, &client);
+                // Node's relay lane took every tab's output while a phone read the terminal lane, a tab's first output included
+                // (remote-relay-push-lanes.ts:97-101), and the relay feed takes output only while it has a reader. A phone's ensure asks
+                // (`relayFeed`, whatever connection the phone came in on) to be subscribed to the tab's relay feed by the answer: the
+                // subscription is made before the hold above ends, so the shell's first output finds it. The phone's lanes' own
+                // `feed/subscribe`, once the tab is listed, comes too late for output the shell wrote at once (conpty's first chunk).
+                if options.get("relayFeed") == Some(&Value::Bool(true)) {
+                    return Ok(Reply::Subscribe(Subscribe { result, feed: self.feeds.relay_feed(&attached.id), window: Window::Fixed, resume_from: None }));
+                }
+                Ok(Reply::Value(result))
             }
             "terminal/attach" => {
                 let params: TerminalAttachParams = decode(&req.params)?;
