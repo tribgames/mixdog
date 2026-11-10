@@ -39,7 +39,7 @@ struct State {
     pushed: u64,
     base: u64,
     stored: usize,
-    /// Events below this sequence number were handed to a subscriber and are never merged into.
+    /// Events below this sequence number were handed to a subscriber (or lie before a [`Feed::mark`]) and are never merged into.
     handed_seq: u64,
     paused: bool,
     /// Tests only: the reader is parked at the gate, waiting for a consumer to catch up or for the feed to be resumed.
@@ -95,9 +95,13 @@ impl Feed {
     /// Output that arrives after the exit event (a descendant holding the pipe past the drain
     /// bound) is dropped: the exit is the last event.
     pub(crate) fn push_output(&self, stream: OutputStream, bytes: &[u8]) {
-        if bytes.is_empty() {
-            return;
-        }
+        self.admit(stream, bytes, || ());
+    }
+
+    /// [`Self::push_output`] for a chunk a filter made: `admitted` runs once the gate lets the chunk in, under the feed's lock and before
+    /// the chunk is appended, so what it does (a terminal tab applies the chunk's markers) happens exactly when the bytes enter the feed:
+    /// never for a chunk the gate holds back or that comes after the exit. A chunk with no bytes (only markers) passes the gate too.
+    pub(crate) fn admit(&self, stream: OutputStream, bytes: &[u8], admitted: impl FnOnce()) {
         let mut state = self.lock();
         loop {
             if state.done {
@@ -122,6 +126,10 @@ impl Feed {
             {
                 state.blocked = false;
             }
+        }
+        admitted();
+        if bytes.is_empty() {
+            return;
         }
         state.pushed += bytes.len() as u64;
         state.stored += bytes.len();
@@ -194,6 +202,13 @@ impl Feed {
         self.lock().pushed
     }
 
+    /// The bytes pushed so far, with a cut there: later output starts an event of its own, so no event holds output from both sides.
+    pub(crate) fn mark(&self) -> u64 {
+        let mut state = self.lock();
+        state.handed_seq = state.next_seq;
+        state.pushed
+    }
+
     /// Returns the bytes pushed once the reader is parked at the gate (a consumer trails by the ring bound, or the feed is paused): the
     /// reader's own signal that it is held back, which no quiet period stands in for. Tests only.
     #[cfg(feature = "core-test")]
@@ -255,6 +270,7 @@ impl Feed {
             feed: Arc::clone(self),
             id,
             next_seq,
+            start: taken,
         })
     }
 }
@@ -263,9 +279,15 @@ pub(crate) struct Subscription {
     feed: Arc<Feed>,
     id: u64,
     next_seq: u64,
+    /// The output offset (bytes pushed before it) where the subscription's first event starts.
+    start: u64,
 }
 
 impl Subscription {
+    pub(crate) fn start(&self) -> u64 {
+        self.start
+    }
+
     /// The next event if there is one now; `Err(())` when the subscription can never get another.
     fn poll(&mut self) -> Result<Option<ProcessEvent>, ()> {
         let mut state = self.feed.lock();

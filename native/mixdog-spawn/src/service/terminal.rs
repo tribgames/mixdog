@@ -415,19 +415,26 @@ impl DomainService for TerminalService {
                 if let Ok(size) = serde_json::from_value::<TerminalResizeParams>(params) {
                     // Only a claiming view is a size owner; any other view's resize has no client.
                     let client = if size.claim == Some(true) { connection_key(from) } else { String::new() };
-                    // Node resized the PTY and announced the new owner in one call (terminal-manager.ts:485-488), before the console
-                    // could answer the resize with output: the tab's feed is held until the announcement is published, so the
-                    // re-render reaches the phone after it.
-                    let held = self.feeds.hold(size.tab_id.as_str());
-                    self.tabs.resize(size.tab_id.as_str(), u32::from(size.cols), u32::from(size.rows), &client);
-                    if let Some(held) = held {
+                    // Node resized the PTY and announced the new owner in one call (terminal-manager.ts:485-488): whatever happened
+                    // after that call reached the phone after the announcement (the console's re-render, a relay flush whose 16 ms ran
+                    // out later, the shell's exit, a later output's activity), and what Node had read before it was in its relay buffer
+                    // already. So what the shell writes from here, the relay flushes and the exit wait until the announcement is
+                    // published; the output already in the feed does not (`hold_new_output`). Activity changes go through the same
+                    // ordered queue as the announcement and are not held. The hold's deadline runs from here, so a resize that blocks
+                    // in the console holds the feed for no longer than that.
+                    let release = self.feeds.hold_new_output(size.tab_id.as_str()).map(|held| {
+                        let deadline = tokio::time::Instant::now() + PUBLISH_DEADLINE;
                         let (published, done) = tokio::sync::oneshot::channel();
-                        if self.changes.send(Change::Barrier(published)).is_ok() {
-                            mixdog_rt::spawn("terminal-owner-first", TaskClass::Work, async move {
-                                let _ = tokio::time::timeout(PUBLISH_DEADLINE, done).await;
-                                drop(held);
-                            });
-                        }
+                        mixdog_rt::spawn("terminal-owner-first", TaskClass::Work, async move {
+                            let _ = tokio::time::timeout_at(deadline, done).await;
+                            drop(held);
+                        });
+                        published
+                    });
+                    self.tabs.resize(size.tab_id.as_str(), u32::from(size.cols), u32::from(size.rows), &client);
+                    if let Some(published) = release {
+                        // A worker that is gone drops `published`, which ends the hold.
+                        let _ = self.changes.send(Change::Barrier(published));
                     }
                 }
             }
@@ -442,65 +449,190 @@ mod tests {
     use std::sync::Mutex;
     use std::time::Duration;
 
-    use mixdog_core_api::call::CallContext;
+    use base64::Engine;
+    use base64::engine::general_purpose::STANDARD;
+    use mixdog_core_api::domain::common::AbsPath;
+    use mixdog_core_api::domain::process::CommandSpec;
+    use mixdog_core_api::domain::process::EnvSpec;
+    use mixdog_core_api::domain::process::OutputMode;
+    use mixdog_core_api::domain::process::ProcessManager;
+    use mixdog_core_api::domain::process::ProcessOwner;
+    use mixdog_core_api::domain::process::SpawnRequest;
+    use mixdog_core_api::feed::ScopedFeed;
+    use mixdog_core_api::feed::ScopedFeeds;
+    use mixdog_core_api::mock::FeedTap;
     use mixdog_core_api::mock::MockLimits;
     use mixdog_core_api::mock::MockScopedFeeds;
     use mixdog_core_api::mock::MockStatePublisher;
-    use mixdog_protocol::Origin;
-    use tokio_util::sync::CancellationToken;
+    use mixdog_protocol::FeedId;
+    use mixdog_protocol::ProcessHandle;
 
     use super::*;
+    use crate::manager::ProcessConfig;
 
     const DEADLINE: Duration = Duration::from_secs(60);
 
-    /// Holds the next tab-list publication (where a size owner is published) until the test opens the gate.
+    /// `fut`'s value, or a failure naming `what` once [`DEADLINE`] has passed on the wall clock. The deadline waits on the blocking
+    /// pool, which also keeps a paused clock from moving by itself meanwhile: only the test's `advance` moves it.
+    async fn within<T>(what: &str, fut: impl std::future::Future<Output = T>) -> T {
+        let (_alive, timer) = std::sync::mpsc::channel::<()>();
+        let deadline = tokio::task::spawn_blocking(move || {
+            let _ = timer.recv_timeout(DEADLINE);
+        });
+        tokio::select! {
+            value = fut => value,
+            _ = deadline => panic!("never happened within {DEADLINE:?}: {what}"),
+        }
+    }
+
+    /// Holds the next tab-list publication (where a size owner is published) until the test opens the gate, and notes how many frames
+    /// the phone's relay feed had when it went.
     #[derive(Default)]
     struct Gated {
         inner: MockStatePublisher,
         gate: Mutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
+        relay: Mutex<Option<Arc<dyn ScopedFeed>>>,
+        relay_at_owner: Mutex<Option<u64>>,
     }
 
     impl StatePublisher for Gated {
         fn publish(&self, section: SectionName, key: Option<String>, change: SectionChange) {
-            if section == SectionName::TerminalTabs {
-                let gate = self.gate.lock().unwrap().take();
-                if let Some((held, open)) = gate {
-                    held.send(()).unwrap();
-                    open.recv_timeout(DEADLINE).expect("the test opens the gate");
-                }
-            }
+            let gate = (section == SectionName::TerminalTabs).then(|| self.gate.lock().unwrap().take()).flatten();
+            let Some((held, open)) = gate else {
+                return self.inner.publish(section, key, change);
+            };
+            held.send(()).unwrap();
+            open.recv_timeout(DEADLINE).expect("the test opens the gate");
+            let relay = self.relay.lock().unwrap().clone().expect("the relay feed is known");
+            *self.relay_at_owner.lock().unwrap() = Some(relay.position().seq);
             self.inner.publish(section, key, change);
+            // Told the test the owner is out.
+            let _ = held.send(());
         }
     }
 
-    /// A claim's resize holds the tab's feed until its size owner is published: the console's re-render for the new size reaches the
-    /// phone after the announcement, as Node's did (it resized and announced in one call).
-    #[tokio::test(flavor = "multi_thread")]
-    async fn a_claims_rerender_waits_for_its_owner_announcement() {
-        let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, crate::manager::ProcessConfig::default());
-        let feeds = ProcessFeeds::new(manager.clone(), Arc::new(MockScopedFeeds::new(MockLimits::default())));
-        let publisher = Arc::new(Gated::default());
-        let service = TerminalService::new(manager, Arc::clone(&feeds), Arc::clone(&publisher) as Arc<dyn StatePublisher>, TerminalServiceConfig::default());
-        let cwd = std::env::temp_dir().to_string_lossy().into_owned();
-        let ensure = CoreRequest {
-            method: Method("terminal/ensure"),
-            params: json!({ "tabId": "term_owner", "options": { "cwd": cwd }, "opId": "op-ensure" }),
-            op: None,
-            ctx: CallContext::connection(ConnectionId(1), Origin::Local, CancellationToken::new()),
-        };
-        let after = ensure.ctx.after_answer.clone();
-        service.call(ensure).await.unwrap();
-        after.release();
-        service.published().await;
-        assert_eq!(feeds.holds_of("term_owner"), 0, "nothing holds the feed before the claim");
+    /// The text of the output frames among `frames`, with each frame's feed sequence number.
+    fn outputs(frames: &[Value]) -> Vec<(u64, String)> {
+        frames
+            .iter()
+            .filter(|frame| frame["method"] == "process/outputDelta")
+            .map(|frame| {
+                let bytes = STANDARD.decode(frame["params"]["bytesB64"].as_str().expect("output carries bytes")).unwrap();
+                (frame["feed"]["seq"].as_u64().expect("a feed frame has its seq"), String::from_utf8_lossy(&bytes).into_owned())
+            })
+            .collect()
+    }
 
-        let (held, open) = (std::sync::mpsc::channel(), std::sync::mpsc::channel());
-        *publisher.gate.lock().unwrap() = Some((held.0, open.1));
-        let _ = service.notify(Method("terminal/resize"), json!({ "tabId": "term_owner", "cols": 101, "rows": 31, "claim": true }), ConnectionId(1));
-        held.1.recv_timeout(DEADLINE).expect("the owner's publication reached the publisher");
-        assert_eq!(feeds.holds_of("term_owner"), 1, "the feed is held while the owner's announcement is unpublished");
-        open.0.send(()).unwrap();
-        tokio::time::timeout(DEADLINE, feeds.released("term_owner")).await.expect("the hold ends once the owner is published");
-        service.tabs.dispose("term_owner");
+    fn sent(frames: &[Value], text: &str) -> Option<u64> {
+        outputs(frames).into_iter().find(|(_, output)| output.contains(text)).map(|(seq, _)| seq)
+    }
+
+    /// A process that writes `before` and then `after`, each once the test sends it a line.
+    fn two_writes(handle: &ProcessHandle) -> SpawnRequest {
+        let command = if cfg!(windows) {
+            let script = "$null = [Console]::In.ReadLine(); [Console]::Out.Write('before'); $null = [Console]::In.ReadLine(); \
+                          [Console]::Out.Write('after'); $null = [Console]::In.ReadLine()";
+            CommandSpec::Argv { program: "powershell".to_owned(), args: vec!["-NoProfile".to_owned(), "-Command".to_owned(), script.to_owned()] }
+        } else {
+            CommandSpec::Argv { program: "sh".to_owned(), args: vec!["-c".to_owned(), "read a; printf before; read b; printf after; read c".to_owned()] }
+        };
+        SpawnRequest {
+            handle: handle.clone(),
+            command,
+            cwd: AbsPath::new(std::env::temp_dir()).unwrap(),
+            env: EnvSpec { inherit: true, ..EnvSpec::default() },
+            pty: None,
+            stdin_piped: true,
+            output: OutputMode::Merged,
+            owner: ProcessOwner::Internal,
+            time_limit: None,
+        }
+    }
+
+    /// A claim holds back what the shell writes after it (the console's re-render) until the size owner is published, on a clock only
+    /// the test moves: the phone gets the announcement first, as Node's did (it resized and announced in one call,
+    /// terminal-manager.ts:485-488). Output already in the feed when the claim came (Node had it in its relay buffer then) is not held.
+    #[test]
+    fn a_claim_holds_back_what_the_shell_writes_after_it_until_its_owner_is_published() {
+        let paused = tokio::runtime::Builder::new_current_thread().enable_all().start_paused(true).build().unwrap();
+        let sections = tokio::runtime::Builder::new_multi_thread().worker_threads(1).enable_all().build().unwrap();
+        paused.block_on(async {
+            let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, ProcessConfig::default());
+            let scoped = Arc::new(MockScopedFeeds::new(MockLimits::default()));
+            let feeds = ProcessFeeds::new(manager.clone(), Arc::clone(&scoped) as Arc<dyn ScopedFeeds>);
+            let publisher = Arc::new(Gated::default());
+            // The section worker runs on a runtime of its own: a held publication blocks it, not the pump.
+            let service = {
+                let _sections = sections.enter();
+                TerminalService::new(manager.clone(), Arc::clone(&feeds), Arc::clone(&publisher) as Arc<dyn StatePublisher>, TerminalServiceConfig::default())
+            };
+            let handle = ProcessHandle::from(format!("term_claim_{}", std::process::id()));
+            manager.spawn(two_writes(&handle)).await.unwrap();
+            let opened = feeds.open_terminal(handle.as_str(), || None);
+            let relay = scoped.find(&FeedId::from(format!("process:relay:{handle}"))).expect("the relay feed exists");
+            *publisher.relay.lock().unwrap() = Some(Arc::clone(&relay));
+            let tap = FeedTap::attach(&relay);
+            let mut written = manager.subscribe(&handle, None).unwrap();
+            manager.write_input(&handle, b"1\n".to_vec()).unwrap();
+            within("the first output entered the feed", written.next()).await;
+
+            let (held, open) = (std::sync::mpsc::channel(), std::sync::mpsc::channel());
+            *publisher.gate.lock().unwrap() = Some((held.0, open.1));
+            let _ = service.notify(Method("terminal/resize"), json!({ "tabId": handle.as_str(), "cols": 101, "rows": 31, "claim": true }), ConnectionId(1));
+            let held = Arc::new(Mutex::new(held.1));
+            let next_from_publisher = |what: &'static str| {
+                let held = Arc::clone(&held);
+                async move { tokio::task::spawn_blocking(move || held.lock().unwrap().recv_timeout(DEADLINE)).await.unwrap().expect(what) }
+            };
+            next_from_publisher("the owner's publication reached the publisher").await;
+            drop(opened);
+            within("the output already in the feed went out while the owner was unpublished", tap.notifications_until(|frames| sent(frames, "before").is_some())).await;
+
+            // The hold stands until just before its deadline; the relay's 16 ms are long over, so unheld output would go at once.
+            tokio::time::advance(PUBLISH_DEADLINE - Duration::from_millis(1)).await;
+            let mut stops = feeds.stops_of(handle.as_str());
+            let stopped = *stops.borrow_and_update();
+            manager.write_input(&handle, b"2\n".to_vec()).unwrap();
+            within("the re-render entered the feed", written.next()).await;
+            within("the pump stopped for the hold or sent the re-render", async {
+                tokio::select! {
+                    _ = stops.wait_for(|stops| *stops > stopped) => {}
+                    _ = tap.notifications_until(|frames| sent(frames, "after").is_some()) => {}
+                }
+            })
+            .await;
+            open.0.send(()).unwrap();
+            next_from_publisher("the owner was published").await;
+            let frames = within("the re-render reached the phone", tap.notifications_until(|frames| sent(frames, "after").is_some())).await;
+            let at_owner = publisher.relay_at_owner.lock().unwrap().expect("the owner was published");
+            assert_eq!(sent(&frames, "before"), Some(at_owner), "the output from before the claim was the last frame before the owner");
+            assert!(sent(&frames, "after").unwrap() > at_owner, "the re-render reached the phone before the owner announcement: {frames:?}");
+            let _ = manager.kill(&handle);
+        });
+    }
+
+    /// A claim's hold has its deadline from when it is taken: a resize that blocks (here at the id's claim gate) holds the feed no longer.
+    #[tokio::test(start_paused = true)]
+    async fn a_claims_hold_ends_at_its_deadline_while_the_resize_is_blocked() {
+        let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, ProcessConfig::default());
+        let feeds = ProcessFeeds::new(manager.clone(), Arc::new(MockScopedFeeds::new(MockLimits::default())));
+        let service = TerminalService::new(manager, Arc::clone(&feeds), Arc::new(MockStatePublisher::default()), TerminalServiceConfig::default());
+        let _ = feeds.feed("term_blocked", true);
+        let gate = service.tabs.hold_claim_gate("term_blocked");
+        let mut holds = feeds.holds_of("term_blocked");
+        let claim = {
+            let (service, runtime) = (Arc::clone(&service), tokio::runtime::Handle::current());
+            std::thread::spawn(move || {
+                let _runtime = runtime.enter();
+                let _ = service.notify(Method("terminal/resize"), json!({ "tabId": "term_blocked", "cols": 101, "rows": 31, "claim": true }), ConnectionId(1));
+            })
+        };
+        within("the claim took its hold", holds.wait_for(|holds| holds.len() == 1)).await.unwrap();
+        tokio::time::advance(PUBLISH_DEADLINE - Duration::from_millis(1)).await;
+        assert_eq!(holds.borrow().len(), 1, "the hold ended before its deadline");
+        tokio::time::advance(Duration::from_millis(1)).await;
+        within("the hold of a claim whose resize is blocked ended at its deadline", holds.wait_for(Vec::is_empty)).await.unwrap();
+        drop(gate);
+        claim.join().unwrap();
     }
 }

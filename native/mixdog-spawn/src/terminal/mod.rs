@@ -33,6 +33,7 @@ use mixdog_core_api::domain::process::KillReason;
 use mixdog_core_api::domain::process::OutputMode;
 use mixdog_core_api::domain::process::ProcessError;
 use mixdog_core_api::domain::process::ProcessEvent;
+use mixdog_core_api::domain::process::ProcessExit;
 use mixdog_core_api::domain::process::ProcessManager;
 use mixdog_core_api::domain::process::ProcessOwner;
 use mixdog_core_api::domain::process::PtySize;
@@ -290,19 +291,27 @@ struct TabState {
     exited: bool,
     output_paused: bool,
     size: (u16, u16),
-    /// Bytes of output handed to the feed so far.
+    /// Bytes of output the feed has admitted so far (its absolute output offset).
     emitted: u64,
     /// Set once the tab's relay feed pumps its output (see [`RelayOrder`]).
     order: Option<RelayOrder>,
 }
 
-/// The order of a tab's activity changes against its output on the relay feed. Node's PTY handler emitted a chunk's text into the relay
-/// lane's buffer and only then applied the chunk's markers (terminal-manager.ts:366-371), and its activity went out at once: a frame the
-/// buffer sent at once preceded the change, a frame it held followed it. The core's relay buffer lives in the feed's pump, so a change
-/// the output (or input) causes waits here until the pump has taken the output written before it, and then goes.
+/// The order of a tab's activity changes against its output on the relay feed. Node, for each chunk its PTY read: appended the text and
+/// called the output listeners at once (terminal-manager.ts:347-350, `emit`), the relay pushing it into its 16 ms buffer
+/// (remote-relay-push-lanes.ts:89,101); then applied the chunk's markers (terminal-manager.ts:368-370), whose change the activity
+/// listener broadcast at once (terminal-manager.ts:341, remote-relay-push-lanes.ts:148). A paused PTY read nothing (`pty.pause()`,
+/// terminal-manager.ts:499-505), so no text and no marker of it went anywhere. So a change follows its text's insertion into the relay
+/// buffer, never its transmission, and nothing waits on a paused consumer.
+///
+/// The core's rule from that: a chunk is read when its feed admits it ([`TabFilter::admitted`], under the feed's flow gate, Node's
+/// pause), and only then are its markers applied; the relay buffer lives in the feed's pump, so the change waits here until the pump has
+/// taken the output admitted before it, and then goes. Every waiting change is thus for output already in the feed, which the pump
+/// reads whether or not the producer is paused. `emitted` and `taken` are both the feed's absolute output offset (the pump starts
+/// counting at its first event's offset).
 #[derive(Default)]
 struct RelayOrder {
-    /// Bytes of output the pump has taken.
+    /// The feed's output offset the pump has taken up to.
     taken: u64,
     /// Changes waiting, each with the output it follows.
     waiting: VecDeque<(u64, Option<ActivityState>)>,
@@ -316,8 +325,8 @@ struct Tab {
     shell: String,
     cwd: Option<String>,
     /// Lock order, outermost first: `TerminalTabs::tabs`, `TerminalTabs::cursor_floors`,
-    /// `Tab::pty_gate`, `Tab::state`. No code holds `state` while calling the process manager or
-    /// taking an earlier lock: it copies what it needs out and drops the guard first.
+    /// `Tab::pty_gate`, the process feed's state (the reader admitting a chunk, [`TabFilter::admitted`]), `Tab::state`. No code holds
+    /// `state` while calling the process manager or taking an earlier lock: it copies what it needs out and drops the guard first.
     state: Mutex<TabState>,
     /// Serializes the calls that push `state` to the PTY (resize, flow control) so they land in
     /// the order the state changed; each re-reads the latest state under it. A call that blocks
@@ -358,9 +367,28 @@ impl Tab {
         }
     }
 
-    /// Counts output handed to the feed.
+    /// Counts output the feed admitted.
     fn emitted(state: &mut TabState, bytes: usize) {
         state.emitted += bytes as u64;
+    }
+
+    /// The shell ended (the process manager's exit hook): as Node's exit handler (terminal-manager.ts:378-384), the held marker text is
+    /// out already (the reader's `finish`), the tab's end follows the output before it (as any change the output causes, see
+    /// [`RelayOrder`]), and the exit line is the last output. Returns that line.
+    fn exited(&self, exit: &ProcessExit) -> Vec<u8> {
+        let code = match exit.status {
+            ExitStatus::Code(code) => code,
+            ExitStatus::Signal(signal) => 128 + signal,
+        };
+        let line = format!("\r\n[process exited with code {code}]\r\n");
+        let mut state = self.lock();
+        state.exited = true;
+        state.output_paused = false;
+        let change = state.activity.exit();
+        self.publish_after_output(&mut state, change);
+        state.buffer.append(&line);
+        Tab::emitted(&mut state, line.len());
+        line.into_bytes()
     }
 
     /// The relay feed's pump has taken `taken` bytes of output: the changes that follow no more than that go.
@@ -399,34 +427,52 @@ impl Tab {
     }
 }
 
-/// Runs on the PTY's reader thread: markers out, bytes decoded to text, text into the replay
-/// window. What it returns is what the feed carries, so feed events are always whole UTF-8.
-struct TabFilter(Arc<Tab>);
+/// Runs on the PTY's reader thread: markers out, bytes decoded to text; once the feed admits the text, text into the replay window and
+/// the markers applied (see [`RelayOrder`]). What it returns is what the feed carries, so feed events are always whole UTF-8.
+struct TabFilter {
+    tab: Arc<Tab>,
+    /// The chunk the last `filter` or `finish` returned, and its markers: applied to the tab when the feed admits it.
+    text: String,
+    markers: Vec<Marker>,
+}
+
+impl TabFilter {
+    fn new(tab: Arc<Tab>) -> Self {
+        Self { tab, text: String::new(), markers: Vec::new() }
+    }
+}
 
 impl OutputFilter for TabFilter {
     fn filter(&mut self, bytes: &[u8]) -> Vec<u8> {
-        let mut state = self.0.lock();
+        let mut state = self.tab.lock();
         let decoded = state.decoder.push(bytes);
         let (text, markers) = match state.scanner.as_mut() {
             Some(scanner) => scanner.scan(&decoded),
             None => (decoded, Vec::new()),
         };
-        state.buffer.append(&text);
-        Tab::emitted(&mut state, text.len());
-        for marker in markers {
-            let change = state.activity.marker(marker);
-            self.0.publish_after_output(&mut state, change);
-        }
-        text.into_bytes()
+        self.text = text;
+        self.markers = markers;
+        self.text.as_bytes().to_vec()
     }
 
     fn finish(&mut self) -> Vec<u8> {
-        let mut state = self.0.lock();
+        let mut state = self.tab.lock();
         let mut text = state.scanner.as_mut().map(MarkerScanner::flush).unwrap_or_default();
         text.push_str(&state.decoder.finish());
+        self.text = text;
+        self.markers.clear();
+        self.text.as_bytes().to_vec()
+    }
+
+    fn admitted(&mut self) {
+        let mut state = self.tab.lock();
+        let text = std::mem::take(&mut self.text);
         state.buffer.append(&text);
         Tab::emitted(&mut state, text.len());
-        text.into_bytes()
+        for marker in self.markers.drain(..) {
+            let change = state.activity.marker(marker);
+            self.tab.publish_after_output(&mut state, change);
+        }
     }
 }
 
@@ -1129,28 +1175,14 @@ impl TerminalTabs {
         };
         let on_exit: ExitHook = {
             let tab = Arc::clone(&tab);
-            Box::new(move |exit| {
-                let code = match exit.status {
-                    ExitStatus::Code(code) => code,
-                    ExitStatus::Signal(signal) => 128 + signal,
-                };
-                let line = format!("\r\n[process exited with code {code}]\r\n");
-                let mut state = tab.lock();
-                state.exited = true;
-                state.output_paused = false;
-                let change = state.activity.exit();
-                tab.publish(&mut state, change);
-                state.buffer.append(&line);
-                Tab::emitted(&mut state, line.len());
-                line.into_bytes()
-            })
+            Box::new(move |exit| tab.exited(exit))
         };
         self.manager
             .spawn_with(
                 spawn,
                 SpawnOptions {
                     ring_bytes: Some(self.config.replay_limit),
-                    filter: Some(Box::new(TabFilter(Arc::clone(&tab)))),
+                    filter: Some(Box::new(TabFilter::new(Arc::clone(&tab)))),
                     on_exit: Some(on_exit),
                 },
             )
@@ -1263,6 +1295,21 @@ impl TerminalTabs {
     /// Who owns this PTY's size right now, if anyone.
     pub fn size_owner(&self, id: &str) -> Option<SizeOwner> {
         self.claims.owner_of(id)
+    }
+
+    /// Holds the size-claim gate of `id` on a thread of its own until the returned sender goes; returns once it is held. Tests only.
+    #[cfg(test)]
+    pub(crate) fn hold_claim_gate(&self, id: &str) -> std::sync::mpsc::Sender<()> {
+        let (claims, id) = (Arc::clone(&self.claims), id.to_owned());
+        let (held, taken) = std::sync::mpsc::channel();
+        let (release, released) = std::sync::mpsc::channel::<()>();
+        std::thread::spawn(move || {
+            let _gate = claims.gate(&id);
+            held.send(()).unwrap();
+            let _ = released.recv();
+        });
+        taken.recv().expect("the gate holder runs");
+        release
     }
 
     // ----- input, size, focus, flow control -------------------------------------------------
@@ -1542,16 +1589,12 @@ mod lock_order {
         fn size_claims_forgotten(&self, _: &str) {}
     }
 
-    /// With the relay feed pumping (`relay_order`), a change a chunk's marker causes goes once the pump has taken that chunk's text, not
-    /// before (Node emitted the text into its relay buffer and then applied the marker); a change published directly goes after it.
-    #[test]
-    fn a_marker_change_waits_for_the_pump_to_take_its_chunk() {
-        let events = Arc::new(Recorded(Mutex::new(Vec::new())));
-        let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, ProcessConfig::default());
-        let tab = Arc::new(Tab {
-            id: "term_1".to_owned(),
+    /// A tab of a shell with integration whose relay feed pumps (`relay_order`), publishing to `events`.
+    fn relay_tab(events: Arc<dyn TerminalEvents>, manager: LocalProcessManager, handle: &str) -> Arc<Tab> {
+        Arc::new(Tab {
+            id: handle.to_owned(),
             seq: 1,
-            handle: ProcessHandle::from("term_1"),
+            handle: ProcessHandle::from(handle),
             shell: "pwsh".to_owned(),
             cwd: None,
             state: Mutex::new(TabState {
@@ -1566,23 +1609,205 @@ mod lock_order {
                 order: Some(RelayOrder::default()),
             }),
             pty_gate: Mutex::new(()),
-            events: Arc::clone(&events) as Arc<dyn TerminalEvents>,
+            events,
             manager,
-        });
+        })
+    }
+
+    /// With the relay feed pumping (`relay_order`), a change a chunk's marker causes goes once the pump has taken that chunk's text, not
+    /// before (Node emitted the text into its relay buffer and then applied the marker); a change published directly goes after it.
+    #[test]
+    fn a_marker_change_waits_for_the_pump_to_take_its_chunk() {
+        let events = Arc::new(Recorded(Mutex::new(Vec::new())));
+        let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, ProcessConfig::default());
+        let tab = relay_tab(Arc::clone(&events) as Arc<dyn TerminalEvents>, manager, "term_1");
         let seen = || events.0.lock().unwrap().clone();
-        let mut filter = TabFilter(Arc::clone(&tab));
+        let mut filter = TabFilter::new(Arc::clone(&tab));
         let text = filter.filter(b"PS> \x1b]697;P\x07");
         assert_eq!(text, b"PS> ");
+        filter.admitted();
         assert_eq!(seen(), Vec::new(), "the prompt's change waits for its text to be taken");
         tab.taken(3);
         assert_eq!(seen(), Vec::new(), "part of the text is not enough");
         tab.taken(4);
         assert_eq!(seen(), vec![Some(ActivityState::Idle)]);
         let _ = filter.filter(b"x\r\n\x1b]697;C\x07");
+        filter.admitted();
         tab.publish(&mut tab.lock(), Some(Some(ActivityState::Finished)));
         assert_eq!(seen(), vec![Some(ActivityState::Idle), Some(ActivityState::Running), Some(ActivityState::Finished)], "a direct change goes after the waiting ones");
         tab.taken(u64::MAX);
         assert_eq!(seen().len(), 3, "nothing goes twice");
+    }
+
+    /// The shell's end follows the output before it, as Node's exit handler ordered it (terminal-manager.ts:378-384: held text out,
+    /// `activity.exit()` broadcast, then the exit line emitted): the tab's end waits until the pump has taken the output admitted before
+    /// the exit, and the exit line comes after it.
+    #[test]
+    fn the_tabs_end_follows_the_output_before_the_exit() {
+        let events = Arc::new(Recorded(Mutex::new(Vec::new())));
+        let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, ProcessConfig::default());
+        let tab = relay_tab(Arc::clone(&events) as Arc<dyn TerminalEvents>, manager, "term_end");
+        let seen = || events.0.lock().unwrap().clone();
+        let mut filter = TabFilter::new(Arc::clone(&tab));
+        let prompt = filter.filter(b"PS> \x1b]697;P\x07").len() as u64;
+        filter.admitted();
+        tab.taken(prompt);
+        assert_eq!(seen(), vec![Some(ActivityState::Idle)]);
+        let last = filter.filter(b"bye\r\n").len() as u64;
+        filter.admitted();
+        let line = tab.exited(&ProcessExit { status: ExitStatus::Code(0), killed: None });
+        assert_eq!(seen(), vec![Some(ActivityState::Idle)], "the tab's end waits for the output written before the exit");
+        tab.taken(prompt + last);
+        assert_eq!(seen(), vec![Some(ActivityState::Idle), None], "the tab's end goes once that output is taken, before the exit line");
+        assert_eq!(tab.lock().emitted, prompt + last + line.len() as u64, "the exit line is the last output");
+    }
+
+    /// What the reader took from the pseudo-terminal and the pump, one log in order.
+    #[derive(Debug, Clone, PartialEq)]
+    enum Seen {
+        Change(Option<ActivityState>),
+        /// The pump told the tab it has taken the output up to this offset.
+        Taken(u64),
+    }
+
+    struct Logged {
+        log: Mutex<Vec<Seen>>,
+        changed: std::sync::Condvar,
+    }
+
+    impl Logged {
+        fn new() -> Arc<Self> {
+            Arc::new(Self { log: Mutex::new(Vec::new()), changed: std::sync::Condvar::new() })
+        }
+
+        fn push(&self, seen: Seen) {
+            self.log.lock().unwrap().push(seen);
+            self.changed.notify_all();
+        }
+
+        /// The log once `done` holds of it; the deadline only names what never came.
+        fn until(&self, what: &str, done: impl Fn(&[Seen]) -> bool) -> Vec<Seen> {
+            let log = self.log.lock().unwrap();
+            let (log, waited) = self.changed.wait_timeout_while(log, Duration::from_secs(60), |log| !done(log)).unwrap();
+            assert!(!waited.timed_out(), "never seen: {what}; seen {:?}", *log);
+            log.clone()
+        }
+    }
+
+    impl TerminalEvents for Logged {
+        fn activity(&self, _: &str, state: Option<ActivityState>) {
+            self.push(Seen::Change(state));
+        }
+        fn size_owner(&self, _: &SizeOwnerChange) {}
+        fn size_claims_forgotten(&self, _: &str) {}
+    }
+
+    fn piped(handle: &ProcessHandle, script: &str, posix: &str) -> SpawnRequest {
+        let command = if cfg!(windows) {
+            CommandSpec::Argv { program: "powershell".to_owned(), args: vec!["-NoProfile".to_owned(), "-Command".to_owned(), script.to_owned()] }
+        } else {
+            CommandSpec::Argv { program: "sh".to_owned(), args: vec!["-c".to_owned(), posix.to_owned()] }
+        };
+        SpawnRequest {
+            handle: handle.clone(),
+            command,
+            cwd: AbsPath::new(std::env::temp_dir()).unwrap(),
+            env: EnvSpec { inherit: true, ..EnvSpec::default() },
+            pty: None,
+            stdin_piped: true,
+            output: OutputMode::Merged,
+            owner: ProcessOwner::Internal,
+            time_limit: None,
+        }
+    }
+
+    fn pump(manager: &LocalProcessManager, tab: &Arc<Tab>, logged: &Arc<Logged>) {
+        let feeds = crate::service::ProcessFeeds::new(
+            manager.clone(),
+            Arc::new(mixdog_core_api::mock::MockScopedFeeds::new(mixdog_core_api::mock::MockLimits::default())),
+        );
+        let (tab, logged) = (Arc::clone(tab), Arc::clone(logged));
+        let held = feeds.open_terminal(&tab.id.clone(), move || {
+            Some(Arc::new(move |taken: u64| {
+                logged.push(Seen::Taken(taken));
+                tab.taken(taken);
+            }) as Arc<dyn Fn(u64) + Send + Sync>)
+        });
+        drop(held);
+    }
+
+    /// The pump starts after the ring dropped the start of the output (more than one event's worth went by before anyone read): it
+    /// counts from its first event's offset, the feed's own offset the tab counted too, so the last marker's change goes when the pump
+    /// takes the chunk it came in, not only when the pump ends.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_pump_counts_from_its_first_event_after_an_evicted_prefix() {
+        let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, ProcessConfig::default());
+        let handle = ProcessHandle::from(format!("term_evicted_{}", std::process::id()));
+        let logged = Logged::new();
+        let tab = relay_tab(Arc::clone(&logged) as Arc<dyn TerminalEvents>, manager.clone(), handle.as_str());
+        let (exited, exit) = std::sync::mpsc::channel();
+        manager
+            .spawn_with(
+                piped(
+                    &handle,
+                    "[Console]::Out.Write(('x' * 70000) + [char]27 + ']697;P' + [char]7)",
+                    "printf '%070000d\\033]697;P\\007' 0",
+                ),
+                SpawnOptions {
+                    ring_bytes: Some(1024),
+                    filter: Some(Box::new(TabFilter::new(Arc::clone(&tab)))),
+                    on_exit: Some(Box::new(move |_| {
+                        let _ = exited.send(());
+                        Vec::new()
+                    })),
+                },
+            )
+            .await
+            .unwrap();
+        exit.recv_timeout(Duration::from_secs(60)).expect("the process printed and ended");
+        assert!(matches!(manager.subscribe(&handle, Some(0)), Err(ProcessError::ReplayUnavailable { .. })), "the ring dropped the start");
+        let total = manager.output_pushed(&handle).unwrap();
+        pump(&manager, &tab, &logged);
+        let log = logged.until("the pump's end", |log| log.contains(&Seen::Taken(u64::MAX)));
+        let change = log.iter().position(|seen| *seen == Seen::Change(Some(ActivityState::Idle))).expect("the prompt's change went");
+        assert_eq!(log[..change].last(), Some(&Seen::Taken(total)), "the change goes when the pump has taken the whole output: {log:?}");
+    }
+
+    /// A chunk the paused producer holds at the feed's gate has not been read (Node's paused PTY read nothing): its marker is not applied,
+    /// so a change published meanwhile goes alone; once resumed, the chunk enters the feed and its change follows when the pump takes it.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_paused_producers_chunk_changes_nothing_until_it_enters_the_feed() {
+        let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, ProcessConfig::default());
+        let handle = ProcessHandle::from(format!("term_paused_{}", std::process::id()));
+        let logged = Logged::new();
+        let tab = relay_tab(Arc::clone(&logged) as Arc<dyn TerminalEvents>, manager.clone(), handle.as_str());
+        manager
+            .spawn_with(
+                piped(
+                    &handle,
+                    "$null = [Console]::In.ReadLine(); [Console]::Out.Write('x' + [char]27 + ']697;P' + [char]7); $null = [Console]::In.ReadLine()",
+                    "read a; printf 'x\\033]697;P\\007'; read b",
+                ),
+                SpawnOptions { filter: Some(Box::new(TabFilter::new(Arc::clone(&tab)))), ..SpawnOptions::default() },
+            )
+            .await
+            .unwrap();
+        pump(&manager, &tab, &logged);
+        manager.set_output_paused(&handle, true).unwrap();
+        manager.write_input(&handle, b"go\n".to_vec()).unwrap();
+        tokio::time::timeout(Duration::from_secs(60), manager.output_blocked(&handle))
+            .await
+            .expect("the reader reached the paused gate with the chunk")
+            .unwrap();
+        tab.publish(&mut tab.lock(), Some(Some(ActivityState::Finished)));
+        let changes = |log: &[Seen]| log.iter().filter(|seen| matches!(seen, Seen::Change(_))).cloned().collect::<Vec<_>>();
+        assert_eq!(changes(&logged.until("the direct change", |log| !changes(log).is_empty())), vec![Seen::Change(Some(ActivityState::Finished))], "the held chunk's marker was applied before the chunk was read");
+        manager.set_output_paused(&handle, false).unwrap();
+        let log = logged.until("the chunk's change", |log| changes(log).len() == 2);
+        assert_eq!(changes(&log), vec![Seen::Change(Some(ActivityState::Finished)), Seen::Change(Some(ActivityState::Idle))]);
+        let at = log.iter().position(|seen| *seen == Seen::Change(Some(ActivityState::Idle))).unwrap();
+        assert!(matches!(log[..at].last(), Some(Seen::Taken(taken)) if *taken != u64::MAX), "the change went when the pump took its chunk: {log:?}");
+        let _ = manager.kill(&handle);
     }
 }
 #[cfg(all(test, feature = "core-test"))]
