@@ -10,7 +10,9 @@
 // The recording is a script: each step is a file operation, a clock advance, a revoke, or a phone call with the whole frame the phone got.
 // The random ids and the file versions (they hold the file's inode) are replaced by `<kind#n>`, numbered by first appearance over the whole
 // recording; every other value is Node's.
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
+import fsPromises from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -97,6 +99,10 @@ const PROJECT = join(dir, 'project');
 const TASK = join(dir, 'task');
 const OUTSIDE = join(dir, 'outside');
 for (const folder of [PROJECT, join(PROJECT, 'sub'), TASK, OUTSIDE]) mkdirSync(folder, { recursive: true });
+// The service stages a folder's zip or an attachment's bytes in a `mixdog-download-*` folder of the system temp folder (`os.tmpdir()`,
+// read at each call): the recorder's own, so what is staged is what it counts.
+const STAGING = realpathSync.native(mkdtempSync(join(tmpdir(), 'file-downloads-staging-')));
+for (const name of ['TMPDIR', 'TMP', 'TEMP']) process.env[name] = STAGING;
 
 // The host's conversations: s1 is a project conversation, s2 a task conversation (no project).
 const allSessions = [
@@ -175,6 +181,26 @@ fileDownloadTestHooks.afterResolve = async () => {
   }
 };
 
+// The service's `fs/promises` calls the recorder must see: a staged folder's removal (`dropExport`'s `rm`, not awaited by the service) is
+// work it leaves running, so `settle` waits for it as for a close; and the zip's open of a listed file is where the `zipOpen` gate holds
+// a call (after the walk listed the folder, before the file is read). Builtin bindings are live once synced.
+const realRm = fsPromises.rm;
+fsPromises.rm = (...given) => {
+  const done = realRm(...given).finally(() => closing.delete(done));
+  closing.add(done);
+  return done;
+};
+const realOpen = fsPromises.open;
+fsPromises.open = async (target, ...given) => {
+  const armed = gates.get('zipOpen');
+  if (armed && String(target).startsWith(dir)) {
+    gates.delete('zipOpen');
+    await armed.hold();
+  }
+  return realOpen(target, ...given);
+};
+syncBuiltinESMExports();
+
 const devices = { phone: { deviceId: 'aaaaaaa1' }, tablet: { deviceId: 'bbbbbbb2' }, 'connection:c1': { deviceId: 'connection:c1' }, 'connection:c2': { deviceId: 'connection:c2' } };
 let service;
 let tables;
@@ -187,8 +213,12 @@ const watched = (inner) =>
   Object.fromEntries(
     Object.entries(inner).map(([name, member]) => [name, SERVICE_CALLS.includes(name) ? (requester, ...given) => (reached.push({ method: name, args: given }), member(requester, ...given)) : member])
   );
+const stagedNow = () => readdirSync(STAGING).filter((name) => name.startsWith('mixdog-download-'));
+/** What earlier scenarios' services left staged (their timers no longer run): a scenario counts only its own. */
+let stagedBefore = new Set();
 /** Each scenario runs on a service of its own, at the start of the clock, with no timer of an earlier one armed. */
 const fresh = () => {
+  stagedBefore = new Set(stagedNow());
   clock.timers.clear();
   clock.now = CLOCK_START;
   openHandles.clear();
@@ -301,6 +331,11 @@ const catalog = (ids) => {
 const handles = async () => {
   await settle();
   step({ op: 'handles', open: openHandles.size });
+};
+/** How many staged downloads are on disk now (the service's `mixdog-download-*` folders), after every removal it started has ended. */
+const staged = async () => {
+  await settle();
+  step({ op: 'staged', count: stagedNow().filter((name) => !stagedBefore.has(name)).length });
 };
 const release = async (name, held) => {
   step({ op: 'release', gate: name });
@@ -961,6 +996,81 @@ await call('phone', 'fileDownloadAuthorize', [folderOf(path('outside/big'))]);
 file('remove', { file: 'outside/big/huge.bin' });
 await handles();
 
+begin('folder file removed before it is read', 'a file the walk listed and that is gone when the zip opens it fails the zip with the open\'s error; nothing is staged and no handle is left');
+file('mkdir', { file: 'outside/vanishing' });
+file('write', { file: 'outside/vanishing/a.txt', text: 'alpha' });
+file('write', { file: 'outside/vanishing/b.txt', text: 'bravo' });
+const vanishing = gate('zipOpen');
+step({ op: 'hold', gate: 'zipOpen' });
+await call('phone', 'fileDownloadAuthorize', [folderOf(path('outside/vanishing'))], { key: 'authorize' });
+await vanishing.arrived;
+file('remove', { file: 'outside/vanishing/a.txt' });
+await release('zipOpen', vanishing);
+await answer('authorize');
+await handles();
+await staged();
+
+begin('staged lifetime', 'a staged download (a folder\'s zip) stays 10 minutes from staging whatever its transfer does, keeps the 15 s sweeper ticking from the first thing held, and goes at the first tick at or after its time once nothing reads it; its grant is spent once; the sweeper stops when nothing is left');
+file('mkdir', { file: 'outside/zipped' });
+file('write', { file: 'outside/zipped/z.txt', text: 'zipped' });
+file('write', { file: 'a.bin', text: '0123456789abcdef' });
+const zipped = () => folderOf(path('outside/zipped'));
+grant = await call('phone', 'fileDownloadAuthorize', [zipped()]);
+lease = await call('phone', 'fileDownloadBegin', [grantOf(grant)]);
+await call('phone', 'fileDownloadRange', [transferOf(lease), 0, grant.value.size, versionOf(lease)]);
+await call('phone', 'fileDownloadFinish', [transferOf(lease)]);
+await call('phone', 'fileDownloadBegin', [grantOf(grant)]);
+await handles();
+await staged();
+await wait(22_000);
+const plain = await call('phone', 'fileDownloadAuthorize', [session('a.bin')]);
+await wait(60_000);
+await handles();
+await wait(8_000);
+await handles();
+await call('phone', 'fileDownloadBegin', [grantOf(plain)]);
+grant = await call('phone', 'fileDownloadAuthorize', [zipped()]);
+lease = await call('phone', 'fileDownloadBegin', [grantOf(grant)]);
+await call('phone', 'fileDownloadRange', [transferOf(lease), 0, grant.value.size, versionOf(lease)]);
+await wait(120_000);
+await handles();
+await call('phone', 'fileDownloadRange', [transferOf(lease), 0, grant.value.size, versionOf(lease)]);
+await staged();
+await wait(389_999);
+await staged();
+await wait(1);
+await staged();
+await wait(90_000);
+await staged();
+await wait(10_000);
+const after = await call('phone', 'fileDownloadAuthorize', [session('a.bin')]);
+await wait(60_000);
+await handles();
+await call('phone', 'fileDownloadBegin', [grantOf(after)]);
+
+begin('staged downloads per device', 'a device holds 8 staged downloads: a ninth drops its oldest that no transfer reads, with the unbegun grant reading it; another device keeps its own; an unpair removes the device\'s');
+for (let n = 0; n <= 8; n += 1) {
+  file('mkdir', { file: `outside/f${n}` });
+  file('write', { file: `outside/f${n}/f.txt`, text: `folder ${n}` });
+}
+const stagedFolder = (n) => folderOf(path(`outside/f${n}`));
+const reading8 = [];
+for (let n = 0; n < 4; n += 1) reading8.push(await call('phone', 'fileDownloadBegin', [grantOf(await call('phone', 'fileDownloadAuthorize', [stagedFolder(n)]))]));
+const unbegun8 = [];
+for (let n = 4; n < 8; n += 1) unbegun8.push(await call('phone', 'fileDownloadAuthorize', [stagedFolder(n)]));
+await staged();
+await call('phone', 'fileDownloadAuthorize', [stagedFolder(8)]);
+await staged();
+await handles();
+await call('phone', 'fileDownloadFinish', [transferOf(reading8[0])]);
+await call('phone', 'fileDownloadBegin', [grantOf(unbegun8[0])]);
+await call('phone', 'fileDownloadBegin', [grantOf(unbegun8[1])]);
+await call('tablet', 'fileDownloadAuthorize', [stagedFolder(0)]);
+await staged();
+revokeDevice('phone');
+await staged();
+await handles();
+
 begin('media assets','a media asset is offered by the store\'s file name and type (the extension\'s when the store states none); an unknown asset, one whose bytes are gone and a conversation not in the catalog are refused');
 const png = (id, name, mime, text = `${name} bytes`) => media({ id, name, mime, text });
 png('m-typed', 'a1.png', 'image/png');
@@ -1061,6 +1171,7 @@ for (const { steps: all } of remapped) for (const entry of all) if (entry.frame 
 
 Object.assign(globalThis, real);
 rmSync(dir, { recursive: true, force: true });
+rmSync(STAGING, { recursive: true, force: true });
 if (only) {
   const picked = remapped.find((scenario) => scenario.name === only);
   rmSync(stage, { recursive: true, force: true });

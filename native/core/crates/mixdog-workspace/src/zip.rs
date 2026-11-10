@@ -32,6 +32,7 @@ use crate::ident::FileId;
 use crate::ident::file_id;
 use crate::lanes::Lanes;
 use crate::lanes::run;
+use crate::nodeerr::AtPath;
 use crate::pathguard::canonical;
 use crate::pathguard::comparable;
 use crate::pathguard::is_within;
@@ -68,6 +69,54 @@ pub struct Scan {
 
 fn too_large(files: u64, bytes: u64) -> WsError {
     WsError::new(Reason::FolderTooLarge { files, bytes }, format!("The folder is too large to zip. ({files} files, {bytes} bytes)"))
+}
+
+/// Node's `writeUInt16LE` / `writeUInt32LE` of a value past the field: the `RangeError` (`ERR_OUT_OF_RANGE`) they throw, so the archive
+/// fails instead of carrying a cut header field.
+fn out_of_range(value: u64, max: u64) -> WsError {
+    // `addNumericalSeparator`: an integer past 2^32 is written in groups of three with `_`.
+    let digits = value.to_string();
+    let received = if value > 1 << 32 {
+        let mut grouped = String::new();
+        for (at, digit) in digits.chars().enumerate() {
+            if at > 0 && (digits.len() - at) % 3 == 0 {
+                grouped.push('_');
+            }
+            grouped.push(digit);
+        }
+        grouped
+    } else {
+        digits
+    };
+    WsError::coded("ERR_OUT_OF_RANGE", format!("The value of \"value\" is out of range. It must be >= 0 and <= {max}. Received {received}"))
+}
+
+fn u16_field(value: u64) -> WsResult<u16> {
+    u16::try_from(value).map_err(|_| out_of_range(value, u64::from(u16::MAX)))
+}
+
+fn u32_field(value: u64) -> WsResult<u32> {
+    u32::try_from(value).map_err(|_| out_of_range(value, u64::from(u32::MAX)))
+}
+
+/// Node's `open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)`: off Windows a final component swapped to a link is `ELOOP` and a swapped-in
+/// FIFO does not block; on Windows neither flag exists, and the identity check after opening covers both.
+fn open_listed(path: &Path) -> std::io::Result<File> {
+    let mut options = File::options();
+    options.read(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::custom_flags(&mut options, libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    options.open(path)
+}
+
+fn is_loop(error: &std::io::Error) -> bool {
+    #[cfg(unix)]
+    return error.raw_os_error() == Some(libc::ELOOP);
+    #[cfg(not(unix))]
+    {
+        let _ = error;
+        false
+    }
 }
 
 fn comparable_str(text: &str) -> String {
@@ -160,22 +209,23 @@ struct Location {
     size: u64,
 }
 
-fn entry_location(root: &Path, child: &Path) -> Option<Location> {
-    let meta = std::fs::symlink_metadata(child).ok()?;
+/// Node's `entryLocation`: the entry's own `lstat` failing fails the walk; a link whose target cannot be resolved or read is left out.
+fn entry_location(root: &Path, child: &Path) -> WsResult<Option<Location>> {
+    let meta = std::fs::symlink_metadata(child).at("lstat", child)?;
     let (at, meta) = if meta.file_type().is_symlink() {
-        let target = canonical(child).ok()?;
+        let Ok(target) = canonical(child) else { return Ok(None) };
         if !is_within(root, &target) {
-            return None;
+            return Ok(None);
         }
-        let target_meta = std::fs::symlink_metadata(&target).ok()?;
+        let Ok(target_meta) = std::fs::symlink_metadata(&target) else { return Ok(None) };
         if target_meta.file_type().is_symlink() {
-            return None;
+            return Ok(None);
         }
         (target, target_meta)
     } else {
         (child.to_path_buf(), meta)
     };
-    Some(Location { at, is_dir: meta.is_dir(), is_file: meta.is_file(), size: meta.len() })
+    Ok(Some(Location { at, is_dir: meta.is_dir(), is_file: meta.is_file(), size: meta.len() }))
 }
 
 fn is_canonical(path: &Path) -> bool {
@@ -192,11 +242,14 @@ fn count_files(dir: &Path) -> u64 {
         .sum()
 }
 
-fn sorted_entries(dir: &Path) -> std::io::Result<Vec<(String, bool)>> {
-    let mut entries: Vec<(String, bool)> = std::fs::read_dir(dir)?
-        .filter_map(Result::ok)
-        .filter_map(|e| Some((e.file_name().to_string_lossy().into_owned(), e.file_type().ok()?.is_dir())))
-        .collect();
+/// Node's `readdir(absolute, { withFileTypes: true })`: a listing that fails fails the walk.
+fn sorted_entries(dir: &Path) -> WsResult<Vec<(String, bool)>> {
+    let mut entries = Vec::new();
+    for entry in std::fs::read_dir(dir).at("scandir", dir)? {
+        let entry = entry.at("scandir", dir)?;
+        let is_dir = entry.file_type().at("scandir", dir)?.is_dir();
+        entries.push((entry.file_name().to_string_lossy().into_owned(), is_dir));
+    }
     entries.sort_by(|a, b| a.0.encode_utf16().cmp(b.0.encode_utf16()));
     Ok(entries)
 }
@@ -254,7 +307,7 @@ fn walk<'b, 'a: 'b>(w: &'b mut Walk<'a>, absolute: PathBuf, rel: String, ancesto
                     }
                 }
                 let (root, probe) = (w.root.clone(), child.clone());
-                let Some(location) = run(w.lanes.maintenance, w.cancel, move || entry_location(&root, &probe)).await? else {
+                let Some(location) = run(w.lanes.maintenance, w.cancel, move || entry_location(&root, &probe)).await?? else {
                     continue;
                 };
                 if location.is_dir {
@@ -277,7 +330,7 @@ fn walk<'b, 'a: 'b>(w: &'b mut Walk<'a>, absolute: PathBuf, rel: String, ancesto
                     walk(w, at, child_rel, deeper, inside, inside_rel).await?;
                 } else if location.is_file {
                     let at = location.at.clone();
-                    let id = run(w.lanes.maintenance, w.cancel, move || File::open(&at).and_then(|f| file_id(&f))).await??;
+                    let id = run(w.lanes.maintenance, w.cancel, move || open_listed(&at).and_then(|f| file_id(&f)).at("open", &at)).await??;
                     w.count += 1;
                     w.bytes += location.size;
                     // Past a cap the walk only counts, so the refusal can say how far over.
@@ -292,6 +345,7 @@ fn walk<'b, 'a: 'b>(w: &'b mut Walk<'a>, absolute: PathBuf, rel: String, ancesto
 
 struct Central {
     name: Vec<u8>,
+    name_len: u16,
     crc: u32,
     compressed: u32,
     size: u32,
@@ -341,13 +395,22 @@ pub async fn scan_folder(
 /// Writes the archive; each file is read through a handle that proves it is still the
 /// regular file the walk saw (a replaced file is left out). The caps hold for what is
 /// actually read, not only for the sizes the walk saw.
-pub fn write_archive<W: Write + Seek>(out: &mut W, files: &[FolderFile], max_bytes: u64) -> WsResult<()> {
+/// `between` is called before each file is opened (`zip.open`: where something else may happen to the folder after the walk listed it).
+pub fn write_archive<W: Write + Seek>(out: &mut W, files: &[FolderFile], max_bytes: u64, between: &dyn Fn(&str)) -> WsResult<()> {
     let mut offset: u64 = 0;
     let mut central = Vec::with_capacity(files.len());
     let mut read_total = 0u64;
     for file in files {
-        let Ok(handle) = File::open(&file.absolute) else { continue };
-        if !handle.metadata().is_ok_and(|m| m.is_file()) || file_id(&handle).ok() != Some(file.id) || !is_canonical(&file.absolute) {
+        // Node's `readListedFile`: a failed open fails the archive, but for a final component swapped to a link (`ELOOP`), which is left
+        // out; a handle that is not the regular file the walk saw, or not at its path, is left out too.
+        between("zip.open");
+        let handle = match open_listed(&file.absolute) {
+            Ok(handle) => handle,
+            Err(error) if is_loop(&error) => continue,
+            Err(error) => return Err(crate::nodeerr::io_error(&error, "open", &file.absolute)),
+        };
+        let meta = handle.metadata().at("fstat", &file.absolute)?;
+        if !meta.is_file() || file_id(&handle).at("fstat", &file.absolute)? != file.id || !is_canonical(&file.absolute) {
             continue;
         }
         let name = file.rel.as_bytes().to_vec();
@@ -382,15 +445,17 @@ pub fn write_archive<W: Write + Seek>(out: &mut W, files: &[FolderFile], max_byt
         header.extend(DOS_TIME.to_le_bytes());
         header.extend(DOS_DATE.to_le_bytes());
         header.extend(crc.sum().to_le_bytes());
-        header.extend((data.len() as u32).to_le_bytes());
-        header.extend((raw.len() as u32).to_le_bytes());
-        header.extend((name.len() as u16).to_le_bytes());
+        let (compressed, size) = (u32_field(data.len() as u64)?, u32_field(raw.len() as u64)?);
+        let (name_len, at) = (u16_field(name.len() as u64)?, u32_field(start)?);
+        header.extend(compressed.to_le_bytes());
+        header.extend(size.to_le_bytes());
+        header.extend(name_len.to_le_bytes());
         header.extend(0u16.to_le_bytes());
         header.extend(&name);
         out.write_all(&header)?;
         out.write_all(&data)?;
         offset += header.len() as u64 + data.len() as u64;
-        central.push(Central { name, crc: crc.sum(), compressed: data.len() as u32, size: raw.len() as u32, method, offset: start as u32 });
+        central.push(Central { name, name_len, crc: crc.sum(), compressed, size, method, offset: at });
     }
     let directory_start = offset;
     for entry in &central {
@@ -405,7 +470,7 @@ pub fn write_archive<W: Write + Seek>(out: &mut W, files: &[FolderFile], max_byt
         h.extend(entry.crc.to_le_bytes());
         h.extend(entry.compressed.to_le_bytes());
         h.extend(entry.size.to_le_bytes());
-        h.extend((entry.name.len() as u16).to_le_bytes());
+        h.extend(entry.name_len.to_le_bytes());
         h.extend([0u8; 12]);
         h.extend(entry.offset.to_le_bytes());
         h.extend(&entry.name);
@@ -415,11 +480,28 @@ pub fn write_archive<W: Write + Seek>(out: &mut W, files: &[FolderFile], max_byt
     let mut end = Vec::with_capacity(22);
     end.extend(0x0605_4b50u32.to_le_bytes());
     end.extend([0u8; 4]);
-    end.extend((central.len() as u16).to_le_bytes());
-    end.extend((central.len() as u16).to_le_bytes());
-    end.extend(((offset - directory_start) as u32).to_le_bytes());
-    end.extend((directory_start as u32).to_le_bytes());
+    let entries = u16_field(central.len() as u64)?;
+    end.extend(entries.to_le_bytes());
+    end.extend(entries.to_le_bytes());
+    end.extend(u32_field(offset - directory_start)?.to_le_bytes());
+    end.extend(u32_field(directory_start)?.to_le_bytes());
     end.extend(0u16.to_le_bytes());
     out.write_all(&end)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A field past its width fails the archive with the `RangeError` Node's `writeUInt16LE` / `writeUInt32LE` throw (texts taken from
+    /// Node 22's own throw), never a cut value.
+    #[test]
+    fn a_header_field_past_its_width_fails_as_nodes_write_throws() {
+        assert_eq!(u16_field(65_535).unwrap(), u16::MAX);
+        let name = u16_field(70_000).unwrap_err();
+        assert_eq!((name.reason.code(), name.message.as_str()), ("ERR_OUT_OF_RANGE", "The value of \"value\" is out of range. It must be >= 0 and <= 65535. Received 70000"));
+        let size = u32_field((1 << 32) + 5).unwrap_err();
+        assert_eq!(size.message, "The value of \"value\" is out of range. It must be >= 0 and <= 4294967295. Received 4_294_967_301");
+    }
 }

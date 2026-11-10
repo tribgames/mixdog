@@ -145,17 +145,15 @@ fn stage(store: &BlobStore, lane: &mixdog_rt::InLane<InteractiveIo>, digest: &Bl
     if bytes.len() > MAX_BYTES {
         return Err(refused(Reason::TooLarge, "Files larger than 256 MB cannot be downloaded."));
     }
-    let path = std::env::temp_dir().join(format!("mixdog-download-{}", uuid::Uuid::new_v4()));
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    let written = options.open(&path).and_then(|mut file| file.write_all(&bytes).and_then(|()| file.sync_all()));
-    let opened = written.and_then(|()| File::open(&path));
+    // `stageTemporaryDownload`: a private folder of its own (0700) holding the payload (0600); the folder is what goes.
+    let (folder, mut out) = mixdog_workspace::transfer::staged_payload()?;
+    let written = out.write_all(&bytes).and_then(|()| out.sync_all());
+    drop(out);
+    let opened = written.and_then(|()| File::open(folder.join(mixdog_workspace::transfer::STAGED_PAYLOAD)));
     match opened {
-        Ok(file) => Ok((file, path)),
+        Ok(file) => Ok((file, folder)),
         Err(error) => {
-            let _ = std::fs::remove_file(&path);
+            let _ = std::fs::remove_dir_all(&folder);
             Err(error.into())
         }
     }

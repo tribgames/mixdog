@@ -73,8 +73,36 @@ struct Grant {
     name: String,
     mime: String,
     expires_at: i64,
-    /// A file staged for this download, removed with the grant or the transfer it becomes (after `file`, so the handle closes first).
-    staged: Option<Cleanup>,
+}
+
+/// A file the service staged for a phone's download (a folder's zip, an attachment's bytes): Node's `ExportRecord` made by
+/// `stageTemporaryDownload` (`file-downloads.ts:678-711`). It lives [`STAGED_TTL_MS`] from staging whether or not its download has ended,
+/// counts toward the device's [`MAX_STAGED_PER_DEVICE`], keeps the sweeper running, and its file goes when the sweep finds it expired and
+/// read by no grant or transfer, when room is made for a newer one, or when its device or conversation is revoked.
+struct Staged {
+    owner: String,
+    session: String,
+    /// The staged file's real path: a grant or transfer reading it was opened there (Node's `readsRecord`).
+    location: PathBuf,
+    expires_at: i64,
+    /// Held for its drop: the folder goes with the record.
+    _file: Cleanup,
+}
+
+/// How long a staged download stays (`EXPORT_TTL_MS`).
+pub const STAGED_TTL_MS: i64 = 10 * 60_000;
+/// Staged downloads one device holds; room is made by dropping its oldest that no transfer reads (`MAX_EXPORTS_PER_DEVICE`).
+const MAX_STAGED_PER_DEVICE: usize = 8;
+
+/// Whether a grant or a phone transfer reads the staged file at `location` (Node's `exportHeld`, less `staging`: a record is added only
+/// once its file is made).
+fn staged_read(grants: &[(String, Grant)], reads: &HashMap<String, Read>, location: &Path) -> bool {
+    grants.iter().any(|(_, grant)| grant.location == location) || leased(reads, location)
+}
+
+/// Whether a phone transfer reads the file at `location`.
+fn leased(reads: &HashMap<String, Read>, location: &Path) -> bool {
+    reads.values().any(|read| read.lease.is_some() && read.location.as_deref() == Some(location))
 }
 
 /// The times a phone's transfer ends at (Node's `Lease`): after the idle time without a read, and after the absolute lifetime.
@@ -449,6 +477,8 @@ pub struct Transfers {
     reads: Mutex<HashMap<String, Read>>,
     /// Insertion ordered, so a device's oldest grant is the first of its own.
     grants: Mutex<Vec<(String, Grant)>>,
+    /// Staged downloads, oldest first. Locked after `grants` and `reads` when taken with them.
+    staged: Mutex<Vec<Staged>>,
     generations: Mutex<Generations>,
     /// How many conversations carry a removed mark (`Generations::removed`), so a relist with none pays no lock.
     removed_marks: std::sync::atomic::AtomicUsize,
@@ -469,6 +499,7 @@ impl Default for Transfers {
         #[cfg(feature = "replay-controls")]
         if let Some(clock) = crate::replay_controls::clock() {
             crate::replay_controls::publish("held", "0");
+            crate::replay_controls::publish("staged", "0");
             crate::replay_controls::publish("anchor", "none");
             return Self::with_clock(clock, UPLOAD_IDLE);
         }
@@ -485,6 +516,7 @@ impl Transfers {
         Self {
             reads: Mutex::default(),
             grants: Mutex::default(),
+            staged: Mutex::default(),
             generations: Mutex::default(),
             removed_marks: std::sync::atomic::AtomicUsize::new(0),
             sweeper: Sweeper::default(),
@@ -530,6 +562,56 @@ impl Transfers {
     fn report(&self) {
         let held = self.grants.lock().expect("transfer grants").len() + self.reads.lock().expect("transfer reads").values().filter(|r| r.lease.is_some()).count();
         crate::replay_controls::publish("held", &held.to_string());
+        crate::replay_controls::publish("staged", &self.staged_files().to_string());
+    }
+
+    /// The staged downloads whose file is on disk (what Node's staging folder holds).
+    #[cfg(any(test, feature = "replay-controls"))]
+    pub(crate) fn staged_files(&self) -> usize {
+        self.staged.lock().expect("staged downloads").iter().filter(|staged| staged._file.0.exists()).count()
+    }
+
+    /// Adds a staged download of `owner` (Node's `addRecord`): room is made first by dropping the device's oldest staged downloads that no
+    /// transfer reads, with the unredeemed grants reading them, and the sweeper runs while it is held.
+    fn add_staged(&self, owner: &str, session: &str, location: PathBuf, file: Cleanup) {
+        let expires_at = self.now_ms() + STAGED_TTL_MS;
+        let (dropped_grants, dropped) = {
+            let mut grants = self.grants.lock().expect("transfer grants");
+            let reads = self.reads.lock().expect("transfer reads");
+            let mut staged = self.staged.lock().expect("staged downloads");
+            let mut excess = (staged.iter().filter(|held| held.owner == owner).count() + 1).saturating_sub(MAX_STAGED_PER_DEVICE);
+            let (mut dropped_grants, mut dropped) = (Vec::new(), Vec::new());
+            let mut at = 0;
+            while at < staged.len() && excess > 0 {
+                if staged[at].owner != owner || leased(&reads, &staged[at].location) {
+                    at += 1;
+                    continue;
+                }
+                let stale = staged.remove(at);
+                let (reading, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut *grants).into_iter().partition(|(_, grant)| grant.location == stale.location);
+                *grants = kept;
+                dropped_grants.extend(reading);
+                dropped.push(stale);
+                excess -= 1;
+            }
+            staged.push(Staged { owner: owner.to_owned(), session: session.to_owned(), location, expires_at, _file: file });
+            (dropped_grants, dropped)
+        };
+        // The grants' handles close before their files are removed.
+        drop(dropped_grants);
+        drop(dropped);
+        self.arm_sweeper();
+    }
+
+    /// Ends the staged downloads `ends` names (Node's `dropMatching` over its records); their files go after the lock is released.
+    fn drop_staged(&self, ends: impl Fn(&Staged) -> bool) {
+        let gone: Vec<Staged> = {
+            let mut staged = self.staged.lock().expect("staged downloads");
+            let (gone, kept) = std::mem::take(&mut *staged).into_iter().partition(|held| ends(held));
+            *staged = kept;
+            gone
+        };
+        drop(gone);
     }
 
 
@@ -543,12 +625,23 @@ impl Transfers {
         let now = self.now_ms();
         self.grants.lock().expect("transfer grants").retain(|(_, grant)| grant.expires_at > now);
         self.reads.lock().expect("transfer reads").retain(|_, read| read.lease.is_none_or(|lease| lease.expires_at > now && lease.idle_until > now));
+        let expired: Vec<Staged> = {
+            let grants = self.grants.lock().expect("transfer grants");
+            let reads = self.reads.lock().expect("transfer reads");
+            let mut staged = self.staged.lock().expect("staged downloads");
+            let (kept, expired) = std::mem::take(&mut *staged).into_iter().partition(|held| held.expires_at > now || staged_read(&grants, &reads, &held.location));
+            *staged = kept;
+            expired
+        };
+        drop(expired);
         self.stop_sweeper_when_idle();
     }
 
-    /// Whether any grant or phone transfer is held (Node's three tables being empty, less the exports this core has no table for).
+    /// Whether any grant, phone transfer or staged download is held (Node's three tables being empty).
     fn downloads_held(&self) -> bool {
-        !self.grants.lock().expect("transfer grants").is_empty() || self.reads.lock().expect("transfer reads").values().any(|read| read.lease.is_some())
+        !self.grants.lock().expect("transfer grants").is_empty()
+            || self.reads.lock().expect("transfer reads").values().any(|read| read.lease.is_some())
+            || !self.staged.lock().expect("staged downloads").is_empty()
     }
 
     fn arm_sweeper(&self) {
@@ -636,6 +729,7 @@ impl Transfers {
         }
         self.grants.lock().expect("transfer grants").retain(|(_, g)| g.session != session);
         self.reads.lock().expect("transfer reads").retain(|_, r| r.session != session);
+        self.drop_staged(|held| held.session == session);
         self.stop_sweeper_when_idle();
     }
 
@@ -676,6 +770,7 @@ impl Transfers {
         self.removed_marks.store(0, std::sync::atomic::Ordering::Release);
         self.grants.lock().expect("transfer grants").clear();
         self.reads.lock().expect("transfer reads").retain(|_, read| read.lease.is_none());
+        self.drop_staged(|_| true);
         self.stop_sweeper_when_idle();
     }
 
@@ -685,6 +780,10 @@ impl Transfers {
         let _reporting = Reporting(self);
         self.sweep_downloads();
         let DownloadFile { file, location, name, mime_type, staged } = opened;
+        // Node's `stageTemporaryDownload` adds the record before the marks are checked: a revoked authorize leaves it to its time.
+        if let Some(staged) = staged {
+            self.add_staged(owner, session, location.clone(), staged);
+        }
         let size = file.metadata()?.len();
         self.point("authorize.opened");
         let version = version_string(&file_version(&file)?);
@@ -712,7 +811,6 @@ impl Transfers {
                     name: name.clone(),
                     mime: mime_type.clone(),
                     expires_at,
-                    staged,
                 },
             ));
         }
@@ -753,10 +851,10 @@ impl Transfers {
         let at = self.now_ms();
         let times = LeaseTimes { expires_at: at + LEASE_MAX_MS, idle_until: at + LEASE_IDLE_MS };
         let transfer_id = new_id();
-        let Grant { file, location, session, size, version, name, mime, staged, .. } = grant;
+        let Grant { file, location, session, size, version, name, mime, .. } = grant;
         reads.insert(
             transfer_id.clone(),
-            Read { owner: owner.to_owned(), session, file, location: Some(location), size, version: version.clone(), lease: Some(times), _cleanup: staged, opened: Instant::now() },
+            Read { owner: owner.to_owned(), session, file, location: Some(location), size, version: version.clone(), lease: Some(times), _cleanup: None, opened: Instant::now() },
         );
         drop(reads);
         drop(gate);
@@ -908,7 +1006,7 @@ impl Transfers {
         let file = crate::lanes::run_fallible(lanes.cpu_bulk, cancel, move || {
             let build = (|| -> WsResult<File> {
                 let mut out = File::options().read(true).write(true).create_new(true).open(&out_path)?;
-                crate::zip::write_archive(&mut out, &files, ZIP_MAX_BYTES)?;
+                crate::zip::write_archive(&mut out, &files, ZIP_MAX_BYTES, &|_| {})?;
                 out.flush()?;
                 Ok(out)
             })();
@@ -1141,6 +1239,7 @@ impl Transfers {
         let _reporting = Reporting(self);
         self.reads.lock().expect("transfer reads").retain(|_, r| r.owner != owner);
         self.grants.lock().expect("transfer grants").retain(|(_, g)| g.owner != owner);
+        self.drop_staged(|held| held.owner == owner);
         let stale: Vec<Upload> = {
             let mut writes = self.writes.lock().expect("transfer writes");
             let ids: Vec<String> = writes.iter().filter(|(_, w)| w.owner == owner).map(|(k, _)| k.clone()).collect();
@@ -1551,17 +1650,44 @@ fn grouped(n: u64) -> String {
     out
 }
 
-/// The zip of a phone's folder staged as the download (`stageTemporaryDownload`): named `<folder>.zip` by its real name, removed when
-/// the download ends.
-pub fn staged_folder_zip(folder: &Path, files: &[crate::zip::FolderFile]) -> WsResult<DownloadFile> {
-    let temp = std::env::temp_dir().join(format!("mixdog-download-{}.zip", new_id()));
-    let staged = Cleanup(temp.clone());
-    {
-        let mut out = File::options().write(true).create_new(true).open(&temp)?;
-        crate::zip::write_archive(&mut out, files, ZIP_MAX_BYTES).map_err(phone_folder_refusal)?;
-        out.flush()?;
+/// The file a staged download's bytes are written to, inside its own folder (Node's `join(folder, 'payload')`).
+pub const STAGED_PAYLOAD: &str = "payload";
+
+/// A private folder for one staged download, as Node's `stageTemporaryDownload` makes it (`mkdtemp(join(tmpdir(), 'mixdog-download-'))`,
+/// mode 0700 on Unix), and its payload file created new for writing with mode 0600 (`writeFile(path, bytes, { mode: 0o600 })`). On
+/// Windows both inherit the ACL of the user's temp folder, as Node's do (its modes do not apply there). The folder is the cleanup: it
+/// goes whole. A failure removes what was made.
+pub fn staged_payload() -> std::io::Result<(PathBuf, File)> {
+    let folder = std::env::temp_dir().join(format!("mixdog-download-{}", new_id().replace('-', "")));
+    #[cfg_attr(not(unix), allow(unused_mut))]
+    let mut dir = std::fs::DirBuilder::new();
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut dir, 0o700);
+    dir.create(&folder)?;
+    let mut options = File::options();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    match options.open(folder.join(STAGED_PAYLOAD)) {
+        Ok(file) => Ok((folder, file)),
+        Err(error) => {
+            let _ = std::fs::remove_dir_all(&folder);
+            Err(error)
+        }
     }
-    let (real, file) = open_regular(&temp, &|_| {})?;
+}
+
+/// The zip of a phone's folder staged as the download (`stageTemporaryDownload`): named `<folder>.zip` by its real name, held as a staged
+/// download (see [`Staged`]).
+pub fn staged_folder_zip(folder: &Path, files: &[crate::zip::FolderFile], between: &dyn Fn(&str)) -> WsResult<DownloadFile> {
+    let (temp, out) = staged_payload()?;
+    let staged = Cleanup(temp.clone());
+    // Bound after the cleanup, so on a failure the file is closed before its folder is removed.
+    let mut out = out;
+    crate::zip::write_archive(&mut out, files, ZIP_MAX_BYTES, between).map_err(phone_folder_refusal)?;
+    out.flush()?;
+    drop(out);
+    let (real, file) = open_regular(&temp.join(STAGED_PAYLOAD), &|_| {})?;
     let base = folder.file_name().map(|name| name.to_string_lossy().into_owned()).filter(|name| !name.is_empty()).unwrap_or_else(|| "folder".into());
     Ok(DownloadFile { file, location: real, name: format!("{base}.zip"), mime_type: "application/zip".into(), staged: Some(staged) })
 }
@@ -1593,9 +1719,10 @@ pub fn open_staged_download(staged: WsResult<SourceFile>) -> WsResult<DownloadFi
         _ => error,
     };
     let SourceFile { file: _, name, mime_type, cleanup } = staged.map_err(as_download)?;
-    let path = cleanup.ok_or_else(|| WsError::new(Reason::Io, "The staged download has no file."))?;
-    let staged = Cleanup(path.clone());
-    let (real, file) = open_regular(&path, &|_| {})?;
+    // The source staged its bytes as [`staged_payload`] does: the folder is what goes, its payload is what is read.
+    let folder = cleanup.ok_or_else(|| WsError::new(Reason::Io, "The staged download has no file."))?;
+    let staged = Cleanup(folder.clone());
+    let (real, file) = open_regular(&folder.join(STAGED_PAYLOAD), &|_| {})?;
     Ok(DownloadFile { file, location: real, name, mime_type, staged: Some(staged) })
 }
 
@@ -2141,6 +2268,20 @@ mod tests {
         let opened = open_session_download(&dir.path().join("a.bin").to_string_lossy(), "", None, None, &|_| {}).unwrap();
         assert_refused_as(t.authorize("dev", "s2", stale, opened).unwrap_err(), &frame_of_held("unpair during authorize"));
         assert!(t.begin_grant("dev", &grant_of(&t, dir.path(), "dev", "s1").grant_id).is_ok(), "a conversation removed before the close is no longer marked");
+    }
+
+    /// A staged download's folder is private to the user and its payload readable by the user alone (Node's `mkdtemp` 0700 and
+    /// `writeFile(..., { mode: 0o600 })`), whatever the umask.
+    #[cfg(unix)]
+    #[test]
+    fn a_staged_download_is_private_to_the_user() {
+        use std::os::unix::fs::PermissionsExt;
+        let (folder, file) = staged_payload().unwrap();
+        drop(file);
+        let mode = |path: &Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        let (dir, payload) = (mode(&folder), mode(&folder.join(STAGED_PAYLOAD)));
+        std::fs::remove_dir_all(&folder).unwrap();
+        assert_eq!((dir & 0o077, payload & 0o077), (0, 0), "no access for group or others");
     }
 
     /// Node's `relay close during a read`: a range held at the file when the relay closes (every download revoked) answers what Node's phone
