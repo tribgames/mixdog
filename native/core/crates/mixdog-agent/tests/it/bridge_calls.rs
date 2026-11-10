@@ -11,20 +11,12 @@
 //! tool-batch audit (Node's `recordToolBatch`, the `batch` rows of the trace).
 //!
 //! The recording's declared normalisations (`MANIFEST.json`, `normalisations`) are the only values not
-//! kept: the sandbox path (`<SANDBOX>`), clock values (0) and batch ids (`<BATCH-n>`). Beyond them the
-//! replay leaves out, each for a reason:
-//! - `createdAt` and `meta.transcript.completion` of a stored row: the host stamps them when it stores
-//!   the row (`mixdog-core` `run_host/factory.rs:363`, `:384`); the loop's `AgentMessage` has neither.
-//! - the `context`, `tool` and `usage` rows of the trace: the host writes them from facts the loop
-//!   reports (`mixdog-trace` `tool_records`, `usage_record`), not the loop; the replay asserts that no
-//!   other kind of row exists. A `batch` row's `batch_id` and `batch_schema_version` are the host
-//!   writer's too (`batch_record`): the loop reports the batch (`RunEvent::ToolBatch`), whole.
-//! - a request message's `toolKind`, `toolTiming` and `createdAt`: the request holds wire `Message`s,
-//!   which have no such fields; the recording shows them to be the stored row's own (checked below).
-//! - the `sessionId` of an approval card: the approval actor adds the thread id to the request, the
-//!   gate's ask does not carry it; the card compares with the run's thread id (the recorded session's) in its place.
-//! - the stored transcript of a cancelled turn: the host's interruption closes it (`finalize_interrupted_turn`, see
-//!   `observed`); the replay compares that over the loop's transcript at the stop.
+//! kept: the sandbox path (`<SANDBOX>`), clock values (0) and batch ids (`<BATCH-n>`). Every other
+//! recorded field is compared, or is in the one table of what is not (`NOT_COMPARED`), with where it
+//! is compared instead. Every event the loop raises is compared or named by `uncompared`; any other
+//! fails the replay. The `sessionId` of an approval card is the run's thread id (the approval actor adds
+//! it to the request); the stored transcript of a cancelled turn is the host's interruption over the
+//! loop's transcript at the stop (`finalize_interrupted_turn`, see `observed`).
 
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -61,7 +53,9 @@ use mixdog_agent::env::Rewrite;
 use mixdog_agent::env::RunEnv;
 use mixdog_agent::env::RunEvent;
 use mixdog_agent::env::RunObserver;
+use mixdog_agent::env::Stage;
 use mixdog_agent::env::ToolBatch;
+use mixdog_agent::message::Source;
 use mixdog_agent::env::SteerEntry;
 use mixdog_agent::env::SteerSource;
 use mixdog_agent::env::TextRetraction;
@@ -655,6 +649,9 @@ struct Reply {
 /// dispatched before the response ends); a streaming one hands each call over as it completes (`ToolCallDone`), and a cut
 /// one ends after its calls without the terminal event.
 fn replies(script: &Value, streamed: bool) -> Vec<Reply> {
+    // The recorder's `send` answers every reply it completes with `usage: { inputTokens: 1, outputTokens: 1, promptTokens: 1 }` (an
+    // input of the recording; the core's prompt figure is the input plus the cache); a cut stream answers nothing.
+    let answered = || StreamEvent::Usage(mixdog_core_api::domain::provider::Usage { input_tokens: 1, output_tokens: 1, ..Default::default() });
     script
         .as_array()
         .expect("script")
@@ -669,13 +666,13 @@ fn replies(script: &Value, streamed: bool) -> Vec<Reply> {
                 let cut = step["cut"] == true;
                 assert!(!cut || streamed, "a cut reply streams");
                 if streamed {
-                    let ending = if cut { None } else { Some(done) };
+                    let ending = if cut { Vec::new() } else { vec![answered(), done] };
                     Reply { events: calls.into_iter().map(StreamEvent::ToolCallDone).chain(ending).collect(), settles: strings(&step["settles"]), cut }
                 } else {
-                    Reply { events: vec![StreamEvent::ReturnedCalls(calls), done], settles: Vec::new(), cut }
+                    Reply { events: vec![StreamEvent::ReturnedCalls(calls), answered(), done], settles: Vec::new(), cut }
                 }
             }
-            None => Reply { events: vec![StreamEvent::TextDelta(step["text"].as_str().expect("text").into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }], settles: Vec::new(), cut: false },
+            None => Reply { events: vec![StreamEvent::TextDelta(step["text"].as_str().expect("text").into()), answered(), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }], settles: Vec::new(), cut: false },
         })
         .collect()
 }
@@ -709,11 +706,18 @@ impl SteerSource for NoSteer {
 }
 
 /// The run's events, and the early results the host's interruption record holds: those told before the run's token was cancelled
-/// (`run_host/factory.rs` `PortObserver`, as Node's tracker is finalized in the abort's own step).
-struct Events(Mutex<Vec<RunEvent>>, Timeline, CancellationToken, Mutex<Vec<AgentMessage>>);
+/// (`run_host/factory.rs` `PortObserver`, as Node's tracker is finalized in the abort's own step). The fifth field is the host
+/// callbacks' log in raise order (the recording's `callbacks`), shared with the transcript sink.
+struct Events(Mutex<Vec<RunEvent>>, Timeline, CancellationToken, Mutex<Vec<AgentMessage>>, Callbacks, ThreadId);
+
+/// The recording's `callbacks`, in the order raised: what the loop hands its host beyond the tool events.
+type Callbacks = Arc<Mutex<Vec<Value>>>;
 
 impl RunObserver for Events {
     fn event(&self, event: RunEvent) {
+        if let Some(callback) = callback_of(&event, self.5.as_str()) {
+            self.4.lock().expect("callbacks").push(callback);
+        }
         match &event {
             RunEvent::ToolCalls { calls, .. } => self.1.note(json!({ "ev": "toolCall", "ids": calls.iter().map(|call| call.id.as_str()).collect::<Vec<_>>() })),
             RunEvent::EarlyResult(message) => {
@@ -735,12 +739,15 @@ impl RunObserver for Events {
     }
 }
 
-#[derive(Default)]
-struct Sink(AtomicU64);
+/// The transcript sink; an assistant message it commits is the recording's `onAssistantMessageCommitted`.
+struct Sink(AtomicU64, Callbacks);
 
 #[async_trait]
 impl TranscriptSink for Sink {
-    async fn commit(&self, _: &AgentMessage) -> Result<Ticket, CommitError> {
+    async fn commit(&self, message: &AgentMessage) -> Result<Ticket, CommitError> {
+        if message.role() == Role::Assistant {
+            self.1.lock().expect("callbacks").push(json!({ "ev": "onAssistantMessageCommitted", "args": [committed_view(message)] }));
+        }
         Ok(Ticket(self.0.fetch_add(1, Ordering::Relaxed) + 1))
     }
     fn replace(&self, _: &[AgentMessage], _: &Rewrite) {}
@@ -795,30 +802,17 @@ fn role_name(role: Role) -> &'static str {
     }
 }
 
-/// What the recording shows of the same things, in the same terms.
-fn recorded_view(message: &Value, with_kind: bool) -> Value {
-    let calls: Vec<ToolCall> = message["toolCalls"]
-        .as_array()
-        .map(|calls| {
-            calls
-                .iter()
-                .map(|call| ToolCall { id: call["id"].as_str().expect("id").into(), name: call["name"].as_str().expect("name").into(), arguments: call["arguments"].clone(), native_type: None })
-                .collect()
-        })
-        .unwrap_or_default();
-    let mut shown = view(message["role"].as_str().expect("role"), message["content"].clone(), &calls, message["toolCallId"].as_str());
-    if let Some(tier) = message.get("cacheTier") {
-        shown["cacheTier"] = tier.clone();
-    }
-    if with_kind {
-        // The loop's own fields of a stored row; `createdAt` and `meta` are the host's (see the header).
-        for key in ["toolKind", "toolTiming", "iterations", "toolCallsTotal"] {
-            if let Some(value) = message.get(key) {
-                shown[key] = value.clone();
-            }
+/// A committed result's event carries the call's stored row (`onToolResult` with the message the batch flushes): the recording
+/// must show them to be the same, which is why the replay builds the core's from the row.
+fn result_events_are_the_rows(scenario: &Value) {
+    let stored = scenario["stored"].as_array().expect("stored");
+    for event in scenario["events"].as_array().expect("events") {
+        if event["ev"] != "toolResult" || event["message"]["__earlyNotify"] == true {
+            continue;
         }
+        let row = stored.iter().find(|row| row["role"] == "tool" && row["toolCallId"] == event["message"]["toolCallId"]);
+        assert_eq!(row, Some(&event["message"]), "{}: a result event is not its call's stored row", scenario["name"]);
     }
-    shown
 }
 
 /// A request's tool message carries the row's `toolKind`, `toolTiming` and `createdAt` as the provider is handed them; the recording
@@ -922,7 +916,8 @@ async fn observed(scenario: &Value, defined: &[Value]) -> Value {
     // `cancel`).
     let token = CancellationToken::new();
     let signal = Cancel::from_token(&token);
-    let observer = Arc::new(Events(Mutex::default(), timeline.clone(), token.clone(), Mutex::default()));
+    let callbacks_log: Callbacks = Arc::default();
+    let observer = Arc::new(Events(Mutex::default(), timeline.clone(), token.clone(), Mutex::default(), callbacks_log.clone(), ThreadId::from(scenario["sessionId"].as_str().expect("sessionId"))));
     let approvals = Arc::new(Cards { answers: MockApprovalGate::default(), timeline: timeline.clone(), stages: stages.clone() });
     for answer in scenario["answers"].as_array().expect("answers") {
         approvals.answers.script.lock().expect("script").push_back(ApprovalResolution::Decided {
@@ -986,7 +981,7 @@ async fn observed(scenario: &Value, defined: &[Value]) -> Value {
         decider: Arc::new(MockRetryDecider),
         steer: Arc::new(NoSteer),
         observer: observer.clone(),
-        sink: Arc::new(Sink::default()),
+        sink: Arc::new(Sink(AtomicU64::new(0), callbacks_log.clone())),
         gate: Arc::new(gate),
         guards: Arc::new(NoGuards),
         compactor: None,
@@ -1023,7 +1018,8 @@ async fn observed(scenario: &Value, defined: &[Value]) -> Value {
         set,
         tool_env,
         {
-            let mut config = RunConfig::new(thread.clone(), TurnId::from("r"), "m");
+            // The model the recorder's session was created with (`createSession({ model: 'fake-model' })`): an input.
+            let mut config = RunConfig::new(thread.clone(), TurnId::from("r"), "fake-model");
             config.signal = Some(signal.clone());
             config
         },
@@ -1103,34 +1099,33 @@ async fn observed(scenario: &Value, defined: &[Value]) -> Value {
         canceller.await.expect("the canceller");
     }
     let events = observer.0.lock().expect("events").clone();
-    let tool_calls: Vec<Value> = events
-        .iter()
-        .filter_map(|event| match event {
-            RunEvent::ToolCalls { iteration, calls } => Some(json!({ "iteration": iteration, "calls": calls_of(calls) })),
-            _ => None,
-        })
-        .collect();
-    let batches: Vec<Value> = events
-        .iter()
-        .filter_map(|event| match event {
-            RunEvent::ToolBatch(batch) => Some(batch_view(batch)),
-            _ => None,
-        })
-        .collect();
-    let early: Vec<Value> = events
-        .iter()
-        .filter_map(|event| match event {
-            RunEvent::EarlyResult(message) => Some(early_view(message)),
-            _ => None,
-        })
-        .collect();
-    let results: Vec<Value> = events
-        .iter()
-        .filter_map(|event| match event {
-            RunEvent::ToolResult { call_id, kind } => Some(json!([call_id, kind_of(*kind)])),
-            _ => None,
-        })
-        .collect();
+    // Every event is compared or is one `uncompared` names: the tool events (`events`, in raise order), the batch and recovery
+    // reports (`trace`), the reports with a recorded callback (`callbacks`).
+    let mut tool_events: Vec<Value> = Vec::new();
+    let mut batches: Vec<Value> = Vec::new();
+    let mut recoveries: Vec<Value> = Vec::new();
+    for event in &events {
+        match event {
+            RunEvent::ToolCalls { iteration, calls } => tool_events.push(json!({ "ev": "toolCall", "iteration": iteration, "calls": calls_of(calls) })),
+            RunEvent::EarlyResult(message) => tool_events.push(json!({ "ev": "toolResult", "message": early_view(message) })),
+            // The committed result is the call's stored row (`result_events_are_the_rows` shows the recording's to be the same).
+            RunEvent::ToolResult { call_id, kind } => {
+                let row = transcript.iter().find(|row| row["role"] == "tool" && row["toolCallId"] == call_id.as_str()).cloned().unwrap_or_else(|| json!({ "missing row of": call_id }));
+                assert_eq!(row["toolKind"], kind_of(*kind), "{}: the result event's kind is its row's", scenario["name"]);
+                tool_events.push(json!({ "ev": "toolResult", "message": row }));
+            }
+            RunEvent::ToolBatch(batch) => batches.push(batch_view(batch)),
+            RunEvent::PartialToolRecovery(recovery) => recoveries.push(json!({
+                "iteration": recovery.iteration,
+                "toolCalls": recovery.tool_calls,
+                "droppedIncompleteInput": recovery.dropped_incomplete_input,
+                "partialContentLen": recovery.partial_content_len,
+            })),
+            RunEvent::Usage { .. } => {}
+            other if uncompared(other) => {}
+            other => panic!("{}: the loop raised an event the recording has no counterpart of: {other:?}", scenario["name"]),
+        }
+    }
     let cards: Vec<Value> = approvals
         .answers
         .asks
@@ -1139,23 +1134,13 @@ async fn observed(scenario: &Value, defined: &[Value]) -> Value {
         .iter()
         .map(|ask| card_view(ask, thread.as_str()))
         .collect();
-    let recoveries: Vec<Value> = events
-        .iter()
-        .filter_map(|event| match event {
-            RunEvent::PartialToolRecovery(recovery) => Some(json!({
-                "iteration": recovery.iteration,
-                "toolCalls": recovery.tool_calls,
-                "droppedIncompleteInput": recovery.dropped_incomplete_input,
-                "partialContentLen": recovery.partial_content_len,
-            })),
-            _ => None,
-        })
-        .collect();
+    // `at` is the store's (see `NOT_COMPARED`).
     let audit: Vec<Value> = grant_store
         .audit()
         .iter()
         .map(|entry| json!({ "agentId": entry.agent_id, "kind": entry.kind, "action": entry.action, "tool": entry.tool, "target": entry.target, "decision": entry.decision, "device": entry.device }))
         .collect();
+    let callbacks = observer.4.lock().expect("callbacks").clone();
     let executed = executed.lock().expect("executed").clone();
     let before = hook.seen.lock().expect("seen").clone();
     let after = post.0.lock().expect("after").clone();
@@ -1165,10 +1150,9 @@ async fn observed(scenario: &Value, defined: &[Value]) -> Value {
         "recoveries": recoveries,
         "requests": requests,
         "transcript": transcript,
-        "toolCalls": tool_calls,
+        "events": tool_events,
         "batches": batches,
-        "early": early,
-        "results": results,
+        "callbacks": callbacks,
         "cards": cards,
         "audit": audit,
         "hooks": { "before": before, "after": after },
@@ -1223,6 +1207,14 @@ fn wire_view(message: &Message) -> Value {
     if let Some(tier) = tier_name(message.cache_tier) {
         shown["cacheTier"] = json!(tier);
     }
+    if let Some(source) = message.source {
+        let name = match source {
+            mixdog_core_api::domain::provider::MessageSource::Steering => "steering",
+            mixdog_core_api::domain::provider::MessageSource::StreamCutRecovery => "stream-cut-recovery",
+            other => panic!("a wire message source the recording never shows: {other:?}"),
+        };
+        shown["meta"] = json!({ "source": name });
+    }
     shown
 }
 
@@ -1230,6 +1222,9 @@ fn wire_view(message: &Message) -> Value {
 /// the recording's declared 0.
 fn stored_view(message: &AgentMessage) -> Value {
     let mut shown = wire_view(&message.message);
+    if let Some(source) = message.source {
+        shown["meta"] = json!({ "source": source_name(source) });
+    }
     if let Some(kind) = message.tool_kind {
         shown["toolKind"] = json!(kind_of(kind));
     }
@@ -1239,10 +1234,80 @@ fn stored_view(message: &AgentMessage) -> Value {
     shown
 }
 
+/// Node's names of a user message's `meta.source` (`message_row.rs` `SOURCES`).
+fn source_name(source: Source) -> &'static str {
+    match source {
+        Source::Steering => "steering",
+        Source::TaskNotification => "task-notification",
+        Source::TurnLimit => "turn-limit",
+        Source::MaxOutputRecovery => "max-output-recovery",
+        Source::StreamCutRecovery => "stream-cut-recovery",
+        Source::RefusalRecovery => "refusal-recovery",
+        Source::ContentFilterRecovery => "content-filter-recovery",
+        other => panic!("a message source the recording never shows: {other:?}"),
+    }
+}
+
+/// An assistant message the loop commits, as `onAssistantMessageCommitted` is handed it (its `createdAt` is the host's: see
+/// [`NOT_COMPARED`]).
+fn committed_view(message: &AgentMessage) -> Value {
+    view("assistant", text_of(&message.message.content), &message.message.tool_calls, None)
+}
+
+/// The loop's report to its host that has a recorded callback (`onUsageDelta`), in the recording's terms.
+fn callback_of(event: &RunEvent, thread: &str) -> Option<Value> {
+    match event {
+        RunEvent::Usage { iteration, usage, delta } => Some(json!({ "ev": "onUsageDelta", "args": [{
+            "sessionId": thread,
+            "iterationIndex": iteration,
+            "requestedModel": delta.requested_model,
+            "model": delta.model,
+            "deltaInput": usage.input_tokens,
+            "deltaOutput": usage.output_tokens,
+            "deltaToolCalls": delta.delta_tool_calls,
+            "reasoningTokens": delta.reasoning_tokens,
+            "reasoningTokensComplete": delta.reasoning_tokens_complete,
+            "deltaPrompt": delta.delta_prompt,
+            // A clock value: the recording's declared 0.
+            "requestMs": 0,
+            "deltaCachedRead": usage.cache_read_tokens,
+            "deltaCacheWrite": usage.cache_write_tokens,
+            "sendTools": delta.send_tools.iter().map(|tool| tool.name.clone()).collect::<Vec<_>>(),
+        }] })),
+        _ => None,
+    }
+}
+
+/// Every event the loop raises is compared with the recording, or is one of these, which the recording has no counterpart of; any
+/// other event fails the replay.
+/// - `Stage(Streaming)`, `TextDelta`: the replay's adapter streams its final text (a core adapter always does) and the loop marks the
+///   stream; Node's scripted `send` returned the text whole and raised no stage (Node's adapters raise `onStageChange`, `onTextDelta`
+///   themselves). The text itself is compared as the answer and the stored transcript.
+/// - `Stage(ApprovalWait)`: the approval card's wait; Node's card is `onToolApproval`, compared whole as `cards` and on the timeline.
+fn uncompared(event: &RunEvent) -> bool {
+    matches!(event, RunEvent::Stage(Stage::Streaming | Stage::ApprovalWait { .. }) | RunEvent::TextDelta(_))
+}
+
+/// What the recording holds that the replay does not compare, by field, and where it is compared instead.
+/// | recorded field | why not here | compared in |
+/// |---|---|---|
+/// | `stored[].createdAt`, `requests[][].createdAt`, `onAssistantMessageCommitted.createdAt` | stamped by the host when it stores the row (`run_host/factory.rs`); the loop's message has no clock | nothing yet (the live replay reads the stored transcript through the protocol, whose items carry no `createdAt`) |
+/// | `stored[].meta.transcript.completion` | the host's completion record of the turn (`status`, `verb`, `elapsedMs`) | `status`: `replay-call-tool-live.mjs` (the thread's turn status) |
+/// | `requests[][].toolKind`, `.toolTiming` | the request holds wire messages; Node hands the provider the stored row | here, through the stored row they must equal (`request_fields_are_the_rows`) |
+/// | `events[toolResult, not early].message` | the committed row of that call | here, through the stored row it must equal (`result_events_are_the_rows`) |
+/// | `trace[]` rows of kind `context`, `tool`, `usage`, and of the `batch` and `partial_tool_recovery` rows every field but those [`batch_view`] and the recovery view compare | written by the host's agent-trace writer from the loop's reports | nothing: the core writes no agent trace (`mixdog_trace::AgentTrace` is built by no product code; owner: the run host's trace wiring) |
+/// | `onUsageDelta`: `usageMetricsTurnId`, `usageMetricsEpoch`, `source`, `promptKnown`, `contextInputTokens`, `contextOutputTokens`, `contextPromptTokens`, `contextCachedReadTokens`, `contextCacheWriteTokens`, `contextMeasuredTokens`, `ts`, and of `sendTools` all but the names | the core's `Usage` event carries the request's facts; the host derives the usage report (`UsageReport::from_event`) and the tool definitions are the session's registry, which the replay stands in for with probes of the recorded names | nothing yet |
+/// | `onProviderSendStarted`, `onToolPhaseStarted`, `onToolPhaseCompleted`, `onAssistantToolCallObserved` | the core's loop raises no such event: the host derives the phase from `ToolCalls` and the sends from `Usage` | nothing yet |
+/// | `onContextPressure` | the pre-send compaction check, which the loop runs through the compactor its host provides (`RunEnv.compactor`); this replay runs the loop without one, so the core raises no `ContextPressure` | nothing in this recording |
+/// | `audit[].at` | stamped by the grant store when it writes the record (`mixdog-tools` `policy/file_store.rs:454`); the replay's `MemoryGrantStore` stands in for the store | nothing yet |
+/// | `session`, `surface`, `script`, `ask`, `answers`, `hookRewrite`, `hookDeny`, `gates`, `abortWhen`, `abortReason`, `settled`, `internal`, `mcp`, `nonBridge`, `stream`, `workdir`, `sessionId`, `name` | the scenario's inputs | used to build the run |
+const NOT_COMPARED: () = ();
+
 /// The early notification a settled call tells the host: its role, call id, text, error flag and the marks it carries (the first three
 /// of the timing's five).
 fn early_view(message: &AgentMessage) -> Value {
     let mut shown = view("tool", text_of(&message.message.content), &[], message.tool_call_id());
+    shown["__earlyNotify"] = json!(true);
     shown["isError"] = json!(message.message.is_error);
     if message.tool_timing.is_some() {
         shown["toolTiming"] = json!({ "dispatchStartedAt": 0, "executionStartedAt": 0, "executionCompletedAt": 0 });
@@ -1283,26 +1348,50 @@ fn batch_view(batch: &ToolBatch) -> Value {
 /// The recording's side of the same view.
 fn recorded(scenario: &Value) -> Value {
     request_fields_are_the_rows(scenario);
+    result_events_are_the_rows(scenario);
+    // What is left out below is the table's.
+    let () = NOT_COMPARED;
+    // Whole, but for the fields `NOT_COMPARED` names.
+    let without = |message: &Value, keys: &[&str]| {
+        let mut message = message.clone();
+        let fields = message.as_object_mut().expect("message");
+        for key in keys {
+            fields.remove(*key);
+        }
+        if let Some(meta) = fields.get_mut("meta").and_then(Value::as_object_mut) {
+            meta.remove("transcript");
+            if meta.is_empty() {
+                fields.remove("meta");
+            }
+        }
+        message
+    };
     let requests: Vec<Value> = scenario["requests"]
         .as_array()
         .expect("requests")
         .iter()
-        .map(|messages| json!(messages.as_array().expect("messages").iter().map(|m| recorded_view(m, false)).collect::<Vec<_>>()))
+        .map(|messages| json!(messages.as_array().expect("messages").iter().map(|m| without(m, &["createdAt", "toolKind", "toolTiming"])).collect::<Vec<_>>()))
         .collect();
-    let transcript: Vec<Value> = scenario["stored"].as_array().expect("stored").iter().map(|m| recorded_view(m, true)).collect();
-    let events = scenario["events"].as_array().expect("events");
-    let tool_calls: Vec<Value> = events.iter().filter(|e| e["ev"] == "toolCall").map(|e| json!({ "iteration": e["iteration"], "calls": e["calls"] })).collect();
-    let early: Vec<Value> = events
+    let transcript: Vec<Value> = scenario["stored"].as_array().expect("stored").iter().map(|m| without(m, &["createdAt"])).collect();
+    let events = scenario["events"].as_array().expect("events").clone();
+    let callbacks: Vec<Value> = scenario["callbacks"]
+        .as_array()
+        .expect("callbacks")
         .iter()
-        .filter(|e| e["ev"] == "toolResult" && e["message"]["__earlyNotify"] == true)
-        .map(|e| {
-            let message = &e["message"];
-            let mut shown = view("tool", message["content"].clone(), &[], message["toolCallId"].as_str());
-            shown["isError"] = message["isError"].clone();
-            if let Some(timing) = message.get("toolTiming") {
-                shown["toolTiming"] = timing.clone();
+        .filter_map(|callback| match callback["ev"].as_str().expect("ev") {
+            "onAssistantMessageCommitted" => Some(json!({ "ev": callback["ev"], "args": [without(&callback["args"][0], &["createdAt"])] })),
+            "onUsageDelta" => {
+                let delta = &callback["args"][0];
+                let mut kept = serde_json::Map::new();
+                for key in ["sessionId", "iterationIndex", "requestedModel", "model", "deltaInput", "deltaOutput", "deltaToolCalls", "reasoningTokens", "reasoningTokensComplete", "deltaPrompt", "requestMs", "deltaCachedRead", "deltaCacheWrite"] {
+                    kept.insert(key.to_owned(), delta[key].clone());
+                }
+                kept.insert("sendTools".to_owned(), json!(delta["sendTools"].as_array().expect("sendTools").iter().map(|tool| tool["name"].clone()).collect::<Vec<_>>()));
+                Some(json!({ "ev": callback["ev"], "args": [kept] }))
             }
-            shown
+            // `NOT_COMPARED`: the core's loop raises none of these.
+            "onProviderSendStarted" | "onToolPhaseStarted" | "onToolPhaseCompleted" | "onAssistantToolCallObserved" | "onContextPressure" => None,
+            other => panic!("{}: a recorded callback the replay does not know: {other}", scenario["name"]),
         })
         .collect();
     // The trace: only these kinds exist, and the loop's own are the `batch` row and the stream-cut recovery.
@@ -1323,29 +1412,17 @@ fn recorded(scenario: &Value) -> Value {
             json!({ "iteration": row["payload"]["iteration"], "tool_call_count": row["payload"]["tool_call_count"], "calls": row["payload"]["calls"] })
         })
         .collect();
-    let audit: Vec<Value> = scenario["audit"]
-        .as_array()
-        .expect("audit")
-        .iter()
-        .map(|record| json!({ "agentId": record["agentId"], "kind": record["kind"], "action": record["action"], "tool": record["tool"], "target": record["target"], "decision": record["decision"], "device": record["device"] }))
-        .collect();
-    let results: Vec<Value> = events
-        .iter()
-        .filter(|e| e["ev"] == "toolResult" && e["message"]["__earlyNotify"] != true)
-        .map(|e| json!([e["message"]["toolCallId"], e["message"]["toolKind"]]))
-        .collect();
     json!({
         "answer": scenario["answer"],
         "turnError": scenario["turnError"],
         "recoveries": recoveries,
         "requests": requests,
         "transcript": transcript,
-        "toolCalls": tool_calls,
+        "events": events,
         "batches": batches,
-        "early": early,
-        "results": results,
+        "callbacks": callbacks,
         "cards": scenario["cards"],
-        "audit": audit,
+        "audit": scenario["audit"].as_array().expect("audit").iter().map(|record| without(record, &["at"])).collect::<Vec<_>>(),
         "hooks": scenario["hooks"],
         "executed": scenario["executed"],
         "timeline": scenario["timeline"],

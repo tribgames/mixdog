@@ -52,7 +52,7 @@ if (!RAW_OUT) {
 // (`normalisations`), and `compareRuns` shows each one needed by the fields that differed between two raw runs.
 const SANDBOX_PLACEHOLDER = '<SANDBOX>';
 const CLOCK_KEYS = new Set([
-  'createdAt', 'ts', 'at', 'elapsedMs', 'duration', 'tool_ms', 'started_at_ms', 'completed_at_ms',
+  'createdAt', 'ts', 'at', 'elapsedMs', 'duration', 'tool_ms', 'started_at_ms', 'completed_at_ms', 'requestMs',
   'dispatchStartedAt', 'executionStartedAt', 'executionCompletedAt', 'postprocessStartedAt', 'resultCompletedAt',
   'dispatch_wait_ms', 'execution_ms', 'result_collection_wait_ms', 'postprocess_ms', 'total_ms',
 ]);
@@ -311,6 +311,8 @@ const call = (id, name, args) => ({ id, name, arguments: args });
 const bridged = (id, name, args) => call(id, 'call_tool', { name, arguments: args });
 const round = (...calls) => ({ calls });
 const FINAL = { text: 'all done' };
+// The usage every completed reply reports, with the prompt figure a real adapter always gives (`promptTokens`).
+const USAGE = { inputTokens: 1, outputTokens: 1, promptTokens: 1 };
 
 const SCENARIOS = [
   { name: 'a deferred tool is described with load_tool, then run through call_tool', script: [round(call('c1', 'load_tool', { names: ['probe_write'] })), round(bridged('c2', 'probe_write', { q: 'x', n: 1 })), FINAL] },
@@ -718,10 +720,10 @@ async function runScenario(scenario, twin = false) {
           }
         }
         note({ ev: 'answered', n: i + 1 });
-        return { content: '', toolCalls: clone(reply.calls), stopReason: 'tool_use', usage: { inputTokens: 1, outputTokens: 1 } };
+        return { content: '', toolCalls: clone(reply.calls), stopReason: 'tool_use', usage: USAGE };
       }
       note({ ev: 'answered', n: i + 1 });
-      return { content: reply.text, usage: { inputTokens: 1, outputTokens: 1 } };
+      return { content: reply.text, usage: USAGE };
     },
   };
   const answers = [...(scenario.answers ?? [])];
