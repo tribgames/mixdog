@@ -522,7 +522,7 @@ impl ScmService {
             "git/showFile" => {
                 let p: p::GitShowFileParams = decode(req)?;
                 let (dir, rev, path) = (cwd(&p.cwd)?, input::revision(&p.rev)?, input::git_path(&p.path)?);
-                scm.git_show_file(&dir, cancel, rev, path).await?
+                scm.git_show_file(&dir, cancel, &rev, path).await?
             }
             "git/diff" => {
                 let p: p::GitDiffParams = decode(req)?;

@@ -15,8 +15,53 @@ use mixdog_core_api::ids::Method;
 use serde_json::Value;
 use serde_json::json;
 
+use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
+
+use async_trait::async_trait;
+use mixdog_core_api::domain::common::EventSource;
+use mixdog_core_api::domain::process::ProcessError;
+use mixdog_core_api::domain::process::ProcessEvent;
+use mixdog_core_api::domain::process::ProcessInfo;
+use mixdog_core_api::domain::process::ProcessManager;
+use mixdog_core_api::domain::process::PtySize;
+use mixdog_core_api::domain::process::SpawnRequest;
+use mixdog_core_api::domain::process::SpawnedProcess;
+use mixdog_protocol::ProcessHandle;
+
 use crate::review_dispatch_tests::Log;
-use crate::review_dispatch_tests::service;
+use crate::review_dispatch_tests::service_over;
+
+/// Starts nothing and counts every program it was asked to start.
+#[derive(Default)]
+struct NoPrograms(AtomicUsize);
+
+#[async_trait]
+impl ProcessManager for NoPrograms {
+    async fn spawn(&self, request: SpawnRequest) -> Result<SpawnedProcess, ProcessError> {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        Err(ProcessError::ProgramNotFound { program: format!("{:?}", request.command) })
+    }
+    fn subscribe(&self, _handle: &ProcessHandle, _from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
+        Err(ProcessError::AlreadyExited)
+    }
+    async fn write_stdin(&self, _handle: &ProcessHandle, _bytes: Vec<u8>) -> Result<(), ProcessError> {
+        Err(ProcessError::AlreadyExited)
+    }
+    fn close_stdin(&self, _handle: &ProcessHandle) -> Result<(), ProcessError> {
+        Err(ProcessError::AlreadyExited)
+    }
+    fn resize_pty(&self, _handle: &ProcessHandle, _size: PtySize) -> Result<(), ProcessError> {
+        Err(ProcessError::AlreadyExited)
+    }
+    fn kill(&self, _handle: &ProcessHandle) -> Result<(), ProcessError> {
+        Err(ProcessError::AlreadyExited)
+    }
+    fn list(&self) -> Vec<ProcessInfo> {
+        Vec::new()
+    }
+}
 
 const GOLDEN: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../apps/desktop/src/renderer/fixtures/phone-scm/golden.json");
 
@@ -61,7 +106,8 @@ async fn every_argument_nodes_host_refused_is_refused_by_the_core_with_nodes_tex
     let golden: Value = serde_json::from_str(&std::fs::read_to_string(GOLDEN).expect("the phone-scm recording")).expect("json");
     let refused: Vec<&Value> = golden["cases"].as_array().expect("cases").iter().filter(|case| case["name"].as_str().is_some_and(|name| name.starts_with("refused-"))).collect();
     assert!(refused.len() >= 40, "the recording holds the refused cases ({} found)", refused.len());
-    let handle = service(Log::default());
+    let programs = Arc::new(NoPrograms::default());
+    let handle = service_over(programs.clone(), Log::default());
     for case in refused {
         let name = case["name"].as_str().expect("name");
         // Node's host ran nothing for it: no desktop operation and no program.
@@ -71,11 +117,23 @@ async fn every_argument_nodes_host_refused_is_refused_by_the_core_with_nodes_tex
         let (method, params) = request(case["call"].as_str().expect("call"), case["params"].as_array().expect("params"));
         let ctx = CallContext::connection(ConnectionId(1), mixdog_protocol::Origin::Relay, Default::default());
         let answer = handle.call(CoreRequest { method: Method(method), params, op: None, ctx }).await;
+        // Node's frame is its text alone (`{ ok: false, error }`). The core's form of a plain git `Error` is the `git` domain's
+        // `COMMAND_FAILED` with that text and no detail, which the phone's page turns back into the text alone (the adapter
+        // replay compares that frame whole).
         match answer {
-            Err(CoreError::DomainError { message: Some(message), .. }) => assert_eq!(&*message, node, "{name}"),
+            Err(CoreError::DomainError { domain, code, message: Some(message), detail: None }) => {
+                assert_eq!((&*domain, code.as_deref(), &*message), ("git", Some("COMMAND_FAILED"), node), "{name}")
+            }
             other => panic!("{name}: the core answered {other:?}, Node refused with {node:?}"),
         }
+        assert_eq!(programs.0.load(Ordering::SeqCst), 0, "{name}: the core started a program for a call Node refused before acting");
     }
-    // The recorded directory is gone with the recorder's world: a core that ran git before it checked would have answered git's
-    // failure there, not Node's text.
+}
+
+/// `requiredGitRevision` answers the revision rebuilt from its checked hash (git-contract.mjs: the hash before `^` is trimmed again).
+#[test]
+fn a_revision_is_rebuilt_from_its_checked_hash() {
+    assert_eq!(crate::input::revision(" abcd ^ ").expect("a hash and its parent mark"), "abcd^");
+    assert_eq!(crate::input::revision(" HEAD ").expect("HEAD"), "HEAD");
+    assert_eq!(crate::input::revision("ABCDEF12").expect("a hash"), "ABCDEF12");
 }

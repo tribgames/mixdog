@@ -682,7 +682,9 @@ async function finishReplay() {
   const cases = replay.compared.filter((name) => name !== 'ordering');
   console.log(`phone-scm replay over ${REPLAY}: ${cases.length} cases and the ordering scenario compared (${replay.compared.includes('ordering') ? 'replayed' : 'NOT replayed'}), ${replay.differences.length} differ, ${replay.byName.size - cases.length} of the recording not replayed`);
   for (const difference of replay.differences) console.log(`DIFF ${difference.name}\n  node: ${JSON.stringify(difference.node)}\n  core: ${JSON.stringify(difference.core)}`);
-  process.exit(replay.differences.length ? 1 : 0);
+  // A difference, a recorded case that was not replayed, or a tree that could not be ended (`endTree` set the code) fails the run.
+  const unreplayed = replay.byName.size - cases.length;
+  process.exit(replay.differences.length || unreplayed || process.exitCode ? 1 : 0);
 }
 // A login flow's id is `ghlogin_<pid>_<n>` in both products. Node's recording pins its pid (4242); the core's is its own process's,
 // so the core's answer is read with that pid as the recording's. Nothing else is rewritten.
