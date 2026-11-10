@@ -137,6 +137,25 @@ const { _clearWebSocketPoolForTest } = await load(P + 'openai-ws-pool.mjs');
 const { captureSideQuestionRequest } = await load('src/runtime/agent/orchestrator/session/side-question-store.mjs');
 const { summarizeOnSharedPrefix } = await load('src/runtime/agent/orchestrator/session/compact/forked-summary.mjs');
 const { disposeTransportScope } = await load(P + 'transport-scope.mjs');
+const { getLlmDispatcher } = await load('src/runtime/shared/llm/http-agent.mjs');
+/**
+ * Taps the dispatches of the global dispatcher every provider fetch rides (the proxy-policy router `getLlmDispatcher`
+ * installs; a first provider request installed it already): `traffic.dispatched(opts)` runs right after each dispatch.
+ * Installed by the first scenario that needs it, so no scenario before it rides anything but Node's own dispatcher.
+ */
+let tapped = false;
+function tapDispatches() {
+  if (tapped) return;
+  tapped = true;
+  getLlmDispatcher();
+  const dispatcher = globalThis[Symbol.for('undici.globalDispatcher.1')];
+  const dispatch = dispatcher.dispatch;
+  dispatcher.dispatch = function tappedDispatch(opts, handler) {
+    const accepted = dispatch.call(this, opts, handler);
+    traffic.dispatched?.(opts);
+    return accepted;
+  };
+}
 
 const tools = session.tools.map(({ name, description, inputSchema }) => ({ name, description, inputSchema }));
 if (session.system.length !== 4) throw new Error(`the session document holds ${session.system.length} system texts; Node's session seeds four (base rules, stable context, session marker, environment)`);
@@ -158,6 +177,7 @@ for (const scenario of selected(doc.scenarios)) {
   for (const name of ENV_NAMES) delete process.env[name];
   Object.assign(process.env, scenario.env || {});
   traffic.sink = [];
+  traffic.dispatched = null;
   traffic.script = { dials: structuredClone(scenario.dials || []), replies: structuredClone(scenario.ws || []), http: structuredClone(scenario.http || []) };
   const controller = new AbortController();
   // `abortWhenHeld`: the turn is cancelled (the session's abort signal) once the server has written a held reply.
@@ -236,6 +256,25 @@ for (const scenario of selected(doc.scenarios)) {
       second.catch(() => {});
     };
   }
+  // `extraWithResend`: when the scenario's `at`-th POST is dispatched (a refused request's plain resend), `count` more
+  // requests to its origin (GET /parity/extra, through the global dispatcher the providers' fetch rides,
+  // `getLlmDispatcher` in http-agent.mjs) are dispatched beside it, back to back: with `gap: 'none'` in the same turn of
+  // the event loop as the resend, with `gap: 'immediate'` one `setImmediate` later. Each takes the next scripted answer;
+  // the scenario lasts until every one has been read.
+  let extras = null;
+  if (scenario.extraWithResend) {
+    const { at, gap, count = 1 } = scenario.extraWithResend;
+    let posts = 0;
+    traffic.dispatched = (opts) => {
+      if (String(opts.method).toUpperCase() !== 'POST' || ++posts !== at) return;
+      traffic.dispatched = null;
+      const origin = new URL(String(opts.origin)).origin;
+      const send = () => Array.from({ length: count }, () => fetch(`${origin}/parity/extra`).then((res) => res.text()));
+      extras = gap === 'none' ? Promise.all(send()) : new Promise((resolve) => setImmediate(resolve)).then(() => Promise.all(send()));
+      extras.catch(() => {});
+    };
+    tapDispatches();
+  }
   try {
     if (scenario.compaction) {
       // The compaction summary as Node's compaction sends it (`summarizeOnSharedPrefix`, forked-summary.mjs): a fork of the
@@ -259,6 +298,10 @@ for (const scenario of selected(doc.scenarios)) {
   if (scenario.sendWhenHeld) {
     if (!second) throw new Error(`${scenario.id}: no answer was withheld, so the second send never went out`);
     await within(`the second send of ${scenario.id}`, second);
+  }
+  if (scenario.extraWithResend) {
+    if (!extras) throw new Error(`${scenario.id}: the POST the extra requests go out with was never dispatched`);
+    await within(`the extra requests of ${scenario.id}`, extras);
   }
   if (!scenario.expectError && entry.unanswered) throw new Error(`${scenario.id}: a ${entry.unanswered} request had no scripted answer`);
   if (traffic.script.dials.length || traffic.script.replies.length || traffic.script.http.length) throw new Error(`${scenario.id}: the script was not consumed (${JSON.stringify(traffic.script).slice(0, 200)})`);

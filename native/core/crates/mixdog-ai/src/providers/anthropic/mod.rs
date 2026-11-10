@@ -61,9 +61,12 @@ pub use oauth::AnthropicLogin;
 pub use oauth::OAuthSession;
 pub use oauth::StoredOAuth;
 
-/// The Anthropic module state a send leaves in the process (the gzip latch, the message threads), as a new process has it.
+/// The Anthropic module state a send leaves in the process (the gzip latch, the message threads, the fast-mode cooldown
+/// and disabled reason), as a new process has it.
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) fn reset_process_state() {
     adapter::reset_gzip_latch();
     threads::reset_process();
+    // `clearFastModeCooldown()` puts back `anthropic-fast-mode.mjs:40-41`'s initial values, cooldown 0 and reason null.
+    fast_mode::process().clear();
 }

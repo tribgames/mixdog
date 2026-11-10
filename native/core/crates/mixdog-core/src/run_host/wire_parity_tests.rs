@@ -233,6 +233,7 @@ async fn record_all(only: Option<&str>, node: &[Value]) -> Vec<Value> {
     let server = Arc::new(Loopback::start(&hosts).await);
     let schedule = KeepaliveSchedule::SPEC;
     let link = Arc::new(ReqwestLink::pinned(&schedule, server.addr, server.tls.clone()));
+    let tapped = link.clone();
     let mut env = builder_env(&w.services);
     env.http = link.clone();
     env.bidi = link;
@@ -369,7 +370,14 @@ async fn record_all(only: Option<&str>, node: &[Value]) -> Vec<Value> {
                     Err(_) => "error",
                 }
             };
-            within(format_args!("the reply of {id}"), async { tokio::join!(first, second).0 }).await
+            let started = extras_with_resend(&id, scenario, &tapped);
+            let ended = within(format_args!("the reply of {id}"), beside(async { tokio::join!(first, second).0 }, &started)).await;
+            tapped.tap(None);
+            assert!(
+                scenario["extraWithResend"].is_null() || started.fired.load(Ordering::SeqCst),
+                "{id}: the POST the extra requests go out with was never sent"
+            );
+            ended
         };
         let mut entry = json!({ "id": id, "provider": provider, "model": model, "outcome": outcome });
         if let Some(kind) = server.unanswered() {
@@ -398,6 +406,82 @@ async fn record_all(only: Option<&str>, node: &[Value]) -> Vec<Value> {
         fixture_fs::write(path, serde_json::to_string_pretty(&json!({ "scenarios": out })).unwrap());
     }
     out
+}
+
+/// The requests a scenario sends beside its own once its tap fired, and whether it fired.
+#[derive(Default)]
+struct Extras {
+    fired: std::sync::atomic::AtomicBool,
+    queued: std::sync::Mutex<Vec<futures::future::BoxFuture<'static, ()>>>,
+}
+
+/// `extraWithResend` (`node-wire-capture.mjs`): when the scenario's `at`-th POST has its connection (a refused request's
+/// plain resend), `count` GETs of `/parity/extra` to its origin go out beside it through the same client. Node dispatches
+/// them in the same turn of the event loop (`gap: "none"`) or one `setImmediate` later (`"immediate"`); here a turn is
+/// one poll of the replay's task ([`beside`]), so they are polled in the poll the resend took its connection in, or after
+/// the task yielded once. Each reads its whole answer.
+fn extras_with_resend(id: &str, scenario: &Value, link: &Arc<ReqwestLink>) -> Arc<Extras> {
+    let extras = Arc::new(Extras::default());
+    let plan = &scenario["extraWithResend"];
+    if plan.is_null() {
+        return extras;
+    }
+    let at = plan["at"].as_u64().expect("the POST the extras go out with") as usize;
+    let count = plan["count"].as_u64().unwrap_or(1);
+    let immediate = match plan["gap"].as_str() {
+        Some("none") => false,
+        Some("immediate") => true,
+        gap => panic!("{id}: no gap {gap:?}"),
+    };
+    let (posts, queue, http, id) = (std::sync::atomic::AtomicUsize::new(0), extras.clone(), link.clone(), id.to_owned());
+    link.tap(Some(Box::new(move |request: &mixdog_core_api::domain::provider::WireRequest| {
+        if request.method != "POST" || posts.fetch_add(1, Ordering::SeqCst) + 1 != at {
+            return;
+        }
+        queue.fired.store(true, Ordering::SeqCst);
+        // `scheme://host`: the url up to its path.
+        let origin = request.url.splitn(4, '/').take(3).collect::<Vec<_>>().join("/");
+        for _ in 0..count {
+            let (http, url, id) = (http.clone(), format!("{origin}/parity/extra"), id.clone());
+            queue.queued.lock().unwrap().push(Box::pin(async move {
+                if immediate {
+                    tokio::task::yield_now().await;
+                }
+                let get = mixdog_core_api::domain::provider::WireRequest {
+                    transport: mixdog_core_api::domain::keepalive::TransportKind::Http1,
+                    method: "GET".into(),
+                    url,
+                    headers: Vec::new(),
+                    body: Vec::new(),
+                };
+                let answer = mixdog_ai::transport::HttpSend::send(http.as_ref(), get, mixdog_ai::transport::deadlines::NODE_DISPATCHER).await;
+                if let Err(error) = async { answer?.read_all().await }.await {
+                    panic!("{id}: an extra request failed: {error:?}");
+                }
+            }));
+        }
+    })));
+    extras
+}
+
+/// `main` with the requests it starts ([`extras_with_resend`]) polled beside it in a fixed order: `main` first, then
+/// what it started during that poll, so one poll of this task is one turn. Ends when `main` and every extra have.
+async fn beside<T>(main: impl std::future::Future<Output = T>, extras: &Extras) -> T {
+    use futures::StreamExt as _;
+    let mut main = std::pin::pin!(main);
+    let mut ended = None;
+    let mut running = futures::stream::FuturesUnordered::new();
+    std::future::poll_fn(|cx| {
+        if ended.is_none()
+            && let std::task::Poll::Ready(value) = main.as_mut().poll(cx)
+        {
+            ended = Some(value);
+        }
+        running.extend(extras.queued.lock().unwrap().drain(..));
+        while let std::task::Poll::Ready(Some(())) = running.poll_next_unpin(cx) {}
+        if ended.is_some() && running.is_empty() { std::task::Poll::Ready(ended.take().unwrap()) } else { std::task::Poll::Pending }
+    })
+    .await
 }
 
 // ---- the comparison ------------------------------------------------------------------------------
