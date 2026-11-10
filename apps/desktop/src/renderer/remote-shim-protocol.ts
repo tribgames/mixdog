@@ -16,6 +16,9 @@ export interface PhoneProtocolHost {
   client(): ProtocolClient<SessionFold>;
   /** The scoped feeds a push lane reads (terminal, files, editor, visualize): opened while the page uses the lane. */
   declareLane(lane: string, feedIds: readonly string[]): void;
+  /** Calls `listener` with the client that is up and with each client that replaces it (a re-pairing dials a new one in the same page);
+   *  an adapter that reads a client's events wires them per client here. Returns the unsubscribe. */
+  onClient?(listener: (client: ProtocolClient<SessionFold>) => void): () => void;
 }
 
 export type NodeCall = (params: unknown[], host: PhoneProtocolHost) => unknown;

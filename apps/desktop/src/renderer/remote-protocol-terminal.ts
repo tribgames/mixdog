@@ -5,7 +5,7 @@
 // `terminalRemoteMethods`, remote-relay-push-lanes.ts, run-dispatch.ts); the replay in apps/mobile compares them with the recordings.
 import type { ProtocolClient, SessionFold } from '../../../../packages/protocol-client/src/index.ts';
 import { foldsCaseOn, hostPlatformOf, isAbsoluteOn, needsHostDevice, pathText, requiredString, resolveOn } from '../shared/remote-arguments';
-import { terminalActivityRows, terminalEnsureRequest, terminalReply, terminalRunPush } from '../shared/terminal-protocol';
+import { terminalActivityRows, terminalEnsureRequest, terminalReply, terminalResizeRequest, terminalRunPush } from '../shared/terminal-protocol';
 import { readTerminalActivityEvent } from '../shared/terminal-activity';
 import type { TerminalSizeOwnerEvent } from '../shared/terminal-size-owner';
 import type { PhoneProtocolAdapter, PhoneProtocolHost } from './remote-shim-protocol';
@@ -60,13 +60,35 @@ let nextWatch = 1;
 
 const sectionValue = (client: Client, section: 'terminalActivity' | 'terminalTabs'): unknown => client.store.section(section, null)?.value;
 
+/** Reads the terminal's events from the client that is up and moves to every client that replaces it: a re-pairing dials a new client in
+ *  the same page, and Node's relay published to whichever connection was current (remote-relay-push-lanes.ts:64), never to a closed one. */
 function install(host: PhoneProtocolHost): (() => void) | undefined {
   const { ctx } = host;
-  let stop: (() => void) | undefined;
+  let unwire: (() => void) | undefined;
   let stopped = false;
-  void ctx.phone.start().then(() => {
+  const rewire = (client: Client): void => {
     if (stopped) return;
-    const client = host.client();
+    unwire?.();
+    // The core closed the replaced connection's watches with it, and a new pairing may be another host.
+    watches.delete(ctx);
+    hostDevices.delete(ctx);
+    unwire = wire(host, client);
+  };
+  const off = host.onClient?.(rewire);
+  const started = ctx.phone.start();
+  if (!off) void started.then(() => rewire(host.client()), () => undefined);
+  else void started.catch(() => undefined);
+  return () => {
+    stopped = true;
+    off?.();
+    unwire?.();
+  };
+}
+
+/** The terminal's events of one client, until the returned teardown. */
+function wire(host: PhoneProtocolHost, client: Client): () => void {
+  const { ctx } = host;
+  {
     const laneInUse = (): boolean => ctx.activeLanes.has(TERMINAL_LANE);
 
     // Activity and size owner are read from the held sections; the baselines follow every change, and an event goes out only
@@ -158,15 +180,11 @@ function install(host: PhoneProtocolHost): (() => void) | undefined {
       } else if (change.type === 'section' && change.section === 'terminalActivity') readActivity();
       else if (change.type === 'section' && change.section === 'terminalTabs') readTabs();
     });
-    stop = () => {
+    return () => {
       offEvents();
       offStore();
     };
-  });
-  return () => {
-    stopped = true;
-    stop?.();
-  };
+  }
 }
 
 /** The ensure/attach replies name the asking connection; the size-owner events say whose claim it is by that name. */
@@ -242,12 +260,7 @@ export const adapter: PhoneProtocolAdapter = {
     },
     termResize: async ([id, cols, rows, phoneOwner], host) => {
       await host.ctx.phone.start();
-      host.client().notify('terminal/resize', {
-        tabId: String(id || ''),
-        cols: Number(cols),
-        rows: Number(rows),
-        ...(phoneOwner === true ? { claim: true } : {}),
-      });
+      host.client().notify('terminal/resize', terminalResizeRequest(id, cols, rows, phoneOwner));
     },
   },
 };
