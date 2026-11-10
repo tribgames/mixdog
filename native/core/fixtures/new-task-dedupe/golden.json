@@ -2529,6 +2529,93 @@
         }
       ]
     },
+    "retry-after-created": {
+      "recorded": [
+        {
+          "daemonCalls": null,
+          "receipts": {
+            "496f6652d1a6443773cbb26c38085b002f164933fb2de19e623371785b3f46c8.json": "{\"signature\":\"ccb2348380ddf387e9c7be4f6a2f610f88187fda558e431363db081db968fe64\",\"sessionId\":\"sess_desktop_496f6652d1a6443773cbb26c38085b002f164933fb2de19e623371785b3f46c8\",\"phase\":\"reserved\"}"
+          },
+          "reply": {
+            "crashed": "created"
+          },
+          "sessions": {
+            "sess_desktop_496f6652d1a6443773cbb26c38085b002f164933fb2de19e623371785b3f46c8": {
+              "prompts": 0,
+              "reserved": true
+            }
+          },
+          "step": {
+            "at": "created",
+            "content": "c1",
+            "id": "s-created",
+            "op": "crash"
+          }
+        },
+        {
+          "daemonCalls": [
+            {
+              "method": "create",
+              "sessionId": "sess_desktop_496f6652d1a6443773cbb26c38085b002f164933fb2de19e623371785b3f46c8"
+            },
+            {
+              "action": "setRoute",
+              "method": "configure",
+              "sessionId": "sess_desktop_496f6652d1a6443773cbb26c38085b002f164933fb2de19e623371785b3f46c8"
+            },
+            {
+              "method": "submit",
+              "sessionId": "sess_desktop_496f6652d1a6443773cbb26c38085b002f164933fb2de19e623371785b3f46c8",
+              "submission": "s-created"
+            }
+          ],
+          "receipts": {
+            "496f6652d1a6443773cbb26c38085b002f164933fb2de19e623371785b3f46c8.json": "{\"signature\":\"ccb2348380ddf387e9c7be4f6a2f610f88187fda558e431363db081db968fe64\",\"sessionId\":\"sess_desktop_496f6652d1a6443773cbb26c38085b002f164933fb2de19e623371785b3f46c8\",\"phase\":\"accepted\"}"
+          },
+          "reply": {
+            "accepted": true,
+            "ok": true,
+            "sessionId": "sess_desktop_496f6652d1a6443773cbb26c38085b002f164933fb2de19e623371785b3f46c8",
+            "snapshot": {
+              "busy": false,
+              "commandBusy": false,
+              "fast": false,
+              "items": [],
+              "model": "m",
+              "provider": "p",
+              "queued": [],
+              "remoteEnabled": false,
+              "remoteSessionId": null,
+              "sessionId": "sess_desktop_496f6652d1a6443773cbb26c38085b002f164933fb2de19e623371785b3f46c8"
+            }
+          },
+          "sessions": {
+            "sess_desktop_496f6652d1a6443773cbb26c38085b002f164933fb2de19e623371785b3f46c8": {
+              "prompts": 1,
+              "reserved": false
+            }
+          },
+          "step": {
+            "content": "c1",
+            "id": "s-created",
+            "op": "submit"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "at": "created",
+          "content": "c1",
+          "id": "s-created",
+          "op": "crash"
+        },
+        {
+          "content": "c1",
+          "id": "s-created",
+          "op": "submit"
+        }
+      ]
+    },
     "retry-after-reserved": {
       "recorded": [
         {

@@ -60,6 +60,21 @@ export const exitWithin = (child, ms, what) =>
         });
       });
 
+/** How long one call to a core (a connection, a request) may take before the replay fails instead of waiting. */
+export const CALL_DEADLINE_MS = 60_000;
+
+/** A call's deadline passed: the replay fails with it, it is never recorded as the call's answer. */
+export class NoAnswer extends Error {}
+
+/** `promise`, or a failure (`NoAnswer`) naming `what` (the method called) once `ms` have passed without its answer. */
+export function answered(what, promise, ms = CALL_DEADLINE_MS) {
+  let timer;
+  const late = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new NoAnswer(`${what}: no answer from the core within ${ms} ms`)), ms);
+  });
+  return Promise.race([promise, late]).finally(() => clearTimeout(timer));
+}
+
 /** A Windows job, closed when its last handle closes, that ends every process in it (JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, 0x2000). */
 const JOB = `
 using System;
@@ -199,7 +214,7 @@ export async function startCore(exe, coreRoot, relay, fresh = true, extraEnv = {
 /** The PC's window: a second connection that claims the host role and answers what the core asks of it. */
 async function openWindow(connect, base) {
   const asked = [];
-  const client = await connect({
+  const client = await answered('the window\'s connection (initialize)', connect({
     ...base,
     clientInfo: { ...base.clientInfo, name: 'mixdog-replay-window', kind: 'desktop' },
     capabilities: {
@@ -207,7 +222,7 @@ async function openWindow(connect, base) {
       experimentalApi: false,
       host: { browser: false, visualize: false, notifications: false, systemProxy: false, power: false, media: false, updater: false, files: true },
     },
-  });
+  }));
   const served = {
     'host/capture/fileSnapshot': (p) => ['captureFileSnapshot', [p.root, p.rel, p.grant === true]],
     'host/localPage/url': (p) => ['localPageUrl', [p.root, p.rel, p.scope === 'file' ? 'file' : 'project']],
@@ -227,7 +242,7 @@ async function openWindow(connect, base) {
       client.respond(id, { error: { code: -32000, message: error.message } });
     }
   });
-  await client.call('host/claim', { hostId: 'replay-window' });
+  await answered('host/claim', client.call('host/claim', { hostId: 'replay-window' }));
   return { client, asked };
 }
 
@@ -257,11 +272,11 @@ async function replayScenario({ exe, world, name, make, expected, relay }) {
     };
     let phoneConnector = base.connector;
     if (relay) {
-      await relay.leg();
+      await answered("the core's relay leg", relay.leg());
       const { relayE2EEPairingMaterial } = await here('apps/desktop/src/shared/remote-e2ee.ts');
-      phoneConnector = await relay.openPhone('client-files', PHONE_ID, relayE2EEPairingMaterial(JSON.parse(readFileSync(join(core.dataDir, 'relay-e2ee.json'), 'utf8'))));
+      phoneConnector = await answered("the paired phone's relay connection", relay.openPhone('client-files', PHONE_ID, relayE2EEPairingMaterial(JSON.parse(readFileSync(join(core.dataDir, 'relay-e2ee.json'), 'utf8')))));
     }
-    client = await connect({ ...base, connector: phoneConnector });
+    client = await answered("the phone's connection (initialize)", connect({ ...base, connector: phoneConnector }));
     const host = { ctx: relay ? { browserId: PHONE_ID } : {}, client: () => client, declareLane() {} };
     // The phone's own entry: every call goes through the router, which queues it (remote-protocol-queue.ts) as it does for every adapter.
     // The router arms a per-call deadline on the page's window timers; the replay compares answers, so its window never fires one.
@@ -277,9 +292,11 @@ async function replayScenario({ exe, world, name, make, expected, relay }) {
         window?.asked.splice(0);
         let frame;
         try {
-          const value = await router.call(name, params);
+          // The router's own per-call deadline runs on the stubbed window timers above; this one is real.
+          const value = await answered(name, router.call(name, params));
           frame = { ok: true, value: value === undefined ? null : clone(value) };
         } catch (error) {
+          if (error instanceof NoAnswer) throw error;
           frame = { ok: false, error: error.message, ...(typeof error.code === 'string' && error.code ? { errorCode: error.code } : {}) };
         }
         return { frame, hostCalls: window ? window.asked.splice(0) : [] };
@@ -295,10 +312,10 @@ async function replayScenario({ exe, world, name, make, expected, relay }) {
         await exited;
         Object.assign(core, await startCore(exe, coreRoot, relay, false));
         base.connector = createWsConnector(async () => core.endpoint);
-        client = await connect({ ...base, connector: base.connector });
+        client = await answered("the phone's connection after the restart (initialize)", connect({ ...base, connector: base.connector }));
       },
       // The one-file permission a paired phone holds for a path outside every project (`transfer/grant/mint`, relay origin).
-      grant: async (path) => (await client.call('transfer/grant/mint', { path })).accessToken,
+      grant: async (path) => (await answered('transfer/grant/mint', client.call('transfer/grant/mint', { path }))).accessToken,
       host: async (on) => {
         if (on && !window) window = await openWindow(connect, base);
         if (!on && window) {
@@ -338,7 +355,7 @@ async function replayScenario({ exe, world, name, make, expected, relay }) {
     const filesUnder = (dir) => (existsSync(dir) ? treeOf(dir).filter((row) => !row.dir) : []);
     const tree = treeOf(world.root, (rel) => rel.startsWith('userdata'));
     if (!isDeepStrictEqual(tree, expected.finalTree)) unexpected.push({ step: 'finalTree', paths: differences(expected.finalTree, tree), node: expected.finalTree, core: tree });
-    const rows = (await client.call('project/list', {})).projects;
+    const rows = (await answered('project/list', client.call('project/list', {}))).projects;
     const db = new DatabaseSync(join(core.dataDir, 'state', 'core.sqlite'), { readOnly: true });
     const stored = db.prepare('SELECT path, alias, hidden FROM projects ORDER BY hidden_rank, path').all();
     db.close();

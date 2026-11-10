@@ -13,8 +13,8 @@
 //   node --import tsx leg.mjs <export dir> <scenario dir> <leg json>      (cwd: <export dir>/apps/desktop)
 //
 // Prints one JSON line per finished step. `crash.at` ends the process (SIGKILL) at a gate: `reserved` / `configured` /
-// `accepted` just after the receipt of that phase was renamed into place, `submitted` as the daemon's answer to the submit is
-// about to be returned.
+// `accepted` just after the receipt of that phase was renamed into place, `created` once the daemon made the session and before
+// its answer to `create` is returned, `submitted` as the daemon's answer to the submit is about to be returned.
 import fs, { mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync, writeSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
@@ -68,6 +68,11 @@ const full = (sessionId) => ({
 const daemon = {
   create: (args) => {
     model.sessions[args.sessionId] ??= { prompts: [], reserved: true };
+    // The daemon made the session and the host never gets its answer (the host's process ends while `client.create` is pending).
+    if (crashAt === 'created' && leg.crash.armed) {
+      persist();
+      die();
+    }
     return full(args.sessionId);
   },
   submit: (args) => {

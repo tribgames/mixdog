@@ -839,30 +839,50 @@ async fn a_boot_ended_between_the_projection_and_the_row_reconciles_again() {
 /// answers from the index the crash left.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_failed_reconcile_fails_every_access() {
-    let env = Env::new();
-    let w = env.create("s1", None).await;
-    let (w, _) = env.commit(w, vec![item("a")]).await;
-    let (_w, acked) = env.append(w, vec![item("b")]).await;
-    acked.unwrap();
-    crate::sqlite::reconcile_seam::fail(&env.data);
-    let failed = open_index(&env.data).unwrap();
-    let why = "s1: the test seam failed the index write";
-    let bound = std::time::Duration::from_secs(60);
-    let read = tokio::time::timeout(bound, failed.history_page(lineage(&[("s1", None)]), None, None, 10))
-        .await
-        .expect("the read answered within 60 s");
-    assert!(matches!(&read, Err(DbError::Write(w)) if w == why), "{read:?}");
-    let write = tokio::time::timeout(bound, failed.mark_dirty("s1")).await.expect("the write answered within 60 s");
-    assert!(matches!(&write, Err(DbError::Write(w)) if w == why), "{write:?}");
-    let laned = failed.clone();
-    let on_lane = tokens()
-        .interactive_io
-        .submit(&CancellationToken::new(), move |lane| laned.history_page_on_lane(lane, &lineage(&[("s1", None)]), None, None, 10).map(drop))
-        .expect("lane");
-    let on_lane = tokio::time::timeout(bound, on_lane).await.expect("the lane read answered within 60 s").expect("job ran");
-    assert!(matches!(&on_lane, Err(DbError::Write(w)) if w == why), "{on_lane:?}");
-    let settled = tokio::time::timeout(bound, failed.reconciled()).await.expect("the reconcile's outcome answered within 60 s");
-    assert!(matches!(&settled, Err(DbError::Write(w)) if w == why), "{settled:?}");
+    let step = Arc::new(std::sync::Mutex::new("its start"));
+    let reached = step.clone();
+    let at = move |name: &'static str| *step.lock().unwrap() = name;
+    let body = async move {
+        let env = Env::new();
+        at("its setup");
+        let w = env.create("s1", None).await;
+        let (w, _) = env.commit(w, vec![item("a")]).await;
+        let (_w, acked) = env.append(w, vec![item("b")]).await;
+        acked.unwrap();
+        crate::sqlite::reconcile_seam::fail(&env.data);
+        let failed = open_index(&env.data).unwrap();
+        let why = "s1: the test seam failed the index write";
+        at("the read");
+        let read = failed.history_page(lineage(&[("s1", None)]), None, None, 10).await;
+        assert!(matches!(&read, Err(DbError::Write(w)) if w == why), "{read:?}");
+        at("the write");
+        let write = failed.mark_dirty("s1").await;
+        assert!(matches!(&write, Err(DbError::Write(w)) if w == why), "{write:?}");
+        let laned = failed.clone();
+        at("the lane read");
+        let on_lane = tokens()
+            .interactive_io
+            .submit(&CancellationToken::new(), move |lane| laned.history_page_on_lane(lane, &lineage(&[("s1", None)]), None, None, 10).map(drop))
+            .expect("lane");
+        let on_lane = on_lane.await.expect("job ran");
+        assert!(matches!(&on_lane, Err(DbError::Write(w)) if w == why), "{on_lane:?}");
+        at("the reconcile's outcome");
+        let settled = failed.reconciled().await;
+        assert!(matches!(&settled, Err(DbError::Write(w)) if w == why), "{settled:?}");
+    };
+    // The whole body under one real-time deadline (a thread's, so it fires on a paused clock too), naming the step reached.
+    let (done, waiting) = std::sync::mpsc::channel::<()>();
+    let (expire, expired) = tokio::sync::oneshot::channel::<()>();
+    std::thread::spawn(move || {
+        if waiting.recv_timeout(std::time::Duration::from_secs(60)) == Err(std::sync::mpsc::RecvTimeoutError::Timeout) {
+            expire.send(()).ok();
+        }
+    });
+    tokio::select! {
+        biased;
+        () = body => drop(done),
+        _ = expired => panic!("a_failed_reconcile_fails_every_access, at {}: not within 60 s", reached.lock().unwrap()),
+    }
 }
 
 /// On the production lanes (not the inline test backend): the open returns while the
