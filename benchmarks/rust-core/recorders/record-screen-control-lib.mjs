@@ -8,7 +8,11 @@
 // a fake input-desktop name, a fake helper transport and a fake installer port that only records the request. No
 // desktop is switched, nothing is installed, no UAC prompt is raised, nothing is elevated and no input is injected.
 //
-//   (cd <tree>/apps/desktop && node --import tsx <this repo>/benchmarks/rust-core/recorders/record-screen-control-<part>.mjs --tree <tree> [--only <scenario>])
+//   (cd <tree>/apps/desktop && node --import tsx <this repo>/benchmarks/rust-core/recorders/record-screen-control-<part>.mjs --tree <tree> [--patch <file>] [--only <scenario>])
+//
+// `--patch <file>`: the tree is that export with a fix of a Node bug applied (`git diff` format against the commit;
+// the same fix is built into Rust). The recorder refuses to go on unless the tree is exactly the commit with the
+// patch applied, and the manifests name the base commit and the patch's sha256.
 //
 // The recorders write one fixture set, `native/core/fixtures/screen-control`, each into its own sub-directory with
 // its own MANIFEST.json: the recorder's path and sha256, this library's and common.mjs's sha256, `process.version`,
@@ -16,15 +20,19 @@
 // MANIFEST.json is the index of every file of every sub-directory, sub-manifests included.
 //
 // `--only <scenario>` plays that one scenario and compares it with the committed recording, writing nothing.
-import { readFileSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { basename, dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   FIXTURES_ROOT,
+  GIT_TIMEOUT_MS,
   REPO_ROOT,
   commitStage,
   exactProductIdentity,
   parseArgs,
+  productIdentity,
   resolveTree,
   sha256,
   stageSet,
@@ -38,17 +46,63 @@ export const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
 const SET = 'screen-control';
 const LIB = 'benchmarks/rust-core/recorders/record-screen-control-lib.mjs';
 const COMMON = 'benchmarks/rust-core/recorders/lib/common.mjs';
-const ARGS = new Set(['tree', 'only']);
+const ARGS = new Set(['tree', 'patch', 'only']);
 
 const repoPath = (absolute) => relative(REPO_ROOT, absolute).split(sep).join('/');
 const fileSha = (rel) => sha256(readFileSync(join(REPO_ROOT, rel)));
 
-/** The export of `NODE_COMMIT` named by `--tree`, refused unless it is exactly that commit, and `--only`. */
+const lf = (data) => data.toString('utf8').replace(/\r\n/g, '\n');
+
+/**
+ * The identity of `tree` as the export of `NODE_COMMIT` with `patchFile` applied: the patch is applied to the
+ * commit's own blobs of the files it touches, each of those files in the tree must equal the result, and every
+ * other file must equal the commit's (exactly the patched files differ from it).
+ */
+function patchedProductIdentity(tree, patchFile) {
+  const git = (args, cwd) => execFileSync('git', args, { cwd, maxBuffer: 256 * 1024 * 1024, timeout: GIT_TIMEOUT_MS });
+  const paths = git(['apply', '--numstat', patchFile], REPO_ROOT).toString('utf8').split('\n').filter(Boolean).map((line) => line.split('\t')[2]);
+  if (paths.length === 0) throw new Error(`${patchFile} changes no file`);
+  const work = mkdtempSync(join(tmpdir(), 'screen-control-patch-'));
+  try {
+    for (const path of paths) {
+      mkdirSync(dirname(join(work, path)), { recursive: true });
+      writeFileSync(join(work, path), git(['show', `${NODE_COMMIT}:${path}`], REPO_ROOT));
+    }
+    git(['apply', patchFile], work);
+    for (const path of paths) {
+      if (lf(readFileSync(join(tree, path))) !== lf(readFileSync(join(work, path)))) {
+        throw new Error(`tree ${tree}: ${path} is not ${NODE_COMMIT}'s with ${basename(patchFile)} applied`);
+      }
+    }
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+  const identity = productIdentity(tree, NODE_COMMIT);
+  const { filesDifferingFromCommit, commitFilesMissingFromTree } = identity.refComparison;
+  if (filesDifferingFromCommit !== paths.length || commitFilesMissingFromTree !== 0) {
+    throw new Error(`tree ${tree} differs from ${NODE_COMMIT} in ${filesDifferingFromCommit} file(s) (${commitFilesMissingFromTree} missing), the patch touches ${paths.length}`);
+  }
+  // `commit` with `patch`: exactly that commit with that patch applied, as checked above.
+  return {
+    ...identity,
+    commit: NODE_COMMIT,
+    baseCommit: NODE_COMMIT,
+    patch: { file: basename(patchFile), sha256: sha256(readFileSync(patchFile)), paths },
+    exact: true,
+  };
+}
+
+/**
+ * The export of `NODE_COMMIT` named by `--tree`, refused unless it is exactly that commit (or, with `--patch`, that
+ * commit with the patch applied), and `--only`.
+ */
 export function openTree() {
   const args = parseArgs();
-  for (const name of args.keys()) if (!ARGS.has(name)) throw new Error(`unknown option --${name} (known: --tree, --only)`);
+  for (const name of args.keys()) if (!ARGS.has(name)) throw new Error(`unknown option --${name} (known: --tree, --patch, --only)`);
   const tree = resolveTree(args);
-  return { tree, identity: exactProductIdentity(tree, NODE_COMMIT), only: args.get('only') ?? null };
+  const patch = args.get('patch');
+  const identity = patch ? patchedProductIdentity(tree, patch) : exactProductIdentity(tree, NODE_COMMIT);
+  return { tree, identity, only: args.get('only') ?? null };
 }
 
 export const importTs = (tree, rel) => import(new URL(`file:///${join(tree, rel).replaceAll('\\', '/')}`).href);
@@ -108,9 +162,12 @@ export async function record({ sub, recorderUrl, identity, only, entries, play, 
     common: COMMON,
     commonSha256: fileSha(COMMON),
     node: process.version,
-    command: `(cd <tree>/apps/desktop && node --import tsx ${recorder} --tree <tree>)`,
+    command: `(cd <tree>/apps/desktop && node --import tsx ${recorder} --tree <tree>${identity.patch ? ` --patch ${identity.patch.file}` : ''})`,
     product: identity,
-    inputs: { tree: `exact export of ${NODE_COMMIT}`, scenarios: names },
+    inputs: {
+      tree: identity.patch ? `export of ${NODE_COMMIT} with ${identity.patch.file} (sha256 ${identity.patch.sha256}) applied` : `exact export of ${NODE_COMMIT}`,
+      scenarios: names,
+    },
     fileCount: listed.length,
     totalBytes: listed.reduce((sum, file) => sum + file.bytes, 0),
     files: listed,

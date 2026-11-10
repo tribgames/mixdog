@@ -8,8 +8,14 @@
 //!   once when not connected; failed when the write fails, when the connection ends first, or after the helper's
 //!   frame deadline ([`FRAME_DEADLINE_MS`]), past which the helper would drop the peer anyway. There are no input
 //!   acknowledgments: "handed to the pipe" is not "executed".
-//! - `close` deactivates and ends the connection; sends already handed over settle from their own writes.
+//! - `close` deactivates and ends the connection; sends already handed over settle from their own writes. A connect
+//!   still in its handshake is given up and fails at once with "connection closed".
+//! - What a pipe reports counts only while its connect is the client's connection: a pipe given up by `close` or
+//!   replaced by a later connect may still report, and nothing of it changes the client. Its own close still counts
+//!   while no other connect has taken its place. (Node at b6f10295a let a late close of an earlier socket end the
+//!   current session; fixed on both sides, `node-fix-helper-stale-socket.patch`.)
 
+use std::future::Future;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
@@ -71,8 +77,7 @@ pub(super) trait PipeEvents: Send + Sync {
 }
 
 /// A connect under way: the authenticated pipe and the helper's hello once it is made, and how to give it up before
-/// (Node's `connection.end()` during the handshake: no proof is revealed after it, and a connection made anyway is
-/// ended at once).
+/// (Node's `connection.end()` during the handshake). A connection made after it was given up is dropped with `done`.
 pub(super) struct Dialing {
     pub done: BoxFuture<Result<(Arc<dyn HelperPipe>, ClientSession), String>>,
     pub abort: Box<dyn FnOnce() + Send>,
@@ -82,7 +87,7 @@ pub(super) struct Dialing {
 pub(super) trait HelperConnector: Send + Sync {
     /// The install state (its secret and pipe name) is readable: the helper is installed.
     fn available(&self) -> bool;
-    /// Dials; the pipe reports to `events`.
+    /// Dials; the pipe reports to `events`, which belong to this connect alone.
     fn connect(&self, events: Arc<dyn PipeEvents>) -> Dialing;
 }
 
@@ -91,8 +96,9 @@ type Settle = Arc<Mutex<Option<(oneshot::Sender<Result<(), String>>, Option<Time
 struct State {
     /// Set from the start of a connect until the connection ends.
     connecting: bool,
-    /// The connect under way (its number and how to give it up), until it is made, fails or is closed.
-    dialing: Option<(u64, Box<dyn FnOnce() + Send>)>,
+    /// The connect under way: how to give it up, and its wait, told when it is given up.
+    dialing: Option<(Box<dyn FnOnce() + Send>, oneshot::Sender<()>)>,
+    /// The number of the latest connect: while `connecting`, the client's connection.
     dials: u64,
     pipe: Option<Arc<dyn HelperPipe>>,
     session: Option<ClientSession>,
@@ -112,6 +118,9 @@ struct Inner {
     errors: Arc<ListenerSet<(String, String)>>,
     frames: Arc<ListenerSet<(FrameHeader, Arc<Vec<u8>>)>>,
     me: Weak<Inner>,
+    /// Test only: told the connect's number after each pipe event was taken or ignored.
+    #[cfg(test)]
+    pipe_event_seen: Mutex<Option<Arc<dyn Fn(u64) + Send + Sync>>>,
 }
 
 fn settle(slot: &Settle, outcome: Result<(), String>) {
@@ -192,43 +201,83 @@ impl Inner {
     }
 }
 
-/// What the helper sends arrives from the pipe's own thread: each event is an entry into the screen control and runs
-/// in its turn.
-impl PipeEvents for Inner {
-    fn desktop_changed(&self, desktop: String, session: u32, locked: Option<bool>) {
-        self.timers.turn().clone().enter(|| {
-            {
-                let mut state = self.state();
-                if let Some(current) = state.session.as_mut() {
-                    current.desktop = desktop.clone();
-                    current.session = session;
-                    current.locked = locked;
-                }
+/// One connect's pipe events. They arrive from the pipe's own thread: each is an entry into the screen control and
+/// runs in its turn, and counts only while its connect is the client's connection (`connecting` with its number);
+/// its close also while no connect is (after `close` the pipe's own close still ends what is left). It does not keep
+/// the client alive: the client keeps the pipe, and the pipe's event task keeps this.
+struct Socket {
+    inner: Weak<Inner>,
+    dial: u64,
+}
+
+impl Socket {
+    fn when(&self, counts: impl FnOnce(&State) -> bool, body: impl FnOnce(&Inner)) {
+        let Some(inner) = self.inner.upgrade() else {
+            return;
+        };
+        inner.timers.turn().clone().enter(|| {
+            let current = counts(&inner.state());
+            if current {
+                body(&inner);
             }
-            self.desktop_changed.call(&HelperSession { session, desktop, locked });
+            #[cfg(test)]
+            if let Some(seen) = lock_slot(&inner.pipe_event_seen).clone() {
+                seen(self.dial);
+            }
         });
+    }
+
+    fn current(&self, state: &State) -> bool {
+        state.connecting && state.dials == self.dial
+    }
+}
+
+#[cfg(test)]
+fn lock_slot<T>(slot: &Mutex<T>) -> MutexGuard<'_, T> {
+    slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+impl PipeEvents for Socket {
+    fn desktop_changed(&self, desktop: String, session: u32, locked: Option<bool>) {
+        self.when(
+            |state| self.current(state),
+            |inner| {
+                {
+                    let mut state = inner.state();
+                    if let Some(current) = state.session.as_mut() {
+                        current.desktop = desktop.clone();
+                        current.session = session;
+                        current.locked = locked;
+                    }
+                }
+                inner.desktop_changed.call(&HelperSession { session, desktop, locked });
+            },
+        );
     }
 
     fn grant_challenge(&self, challenge: Challenge) {
-        self.timers.turn().clone().enter(|| self.challenges.call(&challenge));
+        self.when(|state| self.current(state), |inner| inner.challenges.call(&challenge));
     }
 
     fn error(&self, code: String, message: String) {
-        self.timers.turn().clone().enter(|| self.errors.call(&(code, message)));
+        self.when(|state| self.current(state), |inner| inner.errors.call(&(code, message)));
     }
 
     fn frame(&self, header: FrameHeader, pixels: Arc<Vec<u8>>) {
-        self.timers.turn().clone().enter(|| self.frames.call(&(header, pixels)));
+        self.when(|state| self.current(state), |inner| inner.frames.call(&(header, pixels)));
     }
 
     fn closed(&self) {
-        self.timers.turn().clone().enter(|| {
-            self.end_session(CONNECTION_CLOSED);
-            self.closed.call(&());
-            let mut state = self.state();
-            state.pipe = None;
-            state.connecting = false;
-        });
+        self.when(
+            |state| !state.connecting || self.current(state),
+            |inner| {
+                inner.end_session(CONNECTION_CLOSED);
+                inner.closed.call(&());
+                let mut state = inner.state();
+                state.pipe = None;
+                state.connecting = false;
+            },
+        );
     }
 }
 
@@ -250,6 +299,8 @@ impl HelperClient {
             errors: ListenerSet::new(),
             frames: ListenerSet::new(),
             me: me.clone(),
+            #[cfg(test)]
+            pipe_event_seen: Mutex::new(None),
         });
         Self { inner }
     }
@@ -259,9 +310,10 @@ impl HelperClient {
         self.inner.state().session.clone()
     }
 
-    /// Where the pipe reports what the helper sends.
-    pub(super) fn events(&self) -> Arc<dyn PipeEvents> {
-        self.inner.clone()
+    /// Test only: `seen` is told each pipe event's connect number once the event was taken or ignored.
+    #[cfg(test)]
+    pub(super) fn on_pipe_event(&self, seen: Arc<dyn Fn(u64) + Send + Sync>) {
+        *lock_slot(&self.inner.pipe_event_seen) = Some(seen);
     }
 }
 
@@ -291,21 +343,24 @@ impl HelperService for HelperClient {
             state.dials += 1;
             state.dials
         };
-        let Dialing { done, abort } = self.inner.connector.connect(self.inner.clone());
-        self.inner.state().dialing = Some((dial, abort));
+        let Dialing { mut done, abort } = self.inner.connector.connect(Arc::new(Socket { inner: Arc::downgrade(&self.inner), dial }));
+        let (give_up, mut given_up) = oneshot::channel();
+        self.inner.state().dialing = Some((abort, give_up));
         let inner = self.inner.clone();
         Box::pin(async move {
-            let outcome = done.await;
-            let mut state = inner.state();
-            if !state.dialing.as_ref().is_some_and(|(current, _)| *current == dial) {
-                // Closed during its handshake: a connection made anyway is ended at once, and the connect fails
-                // as Node's does when that connection closes.
-                drop(state);
-                if let Ok((pipe, _)) = outcome {
-                    pipe.end();
+            // Given up first: `close` ran in a turn before this poll, so a connection made meanwhile is not this
+            // client's; it is dropped with `done`.
+            let outcome = std::future::poll_fn(|context| {
+                if std::pin::Pin::new(&mut given_up).poll(context).is_ready() {
+                    return std::task::Poll::Ready(None);
                 }
+                done.as_mut().poll(context).map(Some)
+            })
+            .await;
+            let Some(outcome) = outcome else {
                 return Err(CONNECTION_CLOSED.to_string());
-            }
+            };
+            let mut state = inner.state();
             state.dialing = None;
             match outcome {
                 Ok((pipe, hello)) => {
@@ -352,12 +407,13 @@ impl HelperService for HelperClient {
     fn close(&self) {
         let pipe = {
             let mut state = self.inner.state();
-            if let Some((_, abort)) = state.dialing.take() {
+            if let Some((abort, give_up)) = state.dialing.take() {
                 // Still in its handshake: given up, with nothing written (Node ends the connection; nothing but
-                // the handshake may precede authentication).
+                // the handshake may precede authentication), and the connect fails now.
                 state.connecting = false;
                 drop(state);
                 abort();
+                drop(give_up.send(()));
                 return;
             }
             state.pipe.clone()

@@ -1,13 +1,13 @@
 {
-  "command": "(cd <tree>/apps/desktop && node --import tsx benchmarks/rust-core/recorders/record-screen-control-client.mjs --tree <tree>)",
+  "command": "(cd <tree>/apps/desktop && node --import tsx benchmarks/rust-core/recorders/record-screen-control-client.mjs --tree <tree> --patch node-fix-helper-stale-socket.patch)",
   "common": "benchmarks/rust-core/recorders/lib/common.mjs",
   "commonSha256": "d4d0064b5b40d5fcb833a69fb3d68a69b1c1317606b5fe341c3445d5d0bbefd4",
   "fileCount": 1,
   "files": [
     {
-      "bytes": 16414,
+      "bytes": 25065,
       "path": "scenarios.json",
-      "sha256": "303b7510dcc108923580d7e181bca54ec88351cce4342f5b7a751123136e4655"
+      "sha256": "d83ed9826ec86439fb41cb1d0eba3f7443426ab44240e2f0390d014febd8e180"
     }
   ],
   "inputs": {
@@ -19,24 +19,37 @@
       "sas and a grant are bounded the same way",
       "the connection closing rejects every pending send and emits close; later sends are refused",
       "close deactivates and ends; a send already handed over settles from its own outcome",
-      "after authentication: a desktop change updates the session; challenges and errors are emitted"
+      "after authentication: a desktop change updates the session; challenges and errors are emitted",
+      "close, then the connection’s own close: close is still emitted and the session stays ended",
+      "a late close of a socket given up in its handshake leaves the connection that replaced it connected and usable",
+      "late data of a socket given up in its handshake does not reach the handshake of the connect that replaced it",
+      "a late error of a socket given up in its handshake does not fail the connect that replaced it"
     ],
-    "tree": "exact export of b6f10295a2f698afc85332467192de28500bd146"
+    "tree": "export of b6f10295a2f698afc85332467192de28500bd146 with node-fix-helper-stale-socket.patch (sha256 35d457764abeceaf0b64b5a4e3d7f05b8ff5149ffa8c9eed0e5e4e2e7bafc5b2) applied"
   },
   "lib": "benchmarks/rust-core/recorders/record-screen-control-lib.mjs",
-  "libSha256": "0a1ae13debb18c68ef5d7d32880a127f7f4e5bf60e7d7a475596b351872842f3",
+  "libSha256": "2773fb248d6b5f2f60686f18c6fece766ebb8e4de65db58b3f728be860216fb5",
   "node": "v22.20.0",
   "product": {
-    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "appsSha256": "18993e38af8ff30e2c3db944433187c7c9ab55f9ab560239caddd40ac6dcaf8a",
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
     "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
     "exact": true,
     "files": 9139,
+    "patch": {
+      "file": "node-fix-helper-stale-socket.patch",
+      "paths": [
+        "apps/desktop/src/main/secure-desktop/client.ts",
+        "apps/desktop/src/main/secure-desktop/secure-desktop.test.mjs"
+      ],
+      "sha256": "35d457764abeceaf0b64b5a4e3d7f05b8ff5149ffa8c9eed0e5e4e2e7bafc5b2"
+    },
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 0,
-      "exact": true,
-      "filesDifferingFromCommit": 0
+      "exact": false,
+      "filesDifferingFromCommit": 2
     },
     "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
     "tree": "product tree loaded by the recorder",
@@ -44,7 +57,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-screen-control-client.mjs",
-  "recorderSha256": "fbd81d237e6449080f6af8741550d9db68198330639b3406eb4e4f54920fde38",
+  "recorderSha256": "c05c6cc8e68b7852e36067ffb3c841e5e5b27421913f469e3ea3b029d78c6f2a",
   "set": "screen-control/client",
-  "totalBytes": 16414
+  "totalBytes": 25065
 }

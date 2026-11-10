@@ -3,9 +3,9 @@
   "fileCount": 20,
   "files": [
     {
-      "bytes": 2736,
+      "bytes": 3270,
       "path": "adapter/MANIFEST.json",
-      "sha256": "bdda24d36fa8bd26be35a9da7e7d5058753edd8788905fec3c5a379da4086688"
+      "sha256": "8dcac825ebac5346c196c70aab3bb140deefbc3a1dfb654cd90e671d28d6a45e"
     },
     {
       "bytes": 54812,
@@ -13,19 +13,19 @@
       "sha256": "1f9d05810cb4daf5ab098d3b0456c1228733faef16f5d4451832716f54984c13"
     },
     {
-      "bytes": 2361,
+      "bytes": 3338,
       "path": "client/MANIFEST.json",
-      "sha256": "de7086447e1ca563c698fd1d4ed866a1c0a6a13789eec6b45f9e244368596650"
+      "sha256": "9bbc94fa81a25e04f94b2386aba1acbc38c571169d38e940eab22cdf4dec1ee9"
     },
     {
-      "bytes": 16414,
+      "bytes": 25065,
       "path": "client/scenarios.json",
-      "sha256": "303b7510dcc108923580d7e181bca54ec88351cce4342f5b7a751123136e4655"
+      "sha256": "d83ed9826ec86439fb41cb1d0eba3f7443426ab44240e2f0390d014febd8e180"
     },
     {
-      "bytes": 2173,
+      "bytes": 2707,
       "path": "composed/MANIFEST.json",
-      "sha256": "4813ea4556b9b22adb2ab43941d6b835fc4e5216a01dff87b5db50aaeaa44cc1"
+      "sha256": "41b909871ac2cfe22fd0c2630bce36d095b2972102cf722959f4969ba8fbb42c"
     },
     {
       "bytes": 28164,
@@ -33,9 +33,9 @@
       "sha256": "47c5e993a488d063889eed3276fee4d56f29f62d6cb1674a4789a13f9d38ab91"
     },
     {
-      "bytes": 3710,
+      "bytes": 4244,
       "path": "install/MANIFEST.json",
-      "sha256": "ddb7e80d4f3f4a67b82679b19e690670083a65d4447576542e4f1d7e95933a9f"
+      "sha256": "53a08367897a521e5e3af554e2e7f4c711fa46fe00e2d0d2a8f1ace5756bec9b"
     },
     {
       "bytes": 96861,
@@ -43,9 +43,9 @@
       "sha256": "798deb3c868e04c6a6485360bd70fdb4990d052a7b0d85fe139b770be6937874"
     },
     {
-      "bytes": 3156,
+      "bytes": 3690,
       "path": "lease/MANIFEST.json",
-      "sha256": "11f20252ca786232911aa7d95c9304778ac5f9b5dd113db4e242c54ebbe456cf"
+      "sha256": "8d1967efd6ae362cc2e93cae8f5fd07106529900ef4fee1bdddcc797e6391f31"
     },
     {
       "bytes": 67456,
@@ -53,9 +53,9 @@
       "sha256": "c4d9fb2903f61aba609a064e18090c8f81c0438a56bd8f206dec1a1fb466fc4e"
     },
     {
-      "bytes": 4217,
+      "bytes": 4751,
       "path": "router/MANIFEST.json",
-      "sha256": "ee93770310f19f751f6cc841398a3f74f38df3984bc26067615a71d2cda54219"
+      "sha256": "dfad90d2ab4cf9f1bd8c9f10e5ee92f7350bbc38c0a82cf1599f5f11f9aa5505"
     },
     {
       "bytes": 143546,
@@ -63,9 +63,9 @@
       "sha256": "97bdea2a97b10048ca44d383a3d476a1efc6f7a1d3ce232f3309180775c5fba9"
     },
     {
-      "bytes": 3888,
+      "bytes": 4422,
       "path": "session/MANIFEST.json",
-      "sha256": "29188cbc5137f99d28b8de5f499bc6dfd7fb6a945d1ecfb863bd438cd874ebb4"
+      "sha256": "062349cf8fc82d59b82ec8947b4679874e96fb4b79dcfda0038e594f4801075f"
     },
     {
       "bytes": 131084,
@@ -73,9 +73,9 @@
       "sha256": "b5296687feb8f823fc0ef58c02f46b79a35599267e25929d50acfec9906a1d71"
     },
     {
-      "bytes": 1988,
+      "bytes": 2522,
       "path": "switch/MANIFEST.json",
-      "sha256": "f710a7075940b3661b06207fb8a580128bed796efff3c95c94fa537039261d52"
+      "sha256": "6fae22d71283793bd61bc41f516b0c6653c19fe5bca3029429a1501e6ed7bdb3"
     },
     {
       "bytes": 31781,
@@ -93,9 +93,9 @@
       "sha256": "f827d5fd22bf867e43743ce6357db457c584fd21fc797ef16f573cfe8a76babf"
     },
     {
-      "bytes": 3332,
+      "bytes": 3866,
       "path": "video/MANIFEST.json",
-      "sha256": "7547f3099b2fd5c5059ff8067765f128e3dc97f21ac7bb7735dfb6cb93306aa4"
+      "sha256": "c764d81c3afbf9bccb10afd396112dd27185fc7c711098966f5dbd9ad69cc9bc"
     },
     {
       "bytes": 54750,
@@ -104,16 +104,25 @@
     }
   ],
   "product": {
-    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "appsSha256": "18993e38af8ff30e2c3db944433187c7c9ab55f9ab560239caddd40ac6dcaf8a",
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
     "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
     "exact": true,
     "files": 9139,
+    "patch": {
+      "file": "node-fix-helper-stale-socket.patch",
+      "paths": [
+        "apps/desktop/src/main/secure-desktop/client.ts",
+        "apps/desktop/src/main/secure-desktop/secure-desktop.test.mjs"
+      ],
+      "sha256": "35d457764abeceaf0b64b5a4e3d7f05b8ff5149ffa8c9eed0e5e4e2e7bafc5b2"
+    },
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 0,
-      "exact": true,
-      "filesDifferingFromCommit": 0
+      "exact": false,
+      "filesDifferingFromCommit": 2
     },
     "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
     "tree": "product tree loaded by the recorder",
@@ -122,5 +131,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-screen-control-lib.mjs",
   "set": "screen-control",
-  "totalBytes": 776843
+  "totalBytes": 790743
 }
