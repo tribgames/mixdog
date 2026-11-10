@@ -64,6 +64,10 @@ impl HttpSend for Http {
         request: WireRequest,
         _exchange: mixdog_ai::transport::Exchange,
     ) -> Result<HttpResponse, ProviderError> {
+        // A HEAD is the provider's connection warm-up, not a turn: answered empty and not recorded.
+        if request.method == "HEAD" {
+            return Ok(HttpResponse { status: 200, headers: vec![], body: Box::new(VecBody(Default::default())) });
+        }
         self.seen.lock().unwrap().push(request);
         let sse = format!("data: {}\n\n", answer_event("resp_http", "via http", "response.completed"));
         Ok(HttpResponse { status: 200, headers: vec![], body: Box::new(VecBody([Bytes::from(sse)].into())) })

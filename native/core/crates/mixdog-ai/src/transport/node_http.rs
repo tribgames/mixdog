@@ -241,7 +241,18 @@ struct H1Body {
     framing: Framing,
     decoder: Option<Decoder>,
     /// Where the connection goes back to once the body is whole; `None` when the exchange ends it.
-    reuse: Option<(Arc<Pool>, String, Duration)>,
+    reuse: Option<(Arc<Pool>, String, Duration, u64)>,
+    /// Set by [`BodyStream::hold_connection`]: the whole body's connection waits for this body to be dropped.
+    hold: bool,
+    parked: Option<(Arc<Pool>, String, Idle)>,
+}
+
+impl Drop for H1Body {
+    fn drop(&mut self) {
+        if let Some((pool, key, idle)) = self.parked.take() {
+            pool.put(key, idle);
+        }
+    }
 }
 
 impl H1Body {
@@ -310,16 +321,25 @@ impl H1Body {
 
     /// The exchange is whole: the connection goes back to the pool.
     fn release(&mut self) {
-        if let (Some(io), Some((pool, key, ttl))) = (self.io.take(), self.reuse.take())
+        if let (Some(io), Some((pool, key, ttl, born))) = (self.io.take(), self.reuse.take())
             && self.buffer.is_empty()
         {
-            pool.put(key, Idle::H1 { io, until: Instant::now() + ttl });
+            let idle = Idle::H1 { io, until: Instant::now() + ttl, born };
+            if self.hold {
+                self.parked = Some((pool, key, idle));
+            } else {
+                pool.put(key, idle);
+            }
         }
     }
 }
 
 #[async_trait]
 impl BodyStream for H1Body {
+    fn hold_connection(&mut self) {
+        self.hold = true;
+    }
+
     async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
         loop {
             match self.take() {
@@ -378,30 +398,43 @@ impl BodyStream for H1Body {
 // ---------------------------------------------------------------------------
 
 enum Idle {
-    H1 { io: Stream, until: Instant },
+    /// `born` is the connection's creation number: undici's pool hands a request to the first free client in the
+    /// order they were created, so the idle list is kept in that order.
+    H1 { io: Stream, until: Instant, born: u64 },
     H2(h2::client::SendRequest<Bytes>),
 }
 
 #[derive(Default)]
 struct Pool {
     idle: Mutex<HashMap<String, Vec<Idle>>>,
+    births: std::sync::atomic::AtomicU64,
 }
 
 impl Pool {
+    fn birth(&self) -> u64 {
+        self.births.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    }
+
     fn put(&self, key: String, idle: Idle) {
-        self.idle.lock().unwrap_or_else(PoisonError::into_inner).entry(key).or_default().push(idle);
+        let mut all = self.idle.lock().unwrap_or_else(PoisonError::into_inner);
+        let list = all.entry(key).or_default();
+        let at = match &idle {
+            Idle::H1 { born, .. } => list.iter().position(|o| matches!(o, Idle::H1 { born: other, .. } if other > born)).unwrap_or(list.len()),
+            Idle::H2(_) => list.len(),
+        };
+        list.insert(at, idle);
     }
 
     /// An idle connection of `key` that is still within its keep-alive; h2 connections stay shared.
     fn take(&self, key: &str) -> Option<Idle> {
         let mut idle = self.idle.lock().unwrap_or_else(PoisonError::into_inner);
         let list = idle.get_mut(key)?;
-        while let Some(found) = list.pop() {
-            match found {
+        while !list.is_empty() {
+            match list.remove(0) {
                 Idle::H1 { until, .. } if Instant::now() >= until => {}
                 Idle::H2(send) => {
                     let again = send.clone();
-                    list.push(Idle::H2(send));
+                    list.insert(0, Idle::H2(send));
                     return Some(Idle::H2(again));
                 }
                 other => return Some(other),
@@ -558,7 +591,7 @@ impl NodeClient {
             let reused = self.pool.take(&key);
             let was_reused = reused.is_some();
             let outcome = match reused {
-                Some(Idle::H1 { io, .. }) => self.exchange_h1(io, &key, request, &url, writer, surface).await,
+                Some(Idle::H1 { io, born, .. }) => self.exchange_h1(io, born, &key, request, &url, writer, surface).await,
                 Some(Idle::H2(send)) => self.exchange_h2(send, request, &url, writer, surface).await,
                 None => {
                     let (io, h2) = self.dial(&url, surface).await?;
@@ -574,7 +607,7 @@ impl NodeClient {
                         self.pool.put(key.clone(), Idle::H2(send.clone()));
                         self.exchange_h2(send, request, &url, writer, surface).await
                     } else {
-                        self.exchange_h1(io, &key, request, &url, writer, surface).await
+                        self.exchange_h1(io, self.pool.birth(), &key, request, &url, writer, surface).await
                     }
                 }
             };
@@ -587,9 +620,11 @@ impl NodeClient {
     }
 
     /// `Err((error, nothing_came_back))`.
+    #[allow(clippy::too_many_arguments, reason = "one exchange's connection, request and surface")]
     async fn exchange_h1(
         &self,
         mut io: Stream,
+        born: u64,
         key: &str,
         request: &WireRequest,
         url: &url::Url,
@@ -618,7 +653,7 @@ impl NodeClient {
                     if (100..200).contains(&status) && status != 101 {
                         continue;
                     }
-                    return Ok(self.response_h1(io, buffer, status, list, key, request, close));
+                    return Ok(self.response_h1(io, born, buffer, status, list, key, request, close));
                 }
                 Ok(httparse::Status::Partial) => {}
                 Err(_) => {
@@ -642,6 +677,7 @@ impl NodeClient {
     fn response_h1(
         &self,
         io: Stream,
+        born: u64,
         buffer: Vec<u8>,
         status: u16,
         headers: Vec<(String, String)>,
@@ -672,7 +708,9 @@ impl NodeClient {
             buffer,
             framing,
             decoder,
-            reuse: reusable.then(|| (self.pool.clone(), key.to_owned(), ttl)),
+            reuse: reusable.then(|| (self.pool.clone(), key.to_owned(), ttl, born)),
+            hold: false,
+            parked: None,
         };
         let mut body = body;
         // An empty body is whole already.

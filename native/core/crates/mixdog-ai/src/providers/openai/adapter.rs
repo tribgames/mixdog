@@ -331,7 +331,8 @@ impl OpenAiAdapter {
             stamps.insert(CODEX_BACKEND_ORIGIN, now);
         }
         let http = self.http.clone();
-        runtime.spawn(async move {
+        let _entered = runtime.enter();
+        let mut warm = Box::pin(async move {
             let head = WireRequest {
                 transport: TransportKind::Http1,
                 method: "HEAD".into(),
@@ -349,6 +350,12 @@ impl OpenAiAdapter {
                 stamps.remove(CODEX_BACKEND_ORIGIN);
             }
         });
+        // Node's `fetch` starts its connection inside the call, before the caller's next line; polling the warm-up
+        // once here does the same, so its connection is the first one the server sees. The task then re-polls it
+        // with its own waker.
+        if warm.as_mut().poll(&mut std::task::Context::from_waker(std::task::Waker::noop())).is_pending() {
+            runtime.spawn(warm);
+        }
     }
 
     fn authorize(&self, mut wire: WireRequest, credential: &Credential) -> WireRequest {
@@ -357,11 +364,16 @@ impl OpenAiAdapter {
         if self.codec.route() == Route::Codex
             && let Some(account) = &credential.account_id
         {
-            let at = wire
-                .headers
-                .iter()
-                .position(|(name, _)| name.eq_ignore_ascii_case("originator"))
-                .map_or(wire.headers.len(), |i| i + 1);
+            // The WebSocket handshake lists the account right behind the bearer (`openai-ws-pool.mjs:490`), the
+            // HTTP request right behind `originator` (`openai-oauth-http-sse.mjs:76`).
+            let at = if wire.transport == TransportKind::WebSocket {
+                1
+            } else {
+                wire.headers
+                    .iter()
+                    .position(|(name, _)| name.eq_ignore_ascii_case("originator"))
+                    .map_or(wire.headers.len(), |i| i + 1)
+            };
             wire.headers.insert(at, ("chatgpt-account-id".into(), account.clone()));
         }
         wire
@@ -412,8 +424,12 @@ impl OpenAiAdapter {
         // `resendIfEncodingRejected`: a 400/415 of a compressed request is drained and the same request sent plain;
         // the latch is set only when that plain request is accepted (the encoding was the cause).
         if packed.is_some() && matches!(response.status, 400 | 415) {
-            let _ = read_failure(response).await;
-            response = self.http.send(wire, MODEL_STREAM_FETCH).await?;
+            let mut body = response.body;
+            body.hold_connection();
+            while body.next().await.is_some() {}
+            let resent = self.http.send(wire, MODEL_STREAM_FETCH).await;
+            drop(body);
+            response = resent?;
             if response.is_success() {
                 ZSTD_LATCHED.store(true, Ordering::Relaxed);
             }

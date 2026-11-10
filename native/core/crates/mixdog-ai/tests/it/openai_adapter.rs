@@ -81,6 +81,10 @@ impl HttpSend for ScriptedHttp {
         request: WireRequest,
         _exchange: mixdog_ai::transport::Exchange,
     ) -> Result<HttpResponse, ProviderError> {
+        // A HEAD is the provider's connection warm-up, not a turn: answered empty, neither recorded nor scripted.
+        if request.method == "HEAD" {
+            return Ok(HttpResponse { status: 200, headers: Vec::new(), body: Box::new(VecBody(VecDeque::new())) });
+        }
         self.seen.lock().unwrap().push(request);
         let (status, headers, chunks) = self.responses.lock().unwrap().pop_front().expect("scripted response");
         Ok(HttpResponse { status, headers, body: Box::new(VecBody(chunks.into())) })
