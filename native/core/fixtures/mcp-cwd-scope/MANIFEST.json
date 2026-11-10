@@ -8,8 +8,22 @@
       "sha256": "a37eed0032b6af736cb2afc288dbb256e4125a8055671142dcf1b7e78d59112e"
     }
   ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/tool-definitions.mjs",
+      "sha256": "5e533f7ce0b9fb9750ea998cbe7399e4790a86dcb982cd93c711744c3a9236a7"
+    }
+  ],
   "keptWhole": "per step: the cwd, the call, what executeTool returned, the server calls, the session MCP snapshot",
-  "nodeRuntime": "v22.20.0",
+  "nodeVersion": "v22.20.0",
   "normalisations": {
     "sandboxPath": "the sandbox folder (and its forward-slash form) in every string becomes <SANDBOX>"
   },
@@ -31,7 +45,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-mcp-cwd-scope.mjs",
-  "recorderSha256": "067727574a4f713abf2761a94fd8449067cbfcf5e1fac33c83be94f8c3f05ac6",
+  "recorderSha256": "b76e3978616422c4e9b88edc3cc88ebe0c8e973b0b5ca1f6d55fb0d730c93af8",
   "set": "mcp-cwd-scope",
   "syntheticInputs": [
     "the registry: `_registerMcpServerForTest` with the servers of `registry`, whose callTool only records the call and answers `ran <server> <tool>`",
