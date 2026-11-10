@@ -492,7 +492,12 @@ impl AnthropicStream {
 
     fn fail(&mut self, mut err: ProviderError) {
         self.body = None;
-        err.partial_usage = self.last_usage.clone().map(Box::new);
+        // Node carries a turn's partial usage on a stream that was cut (a read failure, a stall, a truncation:
+        // anthropic-sse-turn/turn-outcome.mjs `partialFields`), not on an error the provider sent in the stream
+        // (`_anthropicSseError`, anthropic-sse.mjs:138), whose usage no ledger sees.
+        if err.transport.is_some() {
+            err.partial_usage = self.last_usage.clone().map(Box::new);
+        }
         self.failed = Some(err);
     }
 }

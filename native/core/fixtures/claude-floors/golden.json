@@ -2401,6 +2401,2166 @@
       "messageThreads": false
     },
     {
+      "model": "claude-opus-5-4",
+      "key": "claude-opus-5-4",
+      "familyVersion": [
+        "opus",
+        5,
+        4
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-opus-4-99",
+      "key": "claude-opus-4-99",
+      "familyVersion": [
+        "opus",
+        4,
+        99
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-opus-6-5",
+      "key": "claude-opus-6-5",
+      "familyVersion": [
+        "opus",
+        6,
+        5
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-opus-4",
+      "key": "claude-opus-4",
+      "familyVersion": [
+        "opus",
+        4,
+        0
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": false
+    },
+    {
+      "model": "claude-opus-5-05",
+      "key": "claude-opus-5-05",
+      "familyVersion": [
+        "opus",
+        5,
+        5
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-opus-5-10",
+      "key": "claude-opus-5-10",
+      "familyVersion": [
+        "opus",
+        5,
+        10
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-opus-5-５",
+      "key": "claude-opus-5-５",
+      "familyVersion": null,
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": false
+    },
+    {
+      "model": "claude-opus-٥-5",
+      "key": "claude-opus-٥-5",
+      "familyVersion": null,
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": false
+    },
+    {
+      "model": "claude-opus-9007199254740991",
+      "key": "claude-opus-9007199254740991",
+      "familyVersion": [
+        "opus",
+        9007199254740991,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-opus-9007199254740991-5",
+      "key": "claude-opus-9007199254740991-5",
+      "familyVersion": [
+        "opus",
+        9007199254740991,
+        5
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-opus-9007199254740992",
+      "key": "claude-opus-9007199254740992",
+      "familyVersion": [
+        "opus",
+        9007199254740992,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-opus-9007199254740992-5",
+      "key": "claude-opus-9007199254740992-5",
+      "familyVersion": [
+        "opus",
+        9007199254740992,
+        5
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-opus-9007199254740993",
+      "key": "claude-opus-9007199254740993",
+      "familyVersion": [
+        "opus",
+        9007199254740992,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-opus-9007199254740993-5",
+      "key": "claude-opus-9007199254740993-5",
+      "familyVersion": [
+        "opus",
+        9007199254740992,
+        5
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-opus-18446744073709551615",
+      "key": "claude-opus-18446744073709551615",
+      "familyVersion": [
+        "opus",
+        18446744073709552000,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-opus-18446744073709551615-5",
+      "key": "claude-opus-18446744073709551615-5",
+      "familyVersion": [
+        "opus",
+        18446744073709552000,
+        5
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-opus-18446744073709551616",
+      "key": "claude-opus-18446744073709551616",
+      "familyVersion": [
+        "opus",
+        18446744073709552000,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-opus-18446744073709551616-5",
+      "key": "claude-opus-18446744073709551616-5",
+      "familyVersion": [
+        "opus",
+        18446744073709552000,
+        5
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-opus-18446744073709551617",
+      "key": "claude-opus-18446744073709551617",
+      "familyVersion": [
+        "opus",
+        18446744073709552000,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-opus-18446744073709551617-5",
+      "key": "claude-opus-18446744073709551617-5",
+      "familyVersion": [
+        "opus",
+        18446744073709552000,
+        5
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-opus-100000000000000000000",
+      "key": "claude-opus-100000000000000000000",
+      "familyVersion": [
+        "opus",
+        100000000000000000000,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-opus-100000000000000000000-5",
+      "key": "claude-opus-100000000000000000000-5",
+      "familyVersion": [
+        "opus",
+        100000000000000000000,
+        5
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-opus-1000000000000000000000",
+      "key": "claude-opus-1000000000000000000000",
+      "familyVersion": [
+        "opus",
+        1e+21,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-opus-1000000000000000000000-5",
+      "key": "claude-opus-1000000000000000000000-5",
+      "familyVersion": [
+        "opus",
+        1e+21,
+        5
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-opus-9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999",
+      "key": "claude-opus-9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999",
+      "familyVersion": [
+        "opus",
+        null,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-opus-9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999-5",
+      "key": "claude-opus-9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999-5",
+      "familyVersion": [
+        "opus",
+        null,
+        5
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-sonnet-5-4",
+      "key": "claude-sonnet-5-4",
+      "familyVersion": [
+        "sonnet",
+        5,
+        4
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-sonnet-4-99",
+      "key": "claude-sonnet-4-99",
+      "familyVersion": [
+        "sonnet",
+        4,
+        99
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-sonnet-6-5",
+      "key": "claude-sonnet-6-5",
+      "familyVersion": [
+        "sonnet",
+        6,
+        5
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-sonnet-4",
+      "key": "claude-sonnet-4",
+      "familyVersion": [
+        "sonnet",
+        4,
+        0
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": false
+    },
+    {
+      "model": "claude-sonnet-6",
+      "key": "claude-sonnet-6",
+      "familyVersion": [
+        "sonnet",
+        6,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-sonnet-5-05",
+      "key": "claude-sonnet-5-05",
+      "familyVersion": [
+        "sonnet",
+        5,
+        5
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-sonnet-5-10",
+      "key": "claude-sonnet-5-10",
+      "familyVersion": [
+        "sonnet",
+        5,
+        10
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-sonnet-5-５",
+      "key": "claude-sonnet-5-５",
+      "familyVersion": null,
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": false
+    },
+    {
+      "model": "claude-sonnet-٥-5",
+      "key": "claude-sonnet-٥-5",
+      "familyVersion": null,
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": false
+    },
+    {
+      "model": "claude-sonnet-9007199254740991",
+      "key": "claude-sonnet-9007199254740991",
+      "familyVersion": [
+        "sonnet",
+        9007199254740991,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-sonnet-9007199254740991-5",
+      "key": "claude-sonnet-9007199254740991-5",
+      "familyVersion": [
+        "sonnet",
+        9007199254740991,
+        5
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-sonnet-9007199254740992",
+      "key": "claude-sonnet-9007199254740992",
+      "familyVersion": [
+        "sonnet",
+        9007199254740992,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-sonnet-9007199254740992-5",
+      "key": "claude-sonnet-9007199254740992-5",
+      "familyVersion": [
+        "sonnet",
+        9007199254740992,
+        5
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-sonnet-9007199254740993",
+      "key": "claude-sonnet-9007199254740993",
+      "familyVersion": [
+        "sonnet",
+        9007199254740992,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-sonnet-9007199254740993-5",
+      "key": "claude-sonnet-9007199254740993-5",
+      "familyVersion": [
+        "sonnet",
+        9007199254740992,
+        5
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-sonnet-18446744073709551615",
+      "key": "claude-sonnet-18446744073709551615",
+      "familyVersion": [
+        "sonnet",
+        18446744073709552000,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-sonnet-18446744073709551615-5",
+      "key": "claude-sonnet-18446744073709551615-5",
+      "familyVersion": [
+        "sonnet",
+        18446744073709552000,
+        5
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-sonnet-18446744073709551616",
+      "key": "claude-sonnet-18446744073709551616",
+      "familyVersion": [
+        "sonnet",
+        18446744073709552000,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-sonnet-18446744073709551616-5",
+      "key": "claude-sonnet-18446744073709551616-5",
+      "familyVersion": [
+        "sonnet",
+        18446744073709552000,
+        5
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-sonnet-18446744073709551617",
+      "key": "claude-sonnet-18446744073709551617",
+      "familyVersion": [
+        "sonnet",
+        18446744073709552000,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-sonnet-18446744073709551617-5",
+      "key": "claude-sonnet-18446744073709551617-5",
+      "familyVersion": [
+        "sonnet",
+        18446744073709552000,
+        5
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-sonnet-100000000000000000000",
+      "key": "claude-sonnet-100000000000000000000",
+      "familyVersion": [
+        "sonnet",
+        100000000000000000000,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-sonnet-100000000000000000000-5",
+      "key": "claude-sonnet-100000000000000000000-5",
+      "familyVersion": [
+        "sonnet",
+        100000000000000000000,
+        5
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-sonnet-1000000000000000000000",
+      "key": "claude-sonnet-1000000000000000000000",
+      "familyVersion": [
+        "sonnet",
+        1e+21,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-sonnet-1000000000000000000000-5",
+      "key": "claude-sonnet-1000000000000000000000-5",
+      "familyVersion": [
+        "sonnet",
+        1e+21,
+        5
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-sonnet-9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999",
+      "key": "claude-sonnet-9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999",
+      "familyVersion": [
+        "sonnet",
+        null,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-sonnet-9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999-5",
+      "key": "claude-sonnet-9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999-5",
+      "familyVersion": [
+        "sonnet",
+        null,
+        5
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-fable-4-99",
+      "key": "claude-fable-4-99",
+      "familyVersion": [
+        "fable",
+        4,
+        99
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": false
+    },
+    {
+      "model": "claude-fable-5-0",
+      "key": "claude-fable-5-0",
+      "familyVersion": [
+        "fable",
+        5,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-fable-4-0",
+      "key": "claude-fable-4-0",
+      "familyVersion": [
+        "fable",
+        4,
+        0
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": false
+    },
+    {
+      "model": "claude-fable-6-0",
+      "key": "claude-fable-6-0",
+      "familyVersion": [
+        "fable",
+        6,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-fable-4",
+      "key": "claude-fable-4",
+      "familyVersion": [
+        "fable",
+        4,
+        0
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": false
+    },
+    {
+      "model": "claude-fable-5-00",
+      "key": "claude-fable-5-00",
+      "familyVersion": [
+        "fable",
+        5,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-fable-5-10",
+      "key": "claude-fable-5-10",
+      "familyVersion": [
+        "fable",
+        5,
+        10
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-fable-5-５",
+      "key": "claude-fable-5-５",
+      "familyVersion": null,
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": false
+    },
+    {
+      "model": "claude-fable-٥-0",
+      "key": "claude-fable-٥-0",
+      "familyVersion": null,
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": false
+    },
+    {
+      "model": "claude-fable-9007199254740991",
+      "key": "claude-fable-9007199254740991",
+      "familyVersion": [
+        "fable",
+        9007199254740991,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-fable-9007199254740991-0",
+      "key": "claude-fable-9007199254740991-0",
+      "familyVersion": [
+        "fable",
+        9007199254740991,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-fable-9007199254740992",
+      "key": "claude-fable-9007199254740992",
+      "familyVersion": [
+        "fable",
+        9007199254740992,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-fable-9007199254740992-0",
+      "key": "claude-fable-9007199254740992-0",
+      "familyVersion": [
+        "fable",
+        9007199254740992,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-fable-9007199254740993",
+      "key": "claude-fable-9007199254740993",
+      "familyVersion": [
+        "fable",
+        9007199254740992,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-fable-9007199254740993-0",
+      "key": "claude-fable-9007199254740993-0",
+      "familyVersion": [
+        "fable",
+        9007199254740992,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-fable-18446744073709551615",
+      "key": "claude-fable-18446744073709551615",
+      "familyVersion": [
+        "fable",
+        18446744073709552000,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-fable-18446744073709551615-0",
+      "key": "claude-fable-18446744073709551615-0",
+      "familyVersion": [
+        "fable",
+        18446744073709552000,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-fable-18446744073709551616",
+      "key": "claude-fable-18446744073709551616",
+      "familyVersion": [
+        "fable",
+        18446744073709552000,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-fable-18446744073709551616-0",
+      "key": "claude-fable-18446744073709551616-0",
+      "familyVersion": [
+        "fable",
+        18446744073709552000,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-fable-18446744073709551617",
+      "key": "claude-fable-18446744073709551617",
+      "familyVersion": [
+        "fable",
+        18446744073709552000,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-fable-18446744073709551617-0",
+      "key": "claude-fable-18446744073709551617-0",
+      "familyVersion": [
+        "fable",
+        18446744073709552000,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-fable-100000000000000000000",
+      "key": "claude-fable-100000000000000000000",
+      "familyVersion": [
+        "fable",
+        100000000000000000000,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-fable-100000000000000000000-0",
+      "key": "claude-fable-100000000000000000000-0",
+      "familyVersion": [
+        "fable",
+        100000000000000000000,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-fable-1000000000000000000000",
+      "key": "claude-fable-1000000000000000000000",
+      "familyVersion": [
+        "fable",
+        1e+21,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-fable-1000000000000000000000-0",
+      "key": "claude-fable-1000000000000000000000-0",
+      "familyVersion": [
+        "fable",
+        1e+21,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-fable-9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999",
+      "key": "claude-fable-9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999",
+      "familyVersion": [
+        "fable",
+        null,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-fable-9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999-0",
+      "key": "claude-fable-9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999-0",
+      "familyVersion": [
+        "fable",
+        null,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-mythos-5-0",
+      "key": "claude-mythos-5-0",
+      "familyVersion": [
+        "mythos",
+        5,
+        0
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-mythos-4-99",
+      "key": "claude-mythos-4-99",
+      "familyVersion": [
+        "mythos",
+        4,
+        99
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": false
+    },
+    {
+      "model": "claude-mythos-4-1",
+      "key": "claude-mythos-4-1",
+      "familyVersion": [
+        "mythos",
+        4,
+        1
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": false
+    },
+    {
+      "model": "claude-mythos-6-1",
+      "key": "claude-mythos-6-1",
+      "familyVersion": [
+        "mythos",
+        6,
+        1
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-mythos-4",
+      "key": "claude-mythos-4",
+      "familyVersion": [
+        "mythos",
+        4,
+        0
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": false
+    },
+    {
+      "model": "claude-mythos-6",
+      "key": "claude-mythos-6",
+      "familyVersion": [
+        "mythos",
+        6,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-mythos-5-01",
+      "key": "claude-mythos-5-01",
+      "familyVersion": [
+        "mythos",
+        5,
+        1
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-mythos-5-10",
+      "key": "claude-mythos-5-10",
+      "familyVersion": [
+        "mythos",
+        5,
+        10
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-mythos-5-５",
+      "key": "claude-mythos-5-５",
+      "familyVersion": null,
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": false
+    },
+    {
+      "model": "claude-mythos-٥-1",
+      "key": "claude-mythos-٥-1",
+      "familyVersion": null,
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": false
+    },
+    {
+      "model": "claude-mythos-9007199254740991",
+      "key": "claude-mythos-9007199254740991",
+      "familyVersion": [
+        "mythos",
+        9007199254740991,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-mythos-9007199254740991-1",
+      "key": "claude-mythos-9007199254740991-1",
+      "familyVersion": [
+        "mythos",
+        9007199254740991,
+        1
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-mythos-9007199254740992",
+      "key": "claude-mythos-9007199254740992",
+      "familyVersion": [
+        "mythos",
+        9007199254740992,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-mythos-9007199254740992-1",
+      "key": "claude-mythos-9007199254740992-1",
+      "familyVersion": [
+        "mythos",
+        9007199254740992,
+        1
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-mythos-9007199254740993",
+      "key": "claude-mythos-9007199254740993",
+      "familyVersion": [
+        "mythos",
+        9007199254740992,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-mythos-9007199254740993-1",
+      "key": "claude-mythos-9007199254740993-1",
+      "familyVersion": [
+        "mythos",
+        9007199254740992,
+        1
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-mythos-18446744073709551615",
+      "key": "claude-mythos-18446744073709551615",
+      "familyVersion": [
+        "mythos",
+        18446744073709552000,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-mythos-18446744073709551615-1",
+      "key": "claude-mythos-18446744073709551615-1",
+      "familyVersion": [
+        "mythos",
+        18446744073709552000,
+        1
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-mythos-18446744073709551616",
+      "key": "claude-mythos-18446744073709551616",
+      "familyVersion": [
+        "mythos",
+        18446744073709552000,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-mythos-18446744073709551616-1",
+      "key": "claude-mythos-18446744073709551616-1",
+      "familyVersion": [
+        "mythos",
+        18446744073709552000,
+        1
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-mythos-18446744073709551617",
+      "key": "claude-mythos-18446744073709551617",
+      "familyVersion": [
+        "mythos",
+        18446744073709552000,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-mythos-18446744073709551617-1",
+      "key": "claude-mythos-18446744073709551617-1",
+      "familyVersion": [
+        "mythos",
+        18446744073709552000,
+        1
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-mythos-100000000000000000000",
+      "key": "claude-mythos-100000000000000000000",
+      "familyVersion": [
+        "mythos",
+        100000000000000000000,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-mythos-100000000000000000000-1",
+      "key": "claude-mythos-100000000000000000000-1",
+      "familyVersion": [
+        "mythos",
+        100000000000000000000,
+        1
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-mythos-1000000000000000000000",
+      "key": "claude-mythos-1000000000000000000000",
+      "familyVersion": [
+        "mythos",
+        1e+21,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-mythos-1000000000000000000000-1",
+      "key": "claude-mythos-1000000000000000000000-1",
+      "familyVersion": [
+        "mythos",
+        1e+21,
+        1
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-mythos-9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999",
+      "key": "claude-mythos-9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999",
+      "familyVersion": [
+        "mythos",
+        null,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-mythos-9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999-1",
+      "key": "claude-mythos-9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999-1",
+      "familyVersion": [
+        "mythos",
+        null,
+        1
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-opus-3-99",
+      "key": "claude-opus-3-99",
+      "familyVersion": [
+        "opus",
+        3,
+        99
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": false
+    },
+    {
+      "model": "claude-opus-4-9",
+      "key": "claude-opus-4-9",
+      "familyVersion": [
+        "opus",
+        4,
+        9
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-opus-3-8",
+      "key": "claude-opus-3-8",
+      "familyVersion": [
+        "opus",
+        3,
+        8
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": false
+    },
+    {
+      "model": "claude-opus-5-8",
+      "key": "claude-opus-5-8",
+      "familyVersion": [
+        "opus",
+        5,
+        8
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-opus-3",
+      "key": "claude-opus-3",
+      "familyVersion": [
+        "opus",
+        3,
+        0
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": false
+    },
+    {
+      "model": "claude-opus-4-08",
+      "key": "claude-opus-4-08",
+      "familyVersion": [
+        "opus",
+        4,
+        8
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-opus-4-10",
+      "key": "claude-opus-4-10",
+      "familyVersion": [
+        "opus",
+        4,
+        10
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-opus-4-５",
+      "key": "claude-opus-4-５",
+      "familyVersion": null,
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": false
+    },
+    {
+      "model": "claude-opus-٥-8",
+      "key": "claude-opus-٥-8",
+      "familyVersion": null,
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": false
+    },
+    {
+      "model": "claude-opus-9007199254740991-8",
+      "key": "claude-opus-9007199254740991-8",
+      "familyVersion": [
+        "opus",
+        9007199254740991,
+        8
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-opus-9007199254740992-8",
+      "key": "claude-opus-9007199254740992-8",
+      "familyVersion": [
+        "opus",
+        9007199254740992,
+        8
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-opus-9007199254740993-8",
+      "key": "claude-opus-9007199254740993-8",
+      "familyVersion": [
+        "opus",
+        9007199254740992,
+        8
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-opus-18446744073709551615-8",
+      "key": "claude-opus-18446744073709551615-8",
+      "familyVersion": [
+        "opus",
+        18446744073709552000,
+        8
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-opus-18446744073709551616-8",
+      "key": "claude-opus-18446744073709551616-8",
+      "familyVersion": [
+        "opus",
+        18446744073709552000,
+        8
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-opus-18446744073709551617-8",
+      "key": "claude-opus-18446744073709551617-8",
+      "familyVersion": [
+        "opus",
+        18446744073709552000,
+        8
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-opus-100000000000000000000-8",
+      "key": "claude-opus-100000000000000000000-8",
+      "familyVersion": [
+        "opus",
+        100000000000000000000,
+        8
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-opus-1000000000000000000000-8",
+      "key": "claude-opus-1000000000000000000000-8",
+      "familyVersion": [
+        "opus",
+        1e+21,
+        8
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-opus-9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999-8",
+      "key": "claude-opus-9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999-8",
+      "familyVersion": [
+        "opus",
+        null,
+        8
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-haiku-5-4",
+      "key": "claude-haiku-5-4",
+      "familyVersion": [
+        "haiku",
+        5,
+        4
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-haiku-4-99",
+      "key": "claude-haiku-4-99",
+      "familyVersion": [
+        "haiku",
+        4,
+        99
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-haiku-6-5",
+      "key": "claude-haiku-6-5",
+      "familyVersion": [
+        "haiku",
+        6,
+        5
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-haiku-4",
+      "key": "claude-haiku-4",
+      "familyVersion": [
+        "haiku",
+        4,
+        0
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": false
+    },
+    {
+      "model": "claude-haiku-5",
+      "key": "claude-haiku-5",
+      "familyVersion": [
+        "haiku",
+        5,
+        0
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-haiku-6",
+      "key": "claude-haiku-6",
+      "familyVersion": [
+        "haiku",
+        6,
+        0
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-haiku-5-05",
+      "key": "claude-haiku-5-05",
+      "familyVersion": [
+        "haiku",
+        5,
+        5
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-haiku-5-10",
+      "key": "claude-haiku-5-10",
+      "familyVersion": [
+        "haiku",
+        5,
+        10
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-haiku-5-５",
+      "key": "claude-haiku-5-５",
+      "familyVersion": null,
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": false
+    },
+    {
+      "model": "claude-haiku-٥-5",
+      "key": "claude-haiku-٥-5",
+      "familyVersion": null,
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": false
+    },
+    {
+      "model": "claude-haiku-9007199254740991",
+      "key": "claude-haiku-9007199254740991",
+      "familyVersion": [
+        "haiku",
+        9007199254740991,
+        0
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-haiku-9007199254740991-5",
+      "key": "claude-haiku-9007199254740991-5",
+      "familyVersion": [
+        "haiku",
+        9007199254740991,
+        5
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-haiku-9007199254740992",
+      "key": "claude-haiku-9007199254740992",
+      "familyVersion": [
+        "haiku",
+        9007199254740992,
+        0
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-haiku-9007199254740992-5",
+      "key": "claude-haiku-9007199254740992-5",
+      "familyVersion": [
+        "haiku",
+        9007199254740992,
+        5
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-haiku-9007199254740993",
+      "key": "claude-haiku-9007199254740993",
+      "familyVersion": [
+        "haiku",
+        9007199254740992,
+        0
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-haiku-9007199254740993-5",
+      "key": "claude-haiku-9007199254740993-5",
+      "familyVersion": [
+        "haiku",
+        9007199254740992,
+        5
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-haiku-18446744073709551615",
+      "key": "claude-haiku-18446744073709551615",
+      "familyVersion": [
+        "haiku",
+        18446744073709552000,
+        0
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-haiku-18446744073709551615-5",
+      "key": "claude-haiku-18446744073709551615-5",
+      "familyVersion": [
+        "haiku",
+        18446744073709552000,
+        5
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-haiku-18446744073709551616",
+      "key": "claude-haiku-18446744073709551616",
+      "familyVersion": [
+        "haiku",
+        18446744073709552000,
+        0
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-haiku-18446744073709551616-5",
+      "key": "claude-haiku-18446744073709551616-5",
+      "familyVersion": [
+        "haiku",
+        18446744073709552000,
+        5
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-haiku-18446744073709551617",
+      "key": "claude-haiku-18446744073709551617",
+      "familyVersion": [
+        "haiku",
+        18446744073709552000,
+        0
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-haiku-18446744073709551617-5",
+      "key": "claude-haiku-18446744073709551617-5",
+      "familyVersion": [
+        "haiku",
+        18446744073709552000,
+        5
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-haiku-100000000000000000000",
+      "key": "claude-haiku-100000000000000000000",
+      "familyVersion": [
+        "haiku",
+        100000000000000000000,
+        0
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-haiku-100000000000000000000-5",
+      "key": "claude-haiku-100000000000000000000-5",
+      "familyVersion": [
+        "haiku",
+        100000000000000000000,
+        5
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-haiku-1000000000000000000000",
+      "key": "claude-haiku-1000000000000000000000",
+      "familyVersion": [
+        "haiku",
+        1e+21,
+        0
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-haiku-1000000000000000000000-5",
+      "key": "claude-haiku-1000000000000000000000-5",
+      "familyVersion": [
+        "haiku",
+        1e+21,
+        5
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-haiku-9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999",
+      "key": "claude-haiku-9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999",
+      "familyVersion": [
+        "haiku",
+        null,
+        0
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-haiku-9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999-5",
+      "key": "claude-haiku-9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999-5",
+      "familyVersion": [
+        "haiku",
+        null,
+        5
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-mythos-4-0",
+      "key": "claude-mythos-4-0",
+      "familyVersion": [
+        "mythos",
+        4,
+        0
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": false
+    },
+    {
+      "model": "claude-mythos-6-0",
+      "key": "claude-mythos-6-0",
+      "familyVersion": [
+        "mythos",
+        6,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-mythos-5-00",
+      "key": "claude-mythos-5-00",
+      "familyVersion": [
+        "mythos",
+        5,
+        0
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-mythos-٥-0",
+      "key": "claude-mythos-٥-0",
+      "familyVersion": null,
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": false
+    },
+    {
+      "model": "claude-mythos-9007199254740991-0",
+      "key": "claude-mythos-9007199254740991-0",
+      "familyVersion": [
+        "mythos",
+        9007199254740991,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-mythos-9007199254740992-0",
+      "key": "claude-mythos-9007199254740992-0",
+      "familyVersion": [
+        "mythos",
+        9007199254740992,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-mythos-9007199254740993-0",
+      "key": "claude-mythos-9007199254740993-0",
+      "familyVersion": [
+        "mythos",
+        9007199254740992,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-mythos-18446744073709551615-0",
+      "key": "claude-mythos-18446744073709551615-0",
+      "familyVersion": [
+        "mythos",
+        18446744073709552000,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-mythos-18446744073709551616-0",
+      "key": "claude-mythos-18446744073709551616-0",
+      "familyVersion": [
+        "mythos",
+        18446744073709552000,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-mythos-18446744073709551617-0",
+      "key": "claude-mythos-18446744073709551617-0",
+      "familyVersion": [
+        "mythos",
+        18446744073709552000,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-mythos-100000000000000000000-0",
+      "key": "claude-mythos-100000000000000000000-0",
+      "familyVersion": [
+        "mythos",
+        100000000000000000000,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-mythos-1000000000000000000000-0",
+      "key": "claude-mythos-1000000000000000000000-0",
+      "familyVersion": [
+        "mythos",
+        1e+21,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-mythos-9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999-0",
+      "key": "claude-mythos-9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999-0",
+      "familyVersion": [
+        "mythos",
+        null,
+        0
+      ],
+      "progressUpdates": true,
+      "turnScopedSystem": true,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-opus-4-4",
+      "key": "claude-opus-4-4",
+      "familyVersion": [
+        "opus",
+        4,
+        4
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": false
+    },
+    {
+      "model": "claude-opus-3-5",
+      "key": "claude-opus-3-5",
+      "familyVersion": [
+        "opus",
+        3,
+        5
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": false
+    },
+    {
+      "model": "claude-opus-4-05",
+      "key": "claude-opus-4-05",
+      "familyVersion": [
+        "opus",
+        4,
+        5
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-sonnet-4-4",
+      "key": "claude-sonnet-4-4",
+      "familyVersion": [
+        "sonnet",
+        4,
+        4
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": false
+    },
+    {
+      "model": "claude-sonnet-3-99",
+      "key": "claude-sonnet-3-99",
+      "familyVersion": [
+        "sonnet",
+        3,
+        99
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": false
+    },
+    {
+      "model": "claude-sonnet-3-5",
+      "key": "claude-sonnet-3-5",
+      "familyVersion": [
+        "sonnet",
+        3,
+        5
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": false
+    },
+    {
+      "model": "claude-sonnet-3",
+      "key": "claude-sonnet-3",
+      "familyVersion": [
+        "sonnet",
+        3,
+        0
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": false
+    },
+    {
+      "model": "claude-sonnet-4-05",
+      "key": "claude-sonnet-4-05",
+      "familyVersion": [
+        "sonnet",
+        4,
+        5
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-sonnet-4-10",
+      "key": "claude-sonnet-4-10",
+      "familyVersion": [
+        "sonnet",
+        4,
+        10
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-sonnet-4-５",
+      "key": "claude-sonnet-4-５",
+      "familyVersion": null,
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": false
+    },
+    {
+      "model": "claude-haiku-4-4",
+      "key": "claude-haiku-4-4",
+      "familyVersion": [
+        "haiku",
+        4,
+        4
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": false
+    },
+    {
+      "model": "claude-haiku-3-99",
+      "key": "claude-haiku-3-99",
+      "familyVersion": [
+        "haiku",
+        3,
+        99
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": false
+    },
+    {
+      "model": "claude-haiku-4-6",
+      "key": "claude-haiku-4-6",
+      "familyVersion": [
+        "haiku",
+        4,
+        6
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-haiku-3-5",
+      "key": "claude-haiku-3-5",
+      "familyVersion": [
+        "haiku",
+        3,
+        5
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": false
+    },
+    {
+      "model": "claude-haiku-3",
+      "key": "claude-haiku-3",
+      "familyVersion": [
+        "haiku",
+        3,
+        0
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": false
+    },
+    {
+      "model": "claude-haiku-4-05",
+      "key": "claude-haiku-4-05",
+      "familyVersion": [
+        "haiku",
+        4,
+        5
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-haiku-4-10",
+      "key": "claude-haiku-4-10",
+      "familyVersion": [
+        "haiku",
+        4,
+        10
+      ],
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": true
+    },
+    {
+      "model": "claude-haiku-4-５",
+      "key": "claude-haiku-4-５",
+      "familyVersion": null,
+      "progressUpdates": false,
+      "turnScopedSystem": false,
+      "messageThreads": false
+    },
+    {
       "model": "Gemma-4-31B-Claude-4.6-Opus-Reasoning-Distilled",
       "key": "gemma-4-31b-claude-4-6-opus-reasoning-distilled",
       "familyVersion": null,
@@ -4961,18 +7121,6 @@
       "messageThreads": false
     },
     {
-      "model": "claude-opus-4",
-      "key": "claude-opus-4",
-      "familyVersion": [
-        "opus",
-        4,
-        0
-      ],
-      "progressUpdates": false,
-      "turnScopedSystem": false,
-      "messageThreads": false
-    },
-    {
       "model": "claude-opus-4-1",
       "key": "claude-opus-4-1",
       "familyVersion": [
@@ -5240,18 +7388,6 @@
       "model": "claude-opus4-8",
       "key": "claude-opus4-8",
       "familyVersion": null,
-      "progressUpdates": false,
-      "turnScopedSystem": false,
-      "messageThreads": false
-    },
-    {
-      "model": "claude-sonnet-4",
-      "key": "claude-sonnet-4",
-      "familyVersion": [
-        "sonnet",
-        4,
-        0
-      ],
       "progressUpdates": false,
       "turnScopedSystem": false,
       "messageThreads": false
@@ -7877,18 +10013,6 @@
       "messageThreads": false
     },
     {
-      "model": "claude-haiku-3",
-      "key": "claude-haiku-3",
-      "familyVersion": [
-        "haiku",
-        3,
-        0
-      ],
-      "progressUpdates": false,
-      "turnScopedSystem": false,
-      "messageThreads": false
-    },
-    {
       "model": "claude-haiku-3.5",
       "key": "claude-haiku-3-5",
       "familyVersion": [
@@ -8508,6 +10632,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "interleaved-thinking-2025-05-14,effort-2025-11-24,thinking-display-updates-2026-08-18",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-mythos-5-2\",\"max_tokens\":65536,\"system\":[{\"type\":\"text\",\"text\":\"You are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"thinking\":{\"type\":\"adaptive\",\"display\":\"updates\"},\"stream\":true}",
               "body": {
                 "model": "claude-mythos-5-2",
                 "max_tokens": 65536,
@@ -8545,6 +10671,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "interleaved-thinking-2025-05-14,effort-2025-11-24",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-mythos-5-2\",\"max_tokens\":65536,\"system\":[{\"type\":\"text\",\"text\":\"You are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"thinking\":{\"type\":\"adaptive\"},\"stream\":true}",
               "body": {
                 "model": "claude-mythos-5-2",
                 "max_tokens": 65536,
@@ -8584,7 +10712,18 @@
           ],
           "outcome": {
             "ok": {
-              "content": "ok"
+              "content": "ok",
+              "usage": {
+                "inputTokens": 20,
+                "outputTokens": 2,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0,
+                "promptTokens": 20,
+                "raw": {
+                  "input_tokens": 20,
+                  "output_tokens": 2
+                }
+              }
             }
           }
         },
@@ -8612,6 +10751,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "interleaved-thinking-2025-05-14,effort-2025-11-24",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-mythos-5-2\",\"max_tokens\":65536,\"system\":[{\"type\":\"text\",\"text\":\"You are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"thinking\":{\"type\":\"adaptive\"},\"stream\":true}",
               "body": {
                 "model": "claude-mythos-5-2",
                 "max_tokens": 65536,
@@ -8651,7 +10792,18 @@
           ],
           "outcome": {
             "ok": {
-              "content": "ok"
+              "content": "ok",
+              "usage": {
+                "inputTokens": 20,
+                "outputTokens": 2,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0,
+                "promptTokens": 20,
+                "raw": {
+                  "input_tokens": 20,
+                  "output_tokens": 2
+                }
+              }
             }
           }
         },
@@ -8679,6 +10831,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "interleaved-thinking-2025-05-14,effort-2025-11-24",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-mythos-5-2-20261101\",\"max_tokens\":65536,\"system\":[{\"type\":\"text\",\"text\":\"You are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"thinking\":{\"type\":\"adaptive\"},\"stream\":true}",
               "body": {
                 "model": "claude-mythos-5-2-20261101",
                 "max_tokens": 65536,
@@ -8718,7 +10872,18 @@
           ],
           "outcome": {
             "ok": {
-              "content": "ok"
+              "content": "ok",
+              "usage": {
+                "inputTokens": 20,
+                "outputTokens": 2,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0,
+                "promptTokens": 20,
+                "raw": {
+                  "input_tokens": 20,
+                  "output_tokens": 2
+                }
+              }
             }
           }
         },
@@ -8746,6 +10911,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "interleaved-thinking-2025-05-14,effort-2025-11-24",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-mythos-5.2\",\"max_tokens\":65536,\"system\":[{\"type\":\"text\",\"text\":\"You are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"thinking\":{\"type\":\"adaptive\"},\"stream\":true}",
               "body": {
                 "model": "claude-mythos-5.2",
                 "max_tokens": 65536,
@@ -8785,7 +10952,18 @@
           ],
           "outcome": {
             "ok": {
-              "content": "ok"
+              "content": "ok",
+              "usage": {
+                "inputTokens": 20,
+                "outputTokens": 2,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0,
+                "promptTokens": 20,
+                "raw": {
+                  "input_tokens": 20,
+                  "output_tokens": 2
+                }
+              }
             }
           }
         },
@@ -8813,6 +10991,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,effort-2025-11-24,thinking-display-updates-2026-08-18",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-mythos-5-2\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true,\"system\":[{\"type\":\"text\",\"text\":\"You are Claude Code, Anthropic's official CLI for Claude.\"},{\"type\":\"text\",\"text\":\"\\n\\nYou are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"thinking\":{\"type\":\"adaptive\",\"display\":\"updates\"}}",
               "body": {
                 "model": "claude-mythos-5-2",
                 "max_tokens": 65536,
@@ -8857,7 +11037,18 @@
           ],
           "outcome": {
             "ok": {
-              "content": "ok"
+              "content": "ok",
+              "usage": {
+                "inputTokens": 20,
+                "outputTokens": 2,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0,
+                "raw": {
+                  "input_tokens": 20,
+                  "output_tokens": 2
+                },
+                "promptTokens": 20
+              }
             }
           }
         },
@@ -8885,6 +11076,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "interleaved-thinking-2025-05-14,effort-2025-11-24,server-side-fallback-2026-07-01,thinking-display-updates-2026-08-18",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-opus-5-5\",\"max_tokens\":65536,\"system\":[{\"type\":\"text\",\"text\":\"You are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"fallbacks\":\"default\",\"thinking\":{\"type\":\"adaptive\",\"display\":\"updates\"},\"stream\":true}",
               "body": {
                 "model": "claude-opus-5-5",
                 "max_tokens": 65536,
@@ -8926,7 +11119,18 @@
           ],
           "outcome": {
             "ok": {
-              "content": "ok"
+              "content": "ok",
+              "usage": {
+                "inputTokens": 20,
+                "outputTokens": 2,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0,
+                "promptTokens": 20,
+                "raw": {
+                  "input_tokens": 20,
+                  "output_tokens": 2
+                }
+              }
             }
           }
         }
@@ -8964,6 +11168,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,effort-2025-11-24,server-side-fallback-2026-07-01,thinking-display-updates-2026-08-18",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-fable-5-2\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true,\"fallbacks\":\"default\",\"system\":[{\"type\":\"text\",\"text\":\"You are Claude Code, Anthropic's official CLI for Claude.\"},{\"type\":\"text\",\"text\":\"\\n\\nYou are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"thinking\":{\"type\":\"adaptive\",\"display\":\"updates\"}}",
               "body": {
                 "model": "claude-fable-5-2",
                 "max_tokens": 65536,
@@ -9006,6 +11212,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,effort-2025-11-24,server-side-fallback-2026-07-01",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-fable-5-2\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true,\"fallbacks\":\"default\",\"system\":[{\"type\":\"text\",\"text\":\"You are Claude Code, Anthropic's official CLI for Claude.\"},{\"type\":\"text\",\"text\":\"\\n\\nYou are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"thinking\":{\"type\":\"adaptive\"}}",
               "body": {
                 "model": "claude-fable-5-2",
                 "max_tokens": 65536,
@@ -9050,7 +11258,18 @@
           ],
           "outcome": {
             "ok": {
-              "content": "ok"
+              "content": "ok",
+              "usage": {
+                "inputTokens": 20,
+                "outputTokens": 2,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0,
+                "raw": {
+                  "input_tokens": 20,
+                  "output_tokens": 2
+                },
+                "promptTokens": 20
+              }
             }
           }
         },
@@ -9078,6 +11297,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,effort-2025-11-24,server-side-fallback-2026-07-01",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-fable-5-2\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true,\"fallbacks\":\"default\",\"system\":[{\"type\":\"text\",\"text\":\"You are Claude Code, Anthropic's official CLI for Claude.\"},{\"type\":\"text\",\"text\":\"\\n\\nYou are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"thinking\":{\"type\":\"adaptive\"}}",
               "body": {
                 "model": "claude-fable-5-2",
                 "max_tokens": 65536,
@@ -9122,7 +11343,18 @@
           ],
           "outcome": {
             "ok": {
-              "content": "ok"
+              "content": "ok",
+              "usage": {
+                "inputTokens": 20,
+                "outputTokens": 2,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0,
+                "raw": {
+                  "input_tokens": 20,
+                  "output_tokens": 2
+                },
+                "promptTokens": 20
+              }
             }
           }
         },
@@ -9150,6 +11382,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,effort-2025-11-24,server-side-fallback-2026-07-01",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-fable-5-2-20261101\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true,\"fallbacks\":\"default\",\"system\":[{\"type\":\"text\",\"text\":\"You are Claude Code, Anthropic's official CLI for Claude.\"},{\"type\":\"text\",\"text\":\"\\n\\nYou are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"thinking\":{\"type\":\"adaptive\"}}",
               "body": {
                 "model": "claude-fable-5-2-20261101",
                 "max_tokens": 65536,
@@ -9194,7 +11428,18 @@
           ],
           "outcome": {
             "ok": {
-              "content": "ok"
+              "content": "ok",
+              "usage": {
+                "inputTokens": 20,
+                "outputTokens": 2,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0,
+                "raw": {
+                  "input_tokens": 20,
+                  "output_tokens": 2
+                },
+                "promptTokens": 20
+              }
             }
           }
         },
@@ -9222,6 +11467,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,effort-2025-11-24,server-side-fallback-2026-07-01",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-fable-5.2\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true,\"fallbacks\":\"default\",\"system\":[{\"type\":\"text\",\"text\":\"You are Claude Code, Anthropic's official CLI for Claude.\"},{\"type\":\"text\",\"text\":\"\\n\\nYou are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"thinking\":{\"type\":\"adaptive\"}}",
               "body": {
                 "model": "claude-fable-5.2",
                 "max_tokens": 65536,
@@ -9266,7 +11513,18 @@
           ],
           "outcome": {
             "ok": {
-              "content": "ok"
+              "content": "ok",
+              "usage": {
+                "inputTokens": 20,
+                "outputTokens": 2,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0,
+                "raw": {
+                  "input_tokens": 20,
+                  "output_tokens": 2
+                },
+                "promptTokens": 20
+              }
             }
           }
         },
@@ -9294,6 +11552,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "interleaved-thinking-2025-05-14,effort-2025-11-24,server-side-fallback-2026-07-01,thinking-display-updates-2026-08-18",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-fable-5-2\",\"max_tokens\":65536,\"system\":[{\"type\":\"text\",\"text\":\"You are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"fallbacks\":\"default\",\"thinking\":{\"type\":\"adaptive\",\"display\":\"updates\"},\"stream\":true}",
               "body": {
                 "model": "claude-fable-5-2",
                 "max_tokens": 65536,
@@ -9335,7 +11595,18 @@
           ],
           "outcome": {
             "ok": {
-              "content": "ok"
+              "content": "ok",
+              "usage": {
+                "inputTokens": 20,
+                "outputTokens": 2,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0,
+                "promptTokens": 20,
+                "raw": {
+                  "input_tokens": 20,
+                  "output_tokens": 2
+                }
+              }
             }
           }
         },
@@ -9363,6 +11634,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,effort-2025-11-24,server-side-fallback-2026-07-01,thinking-display-updates-2026-08-18",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-opus-5-5\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true,\"fallbacks\":\"default\",\"system\":[{\"type\":\"text\",\"text\":\"You are Claude Code, Anthropic's official CLI for Claude.\"},{\"type\":\"text\",\"text\":\"\\n\\nYou are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"thinking\":{\"type\":\"adaptive\",\"display\":\"updates\"}}",
               "body": {
                 "model": "claude-opus-5-5",
                 "max_tokens": 65536,
@@ -9408,7 +11681,18 @@
           ],
           "outcome": {
             "ok": {
-              "content": "ok"
+              "content": "ok",
+              "usage": {
+                "inputTokens": 20,
+                "outputTokens": 2,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0,
+                "raw": {
+                  "input_tokens": 20,
+                  "output_tokens": 2
+                },
+                "promptTokens": 20
+              }
             }
           }
         }
@@ -9454,6 +11738,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "interleaved-thinking-2025-05-14,effort-2025-11-24,server-side-fallback-2026-07-01,thinking-display-updates-2026-08-18",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-opus-5-7\",\"max_tokens\":65536,\"system\":[{\"type\":\"text\",\"text\":\"You are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"It is in the table.\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Read it to me.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"fallbacks\":\"default\",\"thinking\":{\"type\":\"adaptive\",\"display\":\"updates\"},\"stream\":true}",
               "body": {
                 "model": "claude-opus-5-7",
                 "max_tokens": 65536,
@@ -9510,6 +11796,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "interleaved-thinking-2025-05-14,effort-2025-11-24,server-side-fallback-2026-07-01,thinking-display-updates-2026-08-18",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-opus-5-7\",\"max_tokens\":65536,\"system\":[{\"type\":\"text\",\"text\":\"You are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"messages\":[{\"role\":\"user\",\"content\":\"Look up the answer.\"},{\"role\":\"assistant\",\"content\":\"It is in the table.\"},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Read it to me.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"fallbacks\":\"default\",\"thinking\":{\"type\":\"adaptive\",\"display\":\"updates\"},\"stream\":true}",
               "body": {
                 "model": "claude-opus-5-7",
                 "max_tokens": 65536,
@@ -9559,7 +11847,18 @@
           ],
           "outcome": {
             "ok": {
-              "content": "ok"
+              "content": "ok",
+              "usage": {
+                "inputTokens": 20,
+                "outputTokens": 2,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0,
+                "promptTokens": 20,
+                "raw": {
+                  "input_tokens": 20,
+                  "output_tokens": 2
+                }
+              }
             }
           }
         },
@@ -9595,6 +11894,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "interleaved-thinking-2025-05-14,effort-2025-11-24,server-side-fallback-2026-07-01,thinking-display-updates-2026-08-18",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-opus-5-7\",\"max_tokens\":65536,\"system\":[{\"type\":\"text\",\"text\":\"You are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"messages\":[{\"role\":\"user\",\"content\":\"Look up the answer.\"},{\"role\":\"assistant\",\"content\":\"It is in the table.\"},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Read it to me.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"fallbacks\":\"default\",\"thinking\":{\"type\":\"adaptive\",\"display\":\"updates\"},\"stream\":true}",
               "body": {
                 "model": "claude-opus-5-7",
                 "max_tokens": 65536,
@@ -9644,7 +11945,18 @@
           ],
           "outcome": {
             "ok": {
-              "content": "ok"
+              "content": "ok",
+              "usage": {
+                "inputTokens": 20,
+                "outputTokens": 2,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0,
+                "promptTokens": 20,
+                "raw": {
+                  "input_tokens": 20,
+                  "output_tokens": 2
+                }
+              }
             }
           }
         },
@@ -9680,6 +11992,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,effort-2025-11-24,server-side-fallback-2026-07-01,thinking-display-updates-2026-08-18",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-opus-5-7\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"It is in the table.\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Read it to me.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true,\"fallbacks\":\"default\",\"system\":[{\"type\":\"text\",\"text\":\"You are Claude Code, Anthropic's official CLI for Claude.\"},{\"type\":\"text\",\"text\":\"\\n\\nYou are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"thinking\":{\"type\":\"adaptive\",\"display\":\"updates\"}}",
               "body": {
                 "model": "claude-opus-5-7",
                 "max_tokens": 65536,
@@ -9743,7 +12057,18 @@
           ],
           "outcome": {
             "ok": {
-              "content": "ok"
+              "content": "ok",
+              "usage": {
+                "inputTokens": 20,
+                "outputTokens": 2,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0,
+                "raw": {
+                  "input_tokens": 20,
+                  "output_tokens": 2
+                },
+                "promptTokens": 20
+              }
             }
           }
         },
@@ -9779,6 +12104,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "interleaved-thinking-2025-05-14,effort-2025-11-24,server-side-fallback-2026-07-01,thinking-display-updates-2026-08-18",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-opus-5-5\",\"max_tokens\":65536,\"system\":[{\"type\":\"text\",\"text\":\"You are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"It is in the table.\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Read it to me.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"fallbacks\":\"default\",\"thinking\":{\"type\":\"adaptive\",\"display\":\"updates\"},\"stream\":true}",
               "body": {
                 "model": "claude-opus-5-5",
                 "max_tokens": 65536,
@@ -9838,7 +12165,18 @@
           ],
           "outcome": {
             "ok": {
-              "content": "ok"
+              "content": "ok",
+              "usage": {
+                "inputTokens": 20,
+                "outputTokens": 2,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0,
+                "promptTokens": 20,
+                "raw": {
+                  "input_tokens": 20,
+                  "output_tokens": 2
+                }
+              }
             }
           }
         }
@@ -9884,6 +12222,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,effort-2025-11-24",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-haiku-5-6\",\"max_tokens\":8192,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"It is in the table.\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Read it to me.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true,\"system\":[{\"type\":\"text\",\"text\":\"You are Claude Code, Anthropic's official CLI for Claude.\"},{\"type\":\"text\",\"text\":\"\\n\\nYou are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"thinking\":{\"type\":\"adaptive\"}}",
               "body": {
                 "model": "claude-haiku-5-6",
                 "max_tokens": 8192,
@@ -9942,6 +12282,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,effort-2025-11-24",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-haiku-5-6\",\"max_tokens\":8192,\"messages\":[{\"role\":\"user\",\"content\":\"Look up the answer.\"},{\"role\":\"assistant\",\"content\":\"It is in the table.\"},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Read it to me.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true,\"system\":[{\"type\":\"text\",\"text\":\"You are Claude Code, Anthropic's official CLI for Claude.\"},{\"type\":\"text\",\"text\":\"\\n\\nYou are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"thinking\":{\"type\":\"adaptive\"}}",
               "body": {
                 "model": "claude-haiku-5-6",
                 "max_tokens": 8192,
@@ -9993,7 +12335,18 @@
           ],
           "outcome": {
             "ok": {
-              "content": "ok"
+              "content": "ok",
+              "usage": {
+                "inputTokens": 20,
+                "outputTokens": 2,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0,
+                "raw": {
+                  "input_tokens": 20,
+                  "output_tokens": 2
+                },
+                "promptTokens": 20
+              }
             }
           }
         },
@@ -10029,6 +12382,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,effort-2025-11-24",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-haiku-5-6\",\"max_tokens\":8192,\"messages\":[{\"role\":\"user\",\"content\":\"Look up the answer.\"},{\"role\":\"assistant\",\"content\":\"It is in the table.\"},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Read it to me.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true,\"system\":[{\"type\":\"text\",\"text\":\"You are Claude Code, Anthropic's official CLI for Claude.\"},{\"type\":\"text\",\"text\":\"\\n\\nYou are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"thinking\":{\"type\":\"adaptive\"}}",
               "body": {
                 "model": "claude-haiku-5-6",
                 "max_tokens": 8192,
@@ -10080,7 +12435,18 @@
           ],
           "outcome": {
             "ok": {
-              "content": "ok"
+              "content": "ok",
+              "usage": {
+                "inputTokens": 20,
+                "outputTokens": 2,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0,
+                "raw": {
+                  "input_tokens": 20,
+                  "output_tokens": 2
+                },
+                "promptTokens": 20
+              }
             }
           }
         },
@@ -10116,6 +12482,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "interleaved-thinking-2025-05-14,effort-2025-11-24",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-haiku-5-6\",\"max_tokens\":8192,\"system\":[{\"type\":\"text\",\"text\":\"You are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"It is in the table.\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Read it to me.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"thinking\":{\"type\":\"adaptive\"},\"stream\":true}",
               "body": {
                 "model": "claude-haiku-5-6",
                 "max_tokens": 8192,
@@ -10173,7 +12541,18 @@
           ],
           "outcome": {
             "ok": {
-              "content": "ok"
+              "content": "ok",
+              "usage": {
+                "inputTokens": 20,
+                "outputTokens": 2,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0,
+                "promptTokens": 20,
+                "raw": {
+                  "input_tokens": 20,
+                  "output_tokens": 2
+                }
+              }
             }
           }
         },
@@ -10209,6 +12588,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,effort-2025-11-24,server-side-fallback-2026-07-01,thinking-display-updates-2026-08-18",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-opus-5-5\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"It is in the table.\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Read it to me.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true,\"fallbacks\":\"default\",\"system\":[{\"type\":\"text\",\"text\":\"You are Claude Code, Anthropic's official CLI for Claude.\"},{\"type\":\"text\",\"text\":\"\\n\\nYou are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"thinking\":{\"type\":\"adaptive\",\"display\":\"updates\"}}",
               "body": {
                 "model": "claude-opus-5-5",
                 "max_tokens": 65536,
@@ -10272,7 +12653,18 @@
           ],
           "outcome": {
             "ok": {
-              "content": "ok"
+              "content": "ok",
+              "usage": {
+                "inputTokens": 20,
+                "outputTokens": 2,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0,
+                "raw": {
+                  "input_tokens": 20,
+                  "output_tokens": 2
+                },
+                "promptTokens": 20
+              }
             }
           }
         }
@@ -10318,6 +12710,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "interleaved-thinking-2025-05-14,effort-2025-11-24,thinking-display-updates-2026-08-18",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-sonnet-5-7\",\"max_tokens\":65536,\"system\":[{\"type\":\"text\",\"text\":\"You are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"It is in the table.\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Read it to me.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"thinking\":{\"type\":\"adaptive\",\"display\":\"updates\"},\"stream\":true}",
               "body": {
                 "model": "claude-sonnet-5-7",
                 "max_tokens": 65536,
@@ -10374,7 +12768,8 @@
           "emitted": [],
           "outcome": {
             "error": {
-              "status": 400
+              "status": 400,
+              "partialUsage": null
             }
           }
         },
@@ -10410,6 +12805,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "interleaved-thinking-2025-05-14,effort-2025-11-24,thinking-display-updates-2026-08-18",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-sonnet-5-7\",\"max_tokens\":65536,\"system\":[{\"type\":\"text\",\"text\":\"You are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"It is in the table.\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Read it to me.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"thinking\":{\"type\":\"adaptive\",\"display\":\"updates\"},\"stream\":true}",
               "body": {
                 "model": "claude-sonnet-5-7",
                 "max_tokens": 65536,
@@ -10468,7 +12865,18 @@
           ],
           "outcome": {
             "ok": {
-              "content": "ok"
+              "content": "ok",
+              "usage": {
+                "inputTokens": 20,
+                "outputTokens": 2,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0,
+                "promptTokens": 20,
+                "raw": {
+                  "input_tokens": 20,
+                  "output_tokens": 2
+                }
+              }
             }
           }
         }
@@ -10514,6 +12922,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,effort-2025-11-24,server-side-fallback-2026-07-01,thinking-display-updates-2026-08-18",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-opus-5-8\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"It is in the table.\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Read it to me.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true,\"fallbacks\":\"default\",\"system\":[{\"type\":\"text\",\"text\":\"You are Claude Code, Anthropic's official CLI for Claude.\"},{\"type\":\"text\",\"text\":\"\\n\\nYou are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"thinking\":{\"type\":\"adaptive\",\"display\":\"updates\"}}",
               "body": {
                 "model": "claude-opus-5-8",
                 "max_tokens": 65536,
@@ -10575,7 +12985,8 @@
           "emitted": [],
           "outcome": {
             "error": {
-              "status": 400
+              "status": 400,
+              "partialUsage": null
             }
           }
         },
@@ -10611,6 +13022,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,effort-2025-11-24,server-side-fallback-2026-07-01,thinking-display-updates-2026-08-18",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-opus-5-8\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"It is in the table.\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Read it to me.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true,\"fallbacks\":\"default\",\"system\":[{\"type\":\"text\",\"text\":\"You are Claude Code, Anthropic's official CLI for Claude.\"},{\"type\":\"text\",\"text\":\"\\n\\nYou are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"thinking\":{\"type\":\"adaptive\",\"display\":\"updates\"}}",
               "body": {
                 "model": "claude-opus-5-8",
                 "max_tokens": 65536,
@@ -10674,7 +13087,18 @@
           ],
           "outcome": {
             "ok": {
-              "content": "ok"
+              "content": "ok",
+              "usage": {
+                "inputTokens": 20,
+                "outputTokens": 2,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0,
+                "raw": {
+                  "input_tokens": 20,
+                  "output_tokens": 2
+                },
+                "promptTokens": 20
+              }
             }
           }
         }
@@ -10720,6 +13144,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "interleaved-thinking-2025-05-14,effort-2025-11-24,server-side-fallback-2026-07-01,thinking-display-updates-2026-08-18",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-fable-5-3\",\"max_tokens\":65536,\"system\":[{\"type\":\"text\",\"text\":\"You are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"It is in the table.\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Read it to me.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"fallbacks\":\"default\",\"thinking\":{\"type\":\"adaptive\",\"display\":\"updates\"},\"stream\":true}",
               "body": {
                 "model": "claude-fable-5-3",
                 "max_tokens": 65536,
@@ -10777,7 +13203,8 @@
           "emitted": [],
           "outcome": {
             "error": {
-              "status": 400
+              "status": 400,
+              "partialUsage": null
             }
           }
         },
@@ -10813,6 +13240,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "interleaved-thinking-2025-05-14,effort-2025-11-24,server-side-fallback-2026-07-01,thinking-display-updates-2026-08-18",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-fable-5-3\",\"max_tokens\":65536,\"system\":[{\"type\":\"text\",\"text\":\"You are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"It is in the table.\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Read it to me.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"fallbacks\":\"default\",\"thinking\":{\"type\":\"adaptive\",\"display\":\"updates\"},\"stream\":true}",
               "body": {
                 "model": "claude-fable-5-3",
                 "max_tokens": 65536,
@@ -10872,7 +13301,18 @@
           ],
           "outcome": {
             "ok": {
-              "content": "ok"
+              "content": "ok",
+              "usage": {
+                "inputTokens": 20,
+                "outputTokens": 2,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0,
+                "promptTokens": 20,
+                "raw": {
+                  "input_tokens": 20,
+                  "output_tokens": 2
+                }
+              }
             }
           }
         }
@@ -10918,6 +13358,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,effort-2025-11-24,thinking-display-updates-2026-08-18",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-mythos-5-3\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"It is in the table.\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Read it to me.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true,\"system\":[{\"type\":\"text\",\"text\":\"You are Claude Code, Anthropic's official CLI for Claude.\"},{\"type\":\"text\",\"text\":\"\\n\\nYou are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"thinking\":{\"type\":\"adaptive\",\"display\":\"updates\"}}",
               "body": {
                 "model": "claude-mythos-5-3",
                 "max_tokens": 65536,
@@ -10978,7 +13420,8 @@
           "emitted": [],
           "outcome": {
             "error": {
-              "status": 400
+              "status": 400,
+              "partialUsage": null
             }
           }
         },
@@ -11014,6 +13457,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,effort-2025-11-24,thinking-display-updates-2026-08-18",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-mythos-5-3\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"It is in the table.\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Read it to me.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true,\"system\":[{\"type\":\"text\",\"text\":\"You are Claude Code, Anthropic's official CLI for Claude.\"},{\"type\":\"text\",\"text\":\"\\n\\nYou are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"thinking\":{\"type\":\"adaptive\",\"display\":\"updates\"}}",
               "body": {
                 "model": "claude-mythos-5-3",
                 "max_tokens": 65536,
@@ -11076,7 +13521,18 @@
           ],
           "outcome": {
             "ok": {
-              "content": "ok"
+              "content": "ok",
+              "usage": {
+                "inputTokens": 20,
+                "outputTokens": 2,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0,
+                "raw": {
+                  "input_tokens": 20,
+                  "output_tokens": 2
+                },
+                "promptTokens": 20
+              }
             }
           }
         }
@@ -11119,6 +13575,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "interleaved-thinking-2025-05-14,effort-2025-11-24,thinking-display-updates-2026-08-18",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-sonnet-5-6\",\"max_tokens\":65536,\"system\":[{\"type\":\"text\",\"text\":\"You are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"thinking\":{\"type\":\"adaptive\",\"display\":\"updates\"},\"stream\":true}",
               "body": {
                 "model": "claude-sonnet-5-6",
                 "max_tokens": 65536,
@@ -11156,6 +13614,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "interleaved-thinking-2025-05-14,effort-2025-11-24",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-sonnet-5-6\",\"max_tokens\":65536,\"system\":[{\"type\":\"text\",\"text\":\"You are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"thinking\":{\"type\":\"adaptive\"},\"stream\":true}",
               "body": {
                 "model": "claude-sonnet-5-6",
                 "max_tokens": 65536,
@@ -11193,7 +13653,8 @@
           "emitted": [],
           "outcome": {
             "error": {
-              "status": 400
+              "status": 400,
+              "partialUsage": null
             }
           }
         }
@@ -11236,6 +13697,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,effort-2025-11-24,thinking-display-updates-2026-08-18",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-sonnet-6-2\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true,\"system\":[{\"type\":\"text\",\"text\":\"You are Claude Code, Anthropic's official CLI for Claude.\"},{\"type\":\"text\",\"text\":\"\\n\\nYou are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"thinking\":{\"type\":\"adaptive\",\"display\":\"updates\"}}",
               "body": {
                 "model": "claude-sonnet-6-2",
                 "max_tokens": 65536,
@@ -11277,6 +13740,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,effort-2025-11-24",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-sonnet-6-2\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true,\"system\":[{\"type\":\"text\",\"text\":\"You are Claude Code, Anthropic's official CLI for Claude.\"},{\"type\":\"text\",\"text\":\"\\n\\nYou are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"thinking\":{\"type\":\"adaptive\"}}",
               "body": {
                 "model": "claude-sonnet-6-2",
                 "max_tokens": 65536,
@@ -11318,7 +13783,8 @@
           "emitted": [],
           "outcome": {
             "error": {
-              "status": 400
+              "status": 400,
+              "partialUsage": null
             }
           }
         }
@@ -11369,6 +13835,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "interleaved-thinking-2025-05-14,effort-2025-11-24,thinking-display-updates-2026-08-18",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-mythos-6\",\"max_tokens\":65536,\"system\":[{\"type\":\"text\",\"text\":\"You are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"It is in the table.\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Read it to me.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"thinking\":{\"type\":\"adaptive\",\"display\":\"updates\"},\"stream\":true}",
               "body": {
                 "model": "claude-mythos-6",
                 "max_tokens": 65536,
@@ -11424,6 +13892,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "interleaved-thinking-2025-05-14,effort-2025-11-24",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-mythos-6\",\"max_tokens\":65536,\"system\":[{\"type\":\"text\",\"text\":\"You are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"It is in the table.\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Read it to me.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"thinking\":{\"type\":\"adaptive\"},\"stream\":true}",
               "body": {
                 "model": "claude-mythos-6",
                 "max_tokens": 65536,
@@ -11478,6 +13948,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "interleaved-thinking-2025-05-14,effort-2025-11-24",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-mythos-6\",\"max_tokens\":65536,\"system\":[{\"type\":\"text\",\"text\":\"You are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"messages\":[{\"role\":\"user\",\"content\":\"Look up the answer.\"},{\"role\":\"assistant\",\"content\":\"It is in the table.\"},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Read it to me.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"thinking\":{\"type\":\"adaptive\"},\"stream\":true}",
               "body": {
                 "model": "claude-mythos-6",
                 "max_tokens": 65536,
@@ -11525,7 +13997,18 @@
           ],
           "outcome": {
             "ok": {
-              "content": "ok"
+              "content": "ok",
+              "usage": {
+                "inputTokens": 20,
+                "outputTokens": 2,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0,
+                "promptTokens": 20,
+                "raw": {
+                  "input_tokens": 20,
+                  "output_tokens": 2
+                }
+              }
             }
           }
         },
@@ -11561,6 +14044,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "interleaved-thinking-2025-05-14,effort-2025-11-24",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-mythos-6\",\"max_tokens\":65536,\"system\":[{\"type\":\"text\",\"text\":\"You are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"messages\":[{\"role\":\"user\",\"content\":\"Look up the answer.\"},{\"role\":\"assistant\",\"content\":\"It is in the table.\"},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Read it to me.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"thinking\":{\"type\":\"adaptive\"},\"stream\":true}",
               "body": {
                 "model": "claude-mythos-6",
                 "max_tokens": 65536,
@@ -11608,7 +14093,18 @@
           ],
           "outcome": {
             "ok": {
-              "content": "ok"
+              "content": "ok",
+              "usage": {
+                "inputTokens": 20,
+                "outputTokens": 2,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0,
+                "promptTokens": 20,
+                "raw": {
+                  "input_tokens": 20,
+                  "output_tokens": 2
+                }
+              }
             }
           }
         }
@@ -11659,6 +14155,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,effort-2025-11-24,thinking-display-updates-2026-08-18",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-fable-6\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"It is in the table.\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Read it to me.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true,\"system\":[{\"type\":\"text\",\"text\":\"You are Claude Code, Anthropic's official CLI for Claude.\"},{\"type\":\"text\",\"text\":\"\\n\\nYou are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"thinking\":{\"type\":\"adaptive\",\"display\":\"updates\"}}",
               "body": {
                 "model": "claude-fable-6",
                 "max_tokens": 65536,
@@ -11718,6 +14216,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,effort-2025-11-24",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-fable-6\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\"}]},{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"It is in the table.\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Read it to me.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true,\"system\":[{\"type\":\"text\",\"text\":\"You are Claude Code, Anthropic's official CLI for Claude.\"},{\"type\":\"text\",\"text\":\"\\n\\nYou are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"thinking\":{\"type\":\"adaptive\"}}",
               "body": {
                 "model": "claude-fable-6",
                 "max_tokens": 65536,
@@ -11776,6 +14276,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,effort-2025-11-24",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-fable-6\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":\"Look up the answer.\"},{\"role\":\"assistant\",\"content\":\"It is in the table.\"},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Read it to me.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true,\"system\":[{\"type\":\"text\",\"text\":\"You are Claude Code, Anthropic's official CLI for Claude.\"},{\"type\":\"text\",\"text\":\"\\n\\nYou are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"thinking\":{\"type\":\"adaptive\"}}",
               "body": {
                 "model": "claude-fable-6",
                 "max_tokens": 65536,
@@ -11827,7 +14329,18 @@
           ],
           "outcome": {
             "ok": {
-              "content": "ok"
+              "content": "ok",
+              "usage": {
+                "inputTokens": 20,
+                "outputTokens": 2,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0,
+                "raw": {
+                  "input_tokens": 20,
+                  "output_tokens": 2
+                },
+                "promptTokens": 20
+              }
             }
           }
         },
@@ -11863,6 +14376,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,effort-2025-11-24",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-fable-6\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":\"Look up the answer.\"},{\"role\":\"assistant\",\"content\":\"It is in the table.\"},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Read it to me.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true,\"system\":[{\"type\":\"text\",\"text\":\"You are Claude Code, Anthropic's official CLI for Claude.\"},{\"type\":\"text\",\"text\":\"\\n\\nYou are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"thinking\":{\"type\":\"adaptive\"}}",
               "body": {
                 "model": "claude-fable-6",
                 "max_tokens": 65536,
@@ -11914,7 +14429,18 @@
           ],
           "outcome": {
             "ok": {
-              "content": "ok"
+              "content": "ok",
+              "usage": {
+                "inputTokens": 20,
+                "outputTokens": 2,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0,
+                "raw": {
+                  "input_tokens": 20,
+                  "output_tokens": 2
+                },
+                "promptTokens": 20
+              }
             }
           }
         }
@@ -11952,6 +14478,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "interleaved-thinking-2025-05-14,effort-2025-11-24,thinking-display-updates-2026-08-18",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-opus-6-1\",\"max_tokens\":65536,\"system\":[{\"type\":\"text\",\"text\":\"You are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"thinking\":{\"type\":\"adaptive\",\"display\":\"updates\"},\"stream\":true}",
               "body": {
                 "model": "claude-opus-6-1",
                 "max_tokens": 65536,
@@ -11992,7 +14520,8 @@
           ],
           "outcome": {
             "error": {
-              "status": 400
+              "status": 400,
+              "partialUsage": null
             }
           }
         },
@@ -12020,6 +14549,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "interleaved-thinking-2025-05-14,effort-2025-11-24,thinking-display-updates-2026-08-18",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-opus-6-1\",\"max_tokens\":65536,\"system\":[{\"type\":\"text\",\"text\":\"You are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"thinking\":{\"type\":\"adaptive\",\"display\":\"updates\"},\"stream\":true}",
               "body": {
                 "model": "claude-opus-6-1",
                 "max_tokens": 65536,
@@ -12060,7 +14591,18 @@
           ],
           "outcome": {
             "ok": {
-              "content": "ok"
+              "content": "ok",
+              "usage": {
+                "inputTokens": 20,
+                "outputTokens": 2,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0,
+                "promptTokens": 20,
+                "raw": {
+                  "input_tokens": 20,
+                  "output_tokens": 2
+                }
+              }
             }
           }
         }
@@ -12098,6 +14640,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,effort-2025-11-24,thinking-display-updates-2026-08-18",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-mythos-6-1\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true,\"system\":[{\"type\":\"text\",\"text\":\"You are Claude Code, Anthropic's official CLI for Claude.\"},{\"type\":\"text\",\"text\":\"\\n\\nYou are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"thinking\":{\"type\":\"adaptive\",\"display\":\"updates\"}}",
               "body": {
                 "model": "claude-mythos-6-1",
                 "max_tokens": 65536,
@@ -12142,7 +14686,8 @@
           ],
           "outcome": {
             "error": {
-              "status": 400
+              "status": 400,
+              "partialUsage": null
             }
           }
         },
@@ -12170,6 +14715,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,effort-2025-11-24,thinking-display-updates-2026-08-18",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-mythos-6-1\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true,\"system\":[{\"type\":\"text\",\"text\":\"You are Claude Code, Anthropic's official CLI for Claude.\"},{\"type\":\"text\",\"text\":\"\\n\\nYou are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"thinking\":{\"type\":\"adaptive\",\"display\":\"updates\"}}",
               "body": {
                 "model": "claude-mythos-6-1",
                 "max_tokens": 65536,
@@ -12214,7 +14761,18 @@
           ],
           "outcome": {
             "ok": {
-              "content": "ok"
+              "content": "ok",
+              "usage": {
+                "inputTokens": 20,
+                "outputTokens": 2,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0,
+                "raw": {
+                  "input_tokens": 20,
+                  "output_tokens": 2
+                },
+                "promptTokens": 20
+              }
             }
           }
         }
@@ -12252,6 +14810,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "interleaved-thinking-2025-05-14,effort-2025-11-24,thinking-display-updates-2026-08-18",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-opus-6-2\",\"max_tokens\":65536,\"system\":[{\"type\":\"text\",\"text\":\"You are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"thinking\":{\"type\":\"adaptive\",\"display\":\"updates\"},\"stream\":true}",
               "body": {
                 "model": "claude-opus-6-2",
                 "max_tokens": 65536,
@@ -12289,6 +14849,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "interleaved-thinking-2025-05-14,effort-2025-11-24",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-opus-6-2\",\"max_tokens\":65536,\"system\":[{\"type\":\"text\",\"text\":\"You are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"thinking\":{\"type\":\"adaptive\"},\"stream\":true}",
               "body": {
                 "model": "claude-opus-6-2",
                 "max_tokens": 65536,
@@ -12328,7 +14890,18 @@
           ],
           "outcome": {
             "ok": {
-              "content": "ok"
+              "content": "ok",
+              "usage": {
+                "inputTokens": 20,
+                "outputTokens": 2,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0,
+                "promptTokens": 20,
+                "raw": {
+                  "input_tokens": 20,
+                  "output_tokens": 2
+                }
+              }
             }
           }
         },
@@ -12356,6 +14929,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "interleaved-thinking-2025-05-14,effort-2025-11-24",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-opus-6-2\",\"max_tokens\":65536,\"system\":[{\"type\":\"text\",\"text\":\"You are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"thinking\":{\"type\":\"adaptive\"},\"stream\":true}",
               "body": {
                 "model": "claude-opus-6-2",
                 "max_tokens": 65536,
@@ -12395,7 +14970,18 @@
           ],
           "outcome": {
             "ok": {
-              "content": "ok"
+              "content": "ok",
+              "usage": {
+                "inputTokens": 20,
+                "outputTokens": 2,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0,
+                "promptTokens": 20,
+                "raw": {
+                  "input_tokens": 20,
+                  "output_tokens": 2
+                }
+              }
             }
           }
         }
@@ -12433,6 +15019,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,effort-2025-11-24,thinking-display-updates-2026-08-18",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-fable-6-1\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true,\"system\":[{\"type\":\"text\",\"text\":\"You are Claude Code, Anthropic's official CLI for Claude.\"},{\"type\":\"text\",\"text\":\"\\n\\nYou are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"thinking\":{\"type\":\"adaptive\",\"display\":\"updates\"}}",
               "body": {
                 "model": "claude-fable-6-1",
                 "max_tokens": 65536,
@@ -12475,7 +15063,8 @@
           "emitted": [],
           "outcome": {
             "error": {
-              "status": 400
+              "status": 400,
+              "partialUsage": null
             }
           }
         },
@@ -12503,6 +15092,8 @@
             {
               "path": "/v1/messages",
               "betaHeader": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,effort-2025-11-24,thinking-display-updates-2026-08-18",
+              "contentEncoding": null,
+              "bodyText": "{\"model\":\"claude-fable-6-1\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true,\"system\":[{\"type\":\"text\",\"text\":\"You are Claude Code, Anthropic's official CLI for Claude.\"},{\"type\":\"text\",\"text\":\"\\n\\nYou are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"thinking\":{\"type\":\"adaptive\",\"display\":\"updates\"}}",
               "body": {
                 "model": "claude-fable-6-1",
                 "max_tokens": 65536,
@@ -12547,9 +15138,123 @@
           ],
           "outcome": {
             "ok": {
-              "content": "ok"
+              "content": "ok",
+              "usage": {
+                "inputTokens": 20,
+                "outputTokens": 2,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0,
+                "raw": {
+                  "input_tokens": 20,
+                  "output_tokens": 2
+                },
+                "promptTokens": 20
+              }
             }
           }
+        }
+      ]
+    }
+  ],
+  "offlineListings": [
+    {
+      "route": "anthropic",
+      "env": {},
+      "rows": [
+        {
+          "id": "claude-opus-5-5",
+          "name": "Claude Opus 5.5",
+          "provider": "anthropic",
+          "family": "opus",
+          "contextWindow": 1000000
+        },
+        {
+          "id": "claude-fable-5-2",
+          "name": "Claude Fable 5.2",
+          "provider": "anthropic",
+          "family": "fable",
+          "contextWindow": 1000000
+        },
+        {
+          "id": "claude-sonnet-5-5",
+          "name": "Claude Sonnet 5.5",
+          "provider": "anthropic",
+          "family": "sonnet",
+          "contextWindow": 1000000
+        }
+      ]
+    },
+    {
+      "route": "anthropic-oauth",
+      "env": {},
+      "rows": [
+        {
+          "id": "claude-opus-5-5",
+          "name": "Claude Opus 5.5",
+          "provider": "anthropic-oauth",
+          "family": "opus",
+          "contextWindow": 1000000,
+          "display": "Claude Opus 5.5",
+          "tier": "family",
+          "latest": true
+        },
+        {
+          "id": "claude-fable-5-2",
+          "name": "Claude Fable 5.2",
+          "provider": "anthropic-oauth",
+          "family": "fable",
+          "contextWindow": 1000000,
+          "display": "Claude Fable 5.2",
+          "tier": "family",
+          "latest": true
+        },
+        {
+          "id": "claude-sonnet-5-5",
+          "name": "Claude Sonnet 5.5",
+          "provider": "anthropic-oauth",
+          "family": "sonnet",
+          "contextWindow": 1000000,
+          "display": "Claude Sonnet 5.5",
+          "tier": "family",
+          "latest": true
+        }
+      ]
+    },
+    {
+      "route": "anthropic-oauth",
+      "env": {
+        "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-custom"
+      },
+      "rows": [
+        {
+          "id": "claude-opus-5-5",
+          "name": "Claude Opus 5.5",
+          "provider": "anthropic-oauth",
+          "family": "opus",
+          "contextWindow": 1000000,
+          "display": "Claude Opus 5.5",
+          "tier": "family",
+          "latest": true
+        },
+        {
+          "id": "claude-fable-5-2",
+          "name": "Claude Fable 5.2",
+          "provider": "anthropic-oauth",
+          "family": "fable",
+          "contextWindow": 1000000,
+          "display": "Claude Fable 5.2",
+          "tier": "family",
+          "latest": true
+        },
+        {
+          "id": "claude-sonnet-custom",
+          "name": "Claude Sonnet 5.5",
+          "provider": "anthropic-oauth",
+          "family": "sonnet",
+          "contextWindow": 1000000,
+          "display": "Claude Sonnet 5.5",
+          "tier": "family",
+          "latest": true
         }
       ]
     }

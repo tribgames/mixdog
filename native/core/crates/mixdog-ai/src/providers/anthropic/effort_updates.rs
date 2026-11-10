@@ -80,10 +80,10 @@ pub(crate) fn version_supported(provider: &str, model: &str) -> bool {
         return false;
     };
     if let Some(row) = FLOORS.iter().find(|row| row.family == family) {
-        return (major, minor) >= (u64::from(row.major), u64::from(row.minor));
+        return crate::claude_floors::version_at_least((major, minor), (row.major, row.minor));
     }
     let first_major = FLOORS.iter().map(|row| row.major).min().unwrap_or(u32::MAX);
-    UNMEASURED_FAMILY_PROVIDERS.contains(&provider) && major >= u64::from(first_major)
+    UNMEASURED_FAMILY_PROVIDERS.contains(&provider) && major >= f64::from(first_major)
 }
 
 /// What else decides whether a request carries updates.

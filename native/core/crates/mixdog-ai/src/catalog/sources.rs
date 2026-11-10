@@ -421,14 +421,39 @@ mod floor_tests {
         rows.iter().map(|r| r.id.as_str()).collect()
     }
 
+    /// Node's offline listing of `route` with `env` set (`offlineListings` of `fixtures/claude-floors/golden.json`, each
+    /// route's real `listModels` answering `MODELS`, lib/anthropic-models.mjs, after its roster fetch failed).
+    fn node_offline_listing(route: &str, with_env: bool) -> serde_json::Value {
+        let golden: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../fixtures/claude-floors/golden.json")).expect("the recording");
+        let listings = golden["offlineListings"].as_array().expect("offline listings");
+        listings
+            .iter()
+            .find(|l| l["route"] == route && l["env"].as_object().is_some_and(|env| env.is_empty() != with_env))
+            .cloned()
+            .unwrap_or_else(|| panic!("a recorded {route} listing"))
+    }
+
     #[tokio::test]
     async fn a_failed_anthropic_listing_answers_nodes_models_floor() {
-        // `anthropic-models.mjs` MODELS: one id per family, window 1 000 000, family stated.
+        let node = node_offline_listing("anthropic", false);
         let rows = source("anthropic", None).list().await.unwrap();
-        assert_eq!(ids(&rows), ["claude-opus-5-5", "claude-fable-5-2", "claude-sonnet-5-5"]);
-        assert_eq!(rows[0].display_name.as_deref(), Some("Claude Opus 5.5"));
-        assert_eq!((rows[0].context_window, rows[0].family.as_deref()), (Some(1_000_000), Some("opus")));
-        assert!(rows.iter().all(|r| r.provider.as_str() == "anthropic" && !r.picker.latest && r.picker.tier.is_none()));
+        // Node's rows are `MODELS` as declared (id, name, provider, family, context window); a picker tier or `latest` the
+        // core gave a row would show as a key Node's row lacks.
+        let ours: Vec<serde_json::Value> = rows
+            .iter()
+            .map(|r| {
+                let mut row = serde_json::json!({ "id": r.id, "name": r.name, "provider": r.provider.as_str(), "family": r.family, "contextWindow": r.context_window });
+                if let Some(tier) = &r.picker.tier {
+                    row["tier"] = serde_json::json!(tier);
+                }
+                if r.picker.latest {
+                    row["latest"] = serde_json::json!(true);
+                }
+                row
+            })
+            .collect();
+        assert_eq!(serde_json::Value::Array(ours), node["rows"]);
     }
 
     #[tokio::test]
@@ -441,10 +466,29 @@ mod floor_tests {
     #[tokio::test]
     async fn the_oauth_floor_is_family_rows_and_a_family_variable_names_its_id() {
         let provider = ProviderId::from("anthropic-oauth");
-        let env = |name: &str| (name == "ANTHROPIC_DEFAULT_SONNET_MODEL").then(|| "claude-sonnet-custom".to_owned());
-        let rows = Floor::AnthropicOauth.rows(&provider, &env);
-        assert_eq!(ids(&rows), ["claude-opus-5-5", "claude-fable-5-2", "claude-sonnet-custom"]);
-        assert!(rows.iter().all(|r| r.picker.latest && r.picker.tier.as_deref() == Some("family") && r.provider == provider));
+        for with_env in [false, true] {
+            let node = node_offline_listing("anthropic-oauth", with_env);
+            let recorded_env = node["env"].as_object().expect("env").clone();
+            let env = move |name: &str| recorded_env.get(name).and_then(|v| v.as_str()).map(str::to_owned);
+            let rows = Floor::AnthropicOauth.rows(&provider, &env);
+            // Node's OAuth floor row: `MODELS` with the family variable's id, `display`, provider, `tier: family`, `latest`.
+            let ours: Vec<serde_json::Value> = rows
+                .iter()
+                .map(|r| {
+                    serde_json::json!({
+                        "id": r.id,
+                        "name": r.name,
+                        "provider": r.provider.as_str(),
+                        "family": r.family,
+                        "contextWindow": r.context_window,
+                        "display": r.display_name,
+                        "tier": r.picker.tier,
+                        "latest": r.picker.latest,
+                    })
+                })
+                .collect();
+            assert_eq!(serde_json::Value::Array(ours), node["rows"], "env {}", node["env"]);
+        }
         assert!(source("anthropic-oauth", None).list().await.is_ok());
     }
 

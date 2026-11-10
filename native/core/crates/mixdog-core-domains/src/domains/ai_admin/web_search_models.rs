@@ -116,7 +116,10 @@ impl QuickFacts for Facts {
 
     fn hydrated(&self, provider: &str, model: &Value) -> Value {
         let id = model.get("id").and_then(Value::as_str).unwrap_or_default();
-        hydrated_model(provider, model, &self.catalog.listed_meta(provider, id))
+        // `hydratedModel` reads `metadataFor(provider, id)` = `getModelMetadataSync(id, provider)`
+        // (quick-model-rows/model-meta.mjs): the catalog's metadata of the model whether or not the provider lists it.
+        let meta = self.catalog.sync_meta(id, provider).map_or_else(|| Value::Object(Map::new()), Value::Object);
+        hydrated_model(provider, model, &meta)
     }
 
     fn cache_row(&self, provider: &str, model: &Value) -> Value {

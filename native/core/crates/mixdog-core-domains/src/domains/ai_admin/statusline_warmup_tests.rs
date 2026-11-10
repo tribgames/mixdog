@@ -61,8 +61,12 @@ struct Built {
 
 async fn built(env: &'static [(&'static str, &'static str)]) -> Built {
     let recording = statusline_recording();
-    let node = recording["scenarios"][0].clone();
-    let rig = rig(&node, &recording["seeds"], false).await;
+    built_from(recording["scenarios"][0].clone(), &recording["seeds"], env).await
+}
+
+/// The warm-up bound to the pipeline of the recorded profile `node`.
+async fn built_from(node: Value, seeds: &Value, env: &'static [(&'static str, &'static str)]) -> Built {
+    let rig = rig(&node, seeds, false).await;
     let warm = StatuslineWarmup::new(&move |name| env.iter().find(|(key, _)| *key == name).map(|(_, value)| (*value).to_owned()));
     let gates = Arc::new(Gates::default());
     let (tx, seen) = tokio::sync::mpsc::unbounded_channel();
@@ -101,6 +105,52 @@ async fn reads_before_the_warm_up_answer_as_nodes_and_the_reads_after_it_still_d
     built.warm.settle().await;
     built.seen.recv().await.unwrap();
     assert_node_reads(&built).await;
+}
+
+/// `wait`, or a failure naming `what` once a minute has passed without it.
+async fn within<T>(what: &str, wait: impl std::future::Future<Output = T>) -> T {
+    tokio::time::timeout(Duration::from_secs(60), wait).await.unwrap_or_else(|_| panic!("{what}: not within 60 s"))
+}
+
+// Node's model-list reads with the statusline-usage warm-up between the full and the web-search read (`model-lists`, the
+// `*-after-statusline-warm-up-moved-catalog-revision` scenarios). The recorder held the warm-up, released it after the
+// full read and held the endpoint's next request: the catalog refresh the readiness starts (provider-readiness.mjs:149)
+// once the registry applied the config with the route's OAuth provider enabled and moved the catalog revision
+// (registry.mjs:312). The web-search read lands after that move and before the refresh answered, so it drops the caches
+// the full read filled (model-meta.mjs:18, web-search-catalog.mjs:112). Driven here in the same order: the endpoint held,
+// the warm-up run to its end, the read made then. The core starts no catalog refresh after the warm-up's provider
+// preparation (nothing reaches the held endpoint, or the warm-up could not end), so its read lands where Node's did:
+// after the move, before any refresh answered. (The `*-before-statusline-warm-up` scenarios, the warm-up held through
+// every read, are read with no warm-up in model_list_node_tests.)
+#[tokio::test]
+async fn a_web_search_read_after_the_warm_up_moved_the_catalog_revision_answers_as_nodes() {
+    let recording = super::model_list_node_tests::recording();
+    let mut driven = 0;
+    for node in recording["scenarios"].as_array().unwrap() {
+        let calls = node["calls"].as_array().unwrap();
+        let actions: Vec<&str> = calls.iter().map(|c| c["action"].as_str().unwrap()).collect();
+        if actions != ["listProviderModels", "listProviderModels", "statuslineUsageWarmup", "listWebSearchModels"] {
+            continue;
+        }
+        let name = node["name"].as_str().unwrap();
+        let built = built_from(node.clone(), &recording["seeds"], NO_DELAY).await;
+        let rig = &built.rig;
+        assert_rows(&format!("{name}: quick"), &rig.service.rows(false, true).await.unwrap(), &calls[0]["value"]);
+        rig.host.settle_warm().await;
+        assert_rows(&format!("{name}: full"), &rig.service.rows(false, false).await.unwrap(), &calls[1]["value"]);
+        // From here on the endpoint holds what reaches it.
+        let hits = rig.hits.load(std::sync::atomic::Ordering::SeqCst);
+        rig.gate.send_replace(false);
+        built.warm.start();
+        within(&format!("{name}: the warm-up's provider preparation"), built.warm.settle()).await;
+        assert!(built.gates.marks.lock().unwrap().iter().any(|mark| mark.starts_with("statusline-usage:warm-ready")), "{name}: the warm-up ran");
+        let found = within(&format!("{name}: the web-search read"), web_search(rig).list(None, false)).await.unwrap();
+        assert_rows(&format!("{name}: web search"), found.as_array().unwrap(), &calls[3]["value"]);
+        assert_eq!(rig.hits.load(std::sync::atomic::Ordering::SeqCst), hits, "{name}: nothing reached the endpoint since the full read");
+        rig.gate.send_replace(true);
+        driven += 1;
+    }
+    assert!(driven > 0, "the recording holds a read after the warm-up moved the catalog revision");
 }
 
 #[tokio::test]
