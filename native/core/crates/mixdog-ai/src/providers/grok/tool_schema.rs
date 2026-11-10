@@ -148,10 +148,7 @@ fn js_ordered_deep(value: Value) -> Value {
 // Such a string is written here as the flatten's marker followed by the unit's four lowercase hex digits, and
 // `JSON.stringify` writes it as JavaScript does (`"\ud83d"`). The marker is a run of U+F0000 longer than any run in the
 // body the flatten works on, so no string of the body, nor any text the flatten builds from them (always joined with
-// ASCII), is a marked one.
-thread_local! {
-    static LONE_MARKER: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
-}
+// ASCII), is a marked one. The flatten's functions that take strings apart carry it as `marker`.
 
 const MARK: char = '\u{F0000}';
 
@@ -172,8 +169,8 @@ fn lone_marker(value: &Value) -> String {
 }
 
 /// The JavaScript string of one lone surrogate `unit`.
-fn lone_unit(unit: u16) -> Value {
-    LONE_MARKER.with(|marker| Value::String(format!("{}{unit:04x}", marker.borrow())))
+fn lone_unit(unit: u16, marker: &str) -> Value {
+    Value::String(format!("{marker}{unit:04x}"))
 }
 
 /// The lone surrogate a marked string stands for.
@@ -252,7 +249,7 @@ pub fn js_json(value: &Value, marker: &str) -> Vec<u8> {
 /// `Object.entries(value)` (and the keys `{ ...value }` copies): an object's own keys in JavaScript order, an array's or
 /// a string's indices, nothing for a number, a boolean or null. A string is taken apart by UTF-16 code unit: a
 /// character outside the Basic Multilingual Plane is two entries, each one lone surrogate.
-fn entries(value: Option<&Value>) -> Vec<(String, Value)> {
+fn entries(value: Option<&Value>, marker: &str) -> Vec<(String, Value)> {
     match value {
         Some(Value::Object(map)) => js_ordered(map.clone()).into_iter().collect(),
         Some(Value::Array(items)) => items.iter().enumerate().map(|(i, item)| (i.to_string(), item.clone())).collect(),
@@ -262,7 +259,7 @@ fn entries(value: Option<&Value>) -> Vec<(String, Value)> {
             .map(|(index, unit)| {
                 let entry = match char::from_u32(u32::from(unit)) {
                     Some(c) => Value::String(c.to_string()),
-                    None => lone_unit(unit),
+                    None => lone_unit(unit, marker),
                 };
                 (index.to_string(), entry)
             })
@@ -328,8 +325,8 @@ impl Props {
 }
 
 /// `{ ...value }`: the keys an object spread copies from `value`.
-fn spread_source(value: &Value) -> Map<String, Value> {
-    entries(Some(value)).into_iter().collect()
+fn spread_source(value: &Value, marker: &str) -> Map<String, Value> {
+    entries(Some(value), marker).into_iter().collect()
 }
 
 /// `Object.is` of two JSON values that are not objects or arrays.
@@ -442,10 +439,10 @@ fn pure_any_of(schema: &Value) -> Vec<Value> {
     }
 }
 
-fn merge_object_branch_properties(branches: &[Value]) -> Js<Props> {
+fn merge_object_branch_properties(branches: &[Value], marker: &str) -> Js<Props> {
     let mut properties = Props::default();
     for branch in branches {
-        for (name, schema) in entries(get(branch, "properties").filter(|p| truthy(Some(p)))) {
+        for (name, schema) in entries(get(branch, "properties").filter(|p| truthy(Some(p))), marker) {
             let Some(existing) = properties.own.get(&name).cloned() else {
                 properties.set(&name, schema);
                 continue;
@@ -464,7 +461,7 @@ fn merge_object_branch_properties(branches: &[Value]) -> Js<Props> {
                 let first = deduped[0].as_object().cloned().unwrap_or_default();
                 let required: Vec<Value> = required_keys(&deduped[0]).into_iter().filter(|key| deduped.iter().all(|v| required_keys(v).contains(key))).collect();
                 let mut out = spread(without(&first, &["required", "properties"]), &Map::from_iter([("type".to_owned(), json!("object"))]));
-                out.insert("properties".into(), Value::Object(merge_object_branch_properties(&deduped)?.own));
+                out.insert("properties".into(), Value::Object(merge_object_branch_properties(&deduped, marker)?.own));
                 if !required.is_empty() {
                     out.insert("required".into(), Value::Array(required));
                 }
@@ -592,7 +589,7 @@ fn not_iterable(value: &Value) -> TypeError {
 }
 
 /// The per-action input rules of a `oneOf`/`anyOf` of action/input branches, else empty.
-fn action_input_contract(schema: &Value) -> Js<String> {
+fn action_input_contract(schema: &Value, marker: &str) -> Js<String> {
     let one_of = get(schema, "oneOf");
     let chosen = if truthy(one_of) { one_of } else { get(schema, "anyOf") };
     let Some(branches) = chosen.and_then(Value::as_array).filter(|b| !b.is_empty()) else { return Ok(String::new()) };
@@ -604,7 +601,7 @@ fn action_input_contract(schema: &Value) -> Js<String> {
     }
     let mut variants: std::collections::HashMap<String, Vec<Vec<u8>>> = std::collections::HashMap::new();
     for branch in branches {
-        for (name, field) in entries(input_properties(branch).as_ref()) {
+        for (name, field) in entries(input_properties(branch).as_ref(), marker) {
             if field.is_null() {
                 return Err(reading_null("enum"));
             }
@@ -628,7 +625,7 @@ fn action_input_contract(schema: &Value) -> Js<String> {
             None => Vec::new(),
         };
         let mut fields = Vec::new();
-        for (name, field) in entries(input_properties(branch).as_ref()) {
+        for (name, field) in entries(input_properties(branch).as_ref(), marker) {
             let mut label = format!("{name}{}", if required.contains(&name) { "*" } else { "" });
             if variants[&name].len() > 1 {
                 match get(&field, "enum") {
@@ -654,13 +651,13 @@ fn action_input_contract(schema: &Value) -> Js<String> {
 // grok-tool-schema.mjs (continued)
 // ---------------------------------------------------------------------------------------------------------------------
 
-fn merged_schema_properties(root: &Map<String, Value>, object_branches: &[Value]) -> Js<Option<Props>> {
+fn merged_schema_properties(root: &Map<String, Value>, object_branches: &[Value], marker: &str) -> Js<Option<Props>> {
     let root_properties = root.get("properties").filter(|p| truthy(Some(p)));
     if !(object_branches.iter().any(|b| truthy(get(b, "properties"))) || root_properties.is_some()) {
         return Ok(None);
     }
-    let mut properties = merge_object_branch_properties(object_branches)?;
-    for (name, property) in entries(root_properties) {
+    let mut properties = merge_object_branch_properties(object_branches, marker)?;
+    for (name, property) in entries(root_properties, marker) {
         if property.is_null() {
             return Err(reading_null("type"));
         }
@@ -704,7 +701,7 @@ fn union_required(root: &Value, object_branches: &[Value]) -> Vec<Value> {
     out
 }
 
-fn normalize_tool_schema(schema: &Value) -> Js<Value> {
+fn normalize_tool_schema(schema: &Value, marker: &str) -> Js<Value> {
     let Some(map) = schema.as_object().filter(|m| m.get("anyOf").is_some_and(Value::is_array) || m.get("oneOf").is_some_and(Value::is_array)) else {
         return normalize_property_schema(schema);
     };
@@ -726,13 +723,13 @@ fn normalize_tool_schema(schema: &Value) -> Js<Value> {
         }
         return normalize_property_schema(&Value::Object(out));
     }
-    let mut properties = merged_schema_properties(&root, &object_branches)?;
-    let contract = action_input_contract(schema)?;
+    let mut properties = merged_schema_properties(&root, &object_branches, marker)?;
+    let contract = action_input_contract(schema, marker)?;
     if !contract.is_empty()
         && let Some(properties) = properties.as_mut()
         && let Some(input) = properties.get("input").filter(|input| truthy(Some(input)))
     {
-        let mut with_description = spread_source(&input);
+        let mut with_description = spread_source(&input, marker);
         with_description.insert("description".into(), Value::String(contract));
         properties.set("input", Value::Object(with_description));
     }
@@ -740,7 +737,7 @@ fn normalize_tool_schema(schema: &Value) -> Js<Value> {
     // `Object.assign({}, ...objectBranches)` assigns key by key, so a branch's `__proto__` key sets the prototype.
     let mut assigned = Props::default();
     for branch in &object_branches {
-        for (key, value) in entries(Some(branch)) {
+        for (key, value) in entries(Some(branch), marker) {
             assigned.set(&key, value);
         }
     }
@@ -758,8 +755,7 @@ fn normalize_tool_schema(schema: &Value) -> Js<Value> {
 /// One tool's schema as Node's `normalizeGrokToolSchemas` returns it for the `JSON.parse` of `schema`'s text, a lone
 /// surrogate it makes marked with `marker` ([`lone_marker`] of a value holding `schema`).
 pub(crate) fn flatten_schema(schema: &Value, marker: &str) -> Js<Value> {
-    LONE_MARKER.with(|current| *current.borrow_mut() = marker.to_owned());
-    normalize_tool_schema(&from_json(schema)).map(js_ordered_deep)
+    normalize_tool_schema(&from_json(schema), marker).map(js_ordered_deep)
 }
 
 /// What [`flatten_tools`] did: whether any tool's text changed, and the marker of the lone surrogates the body may

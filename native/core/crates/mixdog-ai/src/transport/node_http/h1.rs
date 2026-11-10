@@ -167,9 +167,10 @@ pub struct H1Body {
     pub decoder: Option<Decoder>,
     /// Where the connection goes back to once the body is whole; `None` when the exchange ends it.
     pub reuse: Option<Reuse>,
-    /// Set by [`BodyStream::hold_connection`]: the whole body's connection waits for this body to be dropped.
+    /// Set by [`BodyStream::hold_connection`]: the whole body's connection is held ([`Pool::hold_h1`]).
     pub hold: bool,
-    parked: Option<(Reuse, Conn)>,
+    /// The hold of the connection, ended when this body is dropped if no request has freed it first.
+    parked: Option<(Arc<Pool>, String, u64)>,
 }
 
 impl H1Body {
@@ -181,11 +182,12 @@ impl H1Body {
         body
     }
 
-    /// The exchange is whole: the connection goes back to the pool (after this body is dropped, if it is held).
+    /// The exchange is whole: the connection goes back to the pool (held for the next request, if this body is held).
     fn release(&mut self) {
         if let (Some(conn), Some(reuse)) = (self.conn.take(), self.reuse.take()) {
             if self.hold {
-                self.parked = Some((reuse, conn));
+                let hold = reuse.pool.hold_h1(reuse.key.clone(), conn, reuse.ttl);
+                self.parked = Some((reuse.pool, reuse.key, hold));
             } else {
                 reuse.pool.put_h1(reuse.key, conn, reuse.ttl);
             }
@@ -204,8 +206,8 @@ impl H1Body {
 
 impl Drop for H1Body {
     fn drop(&mut self) {
-        if let Some((reuse, conn)) = self.parked.take() {
-            reuse.pool.put_h1(reuse.key, conn, reuse.ttl);
+        if let Some((pool, key, hold)) = self.parked.take() {
+            pool.end_hold(&key, hold);
         }
     }
 }

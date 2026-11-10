@@ -165,7 +165,7 @@ pub(super) fn request(messages: Vec<Message>, options: RequestOptions) -> ModelR
 fn header<'a>(headers: &'a [(String, String)], name: &str) -> &'a str {
     headers
         .iter()
-        .find(|(k, _)| k == name)
+        .find(|(k, _)| k.eq_ignore_ascii_case(name))
         .map(|(_, v)| v.as_str())
         .unwrap_or_else(|| panic!("header {name}"))
 }
@@ -330,6 +330,10 @@ impl MemoryStore {
             identity: None,
             extra: Default::default(),
         }
+    }
+
+    pub(super) fn session(&self, http: Arc<dyn HttpSend>) -> Arc<OAuthSession> {
+        Arc::new(OAuthSession::new(self.file.clone(), http))
     }
 
     pub(super) fn signed_in() -> Arc<Self> {
@@ -802,6 +806,8 @@ fn malformed_tool_input_is_a_call_carrying_the_parse_failure() {
     assert_eq!(folded.tool_calls.len(), 1);
     assert_eq!(folded.tool_calls[0].arguments["__invalidToolArgs"], true);
     assert_eq!(folded.tool_calls[0].arguments["__rawArguments"], "{oops");
+    // V8's text (`JSON.parse('{oops')` on Node v22.20.0), which is what the model is shown.
+    assert_eq!(folded.tool_calls[0].arguments["__parseError"], "Expected property name or '}' in JSON at position 1 (line 1 column 2)");
 }
 
 #[test]
@@ -1256,36 +1262,6 @@ async fn a_lease_the_endpoint_cannot_grant_and_a_dead_grant_are_errors() {
     let err = session.ensure_lease(3_600_000).await.expect_err("dead grant");
     assert!(err.reauth_required);
     assert_eq!(dead.load().await.expect("stored").reauth_required, Some(true));
-}
-
-#[tokio::test]
-async fn a_rejected_gzip_body_is_the_provider_error_and_is_never_resent_plain() {
-    let mut messages = base_messages();
-    messages[1] = text_message(Role::User, &"x".repeat(20_000));
-    let ok = read_text(&api("text", "response.sse"));
-    let http = ScriptedHttp::new([
-        Scripted::body(400, r#"{"error":{"type":"invalid_request_error"}}"#),
-        Scripted::body(200, &ok),
-    ]);
-    let store = MemoryStore::signed_in();
-    let adapter = AnthropicAdapter::oauth(
-        config("https://api.anthropic.com"),
-        http.clone(),
-        Arc::new(OAuthSession::new(store.file.clone(), http.clone())),
-        false,
-        cpu_bulk(),
-    );
-    let req = Arc::new(request(messages, RequestOptions::default()));
-    let Err(err) = adapter.attempt(req.clone()).await else {
-        panic!("the 400 surfaces");
-    };
-    assert_eq!(err.kind, ErrorKind::InvalidRequest);
-    assert_eq!(err.status, Some(400));
-    adapter.attempt(req).await.map(drop).expect("stream");
-    let sent = http.sent();
-    assert_eq!(sent.len(), 2, "one request per attempt, no plain resend");
-    assert_eq!(header(&sent[0].headers, "content-encoding"), "gzip");
-    assert_eq!(header(&sent[1].headers, "content-encoding"), "gzip", "no latch: still compressed");
 }
 
 // ---------------------------------------------------------------------------

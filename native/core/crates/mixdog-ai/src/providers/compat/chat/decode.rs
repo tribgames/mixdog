@@ -72,11 +72,11 @@ fn stop_reason(reason: &str) -> StopReason {
 /// re-issue the call in the same turn.
 fn parse_arguments(raw: &str) -> JsonValue {
     let text = if raw.is_empty() { "{}" } else { raw };
-    serde_json::from_str(text).unwrap_or_else(|err| {
+    mixdog_js::json_parse(text).unwrap_or_else(|err| {
         json!({
             "__invalidToolArgs": true,
             "__rawArguments": raw,
-            "__parseError": err.to_string(),
+            "__parseError": mixdog_js::v8_json_parse_error(raw).unwrap_or_else(|| err.to_string()),
         })
     })
 }

@@ -43,6 +43,7 @@ use mixdog_core_config::config::Config;
 use mixdog_core_config::config::ConfigLanes;
 
 const CAPS: &str = include_str!("../../../../fixtures/anthropic-caps/golden.json");
+const WIRE_ANTHROPIC: &str = include_str!("../../../../fixtures/wire-anthropic-gemini/anthropic.json");
 const OPENAI: &str = include_str!("../../../../fixtures/openai-facts/golden.json");
 const SCOPE: &str = include_str!("../../../../fixtures/accounting-scope/golden.json");
 
@@ -403,6 +404,32 @@ async fn the_anthropic_caps_are_nodes_floor_live_and_declared_catalog_answers() 
             assert_eq!(caps.effort_levels_for(model), strings(&row["levels"]), "{ctx} levels");
             assert_eq!(caps.effort_levels_empty(model), row["levels"].as_array().unwrap().is_empty(), "{ctx} no levels");
         }
+    }
+}
+
+/// The capabilities `mixdog-ai`'s Anthropic wire test feeds the adapter are what Node's functions answered for the
+/// models of `anthropic.json`, with a catalog that lists them by id only (`_setInMemoryCatalog`). The product's
+/// `CatalogCaps` over such a catalog gives the same answers, so the adapter test's input is the product's.
+#[tokio::test]
+async fn the_anthropic_wire_models_get_nodes_catalog_answers() {
+    let recorded: Value = serde_json::from_str(WIRE_ANTHROPIC).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let caps = CatalogCaps::new(catalog_with(dir.path(), Vec::new()).await, &TestEnv(HashMap::new()));
+    let models = recorded["capabilities"].as_object().unwrap();
+    assert!(!models.is_empty(), "the recording holds no model capabilities");
+    for (model, node) in models {
+        let got = caps.caps(model);
+        let gates = AnthropicEffortGates::for_model(model, got.as_ref());
+        let supports = got.as_ref().is_some_and(|c| c.supports_effort());
+        let adaptive = got.as_ref().is_some_and(|c| c.adaptive_thinking);
+        let flag = |key: &str| node[key].as_bool().unwrap();
+        assert_eq!(supports, flag("supportsEffort"), "{model} supports effort");
+        assert_eq!((gates.xhigh, gates.max), (flag("supportsXhighEffort"), flag("supportsMaxEffort")), "{model} gates");
+        assert_eq!(got.as_ref().is_some_and(|c| !c.manual_thinking), flag("adaptiveOnly"), "{model} adaptive only");
+        assert_eq!(supports && adaptive, flag("effortBeta"), "{model} effort beta");
+        assert_eq!(caps.effort_levels_for(model), strings(&node["effortLevels"]), "{model} effort levels");
+        assert_eq!(got.as_ref().is_some_and(|c| c.thinking_display_updates), flag("progressUpdates"), "{model} progress updates");
+        assert_eq!(got.as_ref().and_then(|c| c.max_output_tokens).map(u64::from), node["declaredOutputTokens"].as_u64(), "{model} declared output tokens");
     }
 }
 

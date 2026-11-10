@@ -142,6 +142,13 @@ pub fn number_request_ids_from_one() {
     *NUMBERED_REQUEST_IDS.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(0);
 }
 
+/// A new process's Grok state: random request ids again, and no token endpoint discovered (`_discoveryCache`).
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) fn reset_process_state() {
+    *NUMBERED_REQUEST_IDS.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+    auth::reset_discovered();
+}
+
 /// Points the xAI request at the proxy and adds the CLI identity headers.
 pub struct GrokRewriter {
     pub client_version: crate::client_versions::Live,

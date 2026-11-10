@@ -16,11 +16,13 @@ use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::RequestOptions;
 use mixdog_core_api::domain::provider::Role;
+use mixdog_core_api::domain::provider::Temperature;
 use mixdog_protocol::ProviderId;
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
 
+use super::redirect::ignores_sampling;
 use super::tool_accept;
 use super::traits::ModelTraits;
 use crate::providers::compat::schema::report_exclusion;
@@ -47,6 +49,8 @@ pub struct Dialect {
     pub replay_same_model: bool,
     /// `functionCallingConfig.mode` when the request names no tool choice.
     pub default_tool_mode: Option<&'static str>,
+    /// The direct Gemini API drops `temperature` for the models that ignore it (`omitIgnoredSampling`).
+    pub omit_ignored_sampling: bool,
 }
 
 pub(super) fn invalid(message: impl Into<String>) -> ProviderError {
@@ -460,11 +464,13 @@ pub fn build_request(
     let mut body = Map::new();
     body.insert("contents".into(), Value::Array(contents));
     if !system.is_empty() {
-        let mut instruction = json!({ "parts": [{ "text": system }] });
+        // `role` first, as Node writes it: the body's bytes are compared.
+        let mut instruction = Map::new();
         if let Some(role) = dialect.system_role {
-            instruction["role"] = json!(role);
+            instruction.insert("role".into(), json!(role));
         }
-        body.insert("systemInstruction".into(), instruction);
+        instruction.insert("parts".into(), json!([{ "text": system }]));
+        body.insert("systemInstruction".into(), Value::Object(instruction));
     }
     // A Gemini endpoint rejects the whole request for one bad declaration, so a Gemini-family
     // model's tools are checked (a tool it would reject is left out and reported); a Claude model
@@ -493,12 +499,12 @@ pub fn build_request(
     if gemini_fields && let Some(max) = max_output_tokens(&request.options) {
         generation.insert("maxOutputTokens".into(), json!(max));
     }
-    if let Some(t) = param(&request.options, "temperature") {
-        match t.as_f64() {
-            Some(t) if (0.0..=2.0).contains(&t) => {
-                generation.insert("temperature".into(), json!(t));
-            }
-            _ => return Err(invalid("temperature must be a number between 0 and 2.")),
+    if let Some(temperature) = request.options.temperature.map(Temperature::get) {
+        if !(0.0..=2.0).contains(&temperature) {
+            return Err(invalid("temperature must be a number between 0 and 2."));
+        }
+        if !(dialect.omit_ignored_sampling && ignores_sampling(&request.model)) {
+            generation.insert("temperature".into(), json!(temperature));
         }
     }
     if !generation.is_empty() {
@@ -531,6 +537,7 @@ mod tests {
             family_gated: false,
             replay_same_model: true,
             default_tool_mode: None,
+            omit_ignored_sampling: false,
         }
     }
 

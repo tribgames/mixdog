@@ -10357,6 +10357,13 @@
         "message": {
           "type": "string"
         },
+        "notices": {
+          "description": "The display-only notices the failed call raised before it failed (`ProviderError::notices`).",
+          "items": {
+            "$ref": "#/definitions/ProxyNotice"
+          },
+          "type": "array"
+        },
         "outcome": {
           "$ref": "#/definitions/ProxyOutcome"
         },
@@ -10465,6 +10472,7 @@
         "delivery",
         "kind",
         "message",
+        "notices",
         "outcome",
         "reauthRequired",
         "textEmitted",
@@ -11096,6 +11104,22 @@
         "manual",
         "picker",
         "reasoningLevels"
+      ],
+      "type": "object"
+    },
+    "ProxyNotice": {
+      "description": "One display-only transcript notice (`StreamEvent::Notice`).",
+      "properties": {
+        "message": {
+          "type": "string"
+        },
+        "warn": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "message",
+        "warn"
       ],
       "type": "object"
     },
