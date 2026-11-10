@@ -2605,7 +2605,7 @@
           "type": "string"
         },
         {
-          "description": "Review summary of a thread; key = thread id (thread feed).",
+          "description": "The tell that open reviews may read differently (Node's global `turn-review-changed`): one app-wide revision per tell, no value; each window rereads the review of every session it shows.",
           "enum": [
             "reviewDiff"
           ],
@@ -6071,25 +6071,6 @@
       "type": "object"
     },
     {
-      "description": "Section `reviewDiff`, key = thread id.",
-      "properties": {
-        "method": {
-          "enum": [
-            "review/diff/updated"
-          ],
-          "type": "string"
-        },
-        "params": {
-          "$ref": "#/definitions/SectionUpdate"
-        }
-      },
-      "required": [
-        "method",
-        "params"
-      ],
-      "type": "object"
-    },
-    {
       "properties": {
         "method": {
           "enum": [
@@ -6835,6 +6816,25 @@
         "method": {
           "enum": [
             "migration/progress"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SectionUpdate"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Section `reviewDiff`: the app-wide tell that open reviews may read differently (Node's `turn-review-changed`).",
+      "properties": {
+        "method": {
+          "enum": [
+            "review/diff/updated"
           ],
           "type": "string"
         },

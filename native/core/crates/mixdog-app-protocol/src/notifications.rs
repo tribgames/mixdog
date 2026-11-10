@@ -167,8 +167,6 @@ crate::notification_definitions! {
     ThreadSetupUiRequestUpdated => "thread/setupUiRequest/updated" (ThreadSectionParams<Option<SetupUiRequest>>) @thread,
     /// Section `roomView`: a group room log's view while the room runs (`decorateRoomSnapshot`).
     ThreadRoomViewUpdated => "thread/roomView/updated" (ThreadSectionParams<Option<ThreadRoomView>>) @thread,
-    /// Section `reviewDiff`, key = thread id.
-    ReviewDiffUpdated => "review/diff/updated" (SectionUpdate) @thread,
     // ---- connection-scoped
     Error => "error" (ErrorNotificationParams) @connection,
     ServerRequestResolved => "serverRequest/resolved" (ServerRequestResolvedParams) @connection,
@@ -216,6 +214,8 @@ crate::notification_definitions! {
     CoreStateUpdated => "core/state/updated" (SectionUpdate) @app,
     CoreHealthUpdated => "core/health/updated" (SectionUpdate) @app,
     MigrationProgress => "migration/progress" (SectionUpdate) @app,
+    /// Section `reviewDiff`: the app-wide tell that open reviews may read differently (Node's `turn-review-changed`).
+    ReviewDiffUpdated => "review/diff/updated" (SectionUpdate) @app,
     // ---- scoped feeds (DS §2.1)
     /// Snapshot of any scoped feed (its read model).
     FeedSnapshot => "feed/snapshot" (FeedSnapshotParams) @scoped(Any),
