@@ -31,6 +31,10 @@ pub(crate) struct PromptState {
     /// A test's stop stands here, between its reads and its decision, until the test lets it go.
     #[cfg(test)]
     pub(crate) pause: Mutex<Option<(std::sync::Arc<tokio::sync::Notify>, std::sync::Arc<tokio::sync::Notify>)>>,
+    /// Whether the facts could be taken (so an output commit could land) between a stop's decision and its record: `Some(false)` when the
+    /// stop holds them across both, as Node's `abort` has no await between (`abort.mjs:131-205`).
+    #[cfg(test)]
+    pub(crate) between: Mutex<Option<bool>>,
 }
 
 /// What [`decide`] reads of the prompt.
@@ -67,6 +71,8 @@ impl PromptState {
             facts: Mutex::new(facts),
             #[cfg(test)]
             pause: Mutex::new(None),
+            #[cfg(test)]
+            between: Mutex::new(None),
         }
     }
 
@@ -108,6 +114,8 @@ impl PromptState {
     pub fn decide_and_record(&self, restore_prompt: Option<bool>, canceller: &str, steering: bool, unreadable: bool) -> Decision {
         let mut facts = self.facts();
         let decision = decide(&facts, restore_prompt, canceller, steering, unreadable);
+        #[cfg(test)]
+        self.between.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).replace(self.facts.try_lock().is_ok());
         facts.restorable = false;
         facts.reclaim = decision.reclaim.clone();
         decision

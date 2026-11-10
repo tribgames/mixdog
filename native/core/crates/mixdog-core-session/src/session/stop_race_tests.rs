@@ -89,6 +89,7 @@ async fn an_output_that_commits_while_the_stop_is_reading_hands_nothing_back() {
     go.notify_one();
     let reply = awaiting(|| "the Stop's reply".to_owned(), stopped).await.expect("stop task");
     node_says(&reply, &node_case("output already produced: nothing to hand back"));
+    assert_eq!(*prompt.between.lock().unwrap(), Some(false), "no output commit could land between the Stop's decision and its record");
     eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     assert!(rows(&handle).contains(&("user", "draft".to_owned())), "the prompt stays: {:?}", rows(&handle));
 }
@@ -108,6 +109,7 @@ async fn an_output_that_commits_after_the_stop_decided_does_not_take_the_hand_ba
     go.notify_one();
     let reply = awaiting(|| "the Stop's reply".to_owned(), stopped).await.expect("stop task");
     node_says(&reply, &node_case("own device named, prompt handed back"));
+    assert_eq!(*prompt.between.lock().unwrap(), Some(false), "no output commit could land between the Stop's decision and its record");
     emit.notify_one();
     eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     assert!(rows(&handle).is_empty(), "the prompt left: {:?}", rows(&handle));
