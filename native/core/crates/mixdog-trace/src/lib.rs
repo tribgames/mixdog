@@ -115,6 +115,16 @@ impl AgentTrace {
         due
     }
 
+    /// `traceAgentToolFailure(args)` (the failed call's row of `tool-failures.jsonl`; `args` are the
+    /// call-site fields of `tool_failure_row`). Nothing is built when the log is off. True when the
+    /// failures spool is due for `flush`.
+    pub fn tool_failure(&self, args: &Map<String, Value>, now_ms: i64) -> bool {
+        if self.disabled || self.failures.is_none() {
+            return false;
+        }
+        tool_failure_row(args, now_ms).is_some_and(|row| self.append_tool_failure(&row, now_ms))
+    }
+
     /// `recordAgentWatchdogAbort`: the `stall_abort` trace row and the `stall_abort` row of
     /// `tool-failures.jsonl` (see `watchdog_abort_records` for the fields of `args`). True when a
     /// spool is due for `flush`.

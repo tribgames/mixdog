@@ -136,7 +136,7 @@ pub async fn run_attempt(
             return Ok(Box::new(DecodedStream::new(head.body, codec.decoder(request))));
         }
         let status = head.status;
-        let (rejected, body) = head.read_all_held(true).await?;
+        let (rejected, body) = head.read_all_held().await?;
         if again {
             let mut error = codec.classify(&rejected);
             if refreshed {

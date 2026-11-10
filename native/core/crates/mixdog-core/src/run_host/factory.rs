@@ -36,7 +36,8 @@ use serde_json::{json, Value};
 use tokio::sync::{mpsc, watch};
 
 use super::live_turn::LiveTurnPublisher;
-use super::watchdog::Watchdog;
+use super::watchdog::{StallSite, Watchdog, registration_id, stall_abort_ctx};
+use mixdog_agent::agent_tool::progress::Snapshot;
 use mixdog_agent::agent_tool::watchdog::{is_watchdog_abort, resolve_policy, AgentKind, Overrides};
 use super::message_row::{message_of, row_of};
 use mixdog_core_run::run_host::progress::ProgressPublisher;
@@ -141,6 +142,8 @@ pub struct Assembled {
     pub step_judge: Option<Arc<dyn mixdog_agent::step_effort::StepEffortJudge>>,
     pub artifacts: Option<Arc<dyn mixdog_agent::offload::ArtifactStore>>,
     pub images: Option<Arc<dyn mixdog_agent::offload::ImageCompactor>>,
+    /// Where the turn's failed tool calls are recorded (`history/tool-failures.jsonl`).
+    pub failures: Option<Arc<dyn mixdog_agent::env::ToolFailureLog>>,
     /// The attachment blob reader, for the display facts of a user row (a pasted text's body).
     pub blobs: Arc<dyn mixdog_agent::compact::blob_reads::BlobReads>,
     /// The guard state that outlives one ask (the session record).
@@ -950,7 +953,7 @@ async fn drive(
         Err(error) => return RunOutcome::Failed(error),
     };
     let Assembled {
-        provider, tools, tool_env, gate, worktree, mut config, clock, decider, guards, compactor, route, skills, hooks, reuse, reactions, reaction_scope: _reaction_scope, rows, tail, side, step_judge, artifacts, images, blobs, carry,
+        provider, tools, tool_env, gate, worktree, mut config, clock, decider, guards, compactor, route, skills, hooks, reuse, reactions, reaction_scope: _reaction_scope, rows, tail, side, step_judge, artifacts, images, failures, blobs, carry,
     } = assembled;
     // `backfillFallbackSessionTitle` (`precommitUserTurn`, `ask-turn-execute.mjs`): a titleless session is named
     // from the earliest human turn of its history, else this turn's prompt (an injected turn never names it),
@@ -1083,7 +1086,16 @@ async fn drive(
         let kind = AgentKind { name: agent, hidden: config.hidden_agent, stall_cap_idle_seconds: parts.stall_cap_idle_seconds(agent) };
         let policy = resolve_policy(kind, overrides, &|name: &str| std::env::var(name).ok());
         let (reaper, reaped_thread) = (parts.clone(), thread.clone());
-        Watchdog::arm(true, policy, signal.clone(), clock.clone(), move |now| watched.borrow().snapshot(now), move || reaper.reap_turn_shells(&reaped_thread, asked_at))
+        // The worker-turn registry's stop (`abortOnTimeout`, `agent-watchdog-registry.mjs:30-33`): the reap is armed, then the stop is
+        // recorded with what the sweep judged, then the abort.
+        let (stall_log, stall_agent, site) = (failures.clone(), agent.map(str::to_owned), StallSite::Registry { registration_id: registration_id() });
+        let anchor_ts = clock.now_ms();
+        Watchdog::arm(true, policy, signal.clone(), clock.clone(), move |now| watched.borrow().snapshot(now), move |snapshot: &Snapshot, message: &str, now: i64| {
+            reaper.reap_turn_shells(&reaped_thread, asked_at);
+            if let Some(log) = stall_log {
+                log.stall_abort(stall_abort_ctx(reaped_thread.as_str(), stall_agent.as_deref(), &site, &policy, anchor_ts, snapshot, message, now));
+            }
+        })
     } else {
         None
     };
@@ -1150,6 +1162,7 @@ async fn drive(
         step_judge,
         artifacts,
         images,
+        failures,
     };
     // Node's `_api_call_with_interrupt` spans `agentLoop`: an abort inside reads "during call".
     progress.model_loop(true);
@@ -1433,6 +1446,7 @@ mod tests {
                 step_judge: None,
                 artifacts: None,
                 images: None,
+                failures: None,
                 blobs: Arc::new(NoBlobs),
                 carry: RunCarry::default(),
             })
@@ -1511,6 +1525,73 @@ mod tests {
         let second: Vec<_> = requests[1].messages.iter().map(|m| m.role).collect();
         assert_eq!(second, [Role::User, Role::Assistant, Role::Tool]);
         let _ = AtomicI64::new(0);
+    }
+
+    /// A provider's notice (the Gemini redirect) goes the whole way a client reads it: the stream event, the loop's
+    /// stage notice, the run host's shown event, the session's live row and the frame the thread's feed publishes (the
+    /// feed desktop and phone both follow). The message and tone are the Node recording's, and the row is the one the
+    /// real TUI/desktop notice surface made of it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_providers_notice_reaches_the_threads_clients_as_the_row_node_showed() {
+        let recorded: Value = serde_json::from_str(include_str!("../../../../fixtures/wire-anthropic-gemini/gemini.json")).expect("the Gemini recording");
+        let send = &recorded["scenarios"].as_array().unwrap().iter().find(|s| s["id"] == "pro25.boundary-at").expect("the redirect scenario")["sends"][0];
+        let (notice, row) = (&send["notices"][0], &send["noticeRows"][0]);
+        let provider = Arc::new(Scripted {
+            id: ProviderId::from("scripted"),
+            policy: RetryPolicy::codex_default(),
+            keepalive: KeepaliveSchedule::SPEC,
+            codec: MockCodec,
+            script: Mutex::new(VecDeque::from([vec![
+                StreamEvent::Notice { message: notice["message"].as_str().unwrap().to_owned(), warn: notice["tone"] == "warn" },
+                StreamEvent::TextDelta("hello".into()),
+                StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None },
+            ]])),
+            requests: Mutex::new(Vec::new()),
+            fail_first: std::sync::atomic::AtomicBool::new(false),
+        });
+        let workspace = tempfile::tempdir().unwrap();
+        let rig = Rig::new();
+        let mut deps = rig.deps_parts(rig.store.clone());
+        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None })));
+        let directory = SessionDirectory::new(Arc::new(deps));
+        let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+        let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
+        let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
+        let handle = directory.handle(&id).expect("loaded");
+        handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
+        // Woken by each step of the thread's actor; the frame is searched for before waiting.
+        let shown = tokio::time::timeout(std::time::Duration::from_secs(30), async { loop {
+            let stepped = handle.stepped().notified();
+            tokio::pin!(stepped);
+            stepped.as_mut().enable();
+            let found = rig.feeds.frames(id.as_str()).into_iter().find_map(|(_, _, params)| {
+                let text = row["text"].as_str().unwrap();
+                // The row's text and tone sit in the item's `meta`; its `kind` is on the item that holds them.
+                let mut stack = vec![(params, Value::Null)];
+                while let Some((value, kind)) = stack.pop() {
+                    match value {
+                        Value::Object(mut map) if map.get("text").and_then(Value::as_str) == Some(text) => {
+                            map.entry("kind").or_insert(kind);
+                            return Some(Value::Object(map));
+                        }
+                        Value::Object(map) => {
+                            let kind = map.get("kind").cloned().unwrap_or(kind);
+                            stack.extend(map.into_iter().map(|(_, v)| (v, kind.clone())));
+                        }
+                        Value::Array(all) => stack.extend(all.into_iter().map(|v| (v, kind.clone()))),
+                        _ => {}
+                    }
+                }
+                None
+            });
+            if let Some(found) = found {
+                break found;
+            }
+            stepped.await;
+        } })
+        .await
+        .expect("the thread's feed never published the provider's notice within 30 s");
+        assert_eq!((shown["kind"].clone(), shown["text"].clone(), shown["tone"].clone()), (row["kind"].clone(), row["text"].clone(), row["tone"].clone()), "{shown}");
     }
 
     /// A turn is assembled from the header the settings reconcile returns, not the one it started

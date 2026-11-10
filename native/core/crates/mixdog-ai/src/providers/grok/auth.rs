@@ -312,6 +312,11 @@ fn saved_document(tokens: &StoredTokens) -> serde_json::Map<String, Value> {
 /// `_discoveryCache` (`grok-oauth-tokens.mjs:112`): the token endpoint a successful discovery named, for the process.
 static DISCOVERED: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) fn reset_discovered() {
+    *DISCOVERED.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+}
+
 /// The token endpoint the discovery document names, and the read answer whose connection is held until it is dropped.
 async fn discover_token_endpoint(http: &dyn HttpSend) -> Result<(String, Box<dyn crate::transport::BodyStream>), ProviderError> {
     let head = http
@@ -328,7 +333,7 @@ async fn discover_token_endpoint(http: &dyn HttpSend) -> Result<(String, Box<dyn
         )
         .await?;
     let success = head.is_success();
-    let (response, held) = head.read_all_held(true).await?;
+    let (response, held) = head.read_all_held().await?;
     let json: Value = serde_json::from_slice(&response.body).unwrap_or(Value::Null);
     match json.get("token_endpoint").and_then(Value::as_str) {
         Some(endpoint) if success => {
@@ -531,7 +536,7 @@ impl GrokCredential {
     /// `preconnect(PROXY_BASE_URL)` (`grok-oauth.mjs:328-335`, `:425-428`): before a turn, the proxy origin is warmed,
     /// once per keep-alive window for the process.
     fn preconnect(&self) {
-        crate::transport::preconnect::preconnect(self.http.clone(), super::PROXY_ORIGIN, now_ms(), ProcessEnv.var("MIXDOG_LLM_KEEPALIVE_MS"));
+        crate::transport::preconnect::preconnect(&self.http, super::PROXY_ORIGIN, now_ms(), ProcessEnv.var("MIXDOG_LLM_KEEPALIVE_MS"));
     }
 
     /// The identity header value for the signed-in user, once a turn loaded it.

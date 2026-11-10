@@ -402,6 +402,8 @@ pub fn event_out(e: &p::StreamEvent) -> w::ProxyEvent {
         E::ReturnedCalls(calls) => w::ProxyEvent::ReturnedCalls { calls: calls.iter().map(tool_call_out).collect() },
         E::ThinkingBlocks(value) => w::ProxyEvent::ThinkingBlocks { value: value.clone() },
         E::ProviderState(state) => w::ProxyEvent::ProviderState { state: state.to_json() },
+        E::Notice { message, warn } => w::ProxyEvent::Notice { message: message.clone(), warn: *warn },
+        E::ServedModel(model) => w::ProxyEvent::ServedModel { model: model.clone() },
         E::Completed { stop, pricing_model, request_ms } => w::ProxyEvent::Completed {
             pricing_model: pricing_model.clone(),
             request_ms: *request_ms,
@@ -458,6 +460,8 @@ pub fn event_in(e: w::ProxyEvent) -> Result<Incoming, String> {
         w::ProxyEvent::ReturnedCalls { calls } => E::ReturnedCalls(calls.into_iter().map(tool_call_in).collect()),
         w::ProxyEvent::ThinkingBlocks { value } => E::ThinkingBlocks(value),
         w::ProxyEvent::ProviderState { state } => E::ProviderState(serde_json::from_value(state).map_err(|e| format!("invalid providerState: {e}"))?),
+        w::ProxyEvent::Notice { message, warn } => E::Notice { message, warn },
+        w::ProxyEvent::ServedModel { model } => E::ServedModel(model),
         w::ProxyEvent::Completed { stop, pricing_model, request_ms } => E::Completed {
             pricing_model,
             request_ms,
@@ -547,6 +551,7 @@ pub fn failure_out(e: &p::ProviderError, outcome: w::ProxyOutcome) -> w::ProxyFa
         account_blocked: e.account_blocked,
         unsafe_to_retry: e.unsafe_to_retry,
         quota_limit: e.quota_limit.as_deref().map(str::to_owned),
+        notices: e.notices.iter().map(|(message, warn)| w::ProxyNotice { message: message.clone(), warn: *warn }).collect(),
     }
 }
 
@@ -599,6 +604,7 @@ pub fn failure_in(f: w::ProxyFailure) -> Result<(p::ProviderError, w::ProxyOutco
     e.account_blocked = f.account_blocked;
     e.unsafe_to_retry = f.unsafe_to_retry;
     e.quota_limit = f.quota_limit.map(String::into_boxed_str);
+    e.notices = f.notices.into_iter().map(|n| (n.message, n.warn)).collect();
     Ok((e, f.outcome))
 }
 

@@ -18,7 +18,7 @@
 //! abortable. An attended run's permit is never reclaimed (SPEC §4.9).
 
 mod lane;
-mod settings;
+pub(crate) mod settings;
 #[cfg(test)]
 mod settings_tests;
 

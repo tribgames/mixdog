@@ -14,7 +14,7 @@ pub mod scrub;
 mod pkce;
 pub mod session;
 mod refresh;
-mod single_flight;
+pub(crate) mod single_flight;
 mod store;
 
 pub use device::Poll;

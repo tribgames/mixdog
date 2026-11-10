@@ -87,6 +87,13 @@ const ZSTD_LEVEL: i32 = 3;
 /// `_openaiReqZstdLatch`: set once a request the backend refused (400/415) as compressed was accepted plain, after which
 /// no body of this process is compressed (Node's latch is module-wide, so it outlives the provider that set it).
 static ZSTD_LATCHED: AtomicBool = AtomicBool::new(false);
+
+/// The latch as a new process has it (`createCompressionLatch(...).reset`, `request-compression.mjs:23-25`).
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) fn reset_zstd_latch() {
+    ZSTD_LATCHED.store(false, Ordering::Relaxed);
+}
+
 /// `CODEX_BACKEND_ORIGIN` (`openai-codex-endpoints.mjs:10`), the one origin the Codex route warms.
 const CODEX_BACKEND_ORIGIN: &str = "https://chatgpt.com";
 
@@ -370,12 +377,14 @@ impl OpenAiAdapter {
         self
     }
 
-    /// `preconnect(CODEX_BACKEND_ORIGIN)` (`shared/llm/http-agent.mjs:496-527`), on the session's clock and settings.
+    /// `preconnect(CODEX_BACKEND_ORIGIN)` (`shared/llm/http-agent.mjs:496-527`): a fire-and-forget HEAD that lands a
+    /// kept-alive socket, gated by a TTL of `MIXDOG_LLM_KEEPALIVE_MS` (60 s) less 10 s, at least 5 s. Any failure only
+    /// clears the stamp so the next call warms again; nothing is surfaced.
     fn preconnect(&self) {
         if self.codec.route() != Route::Codex {
             return;
         }
-        crate::transport::preconnect::preconnect(self.http.clone(), CODEX_BACKEND_ORIGIN, self.context.now_unix_ms(), self.context.var("MIXDOG_LLM_KEEPALIVE_MS"));
+        crate::transport::preconnect::preconnect(&self.http, CODEX_BACKEND_ORIGIN, self.context.now_unix_ms(), self.context.var("MIXDOG_LLM_KEEPALIVE_MS"));
     }
 
     fn authorize(&self, mut wire: WireRequest, credential: &Credential) -> WireRequest {

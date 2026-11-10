@@ -34,17 +34,21 @@ use serde_json::Value;
 
 use super::auth::Authorization;
 use super::auth::RequestAuth;
+use crate::providers::key_source::ApiKeySource;
 use super::cache::layer::Ask;
 use super::cache::layer::ExplicitCache;
+use super::cache::layer::HeldConnection;
 use super::cache::policy::CacheRequest;
 use super::codec::Attach;
 use super::codec::GoogleCodec;
 use super::codec::Target;
 use super::models;
+use super::redirect;
 use crate::catalog::ListingLookup;
 use crate::transport::BodyStream;
 use crate::transport::HttpResponse;
 use crate::transport::HttpSend;
+use crate::transport::preconnect::Preconnect;
 
 pub struct GoogleAdapter {
     id: ProviderId,
@@ -56,11 +60,15 @@ pub struct GoogleAdapter {
     /// The account the codec's target was built for.
     identity: String,
     cache: Option<ExplicitCache>,
+    /// The Gemini API's key as Node re-reads it after a typed 401 (`GeminiProvider.reloadApiKey`).
+    reload: Option<Arc<dyn ApiKeySource>>,
     /// Antigravity's records that carry a `wire`: the one source of the route
     /// table, from the last listing or the catalog's restored snapshot.
     roster: Mutex<Vec<ModelRecord>>,
     /// The metadata enrichment and picker sanitizer Gemini's listing ends with.
     lookup: ListingLookup,
+    /// The Gemini API's socket warm-up (`preconnect(GEMINI_API_ORIGIN)`).
+    preconnect: Option<Preconnect>,
 }
 
 impl GoogleAdapter {
@@ -82,9 +90,19 @@ impl GoogleAdapter {
             auth,
             identity,
             cache: None,
+            reload: None,
             roster: Mutex::default(),
             lookup: ListingLookup::new(),
+            preconnect: None,
         }
+    }
+
+    /// Warms the Gemini API now, as `GeminiProvider`'s constructor does (`gemini.mjs:291`), and again before each send
+    /// (`send`, `gemini.mjs:651`).
+    pub fn with_preconnect(mut self, preconnect: Preconnect) -> Self {
+        preconnect.warm(super::codec::GEMINI_ORIGIN);
+        self.preconnect = Some(preconnect);
+        self
     }
 
     /// Shares the catalog's listing tables (`CatalogService::listing_lookup`).
@@ -131,6 +149,26 @@ impl GoogleAdapter {
         Arc::new(routed)
     }
 
+    /// `_servedModel`: the direct Gemini API serves some ids as another model from a date on; the served id is the
+    /// request's model for the whole request (wire id, settings, cache, cost: the ledger books the send under it
+    /// and the response reports it, by `StreamEvent::ServedModel`), announced once per process.
+    fn served(&self, request: Arc<ModelRequest>) -> (Arc<ModelRequest>, Option<Redirect>) {
+        let (Target::Gemini { .. }, Some(cache)) = (self.codec.target(), self.cache.as_ref()) else {
+            return (request, None);
+        };
+        let Some(target) = redirect::served_as(&request.model, cache.now_ms()) else {
+            return (request, None);
+        };
+        // `geminiBareModelId`: the id as given, without a `models/` prefix (any case).
+        let requested = match request.model.get(..7) {
+            Some(head) if head.eq_ignore_ascii_case("models/") => request.model[7..].to_owned(),
+            _ => request.model.clone(),
+        };
+        let mut served = (*request).clone();
+        served.model = target.to_owned();
+        (Arc::new(served), Some(Redirect { requested, target }))
+    }
+
     /// A request built for one account must not run under another's.
     fn check_identity(&self, authorization: &Authorization) -> Result<(), ProviderError> {
         if authorization.identity == self.identity {
@@ -154,10 +192,17 @@ impl GoogleAdapter {
         self
     }
 
-    /// The cache to attach to `request`, if any, and the session state it
-    /// changed. Hosted tools disable it, as in Node (`opts.nativeTools`).
-    async fn cached_prefix(&self, request: &ModelRequest, inner: &Value) -> Option<Cached> {
-        let cache = self.cache.as_ref()?;
+    /// A typed 401 re-reads the key through `source` and sends the whole request once more
+    /// (`GeminiProvider.send`): the Gemini API's recovery, and no other family's.
+    pub fn with_key_reload(mut self, source: Arc<dyn ApiKeySource>) -> Self {
+        self.reload = Some(source);
+        self
+    }
+
+    /// The cache to attach to `request` under `cache` (the cache serving the request's key), if any, and the
+    /// session state it changed. Hosted tools disable it, as in Node (`opts.nativeTools`).
+    async fn cached_prefix(&self, cache: Option<&ExplicitCache>, request: &ModelRequest, inner: &Value) -> Option<Cached> {
+        let cache = cache?;
         if !request.options.hosted_tools.is_empty() {
             return None;
         }
@@ -185,7 +230,7 @@ impl GoogleAdapter {
             .or(request.options.provider_state.as_ref())
             .and_then(|s| s.gemini.clone())
             .filter(|s| s.cache_name == name)?;
-        Some(Cached { name, state, changed: answer.state })
+        Some(Cached { name, state, changed: answer.state, held: answer.held })
     }
 
     /// One authorized send, with the single credential-recovery resend of a 401.
@@ -259,11 +304,47 @@ impl ModelListing for GoogleAdapter {
     }
 }
 
+/// `announcedRedirects` (`gemini.mjs:90`): the requested ids already announced in this process.
+static ANNOUNCED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// No redirect announced yet, as in a new process.
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) fn reset_announced() {
+    ANNOUNCED.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clear();
+}
+
+/// A model id the Gemini API serves as another one (`announcedRedirects` in `gemini.mjs`).
+struct Redirect {
+    requested: String,
+    target: &'static str,
+}
+
+impl Redirect {
+    /// The notice, once per requested id per process: Node announces on the first send that meets the id, to that
+    /// send's `onStageChange` (tone `warn`) and to stderr. The claim is made here, before the request is built, as
+    /// in Node: the notice rides the stream when the request has one and the error when it fails.
+    fn announce(&self) -> Option<StreamEvent> {
+        let mut announced = ANNOUNCED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if announced.contains(&self.requested) {
+            return None;
+        }
+        announced.push(self.requested.clone());
+        let message = format!(
+            "{} is now served by Google as {} (redirect effective 2026-12-01; billed at {} rates)",
+            self.requested, self.target, self.target
+        );
+        mixdog_rt::node_stderr!("[gemini] {message}");
+        Some(StreamEvent::Notice { message, warn: true })
+    }
+}
+
 struct Cached {
     name: String,
     state: GeminiCacheState,
     /// `Some` when attaching changed the session's provider state.
     changed: Option<ProviderState>,
+    /// The connection of the create this request made, held until the request is sent.
+    held: HeldConnection,
 }
 
 #[async_trait]
@@ -289,51 +370,159 @@ impl ProviderAdapter for GoogleAdapter {
     }
 
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
-        let request = self.routed(request);
+        if let Some(preconnect) = &self.preconnect {
+            preconnect.warm(super::codec::GEMINI_ORIGIN);
+        }
+        let (request, redirect) = self.served(self.routed(request));
+        // `_servedModel` announces, and claims the once-per-process notice, before the request is built or sent:
+        // a send that fails still showed it, and a later one does not show it again.
+        let notice = redirect.as_ref().and_then(Redirect::announce);
+        match self.attempt_served(request).await {
+            Ok(mut stream) => {
+                // The result's `model` is the served one, which the ledger books and the turn reports.
+                if let Some(redirect) = &redirect {
+                    stream.queue.push_front(Ok(StreamEvent::ServedModel(redirect.target.to_owned())));
+                }
+                if let Some(notice) = notice {
+                    stream.queue.push_front(Ok(notice));
+                }
+                Ok(Box::new(stream))
+            }
+            Err(mut error) => {
+                if let Some(StreamEvent::Notice { message, warn }) = notice {
+                    error.notices.push((message, warn));
+                }
+                Err(error)
+            }
+        }
+    }
+}
+
+/// `isGeminiCachedContentError` (gemini.mjs:222-231) over the error `geminiRestError` makes of `body`: its message
+/// (`<label> <status>: ` and the first 300 characters of the body) and its `data`, lower-cased, name the cached
+/// content or the attached cache. `data` is the parsed payload whenever `payload?.error || payload` is truthy
+/// (gemini.mjs:199), which is whenever the payload itself is: an object or array whatever its `error`, a non-empty
+/// string, a number other than 0, `true`.
+fn names_cached_content(body: &[u8], cache_name: &str) -> bool {
+    let text = String::from_utf8_lossy(body);
+    let head = String::from_utf16_lossy(&text.encode_utf16().take(300).collect::<Vec<u16>>());
+    let truthy = |payload: &Value| match payload {
+        Value::Null => false,
+        Value::Bool(b) => *b,
+        Value::Number(n) => n.as_f64().is_some_and(|n| n != 0.0),
+        Value::String(s) => !s.is_empty(),
+        Value::Array(_) | Value::Object(_) => true,
+    };
+    let payload = serde_json::from_slice::<Value>(body).ok().filter(truthy);
+    let data = payload.map_or_else(|| "\"\"".to_owned(), |p| p.to_string());
+    let text = format!("{head} {data}").to_lowercase();
+    text.contains("cachedcontent") || text.contains("cached content") || (!cache_name.is_empty() && text.contains(&cache_name.to_lowercase()))
+}
+
+/// One request's exchange: the answer, the session-state changes it made, and whether it ran on the global location.
+struct Exchanged {
+    response: HttpResponse,
+    queue: VecDeque<Result<StreamEvent, ProviderError>>,
+    global: bool,
+}
+
+impl GoogleAdapter {
+    /// The key the request is sent with, for the families that read one per send (`_getApiKey()`).
+    async fn current_key(&self) -> Result<Option<String>, ProviderError> {
+        match &self.reload {
+            Some(source) => Ok(Some(source.key().await?)),
+            None => Ok(None),
+        }
+    }
+
+    /// `_doSend` up to the first answer: the cache to attach (made under `key`), the generate call, the replay
+    /// without a cache the server refused, and the global location for a region that lacks the model.
+    async fn exchange(&self, request: &Arc<ModelRequest>, key: Option<&str>) -> Result<Exchanged, ProviderError> {
         // State changes reach the session only as stream events: Node persists
         // `providerState` from a delivered result alone (`ask-turn-settle.mjs:147`),
         // never from a failed send, so no error carries one.
-        let inner = self.codec.build_inner(&request)?;
+        let inner = self.codec.build_inner(request)?;
         let mut queue = VecDeque::new();
-        let mut cached = self.cached_prefix(&request, &inner).await;
+        let cache = self.cache.as_ref().map(|cache| cache.keyed(key.unwrap_or_default()));
+        let mut cached = self.cached_prefix(cache.as_ref(), request, &inner).await;
         if let Some(state) = cached.as_ref().and_then(|c| c.changed.clone()) {
             queue.push_back(Ok(StreamEvent::ProviderState(state)));
         }
+        let created = cached.as_mut().map(|c| std::mem::take(&mut c.held));
         let mut response = {
             let attach = cached.as_ref().map(|c| Attach { name: &c.name, state: &c.state });
-            self.dispatch(&self.codec.wire(&request, &inner, attach)?).await?
+            self.dispatch(&self.codec.wire(request, &inner, attach)?).await?
         };
+        drop(created);
         // A cache the server refuses (gone, evicted, mismatched) is forgotten
-        // here and in the session, and the request runs once without it. The
-        // only cache-specific thing a 400/404 can be about is the attachment.
-        if let Some(rejected) = cached.take().filter(|_| matches!(response.status, 400 | 404)) {
-            if let Some(cache) = &self.cache {
-                cache.forget(&rejected.name);
+        // here and in the session, and the request runs once without it: a 400/404
+        // whose error names the cached content (`isGeminiCachedContentError`,
+        // gemini.mjs:222-231). Any other refusal is the request's error.
+        if let Some(attached) = cached.take().filter(|_| matches!(response.status, 400 | 404)) {
+            // Read and replayed on the same turn of Node's event loop: the replay finds the refusal's socket busy.
+            let (refused, held) = response.read_all_held().await?;
+            if !names_cached_content(&refused.body, &attached.name) {
+                return Err(self.codec.classify_for(&refused, request, false));
+            }
+            if let Some(cache) = &cache {
+                cache.forget(&attached.name);
             }
             // Node drops only the `gemini` key; the other provider keys stay.
             let rest = request.options.provider_state.as_ref().map(|s| s.rest.clone()).unwrap_or_default();
             queue.push_back(Ok(StreamEvent::ProviderState(ProviderState { gemini: None, rest })));
-            response = self.dispatch(&self.codec.wire(&request, &inner, None)?).await?;
+            response = self.dispatch(&self.codec.wire(request, &inner, None)?).await?;
+            drop(held);
         }
         // A region from the environment that lacks the model (404) is retried
         // once on global (`vertex-ai.mjs:325-327`).
         let mut global = false;
-        if response.status == 404 && self.codec.falls_back_to_global(&request) {
+        if response.status == 404 && self.codec.falls_back_to_global(request) {
             global = true;
-            response = self.dispatch(&self.codec.wire_at(&request, &inner, None, true)?).await?;
+            response = self.dispatch(&self.codec.wire_at(request, &inner, None, true)?).await?;
         }
-        // A typed 401 is the only credential event Node acts on
-        // (`gemini.mjs:667`): every cache made under the rejected key goes.
-        if response.status == 401
-            && let Some(cache) = &self.cache
+        Ok(Exchanged { response, queue, global })
+    }
+
+    async fn attempt_served(&self, request: Arc<ModelRequest>) -> Result<GoogleStream, ProviderError> {
+        let key = self.current_key().await?;
+        let mut request = request;
+        let mut sent = self.exchange(&request, key.as_deref()).await?;
+        // `GeminiProvider.send`: a typed 401 re-reads the provider's key, drops every cache made under the old one and
+        // the session's saved cache, and sends the whole request once more when the re-read finds a key. A second
+        // refusal surfaces as it is. The failed first exchange left nothing in the session (`sent.queue` is dropped).
+        if sent.response.status == 401
+            && let (Some(source), Some(old)) = (&self.reload, key.as_deref())
         {
-            cache.forget_credential();
+            mixdog_rt::node_stderr!("[provider] Auth error, re-reading provider authentication...");
+            if let Some(cache) = &self.cache {
+                cache.keyed(old).forget_credential();
+            }
+            if let Ok(new) = source.reload().await {
+                let held = request
+                    .options
+                    .provider_state
+                    .as_ref()
+                    .filter(|s| s.gemini.as_ref().is_some_and(|g| !g.cache_name.is_empty()));
+                let mut again = (*request).clone();
+                let mut dropped = None;
+                if let Some(state) = held {
+                    let state = ProviderState { gemini: None, rest: state.rest.clone() };
+                    again.options.provider_state = Some(state.clone());
+                    dropped = Some(Ok(StreamEvent::ProviderState(state)));
+                }
+                request = Arc::new(again);
+                sent = self.exchange(&request, Some(&new)).await?;
+                if let Some(dropped) = dropped {
+                    sent.queue.push_front(dropped);
+                }
+            }
         }
+        let Exchanged { response, queue, global } = sent;
         if !response.is_success() {
             let rejected = response.read_all().await?;
             return Err(self.codec.classify_for(&rejected, &request, global));
         }
-        Ok(Box::new(GoogleStream {
+        Ok(GoogleStream {
             body: response.body,
             decoder: self.codec.decoder(&request),
             queue,
@@ -347,7 +536,7 @@ impl ProviderAdapter for GoogleAdapter {
                 .find(|m| m.role != Role::System)
                 .is_some_and(|m| m.role == Role::Tool),
             produced_output: false,
-        }))
+        })
     }
 }
 
