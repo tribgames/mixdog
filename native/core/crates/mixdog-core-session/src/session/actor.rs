@@ -2357,21 +2357,31 @@ impl SessionActor {
                     }
                 }
             }
-            Ctl::Decide(decision) => {
+            Ctl::Decide(decision, arbitrated) => {
                 let device = self.deps.devices.describe(decision.connection);
                 let at = self.deps.clock.now_ms();
-                match self
-                    .book
-                    .validate(&decision.request, &decision.result, device, at)
-                {
-                    Ok(Some(accepted)) => {
-                        self.resolve(accepted.aid, &accepted.rid, accepted.resolution)
+                let shown = self.cell.shown_approval.load_full();
+                // A refused remote Allow is not taken: the approval stays pending and the answer is told it lost (a response, as a
+                // late one, gets nothing).
+                let refused =
+                    super::approval_notification::refuses_remote_allow(decision.origin, shown.as_deref(), &decision.request, &decision.result);
+                let outcome = match (!refused).then(|| self.book.validate(&decision.request, &decision.result, device, at)) {
+                    Some(Ok(Some(accepted))) => {
+                        self.resolve(accepted.aid, &accepted.rid, accepted.resolution);
+                        Ok(true)
                     }
-                    Ok(None) => {}
-                    Err(error) => self
+                    None | Some(Ok(None)) => Ok(false),
+                    Some(Err(error)) => Err(error),
+                };
+                match (arbitrated, outcome) {
+                    (Some(arbitrated), outcome) => {
+                        let _ = arbitrated.send(outcome);
+                    }
+                    (None, Err(error)) => self
                         .deps
                         .server_requests
                         .response_rejected(decision.connection, error),
+                    (None, Ok(_)) => {}
                 }
             }
             Ctl::RunEnded { turn, outcome } => self.run_ended(turn, outcome),

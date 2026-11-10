@@ -39,6 +39,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[3]
 CRATES = ROOT / 'native/core/crates'
 FIXTURES = ROOT / 'native/core/fixtures'
+PHONE_FIXTURES = ROOT / 'apps/mobile/fixtures'
 SCHEMA = CRATES / 'mixdog-app-protocol/schema'
 DESKTOP = 'apps/desktop/src'
 
@@ -63,8 +64,8 @@ EVENT_MAP = {
     'orchestration-mode-changed': (['config/updated'], 'section config (orchestration-mode-changed)'),
     'updater-state-changed': (['update/status/updated'], 'section update'),
     'browserApprovalSessions': (['host/state/updated'], 'section hostState (publishBrowserApprovalSessions)'),
-    'browserRemoteFrame': (['host/browser/viewFrames'], 'X17 binary frames, purpose browserView (SPEC In-app browser view)'),
-    'browserRemoteWebrtc': (['host/state/updated'], 'WebRTC signalling stays in Electron/core carrier (mixdog-remote webrtc); no phone-visible notification of this name'),
+    'browserRemoteFrame': (['browser/frame'], 'the live view streams push a subscribed phone its JPEG-view frames (live_view_streams.rs), acknowledged by browser/streamAck'),
+    'browserRemoteWebrtc': (['browser/webrtcSignal'], 'the live view relay pushes the phone its WebRTC signals (live_view.rs RelayAdapter::send)'),
     'browserRemoteTabs': (['host/state/updated'], 'section hostState key browserTabs'),
     'browserProfileImportProgress': (['host/state/updated'], 'section hostState key browserImport'),
     'browserOpenRequested': (['ui/openRequested'], 'ui/openRequested'),
@@ -99,6 +100,15 @@ MECHANICS = {
                           evidence=('native/core/crates/mixdog-core-domains/src/notify/screen.rs', r'foreground')),
     'stateResync': dict(rust=['thread/resume'], kind='methods',
                         evidence=('native/core/crates/mixdog-app-server/src/server.rs', r'ThreadUnsubscribe')),
+    # The live view's transport-scoped phone calls (remote-relay-client-calls.ts:241-335, :403-409), served by LiveViewService.
+    'browserRemoteStream': dict(rust=['browser/stream'], kind='methods',
+                                evidence=('native/core/crates/mixdog-app-server-daemon/src/live_view.rs', r'"browser/stream" =>')),
+    'browserRemoteStreamAck': dict(rust=['browser/streamAck'], kind='clientNotification',
+                                   evidence=('native/core/crates/mixdog-app-server-daemon/src/live_view.rs', r'"browser/streamAck" =>')),
+    'browserRemoteScreenDisplays': dict(rust=['browser/screenDisplays'], kind='methods',
+                                        evidence=('native/core/crates/mixdog-app-server-daemon/src/live_view.rs', r'"browser/screenDisplays" =>')),
+    'browserRemoteWebrtcSignal': dict(rust=['browser/webrtcSignal'], kind='methods',
+                                      evidence=('native/core/crates/mixdog-app-server-daemon/src/live_view.rs', r'"browser/webrtcSignal" =>')),
 }
 
 # Names whose o1 phone source replaces the Node call (file in the working tree, token that must be in it).
@@ -572,18 +582,21 @@ class Recordings:
         self.exact: dict[str, object] = {}
         rx = re.compile(rf'"{self.NAME_KEYS}"\s*:\s*"([A-Za-z0-9_/.-]+)"')
         manifests: dict[Path, dict] = {}
-        for p in sorted(FIXTURES.rglob('*.json')):
-            if p.name == 'MANIFEST.json' or p.stat().st_size > MAX_FIXTURE_BYTES:
-                continue
-            rel = p.relative_to(FIXTURES).as_posix()
-            for name in set(rx.findall(p.read_text('utf8', 'replace'))):
-                self.by_name[name].append(rel)
-            self.exact[rel] = self._exact(p, manifests)
+        # The phone's own recordings (apps/mobile/fixtures) are named from the repository root.
+        for root, label in ((FIXTURES, None), (PHONE_FIXTURES, 'apps/mobile/fixtures')):
+            for p in sorted(root.rglob('*.json')):
+                if p.name == 'MANIFEST.json' or p.stat().st_size > MAX_FIXTURE_BYTES:
+                    continue
+                rel = p.relative_to(root).as_posix()
+                rel = f'{label}/{rel}' if label else rel
+                for name in set(rx.findall(p.read_text('utf8', 'replace'))):
+                    self.by_name[name].append(rel)
+                self.exact[rel] = self._exact(p, manifests, root)
         self.refs: dict[str, list[tuple[str, int]]] = {}
 
-    def _exact(self, path: Path, manifests):
+    def _exact(self, path: Path, manifests, root: Path):
         d = path.parent
-        while d != FIXTURES.parent:
+        while d != root.parent:
             m = d / 'MANIFEST.json'
             if m.exists():
                 if m not in manifests:
@@ -868,24 +881,7 @@ def module_wired(rust: RustTree, crate: str, module: str) -> str | None:
     return None
 
 
-def symbol_wired(rust: RustTree, symbol: str, defined_in: str) -> str | None:
-    """First non-test reference to `symbol` outside the file that defines it."""
-    rx = re.compile(rf'\b{symbol}\b')
-    for rel, lines in rust.files.items():
-        if rel.endswith(defined_in) or is_test_path(rel):
-            continue
-        for n, text in enumerate(lines, 1):
-            if n >= rust.test_from.get(rel, 10**9):
-                break
-            if rx.search(text) and not text.strip().startswith('//'):
-                return f'{short(rel)}:{n}'
-    return None
-
-
 TRANSFER_RX = r'^(fileDownload|resolveLocalPaths|readLocalFile|attachmentOpen|readAttachmentThumbnail|previewProjectFileRange|previewDocumentPages|visualizePane|visualizeExport|captureFileSnapshot)'
-
-# Live-view names: the Rust live view exists only if something outside tests builds it.
-LIVE_VIEW = {'browserRemoteStream', 'browserRemoteStreamAck', 'browserRemoteScreenDisplays', 'browserRemoteWebrtcSignal'}
 
 
 def build_rows(args):
@@ -900,7 +896,6 @@ def build_rows(args):
     ifaces = interface_fields(base)
     phone = extract_calls(base)
     now_calls = extract_calls(now)['calls']
-    live_view_site = symbol_wired(rust, 'LiveViewConnection', 'webrtc/liveview.rs')
 
     rows = []
     for name in sorted(phone['calls']):
@@ -908,13 +903,11 @@ def build_rows(args):
         mech = MECHANICS.get(name)
         item = tables['inventory'].get(name)
         info = rust_side(tables, rust, None if mech else item, mech)
-        if name in LIVE_VIEW:
-            info = dict(kind='none', targets=[], problems=[], sites=[], composed=[], shape=[])
-            if not live_view_site:
-                info['problems'].append('the Rust live view (mixdog-remote webrtc/liveview.rs LiveViewConnection) is built only by interop tests; nothing in the daemon starts it for a phone')
         crates = {RustTree.crate(s.split(':')[0] if s.startswith('native') else 'native/core/crates/' + s.split(':')[0]) for s in info['sites']}
         api_key = call['api_key'] if call['api_key'] in sigs else (name if name in sigs else '')
         level, evidence = rec.proof([name], info['targets'], crates)
+        if level != 'recording+test':
+            level, evidence = phone_replay_proof(name) or (level, evidence)
         sig = sigs.get(api_key, '')
         phone_o1 = 'replaced: ' + PHONE_O1[name][0] if name in PHONE_O1 else ('unchanged' if name in now_calls else 'removed')
         row = dict(
@@ -928,7 +921,7 @@ def build_rows(args):
         row['class'] = classify(row, info, level)
         row['feature'] = feature_of(name, api_key) if row['class'] in ('exists-unproven', 'missing') or row['server'] != 'served' else ''
         rows.append(row)
-    return dict(rows=rows, rust=rust, rec=rec, tables=tables, base=base, node=node, phone=phone, now=now, live_view_site=live_view_site)
+    return dict(rows=rows, rust=rust, rec=rec, tables=tables, base=base, node=node, phone=phone, now=now)
 
 
 def server_state(row) -> str:
@@ -941,7 +934,28 @@ def server_state(row) -> str:
 
 FOLDED_NOTIFICATIONS = {'app/snapshot', 'thread/started', 'thread/summary/updated', 'thread/deleted', 'thread/archived', 'thread/unarchived'}
 # Nodes recordings that cover an inbound stream, checked for a Rust consumer.
-EVENT_PROOF = {'sessionState': 'session-state/stream.json'}
+EVENT_PROOF = {'sessionState': 'session-state/stream.json', 'turn-review-changed': 'turn-review-signal/scenarios.json'}
+# Phone recordings replayed at the page's API through its protocol adapters against `mixdogd` (a JavaScript replay, not a Rust test):
+# name -> (recording, replay that drives it, token the replay must hold for the name, test that compares it). Checked on every run.
+PHONE_PUSHES = ('apps/mobile/fixtures/phone-pushes/golden.json', 'benchmarks/rust-core/recorders/lib/phone-pushes-replay.mjs',
+                'apps/desktop/src/renderer/remote-protocol-pushes.slow.test.mjs')
+PHONE_REPLAY_PROOF = {
+    'readActivityRailPins': (*PHONE_PUSHES[:2], 'api.readActivityRailPins(', PHONE_PUSHES[2]),
+    'updateActivityRailPins': (*PHONE_PUSHES[:2], 'api.updateActivityRailPins(', PHONE_PUSHES[2]),
+    'registerNativePush': (*PHONE_PUSHES[:2], 'createNativePushHost(page.ctx).register(', PHONE_PUSHES[2]),
+    'activity-rail-pins-changed': (*PHONE_PUSHES[:2], 'api.subscribeActivityRailPins(', PHONE_PUSHES[2]),
+    'desktop-notice': (*PHONE_PUSHES[:2], 'api.subscribeDesktopNotices(', PHONE_PUSHES[2]),
+}
+
+
+def phone_replay_proof(name: str):
+    """(level, evidence) when a phone replay compares `name` with its recording, else None; a stale entry fails the run."""
+    if name not in PHONE_REPLAY_PROOF:
+        return None
+    recording, replay, token, test = PHONE_REPLAY_PROOF[name]
+    if token not in (ROOT / replay).read_text('utf8') or recording.split('/', 2)[2] not in (ROOT / test).read_text('utf8'):
+        raise SystemExit(f'PHONE_REPLAY_PROOF[{name!r}] is stale')
+    return 'recording+test', [f'{recording} <- {test} (via {replay.rsplit("/", 1)[1]})']
 PROTOCOL_CLIENT_TOKEN = ('packages/protocol-client/src/method-table.ts', 'SectionUpdate')
 
 
@@ -1005,6 +1019,7 @@ def event_rows(data) -> list[dict]:
             refs = rec.rust_refs(EVENT_PROOF[name])
             if refs:
                 proof, ev = 'recording+test', [f'{EVENT_PROOF[name]} <- {short(refs[0][0])}:{refs[0][1]}']
+        proof, ev = phone_replay_proof(name) or (proof, ev)
         replaced = 'replaced: ' + PROTOCOL_CLIENT_TOKEN[0] if folded else 'unchanged'
         if folded and PROTOCOL_CLIENT_TOKEN[1] not in (ROOT / PROTOCOL_CLIENT_TOKEN[0]).read_text('utf8'):
             raise SystemExit('protocol-client no longer folds section updates')
@@ -1155,8 +1170,9 @@ def which_side(data) -> list[str]:
                 adapter_users.append(path)
     out.append('- Non-test importers of `apps/mobile/src/phone-client.ts`: ' + (', '.join(f'`{u}`' for u in users) or '**none**: the protocol-client connector is not wired into the pairing screen or the relay web app.'))
     out.append('- Non-test callers of `sectionsSourceFromFoldStore` (renderer/section-store.ts, the phone-store adapter): ' + (', '.join(f'`{u}`' for u in adapter_users) or '**none**.'))
-    shim = (ROOT / f'{DESKTOP}/renderer/remote-shim-calls.ts').read_text('utf8')
-    out.append('- The relay web app the phone loads still builds Node call frames (`remote-shim-calls.ts` sends `{id, method, params: [...]}` with Node method names); `mixdog-remote` bridges frames byte for byte (`bridge/mod.rs` header), so those frames reach the core as unknown JSON-RPC methods. ' + ('(frame shape confirmed in remote-shim-calls.ts)' if 'params' in shim else ''))
+    # Since PH-1 the relay web app sends no Node call frames: each Node call is answered by a group adapter (remote-shim-protocol.ts).
+    groups = sorted(p.name for p in (ROOT / f'{DESKTOP}/renderer').glob('remote-protocol-*.ts') if 'export const adapter' in p.read_text('utf8'))
+    out.append('- The relay web app the phone loads answers Node calls through protocol group adapters (`remote-shim-protocol.ts`): ' + (', '.join(f'`{g}`' for g in groups) or '**none**'))
     return out
 
 

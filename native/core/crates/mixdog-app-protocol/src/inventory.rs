@@ -730,7 +730,8 @@ pub static INVENTORY: &[(InventoryList, &str, Target)] = &[
     (
         InventoryList::Operations,
         "browserRemoteFrame",
-        Target::MediaFrame("browserView"),
+        // The frame's facts; its picture follows as the X17 frame of purpose `browserView`.
+        Target::ClientNotification("host/browser/frame"),
     ),
     (
         InventoryList::Operations,
@@ -1152,7 +1153,7 @@ pub static INVENTORY: &[(InventoryList, &str, Target)] = &[
     (
         InventoryList::Services,
         "resolveToolApprovalForSession",
-        Target::ServerRequestResponse("item/tool/requestApproval"),
+        Target::Method("thread/approval/answer"),
     ),
     (
         InventoryList::Services,
@@ -1446,12 +1447,12 @@ pub static INVENTORY: &[(InventoryList, &str, Target)] = &[
     (
         InventoryList::Remote,
         "resolveToolApprovalForSession",
-        Target::ServerRequestResponse("item/tool/requestApproval"),
+        Target::Method("thread/approval/answer"),
     ),
     (
         InventoryList::Remote,
         "answerApprovalNotification",
-        Target::ServerRequestResponse("item/tool/requestApproval"),
+        Target::Method("thread/approval/answerNotification"),
     ),
     (
         InventoryList::Remote,

@@ -51,8 +51,9 @@ const SCRIPT = {
   'abortSession-idle': () => ({ 'turn/interrupt': coreReply('abortSession-idle') }),
   // actor.rs:3980 `{ "kind": "started" }`
   'submitToSession-accepted': () => ({ 'turn/start': { kind: 'started', turnId: 't1' } }),
-  // A bare Allow reads the approval the thread shows (the card of the pending request, or none once it settled).
-  'resolveToolApproval-approved': () => ({ pending: [PENDING_AP1], state: { toolApproval: { id: 'ap1' } } }),
+  // approval_notification.rs `answer_approval`: `{accepted}` once the thread took the decision; a bare Allow reads the approval the
+  // thread shows (the card of the pending request, or none once it settled).
+  'resolveToolApproval-approved': () => ({ pending: [PENDING_AP1], state: { toolApproval: { id: 'ap1' } }, 'thread/approval/answer': { accepted: true } }),
   'resolveToolApproval-settled': () => ({ pending: [], state: { toolApproval: null } }),
   setFast: () => ({ 'fast/set': true, 'thread/read': threadRead({ route: { provider: 'p', model: 'm', fast: true } }) }),
   setModelRoute: () => ({ 'route/set': { provider: 'p2', model: 'm2' }, 'thread/read': threadRead({ route: { provider: 'p2', model: 'm2', fast: false } }) }),
@@ -273,7 +274,10 @@ for (const c of recorded.cases) {
     assert.deepEqual(pick(c.name, reply), pick(c.name, c.node.result));
     if (c.name === 'prefetchSession-limit') assert.deepEqual(sent.find((s) => s.resume), { resume: S, window: { lastItems: 40 } });
     if (c.call === 'resolveToolApprovalForSession' && c.node.result === true) {
-      assert.deepEqual(sent.find((s) => s.respond), { respond: 'ap1', answer: { result: { approved: true } } });
+      assert.deepEqual(sent.find((s) => s.method === 'thread/approval/answer'), {
+        method: 'thread/approval/answer',
+        params: { threadId: S, approvalId: 'ap1', result: { approved: true } },
+      });
     }
   });
 }

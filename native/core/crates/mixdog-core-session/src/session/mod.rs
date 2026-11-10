@@ -116,6 +116,7 @@ mod reads;
 mod routine_turn;
 pub mod room_member;
 pub mod room_approval;
+pub mod approval_notification;
 pub mod prompt_history;
 pub mod session_title;
 pub mod quota_lane;

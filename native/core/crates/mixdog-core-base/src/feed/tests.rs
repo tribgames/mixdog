@@ -357,7 +357,8 @@ fn resume_matrix() {
     let default = MockLimits::default();
 
     let replay = resume_case(default, false, 20, items.clone(), items.clone());
-    assert_eq!((replay.mode, replay.start_seq), (AttachMode::Replay, 21));
+    // The replayed frames (21..=60) were published while the client was away; live frames start after the head.
+    assert_eq!((replay.mode, replay.start_seq, replay.live_seq), (AttachMode::Replay, 21, 61));
 
     let other_epoch = resume_case(default, true, 20, items.clone(), items.clone());
     assert_eq!(
