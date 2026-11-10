@@ -178,24 +178,34 @@ impl Head {
     }
 }
 
+/// The longest payload `ws` reads a 64-bit length as (`receiver.js` `getPayloadLength64`: 2^53 - 1, the largest
+/// integer a JavaScript number holds exactly); a longer one is refused with 1009 before the length is used.
+const MAX_DECLARED: u64 = (1 << 53) - 1;
+
 /// The length a frame's header declares, and how many bytes of the header it takes beyond the first two, once those
-/// bytes are in.
-fn declared(bytes: &[u8]) -> Option<(usize, u64)> {
+/// bytes are in. A 64-bit length past [`MAX_DECLARED`] is refused here, before anything adds to it.
+fn declared(bytes: &[u8]) -> Result<Option<(usize, u64)>, Fault> {
     if bytes.len() < 2 {
-        return None;
+        return Ok(None);
     }
-    match bytes[1] & 0x7f {
+    Ok(match bytes[1] & 0x7f {
         126 if bytes.len() >= 4 => Some((2, u64::from(u16::from_be_bytes([bytes[2], bytes[3]])))),
-        127 if bytes.len() >= 10 => Some((8, u64::from_be_bytes(bytes[2..10].try_into().expect("eight bytes")))),
+        127 if bytes.len() >= 10 => {
+            let length = u64::from_be_bytes(bytes[2..10].try_into().expect("eight bytes"));
+            if length > MAX_DECLARED {
+                return Err(fault(1009, "Unsupported WebSocket frame: payload length > 2^53 - 1"));
+            }
+            Some((8, length))
+        }
         126 | 127 => None,
         small => Some((0, u64::from(small))),
-    }
+    })
 }
 
 /// The head of the frame at the start of `bytes`, once all of it has arrived. A payload past `limit` is 1009: `ws`'s
 /// maxPayload bounds what is received (`receiver.js` `haveLength`), never what is sent.
 fn parse(bytes: &[u8], limit: usize) -> Result<Option<Head>, Fault> {
-    let Some((extra, payload)) = declared(bytes) else { return Ok(None) };
+    let Some((extra, payload)) = declared(bytes)? else { return Ok(None) };
     let masked = bytes[1] & 0x80 != 0;
     if payload > limit as u64 {
         return Err(fault(1009, "Max payload size exceeded"));
@@ -297,6 +307,27 @@ pub struct Codec {
     decoder: Decompress,
     encoder: Compress,
     message: Option<Message>,
+    /// A close frame has come from the server, and one has gone to it: `ws` then ends its side of the TCP stream
+    /// (`websocket.js` `close`: `_closeFrameSent && _closeFrameReceived` → `socket.end()`).
+    close_received: bool,
+    close_sent: bool,
+}
+
+/// `receiver.js` `controlMessage`: a close payload is empty, or a status code `ws` allows (`validation.js`
+/// `isValidStatusCode`) followed by UTF-8; otherwise 1002 or 1007, and the connection is closed as for any violation.
+fn check_close(payload: &[u8]) -> Result<(), Fault> {
+    if payload.len() < 2 {
+        return Ok(()); // empty; a single byte was refused at the header (`admit`)
+    }
+    let code = u16::from_be_bytes([payload[0], payload[1]]);
+    let allowed = ((1000..=1014).contains(&code) && !matches!(code, 1004..=1006)) || (3000..=4999).contains(&code);
+    if !allowed {
+        return Err(fault(1002, format!("invalid status code {code}")));
+    }
+    if std::str::from_utf8(&payload[2..]).is_err() {
+        return Err(fault(1007, "invalid UTF-8 sequence"));
+    }
+    Ok(())
 }
 
 impl Codec {
@@ -316,6 +347,8 @@ impl Codec {
             decoder: Decompress::new_with_window_bits(false, window(extension.server_max_window_bits)),
             encoder: Compress::new_with_window_bits(Compression::default(), false, window(extension.client_max_window_bits)),
             message: None,
+            close_received: false,
+            close_sent: false,
         }
     }
 
@@ -370,10 +403,10 @@ impl Codec {
                 self.admit(raw[0], raw[1])?;
             }
             // `haveLength`: the message so far plus this frame's declared payload, judged before the payload arrives.
-            if let Some((_, payload)) = declared(raw) {
+            if let Some((_, payload)) = declared(raw)? {
                 let data = matches!(raw[0] & 0x0f, 0..=2);
                 let so_far = self.message.as_ref().map_or(0, |m| m.received) as u64;
-                if data && payload > 0 && so_far + payload > MAX_PAYLOAD as u64 {
+                if data && payload > 0 && so_far.checked_add(payload).is_none_or(|total| total > MAX_PAYLOAD as u64) {
                     return Err(fault(1009, "Max payload size exceeded"));
                 }
             }
@@ -381,6 +414,10 @@ impl Codec {
             let payload = &raw[head.header..head.total()];
             let op = head.opcode();
             if op >= 8 {
+                if op == 8 {
+                    check_close(payload)?;
+                    self.close_received = true;
+                }
                 out.extend_from_slice(&raw[..head.total()]);
             } else {
                 if op != 0 {
@@ -420,12 +457,12 @@ impl Codec {
 
     /// Translates every complete client frame of `raw` into `out`.
     pub fn outbound(&mut self, raw: &mut Vec<u8>, out: &mut Vec<u8>) -> Result<(), Fault> {
-        if !self.negotiated {
-            // Outbound frames are not bounded by ws's inbound maxPayload.
-            out.append(raw);
-            return Ok(());
-        }
+        // Outbound frames are not bounded by ws's inbound maxPayload. Without the extension they pass unchanged; they
+        // are still read, for the close frame.
         while let Some(head) = parse(raw, usize::MAX)? {
+            if head.opcode() == 8 {
+                self.close_sent = true;
+            }
             let single = self.negotiated && head.fin() && (head.opcode() == 1 || head.opcode() == 2) && head.first & 0x70 == 0 && head.masked;
             let small = self.extension.client_no_context_takeover && head.payload < THRESHOLD;
             if single && !small {
@@ -474,6 +511,10 @@ pub struct WsIo<S> {
     /// The violation that ended the connection: every later read fails with it, and a later write is refused, so a
     /// connection whose deflate state is no longer the server's is never used again.
     failed: Option<Fault>,
+    /// The close frame of a violation is queued and not yet written and flushed.
+    closing: bool,
+    /// This side of the stream has been shut down after the close handshake.
+    ended: bool,
     /// Armed while the close frame of a violation waits to be written.
     close_flush: Option<Pin<Box<tokio::time::Sleep>>>,
 }
@@ -490,6 +531,8 @@ impl<S> WsIo<S> {
             out_raw: Vec::new(),
             out_ready: Vec::new(),
             failed: None,
+            closing: false,
+            ended: false,
             close_flush: None,
         }
     }
@@ -513,14 +556,20 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncRead for WsIo<S> {
                 // The close frame leaves before the read fails: the caller stops the writer once it sees the error, and
                 // a close still queued would be lost with it. A socket that stays unwritable is given up after
                 // [CLOSE_FLUSH].
-                if !this.out_ready.is_empty() {
-                    if this.drain(cx).is_pending() {
+                // Written means flushed too: a stream that buffers its writes (TLS) holds them until it is flushed.
+                if this.closing {
+                    let sent = match this.drain(cx) {
+                        Poll::Ready(Ok(())) => Pin::new(&mut this.inner).poll_flush(cx),
+                        other => other,
+                    };
+                    if sent.is_pending() {
                         let wait = this.close_flush.get_or_insert_with(|| Box::pin(tokio::time::sleep(CLOSE_FLUSH)));
                         if wait.as_mut().poll(cx).is_pending() {
                             return Poll::Pending;
                         }
-                        this.out_ready.clear();
                     }
+                    this.closing = false;
+                    this.out_ready.clear();
                 }
                 return Poll::Ready(Err(failure(&violation)));
             }
@@ -539,6 +588,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncRead for WsIo<S> {
                 // The frames before the violation are still delivered; the close frame goes out on the way.
                 this.in_raw.clear();
                 this.out_ready.extend_from_slice(&close_frame(violation.code)?);
+                this.closing = true;
                 this.failed = Some(violation);
             }
         }
@@ -576,7 +626,14 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for WsIo<S> {
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         std::task::ready!(self.drain(cx))?;
-        Pin::new(&mut self.inner).poll_flush(cx)
+        std::task::ready!(Pin::new(&mut self.inner).poll_flush(cx))?;
+        // The close handshake is complete on this side once both close frames have passed and ours is out: `ws` ends
+        // its side of the stream then (its FIN), and leaves the rest of the connection to the server or its timer.
+        if self.codec.close_sent && self.codec.close_received && !self.ended {
+            std::task::ready!(Pin::new(&mut self.inner).poll_shutdown(cx))?;
+            self.ended = true;
+        }
+        Poll::Ready(Ok(()))
     }
 
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
@@ -805,12 +862,35 @@ mod tests {
             assert!(ws.read(&mut byte).await.is_err());
             assert!(ws.read(&mut byte).await.is_err(), "and every later read");
             let mut close = [0u8; 8];
-            far.read_exact(&mut close).await.unwrap();
+            tokio::time::timeout(WITHIN, far.read_exact(&mut close)).await.expect("the close frame within 20 s").unwrap();
             assert_eq!(close[0], 0x88);
             assert_eq!(close[1], 0x82, "masked, two bytes");
             let code = u16::from_be_bytes([close[6] ^ close[2], close[7] ^ close[3]]);
             assert_eq!(code, 1002);
         });
+    }
+
+    const WITHIN: std::time::Duration = std::time::Duration::from_secs(20);
+
+    // W3: the close frame is flushed, not only written, before the read fails: a stream that holds what it is given
+    // until it is flushed (TLS does; a `BufWriter` stands for it) has passed it on to the peer by the time the error
+    // surfaces.
+    #[tokio::test]
+    async fn the_close_frame_of_a_violation_is_flushed_before_the_read_fails() {
+        use tokio::io::AsyncReadExt;
+        use tokio::io::AsyncWriteExt;
+        let (near, mut far) = tokio::io::duplex(1 << 16);
+        let mut ws = WsIo::new(tokio::io::BufWriter::new(near), Vec::new(), Some(Extension::default()));
+        let mut rsv2 = Vec::new();
+        frame(0xa1, None, b"x", &mut rsv2);
+        far.write_all(&rsv2).await.unwrap();
+        let mut byte = [0u8; 1];
+        assert!(tokio::time::timeout(WITHIN, ws.read(&mut byte)).await.expect("the read fails within 20 s").is_err());
+        let mut close = [0u8; 8];
+        let arrived = tokio::time::timeout(WITHIN, far.read_exact(&mut close)).await;
+        assert!(arrived.is_ok(), "the close frame reached the peer before the read failed");
+        assert_eq!(close[0], 0x88);
+        assert_eq!(u16::from_be_bytes([close[6] ^ close[2], close[7] ^ close[3]]), 1002);
     }
 
     // W4: the buffer the inflater grows is bounded while it inflates. A bomb that expands to 64 times the limit leaves
@@ -882,11 +962,14 @@ mod tests {
         let mut read = Box::pin(ws.read(&mut byte));
         tokio::time::advance(CLOSE_FLUSH - std::time::Duration::from_secs(1)).await;
         assert!(futures::poll!(read.as_mut()).is_pending(), "the read does not fail while the close is still queued");
+        let start = tokio::time::Instant::now();
         let mut close = [0u8; 8];
-        far.read_exact(&mut close[..4]).await.unwrap();
-        let outcome = tokio::time::timeout(std::time::Duration::from_secs(5), read).await.expect("the close left, so the read fails");
+        tokio::time::timeout(WITHIN, far.read_exact(&mut close[..4])).await.expect("the first half of the close within 20 s").unwrap();
+        // The pipe has room again: the rest of the close is written, the read fails, and none of it waits for a clock.
+        let outcome = tokio::time::timeout(WITHIN, read).await.expect("the read fails within 20 s once the close is out");
         assert!(outcome.is_err());
-        far.read_exact(&mut close[4..]).await.unwrap();
+        assert_eq!(start.elapsed(), std::time::Duration::ZERO, "it failed when the close left, not at the deadline");
+        tokio::time::timeout(WITHIN, far.read_exact(&mut close[4..])).await.expect("the rest of the close within 20 s").unwrap();
         assert_eq!(close[0], 0x88);
         let code = u16::from_be_bytes([close[6] ^ close[2], close[7] ^ close[3]]);
         assert_eq!(code, 1002);
@@ -904,8 +987,12 @@ mod tests {
         let mut byte = [0u8; 1];
         let mut read = Box::pin(ws.read(&mut byte));
         assert!(futures::poll!(read.as_mut()).is_pending());
-        tokio::time::advance(CLOSE_FLUSH + std::time::Duration::from_secs(1)).await;
-        assert!(read.await.is_err(), "the wait ended at the deadline");
+        // `ws` destroys the socket `closeTimeout` (30 000 ms, `constants.js` CLOSE_TIMEOUT) after `close()`: the read
+        // is still waiting a millisecond before the deadline and fails at it.
+        tokio::time::advance(CLOSE_FLUSH - std::time::Duration::from_millis(1)).await;
+        assert!(futures::poll!(read.as_mut()).is_pending(), "still waiting just before the deadline");
+        tokio::time::advance(std::time::Duration::from_millis(1)).await;
+        assert!(matches!(futures::poll!(read.as_mut()), Poll::Ready(Err(_))), "failed at the deadline");
     }
 
     // W6: a send and a receive in flight on one connection. The 64 byte pipe stops the send of a 200 KB message until
@@ -972,7 +1059,7 @@ mod tests {
                 raw.drain(..head.total());
             }
         }
-        sender.await.unwrap();
+        tokio::time::timeout(WITHIN, sender).await.expect("the sender ends within 20 s").unwrap();
         assert_eq!(read_back, client_messages);
     }
 }

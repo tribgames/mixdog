@@ -496,7 +496,7 @@ async fn read_loop(
                         let fault = TransportFault::WsClose { code: frame.map(|frame| u16::from(frame.code)) };
                         // The consumer hears of the close at once. The writer lives on until tungstenite has written its
                         // echo of the close frame, which it does on the next read (ws echoes the code,
-                        // eceiverOnConclude); that read ends when the server closes the connection, or at
+                        // `receiverOnConclude`); that read ends when the server closes the connection, or at
                         // ws's closeTimeout.
                         link.mark_dead(fault.clone());
                         let _ = inbound.send(Err(fault)).await;
@@ -567,8 +567,8 @@ mod tests {
             far.write_all(answer(&key).as_bytes()).await.unwrap();
         });
         let request = "ws://example.test/".into_client_request().unwrap();
-        let outcome = upgrade(&mut near, &request).await.map(|(_, _, extension)| extension);
-        server.await.unwrap();
+        let outcome = tokio::time::timeout(WITHIN, upgrade(&mut near, &request)).await.expect("the upgrade's outcome within 20 s").map(|(_, _, extension)| extension);
+        tokio::time::timeout(WITHIN, server).await.expect("the server's answer within 20 s").unwrap();
         outcome
     }
 
@@ -616,44 +616,107 @@ mod tests {
         assert!(outcome.is_err());
     }
 
-    // W6, the close handshake: a server's close frame is answered with a close frame carrying the same code, as `ws`
-    // does (`websocket.js` `receiverOnConclude`: `websocket.close(code, reason)`), before the connection ends.
+    const WITHIN: std::time::Duration = std::time::Duration::from_secs(20);
+
+    fn hex(bytes: &[u8]) -> String {
+        bytes.iter().map(|b| format!("{b:02x}")).collect()
+    }
+
+    /// The whole client frames at the start of `raw`, unmasked, in the shape of `ws-close-capture.mjs`; they are taken
+    /// off `raw`.
+    fn client_frames(raw: &mut Vec<u8>) -> Vec<serde_json::Value> {
+        let mut out = Vec::new();
+        loop {
+            if raw.len() < 2 {
+                return out;
+            }
+            let masked = raw[1] & 0x80 != 0;
+            let (length, head) = match raw[1] & 0x7f {
+                126 if raw.len() >= 4 => (usize::from(u16::from_be_bytes([raw[2], raw[3]])), 4),
+                127 if raw.len() >= 10 => (usize::try_from(u64::from_be_bytes(raw[2..10].try_into().unwrap())).unwrap(), 10),
+                126 | 127 => return out,
+                small => (usize::from(small), 2),
+            };
+            let total = head + if masked { 4 } else { 0 } + length;
+            if raw.len() < total {
+                return out;
+            }
+            let mut payload = raw[total - length..total].to_vec();
+            if masked {
+                let key = [raw[head], raw[head + 1], raw[head + 2], raw[head + 3]];
+                payload.iter_mut().enumerate().for_each(|(i, b)| *b ^= key[i % 4]);
+            }
+            let first = raw[0];
+            out.push(serde_json::json!({ "kind": "frame", "fin": first & 0x80 != 0, "rsv": (first >> 4) & 7, "opcode": first & 15, "masked": masked, "hex": hex(&payload) }));
+            raw.drain(..total);
+        }
+    }
+
+    // W6, the close handshake, replayed against `ws`'s own (`ws-close-capture.mjs`, `fixtures/ws-close.json`): for each
+    // close frame a server sends, the frames the client writes and its end of the TCP stream, in order. `ws` echoes the
+    // code and the reason (`websocket.js` `receiverOnConclude`: `close(code, reason)`; none for an empty close), closes
+    // with 1002 or 1007 alone on a close it refuses (`receiver.js` `controlMessage`), and ends its side as soon as its
+    // close frame is out (`close`: `_closeFrameSent && _closeFrameReceived` → `socket.end()`). The server here ends its
+    // side only after the client's, so the client's end is never an answer to the server's.
     #[tokio::test]
-    async fn a_close_frame_from_the_server_is_echoed_with_its_code() {
+    async fn the_close_handshake_is_what_ws_writes_for_every_recorded_close() {
         mixdog_rt::testing::tokens();
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        let server = tokio::spawn(async move {
-            let (mut stream, _) = listener.accept().await.unwrap();
-            let mut seen = Vec::new();
-            let mut chunk = [0u8; 2048];
-            while !seen.windows(4).any(|w| w == b"\r\n\r\n") {
-                let n = stream.read(&mut chunk).await.unwrap();
-                seen.extend_from_slice(&chunk[..n]);
-            }
-            let text = String::from_utf8(seen).unwrap();
-            let key = text.lines().find_map(|l| l.strip_prefix("Sec-WebSocket-Key: ")).unwrap().to_owned();
-            stream.write_all(answer(&key, "").as_bytes()).await.unwrap();
-            stream.write_all(&[0x88, 0x05, 0x03, 0xe8, b'b', b'y', b'e']).await.unwrap();
-            // What the client writes next, until it ends the connection.
-            let mut received = Vec::new();
-            while let Ok(n) = stream.read(&mut chunk).await {
-                if n == 0 {
-                    break;
+        const RECORDING: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../benchmarks/terminal-bench-2.1/analysis/parity/fixtures/ws-close.json"));
+        const CAPTURE: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../benchmarks/terminal-bench-2.1/analysis/parity/ws-close-capture.mjs"));
+        let node: serde_json::Value = serde_json::from_str(RECORDING).unwrap();
+        assert_eq!(node["manifest"]["exact"], true);
+        assert_eq!(node["manifest"]["nodeCommit"], "b6f10295a");
+        assert_eq!(node["manifest"]["harness"]["ws-close-capture.mjs"], hex(ring::digest::digest(&ring::digest::SHA256, CAPTURE).as_ref()), "ws-close-capture.mjs changed since the recording");
+        let mut rust = Vec::new();
+        for case in node["cases"].as_array().unwrap() {
+            let close = case["frame"].as_str().unwrap();
+            let close: Vec<u8> = (0..close.len()).step_by(2).map(|i| u8::from_str_radix(&close[i..i + 2], 16).unwrap()).collect();
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut raw = Vec::new();
+                let mut chunk = [0u8; 2048];
+                let end = loop {
+                    if let Some(at) = raw.windows(4).position(|w| w == b"\r\n\r\n") {
+                        break at + 4;
+                    }
+                    let n = stream.read(&mut chunk).await.unwrap();
+                    raw.extend_from_slice(&chunk[..n]);
+                };
+                let text = String::from_utf8_lossy(&raw[..end]).into_owned();
+                raw.drain(..end);
+                let key = text.lines().find_map(|l| l.strip_prefix("Sec-WebSocket-Key: ")).unwrap().to_owned();
+                stream.write_all(answer(&key, "").as_bytes()).await.unwrap();
+                stream.write_all(&close).await.unwrap();
+                let mut events = client_frames(&mut raw);
+                loop {
+                    match stream.read(&mut chunk).await {
+                        Ok(0) => {
+                            events.push(serde_json::json!({ "kind": "end", "unread": hex(&raw) }));
+                            break;
+                        }
+                        Ok(n) => {
+                            raw.extend_from_slice(&chunk[..n]);
+                            events.extend(client_frames(&mut raw));
+                        }
+                        Err(error) => {
+                            events.push(serde_json::json!({ "kind": "reset", "error": error.to_string() }));
+                            break;
+                        }
+                    }
                 }
-                received.extend_from_slice(&chunk[..n]);
-            }
-            received
-        });
-        let request = format!("ws://{addr}/").into_client_request().unwrap();
-        let (mut connection, _) = connect(request, &KeepaliveSchedule::SPEC).await.unwrap();
-        let ended = tokio::time::timeout(std::time::Duration::from_secs(20), connection.recv()).await.expect("the close is surfaced");
-        assert!(matches!(ended, Some(Err(TransportFault::WsClose { code: Some(1000) }))), "{ended:?}");
-        drop(connection);
-        let received = tokio::time::timeout(std::time::Duration::from_secs(20), server).await.unwrap().unwrap();
-        assert!(received.len() >= 8 && received[0] == 0x88 && received[1] & 0x80 != 0, "a masked close frame was written: {received:?}");
-        let key = [received[2], received[3], received[4], received[5]];
-        assert_eq!([received[6] ^ key[0], received[7] ^ key[1]], [0x03, 0xe8], "with the code the server sent");
+                let _ = stream.shutdown().await;
+                events
+            });
+            let request = format!("ws://{addr}/").into_client_request().unwrap();
+            let (connection, _) = tokio::time::timeout(WITHIN, connect(request, &KeepaliveSchedule::SPEC)).await.expect("the upgrade within 20 s").unwrap();
+            // The connection is held: its end on the wire comes from the close handshake, not from a drop.
+            let events = tokio::time::timeout(WITHIN, server).await.expect("the client ends its side within 20 s").unwrap();
+            drop(connection);
+            rust.push(serde_json::json!({ "name": case["name"], "frame": case["frame"], "events": events }));
+        }
+        assert_eq!(serde_json::Value::Array(rust), node["cases"]);
     }
 
     // W6, the nonce: `Sec-WebSocket-Key` is 16 bytes from a cryptographically secure generator (tungstenite's

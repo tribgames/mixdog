@@ -1148,6 +1148,37 @@
      "closeCode": 1009
     }
    }
+  },
+  {
+   "name": "a text frame declaring 2^53",
+   "extension": true,
+   "frames": [
+    "817f0020000000000000"
+   ],
+   "result": {
+    "messages": [],
+    "error": {
+     "message": "Unsupported WebSocket frame: payload length > 2^53 - 1",
+     "code": "WS_ERR_UNSUPPORTED_DATA_PAYLOAD_LENGTH",
+     "closeCode": 1009
+    }
+   }
+  },
+  {
+   "name": "a continuation declaring 2^64 - 1 after a fragment",
+   "extension": true,
+   "frames": [
+    "01026162",
+    "807fffffffffffffffff"
+   ],
+   "result": {
+    "messages": [],
+    "error": {
+     "message": "Unsupported WebSocket frame: payload length > 2^53 - 1",
+     "code": "WS_ERR_UNSUPPORTED_DATA_PAYLOAD_LENGTH",
+     "closeCode": 1009
+    }
+   }
   }
  ],
  "accepted": [

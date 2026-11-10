@@ -1,0 +1,131 @@
+{
+ "manifest": {
+  "exact": true,
+  "node": "v22.20.0",
+  "undici": "6.21.2",
+  "harness": {
+   "node-method-capture.mjs": "611bd8b2fff847a791d38c92ad5ce5e5f85be03a7ac330d75c6122250b24b2c9"
+  }
+ },
+ "methods": [
+  {
+   "method": "GET",
+   "wrote": "GET"
+  },
+  {
+   "method": "get",
+   "wrote": "GET"
+  },
+  {
+   "method": "Get",
+   "wrote": "GET"
+  },
+  {
+   "method": "post",
+   "wrote": "POST"
+  },
+  {
+   "method": "Post",
+   "wrote": "POST"
+  },
+  {
+   "method": "put",
+   "wrote": "PUT"
+  },
+  {
+   "method": "delete",
+   "wrote": "DELETE"
+  },
+  {
+   "method": "head",
+   "wrote": "HEAD"
+  },
+  {
+   "method": "options",
+   "wrote": "OPTIONS"
+  },
+  {
+   "method": "patch",
+   "wrote": "patch"
+  },
+  {
+   "method": "Patch",
+   "wrote": "Patch"
+  },
+  {
+   "method": "PATCH",
+   "wrote": "PATCH"
+  },
+  {
+   "method": "query",
+   "wrote": "query"
+  },
+  {
+   "method": "purge",
+   "wrote": "purge"
+  },
+  {
+   "method": "connect",
+   "error": {
+    "name": "TypeError",
+    "message": "'connect' HTTP method is unsupported."
+   }
+  },
+  {
+   "method": "Connect",
+   "error": {
+    "name": "TypeError",
+    "message": "'Connect' HTTP method is unsupported."
+   }
+  },
+  {
+   "method": "CONNECT",
+   "error": {
+    "name": "TypeError",
+    "message": "'CONNECT' HTTP method is unsupported."
+   }
+  },
+  {
+   "method": "trace",
+   "error": {
+    "name": "TypeError",
+    "message": "'trace' HTTP method is unsupported."
+   }
+  },
+  {
+   "method": "Trace",
+   "error": {
+    "name": "TypeError",
+    "message": "'Trace' HTTP method is unsupported."
+   }
+  },
+  {
+   "method": "TRACE",
+   "error": {
+    "name": "TypeError",
+    "message": "'TRACE' HTTP method is unsupported."
+   }
+  },
+  {
+   "method": "track",
+   "error": {
+    "name": "TypeError",
+    "message": "'track' HTTP method is unsupported."
+   }
+  },
+  {
+   "method": "TRACK",
+   "error": {
+    "name": "TypeError",
+    "message": "'TRACK' HTTP method is unsupported."
+   }
+  },
+  {
+   "method": "bad method",
+   "error": {
+    "name": "TypeError",
+    "message": "'bad method' is not a valid HTTP method."
+   }
+  }
+ ]
+}

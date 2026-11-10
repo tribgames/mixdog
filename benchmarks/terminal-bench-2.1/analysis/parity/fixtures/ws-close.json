@@ -1,0 +1,103 @@
+{
+ "manifest": {
+  "exact": true,
+  "nodeCommit": "b6f10295a",
+  "node": "v22.20.0",
+  "ws": "8.22.0",
+  "harness": {
+   "ws-close-capture.mjs": "9d161ebc9e73dbec8c576a2ca4f628f2dde2ee35264aa34a17f8cd70a5625136"
+  }
+ },
+ "cases": [
+  {
+   "name": "code and reason",
+   "frame": "880503e8627965",
+   "events": [
+    {
+     "kind": "frame",
+     "fin": true,
+     "rsv": 0,
+     "opcode": 8,
+     "masked": true,
+     "hex": "03e8627965"
+    },
+    {
+     "kind": "end",
+     "unread": ""
+    }
+   ]
+  },
+  {
+   "name": "a library code alone",
+   "frame": "88020fa0",
+   "events": [
+    {
+     "kind": "frame",
+     "fin": true,
+     "rsv": 0,
+     "opcode": 8,
+     "masked": true,
+     "hex": "0fa0"
+    },
+    {
+     "kind": "end",
+     "unread": ""
+    }
+   ]
+  },
+  {
+   "name": "no payload",
+   "frame": "8800",
+   "events": [
+    {
+     "kind": "frame",
+     "fin": true,
+     "rsv": 0,
+     "opcode": 8,
+     "masked": true,
+     "hex": ""
+    },
+    {
+     "kind": "end",
+     "unread": ""
+    }
+   ]
+  },
+  {
+   "name": "a code ws refuses",
+   "frame": "880203e7",
+   "events": [
+    {
+     "kind": "frame",
+     "fin": true,
+     "rsv": 0,
+     "opcode": 8,
+     "masked": true,
+     "hex": "03ea"
+    },
+    {
+     "kind": "end",
+     "unread": ""
+    }
+   ]
+  },
+  {
+   "name": "a reason that is not UTF-8",
+   "frame": "880403e8c328",
+   "events": [
+    {
+     "kind": "frame",
+     "fin": true,
+     "rsv": 0,
+     "opcode": 8,
+     "masked": true,
+     "hex": "03ef"
+    },
+    {
+     "kind": "end",
+     "unread": ""
+    }
+   ]
+  }
+ ]
+}

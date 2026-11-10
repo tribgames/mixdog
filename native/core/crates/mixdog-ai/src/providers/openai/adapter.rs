@@ -180,7 +180,7 @@ impl SessionContext {
         Self { states: Mutex::default(), sources: Sources { now: Box::new(now), request_id: Box::new(request_id), ..Sources::default() } }
     }
 
-    /// The same context reading its settings from ar instead of the process environment.
+    /// The same context reading its settings from `var` instead of the process environment.
     pub fn with_var(mut self, var: impl Fn(&str) -> Option<String> + Send + Sync + 'static) -> Self {
         self.sources.var = Box::new(var);
         self

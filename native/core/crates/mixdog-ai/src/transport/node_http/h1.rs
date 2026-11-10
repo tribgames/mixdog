@@ -311,7 +311,7 @@ mod tests {
             .unwrap();
         tokio::spawn(send.send_request(request));
         let mut written = vec![0u8; 512];
-        let n = far.read(&mut written).await.unwrap();
+        let n = tokio::time::timeout(Duration::from_secs(20), far.read(&mut written)).await.expect("hyper's request within 20 s").unwrap();
         let hyper_head = String::from_utf8(written[..n].to_vec()).unwrap();
         let wire = mixdog_core_api::domain::provider::WireRequest {
             transport: mixdog_core_api::domain::keepalive::TransportKind::Http1,
