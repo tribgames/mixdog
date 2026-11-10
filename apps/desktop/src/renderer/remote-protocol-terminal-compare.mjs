@@ -16,6 +16,9 @@
 //     exactly by the scripted framing recording (apps/mobile/fixtures/relay-framing, mixdog-spawn service::relay_buffer
 //     `the_frames_are_nodes_for_the_recorded_script`).
 //   - Every other entry (answers, pushes of every tab, fires, lane switches, clock steps, checkpoints) is compared at its position.
+//     An output frame's place against an activity change of its own tab that directly precedes it is the relay's 16 ms timing too (the
+//     activity goes at once, the output when its 16 ms are up), so such a frame is compared as if sent before it (`ownActivityFirst`);
+//     against every other entry its place is compared as recorded.
 //   - Where Node's runs all agree, the trace must be theirs exactly: output's position among all entries and its bytes included.
 //     Where they disagree, only the smallest disagreeing unit is left out and named in `leftOut`: one entry's value, or one tab's output
 //     bytes in one stretch between two non-output entries (and then the order of the runs in that stretch). Each tab's whole output is
@@ -80,6 +83,22 @@ function withoutDisposalPairs(list, part, leftOut) {
   return kept;
 }
 
+/** Each output frame placed before the activity pushes of its own tab that directly precede it. Node's relay sends a tab's activity at once
+ *  (remote-relay-push-lanes.ts:148-150) and its output up to 16 ms later (:82-89), so whether a frame lands before or after an activity
+ *  change of the same tab that came within those 16 ms is the frame's timing, the property the scripted framing recording proves; the
+ *  frame's place against every other entry (another tab's events, any answer, fire, lane switch, clock step, checkpoint) is unchanged. */
+export function ownActivityFirst(list) {
+  const out = [];
+  for (const entry of list) {
+    let at = out.length;
+    if (isData(entry)) {
+      while (at > 0 && out[at - 1].push === 'activity' && out[at - 1].event.id === entry.event.id) at -= 1;
+    }
+    out.splice(at, 0, entry);
+  }
+  return out;
+}
+
 /** Consecutive frames of one tab with the same fields but `data` are one run, its data the frames' joined. */
 function runsOf(list) {
   const out = [];
@@ -121,9 +140,9 @@ export function compareTraces(got, runs) {
   const extra = Object.keys(got).filter((key) => !['order', 'claims', 'immediate', 'replayWindow'].includes(key));
   assert.deepEqual(extra, [], 'the trace has fields the comparison does not know');
   for (const part of PARTS) {
-    const mine = runsOf(withoutDisposalPairs(pick(got, part) ?? [], part, leftOut));
+    const mine = runsOf(ownActivityFirst(withoutDisposalPairs(pick(got, part) ?? [], part, leftOut)));
     const nodeLeft = [];
-    const all = runs.map((run) => runsOf(withoutDisposalPairs(pick(run, part) ?? [], `Node's ${part}`, nodeLeft)));
+    const all = runs.map((run) => runsOf(ownActivityFirst(withoutDisposalPairs(pick(run, part) ?? [], `Node's ${part}`, nodeLeft))));
     const entries = (list) => list.filter((entry) => !isData(entry));
     const lengths = all.map((list) => entries(list).length);
     assert.equal(new Set(lengths).size, 1, `Node's runs differ in ${part} beyond the recorded variation (${lengths.join(', ')} entries besides output)`);

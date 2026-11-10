@@ -222,6 +222,15 @@ export function sizeClaimScript(root) {
   // before the next step. Where it would land among later calls is the calls' latency (Node's recorder calls in-process, a phone and the
   // replay cross a socket), not a property of either product.
   const settleClaims = () => [...resized].flatMap((tab) => barrier(tab));
+  // The re-render for a new size starts with the resize sequence ConPTY writes (`ESC [8;rows;cols t`); it is waited for (its `count`th
+  // appearance in the tab's output) before anything is written to the shell, so the marker's echo never races the re-render.
+  const rerendered = new Map();
+  const rerender = (tab, cols, rows) => {
+    const text = `\x1b[8;${rows};${cols}t`;
+    const key = `${tab} ${text}`;
+    rerendered.set(key, (rerendered.get(key) ?? 0) + 1);
+    return [{ op: 'until', kind: 'text', tab, text, count: rerendered.get(key) }];
+  };
   return {
     cwd,
     ops: [
@@ -250,18 +259,22 @@ export function sizeClaimScript(root) {
       owner(NONE, 0, 0, false),
       claim(L1, 100, 30),
       owner(L1, 100, 30, true),
+      ...rerender(L1, 100, 30),
       ...settleClaims(),
       { op: 'advance', ms: 1000 },
       claim(L2, 101, 31),
       owner(L2, 101, 31, true),
+      ...rerender(L2, 101, 31),
       ...settleClaims(),
       { op: 'advance', ms: 1000 },
       claim(L4, 102, 32, 'other'),
       owner(L4, 102, 32, false),
+      ...rerender(L4, 102, 32),
       ...settleClaims(),
       { op: 'advance', ms: 1000 },
       claim(L5, 104, 34),
       owner(L5, 104, 34, true),
+      ...rerender(L5, 104, 34),
       ...settleClaims(),
       claim(L5, 0, 0),
       owner(L5, 0, 0, false),
@@ -269,15 +282,21 @@ export function sizeClaimScript(root) {
       { op: 'advance', ms: 1000 },
       claim(L6, 103, 33),
       owner(L6, 103, 33, true),
+      ...rerender(L6, 103, 33),
       ...settleClaims(),
       { op: 'advance', ms: 1000 },
       claim(L6, 83, 24, 'other'),
       owner(L6, 83, 24, false),
+      // A re-render to a size the console had not grown to carries no resize sequence (ConPTY writes it only for a new largest size):
+      // it is waited for as the repainted prompt line that starts it.
+      { op: 'until', kind: 'text', tab: L6, text: `\x1b[?25l\x1b[H${prompt}`, count: 1 },
       ...settleClaims(),
       { op: 'advance', ms: 5000 },
       claim(L2, 101, 31),
       claim(L6, 0, 0, 'other'),
       owner(L6, 103, 33, true, 2),
+      // Back to a size the console had: again a repaint without the resize sequence.
+      { op: 'until', kind: 'text', tab: L6, text: `\x1b[?25l\x1b[H${prompt}`, count: 2 },
       ...settleClaims(),
       ...attachAll([L2]),
       { op: 'advance', ms: 2000 },
@@ -315,6 +334,8 @@ export function sizeClaimScript(root) {
       // the `term_ph2_none` case above.
       claim(L5, 99, 29),
       owner(L5, 99, 29, true),
+      // Smaller than L5's largest size (104 x 34): a repaint without the resize sequence.
+      { op: 'until', kind: 'text', tab: L5, text: `\x1b[?25l\x1b[H${prompt}`, count: 1 },
       // The re-render ConPTY sends for the new size is on the screen before the tabs are disposed: where it lands among the disposals
       // would otherwise be a race with the calls' own latency (Node's calls are in-process, the core's cross a socket).
       ...barrier(L5),
@@ -419,7 +440,10 @@ export async function play(script, driver) {
         continue;
       }
       if (op.kind === 'text') {
-        await driver.waitFor((events) => (events.output[op.tab] ?? '').includes(op.text), `${JSON.stringify(op.text)} in the output of ${op.tab}`);
+        await driver.waitFor(
+          (events) => (events.output[op.tab] ?? '').split(op.text).length - 1 >= (op.count ?? 1),
+          `${op.count ?? 1} x ${JSON.stringify(op.text)} in the output of ${op.tab}`
+        );
         continue;
       }
       const what =

@@ -1,22 +1,22 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-phone-terminal.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 (src, apps) with node_modules>",
-  "entries": 113,
+  "entries": 110,
   "fileCount": 3,
   "files": [
     {
-      "bytes": 193901,
+      "bytes": 193010,
       "path": "golden.json",
-      "sha256": "35baf4fd96609c7e088f5787c9b415792b250e0522377bfa710f9ef341d827c5"
+      "sha256": "7c54704dd772d741a47d185f2b9d50c86c842b8c2bdec32a0ced84d1ea6388d1"
     },
     {
-      "bytes": 957265,
+      "bytes": 950662,
       "path": "runs.json",
-      "sha256": "47e51ae89b804bf8f4df0d5d131ded82da9b6cfc07df2bb4b728224e75248701"
+      "sha256": "9b3bb5e323d6820ce0ddb744bc9df62208624e0b255c42452201a50726b9de74"
     },
     {
-      "bytes": 3646,
+      "bytes": 3279,
       "path": "variance.json",
-      "sha256": "f7b4b7d6359131658e868b72b9441c71df764c53935827b60b533605d41cd9f4"
+      "sha256": "f9829d829286bb77ce5f6847dad41c20184a440c461596745c45b716eb5cecaf"
     }
   ],
   "product": {
@@ -39,5 +39,5 @@
   "recorder": "benchmarks/rust-core/recorders/record-phone-terminal.mjs",
   "set": "phone-terminal",
   "settled": "Output no answered call causes (a resize re-render, a prompt after idle, a closing output against the next dispose) is waited for before the next call: its place among later calls is call latency, 0 ms in this in-process recorder and a socket round trip for a phone. The immediate part keeps the answer-ordered sequences (ensure then first output, dispose then closing output) unsettled.",
-  "totalBytes": 1154812
+  "totalBytes": 1146951
 }

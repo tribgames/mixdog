@@ -3,9 +3,15 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { isDeepStrictEqual } from 'node:util';
-import { compareTraces } from './remote-protocol-terminal-compare.mjs';
+import { compareTraces, ownActivityFirst } from './remote-protocol-terminal-compare.mjs';
 
-const runs = JSON.parse(readFileSync(new URL('../../../mobile/fixtures/phone-terminal/runs.json', import.meta.url), 'utf8'));
+// The runs as the comparison places their frames (a frame before its own tab's directly preceding activity changes): the comparison is
+// the same on them, and a stretch found here is a stretch there.
+const runs = JSON.parse(readFileSync(new URL('../../../mobile/fixtures/phone-terminal/runs.json', import.meta.url), 'utf8')).map((run) => ({
+  order: ownActivityFirst(run.order),
+  claims: { order: ownActivityFirst(run.claims.order) },
+  immediate: { order: ownActivityFirst(run.immediate.order) },
+}));
 const copy = (run = runs[0]) => JSON.parse(JSON.stringify(run));
 const isData = (entry) => entry.push === 'termData';
 const PARTS = [['order'], ['claims', 'order'], ['immediate', 'order']];
@@ -53,10 +59,13 @@ test('an activity end moved from before the dispose answer to after it is a diff
 });
 
 test("two tabs' frames swapped is a different trace", () => {
-  const { path, i } = find((list, i) => isData(list[i]) && isData(list[i + 1] ?? {}) && list[i].event.id !== list[i + 1].event.id, 'two tabs’ frames side by side');
+  const { path, i } = find((list, i) => isData(list[i]), 'output frame');
+  const list0 = listOf(runs[0], path);
+  const j = list0.findIndex((entry, at) => at > i && isData(entry) && entry.event.id !== list0[i].event.id && agreedStretch(path, at));
+  assert.ok(j > 0, 'another tab has a frame later in the same list');
   const trace = copy();
   const list = listOf(trace, path);
-  [list[i], list[i + 1]] = [list[i + 1], list[i]];
+  [list[i], list[j]] = [list[j], list[i]];
   assert.throws(() => compareTraces(trace, runs), /output/);
 });
 
