@@ -10,7 +10,8 @@
 // a crashed edit leaves them).
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { basename, dirname, join, relative } from 'node:path';
 
 export const ROOT = 'D:\\mixdog-build\\tmp\\ph-attachments';
 /** The modification time every file of the world starts with. */
@@ -81,9 +82,21 @@ export function conversation() {
   };
 }
 
+/** The managed worktrees of the world, one per registry state a recovery call can meet. */
+export const WORKTREE_STATES = ['ready', 'deleting', 'recovery', 'creating'];
+
 export function attachmentsWorld(root = ROOT) {
   const project = join(root, 'proj');
   const outside = join(root, 'outside');
+  // A registered git repository and the checkouts the worktree registry names for it (plain folders: no recovery call asks git
+  // about a checkout, and Node's repository lock is a file of the data dir).
+  const repo = join(root, 'repo');
+  const worktrees = Object.fromEntries(WORKTREE_STATES.map((state) => [state, join(root, 'wt', state)]));
+  const checkoutFiles = Object.values(worktrees).flatMap((dir) => [
+    [join(dir, 'edited.txt'), Buffer.from('after the interrupted edit\n')],
+    [join(dir, 'dropped.txt'), Buffer.from('dropped after edit\n')],
+    [join(dir, 'sub', 'inner.txt'), Buffer.from('inner\n')],
+  ]);
   const files = {
     [join(project, 'a.txt')]: Buffer.from('in the project\n'),
     [join(project, 'sub', 'deep.txt')]: Buffer.from('deep\n'),
@@ -96,11 +109,15 @@ export function attachmentsWorld(root = ROOT) {
     [join(outside, 'large.bin')]: Buffer.alloc(1024 * 1024 + 3, 0x61),
     [join(outside, 'limit.bin')]: Buffer.alloc(20 * 1024 * 1024, 0x62),
     [join(outside, 'huge.bin')]: Buffer.alloc(20 * 1024 * 1024 + 1, 0x63),
+    [join(repo, 'readme.txt')]: Buffer.from('the repository\n'),
+    ...Object.fromEntries(checkoutFiles),
   };
   return {
     root,
     project,
     outside,
+    repo,
+    worktrees,
     userData: join(root, 'userdata'),
     data: join(root, 'data'),
     temp: join(root, 'temp'),
@@ -118,14 +135,50 @@ export function attachmentsWorld(root = ROOT) {
         mkdirSync(dirname(file), { recursive: true });
         writeFileSync(file, BLOBS[name]);
       }
+      const git = spawnSync('git', ['init', '-q', repo], { encoding: 'utf8', windowsHide: true });
+      if (git.status !== 0) throw new Error(`git init ${repo} failed: ${git.stderr || git.error?.message}`);
+    },
+    /** The worktree registry (`<data>/worktrees-v1/registry.json`, one format for Node and the core): one record per state. */
+    registerWorktrees(dataDir) {
+      const entries = Object.fromEntries(
+        WORKTREE_STATES.map((state) => [
+          `wt-${state}`,
+          { id: `wt-${state}`, repoCommonDir: join(repo, '.git'), projectPath: repo, path: worktrees[state], branch: `wt/${state}`, createdAt: EPOCH_MS, state },
+        ])
+      );
+      mkdirSync(join(dataDir, 'worktrees-v1'), { recursive: true });
+      writeFileSync(join(dataDir, 'worktrees-v1', 'registry.json'), `${JSON.stringify({ version: 1, entries }, null, 2)}\n`);
     },
   };
+}
+
+/** The worktree registry's records after the script. Each journal store a record names is `$journal/<digest of its root>`: Node
+ *  keeps the stores in `<userData>/editor-recovery`, the core in `<data>/recovery`. `updatedAt` (Node's `putRecord` stamps it, the
+ *  core's registry does not) is left out. */
+export function worktreeRegistryOf(dataDir) {
+  const path = join(dataDir, 'worktrees-v1', 'registry.json');
+  if (!existsSync(path)) return null;
+  const { entries } = JSON.parse(readFileSync(path, 'utf8'));
+  return Object.fromEntries(
+    Object.entries(entries).map(([id, { updatedAt: _updatedAt, ...record }]) => [
+      id,
+      record.editorRecoveryStores
+        ? { ...record, editorRecoveryStores: record.editorRecoveryStores.map((scope) => ({ ...scope, directory: `$journal/${basename(scope.directory)}` })) }
+        : record,
+    ])
+  );
 }
 
 /** The recovery records an interrupted workspace edit leaves (project-files.ts writes them through `beginProjectRecovery` before its
  *  first byte and publishes them with `releaseRecoveryDirectory`; a crash in between leaves them, named by their id alone). Written by
  *  the product's own store module into `userData/editor-recovery/<digest of the root>/`, on the virtual clock. Returns their ids. */
-export async function seedRecovery(store, userData, root) {
+export async function seedRecovery(store, userData, roots) {
+  const ids = [];
+  for (const root of roots) ids.push(...(await seedRecoveryIn(store, userData, root, ids.length)));
+  return ids;
+}
+
+async function seedRecoveryIn(store, userData, root, seeded) {
   const real = Date.now;
   try {
     const ids = [];
@@ -135,7 +188,7 @@ export async function seedRecovery(store, userData, root) {
     ]) {
       const destination = realpathSync(join(root, rel));
       // A second apart, newest first in a listing: records of one instant are listed by their random ids.
-      Date.now = () => FIXED_NOW_MS + ids.length * 1000;
+      Date.now = () => FIXED_NOW_MS + (seeded + ids.length) * 1000;
       const prepared = [{ relPath: rel, destination, parent: store.recoveryIdentity(dirname(destination)), mode: statSync(destination).mode, before: Buffer.from(before), after: Buffer.from(after) }];
       const { id, directory } = await store.beginProjectRecovery(userData, root, prepared);
       await store.releaseRecoveryDirectory(directory);
@@ -173,7 +226,7 @@ const call = (name, params, as) => ({ op: 'call', name, params, ...(as ? { as } 
 const answer = (as, ...path) => ({ $answer: as, path });
 
 export function attachmentsScript(world = attachmentsWorld()) {
-  const { project: P, outside: O, root } = world;
+  const { project: P, outside: O, root, worktrees: W } = world;
   const many = Array.from({ length: 101 }, (_, index) => join(O, `n${index}.txt`));
   return {
     world,
@@ -263,6 +316,35 @@ export function attachmentsScript(world = attachmentsWorld()) {
       call('projectRecovery', [P, { action: 'rewind' }]),
       call('projectRecovery', [P, null]),
       call('projectRecovery', [7, { action: 'list' }]),
+      // ── projectRecovery in a managed worktree that is no registered project (records 2-3 ready, 4-5 deleting, 6-7 recovery,
+      //    8-9 creating): its Project registered, then each state listed, inspected, restored and discarded ──
+      call('projectRecovery', [W.ready, { action: 'list' }]),
+      call('addProject', [world.repo]),
+      call('projectRecovery', [W.ready, { action: 'list' }]),
+      call('projectRecovery', [join(W.ready, 'sub'), { action: 'list' }]),
+      call('projectRecovery', [`${W.ready}\\sub\\..`, { action: 'list' }]),
+      call('projectRecovery', [W.ready, { action: 'inspect', id: { $record: 2 } }], 'w2'),
+      call('projectRecovery', [W.ready, { action: 'restore', id: { $record: 2 }, revision: answer('w2', 'detail', 'revision') }]),
+      call('readProjectFile', [W.ready, 'edited.txt', null]),
+      call('projectRecovery', [W.ready, { action: 'inspect', id: { $record: 3 } }], 'w3'),
+      call('projectRecovery', [W.ready, { action: 'discard', id: { $record: 3 }, revision: answer('w3', 'detail', 'revision') }]),
+      call('projectRecovery', [W.ready, { action: 'list' }]),
+      ...['deleting', 'recovery'].flatMap((state, index) => {
+        const [first, second] = [4 + index * 2, 5 + index * 2];
+        return [
+          call('projectRecovery', [W[state], { action: 'list' }]),
+          call('projectRecovery', [W[state], { action: 'inspect', id: { $record: first } }], `w${first}`),
+          call('projectRecovery', [W[state], { action: 'restore', id: { $record: first }, revision: answer(`w${first}`, 'detail', 'revision') }]),
+          call('projectRecovery', [W[state], { action: 'inspect', id: { $record: second } }], `w${second}`),
+          call('projectRecovery', [W[state], { action: 'discard', id: { $record: second }, revision: answer(`w${second}`, 'detail', 'revision') }]),
+          call('projectRecovery', [W[state], { action: 'list' }]),
+        ];
+      }),
+      call('projectRecovery', [W.creating, { action: 'list' }]),
+      call('projectRecovery', [W.creating, { action: 'inspect', id: { $record: 8 } }]),
+      call('projectRecovery', [join(root, 'wt'), { action: 'list' }]),
+      call('projectRecovery', [join(root, 'wt', 'unknown'), { action: 'list' }]),
+      call('projectRecovery', ['wt\\ready', { action: 'list' }]),
     ],
   };
 }
@@ -342,12 +424,21 @@ export function treeOf(dir) {
   return rows;
 }
 
-/** The world's state after the script: the project, the files outside it and the staged attachments in the PC's temp folder. */
-export function worldState(world, recoveryDir, records) {
+/** Every folder the script runs recovery calls in, by name: the project, each managed worktree and the ready one's subfolder. */
+export function recoveryRoots(world) {
+  return { project: world.project, ...world.worktrees, readySub: join(world.worktrees.ready, 'sub') };
+}
+
+/** The world's state after the script: the project, the files outside it, the staged attachments in the PC's temp folder, the
+ *  checkouts, each recovery folder's journal store (`journalOf(root)` is where that side keeps it) and the worktree registry. */
+export function worldState(world, journalOf, records, dataDir) {
   return {
     project: treeOf(world.project),
     outside: treeOf(world.outside),
     staged: treeOf(join(world.temp, 'mixdog-attachments')),
-    recovery: recoveryStoreOf(recoveryDir, records),
+    recovery: recoveryStoreOf(journalOf(world.project), records),
+    checkouts: treeOf(join(world.root, 'wt')),
+    worktreeRecovery: Object.fromEntries(Object.entries(recoveryRoots(world)).filter(([name]) => name !== 'project').map(([name, root]) => [name, recoveryStoreOf(journalOf(root), records)])),
+    worktreeRegistry: worktreeRegistryOf(dataDir),
   };
 }
