@@ -165,7 +165,7 @@ test('a unit Node\'s runs differ on is a different trace when it is none of thei
       // The bottom right corner, which no run's cursor is at.
       if (cursors.some((cursor) => isDeepStrictEqual(cursor, [screen.size[0] - 1, screen['normal viewport'][1] + screen.size[1] - 1]))) continue;
       entry.event.data += `\x1b[${screen.size[1]};${screen.size[0]}H`;
-      await assert.rejects(compareTraces(trace, runs), /normal cursor: got \[[\d,]+\], which no Node run has/);
+      await assert.rejects(compareTraces(trace, runs), /no Node run[\s\S]*normal cursor: got \[[\d,]+\]/);
       return;
     }
   }
@@ -228,14 +228,12 @@ test("another tab's frame moved within a stretch where every run has the tabs' o
 });
 
 test("a tab's frame and its own activity change next to it in every run pass in either order, named as one place", async () => {
-  const point = await screenPoint(({ kept, at, entry }) => {
-    const next = kept[at + 1];
-    return next?.push === 'activity' && next.event.id === entry.event.id;
-  }, 'frame directly before its own activity change in every run');
-  const { list, at, trace } = point;
-  [list[at], list[at + 1]] = [list[at + 1], list[at]];
-  const { sets } = await compareTraces(trace, runs);
-  assert.ok(sets.some((place) => place.includes(point.entry.event.id) && place.includes('relay-framing')), 'the place is named with its proof');
+  // A recording of its own: the fixture's runs have no such frame without other output of its tab right before it, so a swap there
+  // gives the change output on both sides, which no run has (the next tests). Swapped, the change has its frame after it only.
+  const running = { push: 'activity', event: { id: 't', state: 'running' } };
+  const node = [[STEP, D('A'), running, STEP], [STEP, D('A'), running, STEP]].map((order) => ({ order, claims: { order: [] }, immediate: { order: [] } }));
+  const { sets } = await compareTraces({ order: [STEP, running, D('A'), STEP], claims: { order: [] }, immediate: { order: [] } }, node);
+  assert.ok(sets.some((place) => place.includes("t's activity change") && place.includes('relay-framing')), 'the place is named with its proof');
 });
 
 test("the reviewer's counterexample: a tab's output moved after its own completion (output, running, finished against running, finished, output) is a different trace", async () => {
@@ -373,6 +371,73 @@ test('a duplicated size-owner push is a different trace', async () => {
   const at = trace.claims.order.findIndex((entry) => entry.push === 'sizeOwner');
   trace.claims.order.splice(at, 0, trace.claims.order[at]);
   await assert.rejects(compareTraces(trace, runs), /claims\.order/);
+});
+
+// Witnesses on small recordings of their own: each is Node's runs as given and a trace no run shows, which must fail.
+const D = (data, id = 't') => ({ push: 'termData', event: { id, data } });
+const STEP = { fire: 'step' };
+const recorded = (...orders) => orders.map((order) => ({ order, claims: { order: [] }, immediate: { order: [] } }));
+const traceOf = (order) => recorded(order)[0];
+
+test('an empty cell and a cell showing ␀ are different traces', async () => {
+  const node = recorded([D('\x1b[C'), STEP], [D('\x1b[C'), STEP]);
+  await compareTraces(traceOf([D('\x1b[C'), STEP]), node);
+  await assert.rejects(compareTraces(traceOf([D('␀'), STEP]), node), /normal line 0: got "\\\\␀/);
+});
+
+test('input left unfinished in the parser at a place where Node finished it is a different trace', async () => {
+  // The trace's last frame of the stretch is only the start of a sequence: the screen is Node's, the parser is not.
+  // Nothing follows it in the trace, so no later state shows how it reads the next input: only the parser's own state does.
+  const node = recorded([D('x'), STEP], [D('x'), STEP]);
+  await assert.rejects(compareTraces(traceOf([D('x'), D('\x1b['), STEP]), node), /screen before the first entry\n  parser pending: got \{/);
+});
+
+test("where Node's runs differ on a stretch's states, a sequence none of them went through is a different trace", async () => {
+  const node = recorded([D('A'), D('\rZ'), STEP], [D('B'), D('\rZ'), STEP]);
+  await compareTraces(traceOf([D('B'), D('\rZ'), STEP]), node);
+  await assert.rejects(compareTraces(traceOf([D('EVIL'), D('\r\x1b[2KZ'), STEP]), node), /states within the stretch before the first entry are no Node run's/);
+});
+
+test("where Node's runs differ on the order of the tabs' output, an order none of them has is a different trace", async () => {
+  const node = recorded([D('a', 'a'), D('b', 'b'), D('c', 'c'), STEP], [D('b', 'b'), D('a', 'a'), D('c', 'c'), STEP]);
+  await compareTraces(traceOf([D('b', 'b'), D('a', 'a'), D('c', 'c'), STEP]), node);
+  await assert.rejects(compareTraces(traceOf([D('c', 'c'), D('b', 'b'), D('a', 'a'), STEP]), node), /order of the tabs' output[\s\S]*which no Node run has/);
+});
+
+test("a state or an entry assembled from parts of different runs is a different trace", async () => {
+  const screens = recorded([D('A\r\nX'), STEP], [D('B\r\nY'), STEP]);
+  await assert.rejects(compareTraces(traceOf([D('A\r\nY'), STEP]), screens), /no Node run/);
+  const answer = (value) => ({ call: 'termActivity', params: [], value });
+  const entries = recorded([answer({ a: 1, b: 1 })], [answer({ a: 2, b: 2 })]);
+  await compareTraces(traceOf([answer({ a: 2, b: 2 })]), entries);
+  await assert.rejects(compareTraces(traceOf([answer({ a: 1, b: 2 })]), entries), /order entry 0: no Node run has this whole/);
+});
+
+test('an activity change Node has next to its own frame on one side is a different trace with its own output on both sides', async () => {
+  const running = { push: 'activity', event: { id: 't', state: 'running' } };
+  const node = recorded([D('A'), running], [D('A'), running]);
+  await compareTraces(traceOf([D('A'), running]), node);
+  await assert.rejects(compareTraces(traceOf([D('A'), running, D('\x1b[m')]), node), /not next to its own output on one side[\s\S]*here: both/);
+});
+
+test("a disposal pair is taken out only where Node's runs vary on it", async () => {
+  const tab = 'term_ph2a';
+  const ensure = { call: 'termEnsure', params: [tab, 'C:\\', null], value: { id: tab, replay: '' } };
+  const dispose = { call: 'termDispose', params: [tab], value: null };
+  const pair = [{ push: 'activity', event: { id: tab, state: 'running' } }, { push: 'activity', event: { id: tab, state: null } }];
+  const exit = D('\r\n[process exited with code 0]\r\n', tab);
+  const without = [ensure, D('PS> ', tab), dispose, exit];
+  const withPair = [ensure, D('PS> ', tab), dispose, ...pair, exit];
+  // Every run without it: a pair is not taken out.
+  await assert.rejects(compareTraces(traceOf(withPair), recorded(without, without)), /running\/null pair after term_ph2a dispose 1's answer, which no Node run has/);
+  // Every run with it: it must be there.
+  await assert.rejects(compareTraces(traceOf(without), recorded(withPair, withPair)), /no running\/null pair after term_ph2a dispose 1's answer, which every Node run has/);
+  // The runs vary: either passes, named.
+  const varied = recorded(without, withPair);
+  for (const order of [without, withPair]) {
+    const { exemptions } = await compareTraces(traceOf(order), varied);
+    assert.ok(exemptions.some((line) => line.includes('term_ph2a dispose 1') && line.includes("Node's runs 1 have it")));
+  }
 });
 
 test('an absent answer where Node answered null is a different trace', async () => {

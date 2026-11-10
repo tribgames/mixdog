@@ -6,7 +6,7 @@
 //
 //   node benchmarks/rust-core/recorders/record-phone-terminal.mjs --tree <git archive of b6f10295a with node_modules>
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -54,6 +54,44 @@ function endTree(child) {
 }
 const args = parseArgs();
 const tree = resolveTree(args);
+
+// `--merge <folder>`: the fixture's runs and then those of each `run-*` folder under <folder> (each a `--runs 1 --out` recording of
+// this recorder), in the folders' name order, become the fixture's runs.json; golden.json stays the fixture's run 0. Each folder's
+// manifest must name the same product, script and recorder as the fixture's; none is dropped or picked.
+if (args.has('merge')) {
+  const finalOut = join(REPO_ROOT, 'apps', 'mobile', 'fixtures', 'phone-terminal');
+  const manifest = JSON.parse(readFileSync(join(finalOut, 'MANIFEST.json'), 'utf8'));
+  const traces = JSON.parse(readFileSync(join(finalOut, 'runs.json'), 'utf8'));
+  const kept = traces.length;
+  const folders = readdirSync(args.get('merge')).filter((name) => /^run-\d+$/.test(name)).sort();
+  for (const folder of folders) {
+    const dir = join(args.get('merge'), folder);
+    const added = JSON.parse(readFileSync(join(dir, 'MANIFEST.json'), 'utf8'));
+    for (const key of ['product', 'scriptSha256', 'recorder', 'command', 'set']) {
+      if (JSON.stringify(added[key]) !== JSON.stringify(manifest[key])) throw new Error(`${dir}: its ${key} is not the fixture's`);
+    }
+    traces.push(...JSON.parse(readFileSync(join(dir, 'runs.json'), 'utf8')));
+  }
+  const golden = readFileSync(join(finalOut, 'golden.json'));
+  const out = stageSet(finalOut);
+  writeFileSync(join(out, 'golden.json'), golden);
+  writeJson(join(out, 'variance.json'), { runs: traces.length, ...varianceReport(traces) });
+  writeJson(join(out, 'runs.json'), traces);
+  const { command, set, recorder, product, fileCount, files, totalBytes, ...extra } = manifest;
+  writeSetManifest(out, {
+    set,
+    recorder,
+    command,
+    identity: exactProductIdentity(tree, REF),
+    extra: {
+      ...extra,
+      runsMerged: `runs.json: runs 0-${kept - 1} from the fixture's ${kept}-run recording, runs ${kept}-${traces.length - 1} from ${folders.length} recordings of one run each (${folders.join(', ')}), merged with --merge in that order.`,
+    },
+  });
+  commitStage(out, finalOut);
+  console.log(`phone-terminal: ${traces.length} runs`);
+  process.exit(0);
+}
 
 if (!args.has('child')) {
   // The recording runs in a process of its own (the test environment's loader hooks only a fresh process takes). Node's real PTY
