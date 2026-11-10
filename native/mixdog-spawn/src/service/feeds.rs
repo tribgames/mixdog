@@ -524,8 +524,10 @@ impl ProcessFeeds {
                         relay_out(relay.push(&bytes, tokio::time::Instant::now()), &state);
                     }
                     taken += bytes.len() as u64;
-                    if let Some(tell) = entry.taken.get() {
-                        let _ = tell(PumpPoint::Taken(taken));
+                    // The changes this chunk's markers caused go now, and reach the clients before the relay buffer sends the chunk's
+                    // text (Node broadcast them before its 16 ms flush); bounded as the wait above.
+                    if let Some(published) = entry.taken.get().and_then(|tell| tell(PumpPoint::Taken(taken))) {
+                        let _ = tokio::time::timeout(ORDER_DEADLINE, published).await;
                     }
                 }
                 Some(ProcessEvent::Exited { exit, .. }) => {

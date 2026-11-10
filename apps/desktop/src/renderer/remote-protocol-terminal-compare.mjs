@@ -458,6 +458,17 @@ function compareUnits(got, recorded, what, exemptions) {
 }
 
 const nodeViews = new Map();
+// One Node run's part as the comparison reads it, computed once per run: the leave-one-out check passes each run in 49 lists of runs.
+const runViews = new WeakMap();
+async function runView(run, part) {
+  if (!runViews.has(run)) runViews.set(run, new Map());
+  const views = runViews.get(run);
+  if (!views.has(part)) {
+    const { kept, pairs } = withoutDisposalPairs(pick(run, part) ?? [], `Node's ${part}`);
+    views.set(part, Promise.all([kept, placedPairs(pairs), analyse(kept)]));
+  }
+  return views.get(part);
+}
 /** Node's runs of one part as the comparison reads them: the lists without the disposal pairs, each pair's place, and each run's
  *  analysis (computed once per recording). The runs have one sequence of entry kinds (which entry is which tab's activity change). */
 export async function nodeView(runs, part) {
@@ -465,10 +476,10 @@ export async function nodeView(runs, part) {
   const views = nodeViews.get(runs);
   const key = part;
   if (!views.has(key)) {
-    const read = runs.map((run) => withoutDisposalPairs(pick(run, part) ?? [], `Node's ${part}`));
-    const lists = read.map(({ kept }) => kept);
-    const pairs = await Promise.all(read.map((run) => placedPairs(run.pairs)));
-    const analyses = await Promise.all(lists.map(analyse));
+    const read = await Promise.all(runs.map((run) => runView(run, part)));
+    const lists = read.map(([kept]) => kept);
+    const pairs = read.map(([, placed]) => placed);
+    const analyses = read.map(([, , analysis]) => analysis);
     const lengths = analyses.map((run) => run.entries.length);
     assert.equal(new Set(lengths).size, 1, `Node's runs differ in ${part} beyond the recorded variation (${lengths.join(', ')} entries besides output)`);
     const kinds = analyses.map((run) => run.kinds.join(','));

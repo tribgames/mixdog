@@ -449,8 +449,10 @@ impl Tab {
 
     /// Where the relay feed's pump is: the changes that follow no more output than it has taken go, and the shell's end once the pump
     /// reaches its exit line (or ends). The end is published before the pump goes on with the exit line: Node broadcast
-    /// `activity.exit()` and then emitted the line (terminal-manager.ts:378-384), so a client never got the line first. The returned
-    /// publication is what the pump waits for.
+    /// `activity.exit()` and then emitted the line (terminal-manager.ts:378-384), so a client never got the line first. A change that
+    /// goes once the pump has taken its chunk's text also reaches the clients before the relay buffer sends that text: Node applied the
+    /// marker synchronously after emitting the chunk into its 16 ms buffer, so the buffer's flush always came after the change. The
+    /// returned publication (of whatever went here) is what the pump waits for.
     fn pumped(&self, at: PumpPoint) -> Option<Published> {
         let mut state = self.lock();
         let order = state.order.as_mut()?;
@@ -459,16 +461,18 @@ impl Tab {
             PumpPoint::Taken(taken) => (taken, if taken == u64::MAX { u64::MAX } else { 0 }),
         };
         order.taken = taken;
+        let mut went = false;
         while order.waiting.front().is_some_and(|(after, _)| *after <= taken) {
             let (_, activity) = order.waiting.pop_front().expect("a waiting change");
             self.events.activity(&self.id, activity);
+            went = true;
         }
         if order.waiting.is_empty() && order.end.is_some_and(|(line, _)| line <= reached) {
             let (_, activity) = order.end.take().expect("the end waits");
             self.events.activity(&self.id, activity);
-            return self.events.published();
+            went = true;
         }
-        None
+        if went { self.events.published() } else { None }
     }
 
     /// The pump has taken `taken` bytes of output (tests name it so).
@@ -1720,6 +1724,41 @@ mod lock_order {
         assert_eq!(seen(), vec![Some(ActivityState::Idle), Some(ActivityState::Running), Some(ActivityState::Finished)], "a direct change goes after the waiting ones");
         tab.taken(u64::MAX);
         assert_eq!(seen().len(), 3, "nothing goes twice");
+    }
+
+    /// Events whose publication is asked for: each `published` is counted (the pump waits on what it returns).
+    struct Publishing(Mutex<(Vec<Option<ActivityState>>, usize)>);
+
+    impl TerminalEvents for Publishing {
+        fn activity(&self, _: &str, state: Option<ActivityState>) {
+            self.0.lock().unwrap().0.push(state);
+        }
+        fn size_owner(&self, _: &SizeOwnerChange) {}
+        fn size_claims_forgotten(&self, _: &str) {}
+        fn published(&self) -> Option<Published> {
+            self.0.lock().unwrap().1 += 1;
+            let (done, published) = tokio::sync::oneshot::channel();
+            let _ = done.send(());
+            Some(published)
+        }
+    }
+
+    /// A change the pump releases by taking its chunk is one the pump waits to see published before it goes on (and so before the relay
+    /// buffer sends that chunk's text, as Node's flush came after its synchronous broadcast); a take that releases nothing gives no wait.
+    #[test]
+    fn the_pump_waits_for_the_change_its_take_released() {
+        let events = Arc::new(Publishing(Mutex::new((Vec::new(), 0))));
+        let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, ProcessConfig::default());
+        let tab = relay_tab(Arc::clone(&events) as Arc<dyn TerminalEvents>, manager, "term_wait");
+        let mut filter = TabFilter::new(Arc::clone(&tab));
+        let prompt = filter.filter(b"PS> \x1b]697;P\x07").len() as u64;
+        filter.admitted();
+        assert!(tab.pumped(PumpPoint::Taken(prompt - 1)).is_none(), "nothing went, nothing to wait for");
+        assert!(tab.pumped(PumpPoint::Taken(prompt)).is_some(), "the prompt's change went: the pump waits for its publication");
+        assert_eq!(*events.0.lock().unwrap(), (vec![Some(ActivityState::Idle)], 1));
+        let more = filter.filter(b"x").len() as u64;
+        filter.admitted();
+        assert!(tab.pumped(PumpPoint::Taken(prompt + more)).is_none(), "output without a change gives no wait");
     }
 
     /// The shell's end follows the output before it, as Node's exit handler ordered it (terminal-manager.ts:378-384: held text out,

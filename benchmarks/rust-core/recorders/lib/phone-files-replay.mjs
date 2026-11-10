@@ -5,7 +5,8 @@
 // The main scenario runs here, on the loopback connection every client of this core has. The relay scenario (what only a paired phone
 // meets: the registered-projects rule and one-file permissions) needs a relay-origin connection, which only the relay leg opens: it runs
 // behind a scripted relay and a paired phone (lib/phone-relay-core.mjs).
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
+import { endCore } from './core-stop.mjs';
 import { existsSync, mkdirSync, readFileSync, rmSync, utimesSync, watch, writeFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { isDeepStrictEqual } from 'node:util';
@@ -35,10 +36,6 @@ function differences(a, b, path = '') {
   return [path];
 }
 
-/** The core and the database it started, ended by the process tree of the one pid this replay spawned (a pid already gone is no error). */
-function killTree(child) {
-  spawnSync('taskkill', ['/T', '/F', '/PID', String(child.pid)], { stdio: 'ignore' });
-}
 
 async function startCore(exe, coreRoot, relay, fresh = true) {
   if (fresh) rmSync(coreRoot, { recursive: true, force: true });
@@ -80,13 +77,13 @@ async function startCore(exe, coreRoot, relay, fresh = true) {
       stirred = false;
       if (child.exitCode !== null) throw new Error(`mixdogd exited ${child.exitCode}:\n${stderr}`);
       try {
-        return { child, env, endpoint: parseDiscovery(readFileSync(file, 'utf8')), dataDir: join(coreRoot, 'data') };
+        return { exe, child, env, endpoint: parseDiscovery(readFileSync(file, 'utf8')), dataDir: join(coreRoot, 'data') };
       } catch {
         if (!stirred) await new Promise((resolve) => (wake = resolve));
       }
     }
   } catch (error) {
-    killTree(child);
+    await endCore({ exe, child, env, dataDir: join(coreRoot, 'data') }).catch((left) => console.error(left.message));
     throw error;
   } finally {
     watcher.close();
@@ -269,7 +266,7 @@ async function replayScenario({ exe, world, name, make, expected, relay }) {
   } finally {
     client?.close?.();
     window?.client.close?.();
-    killTree(core.child);
+    await endCore(core);
   }
 }
 
