@@ -12,19 +12,25 @@
 //   node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs \
 //        benchmarks/rust-core/recorders/record-phone-scm.mjs --tree <git archive of b6f10295a with node_modules>
 //
-// Scratch repositories live under D:\mixdog-build\tmp\phone-ph2-scm-rec and are deleted when the run ends.
+// Scratch repositories live under D:\mixdog-build\tmp\phone-ph2-scm-rec (the input group's under its sibling phone-ph2-scm-r00) and
+// are deleted when the run ends.
 //
 // With `--replay <mixdogd.exe>` the same scenario is driven through the phone's adapter against a built daemon and everything the
 // recording holds is compared with what the core did, in the recorded order: the frame the phone got, every desktop operation's
 // request and result, every program the core tried to start (started or not, and how it ended), the settings events, the virtual
 // clock's steps, and the ordering scenario.
+//
+// The cases fall in groups that share nothing (GROUPS): a run starts each group in a process of its own, `--jobs <n>` of them at
+// once (default 4), each with its own world, Node host or core, ports and repositories, its cases in their recorded order; a group
+// that has not ended within `--group-deadline-min` minutes (default 40) fails the run with its name. `--only <group>` runs one.
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import fs, { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import fs, { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import net from 'node:net';
-import { basename, join, posix, resolve, win32 } from 'node:path';
+import { tmpdir } from 'node:os';
+import { basename, dirname, join, posix, resolve, win32 } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { commitStage, exactProductIdentity, importFrom, parseArgs, REPO_ROOT, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
@@ -41,9 +47,14 @@ const args = parseArgs();
 const REPLAY = args.get('replay') ?? null;
 // `--only <group>`: record or replay one group of cases and stop. A recording of one group is written to `--out <file>`, never to
 // the fixture (the full run is what the fixture holds); a replay of one group compares that group's cases of the fixture.
+// In the order the recording holds them. Every case of the recording is in exactly one group.
 const GROUPS = {
-  // Every argument check of Node's host for the phone's source-control calls (the cases named `input-*` and `refused-*`).
+  // Every argument check of Node's host for the phone's source-control calls (the cases named `input-*` and `refused-*`), on a
+  // repository of their own that no other case reads.
   input: (name) => /^(input|refused)-/.test(name),
+  // Everything else: one story on the shared repository (each case's recorded repository is what the cases before it left), the
+  // sign-in terminals and the ordering scenario.
+  scenario: (name) => !/^(input|refused)-/.test(name),
 };
 const ONLY = args.get('only') ?? null;
 if (ONLY !== null && !GROUPS[ONLY]) throw new Error(`--only takes one of ${Object.keys(GROUPS).join(', ')}, not ${ONLY}`);
@@ -65,6 +76,191 @@ const script = JSON.parse(readFileSync(join(FIXTURES, 'gh-script.json'), 'utf8')
 const clone = (value) => JSON.parse(JSON.stringify(value));
 /** A side of a difference as text: `JSON.stringify` prints `-0` as `0`, which would hide the one thing that differs. */
 const shown = (value) => JSON.stringify(value, (_, item) => (Object.is(item, -0) ? JSON.rawJSON('-0') : item));
+
+/**
+ * Nothing is compared with a recording its manifest does not vouch for: every file the manifest lists has the size and hash it
+ * states and the folder holds no other, and the recording was made by this recorder (each of its files has the hash the manifest
+ * names).
+ */
+function verifyRecording() {
+  const fixtureManifest = JSON.parse(readFileSync(join(FIXTURES, 'MANIFEST.json'), 'utf8'));
+  const present = readdirSync(FIXTURES).filter((name) => name !== 'MANIFEST.json').sort();
+  assert.deepEqual(present, fixtureManifest.files.map((file) => file.path).sort(), 'the fixture folder holds other files than its manifest lists: record again');
+  for (const file of fixtureManifest.files) {
+    const data = readFileSync(join(FIXTURES, file.path));
+    assert.deepEqual({ bytes: data.length, sha256: createHash('sha256').update(data).digest('hex') }, { bytes: file.bytes, sha256: file.sha256 }, `${file.path} is not the file its manifest lists: record again`);
+  }
+  assert.deepEqual(fixtureManifest.recorderFiles, recorderFiles(), 'the recording was made by another recorder than this one (the hashes of its files differ): record again before comparing');
+}
+
+// A group's world. The scenario's is the recorded folder: its commit ids carry the folder's path (a merge names the origin it
+// pulled from), so it can run nowhere else. Every other group's is a sibling whose name has the same length, so no text moves: what
+// it records is written back to the recorded name, and what it replays is read with its own name.
+const RECORDED_WORK = process.env.PHONE_SCM_RECORDED_WORK ?? WORK;
+const worldOf = (group) => (group === 'scenario' ? WORK : join(dirname(WORK), `${basename(WORK).slice(0, -2)}${String(Object.keys(GROUPS).indexOf(group)).padStart(2, '0')}`));
+assert.ok(dirname(RECORDED_WORK) === dirname(WORK) && basename(RECORDED_WORK).length === basename(WORK).length, `the world ${WORK} is not a sibling of the recorded ${RECORDED_WORK} with a name of the same length`);
+/** A text that names the folder `from` (the whole name, in any spelling of the path above it) as it names `to` instead. */
+function renamed(text, from, to) {
+  if (from === to) return text;
+  assert.ok(!text.includes(basename(to)), `the text already names ${basename(to)}: the two folders could not be told apart`);
+  return text.replaceAll(basename(from), basename(to));
+}
+
+// ── no `--only`: every group in a process of its own, `--jobs` at once ──
+if (ONLY === null) {
+  const jobs = Number(args.get('jobs') ?? 4);
+  if (!Number.isInteger(jobs) || jobs < 1) throw new Error(`--jobs takes a whole number of at least 1, not ${args.get('jobs')}`);
+  const deadlineMin = Number(args.get('group-deadline-min') ?? 40);
+  if (!(deadlineMin > 0)) throw new Error(`--group-deadline-min takes a number of minutes, not ${args.get('group-deadline-min')}`);
+  if (REPLAY) {
+    verifyRecording();
+    // The install layout the cores read (see below), written once before any of them starts.
+    const runtime = join(REPLAY, '..', 'js-runtime.json');
+    if (!existsSync(runtime)) writeFileSync(runtime, JSON.stringify({ program: process.execPath, packageRoot: REPO_ROOT }));
+  }
+  const outDir = mkdtempSync(join(tmpdir(), 'phone-scm-groups-'));
+  const running = new Set();
+  process.on('exit', () => {
+    for (const child of running) endTree(child.pid);
+    rmSync(outDir, { recursive: true, force: true });
+  });
+  const minutes = (ms) => `${Math.floor(ms / 60_000)}m${String(Math.floor((ms % 60_000) / 1000)).padStart(2, '0')}s`;
+  const runGroup = async (group) => {
+    const out = join(outDir, `${group}.json`);
+    const began = performance.now();
+    const child = spawn(process.execPath, [...process.execArgv, process.argv[1], ...process.argv.slice(2), '--only', group, '--out', out], {
+      env: { ...process.env, PHONE_SCM_WORK: worldOf(group), PHONE_SCM_RECORDED_WORK: WORK },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    running.add(child);
+    for (const [stream, sink] of [[child.stdout, process.stdout], [child.stderr, process.stderr]]) {
+      let rest = '';
+      stream.setEncoding('utf8');
+      stream.on('data', (chunk) => {
+        const lines = (rest + chunk).split('\n');
+        rest = lines.pop();
+        for (const line of lines) sink.write(`[${group}] ${line}\n`);
+      });
+      stream.on('end', () => rest && sink.write(`[${group}] ${rest}\n`));
+    }
+    const closed = new Promise((resolve) => {
+      child.once('error', (error) => resolve(`could not start: ${error.message}`));
+      child.once('close', (code, signal) => resolve(code ?? signal));
+    });
+    let timer;
+    const late = new Promise((resolve) => (timer = setTimeout(() => resolve(null), deadlineMin * 60_000)));
+    let ended = await Promise.race([closed, late]);
+    clearTimeout(timer);
+    if (ended === null) {
+      endTree(child.pid);
+      await closed;
+      ended = `did not end within ${deadlineMin} minutes`;
+    }
+    running.delete(child);
+    const ms = performance.now() - began;
+    const failure = typeof ended === 'string' ? ended : !existsSync(out) ? `exited ${ended} without a result` : null;
+    return { group, ms, exit: ended, failure, out: failure ? null : JSON.parse(renamed(readFileSync(out, 'utf8'), worldOf(group), WORK)) };
+  };
+  const began = performance.now();
+  const pending = Object.keys(GROUPS);
+  const ran = new Map();
+  await Promise.all(Array.from({ length: Math.min(jobs, pending.length) }, async () => {
+    for (let group = pending.shift(); group; group = pending.shift()) ran.set(group, await runGroup(group));
+  }));
+  const wall = performance.now() - began;
+  const results = Object.keys(GROUPS).map((group) => ran.get(group));
+  const timing = `${jobs} at once, ${minutes(wall)} (${results.map((result) => `${result.group} ${minutes(result.ms)}`).join(', ')})`;
+  const failed = results.filter((result) => result.failure);
+  if (failed.length) {
+    console.log(`phone-scm: ${failed.map((result) => `group ${result.group} ${result.failure}`).join('; ')}; ${timing}`);
+    process.exit(1);
+  }
+  const outs = results.map((result) => result.out);
+  if (REPLAY) {
+    // The comparison is the groups' together: every case of the recording compared once, by its group, and the ordering scenario.
+    const names = JSON.parse(readFileSync(join(FIXTURES, 'golden.json'), 'utf8')).cases.map((entry) => entry.name);
+    const compared = outs.flatMap((out) => out.compared);
+    const twice = compared.filter((name, index) => compared.indexOf(name) !== index);
+    const unknown = compared.filter((name) => !names.includes(name));
+    const unreplayed = names.filter((name) => !compared.includes(name));
+    const orderings = outs.filter((out) => out.ordering).length;
+    const differences = outs.flatMap((out) => out.differences);
+    console.log(`phone-scm replay over ${REPLAY}: ${compared.length} cases and the ordering scenario compared (${orderings === 1 ? 'replayed' : `replayed ${orderings} times`}), ${differences.length} differ, ${unreplayed.length} of the recording not replayed${unreplayed.length ? `: ${unreplayed.join(', ')}` : ''}; ${timing}`);
+    if (twice.length || unknown.length) console.log(`compared twice: ${twice.join(', ') || 'none'}; not in the recording: ${unknown.join(', ') || 'none'}`);
+    for (const name of differences) console.log(`DIFF ${name}`);
+    process.exit(differences.length || unreplayed.length || twice.length || unknown.length || orderings !== 1 || results.some((result) => result.exit !== 0) ? 1 : 0);
+  }
+  // The recording: the groups' cases in the order of GROUPS, each group's in the order it recorded them.
+  const realGits = [...new Set(outs.map((out) => out.realGit))];
+  assert.equal(realGits.length, 1, `the groups ran different gits: ${realGits.join(', ')}`);
+  const scenario = outs.find((out) => out.group === 'scenario');
+  const cases = outs.flatMap((out) => out.cases);
+  const covered = new Set(outs.flatMap((out) => out.covered));
+  const PATH_SPELLINGS = ['C:\\repo', '\\repo', '/repo', 'C:/repo', '\\\\host\\share', '//host/share', 'repo', './repo', 'C:repo', ' /repo ', '../x', 'C:\\x'];
+  // ── every one of the 62 calls was recorded ──
+  const PH2_SCM_CALLS = readFileSync(join(FIXTURES, 'calls.txt'), 'utf8').split(/\s+/).filter(Boolean);
+  const missing = PH2_SCM_CALLS.filter((call) => !covered.has(call));
+  if (missing.length || PH2_SCM_CALLS.length !== 62) throw new Error(`calls not recorded: ${missing.join(', ')} (${PH2_SCM_CALLS.length} listed)`);
+  const stage = stageSet(FIXTURES, ['golden.json']);
+  writeJson(join(stage, 'golden.json'), {
+    note: 'The relay frame Node (b6f10295a) sent the phone for each source-control call, with the desktop operations it invoked and what they returned. gh, winget, soffice.com and `git --version` are the scripted rules of gh-script.json (`world` is the state when the call ran).',
+    platform: process.platform,
+    git: script.rules.find((rule) => rule.tool === 'git' && !rule.when).reply.stdout.trim(),
+    realGit: realGits[0],
+    // What Node's host (`path.isAbsolute`, main/git-contract.mjs:1-6 and every git path check) says of each spelling, on each platform's rule.
+    pathRules: Object.fromEntries(
+      [['windows', win32], ['unix', posix]].map(([family, rules]) => [family, PATH_SPELLINGS.map((spelling) => ({ spelling, absolute: rules.isAbsolute(spelling), trimmedAbsolute: rules.isAbsolute(spelling.trim()) }))]),
+    ),
+    cases,
+    // Calls the core cannot be compared on, each recorded from Node and kept as JSON text (`recordedText`): see the manifest's notes.
+    limits: outs.flatMap((out) => out.limits),
+    ptyEnds: scenario.ptyEnds,
+    ordering: scenario.ordering,
+  });
+  writeSetManifest(stage, {
+    set: 'phone-scm',
+    recorder: 'benchmarks/rust-core/recorders/record-phone-scm.mjs',
+    command: `node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-phone-scm.mjs --tree <git archive of ${REF} with node_modules>`,
+    identity,
+    extra: {
+      cases: cases.length,
+      calls: PH2_SCM_CALLS.length,
+      // The recorder that made this recording, by the hash of each of its files' committed (LF) text; a replay refuses to compare
+      // when the running recorder's files differ.
+      recorderFiles: recorderFiles(),
+      // What of Node's path from the phone's socket to the method table this recording runs, and what it does not.
+      entry: {
+        runs: 'executeRemoteFrame over createRemoteMethods (remote-methods.ts:1256, :828): the frame parse, the method lookup, every argument check and the desktop operation',
+        notRun:
+          'the relay above it, which reads no source-control method or argument: the payload cap (remote-relay.ts:75,190), frame admission (remote-relay-clients.ts:215-217), the handshake and decryption (remote-relay-client-lifecycle.ts:86-99), the transport registrations and the state-resync frame of remote-relay-client-calls.ts:181-455',
+        git: 'runChild on the calling thread. The daemon runs the same runChild in its process-runner worker pool (desktop-service.ts:1049-1053, process-runner.mjs:19-37, four threads): the same limits and errors; the spawns of one thread queue, which this recording does not reproduce',
+        featureGit: 'MIXDOG_FEATURE_GIT is unset, as in the product: no production code sets it (read at builtin-features.mjs:70,219)',
+        clock: 'Date.now, new Date() and the run-limit timeouts are virtual; every other timer of the code under test is real and is printed, by delay, at the end of a recording',
+      },
+      notes: {
+        loneSurrogate:
+          'An open difference, not parity. A JSON string holding an escaped lone surrogate ("\\ud800") is a string to Node: its string checks take it and the call acts on it (golden.json limits[lone-surrogate-gitLog-query]; Node\'s spawn writes it on git\'s command line as U+FFFD, bytes EF BF BD). The core reads every inbound frame into Rust strings (mixdog-app-protocol rpc.rs decode_inbound_text), which cannot hold one: the frame is invalid and the connection is closed with 1007, for every method, before any check runs. The case is not replayed.',
+        posixCwd:
+          'The directory rule is the platform\'s path.isAbsolute (git-contract.mjs:3), and so is the core\'s (mixdog-scm input.rs is_absolute): on POSIX only a leading "/" is absolute, so a backslash-rooted, a drive (C:\\x) or a UNC spelling is refused there where Windows (this recording) takes it. The trim is JavaScript\'s on both platforms.',
+        reviewWithoutFiles:
+          'The core request of the phone\'s gitReviewDiff and gitReviewDiffs is one method (review/diff/get, scope repo, patch true): one with neither `path` nor `files` cannot say which call it stands for, and is checked as gitReviewDiff. A request that names either is checked as its own call; the page always names one.',
+        loginOptions:
+          'githubCliLoginOpenBrowser\'s second argument (optionalGithubLoginOptions) has no core param: the page checks it and leaves it out (scm-operation-route.ts), so no core request carries it.',
+        githubStatusRefresh:
+          'githubCliStatus took no arguments over the relay (remote-methods.ts:562); the core ignores `refresh` on a relay connection and honours it for the desktop\'s own calls.',
+      },
+      // The stand-in's rules are input to both products, not recorded answers: say so, and what each imitates.
+      syntheticInput: {
+        file: 'gh-script.json',
+        reason: 'no authenticated gh (and no winget or soffice.com) on the recording machine; Node and the core run against the same rules and are compared with each other',
+        rules: script.rules.map((rule) => ({ tool: rule.tool, argv: rule.argv, when: rule.when ?? null, imitates: rule.imitates })),
+      },
+    },
+  });
+  commitStage(stage, FIXTURES);
+  console.log(`phone-scm: ${cases.length} cases over ${PH2_SCM_CALLS.length} calls; ${timing}`);
+  process.exit(results.some((result) => result.exit !== 0) ? 1 : 0);
+}
 
 const MACHINE_PATH = process.env.PATH;
 rmSync(WORK, { recursive: true, force: true });
@@ -436,7 +632,6 @@ write(R, 'a.txt', 'one\nTWO\nthree\nfour\n');
 git(R, 'commit', '-q', '-am', 'second: edit a');
 git(R, 'branch', 'feature');
 const rev = (what) => git(R, 'rev-parse', what).trim();
-const gitVersion = script.rules.find((rule) => rule.tool === 'git' && !rule.when).reply.stdout.trim();
 
 const cases = [];
 const covered = new Set();
@@ -521,18 +716,8 @@ process.on('exit', () => {
 const settingsChanges = [];
 let settingsWaiting = [];
 if (REPLAY) {
-  // Nothing is compared with a recording its manifest does not vouch for: every file the manifest lists has the size and hash it
-  // states and the folder holds no other, and the recording was made by this recorder (each of its files has the hash the
-  // manifest names).
-  const fixtureManifest = JSON.parse(readFileSync(join(FIXTURES, 'MANIFEST.json'), 'utf8'));
-  const present = readdirSync(FIXTURES).filter((name) => name !== 'MANIFEST.json').sort();
-  assert.deepEqual(present, fixtureManifest.files.map((file) => file.path).sort(), 'the fixture folder holds other files than its manifest lists: record again');
-  for (const file of fixtureManifest.files) {
-    const data = readFileSync(join(FIXTURES, file.path));
-    assert.deepEqual({ bytes: data.length, sha256: createHash('sha256').update(data).digest('hex') }, { bytes: file.bytes, sha256: file.sha256 }, `${file.path} is not the file its manifest lists: record again`);
-  }
-  assert.deepEqual(fixtureManifest.recorderFiles, recorderFiles(), 'the recording was made by another recorder than this one (the hashes of its files differ): record again before comparing');
-  const golden = JSON.parse(readFileSync(join(FIXTURES, 'golden.json'), 'utf8'));
+  verifyRecording();
+  const golden = JSON.parse(renamed(readFileSync(join(FIXTURES, 'golden.json'), 'utf8'), RECORDED_WORK, WORK));
   assert.equal(realGitVersion, golden.realGit, `the recording was made with "${golden.realGit}" and this machine's git is "${realGitVersion}": record again before comparing`);
   const here = (path) => import(pathToFileURL(join(REPO_ROOT, path)).href);
   if (process.env.PHONE_SCM_VERBOSE) console.error('stage: imports');
@@ -757,27 +942,29 @@ function replaySpelled(call, text) {
 }
 
 async function finishReplay() {
-  // Every sign-in terminal child, in the order started: its program, directory, environment and how it ended. A one-group
-  // replay starts none and compares none.
+  // Every sign-in terminal child, in the order started: its program, directory, environment and how it ended. They and the
+  // ordering scenario are the scenario group's.
+  const scenario = ONLY === 'scenario';
   const begun = new Map();
   for (const event of replay.wire.events) {
     if (event.event === 'begin' && event.pty) begun.set(event.seq, { argv: event.args, cwd: event.cwd, env: coreEnvDelta(event), ended: null });
     else if (event.event === 'done' && begun.has(event.seq)) begun.get(event.seq).ended = event.result;
   }
-  if (ONLY === null && !isDeepStrictEqual([...begun.values()], replay.golden.ptyEnds)) replay.differences.push({ name: 'sign-in terminal children (program, directory, environment, end)', node: replay.golden.ptyEnds, core: [...begun.values()] });
+  if (scenario && !isDeepStrictEqual([...begun.values()], replay.golden.ptyEnds)) replay.differences.push({ name: 'sign-in terminal children (program, directory, environment, end)', node: replay.golden.ptyEnds, core: [...begun.values()] });
   replay.client.close?.();
   const exited = new Promise((resolve) => replay.core.once('exit', resolve));
   endTree(replay.core.pid);
   await withDeadline(exited, 'the core did not exit after taskkill');
   rmSync(WORK, { recursive: true, force: true });
   const cases = replay.compared.filter((name) => name !== 'ordering');
-  const expected = [...replay.byName.keys()].filter((name) => ONLY === null || GROUPS[ONLY](name));
+  const expected = [...replay.byName.keys()].filter((name) => GROUPS[ONLY](name));
   const unreplayed = expected.filter((name) => !cases.includes(name));
-  const ordering = ONLY !== null ? 'not part of this group' : replay.compared.includes('ordering') ? 'replayed' : 'NOT replayed';
-  console.log(`phone-scm replay over ${REPLAY}${ONLY === null ? '' : ` (group ${ONLY})`}: ${cases.length} cases and the ordering scenario compared (${ordering}), ${replay.differences.length} differ, ${unreplayed.length} of the recording not replayed${unreplayed.length ? `: ${unreplayed.join(', ')}` : ''}`);
+  const ordering = !scenario ? 'not part of this group' : replay.compared.includes('ordering') ? 'replayed' : 'NOT replayed';
+  console.log(`phone-scm replay over ${REPLAY} (group ${ONLY}): ${cases.length} cases and the ordering scenario compared (${ordering}), ${replay.differences.length} differ, ${unreplayed.length} of the recording not replayed${unreplayed.length ? `: ${unreplayed.join(', ')}` : ''}`);
   for (const difference of replay.differences) console.log(`DIFF ${difference.name}\n  node: ${shown(difference.node)}\n  core: ${shown(difference.core)}`);
+  if (ONLY_OUT) writeJson(ONLY_OUT, { group: ONLY, compared: cases, ordering: replay.compared.includes('ordering'), differences: replay.differences.map((difference) => difference.name), unreplayed });
   // A difference, a recorded case that was not replayed, or a tree that could not be ended (`endTree` set the code) fails the run.
-  process.exit(replay.differences.length || unreplayed.length || (ONLY === null && !replay.compared.includes('ordering')) || process.exitCode ? 1 : 0);
+  process.exit(replay.differences.length || unreplayed.length || (scenario && !replay.compared.includes('ordering')) || process.exitCode ? 1 : 0);
 }
 // A login flow's id is `ghlogin_<pid>_<n>` in both products. Node's recording pins its pid (4242); the core's is its own process's,
 // so the core's answer is read with that pid as the recording's. Nothing else is rewritten.
@@ -1412,13 +1599,15 @@ async function recordInputChecks() {
   // ── a lone surrogate in a string: Node's string checks take it; the core cannot decode it into a string at all ──
   if (!replay) await recordLimit('lone-surrogate-gitLog-query', 'gitLog', `[${JSON.stringify(I)},"\\ud800"]`, 'A JSON string escape of a lone surrogate (\\ud800) is a string to Node, which checks it as any other and acts on it; the core reads every frame into Rust strings, which cannot hold it, so its frame decoder closes the connection (1007) before any check runs. An open difference of the whole core.');
 }
-await recordInputChecks();
-if (ONLY !== null) {
+if (ONLY === 'input') {
+  await recordInputChecks();
   if (replay) await finishReplay();
-  writeJson(ONLY_OUT, { group: ONLY, realGit: realGitVersion, cases, limits });
+  if (scripted.unscripted.length) throw new Error(`processes no rule of gh-script.json answers:\n${JSON.stringify(scripted.unscripted, null, 1)}`);
   await withDeadline(operations.dispose(), "Node's desktop operations never finished disposing");
   scripted.restore();
+  writeJson(ONLY_OUT, { group: ONLY, realGit: realGitVersion, cases, limits, covered: [...covered] });
   console.log(`phone-scm --only ${ONLY}: ${cases.length} cases written to ${ONLY_OUT}`);
+  console.log(`real timers of the code under test, by delay (ms): ${JSON.stringify(Object.fromEntries([...realTimers].sort()))}`);
   process.exit(0);
 }
 
@@ -2062,76 +2251,13 @@ const ordering = {
   answers: firstRun.answers,
   ops: firstRun.ops,
 };
-const PATH_SPELLINGS = ['C:\\repo', '\\repo', '/repo', 'C:/repo', '\\\\host\\share', '//host/share', 'repo', './repo', 'C:repo', ' /repo ', '../x', 'C:\\x'];
-// ── every one of the 62 calls was recorded ──
-const PH2_SCM_CALLS = readFileSync(join(FIXTURES, 'calls.txt'), 'utf8').split(/\s+/).filter(Boolean);
-const missing = PH2_SCM_CALLS.filter((call) => !covered.has(call));
-if (missing.length || PH2_SCM_CALLS.length !== 62) throw new Error(`calls not recorded: ${missing.join(', ')} (${PH2_SCM_CALLS.length} listed)`);
-
 if (scripted.unscripted.length) throw new Error(`processes no rule of gh-script.json answers:\n${JSON.stringify(scripted.unscripted, null, 1)}`);
 // How each sign-in terminal child ended, taken before the host is disposed (which ends any left running).
 const ptyEnds = pty.spawned.map((entry) => ({ argv: entry.record.argv, cwd: entry.record.cwd, env: entry.record.env, ended: entry.record.record.ended }));
 await withDeadline(operations.dispose(), "Node's desktop operations never finished disposing");
 scripted.restore();
 rmSync(WORK, { recursive: true, force: true });
-
-const stage = stageSet(FIXTURES, ['golden.json']);
-writeJson(join(stage, 'golden.json'), {
-  note: 'The relay frame Node (b6f10295a) sent the phone for each source-control call, with the desktop operations it invoked and what they returned. gh, winget, soffice.com and `git --version` are the scripted rules of gh-script.json (`world` is the state when the call ran).',
-  platform: process.platform,
-  git: gitVersion,
-  realGit: realGitVersion,
-  // What Node's host (`path.isAbsolute`, main/git-contract.mjs:1-6 and every git path check) says of each spelling, on each platform's rule.
-  pathRules: Object.fromEntries(
-    [['windows', win32], ['unix', posix]].map(([family, rules]) => [family, PATH_SPELLINGS.map((spelling) => ({ spelling, absolute: rules.isAbsolute(spelling), trimmedAbsolute: rules.isAbsolute(spelling.trim()) }))]),
-  ),
-  cases,
-  // Calls the core cannot be compared on, each recorded from Node and kept as JSON text (`recordedText`): see the manifest's notes.
-  limits,
-  ptyEnds,
-  ordering,
-});
-writeSetManifest(stage, {
-  set: 'phone-scm',
-  recorder: 'benchmarks/rust-core/recorders/record-phone-scm.mjs',
-  command: `node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-phone-scm.mjs --tree <git archive of ${REF} with node_modules>`,
-  identity,
-  extra: {
-    cases: cases.length,
-    calls: PH2_SCM_CALLS.length,
-    // The recorder that made this recording, by the hash of each of its files' committed (LF) text; a replay refuses to compare
-    // when the running recorder's files differ.
-    recorderFiles: recorderFiles(),
-    // What of Node's path from the phone's socket to the method table this recording runs, and what it does not.
-    entry: {
-      runs: 'executeRemoteFrame over createRemoteMethods (remote-methods.ts:1256, :828): the frame parse, the method lookup, every argument check and the desktop operation',
-      notRun:
-        'the relay above it, which reads no source-control method or argument: the payload cap (remote-relay.ts:75,190), frame admission (remote-relay-clients.ts:215-217), the handshake and decryption (remote-relay-client-lifecycle.ts:86-99), the transport registrations and the state-resync frame of remote-relay-client-calls.ts:181-455',
-      git: 'runChild on the calling thread. The daemon runs the same runChild in its process-runner worker pool (desktop-service.ts:1049-1053, process-runner.mjs:19-37, four threads): the same limits and errors; the spawns of one thread queue, which this recording does not reproduce',
-      featureGit: 'MIXDOG_FEATURE_GIT is unset, as in the product: no production code sets it (read at builtin-features.mjs:70,219)',
-      clock: 'Date.now, new Date() and the run-limit timeouts are virtual; every other timer of the code under test is real and is printed, by delay, at the end of a recording',
-    },
-    notes: {
-      loneSurrogate:
-        'An open difference, not parity. A JSON string holding an escaped lone surrogate ("\\ud800") is a string to Node: its string checks take it and the call acts on it (golden.json limits[lone-surrogate-gitLog-query]; Node\'s spawn writes it on git\'s command line as U+FFFD, bytes EF BF BD). The core reads every inbound frame into Rust strings (mixdog-app-protocol rpc.rs decode_inbound_text), which cannot hold one: the frame is invalid and the connection is closed with 1007, for every method, before any check runs. The case is not replayed.',
-      posixCwd:
-        'The directory rule is the platform\'s path.isAbsolute (git-contract.mjs:3), and so is the core\'s (mixdog-scm input.rs is_absolute): on POSIX only a leading "/" is absolute, so a backslash-rooted, a drive (C:\\x) or a UNC spelling is refused there where Windows (this recording) takes it. The trim is JavaScript\'s on both platforms.',
-      reviewWithoutFiles:
-        'The core request of the phone\'s gitReviewDiff and gitReviewDiffs is one method (review/diff/get, scope repo, patch true): one with neither `path` nor `files` cannot say which call it stands for, and is checked as gitReviewDiff. A request that names either is checked as its own call; the page always names one.',
-      loginOptions:
-        'githubCliLoginOpenBrowser\'s second argument (optionalGithubLoginOptions) has no core param: the page checks it and leaves it out (scm-operation-route.ts), so no core request carries it.',
-      githubStatusRefresh:
-        'githubCliStatus took no arguments over the relay (remote-methods.ts:562); the core ignores `refresh` on a relay connection and honours it for the desktop\'s own calls.',
-    },
-    // The stand-in's rules are input to both products, not recorded answers: say so, and what each imitates.
-    syntheticInput: {
-      file: 'gh-script.json',
-      reason: 'no authenticated gh (and no winget or soffice.com) on the recording machine; Node and the core run against the same rules and are compared with each other',
-      rules: script.rules.map((rule) => ({ tool: rule.tool, argv: rule.argv, when: rule.when ?? null, imitates: rule.imitates })),
-    },
-  },
-});
-commitStage(stage, FIXTURES);
-console.log(`phone-scm: ${cases.length} cases over ${PH2_SCM_CALLS.length} calls`);
+writeJson(ONLY_OUT, { group: ONLY, realGit: realGitVersion, cases, limits, covered: [...covered], ptyEnds, ordering });
+console.log(`phone-scm --only ${ONLY}: ${cases.length} cases written to ${ONLY_OUT}`);
 console.log(`real timers of the code under test, by delay (ms): ${JSON.stringify(Object.fromEntries([...realTimers].sort()))}`);
 process.exit(0);

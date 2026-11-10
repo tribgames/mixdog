@@ -55,7 +55,7 @@
   "recorderFiles": [
     {
       "path": "benchmarks/rust-core/recorders/record-phone-scm.mjs",
-      "sha256": "ffab3eacf2e369554a0c566f69bf35a07a4882481324bbb34afd042e43eee82f"
+      "sha256": "96f4e6bb16fc690421c7e55bbec85c2d7ac3ebb0f0f5ddb94a06d5544a780506"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
