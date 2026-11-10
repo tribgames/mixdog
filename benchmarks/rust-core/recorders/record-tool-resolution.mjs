@@ -23,7 +23,8 @@ const { FIXTURES_ROOT, commitStage, importFrom, parseArgs, recordingProvenance, 
 const { writeJsonCompact } = await import('./lib/tool-definitions.mjs');
 const tree = resolveTree(parseArgs());
 const finalDir = join(FIXTURES_ROOT, 'tool-resolution');
-const stage = stageSet(finalDir);
+// `harness-request.json` beside it is `record-harness-request-tools.mjs`'s and is kept.
+const stage = stageSet(finalDir, ['golden.json', 'MANIFEST.json']);
 const recorder = 'benchmarks/rust-core/recorders/record-tool-resolution.mjs';
 const at = (path) => importFrom(tree, path);
 const orch = 'src/runtime/agent/orchestrator/';
