@@ -1069,6 +1069,9 @@ pub struct FailedCall {
 /// order, before the call's result is cached or committed. Never blocks and never fails the run.
 pub trait ToolFailureLog: Send + Sync {
     fn failed(&self, call: FailedCall);
+    /// `recordAgentWatchdogAbort(ctx)`: the progress watchdog stopped the run's turn (`mixdog_trace::watchdog_abort_records`
+    /// has the fields of `ctx`); the `stall_abort` rows join the same log.
+    fn stall_abort(&self, ctx: serde_json::Map<String, serde_json::Value>);
 }
 
 /// Everything a run borrows from its host.

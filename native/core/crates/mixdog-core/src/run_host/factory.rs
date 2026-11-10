@@ -36,7 +36,8 @@ use serde_json::{json, Value};
 use tokio::sync::{mpsc, watch};
 
 use super::live_turn::LiveTurnPublisher;
-use super::watchdog::Watchdog;
+use super::watchdog::{StallSite, Watchdog, registration_id, stall_abort_ctx};
+use mixdog_agent::agent_tool::progress::Snapshot;
 use mixdog_agent::agent_tool::watchdog::{is_watchdog_abort, resolve_policy, AgentKind, Overrides};
 use super::message_row::{message_of, row_of};
 use mixdog_core_run::run_host::progress::ProgressPublisher;
@@ -1081,7 +1082,16 @@ async fn drive(
         let kind = AgentKind { name: agent, hidden: config.hidden_agent, stall_cap_idle_seconds: parts.stall_cap_idle_seconds(agent) };
         let policy = resolve_policy(kind, overrides, &|name: &str| std::env::var(name).ok());
         let (reaper, reaped_thread) = (parts.clone(), thread.clone());
-        Watchdog::arm(true, policy, signal.clone(), clock.clone(), move |now| watched.borrow().snapshot(now), move |_, _, _| reaper.reap_turn_shells(&reaped_thread, asked_at))
+        // The worker-turn registry's stop (`abortOnTimeout`, `agent-watchdog-registry.mjs:30-33`): the reap is armed, then the stop is
+        // recorded with what the sweep judged, then the abort.
+        let (stall_log, stall_agent, site) = (failures.clone(), agent.map(str::to_owned), StallSite::Registry { registration_id: registration_id() });
+        let anchor_ts = clock.now_ms();
+        Watchdog::arm(true, policy, signal.clone(), clock.clone(), move |now| watched.borrow().snapshot(now), move |snapshot: &Snapshot, message: &str, now: i64| {
+            reaper.reap_turn_shells(&reaped_thread, asked_at);
+            if let Some(log) = stall_log {
+                log.stall_abort(stall_abort_ctx(reaped_thread.as_str(), stall_agent.as_deref(), &site, &policy, anchor_ts, snapshot, message, now));
+            }
+        })
     } else {
         None
     };

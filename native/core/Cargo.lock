@@ -4046,6 +4046,7 @@ dependencies = [
  "mixdog-statefile",
  "mixdog-store",
  "mixdog-tools",
+ "mixdog-trace",
  "mixdog-workspace-hack",
  "rand 0.9.5",
  "serde_json",

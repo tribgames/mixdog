@@ -11,6 +11,65 @@ use mixdog_agent::agent_tool::progress::{Snapshot, WatchdogPolicy, stale_report}
 use mixdog_agent::cancel::Cancel;
 use mixdog_agent::env::Clock;
 use mixdog_rt::TaskClass;
+use serde_json::{Map, Value, json};
+
+/// Which of Node's two watchdogs stopped the turn, with what only that one records.
+pub enum StallSite {
+    /// `startDispatchWatchdog` (`agent-dispatch/watchdog.mjs:26-34`): `iteration` is `sess.lastIterationIndex` when a number.
+    Dispatch { iteration: Value },
+    /// The worker-turn registry (`agent-watchdog-registry.mjs:106-117`): its `registrationId` and the agent tree's
+    /// observation of an in-process runtime (`agent-tree.mjs:64-68`: read now, directly). Its `getSession` is the agent
+    /// descriptor, which has no `lastIterationIndex` (`agent-tree.mjs:116-135`), so `iteration` is always null.
+    Registry { registration_id: String },
+}
+
+/// `randomUUID().slice(0, 8)`: a registry watch's id (`agent-watchdog-registry.mjs:161`).
+pub fn registration_id() -> String {
+    uuid::Uuid::new_v4().to_string()[..8].to_owned()
+}
+
+/// The `ctx` of `abortAgentProgressWatchdog` for a stop judged at `now` on `snapshot` with `message`, armed at `anchor_ts`
+/// (the fields `mixdog_trace::watchdog_abort_records` reads).
+pub fn stall_abort_ctx(session_id: &str, agent: Option<&str>, site: &StallSite, policy: &WatchdogPolicy, anchor_ts: i64, snapshot: &Snapshot, message: &str, now: i64) -> Map<String, Value> {
+    let mut ctx = Map::new();
+    ctx.insert("sessionId".into(), json!(session_id));
+    ctx.insert("agent".into(), json!(agent));
+    ctx.insert("error".into(), json!({ "message": message }));
+    ctx.insert("snapshot".into(), snapshot_ctx(snapshot));
+    ctx.insert("policy".into(), json!({ "idleStaleMs": policy.idle_stale_ms }));
+    ctx.insert("now".into(), json!(now));
+    ctx.insert("anchorTs".into(), json!(anchor_ts));
+    match site {
+        StallSite::Dispatch { iteration } => {
+            ctx.insert("iteration".into(), iteration.clone());
+        }
+        StallSite::Registry { registration_id } => {
+            ctx.insert("iteration".into(), Value::Null);
+            ctx.insert("observation".into(), json!({ "source": "direct", "lastReadOkAt": now, "readPendingSince": null, "lastReadError": null }));
+            ctx.insert("registrationId".into(), json!(registration_id));
+        }
+    }
+    ctx.insert("buildVersion".into(), json!(env!("CARGO_PKG_VERSION")));
+    ctx
+}
+
+/// `getSessionProgressSnapshot`'s object, as `recordAgentWatchdogAbort` reads it (`awaitingUser` is present only while a person is asked).
+fn snapshot_ctx(snapshot: &Snapshot) -> Value {
+    let mut object = Map::new();
+    object.insert("stage".into(), json!(snapshot.stage.as_deref().unwrap_or("idle")));
+    object.insert("askStartedAt".into(), json!(snapshot.ask_started_at));
+    object.insert("modelRequestStartedAt".into(), json!(snapshot.model_request_started_at));
+    object.insert("firstActivityAt".into(), json!(snapshot.first_activity_at));
+    object.insert("currentTool".into(), json!(snapshot.current_tool));
+    object.insert("lastProgressAt".into(), json!(snapshot.last_progress_at));
+    object.insert("lastKeepaliveAt".into(), json!(snapshot.last_keepalive_at));
+    object.insert("waitingForTransport".into(), json!(snapshot.waiting_for_transport));
+    object.insert("waitingForFirstSemantic".into(), json!(snapshot.waiting_for_first_semantic));
+    if snapshot.awaiting_user {
+        object.insert("awaitingUser".into(), json!("approval"));
+    }
+    Value::Object(object)
+}
 
 /// Node polls every second.
 pub const SWEEP: Duration = Duration::from_secs(1);
@@ -347,6 +406,119 @@ mod tests {
         run_for(5, &sweeps, &[(dog(&live_dog), &live), (dog(&stale_dog), &stale)]).await;
         assert!(stale.is_aborted());
         assert_eq!(reaped.load(Ordering::SeqCst), 1);
+    }
+
+    /// Epoch milliseconds that follow the paused tokio clock from a recorded run's own start.
+    struct Since(tokio::time::Instant, i64);
+
+    impl Clock for Since {
+        fn now_ms(&self) -> i64 {
+            self.1 + self.0.elapsed().as_millis() as i64
+        }
+    }
+
+    /// Node's progress snapshot object (`getSessionProgressSnapshot`) as the Rust snapshot.
+    fn snapshot_of(v: &Value) -> Snapshot {
+        let n = |k: &str| v[k].as_i64().unwrap_or_else(|| panic!("{k} in {v}"));
+        let b = |k: &str| v[k].as_bool().unwrap_or_else(|| panic!("{k} in {v}"));
+        Snapshot {
+            stage: v["stage"].as_str().map(str::to_owned),
+            last_progress_at: n("lastProgressAt"),
+            last_stream_delta_at: n("lastStreamDeltaAt"),
+            tool_started_at: n("toolStartedAt"),
+            ask_started_at: n("askStartedAt"),
+            first_activity_at: n("firstActivityAt"),
+            model_request_started_at: n("modelRequestStartedAt"),
+            last_keepalive_at: n("lastKeepaliveAt"),
+            last_visible_text_at: n("lastVisibleTextAt"),
+            awaiting_model_response: b("awaitingModelResponse"),
+            waiting_for_transport: b("waitingForTransport"),
+            waiting_for_first_semantic: b("waitingForFirstSemantic"),
+            has_first_semantic: b("hasFirstSemantic"),
+            awaiting_user: v.get("awaitingUser").is_some(),
+            last_semantic_kind: match v["lastSemanticKind"].as_str() {
+                Some("tool") => Some(mixdog_agent::agent_tool::progress::SemanticKind::Tool),
+                Some("text") => Some(mixdog_agent::agent_tool::progress::SemanticKind::Text),
+                Some("reasoning") => Some(mixdog_agent::agent_tool::progress::SemanticKind::Reasoning),
+                None => None,
+                Some(other) => panic!("semantic kind {other}"),
+            },
+            current_tool: v["currentTool"].as_str().map(str::to_owned),
+        }
+    }
+
+    /// The rows Node's two watchdogs wrote when they stopped a turn (`fixtures/watchdog-stall-rows`, recorded by
+    /// `benchmarks/rust-core/recorders/record-watchdog-stall-rows.mjs` on mocked interval timers and clock): each recorded run is
+    /// armed at its recorded instant, each sweep is given the snapshot Node's sweep read at that instant, the clock moves only by the
+    /// explicit one-second advance, and the stop is recorded through `stall_abort_ctx` (what the dispatch's and the worker turn's
+    /// hooks call) into `mixdog_trace::watchdog_abort_records`. The stop must come at Node's sweep with Node's sentence, and the two
+    /// files must be Node's, whole and in order; the registry's random `registration_id` is checked to be 8 hex digits and named by
+    /// order of appearance on both sides, as the recorder names Node's.
+    #[tokio::test(start_paused = true)]
+    async fn a_stop_writes_the_stall_abort_rows_node_writes() {
+        let _held = HeldClock::hold();
+        mixdog_rt::testing::tokens();
+        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/watchdog-stall-rows/golden.json")).unwrap();
+        let policy = &golden["policy"];
+        let policy = WatchdogPolicy {
+            first_transport_ms: policy["firstTransportMs"].as_i64().unwrap(),
+            first_semantic_ms: policy["firstSemanticMs"].as_i64().unwrap(),
+            idle_stale_ms: policy["idleStaleMs"].as_i64().unwrap(),
+        };
+        let (mut failures, mut trace) = (String::new(), String::new());
+        let mut registrations: Vec<String> = Vec::new();
+        let runs = golden["runs"].as_array().unwrap();
+        assert!(!runs.is_empty());
+        for run in runs {
+            let (site_name, name) = (run["site"].as_str().unwrap(), run["name"].as_str().unwrap());
+            let (origin, session) = (run["origin"].as_i64().unwrap(), run["sessionId"].as_str().unwrap().to_owned());
+            let agent = run["agent"].as_str().unwrap().to_owned();
+            let seen: Vec<(i64, Snapshot)> = run["sweeps"].as_array().unwrap().iter().map(|sweep| (sweep["at"].as_i64().unwrap(), snapshot_of(&sweep["snapshot"]))).collect();
+            let site = match site_name {
+                "dispatch" => StallSite::Dispatch { iteration: Value::Null },
+                "registry" => StallSite::Registry { registration_id: registration_id() },
+                other => panic!("site {other}"),
+            };
+            let stops = Arc::new(Mutex::new(Vec::new()));
+            let (signal, sweeps) = (Cancel::new(), Arc::new(Sweeps::default()));
+            let clock = Arc::new(Since(tokio::time::Instant::now(), origin));
+            let hook = {
+                let (stops, session, agent) = (stops.clone(), session.clone(), agent.clone());
+                move |snapshot: &Snapshot, message: &str, now: i64| {
+                    let ctx = stall_abort_ctx(&session, Some(&agent), &site, &policy, origin, snapshot, message, now);
+                    stops.lock().unwrap().push((now, mixdog_trace::watchdog_abort_records(&ctx, now).expect("a stop with a session and an error is recorded")));
+                }
+            };
+            let snapshot = move |now: i64| -> Option<Snapshot> {
+                let at = now - origin;
+                Some(seen.iter().find(|(when, _)| *when == at).unwrap_or_else(|| panic!("no recorded sweep at {at} ms")).1.clone())
+            };
+            let watchdog = Watchdog::arm(true, policy, signal.clone(), clock, counted(&sweeps, snapshot), hook);
+            let dogs = [(dog(&watchdog), &signal)];
+            let stopped_at = run["abortedAt"].as_i64().unwrap();
+            run_for((stopped_at / 1000) as u64, &sweeps, &dogs).await;
+            assert!(signal.is_aborted(), "{site_name}/{name}: stopped by {stopped_at} ms");
+            assert_eq!(signal.reason(), run["message"].as_str().unwrap(), "{site_name}/{name}: the sentence");
+            let stops = std::mem::take(&mut *stops.lock().unwrap());
+            assert_eq!(stops.len(), 1, "{site_name}/{name}: one stop");
+            let (now, abort) = &stops[0];
+            assert_eq!(*now, origin + stopped_at, "{site_name}/{name}: the stop's instant");
+            let mut row = mixdog_trace::stringify(&abort.failure);
+            if let Some(id) = abort.failure["registration_id"].as_str() {
+                assert!(id.len() == 8 && id.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()), "{id} is 8 hex digits");
+                let n = registrations.iter().position(|seen| seen == id).unwrap_or_else(|| {
+                    registrations.push(id.to_owned());
+                    registrations.len() - 1
+                });
+                row = row.replace(&format!("\"registration_id\":\"{id}\""), &format!("\"registration_id\":\"<registration:{}>\"", n + 1));
+            }
+            failures.push_str(&row);
+            failures.push('\n');
+            trace.push_str(&mixdog_trace::stringify(&Value::Object(mixdog_trace::build_row(&abort.trace, *now))));
+            trace.push('\n');
+        }
+        assert_eq!(failures, golden["failures"].as_str().unwrap(), "history/tool-failures.jsonl");
+        assert_eq!(trace, golden["trace"].as_str().unwrap(), "history/agent-trace.jsonl");
     }
 
     #[tokio::test(start_paused = true)]
