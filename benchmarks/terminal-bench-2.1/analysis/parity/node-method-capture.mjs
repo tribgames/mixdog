@@ -1,16 +1,19 @@
 #!/usr/bin/env node
-// What Node's global `fetch` (the client every OpenAI HTTP request of b6f10295a goes through, http-agent.mjs) does with
-// a request method: the method it writes on the request line, or the error it throws before any socket is opened. A
-// raw TCP listener reads the request line off the socket; nothing is parsed by a library.
+// What Node's global `fetch` (the client every OpenAI HTTP request of b6f10295a goes through:
+// `openai-oauth-http-sse.mjs:132` `fetchFn = fetch`; http-agent.mjs only installs the dispatcher) does with a request
+// method: the method it writes on the request line, or the error it throws before any socket is opened. A raw TCP
+// listener reads the request line off the socket; nothing is parsed by a library. Run it under the runtime the product
+// runs its core under: the desktop's Electron in node mode (`ELECTRON_RUN_AS_NODE=1`, the daemon), whose bundled undici
+// builds the request; the manifest names it.
 //
-// Usage: node node-method-capture.mjs --out <node-methods.json>
+// Usage: ELECTRON_RUN_AS_NODE=1 electron node-method-capture.mjs --out <node-methods.json>
 import crypto from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import net from 'node:net';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const METHODS = ['GET', 'get', 'Get', 'post', 'Post', 'put', 'delete', 'head', 'options', 'patch', 'Patch', 'PATCH', 'query', 'purge', 'connect', 'Connect', 'CONNECT', 'trace', 'Trace', 'TRACE', 'track', 'TRACK', 'bad method'];
+const METHODS = ['GET', 'get', 'Get', 'post', 'Post', 'put', 'delete', 'head', 'options', 'patch', 'Patch', 'PATCH', 'query', 'purge', 'connect', 'Connect', 'CONNECT', 'trace', 'Trace', 'TRACE', 'track', 'TRACK', 'bad method', 'Query', 'GE(T', 'G\u00c9T', 'G\u0100T', ''];
 const DEADLINE_MS = 30000;
 
 const lines = [];
@@ -50,6 +53,7 @@ const manifest = {
   exact: true,
   node: process.version,
   undici: process.versions.undici,
+  electron: process.versions.electron ?? null,
   harness: { 'node-method-capture.mjs': crypto.createHash('sha256').update(readFileSync(self)).digest('hex') },
 };
 writeFileSync(resolve(process.argv[process.argv.indexOf('--out') + 1]), `${JSON.stringify({ manifest, methods: lines }, null, 1)}\n`);
