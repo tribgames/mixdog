@@ -13,14 +13,9 @@ export const WORKSPACES = [
     exclusions: {
       test: 'the release gate runtime job runs the default lane on every gated push',
       'test:slow': 'the release gate runtime-slow job runs it on every gated push',
-      'smoke:all': 'aggregate; its components run individually',
-      'test:release-critical':
-        'aggregate of test:release-assets, smoke:patch and test:providers, each swept on its own',
-      'smoke:loop': 'long-running local endurance harness',
+      'test:release-critical': 'alias of test:release-assets, swept on its own',
       'smoke:loop:final': 'endurance-harness gate, needs hours of loop data',
       'smoke:loop:report': 'report reader, not a suite',
-      'test:office:live': 'drives real Office COM on a desktop machine',
-      'test:embedding-runtime:warmup': 'downloads the embedding runtime',
       'test:spec-advisory': 'advisory by design (MIXDOG_TEST_ADVISORY)',
     },
   },
