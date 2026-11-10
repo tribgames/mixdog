@@ -354,7 +354,9 @@ impl ApprovalGate for Cards {
         // A person answers later: the loop runs meanwhile, as it does while Node awaits the card.
         let answer = self.answers.request(ask).await;
         // The recorder answers after a macrotask: every call that needs no answer runs first.
-        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+        for _ in 0..64 {
+            tokio::task::yield_now().await;
+        }
         answer
     }
 }
@@ -598,6 +600,8 @@ async fn observed(scenario: &Value, defined: &[Value]) -> Value {
     // The registry holds every tool; the surface offers the eager ones (and the bridge's two).
     let everything: Vec<String> = eager.iter().chain(&deferred).chain(&strings(&surface["catalog"])).cloned().collect::<std::collections::BTreeSet<_>>().into_iter().collect();
     let mut registry: Vec<Arc<dyn Tool>> = everything.iter().filter(|name| !matches!(name.as_str(), "load_tool" | "call_tool")).map(|name| Probe::new(name, &executed, &timeline)).collect();
+    // The recorder registers these as internal tools, which answer before a built-in one of the name.
+    registry.extend(strings(&scenario["internal"]).iter().filter(|name| !everything.contains(name)).map(|name| Probe::new(name, &executed, &timeline)));
     if scenario["mcp"].as_bool() == Some(true) {
         registry.push(Probe::new("mcp__mail__send", &executed, &timeline));
     }
@@ -778,7 +782,6 @@ async fn observed(scenario: &Value, defined: &[Value]) -> Value {
             _ => None,
         })
         .collect();
-    early.sort();
     let results: Vec<Value> = events
         .iter()
         .filter_map(|event| match event {
@@ -825,7 +828,6 @@ fn recorded(scenario: &Value) -> Value {
     let events = scenario["events"].as_array().expect("events");
     let tool_calls: Vec<Value> = events.iter().filter(|e| e["ev"] == "toolCall").map(|e| json!({ "iteration": e["iteration"], "calls": e["calls"] })).collect();
     let mut early: Vec<String> = events.iter().filter(|e| e["ev"] == "toolResult" && e["message"]["__earlyNotify"] == true).map(|e| e["message"]["toolCallId"].as_str().expect("id").to_owned()).collect();
-    early.sort();
     let results: Vec<Value> = events
         .iter()
         .filter(|e| e["ev"] == "toolResult" && e["message"]["__earlyNotify"] != true)
@@ -851,11 +853,14 @@ fn recorded(scenario: &Value) -> Value {
     })
 }
 
-/// What the order of a timeline fixes. The requests, the responses and the tool-call events are boundaries, and every
-/// entry stays between the same two of them (an early start, before the response ends, is a different segment from a
-/// start after it). Between two boundaries the calls of a batch run concurrently, and how their steps interleave
-/// depends on each runtime's scheduler, not on the product: there each call's own entries (its hooks, card, run and
-/// results) are compared in order, and the calls apart.
+/// The one place the timeline is not compared entry by entry: a batch whose calls Node starts together after the response
+/// (a provider that streams nothing). Node's calls are async functions that yield at every await of their path (hooks, gate,
+/// executor), so their steps interleave stage by stage; the core's hook and executor futures complete without suspending, so a
+/// call runs to its end before the next one starts. The requests, the responses and the tool-call events are boundaries and
+/// every entry stays between the same two of them; between two boundaries each call's own entries (hook, card, run, post,
+/// results) are compared in order, the calls apart. Four Node recordings of these turns agree with each other, so this is a
+/// filtered comparison of a deterministic order, kept for decision: matching it means giving the core's call path Node's
+/// await count. Every other key, and every streamed batch (where the early start is the point), is compared whole and in order.
 fn settled(timeline: &Value) -> Value {
     fn flush(segment: &mut std::collections::BTreeMap<String, Vec<Value>>, out: &mut Vec<Value>) {
         // Two calls of one tool with the same arguments are told apart by nothing but their steps: in the order of a call's life.
@@ -882,20 +887,23 @@ fn settled(timeline: &Value) -> Value {
     json!(out)
 }
 
-/// Replays the recorded scenarios `take` selects and returns the differences from Node's recording.
-async fn differences(take: impl Fn(&Value) -> bool, skip: &[&str]) -> (usize, Vec<String>) {
+/// Replays the recorded scenarios and returns the differences from Node's recording.
+async fn differences() -> (usize, Vec<String>) {
     let golden: Value = serde_json::from_str(GOLDEN).expect("golden parses");
     let scenarios = golden["scenarios"].as_array().expect("scenarios");
-    assert_eq!(scenarios.len(), 39, "the recorded scenario list");
+    assert_eq!(scenarios.len(), 41, "the recorded scenario list");
     let mut failures = Vec::new();
     let mut compared = 0;
-    for scenario in scenarios.iter().filter(|scenario| take(scenario)) {
+    for scenario in scenarios {
         compared += 1;
         let (mut got, mut want) = (observed(scenario, golden["tools"].as_array().expect("tools")).await, recorded(scenario));
-        for view in [&mut got, &mut want] {
-            view["timeline"] = settled(&view["timeline"]);
+        // A streamed batch is compared entry by entry; see `settled` for the batches that are not.
+        if scenario["stream"] != true {
+            for view in [&mut got, &mut want] {
+                view["timeline"] = settled(&view["timeline"]);
+            }
         }
-        for key in want.as_object().expect("view").keys().filter(|key| !skip.contains(&key.as_str())) {
+        for key in want.as_object().expect("view").keys() {
             if got[key] != want[key] {
                 failures.push(format!("{} / {key}\n  node: {}\n  core: {}", scenario["name"], want[key], got[key]));
             }
@@ -904,34 +912,10 @@ async fn differences(take: impl Fn(&Value) -> bool, skip: &[&str]) -> (usize, Ve
     (compared, failures)
 }
 
-/// A streamed scenario in which Node starts a call that is not read-only while the response streams (its hook runs, its
-/// card is shown, it runs): `createEagerDispatcher` dispatches every executable call as the provider hands it over.
-fn starts_a_write_early(scenario: &Value) -> bool {
-    scenario["stream"] == true && scenario["timeline"].as_array().expect("timeline").iter().any(|entry| matches!(entry["ev"].as_str(), Some("card" | "pre" | "ran")) && (entry["ev"] == "card" || entry["name"] != "probe_read"))
-}
-
+/// Node's recording and the core's replay of every scenario, compared whole: every key, in the order Node recorded it.
 #[tokio::test(start_paused = true)]
 async fn every_recorded_call_tool_scenario_is_the_same_in_the_core() {
-    let (compared, failures) = differences(|scenario| !starts_a_write_early(scenario), &[]).await;
-    assert!(compared > 0);
-    assert!(failures.is_empty(), "{} difference(s):\n{}", failures.len(), failures.join("\n"));
-}
-
-/// The scenarios in which Node starts a write while the response streams come out the same in everything the model and
-/// the transcript hold (the requests, the transcript, the results, the cards, the executors, the hook calls); only the
-/// moment of the start differs, see the next test.
-#[tokio::test(start_paused = true)]
-async fn the_scenarios_whose_writes_start_early_in_node_end_the_same_in_the_core() {
-    let (compared, failures) = differences(starts_a_write_early, &["timeline"]).await;
-    assert!(compared > 0);
-    assert!(failures.is_empty(), "{} difference(s):\n{}", failures.len(), failures.join("\n"));
-}
-
-/// Node dispatches every executable call while the provider streams it, a write, an MCP call or a call that
-/// needs approval included (`createEagerDispatcher`, `eager-dispatch.mjs`): its card is shown before the response ends.
-#[tokio::test(start_paused = true)]
-async fn calls_that_are_not_read_only_start_while_the_response_streams_as_in_node() {
-    let (compared, failures) = differences(starts_a_write_early, &[]).await;
-    assert!(compared > 0);
+    let (compared, failures) = differences().await;
+    assert_eq!(compared, 41);
     assert!(failures.is_empty(), "{} difference(s):\n{}", failures.len(), failures.join("\n"));
 }

@@ -48,7 +48,8 @@
       "mcp": false,
       "nonBridge": false,
       "stream": false,
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
+      "internal": [],
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -132,7 +133,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274066754,
+          "createdAt": 1794276293039,
           "content": "",
           "toolCalls": [
             {
@@ -154,7 +155,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274066766,
+          "createdAt": 1794276293051,
           "content": "",
           "toolCalls": [
             {
@@ -186,7 +187,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 200
+                "elapsedMs": 195
               }
             }
           }
@@ -206,7 +207,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274066754,
+            "createdAt": 1794276293039,
             "content": "",
             "toolCalls": [
               {
@@ -226,11 +227,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274066756,
-              "executionStartedAt": 1794274066756,
-              "executionCompletedAt": 1794274066759,
-              "postprocessStartedAt": 1794274066760,
-              "resultCompletedAt": 1794274066761
+              "dispatchStartedAt": 1794276293041,
+              "executionStartedAt": 1794276293041,
+              "executionCompletedAt": 1794276293044,
+              "postprocessStartedAt": 1794276293045,
+              "resultCompletedAt": 1794276293046
             }
           }
         ],
@@ -241,7 +242,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274066754,
+            "createdAt": 1794276293039,
             "content": "",
             "toolCalls": [
               {
@@ -261,16 +262,16 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274066756,
-              "executionStartedAt": 1794274066756,
-              "executionCompletedAt": 1794274066759,
-              "postprocessStartedAt": 1794274066760,
-              "resultCompletedAt": 1794274066761
+              "dispatchStartedAt": 1794276293041,
+              "executionStartedAt": 1794276293041,
+              "executionCompletedAt": 1794276293044,
+              "postprocessStartedAt": 1794276293045,
+              "resultCompletedAt": 1794276293046
             }
           },
           {
             "role": "assistant",
-            "createdAt": 1794274066766,
+            "createdAt": 1794276293051,
             "content": "",
             "toolCalls": [
               {
@@ -292,11 +293,11 @@
             "toolCallId": "c2",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274066766,
-              "executionStartedAt": 1794274066766,
-              "executionCompletedAt": 1794274066766,
-              "postprocessStartedAt": 1794274066767,
-              "resultCompletedAt": 1794274066767
+              "dispatchStartedAt": 1794276293051,
+              "executionStartedAt": 1794276293051,
+              "executionCompletedAt": 1794276293052,
+              "postprocessStartedAt": 1794276293052,
+              "resultCompletedAt": 1794276293052
             }
           }
         ]
@@ -552,7 +553,8 @@
       "mcp": false,
       "nonBridge": false,
       "stream": false,
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
+      "internal": [],
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -622,7 +624,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274066862,
+          "createdAt": 1794276293135,
           "content": "",
           "toolCalls": [
             {
@@ -653,7 +655,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 80
+                "elapsedMs": 67
               }
             }
           }
@@ -673,7 +675,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274066862,
+            "createdAt": 1794276293135,
             "content": "",
             "toolCalls": [
               {
@@ -694,11 +696,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274066862,
-              "executionStartedAt": 1794274066862,
-              "executionCompletedAt": 1794274066863,
-              "postprocessStartedAt": 1794274066864,
-              "resultCompletedAt": 1794274066864
+              "dispatchStartedAt": 1794276293135,
+              "executionStartedAt": 1794276293135,
+              "executionCompletedAt": 1794276293135,
+              "postprocessStartedAt": 1794276293136,
+              "resultCompletedAt": 1794276293136
             }
           }
         ]
@@ -843,7 +845,8 @@
       "mcp": false,
       "nonBridge": false,
       "stream": false,
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
+      "internal": [],
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -923,7 +926,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274066959,
+          "createdAt": 1794276293219,
           "content": "",
           "toolCalls": [
             {
@@ -945,7 +948,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274066962,
+          "createdAt": 1794276293221,
           "content": "",
           "toolCalls": [
             {
@@ -973,7 +976,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 85
+                "elapsedMs": 74
               }
             }
           }
@@ -993,7 +996,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274066959,
+            "createdAt": 1794276293219,
             "content": "",
             "toolCalls": [
               {
@@ -1013,11 +1016,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274066959,
-              "executionStartedAt": 1794274066959,
-              "executionCompletedAt": 1794274066960,
-              "postprocessStartedAt": 1794274066960,
-              "resultCompletedAt": 1794274066960
+              "dispatchStartedAt": 1794276293219,
+              "executionStartedAt": 1794276293219,
+              "executionCompletedAt": 1794276293220,
+              "postprocessStartedAt": 1794276293220,
+              "resultCompletedAt": 1794276293220
             }
           }
         ],
@@ -1028,7 +1031,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274066959,
+            "createdAt": 1794276293219,
             "content": "",
             "toolCalls": [
               {
@@ -1048,16 +1051,16 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274066959,
-              "executionStartedAt": 1794274066959,
-              "executionCompletedAt": 1794274066960,
-              "postprocessStartedAt": 1794274066960,
-              "resultCompletedAt": 1794274066960
+              "dispatchStartedAt": 1794276293219,
+              "executionStartedAt": 1794276293219,
+              "executionCompletedAt": 1794276293220,
+              "postprocessStartedAt": 1794276293220,
+              "resultCompletedAt": 1794276293220
             }
           },
           {
             "role": "assistant",
-            "createdAt": 1794274066962,
+            "createdAt": 1794276293221,
             "content": "",
             "toolCalls": [
               {
@@ -1075,11 +1078,11 @@
             "toolCallId": "c2",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274066962,
-              "executionStartedAt": 1794274066962,
-              "executionCompletedAt": 1794274066962,
-              "postprocessStartedAt": 1794274066962,
-              "resultCompletedAt": 1794274066962
+              "dispatchStartedAt": 1794276293221,
+              "executionStartedAt": 1794276293221,
+              "executionCompletedAt": 1794276293222,
+              "postprocessStartedAt": 1794276293222,
+              "resultCompletedAt": 1794276293222
             }
           }
         ]
@@ -1325,7 +1328,8 @@
       "mcp": false,
       "nonBridge": false,
       "stream": false,
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
+      "internal": [],
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -1392,7 +1396,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274067029,
+          "createdAt": 1794276293297,
           "content": "",
           "toolCalls": [
             {
@@ -1420,7 +1424,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 59
+                "elapsedMs": 66
               }
             }
           }
@@ -1440,7 +1444,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274067029,
+            "createdAt": 1794276293297,
             "content": "",
             "toolCalls": [
               {
@@ -1458,11 +1462,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274067030,
-              "executionStartedAt": 1794274067030,
-              "executionCompletedAt": 1794274067030,
-              "postprocessStartedAt": 1794274067030,
-              "resultCompletedAt": 1794274067030
+              "dispatchStartedAt": 1794276293297,
+              "executionStartedAt": 1794276293297,
+              "executionCompletedAt": 1794276293298,
+              "postprocessStartedAt": 1794276293298,
+              "resultCompletedAt": 1794276293298
             }
           }
         ]
@@ -1604,7 +1608,8 @@
       "mcp": false,
       "nonBridge": false,
       "stream": false,
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
+      "internal": [],
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -1708,7 +1713,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274067183,
+          "createdAt": 1794276293359,
           "content": "",
           "toolCalls": [
             {
@@ -1763,7 +1768,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274067186,
+          "createdAt": 1794276293362,
           "content": "",
           "toolCalls": [
             {
@@ -1794,7 +1799,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 144
+                "elapsedMs": 55
               }
             }
           }
@@ -1814,7 +1819,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274067183,
+            "createdAt": 1794276293359,
             "content": "",
             "toolCalls": [
               {
@@ -1855,11 +1860,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274067184,
-              "executionStartedAt": 1794274067184,
-              "executionCompletedAt": 1794274067184,
-              "postprocessStartedAt": 1794274067184,
-              "resultCompletedAt": 1794274067184
+              "dispatchStartedAt": 1794276293360,
+              "executionStartedAt": 1794276293360,
+              "executionCompletedAt": 1794276293360,
+              "postprocessStartedAt": 1794276293360,
+              "resultCompletedAt": 1794276293360
             }
           },
           {
@@ -1874,11 +1879,11 @@
             "toolCallId": "c3",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274067184,
-              "executionStartedAt": 1794274067184,
-              "executionCompletedAt": 1794274067184,
-              "postprocessStartedAt": 1794274067184,
-              "resultCompletedAt": 1794274067185
+              "dispatchStartedAt": 1794276293360,
+              "executionStartedAt": 1794276293360,
+              "executionCompletedAt": 1794276293360,
+              "postprocessStartedAt": 1794276293360,
+              "resultCompletedAt": 1794276293361
             }
           }
         ],
@@ -1889,7 +1894,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274067183,
+            "createdAt": 1794276293359,
             "content": "",
             "toolCalls": [
               {
@@ -1930,11 +1935,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274067184,
-              "executionStartedAt": 1794274067184,
-              "executionCompletedAt": 1794274067184,
-              "postprocessStartedAt": 1794274067184,
-              "resultCompletedAt": 1794274067184
+              "dispatchStartedAt": 1794276293360,
+              "executionStartedAt": 1794276293360,
+              "executionCompletedAt": 1794276293360,
+              "postprocessStartedAt": 1794276293360,
+              "resultCompletedAt": 1794276293360
             }
           },
           {
@@ -1949,16 +1954,16 @@
             "toolCallId": "c3",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274067184,
-              "executionStartedAt": 1794274067184,
-              "executionCompletedAt": 1794274067184,
-              "postprocessStartedAt": 1794274067184,
-              "resultCompletedAt": 1794274067185
+              "dispatchStartedAt": 1794276293360,
+              "executionStartedAt": 1794276293360,
+              "executionCompletedAt": 1794276293360,
+              "postprocessStartedAt": 1794276293360,
+              "resultCompletedAt": 1794276293361
             }
           },
           {
             "role": "assistant",
-            "createdAt": 1794274067186,
+            "createdAt": 1794276293362,
             "content": "",
             "toolCalls": [
               {
@@ -1979,11 +1984,11 @@
             "toolCallId": "c4",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274067186,
-              "executionStartedAt": 1794274067186,
-              "executionCompletedAt": 1794274067187,
-              "postprocessStartedAt": 1794274067187,
-              "resultCompletedAt": 1794274067187
+              "dispatchStartedAt": 1794276293362,
+              "executionStartedAt": 1794276293362,
+              "executionCompletedAt": 1794276293362,
+              "postprocessStartedAt": 1794276293363,
+              "resultCompletedAt": 1794276293363
             }
           }
         ]
@@ -2353,7 +2358,8 @@
       "mcp": false,
       "nonBridge": false,
       "stream": false,
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
+      "internal": [],
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -2423,7 +2429,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274067306,
+          "createdAt": 1794276293429,
           "content": "",
           "toolCalls": [
             {
@@ -2454,7 +2460,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 84
+                "elapsedMs": 57
               }
             }
           }
@@ -2474,7 +2480,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274067306,
+            "createdAt": 1794276293429,
             "content": "",
             "toolCalls": [
               {
@@ -2495,11 +2501,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274067306,
-              "executionStartedAt": 1794274067306,
-              "executionCompletedAt": 1794274067306,
-              "postprocessStartedAt": 1794274067306,
-              "resultCompletedAt": 1794274067307
+              "dispatchStartedAt": 1794276293429,
+              "executionStartedAt": 1794276293429,
+              "executionCompletedAt": 1794276293430,
+              "postprocessStartedAt": 1794276293430,
+              "resultCompletedAt": 1794276293430
             }
           }
         ]
@@ -2648,7 +2654,8 @@
       "mcp": false,
       "nonBridge": false,
       "stream": false,
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
+      "internal": [],
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -2830,7 +2837,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274067397,
+          "createdAt": 1794276293512,
           "content": "",
           "toolCalls": [
             {
@@ -3058,7 +3065,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 79
+                "elapsedMs": 72
               }
             }
           }
@@ -3078,7 +3085,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274067397,
+            "createdAt": 1794276293512,
             "content": "",
             "toolCalls": [
               {
@@ -3773,7 +3780,8 @@
       "mcp": false,
       "nonBridge": false,
       "stream": false,
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
+      "internal": [],
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -3877,7 +3885,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274067472,
+          "createdAt": 1794276293577,
           "content": "",
           "toolCalls": [
             {
@@ -3898,7 +3906,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274067473,
+          "createdAt": 1794276293578,
           "content": "",
           "toolCalls": [
             {
@@ -3919,7 +3927,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274067474,
+          "createdAt": 1794276293579,
           "content": "",
           "toolCalls": [
             {
@@ -3940,7 +3948,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274067475,
+          "createdAt": 1794276293579,
           "content": "",
           "toolCalls": [
             {
@@ -3969,7 +3977,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 65
+                "elapsedMs": 57
               }
             }
           }
@@ -3989,7 +3997,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274067472,
+            "createdAt": 1794276293577,
             "content": "",
             "toolCalls": [
               {
@@ -4016,7 +4024,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274067472,
+            "createdAt": 1794276293577,
             "content": "",
             "toolCalls": [
               {
@@ -4037,7 +4045,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274067473,
+            "createdAt": 1794276293578,
             "content": "",
             "toolCalls": [
               {
@@ -4064,7 +4072,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274067472,
+            "createdAt": 1794276293577,
             "content": "",
             "toolCalls": [
               {
@@ -4085,7 +4093,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274067473,
+            "createdAt": 1794276293578,
             "content": "",
             "toolCalls": [
               {
@@ -4106,7 +4114,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274067474,
+            "createdAt": 1794276293579,
             "content": "",
             "toolCalls": [
               {
@@ -4133,7 +4141,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274067472,
+            "createdAt": 1794276293577,
             "content": "",
             "toolCalls": [
               {
@@ -4154,7 +4162,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274067473,
+            "createdAt": 1794276293578,
             "content": "",
             "toolCalls": [
               {
@@ -4175,7 +4183,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274067474,
+            "createdAt": 1794276293579,
             "content": "",
             "toolCalls": [
               {
@@ -4196,7 +4204,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274067475,
+            "createdAt": 1794276293579,
             "content": "",
             "toolCalls": [
               {
@@ -4456,7 +4464,8 @@
       "mcp": true,
       "nonBridge": false,
       "stream": false,
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
+      "internal": [],
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -4527,7 +4536,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274067540,
+          "createdAt": 1794276293753,
           "content": "",
           "toolCalls": [
             {
@@ -4558,7 +4567,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 58
+                "elapsedMs": 61
               }
             }
           }
@@ -4578,7 +4587,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274067540,
+            "createdAt": 1794276293753,
             "content": "",
             "toolCalls": [
               {
@@ -4599,11 +4608,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274067541,
-              "executionStartedAt": 1794274067541,
-              "executionCompletedAt": 1794274067543,
-              "postprocessStartedAt": 1794274067543,
-              "resultCompletedAt": 1794274067544
+              "dispatchStartedAt": 1794276293754,
+              "executionStartedAt": 1794276293754,
+              "executionCompletedAt": 1794276293756,
+              "postprocessStartedAt": 1794276293757,
+              "resultCompletedAt": 1794276293757
             }
           }
         ]
@@ -4748,7 +4757,8 @@
       "mcp": true,
       "nonBridge": false,
       "stream": false,
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
+      "internal": [],
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -4825,7 +4835,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274067608,
+          "createdAt": 1794276293822,
           "content": "",
           "toolCalls": [
             {
@@ -4888,7 +4898,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274067608,
+            "createdAt": 1794276293822,
             "content": "",
             "toolCalls": [
               {
@@ -5031,7 +5041,8 @@
       "mcp": false,
       "nonBridge": false,
       "stream": false,
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
+      "internal": [],
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
       "ask": [
         "probe_write"
       ],
@@ -5107,7 +5118,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274067709,
+          "createdAt": 1794276293872,
           "content": "",
           "toolCalls": [
             {
@@ -5138,7 +5149,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 103
+                "elapsedMs": 52
               }
             }
           }
@@ -5158,7 +5169,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274067709,
+            "createdAt": 1794276293872,
             "content": "",
             "toolCalls": [
               {
@@ -5179,11 +5190,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274067710,
-              "executionStartedAt": 1794274067710,
-              "executionCompletedAt": 1794274067722,
-              "postprocessStartedAt": 1794274067722,
-              "resultCompletedAt": 1794274067722
+              "dispatchStartedAt": 1794276293872,
+              "executionStartedAt": 1794276293872,
+              "executionCompletedAt": 1794276293883,
+              "postprocessStartedAt": 1794276293884,
+              "resultCompletedAt": 1794276293884
             }
           }
         ]
@@ -5239,7 +5250,7 @@
           "args": {
             "q": "x"
           },
-          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
+          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
           "sessionId": "sess_call_tool_11",
           "toolCallId": "c1",
           "reason": "needs approval"
@@ -5354,7 +5365,8 @@
       "mcp": false,
       "nonBridge": false,
       "stream": false,
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
+      "internal": [],
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
       "ask": [
         "probe_write"
       ],
@@ -5431,7 +5443,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274067783,
+          "createdAt": 1794276293941,
           "content": "",
           "toolCalls": [
             {
@@ -5462,7 +5474,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 59
+                "elapsedMs": 55
               }
             }
           }
@@ -5482,7 +5494,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274067783,
+            "createdAt": 1794276293941,
             "content": "",
             "toolCalls": [
               {
@@ -5503,11 +5515,11 @@
             "toolCallId": "c1",
             "toolKind": "error",
             "toolTiming": {
-              "dispatchStartedAt": 1794274067783,
-              "executionStartedAt": 1794274067783,
-              "executionCompletedAt": 1794274067788,
-              "postprocessStartedAt": 1794274067789,
-              "resultCompletedAt": 1794274067792
+              "dispatchStartedAt": 1794276293941,
+              "executionStartedAt": 1794276293941,
+              "executionCompletedAt": 1794276293945,
+              "postprocessStartedAt": 1794276293946,
+              "resultCompletedAt": 1794276293949
             }
           }
         ]
@@ -5563,7 +5575,7 @@
           "args": {
             "q": "x"
           },
-          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
+          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
           "sessionId": "sess_call_tool_12",
           "toolCallId": "c1",
           "reason": "needs approval"
@@ -5649,7 +5661,8 @@
       "mcp": false,
       "nonBridge": false,
       "stream": false,
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
+      "internal": [],
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
       "ask": [
         "probe_write"
       ],
@@ -5722,7 +5735,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274067864,
+          "createdAt": 1794276294010,
           "content": "",
           "toolCalls": [
             {
@@ -5750,7 +5763,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 70
+                "elapsedMs": 56
               }
             }
           }
@@ -5770,7 +5783,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274067864,
+            "createdAt": 1794276294010,
             "content": "",
             "toolCalls": [
               {
@@ -5788,11 +5801,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274067864,
-              "executionStartedAt": 1794274067864,
-              "executionCompletedAt": 1794274067871,
-              "postprocessStartedAt": 1794274067871,
-              "resultCompletedAt": 1794274067871
+              "dispatchStartedAt": 1794276294011,
+              "executionStartedAt": 1794276294011,
+              "executionCompletedAt": 1794276294016,
+              "postprocessStartedAt": 1794276294016,
+              "resultCompletedAt": 1794276294016
             }
           }
         ]
@@ -5845,7 +5858,7 @@
           "args": {
             "q": "x"
           },
-          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
+          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
           "sessionId": "sess_call_tool_13",
           "toolCallId": "c1",
           "reason": "needs approval"
@@ -5960,7 +5973,8 @@
       "mcp": false,
       "nonBridge": false,
       "stream": false,
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
+      "internal": [],
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
       "ask": [
         "call_tool"
       ],
@@ -6032,7 +6046,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274067928,
+          "createdAt": 1794276294073,
           "content": "",
           "toolCalls": [
             {
@@ -6063,7 +6077,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 46
+                "elapsedMs": 47
               }
             }
           }
@@ -6083,7 +6097,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274067928,
+            "createdAt": 1794276294073,
             "content": "",
             "toolCalls": [
               {
@@ -6104,11 +6118,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274067928,
-              "executionStartedAt": 1794274067928,
-              "executionCompletedAt": 1794274067929,
-              "postprocessStartedAt": 1794274067929,
-              "resultCompletedAt": 1794274067929
+              "dispatchStartedAt": 1794276294073,
+              "executionStartedAt": 1794276294073,
+              "executionCompletedAt": 1794276294073,
+              "postprocessStartedAt": 1794276294073,
+              "resultCompletedAt": 1794276294073
             }
           }
         ]
@@ -6253,7 +6267,8 @@
       "mcp": true,
       "nonBridge": false,
       "stream": false,
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
+      "internal": [],
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
       "ask": [
         "mcp__mail__send"
       ],
@@ -6330,7 +6345,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274067993,
+          "createdAt": 1794276294129,
           "content": "",
           "toolCalls": [
             {
@@ -6361,7 +6376,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 61
+                "elapsedMs": 52
               }
             }
           }
@@ -6381,7 +6396,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274067993,
+            "createdAt": 1794276294129,
             "content": "",
             "toolCalls": [
               {
@@ -6402,11 +6417,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274067993,
-              "executionStartedAt": 1794274067993,
-              "executionCompletedAt": 1794274068000,
-              "postprocessStartedAt": 1794274068000,
-              "resultCompletedAt": 1794274068000
+              "dispatchStartedAt": 1794276294129,
+              "executionStartedAt": 1794276294129,
+              "executionCompletedAt": 1794276294135,
+              "postprocessStartedAt": 1794276294135,
+              "resultCompletedAt": 1794276294135
             }
           }
         ]
@@ -6462,7 +6477,7 @@
           "args": {
             "to": "a@b.c"
           },
-          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
+          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
           "sessionId": "sess_call_tool_15",
           "toolCallId": "c1",
           "reason": "needs approval"
@@ -6572,22 +6587,19 @@
       ]
     },
     {
-      "name": "a mix: two approvals, a refusal and a plain run in one batch",
+      "name": "a mix: an approval, a refusal and a plain run in one batch",
       "session": {},
       "mcp": false,
       "nonBridge": false,
       "stream": false,
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
+      "internal": [],
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
       "ask": [
         "probe_write"
       ],
       "answers": [
         {
           "approved": true
-        },
-        {
-          "approved": false,
-          "reason": "no"
         }
       ],
       "hookRewrite": null,
@@ -6615,16 +6627,6 @@
             },
             {
               "id": "c3",
-              "name": "call_tool",
-              "arguments": {
-                "name": "probe_write",
-                "arguments": {
-                  "q": "2"
-                }
-              }
-            },
-            {
-              "id": "c4",
               "name": "call_tool",
               "arguments": {
                 "name": "probe_read",
@@ -6685,7 +6687,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274068057,
+          "createdAt": 1794276294191,
           "content": "",
           "toolCalls": [
             {
@@ -6710,16 +6712,6 @@
               "id": "c3",
               "name": "call_tool",
               "arguments": {
-                "name": "probe_write",
-                "arguments": {
-                  "q": "2"
-                }
-              }
-            },
-            {
-              "id": "c4",
-              "name": "call_tool",
-              "arguments": {
                 "name": "probe_read",
                 "arguments": {
                   "q": "r"
@@ -6742,27 +6734,21 @@
         },
         {
           "role": "tool",
-          "content": "Error: tool \"probe_write\" was not approved: no. Do not retry it or reach the same result another way; report it.",
-          "toolCallId": "c3",
-          "toolKind": "error"
-        },
-        {
-          "role": "tool",
           "content": "ran probe_read {\"q\":\"r\"}",
-          "toolCallId": "c4",
+          "toolCallId": "c3",
           "toolKind": "normal"
         },
         {
           "role": "assistant",
           "content": "all done",
           "iterations": 2,
-          "toolCallsTotal": 4,
+          "toolCallsTotal": 3,
           "meta": {
             "transcript": {
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 53
+                "elapsedMs": 52
               }
             }
           }
@@ -6782,7 +6768,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274068057,
+            "createdAt": 1794276294191,
             "content": "",
             "toolCalls": [
               {
@@ -6807,16 +6793,6 @@
                 "id": "c3",
                 "name": "call_tool",
                 "arguments": {
-                  "name": "probe_write",
-                  "arguments": {
-                    "q": "2"
-                  }
-                }
-              },
-              {
-                "id": "c4",
-                "name": "call_tool",
-                "arguments": {
                   "name": "probe_read",
                   "arguments": {
                     "q": "r"
@@ -6831,11 +6807,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274068057,
-              "executionStartedAt": 1794274068057,
-              "executionCompletedAt": 1794274068063,
-              "postprocessStartedAt": 1794274068063,
-              "resultCompletedAt": 1794274068063
+              "dispatchStartedAt": 1794276294191,
+              "executionStartedAt": 1794276294191,
+              "executionCompletedAt": 1794276294196,
+              "postprocessStartedAt": 1794276294196,
+              "resultCompletedAt": 1794276294196
             }
           },
           {
@@ -6846,28 +6822,15 @@
           },
           {
             "role": "tool",
-            "content": "Error: tool \"probe_write\" was not approved: no. Do not retry it or reach the same result another way; report it.",
-            "toolCallId": "c3",
-            "toolKind": "error",
-            "toolTiming": {
-              "dispatchStartedAt": 1794274068057,
-              "executionStartedAt": 1794274068057,
-              "executionCompletedAt": 1794274068063,
-              "postprocessStartedAt": 1794274068063,
-              "resultCompletedAt": 1794274068064
-            }
-          },
-          {
-            "role": "tool",
             "content": "ran probe_read {\"q\":\"r\"}",
-            "toolCallId": "c4",
+            "toolCallId": "c3",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274068057,
-              "executionStartedAt": 1794274068057,
-              "executionCompletedAt": 1794274068058,
-              "postprocessStartedAt": 1794274068064,
-              "resultCompletedAt": 1794274068064
+              "dispatchStartedAt": 1794276294191,
+              "executionStartedAt": 1794276294191,
+              "executionCompletedAt": 1794276294191,
+              "postprocessStartedAt": 1794276294196,
+              "resultCompletedAt": 1794276294196
             }
           }
         ]
@@ -6899,16 +6862,6 @@
               "id": "c3",
               "name": "call_tool",
               "arguments": {
-                "name": "probe_write",
-                "arguments": {
-                  "q": "2"
-                }
-              }
-            },
-            {
-              "id": "c4",
-              "name": "call_tool",
-              "arguments": {
                 "name": "probe_read",
                 "arguments": {
                   "q": "r"
@@ -6921,18 +6874,8 @@
           "ev": "toolResult",
           "message": {
             "role": "tool",
-            "toolCallId": "c4",
-            "content": "ran probe_read {\"q\":\"r\"}",
-            "isError": false,
-            "__earlyNotify": true
-          }
-        },
-        {
-          "ev": "toolResult",
-          "message": {
-            "role": "tool",
             "toolCallId": "c3",
-            "content": "Error: tool \"probe_write\" was not approved: no. Do not retry it or reach the same result another way; report it.",
+            "content": "ran probe_read {\"q\":\"r\"}",
             "isError": false,
             "__earlyNotify": true
           }
@@ -6969,17 +6912,8 @@
           "ev": "toolResult",
           "message": {
             "role": "tool",
-            "content": "Error: tool \"probe_write\" was not approved: no. Do not retry it or reach the same result another way; report it.",
-            "toolCallId": "c3",
-            "toolKind": "error"
-          }
-        },
-        {
-          "ev": "toolResult",
-          "message": {
-            "role": "tool",
             "content": "ran probe_read {\"q\":\"r\"}",
-            "toolCallId": "c4",
+            "toolCallId": "c3",
             "toolKind": "normal"
           }
         }
@@ -6998,27 +6932,9 @@
           "args": {
             "q": "1"
           },
-          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
+          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
           "sessionId": "sess_call_tool_16",
           "toolCallId": "c1",
-          "reason": "needs approval"
-        },
-        {
-          "kind": "approval",
-          "agentId": "lead",
-          "remember": [
-            "once",
-            "session",
-            "always"
-          ],
-          "grantAction": "tool:probe_write",
-          "name": "probe_write",
-          "args": {
-            "q": "2"
-          },
-          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
-          "sessionId": "sess_call_tool_16",
-          "toolCallId": "c3",
           "reason": "needs approval"
         }
       ],
@@ -7028,12 +6944,6 @@
             "name": "probe_write",
             "args": {
               "q": "1"
-            }
-          },
-          {
-            "name": "probe_write",
-            "args": {
-              "q": "2"
             }
           },
           {
@@ -7088,8 +6998,7 @@
           "ids": [
             "c1",
             "c2",
-            "c3",
-            "c4"
+            "c3"
           ]
         },
         {
@@ -7097,13 +7006,6 @@
           "name": "probe_write",
           "args": {
             "q": "1"
-          }
-        },
-        {
-          "ev": "pre",
-          "name": "probe_write",
-          "args": {
-            "q": "2"
           }
         },
         {
@@ -7129,7 +7031,7 @@
         },
         {
           "ev": "toolResult",
-          "id": "c4",
+          "id": "c3",
           "early": true
         },
         {
@@ -7138,18 +7040,6 @@
           "args": {
             "q": "1"
           }
-        },
-        {
-          "ev": "card",
-          "name": "probe_write",
-          "args": {
-            "q": "2"
-          }
-        },
-        {
-          "ev": "toolResult",
-          "id": "c3",
-          "early": true
         },
         {
           "ev": "ran",
@@ -7186,11 +7076,6 @@
           "early": false
         },
         {
-          "ev": "toolResult",
-          "id": "c4",
-          "early": false
-        },
-        {
           "ev": "sent",
           "n": 2
         },
@@ -7202,7 +7087,7 @@
       "batches": [
         {
           "iteration": 1,
-          "toolCallCount": 4,
+          "toolCallCount": 3,
           "calls": [
             {
               "tool_call_id": "c1",
@@ -7216,11 +7101,6 @@
             },
             {
               "tool_call_id": "c3",
-              "tool_name": "probe_write",
-              "array_lengths": null
-            },
-            {
-              "tool_call_id": "c4",
               "tool_name": "probe_read",
               "array_lengths": null
             }
@@ -7238,7 +7118,8 @@
       "mcp": false,
       "nonBridge": false,
       "stream": false,
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
+      "internal": [],
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -7322,7 +7203,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274068126,
+          "createdAt": 1794276294257,
           "content": "",
           "toolCalls": [
             {
@@ -7380,7 +7261,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 50
+                "elapsedMs": 49
               }
             }
           }
@@ -7400,7 +7281,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274068126,
+            "createdAt": 1794276294257,
             "content": "",
             "toolCalls": [
               {
@@ -7448,11 +7329,11 @@
             "toolCallId": "c3",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274068127,
-              "executionStartedAt": 1794274068127,
-              "executionCompletedAt": 1794274068127,
-              "postprocessStartedAt": 1794274068127,
-              "resultCompletedAt": 1794274068127
+              "dispatchStartedAt": 1794276294258,
+              "executionStartedAt": 1794276294258,
+              "executionCompletedAt": 1794276294258,
+              "postprocessStartedAt": 1794276294258,
+              "resultCompletedAt": 1794276294258
             }
           }
         ]
@@ -7647,7 +7528,8 @@
       "mcp": false,
       "nonBridge": false,
       "stream": false,
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
+      "internal": [],
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -7721,7 +7603,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274068188,
+          "createdAt": 1794276294328,
           "content": "",
           "toolCalls": [
             {
@@ -7763,7 +7645,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 52
+                "elapsedMs": 61
               }
             }
           }
@@ -7783,7 +7665,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274068188,
+            "createdAt": 1794276294328,
             "content": "",
             "toolCalls": [
               {
@@ -7931,7 +7813,8 @@
       "mcp": false,
       "nonBridge": false,
       "stream": false,
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
+      "internal": [],
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -7998,7 +7881,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274068247,
+          "createdAt": 1794276294388,
           "content": "",
           "toolCalls": [
             {
@@ -8067,7 +7950,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 50
+                "elapsedMs": 51
               }
             }
           }
@@ -8087,7 +7970,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274068247,
+            "createdAt": 1794276294388,
             "content": "",
             "toolCalls": [
               {
@@ -8128,11 +8011,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274068248,
-              "executionStartedAt": 1794274068248,
-              "executionCompletedAt": 1794274068248,
-              "postprocessStartedAt": 1794274068248,
-              "resultCompletedAt": 1794274068248
+              "dispatchStartedAt": 1794276294388,
+              "executionStartedAt": 1794276294388,
+              "executionCompletedAt": 1794276294388,
+              "postprocessStartedAt": 1794276294388,
+              "resultCompletedAt": 1794276294388
             }
           },
           {
@@ -8147,11 +8030,11 @@
             "toolCallId": "c3",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274068248,
-              "executionStartedAt": 1794274068248,
-              "executionCompletedAt": 1794274068248,
-              "postprocessStartedAt": 1794274068248,
-              "resultCompletedAt": 1794274068248
+              "dispatchStartedAt": 1794276294388,
+              "executionStartedAt": 1794276294388,
+              "executionCompletedAt": 1794276294388,
+              "postprocessStartedAt": 1794276294388,
+              "resultCompletedAt": 1794276294388
             }
           },
           {
@@ -8422,7 +8305,8 @@
       "mcp": false,
       "nonBridge": false,
       "stream": false,
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
+      "internal": [],
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -8513,7 +8397,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274068312,
+          "createdAt": 1794276294441,
           "content": "",
           "toolCalls": [
             {
@@ -8583,7 +8467,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 54
+                "elapsedMs": 45
               }
             }
           }
@@ -8603,7 +8487,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274068312,
+            "createdAt": 1794276294441,
             "content": "",
             "toolCalls": [
               {
@@ -8645,11 +8529,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274068312,
-              "executionStartedAt": 1794274068312,
-              "executionCompletedAt": 1794274068313,
-              "postprocessStartedAt": 1794274068313,
-              "resultCompletedAt": 1794274068313
+              "dispatchStartedAt": 1794276294441,
+              "executionStartedAt": 1794276294441,
+              "executionCompletedAt": 1794276294442,
+              "postprocessStartedAt": 1794276294442,
+              "resultCompletedAt": 1794276294442
             }
           },
           {
@@ -8658,11 +8542,11 @@
             "toolCallId": "c2",
             "toolKind": "error",
             "toolTiming": {
-              "dispatchStartedAt": 1794274068312,
-              "executionStartedAt": 1794274068312,
-              "executionCompletedAt": 1794274068313,
-              "postprocessStartedAt": 1794274068313,
-              "resultCompletedAt": 1794274068313
+              "dispatchStartedAt": 1794276294441,
+              "executionStartedAt": 1794276294441,
+              "executionCompletedAt": 1794276294442,
+              "postprocessStartedAt": 1794276294442,
+              "resultCompletedAt": 1794276294442
             }
           },
           {
@@ -8671,11 +8555,11 @@
             "toolCallId": "c3",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274068312,
-              "executionStartedAt": 1794274068312,
-              "executionCompletedAt": 1794274068313,
-              "postprocessStartedAt": 1794274068313,
-              "resultCompletedAt": 1794274068313
+              "dispatchStartedAt": 1794276294441,
+              "executionStartedAt": 1794276294441,
+              "executionCompletedAt": 1794276294442,
+              "postprocessStartedAt": 1794276294442,
+              "resultCompletedAt": 1794276294442
             }
           },
           {
@@ -8684,11 +8568,11 @@
             "toolCallId": "c4",
             "toolKind": "error",
             "toolTiming": {
-              "dispatchStartedAt": 1794274068312,
-              "executionStartedAt": 1794274068312,
-              "executionCompletedAt": 1794274068313,
-              "postprocessStartedAt": 1794274068313,
-              "resultCompletedAt": 1794274068313
+              "dispatchStartedAt": 1794276294441,
+              "executionStartedAt": 1794276294441,
+              "executionCompletedAt": 1794276294442,
+              "postprocessStartedAt": 1794276294442,
+              "resultCompletedAt": 1794276294442
             }
           }
         ]
@@ -9006,7 +8890,8 @@
       "mcp": false,
       "nonBridge": false,
       "stream": false,
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
+      "internal": [],
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -9092,7 +8977,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274068376,
+          "createdAt": 1794276294519,
           "content": "",
           "toolCalls": [
             {
@@ -9157,7 +9042,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 53
+                "elapsedMs": 67
               }
             }
           }
@@ -9177,7 +9062,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274068376,
+            "createdAt": 1794276294519,
             "content": "",
             "toolCalls": [
               {
@@ -9214,11 +9099,11 @@
             "toolCallId": "c1",
             "toolKind": "error",
             "toolTiming": {
-              "dispatchStartedAt": 1794274068377,
-              "executionStartedAt": 1794274068377,
-              "executionCompletedAt": 1794274068377,
-              "postprocessStartedAt": 1794274068377,
-              "resultCompletedAt": 1794274068377
+              "dispatchStartedAt": 1794276294519,
+              "executionStartedAt": 1794276294519,
+              "executionCompletedAt": 1794276294519,
+              "postprocessStartedAt": 1794276294520,
+              "resultCompletedAt": 1794276294520
             }
           },
           {
@@ -9227,11 +9112,11 @@
             "toolCallId": "c2",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274068377,
-              "executionStartedAt": 1794274068377,
-              "executionCompletedAt": 1794274068377,
-              "postprocessStartedAt": 1794274068377,
-              "resultCompletedAt": 1794274068377
+              "dispatchStartedAt": 1794276294519,
+              "executionStartedAt": 1794276294519,
+              "executionCompletedAt": 1794276294520,
+              "postprocessStartedAt": 1794276294520,
+              "resultCompletedAt": 1794276294520
             }
           },
           {
@@ -9240,11 +9125,11 @@
             "toolCallId": "c3",
             "toolKind": "error",
             "toolTiming": {
-              "dispatchStartedAt": 1794274068377,
-              "executionStartedAt": 1794274068377,
-              "executionCompletedAt": 1794274068377,
-              "postprocessStartedAt": 1794274068377,
-              "resultCompletedAt": 1794274068377
+              "dispatchStartedAt": 1794276294519,
+              "executionStartedAt": 1794276294519,
+              "executionCompletedAt": 1794276294520,
+              "postprocessStartedAt": 1794276294520,
+              "resultCompletedAt": 1794276294520
             }
           },
           {
@@ -9253,11 +9138,11 @@
             "toolCallId": "c4",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274068377,
-              "executionStartedAt": 1794274068377,
-              "executionCompletedAt": 1794274068377,
-              "postprocessStartedAt": 1794274068377,
-              "resultCompletedAt": 1794274068377
+              "dispatchStartedAt": 1794276294519,
+              "executionStartedAt": 1794276294519,
+              "executionCompletedAt": 1794276294520,
+              "postprocessStartedAt": 1794276294520,
+              "resultCompletedAt": 1794276294520
             }
           }
         ]
@@ -9557,7 +9442,8 @@
       "mcp": true,
       "nonBridge": false,
       "stream": false,
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
+      "internal": [],
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -9635,7 +9521,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274068444,
+          "createdAt": 1794276294626,
           "content": "",
           "toolCalls": [
             {
@@ -9685,7 +9571,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 57
+                "elapsedMs": 91
               }
             }
           }
@@ -9705,7 +9591,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274068444,
+            "createdAt": 1794276294626,
             "content": "",
             "toolCalls": [
               {
@@ -9733,11 +9619,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274068444,
-              "executionStartedAt": 1794274068444,
-              "executionCompletedAt": 1794274068445,
-              "postprocessStartedAt": 1794274068445,
-              "resultCompletedAt": 1794274068446
+              "dispatchStartedAt": 1794276294626,
+              "executionStartedAt": 1794276294626,
+              "executionCompletedAt": 1794276294627,
+              "postprocessStartedAt": 1794276294627,
+              "resultCompletedAt": 1794276294627
             }
           },
           {
@@ -9746,11 +9632,11 @@
             "toolCallId": "c2",
             "toolKind": "error",
             "toolTiming": {
-              "dispatchStartedAt": 1794274068444,
-              "executionStartedAt": 1794274068444,
-              "executionCompletedAt": 1794274068445,
-              "postprocessStartedAt": 1794274068446,
-              "resultCompletedAt": 1794274068446
+              "dispatchStartedAt": 1794276294626,
+              "executionStartedAt": 1794276294626,
+              "executionCompletedAt": 1794276294627,
+              "postprocessStartedAt": 1794276294627,
+              "resultCompletedAt": 1794276294628
             }
           },
           {
@@ -9759,11 +9645,11 @@
             "toolCallId": "c3",
             "toolKind": "error",
             "toolTiming": {
-              "dispatchStartedAt": 1794274068444,
-              "executionStartedAt": 1794274068445,
-              "executionCompletedAt": 1794274068445,
-              "postprocessStartedAt": 1794274068446,
-              "resultCompletedAt": 1794274068446
+              "dispatchStartedAt": 1794276294626,
+              "executionStartedAt": 1794276294626,
+              "executionCompletedAt": 1794276294627,
+              "postprocessStartedAt": 1794276294628,
+              "resultCompletedAt": 1794276294628
             }
           }
         ]
@@ -10003,7 +9889,8 @@
       "mcp": true,
       "nonBridge": false,
       "stream": false,
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
+      "internal": [],
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -10089,7 +9976,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274068510,
+          "createdAt": 1794276294688,
           "content": "",
           "toolCalls": [
             {
@@ -10145,7 +10032,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 52
+                "elapsedMs": 47
               }
             }
           }
@@ -10165,7 +10052,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274068510,
+            "createdAt": 1794276294688,
             "content": "",
             "toolCalls": [
               {
@@ -10205,11 +10092,11 @@
             "toolCallId": "c2",
             "toolKind": "error",
             "toolTiming": {
-              "dispatchStartedAt": 1794274068510,
-              "executionStartedAt": 1794274068510,
-              "executionCompletedAt": 1794274068511,
-              "postprocessStartedAt": 1794274068511,
-              "resultCompletedAt": 1794274068512
+              "dispatchStartedAt": 1794276294688,
+              "executionStartedAt": 1794276294688,
+              "executionCompletedAt": 1794276294689,
+              "postprocessStartedAt": 1794276294689,
+              "resultCompletedAt": 1794276294689
             }
           },
           {
@@ -10218,11 +10105,11 @@
             "toolCallId": "c3",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274068511,
-              "executionStartedAt": 1794274068511,
-              "executionCompletedAt": 1794274068511,
-              "postprocessStartedAt": 1794274068512,
-              "resultCompletedAt": 1794274068512
+              "dispatchStartedAt": 1794276294689,
+              "executionStartedAt": 1794276294689,
+              "executionCompletedAt": 1794276294689,
+              "postprocessStartedAt": 1794276294689,
+              "resultCompletedAt": 1794276294689
             }
           }
         ]
@@ -10444,7 +10331,8 @@
       "mcp": false,
       "nonBridge": true,
       "stream": false,
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
+      "internal": [],
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -10507,7 +10395,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274068567,
+          "createdAt": 1794276294746,
           "content": "",
           "toolCalls": [
             {
@@ -10571,7 +10459,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274068567,
+            "createdAt": 1794276294746,
             "content": "",
             "toolCalls": [
               {
@@ -10599,11 +10487,11 @@
             "toolCallId": "c1",
             "toolKind": "error",
             "toolTiming": {
-              "dispatchStartedAt": 1794274068567,
-              "executionStartedAt": 1794274068567,
-              "executionCompletedAt": 1794274068568,
-              "postprocessStartedAt": 1794274068568,
-              "resultCompletedAt": 1794274068568
+              "dispatchStartedAt": 1794276294746,
+              "executionStartedAt": 1794276294746,
+              "executionCompletedAt": 1794276294746,
+              "postprocessStartedAt": 1794276294747,
+              "resultCompletedAt": 1794276294747
             }
           },
           {
@@ -10612,11 +10500,11 @@
             "toolCallId": "c2",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274068567,
-              "executionStartedAt": 1794274068567,
-              "executionCompletedAt": 1794274068568,
-              "postprocessStartedAt": 1794274068568,
-              "resultCompletedAt": 1794274068568
+              "dispatchStartedAt": 1794276294746,
+              "executionStartedAt": 1794276294746,
+              "executionCompletedAt": 1794276294747,
+              "postprocessStartedAt": 1794276294747,
+              "resultCompletedAt": 1794276294747
             }
           }
         ]
@@ -10842,7 +10730,8 @@
       "mcp": false,
       "nonBridge": false,
       "stream": false,
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
+      "internal": [],
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": {
@@ -10919,7 +10808,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274068627,
+          "createdAt": 1794276294828,
           "content": "",
           "toolCalls": [
             {
@@ -10950,7 +10839,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 50
+                "elapsedMs": 73
               }
             }
           }
@@ -10970,7 +10859,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274068627,
+            "createdAt": 1794276294828,
             "content": "",
             "toolCalls": [
               {
@@ -10991,11 +10880,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274068627,
-              "executionStartedAt": 1794274068627,
-              "executionCompletedAt": 1794274068627,
-              "postprocessStartedAt": 1794274068627,
-              "resultCompletedAt": 1794274068628
+              "dispatchStartedAt": 1794276294828,
+              "executionStartedAt": 1794276294828,
+              "executionCompletedAt": 1794276294828,
+              "postprocessStartedAt": 1794276294828,
+              "resultCompletedAt": 1794276294828
             }
           }
         ]
@@ -11140,7 +11029,8 @@
       "mcp": false,
       "nonBridge": false,
       "stream": false,
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
+      "internal": [],
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -11219,7 +11109,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274068688,
+          "createdAt": 1794276294896,
           "content": "",
           "toolCalls": [
             {
@@ -11263,7 +11153,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 52
+                "elapsedMs": 57
               }
             }
           }
@@ -11283,7 +11173,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274068688,
+            "createdAt": 1794276294896,
             "content": "",
             "toolCalls": [
               {
@@ -11311,11 +11201,11 @@
             "toolCallId": "c1",
             "toolKind": "error",
             "toolTiming": {
-              "dispatchStartedAt": 1794274068688,
-              "executionStartedAt": 1794274068688,
-              "executionCompletedAt": 1794274068688,
-              "postprocessStartedAt": 1794274068688,
-              "resultCompletedAt": 1794274068688
+              "dispatchStartedAt": 1794276294896,
+              "executionStartedAt": 1794276294896,
+              "executionCompletedAt": 1794276294896,
+              "postprocessStartedAt": 1794276294897,
+              "resultCompletedAt": 1794276294897
             }
           },
           {
@@ -11324,11 +11214,11 @@
             "toolCallId": "c2",
             "toolKind": "error",
             "toolTiming": {
-              "dispatchStartedAt": 1794274068688,
-              "executionStartedAt": 1794274068688,
-              "executionCompletedAt": 1794274068688,
-              "postprocessStartedAt": 1794274068688,
-              "resultCompletedAt": 1794274068688
+              "dispatchStartedAt": 1794276294896,
+              "executionStartedAt": 1794276294896,
+              "executionCompletedAt": 1794276294896,
+              "postprocessStartedAt": 1794276294897,
+              "resultCompletedAt": 1794276294897
             }
           }
         ]
@@ -11499,7 +11389,8 @@
       "mcp": false,
       "nonBridge": false,
       "stream": true,
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
+      "internal": [],
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -11580,7 +11471,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274068772,
+          "createdAt": 1794276294943,
           "content": "",
           "toolCalls": [
             {
@@ -11626,7 +11517,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 77
+                "elapsedMs": 38
               }
             }
           }
@@ -11646,7 +11537,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274068772,
+            "createdAt": 1794276294943,
             "content": "",
             "toolCalls": [
               {
@@ -11676,11 +11567,11 @@
             "toolCallId": "c1",
             "toolKind": "error",
             "toolTiming": {
-              "dispatchStartedAt": 1794274068750,
-              "executionStartedAt": 1794274068750,
-              "executionCompletedAt": 1794274068750,
-              "postprocessStartedAt": 1794274068773,
-              "resultCompletedAt": 1794274068773
+              "dispatchStartedAt": 1794276294941,
+              "executionStartedAt": 1794276294941,
+              "executionCompletedAt": 1794276294941,
+              "postprocessStartedAt": 1794276294944,
+              "resultCompletedAt": 1794276294944
             }
           },
           {
@@ -11689,11 +11580,11 @@
             "toolCallId": "c2",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274068773,
-              "executionStartedAt": 1794274068773,
-              "executionCompletedAt": 1794274068773,
-              "postprocessStartedAt": 1794274068773,
-              "resultCompletedAt": 1794274068773
+              "dispatchStartedAt": 1794276294944,
+              "executionStartedAt": 1794276294944,
+              "executionCompletedAt": 1794276294944,
+              "postprocessStartedAt": 1794276294944,
+              "resultCompletedAt": 1794276294944
             }
           }
         ]
@@ -11943,7 +11834,8 @@
       "mcp": false,
       "nonBridge": false,
       "stream": true,
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
+      "internal": [],
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -12020,7 +11912,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274068854,
+          "createdAt": 1794276295005,
           "content": "",
           "toolCalls": [
             {
@@ -12066,7 +11958,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 71
+                "elapsedMs": 51
               }
             }
           }
@@ -12086,7 +11978,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274068854,
+            "createdAt": 1794276295005,
             "content": "",
             "toolCalls": [
               {
@@ -12122,11 +12014,11 @@
             "toolCallId": "c2",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274068833,
-              "executionStartedAt": 1794274068833,
-              "executionCompletedAt": 1794274068833,
-              "postprocessStartedAt": 1794274068855,
-              "resultCompletedAt": 1794274068855
+              "dispatchStartedAt": 1794276295000,
+              "executionStartedAt": 1794276295000,
+              "executionCompletedAt": 1794276295000,
+              "postprocessStartedAt": 1794276295005,
+              "resultCompletedAt": 1794276295005
             }
           }
         ]
@@ -12295,12 +12187,1064 @@
       ]
     },
     {
+      "name": "an edit with a read, a write and another edit behind it, all streamed",
+      "session": {},
+      "mcp": false,
+      "nonBridge": false,
+      "stream": true,
+      "internal": [
+        "edit"
+      ],
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
+      "ask": [],
+      "answers": [],
+      "hookRewrite": null,
+      "hookDeny": [],
+      "script": [
+        {
+          "calls": [
+            {
+              "id": "c1",
+              "name": "edit",
+              "arguments": {
+                "file_path": "x.txt",
+                "old_string": "a",
+                "new_string": "b"
+              }
+            },
+            {
+              "id": "c2",
+              "name": "call_tool",
+              "arguments": {
+                "name": "probe_read",
+                "arguments": {
+                  "q": "r"
+                }
+              }
+            },
+            {
+              "id": "c3",
+              "name": "call_tool",
+              "arguments": {
+                "name": "probe_write",
+                "arguments": {
+                  "q": "w"
+                }
+              }
+            },
+            {
+              "id": "c4",
+              "name": "edit",
+              "arguments": {
+                "file_path": "x.txt",
+                "old_string": "b",
+                "new_string": "c"
+              }
+            }
+          ]
+        },
+        {
+          "text": "all done"
+        }
+      ],
+      "surface": {
+        "exposure": "bridge-v1",
+        "toolSpec": "full",
+        "tools": [
+          "find",
+          "glob",
+          "list",
+          "grep",
+          "code_graph",
+          "read",
+          "edit",
+          "git",
+          "shell",
+          "task",
+          "todo",
+          "load_tool",
+          "call_tool"
+        ],
+        "catalog": [
+          "find",
+          "glob",
+          "list",
+          "grep",
+          "code_graph",
+          "read",
+          "edit",
+          "git",
+          "github",
+          "shell",
+          "task",
+          "load_tool",
+          "probe_denied",
+          "probe_read",
+          "probe_write",
+          "todo"
+        ],
+        "mcpNames": null
+      },
+      "answer": "all done",
+      "stored": [
+        {
+          "role": "user",
+          "content": "go"
+        },
+        {
+          "role": "assistant",
+          "createdAt": 1794276295062,
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "c1",
+              "name": "edit",
+              "arguments": {
+                "file_path": "x.txt",
+                "old_string": "a",
+                "new_string": "b"
+              }
+            },
+            {
+              "id": "c2",
+              "name": "call_tool",
+              "arguments": {
+                "name": "probe_read",
+                "arguments": {
+                  "q": "r"
+                }
+              }
+            },
+            {
+              "id": "c3",
+              "name": "call_tool",
+              "arguments": {
+                "name": "probe_write",
+                "arguments": {
+                  "q": "w"
+                }
+              }
+            },
+            {
+              "id": "c4",
+              "name": "edit",
+              "arguments": {
+                "file_path": "x.txt",
+                "old_string": "b",
+                "new_string": "c"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "ran edit {\"file_path\":\"x.txt\",\"old_string\":\"a\",\"new_string\":\"b\"}",
+          "toolCallId": "c1",
+          "toolKind": "normal"
+        },
+        {
+          "role": "tool",
+          "content": "ran probe_read {\"q\":\"r\"}",
+          "toolCallId": "c2",
+          "toolKind": "normal"
+        },
+        {
+          "role": "tool",
+          "content": "ran probe_write {\"q\":\"w\"}",
+          "toolCallId": "c3",
+          "toolKind": "normal"
+        },
+        {
+          "role": "tool",
+          "content": "ran edit {\"file_path\":\"x.txt\",\"old_string\":\"b\",\"new_string\":\"c\"}",
+          "toolCallId": "c4",
+          "toolKind": "normal"
+        },
+        {
+          "role": "assistant",
+          "content": "all done",
+          "iterations": 2,
+          "toolCallsTotal": 4,
+          "meta": {
+            "transcript": {
+              "completion": {
+                "status": "done",
+                "verb": "Thought",
+                "elapsedMs": 49
+              }
+            }
+          }
+        }
+      ],
+      "requests": [
+        [
+          {
+            "role": "user",
+            "content": "go"
+          }
+        ],
+        [
+          {
+            "role": "user",
+            "content": "go"
+          },
+          {
+            "role": "assistant",
+            "createdAt": 1794276295062,
+            "content": "",
+            "toolCalls": [
+              {
+                "id": "c1",
+                "name": "edit",
+                "arguments": {
+                  "file_path": "x.txt",
+                  "old_string": "a",
+                  "new_string": "b"
+                }
+              },
+              {
+                "id": "c2",
+                "name": "call_tool",
+                "arguments": {
+                  "name": "probe_read",
+                  "arguments": {
+                    "q": "r"
+                  }
+                }
+              },
+              {
+                "id": "c3",
+                "name": "call_tool",
+                "arguments": {
+                  "name": "probe_write",
+                  "arguments": {
+                    "q": "w"
+                  }
+                }
+              },
+              {
+                "id": "c4",
+                "name": "edit",
+                "arguments": {
+                  "file_path": "x.txt",
+                  "old_string": "b",
+                  "new_string": "c"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": "ran edit {\"file_path\":\"x.txt\",\"old_string\":\"a\",\"new_string\":\"b\"}",
+            "toolCallId": "c1",
+            "toolKind": "normal",
+            "toolTiming": {
+              "dispatchStartedAt": 1794276295051,
+              "executionStartedAt": 1794276295051,
+              "executionCompletedAt": 1794276295051,
+              "postprocessStartedAt": 1794276295063,
+              "resultCompletedAt": 1794276295063
+            }
+          },
+          {
+            "role": "tool",
+            "content": "ran probe_read {\"q\":\"r\"}",
+            "toolCallId": "c2",
+            "toolKind": "normal",
+            "toolTiming": {
+              "dispatchStartedAt": 1794276295062,
+              "executionStartedAt": 1794276295062,
+              "executionCompletedAt": 1794276295062,
+              "postprocessStartedAt": 1794276295063,
+              "resultCompletedAt": 1794276295063
+            }
+          },
+          {
+            "role": "tool",
+            "content": "ran probe_write {\"q\":\"w\"}",
+            "toolCallId": "c3",
+            "toolKind": "normal",
+            "toolTiming": {
+              "dispatchStartedAt": 1794276295053,
+              "executionStartedAt": 1794276295053,
+              "executionCompletedAt": 1794276295053,
+              "postprocessStartedAt": 1794276295063,
+              "resultCompletedAt": 1794276295063
+            }
+          },
+          {
+            "role": "tool",
+            "content": "ran edit {\"file_path\":\"x.txt\",\"old_string\":\"b\",\"new_string\":\"c\"}",
+            "toolCallId": "c4",
+            "toolKind": "normal",
+            "toolTiming": {
+              "dispatchStartedAt": 1794276295054,
+              "executionStartedAt": 1794276295054,
+              "executionCompletedAt": 1794276295054,
+              "postprocessStartedAt": 1794276295063,
+              "resultCompletedAt": 1794276295063
+            }
+          }
+        ]
+      ],
+      "events": [
+        {
+          "ev": "toolResult",
+          "message": {
+            "role": "tool",
+            "toolCallId": "c1",
+            "content": "ran edit {\"file_path\":\"x.txt\",\"old_string\":\"a\",\"new_string\":\"b\"}",
+            "isError": false,
+            "__earlyNotify": true
+          }
+        },
+        {
+          "ev": "toolResult",
+          "message": {
+            "role": "tool",
+            "toolCallId": "c2",
+            "content": "ran probe_read {\"q\":\"r\"}",
+            "isError": false,
+            "__earlyNotify": true
+          }
+        },
+        {
+          "ev": "toolResult",
+          "message": {
+            "role": "tool",
+            "toolCallId": "c3",
+            "content": "ran probe_write {\"q\":\"w\"}",
+            "isError": false,
+            "__earlyNotify": true
+          }
+        },
+        {
+          "ev": "toolResult",
+          "message": {
+            "role": "tool",
+            "toolCallId": "c4",
+            "content": "ran edit {\"file_path\":\"x.txt\",\"old_string\":\"b\",\"new_string\":\"c\"}",
+            "isError": false,
+            "__earlyNotify": true
+          }
+        },
+        {
+          "ev": "toolCall",
+          "iteration": 1,
+          "calls": [
+            {
+              "id": "c1",
+              "name": "edit",
+              "arguments": {
+                "file_path": "x.txt",
+                "old_string": "a",
+                "new_string": "b"
+              }
+            },
+            {
+              "id": "c2",
+              "name": "call_tool",
+              "arguments": {
+                "name": "probe_read",
+                "arguments": {
+                  "q": "r"
+                }
+              }
+            },
+            {
+              "id": "c3",
+              "name": "call_tool",
+              "arguments": {
+                "name": "probe_write",
+                "arguments": {
+                  "q": "w"
+                }
+              }
+            },
+            {
+              "id": "c4",
+              "name": "edit",
+              "arguments": {
+                "file_path": "x.txt",
+                "old_string": "b",
+                "new_string": "c"
+              }
+            }
+          ]
+        },
+        {
+          "ev": "toolResult",
+          "message": {
+            "role": "tool",
+            "content": "ran edit {\"file_path\":\"x.txt\",\"old_string\":\"a\",\"new_string\":\"b\"}",
+            "toolCallId": "c1",
+            "toolKind": "normal"
+          }
+        },
+        {
+          "ev": "toolResult",
+          "message": {
+            "role": "tool",
+            "content": "ran probe_read {\"q\":\"r\"}",
+            "toolCallId": "c2",
+            "toolKind": "normal"
+          }
+        },
+        {
+          "ev": "toolResult",
+          "message": {
+            "role": "tool",
+            "content": "ran probe_write {\"q\":\"w\"}",
+            "toolCallId": "c3",
+            "toolKind": "normal"
+          }
+        },
+        {
+          "ev": "toolResult",
+          "message": {
+            "role": "tool",
+            "content": "ran edit {\"file_path\":\"x.txt\",\"old_string\":\"b\",\"new_string\":\"c\"}",
+            "toolCallId": "c4",
+            "toolKind": "normal"
+          }
+        }
+      ],
+      "cards": [],
+      "hooks": {
+        "before": [
+          {
+            "name": "edit",
+            "args": {
+              "file_path": "x.txt",
+              "old_string": "a",
+              "new_string": "b"
+            }
+          },
+          {
+            "name": "probe_read",
+            "args": {
+              "q": "r"
+            }
+          },
+          {
+            "name": "probe_write",
+            "args": {
+              "q": "w"
+            }
+          },
+          {
+            "name": "edit",
+            "args": {
+              "file_path": "x.txt",
+              "old_string": "b",
+              "new_string": "c"
+            }
+          },
+          {
+            "name": "probe_read",
+            "args": {
+              "q": "r"
+            }
+          }
+        ],
+        "after": [
+          {
+            "name": "edit",
+            "args": {
+              "file_path": "x.txt",
+              "old_string": "a",
+              "new_string": "b"
+            },
+            "result": "ran edit {\"file_path\":\"x.txt\",\"old_string\":\"a\",\"new_string\":\"b\"}"
+          },
+          {
+            "name": "probe_read",
+            "args": {
+              "q": "r"
+            },
+            "result": "ran probe_read {\"q\":\"r\"}"
+          },
+          {
+            "name": "probe_write",
+            "args": {
+              "q": "w"
+            },
+            "result": "ran probe_write {\"q\":\"w\"}"
+          },
+          {
+            "name": "edit",
+            "args": {
+              "file_path": "x.txt",
+              "old_string": "b",
+              "new_string": "c"
+            },
+            "result": "ran edit {\"file_path\":\"x.txt\",\"old_string\":\"b\",\"new_string\":\"c\"}"
+          },
+          {
+            "name": "probe_read",
+            "args": {
+              "q": "r"
+            },
+            "result": "ran probe_read {\"q\":\"r\"}"
+          }
+        ]
+      },
+      "executed": [
+        {
+          "name": "edit",
+          "args": {
+            "file_path": "x.txt",
+            "old_string": "a",
+            "new_string": "b"
+          }
+        },
+        {
+          "name": "probe_read",
+          "args": {
+            "q": "r"
+          }
+        },
+        {
+          "name": "probe_write",
+          "args": {
+            "q": "w"
+          }
+        },
+        {
+          "name": "edit",
+          "args": {
+            "file_path": "x.txt",
+            "old_string": "b",
+            "new_string": "c"
+          }
+        },
+        {
+          "name": "probe_read",
+          "args": {
+            "q": "r"
+          }
+        }
+      ],
+      "timeline": [
+        {
+          "ev": "sent",
+          "n": 1
+        },
+        {
+          "ev": "pre",
+          "name": "edit",
+          "args": {
+            "file_path": "x.txt",
+            "old_string": "a",
+            "new_string": "b"
+          }
+        },
+        {
+          "ev": "ran",
+          "name": "edit",
+          "args": {
+            "file_path": "x.txt",
+            "old_string": "a",
+            "new_string": "b"
+          }
+        },
+        {
+          "ev": "post",
+          "name": "edit",
+          "args": {
+            "file_path": "x.txt",
+            "old_string": "a",
+            "new_string": "b"
+          }
+        },
+        {
+          "ev": "toolResult",
+          "id": "c1",
+          "early": true
+        },
+        {
+          "ev": "pre",
+          "name": "probe_read",
+          "args": {
+            "q": "r"
+          }
+        },
+        {
+          "ev": "ran",
+          "name": "probe_read",
+          "args": {
+            "q": "r"
+          }
+        },
+        {
+          "ev": "post",
+          "name": "probe_read",
+          "args": {
+            "q": "r"
+          }
+        },
+        {
+          "ev": "toolResult",
+          "id": "c2",
+          "early": true
+        },
+        {
+          "ev": "pre",
+          "name": "probe_write",
+          "args": {
+            "q": "w"
+          }
+        },
+        {
+          "ev": "ran",
+          "name": "probe_write",
+          "args": {
+            "q": "w"
+          }
+        },
+        {
+          "ev": "post",
+          "name": "probe_write",
+          "args": {
+            "q": "w"
+          }
+        },
+        {
+          "ev": "toolResult",
+          "id": "c3",
+          "early": true
+        },
+        {
+          "ev": "pre",
+          "name": "edit",
+          "args": {
+            "file_path": "x.txt",
+            "old_string": "b",
+            "new_string": "c"
+          }
+        },
+        {
+          "ev": "ran",
+          "name": "edit",
+          "args": {
+            "file_path": "x.txt",
+            "old_string": "b",
+            "new_string": "c"
+          }
+        },
+        {
+          "ev": "post",
+          "name": "edit",
+          "args": {
+            "file_path": "x.txt",
+            "old_string": "b",
+            "new_string": "c"
+          }
+        },
+        {
+          "ev": "toolResult",
+          "id": "c4",
+          "early": true
+        },
+        {
+          "ev": "answered",
+          "n": 1
+        },
+        {
+          "ev": "toolCall",
+          "ids": [
+            "c1",
+            "c2",
+            "c3",
+            "c4"
+          ]
+        },
+        {
+          "ev": "pre",
+          "name": "probe_read",
+          "args": {
+            "q": "r"
+          }
+        },
+        {
+          "ev": "ran",
+          "name": "probe_read",
+          "args": {
+            "q": "r"
+          }
+        },
+        {
+          "ev": "post",
+          "name": "probe_read",
+          "args": {
+            "q": "r"
+          }
+        },
+        {
+          "ev": "toolResult",
+          "id": "c1",
+          "early": false
+        },
+        {
+          "ev": "toolResult",
+          "id": "c2",
+          "early": false
+        },
+        {
+          "ev": "toolResult",
+          "id": "c3",
+          "early": false
+        },
+        {
+          "ev": "toolResult",
+          "id": "c4",
+          "early": false
+        },
+        {
+          "ev": "sent",
+          "n": 2
+        },
+        {
+          "ev": "answered",
+          "n": 2
+        }
+      ],
+      "batches": []
+    },
+    {
+      "name": "computer called twice in one streamed turn",
+      "session": {},
+      "mcp": false,
+      "nonBridge": false,
+      "stream": true,
+      "internal": [
+        "computer"
+      ],
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
+      "ask": [],
+      "answers": [],
+      "hookRewrite": null,
+      "hookDeny": [],
+      "script": [
+        {
+          "calls": [
+            {
+              "id": "c1",
+              "name": "computer",
+              "arguments": {
+                "action": "screenshot"
+              }
+            },
+            {
+              "id": "c2",
+              "name": "computer",
+              "arguments": {
+                "action": "click"
+              }
+            }
+          ]
+        },
+        {
+          "text": "all done"
+        }
+      ],
+      "surface": {
+        "exposure": "bridge-v1",
+        "toolSpec": "full",
+        "tools": [
+          "find",
+          "glob",
+          "list",
+          "grep",
+          "code_graph",
+          "read",
+          "edit",
+          "git",
+          "shell",
+          "task",
+          "todo",
+          "load_tool",
+          "call_tool"
+        ],
+        "catalog": [
+          "find",
+          "glob",
+          "list",
+          "grep",
+          "code_graph",
+          "read",
+          "edit",
+          "git",
+          "github",
+          "shell",
+          "task",
+          "computer",
+          "load_tool",
+          "probe_denied",
+          "probe_read",
+          "probe_write",
+          "todo"
+        ],
+        "mcpNames": null
+      },
+      "answer": "all done",
+      "stored": [
+        {
+          "role": "user",
+          "content": "go"
+        },
+        {
+          "role": "assistant",
+          "createdAt": 1794276295117,
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "c1",
+              "name": "computer",
+              "arguments": {
+                "action": "screenshot"
+              }
+            },
+            {
+              "id": "c2",
+              "name": "computer",
+              "arguments": {
+                "action": "click"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "ran computer {\"action\":\"screenshot\"}",
+          "toolCallId": "c1",
+          "toolKind": "normal"
+        },
+        {
+          "role": "tool",
+          "content": "[computer-call-cardinality] Only the first Computer Use call in an assistant turn is executed (tool_use_id=c1). This call was not executed. Inspect the first call's fresh result, then issue at most one next computer call; use sequence only for a deterministic same-window focus chain.",
+          "toolCallId": "c2",
+          "toolKind": "error"
+        },
+        {
+          "role": "assistant",
+          "content": "all done",
+          "iterations": 2,
+          "toolCallsTotal": 2,
+          "meta": {
+            "transcript": {
+              "completion": {
+                "status": "done",
+                "verb": "Thought",
+                "elapsedMs": 43
+              }
+            }
+          }
+        }
+      ],
+      "requests": [
+        [
+          {
+            "role": "user",
+            "content": "go"
+          }
+        ],
+        [
+          {
+            "role": "user",
+            "content": "go"
+          },
+          {
+            "role": "assistant",
+            "createdAt": 1794276295117,
+            "content": "",
+            "toolCalls": [
+              {
+                "id": "c1",
+                "name": "computer",
+                "arguments": {
+                  "action": "screenshot"
+                }
+              },
+              {
+                "id": "c2",
+                "name": "computer",
+                "arguments": {
+                  "action": "click"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": "ran computer {\"action\":\"screenshot\"}",
+            "toolCallId": "c1",
+            "toolKind": "normal",
+            "toolTiming": {
+              "dispatchStartedAt": 1794276295114,
+              "executionStartedAt": 1794276295114,
+              "executionCompletedAt": 1794276295115,
+              "postprocessStartedAt": 1794276295117,
+              "resultCompletedAt": 1794276295117
+            }
+          },
+          {
+            "role": "tool",
+            "content": "[computer-call-cardinality] Only the first Computer Use call in an assistant turn is executed (tool_use_id=c1). This call was not executed. Inspect the first call's fresh result, then issue at most one next computer call; use sequence only for a deterministic same-window focus chain.",
+            "toolCallId": "c2",
+            "toolKind": "error"
+          }
+        ]
+      ],
+      "events": [
+        {
+          "ev": "toolResult",
+          "message": {
+            "role": "tool",
+            "toolCallId": "c1",
+            "content": "ran computer {\"action\":\"screenshot\"}",
+            "isError": false,
+            "__earlyNotify": true
+          }
+        },
+        {
+          "ev": "toolCall",
+          "iteration": 1,
+          "calls": [
+            {
+              "id": "c1",
+              "name": "computer",
+              "arguments": {
+                "action": "screenshot"
+              }
+            },
+            {
+              "id": "c2",
+              "name": "computer",
+              "arguments": {
+                "action": "click"
+              }
+            }
+          ]
+        },
+        {
+          "ev": "toolResult",
+          "message": {
+            "role": "tool",
+            "content": "ran computer {\"action\":\"screenshot\"}",
+            "toolCallId": "c1",
+            "toolKind": "normal"
+          }
+        },
+        {
+          "ev": "toolResult",
+          "message": {
+            "role": "tool",
+            "content": "[computer-call-cardinality] Only the first Computer Use call in an assistant turn is executed (tool_use_id=c1). This call was not executed. Inspect the first call's fresh result, then issue at most one next computer call; use sequence only for a deterministic same-window focus chain.",
+            "toolCallId": "c2",
+            "toolKind": "error"
+          }
+        }
+      ],
+      "cards": [],
+      "hooks": {
+        "before": [
+          {
+            "name": "computer",
+            "args": {
+              "action": "screenshot"
+            }
+          }
+        ],
+        "after": [
+          {
+            "name": "computer",
+            "args": {
+              "action": "screenshot"
+            },
+            "result": "ran computer {\"action\":\"screenshot\"}"
+          }
+        ]
+      },
+      "executed": [
+        {
+          "name": "computer",
+          "args": {
+            "action": "screenshot"
+          }
+        }
+      ],
+      "timeline": [
+        {
+          "ev": "sent",
+          "n": 1
+        },
+        {
+          "ev": "pre",
+          "name": "computer",
+          "args": {
+            "action": "screenshot"
+          }
+        },
+        {
+          "ev": "ran",
+          "name": "computer",
+          "args": {
+            "action": "screenshot"
+          }
+        },
+        {
+          "ev": "post",
+          "name": "computer",
+          "args": {
+            "action": "screenshot"
+          }
+        },
+        {
+          "ev": "toolResult",
+          "id": "c1",
+          "early": true
+        },
+        {
+          "ev": "answered",
+          "n": 1
+        },
+        {
+          "ev": "toolCall",
+          "ids": [
+            "c1",
+            "c2"
+          ]
+        },
+        {
+          "ev": "toolResult",
+          "id": "c1",
+          "early": false
+        },
+        {
+          "ev": "toolResult",
+          "id": "c2",
+          "early": false
+        },
+        {
+          "ev": "sent",
+          "n": 2
+        },
+        {
+          "ev": "answered",
+          "n": 2
+        }
+      ],
+      "batches": []
+    },
+    {
       "name": "a read-only deferred tool through call_tool, twice in one turn and again in the next (streamed)",
       "session": {},
       "mcp": false,
       "nonBridge": false,
       "stream": true,
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
+      "internal": [],
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -12404,7 +13348,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274068937,
+          "createdAt": 1794276295171,
           "content": "",
           "toolCalls": [
             {
@@ -12459,7 +13403,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274068960,
+          "createdAt": 1794276295176,
           "content": "",
           "toolCalls": [
             {
@@ -12490,7 +13434,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 94
+                "elapsedMs": 49
               }
             }
           }
@@ -12510,7 +13454,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274068937,
+            "createdAt": 1794276295171,
             "content": "",
             "toolCalls": [
               {
@@ -12551,11 +13495,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274068912,
-              "executionStartedAt": 1794274068912,
-              "executionCompletedAt": 1794274068912,
-              "postprocessStartedAt": 1794274068937,
-              "resultCompletedAt": 1794274068937
+              "dispatchStartedAt": 1794276295168,
+              "executionStartedAt": 1794276295168,
+              "executionCompletedAt": 1794276295168,
+              "postprocessStartedAt": 1794276295171,
+              "resultCompletedAt": 1794276295171
             }
           },
           {
@@ -12570,11 +13514,11 @@
             "toolCallId": "c3",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274068914,
-              "executionStartedAt": 1794274068914,
-              "executionCompletedAt": 1794274068914,
-              "postprocessStartedAt": 1794274068937,
-              "resultCompletedAt": 1794274068937
+              "dispatchStartedAt": 1794276295169,
+              "executionStartedAt": 1794276295169,
+              "executionCompletedAt": 1794276295169,
+              "postprocessStartedAt": 1794276295171,
+              "resultCompletedAt": 1794276295171
             }
           }
         ],
@@ -12585,7 +13529,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274068937,
+            "createdAt": 1794276295171,
             "content": "",
             "toolCalls": [
               {
@@ -12626,11 +13570,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274068912,
-              "executionStartedAt": 1794274068912,
-              "executionCompletedAt": 1794274068912,
-              "postprocessStartedAt": 1794274068937,
-              "resultCompletedAt": 1794274068937
+              "dispatchStartedAt": 1794276295168,
+              "executionStartedAt": 1794276295168,
+              "executionCompletedAt": 1794276295168,
+              "postprocessStartedAt": 1794276295171,
+              "resultCompletedAt": 1794276295171
             }
           },
           {
@@ -12645,16 +13589,16 @@
             "toolCallId": "c3",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274068914,
-              "executionStartedAt": 1794274068914,
-              "executionCompletedAt": 1794274068914,
-              "postprocessStartedAt": 1794274068937,
-              "resultCompletedAt": 1794274068937
+              "dispatchStartedAt": 1794276295169,
+              "executionStartedAt": 1794276295169,
+              "executionCompletedAt": 1794276295169,
+              "postprocessStartedAt": 1794276295171,
+              "resultCompletedAt": 1794276295171
             }
           },
           {
             "role": "assistant",
-            "createdAt": 1794274068960,
+            "createdAt": 1794276295176,
             "content": "",
             "toolCalls": [
               {
@@ -12675,11 +13619,11 @@
             "toolCallId": "c4",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274068938,
-              "executionStartedAt": 1794274068938,
-              "executionCompletedAt": 1794274068938,
-              "postprocessStartedAt": 1794274068960,
-              "resultCompletedAt": 1794274068960
+              "dispatchStartedAt": 1794276295172,
+              "executionStartedAt": 1794276295172,
+              "executionCompletedAt": 1794276295172,
+              "postprocessStartedAt": 1794276295176,
+              "resultCompletedAt": 1794276295176
             }
           }
         ]
@@ -13008,40 +13952,7 @@
           "n": 3
         }
       ],
-      "batches": [
-        {
-          "iteration": 1,
-          "toolCallCount": 3,
-          "calls": [
-            {
-              "tool_call_id": "c1",
-              "tool_name": "probe_read",
-              "array_lengths": null
-            },
-            {
-              "tool_call_id": "c2",
-              "tool_name": "probe_read",
-              "array_lengths": null
-            },
-            {
-              "tool_call_id": "c3",
-              "tool_name": "probe_read",
-              "array_lengths": null
-            }
-          ]
-        },
-        {
-          "iteration": 2,
-          "toolCallCount": 1,
-          "calls": [
-            {
-              "tool_call_id": "c4",
-              "tool_name": "probe_read",
-              "array_lengths": null
-            }
-          ]
-        }
-      ]
+      "batches": []
     },
     {
       "name": "every refusal of call_tool in one batch (streamed)",
@@ -13053,7 +13964,8 @@
       "mcp": false,
       "nonBridge": false,
       "stream": true,
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
+      "internal": [],
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -13235,7 +14147,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274069055,
+          "createdAt": 1794276295235,
           "content": "",
           "toolCalls": [
             {
@@ -13463,7 +14375,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 85
+                "elapsedMs": 51
               }
             }
           }
@@ -13483,7 +14395,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274069055,
+            "createdAt": 1794276295235,
             "content": "",
             "toolCalls": [
               {
@@ -14088,89 +15000,7 @@
           "n": 2
         }
       ],
-      "batches": [
-        {
-          "iteration": 1,
-          "toolCallCount": 15,
-          "calls": [
-            {
-              "tool_call_id": "c1",
-              "tool_name": "call_tool",
-              "array_lengths": null
-            },
-            {
-              "tool_call_id": "c2",
-              "tool_name": "call_tool",
-              "array_lengths": null
-            },
-            {
-              "tool_call_id": "c3",
-              "tool_name": "call_tool",
-              "array_lengths": null
-            },
-            {
-              "tool_call_id": "c4",
-              "tool_name": "call_tool",
-              "array_lengths": null
-            },
-            {
-              "tool_call_id": "c5",
-              "tool_name": "call_tool",
-              "array_lengths": null
-            },
-            {
-              "tool_call_id": "c6",
-              "tool_name": "call_tool",
-              "array_lengths": null
-            },
-            {
-              "tool_call_id": "c7",
-              "tool_name": "call_tool",
-              "array_lengths": null
-            },
-            {
-              "tool_call_id": "c8",
-              "tool_name": "call_tool",
-              "array_lengths": null
-            },
-            {
-              "tool_call_id": "c9",
-              "tool_name": "call_tool",
-              "array_lengths": null
-            },
-            {
-              "tool_call_id": "c10",
-              "tool_name": "call_tool",
-              "array_lengths": null
-            },
-            {
-              "tool_call_id": "c11",
-              "tool_name": "call_tool",
-              "array_lengths": null
-            },
-            {
-              "tool_call_id": "c12",
-              "tool_name": "call_tool",
-              "array_lengths": null
-            },
-            {
-              "tool_call_id": "c13",
-              "tool_name": "call_tool",
-              "array_lengths": null
-            },
-            {
-              "tool_call_id": "c14",
-              "tool_name": "call_tool",
-              "array_lengths": null
-            },
-            {
-              "tool_call_id": "c15",
-              "tool_name": "call_tool",
-              "array_lengths": null
-            }
-          ]
-        }
-      ]
+      "batches": []
     },
     {
       "name": "a target that needs approval, approved (streamed)",
@@ -14178,7 +15008,8 @@
       "mcp": false,
       "nonBridge": false,
       "stream": true,
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
+      "internal": [],
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
       "ask": [
         "probe_write"
       ],
@@ -14254,7 +15085,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274069300,
+          "createdAt": 1794276295299,
           "content": "",
           "toolCalls": [
             {
@@ -14285,7 +15116,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 199
+                "elapsedMs": 52
               }
             }
           }
@@ -14305,7 +15136,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274069300,
+            "createdAt": 1794276295299,
             "content": "",
             "toolCalls": [
               {
@@ -14326,11 +15157,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274069280,
-              "executionStartedAt": 1794274069280,
-              "executionCompletedAt": 1794274069284,
-              "postprocessStartedAt": 1794274069300,
-              "resultCompletedAt": 1794274069300
+              "dispatchStartedAt": 1794276295294,
+              "executionStartedAt": 1794276295294,
+              "executionCompletedAt": 1794276295298,
+              "postprocessStartedAt": 1794276295299,
+              "resultCompletedAt": 1794276295299
             }
           }
         ]
@@ -14386,8 +15217,8 @@
           "args": {
             "q": "x"
           },
-          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
-          "sessionId": "sess_call_tool_31",
+          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
+          "sessionId": "sess_call_tool_33",
           "toolCallId": "c1",
           "reason": "needs approval"
         }
@@ -14481,37 +15312,22 @@
           "n": 2
         }
       ],
-      "batches": [
-        {
-          "iteration": 1,
-          "toolCallCount": 1,
-          "calls": [
-            {
-              "tool_call_id": "c1",
-              "tool_name": "probe_write",
-              "array_lengths": null
-            }
-          ]
-        }
-      ]
+      "batches": []
     },
     {
-      "name": "a mix: two approvals, a refusal and a plain run in one batch (streamed)",
+      "name": "a mix: an approval, a refusal and a plain run in one batch (streamed)",
       "session": {},
       "mcp": false,
       "nonBridge": false,
       "stream": true,
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
+      "internal": [],
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
       "ask": [
         "probe_write"
       ],
       "answers": [
         {
           "approved": true
-        },
-        {
-          "approved": false,
-          "reason": "no"
         }
       ],
       "hookRewrite": null,
@@ -14539,16 +15355,6 @@
             },
             {
               "id": "c3",
-              "name": "call_tool",
-              "arguments": {
-                "name": "probe_write",
-                "arguments": {
-                  "q": "2"
-                }
-              }
-            },
-            {
-              "id": "c4",
               "name": "call_tool",
               "arguments": {
                 "name": "probe_read",
@@ -14609,7 +15415,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274069400,
+          "createdAt": 1794276295370,
           "content": "",
           "toolCalls": [
             {
@@ -14634,16 +15440,6 @@
               "id": "c3",
               "name": "call_tool",
               "arguments": {
-                "name": "probe_write",
-                "arguments": {
-                  "q": "2"
-                }
-              }
-            },
-            {
-              "id": "c4",
-              "name": "call_tool",
-              "arguments": {
                 "name": "probe_read",
                 "arguments": {
                   "q": "r"
@@ -14666,27 +15462,21 @@
         },
         {
           "role": "tool",
-          "content": "Error: tool \"probe_write\" was not approved: no. Do not retry it or reach the same result another way; report it.",
-          "toolCallId": "c3",
-          "toolKind": "error"
-        },
-        {
-          "role": "tool",
           "content": "ran probe_read {\"q\":\"r\"}",
-          "toolCallId": "c4",
+          "toolCallId": "c3",
           "toolKind": "normal"
         },
         {
           "role": "assistant",
           "content": "all done",
           "iterations": 2,
-          "toolCallsTotal": 4,
+          "toolCallsTotal": 3,
           "meta": {
             "transcript": {
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 86
+                "elapsedMs": 62
               }
             }
           }
@@ -14706,7 +15496,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274069400,
+            "createdAt": 1794276295370,
             "content": "",
             "toolCalls": [
               {
@@ -14731,16 +15521,6 @@
                 "id": "c3",
                 "name": "call_tool",
                 "arguments": {
-                  "name": "probe_write",
-                  "arguments": {
-                    "q": "2"
-                  }
-                }
-              },
-              {
-                "id": "c4",
-                "name": "call_tool",
-                "arguments": {
                   "name": "probe_read",
                   "arguments": {
                     "q": "r"
@@ -14755,11 +15535,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274069374,
-              "executionStartedAt": 1794274069374,
-              "executionCompletedAt": 1794274069381,
-              "postprocessStartedAt": 1794274069400,
-              "resultCompletedAt": 1794274069400
+              "dispatchStartedAt": 1794276295364,
+              "executionStartedAt": 1794276295364,
+              "executionCompletedAt": 1794276295369,
+              "postprocessStartedAt": 1794276295370,
+              "resultCompletedAt": 1794276295370
             }
           },
           {
@@ -14770,28 +15550,15 @@
           },
           {
             "role": "tool",
-            "content": "Error: tool \"probe_write\" was not approved: no. Do not retry it or reach the same result another way; report it.",
-            "toolCallId": "c3",
-            "toolKind": "error",
-            "toolTiming": {
-              "dispatchStartedAt": 1794274069377,
-              "executionStartedAt": 1794274069377,
-              "executionCompletedAt": 1794274069381,
-              "postprocessStartedAt": 1794274069400,
-              "resultCompletedAt": 1794274069400
-            }
-          },
-          {
-            "role": "tool",
             "content": "ran probe_read {\"q\":\"r\"}",
-            "toolCallId": "c4",
+            "toolCallId": "c3",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274069378,
-              "executionStartedAt": 1794274069378,
-              "executionCompletedAt": 1794274069378,
-              "postprocessStartedAt": 1794274069400,
-              "resultCompletedAt": 1794274069400
+              "dispatchStartedAt": 1794276295367,
+              "executionStartedAt": 1794276295367,
+              "executionCompletedAt": 1794276295367,
+              "postprocessStartedAt": 1794276295370,
+              "resultCompletedAt": 1794276295370
             }
           }
         ]
@@ -14801,7 +15568,7 @@
           "ev": "toolResult",
           "message": {
             "role": "tool",
-            "toolCallId": "c4",
+            "toolCallId": "c3",
             "content": "ran probe_read {\"q\":\"r\"}",
             "isError": false,
             "__earlyNotify": true
@@ -14813,16 +15580,6 @@
             "role": "tool",
             "toolCallId": "c1",
             "content": "ran probe_write {\"q\":\"1\"}",
-            "isError": false,
-            "__earlyNotify": true
-          }
-        },
-        {
-          "ev": "toolResult",
-          "message": {
-            "role": "tool",
-            "toolCallId": "c3",
-            "content": "Error: tool \"probe_write\" was not approved: no. Do not retry it or reach the same result another way; report it.",
             "isError": false,
             "__earlyNotify": true
           }
@@ -14853,16 +15610,6 @@
               "id": "c3",
               "name": "call_tool",
               "arguments": {
-                "name": "probe_write",
-                "arguments": {
-                  "q": "2"
-                }
-              }
-            },
-            {
-              "id": "c4",
-              "name": "call_tool",
-              "arguments": {
                 "name": "probe_read",
                 "arguments": {
                   "q": "r"
@@ -14893,17 +15640,8 @@
           "ev": "toolResult",
           "message": {
             "role": "tool",
-            "content": "Error: tool \"probe_write\" was not approved: no. Do not retry it or reach the same result another way; report it.",
-            "toolCallId": "c3",
-            "toolKind": "error"
-          }
-        },
-        {
-          "ev": "toolResult",
-          "message": {
-            "role": "tool",
             "content": "ran probe_read {\"q\":\"r\"}",
-            "toolCallId": "c4",
+            "toolCallId": "c3",
             "toolKind": "normal"
           }
         }
@@ -14922,27 +15660,9 @@
           "args": {
             "q": "1"
           },
-          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
-          "sessionId": "sess_call_tool_32",
+          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
+          "sessionId": "sess_call_tool_34",
           "toolCallId": "c1",
-          "reason": "needs approval"
-        },
-        {
-          "kind": "approval",
-          "agentId": "lead",
-          "remember": [
-            "once",
-            "session",
-            "always"
-          ],
-          "grantAction": "tool:probe_write",
-          "name": "probe_write",
-          "args": {
-            "q": "2"
-          },
-          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
-          "sessionId": "sess_call_tool_32",
-          "toolCallId": "c3",
           "reason": "needs approval"
         }
       ],
@@ -14952,12 +15672,6 @@
             "name": "probe_write",
             "args": {
               "q": "1"
-            }
-          },
-          {
-            "name": "probe_write",
-            "args": {
-              "q": "2"
             }
           },
           {
@@ -15019,20 +15733,6 @@
         },
         {
           "ev": "pre",
-          "name": "probe_write",
-          "args": {
-            "q": "2"
-          }
-        },
-        {
-          "ev": "card",
-          "name": "probe_write",
-          "args": {
-            "q": "2"
-          }
-        },
-        {
-          "ev": "pre",
           "name": "probe_read",
           "args": {
             "q": "r"
@@ -15054,7 +15754,7 @@
         },
         {
           "ev": "toolResult",
-          "id": "c4",
+          "id": "c3",
           "early": true
         },
         {
@@ -15077,11 +15777,6 @@
           "early": true
         },
         {
-          "ev": "toolResult",
-          "id": "c3",
-          "early": true
-        },
-        {
           "ev": "answered",
           "n": 1
         },
@@ -15090,8 +15785,7 @@
           "ids": [
             "c1",
             "c2",
-            "c3",
-            "c4"
+            "c3"
           ]
         },
         {
@@ -15110,11 +15804,6 @@
           "early": false
         },
         {
-          "ev": "toolResult",
-          "id": "c4",
-          "early": false
-        },
-        {
           "ev": "sent",
           "n": 2
         },
@@ -15123,34 +15812,7 @@
           "n": 2
         }
       ],
-      "batches": [
-        {
-          "iteration": 1,
-          "toolCallCount": 4,
-          "calls": [
-            {
-              "tool_call_id": "c1",
-              "tool_name": "probe_write",
-              "array_lengths": null
-            },
-            {
-              "tool_call_id": "c2",
-              "tool_name": "call_tool",
-              "array_lengths": null
-            },
-            {
-              "tool_call_id": "c3",
-              "tool_name": "probe_write",
-              "array_lengths": null
-            },
-            {
-              "tool_call_id": "c4",
-              "tool_name": "probe_read",
-              "array_lengths": null
-            }
-          ]
-        }
-      ]
+      "batches": []
     },
     {
       "name": "a session that denies a tool (streamed)",
@@ -15162,7 +15824,8 @@
       "mcp": false,
       "nonBridge": false,
       "stream": true,
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
+      "internal": [],
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -15246,7 +15909,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274069502,
+          "createdAt": 1794276295434,
           "content": "",
           "toolCalls": [
             {
@@ -15304,7 +15967,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 87
+                "elapsedMs": 50
               }
             }
           }
@@ -15324,7 +15987,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274069502,
+            "createdAt": 1794276295434,
             "content": "",
             "toolCalls": [
               {
@@ -15372,11 +16035,11 @@
             "toolCallId": "c3",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274069480,
-              "executionStartedAt": 1794274069480,
-              "executionCompletedAt": 1794274069480,
-              "postprocessStartedAt": 1794274069502,
-              "resultCompletedAt": 1794274069502
+              "dispatchStartedAt": 1794276295432,
+              "executionStartedAt": 1794276295432,
+              "executionCompletedAt": 1794276295432,
+              "postprocessStartedAt": 1794276295434,
+              "resultCompletedAt": 1794276295434
             }
           }
         ]
@@ -15534,29 +16197,7 @@
           "n": 2
         }
       ],
-      "batches": [
-        {
-          "iteration": 1,
-          "toolCallCount": 3,
-          "calls": [
-            {
-              "tool_call_id": "c1",
-              "tool_name": "call_tool",
-              "array_lengths": null
-            },
-            {
-              "tool_call_id": "c2",
-              "tool_name": "probe_write",
-              "array_lengths": null
-            },
-            {
-              "tool_call_id": "c3",
-              "tool_name": "probe_read",
-              "array_lengths": null
-            }
-          ]
-        }
-      ]
+      "batches": []
     },
     {
       "name": "a read-only session (streamed)",
@@ -15566,7 +16207,8 @@
       "mcp": false,
       "nonBridge": false,
       "stream": true,
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
+      "internal": [],
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -15657,7 +16299,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274069592,
+          "createdAt": 1794276295493,
           "content": "",
           "toolCalls": [
             {
@@ -15727,7 +16369,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 80
+                "elapsedMs": 50
               }
             }
           }
@@ -15747,7 +16389,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274069592,
+            "createdAt": 1794276295493,
             "content": "",
             "toolCalls": [
               {
@@ -15789,11 +16431,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274069564,
-              "executionStartedAt": 1794274069564,
-              "executionCompletedAt": 1794274069564,
-              "postprocessStartedAt": 1794274069592,
-              "resultCompletedAt": 1794274069592
+              "dispatchStartedAt": 1794276295490,
+              "executionStartedAt": 1794276295490,
+              "executionCompletedAt": 1794276295490,
+              "postprocessStartedAt": 1794276295493,
+              "resultCompletedAt": 1794276295493
             }
           },
           {
@@ -15802,11 +16444,11 @@
             "toolCallId": "c2",
             "toolKind": "error",
             "toolTiming": {
-              "dispatchStartedAt": 1794274069566,
-              "executionStartedAt": 1794274069566,
-              "executionCompletedAt": 1794274069566,
-              "postprocessStartedAt": 1794274069592,
-              "resultCompletedAt": 1794274069592
+              "dispatchStartedAt": 1794276295490,
+              "executionStartedAt": 1794276295490,
+              "executionCompletedAt": 1794276295490,
+              "postprocessStartedAt": 1794276295493,
+              "resultCompletedAt": 1794276295494
             }
           },
           {
@@ -15815,11 +16457,11 @@
             "toolCallId": "c3",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274069568,
-              "executionStartedAt": 1794274069568,
-              "executionCompletedAt": 1794274069568,
-              "postprocessStartedAt": 1794274069592,
-              "resultCompletedAt": 1794274069592
+              "dispatchStartedAt": 1794276295491,
+              "executionStartedAt": 1794276295491,
+              "executionCompletedAt": 1794276295491,
+              "postprocessStartedAt": 1794276295494,
+              "resultCompletedAt": 1794276295494
             }
           },
           {
@@ -15828,11 +16470,11 @@
             "toolCallId": "c4",
             "toolKind": "error",
             "toolTiming": {
-              "dispatchStartedAt": 1794274069569,
-              "executionStartedAt": 1794274069569,
-              "executionCompletedAt": 1794274069569,
-              "postprocessStartedAt": 1794274069592,
-              "resultCompletedAt": 1794274069592
+              "dispatchStartedAt": 1794276295492,
+              "executionStartedAt": 1794276295492,
+              "executionCompletedAt": 1794276295492,
+              "postprocessStartedAt": 1794276295494,
+              "resultCompletedAt": 1794276295494
             }
           }
         ]
@@ -16113,34 +16755,7 @@
           "n": 2
         }
       ],
-      "batches": [
-        {
-          "iteration": 1,
-          "toolCallCount": 4,
-          "calls": [
-            {
-              "tool_call_id": "c1",
-              "tool_name": "load_tool",
-              "array_lengths": null
-            },
-            {
-              "tool_call_id": "c2",
-              "tool_name": "probe_write",
-              "array_lengths": null
-            },
-            {
-              "tool_call_id": "c3",
-              "tool_name": "probe_read",
-              "array_lengths": null
-            },
-            {
-              "tool_call_id": "c4",
-              "tool_name": "probe_write",
-              "array_lengths": null
-            }
-          ]
-        }
-      ]
+      "batches": []
     },
     {
       "name": "a session with no resolved tool mode (streamed)",
@@ -16150,7 +16765,8 @@
       "mcp": false,
       "nonBridge": false,
       "stream": true,
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
+      "internal": [],
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -16236,7 +16852,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274069688,
+          "createdAt": 1794276295576,
           "content": "",
           "toolCalls": [
             {
@@ -16301,7 +16917,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 83
+                "elapsedMs": 70
               }
             }
           }
@@ -16321,7 +16937,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274069688,
+            "createdAt": 1794276295576,
             "content": "",
             "toolCalls": [
               {
@@ -16358,11 +16974,11 @@
             "toolCallId": "c1",
             "toolKind": "error",
             "toolTiming": {
-              "dispatchStartedAt": 1794274069665,
-              "executionStartedAt": 1794274069665,
-              "executionCompletedAt": 1794274069665,
-              "postprocessStartedAt": 1794274069689,
-              "resultCompletedAt": 1794274069689
+              "dispatchStartedAt": 1794276295570,
+              "executionStartedAt": 1794276295570,
+              "executionCompletedAt": 1794276295570,
+              "postprocessStartedAt": 1794276295576,
+              "resultCompletedAt": 1794276295576
             }
           },
           {
@@ -16371,11 +16987,11 @@
             "toolCallId": "c2",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274069665,
-              "executionStartedAt": 1794274069665,
-              "executionCompletedAt": 1794274069665,
-              "postprocessStartedAt": 1794274069689,
-              "resultCompletedAt": 1794274069689
+              "dispatchStartedAt": 1794276295570,
+              "executionStartedAt": 1794276295570,
+              "executionCompletedAt": 1794276295571,
+              "postprocessStartedAt": 1794276295576,
+              "resultCompletedAt": 1794276295576
             }
           },
           {
@@ -16384,11 +17000,11 @@
             "toolCallId": "c3",
             "toolKind": "error",
             "toolTiming": {
-              "dispatchStartedAt": 1794274069666,
-              "executionStartedAt": 1794274069666,
-              "executionCompletedAt": 1794274069666,
-              "postprocessStartedAt": 1794274069689,
-              "resultCompletedAt": 1794274069689
+              "dispatchStartedAt": 1794276295571,
+              "executionStartedAt": 1794276295571,
+              "executionCompletedAt": 1794276295571,
+              "postprocessStartedAt": 1794276295576,
+              "resultCompletedAt": 1794276295576
             }
           },
           {
@@ -16397,11 +17013,11 @@
             "toolCallId": "c4",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274069667,
-              "executionStartedAt": 1794274069667,
-              "executionCompletedAt": 1794274069667,
-              "postprocessStartedAt": 1794274069689,
-              "resultCompletedAt": 1794274069689
+              "dispatchStartedAt": 1794276295572,
+              "executionStartedAt": 1794276295572,
+              "executionCompletedAt": 1794276295572,
+              "postprocessStartedAt": 1794276295576,
+              "resultCompletedAt": 1794276295576
             }
           }
         ]
@@ -16666,34 +17282,7 @@
           "n": 2
         }
       ],
-      "batches": [
-        {
-          "iteration": 1,
-          "toolCallCount": 4,
-          "calls": [
-            {
-              "tool_call_id": "c1",
-              "tool_name": "probe_write",
-              "array_lengths": null
-            },
-            {
-              "tool_call_id": "c2",
-              "tool_name": "probe_read",
-              "array_lengths": null
-            },
-            {
-              "tool_call_id": "c3",
-              "tool_name": "probe_write",
-              "array_lengths": null
-            },
-            {
-              "tool_call_id": "c4",
-              "tool_name": "probe_read",
-              "array_lengths": null
-            }
-          ]
-        }
-      ]
+      "batches": []
     },
     {
       "name": "a loaded deferred tool called directly (streamed)",
@@ -16701,7 +17290,8 @@
       "mcp": false,
       "nonBridge": false,
       "stream": true,
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
+      "internal": [],
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -16781,7 +17371,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274069810,
+          "createdAt": 1794276295637,
           "content": "",
           "toolCalls": [
             {
@@ -16803,7 +17393,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274069832,
+          "createdAt": 1794276295641,
           "content": "",
           "toolCalls": [
             {
@@ -16831,7 +17421,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 128
+                "elapsedMs": 52
               }
             }
           }
@@ -16851,7 +17441,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274069810,
+            "createdAt": 1794276295637,
             "content": "",
             "toolCalls": [
               {
@@ -16871,11 +17461,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274069771,
-              "executionStartedAt": 1794274069771,
-              "executionCompletedAt": 1794274069772,
-              "postprocessStartedAt": 1794274069810,
-              "resultCompletedAt": 1794274069810
+              "dispatchStartedAt": 1794276295635,
+              "executionStartedAt": 1794276295635,
+              "executionCompletedAt": 1794276295635,
+              "postprocessStartedAt": 1794276295638,
+              "resultCompletedAt": 1794276295638
             }
           }
         ],
@@ -16886,7 +17476,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274069810,
+            "createdAt": 1794276295637,
             "content": "",
             "toolCalls": [
               {
@@ -16906,16 +17496,16 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274069771,
-              "executionStartedAt": 1794274069771,
-              "executionCompletedAt": 1794274069772,
-              "postprocessStartedAt": 1794274069810,
-              "resultCompletedAt": 1794274069810
+              "dispatchStartedAt": 1794276295635,
+              "executionStartedAt": 1794276295635,
+              "executionCompletedAt": 1794276295635,
+              "postprocessStartedAt": 1794276295638,
+              "resultCompletedAt": 1794276295638
             }
           },
           {
             "role": "assistant",
-            "createdAt": 1794274069832,
+            "createdAt": 1794276295641,
             "content": "",
             "toolCalls": [
               {
@@ -16933,11 +17523,11 @@
             "toolCallId": "c2",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274069811,
-              "executionStartedAt": 1794274069811,
-              "executionCompletedAt": 1794274069811,
-              "postprocessStartedAt": 1794274069832,
-              "resultCompletedAt": 1794274069832
+              "dispatchStartedAt": 1794276295638,
+              "executionStartedAt": 1794276295638,
+              "executionCompletedAt": 1794276295639,
+              "postprocessStartedAt": 1794276295641,
+              "resultCompletedAt": 1794276295641
             }
           }
         ]
@@ -17160,7 +17750,8 @@
       "mcp": true,
       "nonBridge": false,
       "stream": true,
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
+      "internal": [],
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -17231,7 +17822,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274069926,
+          "createdAt": 1794276295700,
           "content": "",
           "toolCalls": [
             {
@@ -17262,7 +17853,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 83
+                "elapsedMs": 47
               }
             }
           }
@@ -17282,7 +17873,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274069926,
+            "createdAt": 1794276295700,
             "content": "",
             "toolCalls": [
               {
@@ -17303,11 +17894,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274069904,
-              "executionStartedAt": 1794274069904,
-              "executionCompletedAt": 1794274069905,
-              "postprocessStartedAt": 1794274069926,
-              "resultCompletedAt": 1794274069926
+              "dispatchStartedAt": 1794276295697,
+              "executionStartedAt": 1794276295697,
+              "executionCompletedAt": 1794276295697,
+              "postprocessStartedAt": 1794276295700,
+              "resultCompletedAt": 1794276295700
             }
           }
         ]
@@ -17440,7 +18031,8 @@
       "mcp": false,
       "nonBridge": false,
       "stream": true,
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
+      "internal": [],
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -17519,7 +18111,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274070021,
+          "createdAt": 1794276295762,
           "content": "",
           "toolCalls": [
             {
@@ -17563,7 +18155,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 79
+                "elapsedMs": 53
               }
             }
           }
@@ -17583,7 +18175,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274070021,
+            "createdAt": 1794276295762,
             "content": "",
             "toolCalls": [
               {
@@ -17611,11 +18203,11 @@
             "toolCallId": "c1",
             "toolKind": "error",
             "toolTiming": {
-              "dispatchStartedAt": 1794274069992,
-              "executionStartedAt": 1794274069992,
-              "executionCompletedAt": 1794274069992,
-              "postprocessStartedAt": 1794274070021,
-              "resultCompletedAt": 1794274070021
+              "dispatchStartedAt": 1794276295757,
+              "executionStartedAt": 1794276295757,
+              "executionCompletedAt": 1794276295758,
+              "postprocessStartedAt": 1794276295762,
+              "resultCompletedAt": 1794276295762
             }
           },
           {
@@ -17624,11 +18216,11 @@
             "toolCallId": "c2",
             "toolKind": "error",
             "toolTiming": {
-              "dispatchStartedAt": 1794274069992,
-              "executionStartedAt": 1794274069992,
-              "executionCompletedAt": 1794274069992,
-              "postprocessStartedAt": 1794274070021,
-              "resultCompletedAt": 1794274070021
+              "dispatchStartedAt": 1794276295758,
+              "executionStartedAt": 1794276295758,
+              "executionCompletedAt": 1794276295758,
+              "postprocessStartedAt": 1794276295762,
+              "resultCompletedAt": 1794276295763
             }
           }
         ]
@@ -17782,7 +18374,8 @@
       "mcp": false,
       "nonBridge": false,
       "stream": true,
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-hVsbo8\\work",
+      "internal": [],
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-RTeEru\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": {
@@ -17859,7 +18452,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794274070097,
+          "createdAt": 1794276295822,
           "content": "",
           "toolCalls": [
             {
@@ -17890,7 +18483,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 65
+                "elapsedMs": 47
               }
             }
           }
@@ -17910,7 +18503,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794274070097,
+            "createdAt": 1794276295822,
             "content": "",
             "toolCalls": [
               {
@@ -17931,11 +18524,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794274070076,
-              "executionStartedAt": 1794274070076,
-              "executionCompletedAt": 1794274070076,
-              "postprocessStartedAt": 1794274070098,
-              "resultCompletedAt": 1794274070098
+              "dispatchStartedAt": 1794276295819,
+              "executionStartedAt": 1794276295819,
+              "executionCompletedAt": 1794276295819,
+              "postprocessStartedAt": 1794276295822,
+              "resultCompletedAt": 1794276295822
             }
           }
         ]
