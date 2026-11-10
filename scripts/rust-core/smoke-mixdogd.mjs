@@ -84,13 +84,14 @@ const CUSTOM = 'custom-11111111-1111-4111-8111-111111111111';
 
 /**
  * The tool-failure check: a scripted model turn calls `read` with no path, which the core must fail, and the spool must
- * hold exactly that row. Throws, naming the missing writer and its owner, when the spool is missing or empty.
+ * hold exactly that row, equal to Node's row for it (judgeToolFailureRows). Throws, naming the missing writer and its owner, when the spool is missing or empty.
  */
 export async function toolFailureCheck(bin) {
   const provider = await startScriptedProvider({ tool: 'read', args: '{}' });
   let result;
   try {
     const config = { agent: { providers: { [CUSTOM]: { type: 'custom', name: 'smoke', protocol: 'openai-chat', baseURL: provider.baseURL, auth: 'none', models: [{ id: 'smoke' }] } } } };
+    const startedAt = Date.now();
     result = await withCore(bin, config, async (core) => {
       const started = await startThread(core, { provider: CUSTOM, model: 'smoke' });
       const threadId = started?.thread?.id;
@@ -98,17 +99,29 @@ export async function toolFailureCheck(bin) {
       await within(core.call('turn/start', { threadId, input: { prompt: 'call the tool', options: {} } }), HANG_MS, 'turn/start');
       // The second model request carries the failed tool's result back: the failure has happened.
       const request = await within(provider.toolResult, HANG_MS, 'the scripted turn reaching its tool result');
-      const result = JSON.parse(request.body).messages.find((m) => m.role === 'tool')?.content ?? '';
-      if (!/requires "path"/.test(result)) throw new Error(`the provoked tool call did not fail as scripted; the tool answered: ${String(result).slice(0, 200)}`);
+      const answer = JSON.parse(request.body).messages.find((m) => m.role === 'tool')?.content ?? '';
+      if (!/requires "path"/.test(answer)) throw new Error(`the provoked tool call did not fail as scripted; the tool answered: ${String(answer).slice(0, 200)}`);
+      return { sessionId: threadId, cwd: core.paths.workspace, startedAt };
     });
   } finally {
     await provider.close();
   }
-  return judgeToolFailureRows(result.rows);
+  return judgeToolFailureRows(result.rows, { ...result.value, endedAt: Date.now() });
 }
 
-/** The verdict on the spool after the scripted failure: exactly that one row. `rows` is null when no spool file exists. */
-export function judgeToolFailureRows(rows) {
+/** The row Node wrote for this scripted failure (record-node-tool-failure-row.mjs, run on b6f10295a): the schema and every stable value. */
+export const NODE_ROW = JSON.parse(readFileSync(new URL('./recorded/node_tool_failure_row.json', import.meta.url), 'utf8'));
+// Values that differ per run and are checked against this run's own facts instead of the recording.
+const PER_RUN = ['ts', 'session_id', 'cwd', 'tool_ms'];
+
+/**
+ * The verdict on the spool after the scripted failure: exactly one row, and it is the provoked call's. Every field of
+ * Node's row is compared: the keys in Node's order, each stable value to the Node recording, and the per-run values
+ * (`session_id`, `cwd`, `ts`, `tool_ms`) to this run's own thread, workspace and clock. `rows` is null when no spool file exists.
+ * @param {string[]|null} rows
+ * @param {{ sessionId: string, cwd: string, startedAt: number, endedAt: number }} run
+ */
+export function judgeToolFailureRows(rows, run) {
   if (!rows?.length) {
     throw new Error(
       `the core wrote ${rows ? 'an empty' : 'no'} history/tool-failures.jsonl for the scripted failure (read with no path -> 'read requires "path"'): mixdogd has no tool-failure writer yet ` +
@@ -117,9 +130,16 @@ export function judgeToolFailureRows(rows) {
   }
   if (rows.length !== 1) throw new Error(`expected exactly the one provoked tool-failure row, found ${rows.length}:\n${rows.join('\n').slice(0, 800)}`);
   const row = JSON.parse(rows[0]);
-  if (row.tool_name !== 'read' || row.result_kind !== 'error' || !String(row.error_first_line).includes('requires "path"')) {
-    throw new Error(`the tool-failure row is not the provoked one: ${rows[0].slice(0, 400)}`);
+  const differs = [];
+  if (JSON.stringify(Object.keys(row)) !== JSON.stringify(Object.keys(NODE_ROW))) differs.push(`keys ${JSON.stringify(Object.keys(row))} (Node: ${JSON.stringify(Object.keys(NODE_ROW))})`);
+  for (const key of Object.keys(NODE_ROW)) {
+    if (!PER_RUN.includes(key) && JSON.stringify(row[key]) !== JSON.stringify(NODE_ROW[key])) differs.push(`${key} ${JSON.stringify(row[key])} (Node: ${JSON.stringify(NODE_ROW[key])})`);
   }
+  if (row.session_id !== run.sessionId) differs.push(`session_id ${JSON.stringify(row.session_id)} (this run's thread: ${run.sessionId})`);
+  if (row.cwd !== run.cwd) differs.push(`cwd ${JSON.stringify(row.cwd)} (this run's workspace: ${run.cwd})`);
+  if (!Number.isFinite(row.ts) || row.ts < run.startedAt || row.ts > run.endedAt) differs.push(`ts ${row.ts} (outside this run: ${run.startedAt}..${run.endedAt})`);
+  if (!Number.isFinite(row.tool_ms) || row.tool_ms < 0) differs.push(`tool_ms ${JSON.stringify(row.tool_ms)}`);
+  if (differs.length) throw new Error(`the tool-failure row is not the provoked call's; it differs from Node's row in: ${differs.join('; ')}`);
   return row;
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
