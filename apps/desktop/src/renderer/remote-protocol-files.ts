@@ -371,7 +371,9 @@ export const adapter: PhoneProtocolAdapter = {
     replaceWorkspaceText: ([projectPath, rawOptions, replacement, relPaths], host) => {
       const root = requiredString(projectPath, 'projectPath');
       if (typeof replacement !== 'string' || replacement.length > 1_000_000) throw new TypeError('Replacement text is invalid.');
-      const files = relPaths === undefined ? undefined : relativePaths(relPaths);
+      // An optional argument the page left out arrives as the relay's JSON wrote it (`null`): at this boundary it is omitted (the fix of
+      // Node's relay method, node-fix-relay-optional-args.patch).
+      const files = relPaths == null ? undefined : relativePaths(relPaths);
       const options = workspaceSearchOptions(rawOptions);
       return rpc(host, 'projectFs/replaceText', { root, options, replacement, ...(files ? { relPaths: files } : {}) });
     },
@@ -379,7 +381,8 @@ export const adapter: PhoneProtocolAdapter = {
       const [project, query, limit, includeIgnored, includeDirectories] = params;
       if (typeof query !== 'string' || query.length > 1_024) throw new TypeError('query is invalid.');
       const root = requiredString(project, 'projectIdOrWorkspaceId');
-      const count = fileSearchLimit(limit);
+      // A limit the page left out arrives as `null` and is omitted here, as in Node's fixed relay method (the shared check refuses `null`).
+      const count = fileSearchLimit(limit ?? undefined);
       return searchFiles(host, root, query, count, includeIgnored === true, includeDirectories === true);
     },
     // ── the language servers ──

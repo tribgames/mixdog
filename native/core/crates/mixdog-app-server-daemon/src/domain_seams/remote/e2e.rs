@@ -99,11 +99,28 @@ struct Desktop {
     reached: watch::Sender<usize>,
     /// Whether a window supplies the display list. Without one an ask stays pending, as it does in Node's desktop when no window answers.
     displays: bool,
+    /// What the live view told the desktop (`host/browser/viewFrames`), in order.
+    notified: Mutex<Vec<(String, Value)>>,
+    /// What the live view pushed to a phone's connection (frames and WebRTC signals), in order.
+    pushed: Mutex<Vec<(ConnectionId, String, Value)>>,
 }
 
 impl Desktop {
     fn new(displays: bool) -> Self {
-        Self { asked: Mutex::default(), reached: watch::channel(0).0, displays }
+        Self { asked: Mutex::default(), reached: watch::channel(0).0, displays, notified: Mutex::default(), pushed: Mutex::default() }
+    }
+
+    /// The view requests so far, as Node's `browserRemote('stream', [sessionId, options])` (`off` is `null`).
+    fn view_requests(&self) -> Vec<Value> {
+        self.notified
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(method, params)| match method.as_str() {
+                "host/browser/viewFrames" => json!(["request", params["tabId"], if params["on"] == json!(true) { params["request"].clone() } else { Value::Null }]),
+                other => json!([other, params]),
+            })
+            .collect()
     }
 }
 
@@ -122,15 +139,18 @@ impl HostChannel for Desktop {
         Ok(serde_json::from_str::<Value>(SCREEN_ACCESS).unwrap()["displays"].clone())
     }
 
-    fn notify(&self, _capability: HostCapability, _method: Method, _params: Value) -> Result<(), CoreError> {
+    fn notify(&self, _capability: HostCapability, method: Method, params: Value) -> Result<(), CoreError> {
+        self.notified.lock().unwrap().push((method.as_str().to_owned(), params));
         Ok(())
     }
 }
 
-struct NoPushes;
+/// The live view's pushes to the phones, kept by the desktop stand-in for a test to read.
+struct PhonePushes(Arc<Desktop>);
 
-impl ConnectionNotifier for NoPushes {
-    fn notify(&self, _to: ConnectionId, _method: Method, _params: Value) -> Result<(), CoreError> {
+impl ConnectionNotifier for PhonePushes {
+    fn notify(&self, to: ConnectionId, method: Method, params: Value) -> Result<(), CoreError> {
+        self.0.pushed.lock().unwrap().push((to, method.as_str().to_owned(), params));
         Ok(())
     }
 }
@@ -199,8 +219,8 @@ impl CoreHandle for Core {
         self.mock.connection_opened(connection, origin, device, kind);
     }
 
-    fn request_started(&self) -> RequestGuard {
-        self.mock.request_started()
+    fn request_started(&self, method: &str, params: &serde_json::Value) -> RequestGuard {
+        self.mock.request_started(method, params)
     }
 }
 
@@ -346,6 +366,7 @@ impl Harness {
         .unwrap();
         let grants = Arc::new(mixdog_workspace::grants::GrantStore::new(Arc::new(mixdog_workspace::transfer::SystemClock), Arc::new(AllSessions(dir.path().to_string_lossy().into_owned()))));
         workspace.set_phone_grants(grants.clone(), phone_credential(remote.registry.clone()));
+        let live_view_slot: Arc<std::sync::OnceLock<std::sync::Weak<LiveViewService>>> = Arc::default();
         remote
             .events
             .bind(Arc::new(super::PairedDeviceCleanup {
@@ -360,6 +381,7 @@ impl Harness {
                     Arc::new(move || workspace.revoke_all_downloads())
                 },
                 config: config.clone(),
+                live_view: live_view_slot.clone(),
             }))
             .unwrap();
         let access = Arc::new(mixdog_core_domains::domains::remote_access::RemoteAccessService::new(
@@ -374,12 +396,13 @@ impl Harness {
         let desktop = Arc::new(Desktop::new(displays));
         let live = Arc::new(LiveViewService::new(
             desktop.clone(),
-            Arc::new(NoPushes),
+            Arc::new(PhonePushes(desktop.clone())),
             HostMedia::new(1 << 20),
             remote.runtime.clone(),
             tokens.media_thread,
-            Arc::new(PairedScreenAccess::new(phone_credential(remote.registry.clone()), super::screen_revoked(remote.registry.clone()))),
+            Arc::new(PairedScreenAccess::new(phone_credential(remote.registry.clone()), super::screen_revoked(remote.registry.clone()), super::peer_attached(remote.registry.clone()))),
         ));
+        let _ = live_view_slot.set(Arc::downgrade(&live));
         let core = Arc::new(Core { live, workspace, access, mock, screen, registry: remote.registry.clone(), owners, closed: closed_tx });
         let hub = ConnectionHub::new(Limits::default()).unwrap();
         let origins = hub.clone();
@@ -690,6 +713,82 @@ async fn an_unpaired_device_loses_its_access_at_once_and_its_connection_when_the
     assert_eq!(credential_of(other_connection).as_deref(), Some(OTHER_CRED));
     assert_eq!(list(&mut other, 1).await["result"], listed());
     assert_eq!(h.reads.load(Ordering::SeqCst), 2, "the revoked phone's second read never reached the directory");
+    h.runtime.close().await;
+}
+
+const BROWSER_STREAMS: &str = include_str!("../../../../../fixtures/browser-streams/streams.json");
+
+/// A phone's browser stream ends at its device's unpair and at the relay's close, through the production wiring (the runtime's unpair
+/// and close → `PairedDeviceCleanup` → the live view): Node's unpair drops the device from its streams (`remote-relay.ts:619`,
+/// `dropClient`) and its close disposes of them all (`:658`, `dispose`), both through the streams' one `drop`. The unpair is refused by
+/// the relay, so the phone's connection stays open (the leak an unpair must not leave). What the desktop is told is what Node's streams
+/// told it in `an unpaired phone that alone streams a session stops the desktop view`: the subscribe's request, then the drop's.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unpair_or_the_relay_closing_ends_the_phones_browser_stream_at_once() {
+    let all: Value = serde_json::from_str(BROWSER_STREAMS).unwrap();
+    let scenario = all["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == "an unpaired phone that alone streams a session stops the desktop view").unwrap();
+    let (subscribe, unpair) = (&scenario["steps"][0], &scenario["steps"][3]);
+    assert_eq!((subscribe["method"].as_str(), unpair["op"].as_str()), (Some("browserRemoteStream"), Some("unpair")));
+    // What reached the desktop at those steps (the phone's reply is checked on its own below).
+    let to_desktop = |step: usize| -> Vec<Value> { scenario["recorded"][step].as_array().unwrap().iter().filter(|entry| entry[0] == "request").cloned().collect() };
+    let want: Vec<Value> = [to_desktop(0), to_desktop(3)].concat();
+    let call = json!({ "id": 5, "method": "browser/stream", "params": { "sessionId": subscribe["params"][0], "on": true, "request": subscribe["params"][1] } });
+
+    let h = Harness::start(false).await;
+    let (mut phone, _) = h.connect("p1", CRED).await;
+    phone.send(&call.to_string());
+    assert_eq!(answer(&mut phone, 5).await["result"], json!({}), "the subscribe");
+    assert!(h.runtime.revoke_client(CRED).await.is_err(), "the relay refused the unpair");
+    assert_eq!(h.desktop.view_requests(), want, "the unpair ended the stream");
+    h.runtime.close().await;
+
+    let h = Harness::start(true).await;
+    let (mut phone, _) = h.connect("p1", CRED).await;
+    phone.send(&call.to_string());
+    assert_eq!(answer(&mut phone, 5).await["result"], json!({}), "the subscribe");
+    h.runtime.close().await;
+    assert_eq!(h.desktop.view_requests(), want, "the relay's close ended the stream");
+}
+
+/// An unpaired device whose connection the relay leaves open (it refused the revocation) is shown nothing more on any path of the live
+/// view, through the production wiring (the runtime's unpair → the registry's revocation and `PairedDeviceCleanup` → the live view): a
+/// WebRTC signal the host sent the phone before the unpair and that only goes out after it reaches nothing, a new `browser/stream` and
+/// a WebRTC `ready` are refused, and so is the device's next connection, admitted while the unpair is in force. The replies are what
+/// the patched Node answered in `an unpaired device whose connections stay open is refused and sent nothing`.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unpaired_device_left_open_is_shown_nothing_on_any_live_view_path() {
+    let all: Value = serde_json::from_str(BROWSER_STREAMS).unwrap();
+    let scenario = all["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == "an unpaired device whose connections stay open is refused and sent nothing").unwrap();
+    let (steps, recorded) = (&scenario["steps"], &scenario["recorded"]);
+    assert_eq!(
+        (steps[0]["method"].as_str(), steps[4]["raw"]["type"].as_str(), steps[5]["op"].as_str(), steps[8]["method"].as_str(), steps[10]["raw"]["type"].as_str()),
+        (Some("browserRemoteStream"), Some("offer"), Some("unpair"), Some("browserRemoteStream"), Some("ready"))
+    );
+    let stream = |id: u64, step: &Value| json!({ "id": id, "method": "browser/stream", "params": { "sessionId": step["params"][0], "on": true, "request": step["params"][1] } });
+    // Node's reply to the refused subscribe, and its refusal of the `ready` as the phone's call would carry it.
+    let refused_stream = recorded[8][0][2].clone();
+    let refused_ready = |id: u64| wire_of(&json!({ "id": id, "ok": false, "error": recorded[10][0][1] }));
+
+    let h = Harness::start(false).await;
+    let (mut phone, connection) = h.connect("p1", CRED).await;
+    phone.send(&stream(5, &steps[0]).to_string());
+    assert_eq!(answer(&mut phone, 5).await["result"], json!({}), "the subscribe");
+    // The host's signal to the phone, on its way when the unpair comes.
+    let pending = h.core.live.host_signal(connection, &steps[4]["raw"]);
+    assert!(h.runtime.revoke_client(CRED).await.is_err(), "the relay refused the unpair");
+    assert_eq!(pending.await, Ok(()), "the host's send succeeds, as Node's resolves");
+    assert_eq!(*h.desktop.pushed.lock().unwrap(), Vec::<(ConnectionId, String, Value)>::new(), "nothing reached the unpaired phone");
+
+    let id = refused_stream["id"].as_u64().unwrap();
+    phone.send(&stream(id, &steps[8]).to_string());
+    assert_eq!(answer(&mut phone, id).await, wire_of(&refused_stream), "a new subscribe");
+    phone.send(&json!({ "id": 7, "method": "browser/webrtcSignal", "params": { "signal": steps[10]["raw"] } }).to_string());
+    assert_eq!(answer(&mut phone, 7).await, refused_ready(7), "a WebRTC ready");
+
+    let (mut again, _) = h.connect("p2", CRED).await;
+    again.send(&stream(id, &steps[8]).to_string());
+    assert_eq!(answer(&mut again, id).await, wire_of(&refused_stream), "the device's next connection");
+    assert_eq!(*h.desktop.pushed.lock().unwrap(), Vec::<(ConnectionId, String, Value)>::new(), "nothing reached the unpaired device");
     h.runtime.close().await;
 }
 
@@ -1153,7 +1252,7 @@ const NOT_REPLAYED: &[NotReplayed] = &[
     NotReplayed {
         path: "before.settings",
         owners: &["phone-ph2-settings-notify"],
-        why: "Node's settings blob (`readSettings`, remote-methods.ts:1092): served to a revoked phone unchanged. The core has no counterpart of the frame.",
+        why: "Node's settings blob (`readSettings`, remote-methods.ts:1092): served to a revoked phone unchanged. The frame is built on the phone by the settings adapter (apps/desktop/src/renderer/remote-protocol-settings.ts) from `config/read`, which this harness does not run; it is compared with Node's exactly in the phone-settings replay (apps/desktop/src/renderer/remote-protocol-settings.slow.test.mjs).",
     },
     NotReplayed { path: "after.settings", owners: &["phone-ph2-settings-notify"], why: "as before.settings" },
     NotReplayed {
@@ -1164,7 +1263,7 @@ const NOT_REPLAYED: &[NotReplayed] = &[
     NotReplayed {
         path: "before.notifications",
         owners: &["phone-ph2-settings-notify"],
-        why: "Node's roster (`getNotificationPreferences`, remote-methods.ts:1115). The device's preferences in it are compared as what `Config` stores; the roster call itself has no core counterpart.",
+        why: "Node's roster (`getNotificationPreferences`, remote-methods.ts:1115). The device's preferences in it are compared as what `Config` stores; the roster is built on the phone by the settings adapter from `notify/state` and `remoteAccess/state`, compared with Node's in the phone-settings replay, not here.",
     },
     NotReplayed {
         path: "after.notifications",

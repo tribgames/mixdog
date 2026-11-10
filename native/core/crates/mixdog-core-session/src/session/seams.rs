@@ -550,6 +550,15 @@ pub trait NewThreadRoute: Send + Sync + 'static {
     async fn seat(&self, thread: &ThreadId) -> Result<(), String>;
 }
 
+/// The new task's draft workflow and orchestration mode (`configureDraft`, session-host-lifecycle.ts:765-778): the host calls
+/// `invokeSession(sessionId, 'setWorkflow', [workflowId])` and `invokeSession(sessionId, 'setOrchestrationMode', [mode])` with no
+/// options, which are `thread/setWorkflow` and `thread/setOrchestrationMode` of the new thread as a client calls them.
+#[async_trait::async_trait]
+pub trait DraftSettings: Send + Sync + 'static {
+    async fn set_workflow(&self, thread: &ThreadId, workflow_id: &str) -> Result<(), mixdog_core_api::CoreError>;
+    async fn set_orchestration_mode(&self, thread: &ThreadId, mode: &str) -> Result<(), mixdog_core_api::CoreError>;
+}
+
 /// The folder task threads run in: Node's `SessionHost.taskWorkspace()` (`session-host.ts`), which creates
 /// `<userData>/workspace/unclassified` when missing and answers it as `realpath` prints it. A `thread/start` of
 /// `kind: task` without a project begins there, as Node's `resolveSessionWorkspace()` and the control session's

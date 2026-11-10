@@ -210,7 +210,7 @@ impl CoreHandle for MockCore {
         lock(&self.opened).push(OpenedConnection { connection, origin, device: device.to_owned(), kind });
     }
 
-    fn request_started(&self) -> crate::handle::RequestGuard {
+    fn request_started(&self, _method: &str, _params: &serde_json::Value) -> crate::handle::RequestGuard {
         self.requests.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         Box::new(MockRequest(self.requests.clone()))
     }

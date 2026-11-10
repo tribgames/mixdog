@@ -1418,7 +1418,7 @@
       "type": "object"
     },
     "BrowserStreamParams": {
-      "description": "Params of `browser/stream` (a phone's request, Node's `browserRemoteStream`): `on` starts or stops this connection's stream of the browser session. The first stream of a session makes the core send `host/browser/viewFrames{on:true}` and the last one `{on:false}`; the phone's live-view signals name only a session it streams. `request` is the stream request (fit, quality) the core hands on to the host unchanged.",
+      "description": "Params of `browser/stream` (a phone's request, Node's `browserRemoteStream([sessionId, options])`): `on` starts or renews this connection's subscription to the browser session with `request` (Node's `DesktopRemoteBrowserStreamOptions` `{maxWidth, maxHeight, fit?}`, checked as `normalizeRemoteBrowserStreamOptions` checks it); `on: false` ends it (Node's `null` options). A subscription lapses 4 s after its last renewal. On every change the core sends the host `host/browser/viewFrames{on:true, request}` with the largest options of the session's subscribers, and `{on:false}` when the last one ends; the phone's live-view signals name only a session it streams.",
       "properties": {
         "on": {
           "type": "boolean"
@@ -2957,6 +2957,17 @@
     },
     "ConfigValueWriteParams": {
       "properties": {
+        "announce": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SettingsScope"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The scope the writer announces once the write is saved (Node's `notifySettingsChanged(scope)` after `updateSetting`, remote-methods.ts:1098): `ui/settings/changed` is published even when the write changed nothing, before the `agent` change the write itself makes."
+        },
         "mode": {
           "anyOf": [
             {
@@ -5689,6 +5700,12 @@
           "minimum": 0.0,
           "type": "integer"
         },
+        "orderedQueueBytes": {
+          "description": "The ordered class's event room (events never dropped, P §6.5), apart from `queueBytes`: one event of any size enters an empty room; behind it, events queue while the queued bytes stay within this bound, and the connection closes 4000 when the peer has not drained them.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
         "queueBytes": {
           "format": "uint64",
           "minimum": 0.0,
@@ -5727,6 +5744,7 @@
         "maxMediaFrameBytes",
         "maxProcesses",
         "maxSnapshotBytes",
+        "orderedQueueBytes",
         "queueBytes",
         "ringBytes",
         "terminalInputBufferBytes",
@@ -7988,6 +8006,27 @@
           "description": "Today's `DesktopNewTaskWorktree`."
         }
       },
+      "type": "object"
+    },
+    "NotifyStateParams": {
+      "description": "Params of `notify/state`: none.",
+      "type": "object"
+    },
+    "NotifyStateResult": {
+      "description": "Result of `notify/state`.",
+      "properties": {
+        "notifications": {
+          "description": "The config's `notifications` subtree after the defaults were written (`null` while it has none)."
+        },
+        "supported": {
+          "description": "The desktop host answered that this PC shows OS notifications (`Notification.isSupported()`).",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "notifications",
+        "supported"
+      ],
       "type": "object"
     },
     "NotifyTestParams": {
@@ -12924,6 +12963,17 @@
       ],
       "type": "string"
     },
+    "SettingsScope": {
+      "description": "Node's `SettingsChange.scope` (shared/settings-changed.ts `SETTINGS_SCOPES`).",
+      "enum": [
+        "desktop",
+        "git",
+        "permissions",
+        "notifications",
+        "agent"
+      ],
+      "type": "string"
+    },
     "SetupUiRequest": {
       "description": "The setup tool's desktop request waiting for a window to claim it (Node's session store `setupUiRequest`): its id, and when the thread took it.",
       "properties": {
@@ -17293,6 +17343,30 @@
       ],
       "type": "object"
     },
+    "UiProviderModelsChangedParams": {
+      "description": "`ui/providerModels/changed` (app feed) and `ui/providerModels/announce`: Node's `provider-models-changed` desktop event `{origin}` (ipc-state-bridge.ts:113, remote-relay-push-lanes.ts:53).",
+      "properties": {
+        "origin": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "origin"
+      ],
+      "type": "object"
+    },
+    "UiSettingsChangedParams": {
+      "description": "`ui/settings/changed` (app feed) and `ui/settings/announce`: Node's `settings-changed` desktop event, which reached the windows and every paired device (ipc-state-bridge.ts:114, remote-relay-push-lanes.ts:54).",
+      "properties": {
+        "scope": {
+          "$ref": "#/definitions/SettingsScope"
+        }
+      },
+      "required": [
+        "scope"
+      ],
+      "type": "object"
+    },
     "UpdateCheckForUpdateParams": {
       "description": "Params of `update/checkForUpdate`.",
       "properties": {
@@ -17317,6 +17391,13 @@
       "properties": {
         "action": {
           "$ref": "#/definitions/UpdaterAction"
+        },
+        "confirmed": {
+          "description": "`install` only: the user confirmed installing past running agent tasks (Node's relay `showDesktopUpdate` argument, remote-methods.ts:1062-1063), passed on to the host as `host/update/command`'s `confirmed`.",
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "opId": {
           "type": "string"
@@ -19960,6 +20041,14 @@
         "$ref": "#/definitions/ModelProxyResult"
       }
     },
+    "notify/state": {
+      "params": {
+        "$ref": "#/definitions/NotifyStateParams"
+      },
+      "result": {
+        "$ref": "#/definitions/NotifyStateResult"
+      }
+    },
     "notify/test": {
       "params": {
         "$ref": "#/definitions/NotifyTestParams"
@@ -21146,6 +21235,22 @@
       },
       "result": {
         "$ref": "#/definitions/TurnSteerResponse"
+      }
+    },
+    "ui/providerModels/announce": {
+      "params": {
+        "$ref": "#/definitions/UiProviderModelsChangedParams"
+      },
+      "result": {
+        "$ref": "#/definitions/EmptyResult"
+      }
+    },
+    "ui/settings/announce": {
+      "params": {
+        "$ref": "#/definitions/UiSettingsChangedParams"
+      },
+      "result": {
+        "$ref": "#/definitions/EmptyResult"
       }
     },
     "update/checkForUpdate": {

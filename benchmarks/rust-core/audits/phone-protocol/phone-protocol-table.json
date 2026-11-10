@@ -523,22 +523,27 @@
   ],
   "phone_reply": "",
   "node": [],
-  "inventory": "",
-  "rust_kind": "none",
-  "rust_targets": [],
-  "rust_shape": [],
-  "rust_sites": [],
-  "rust_composed": [],
-  "problems": [
-   "the Rust live view (mixdog-remote webrtc/liveview.rs LiveViewConnection) is built only by interop tests; nothing in the daemon starts it for a phone"
+  "inventory": "mechanics",
+  "rust_kind": "methods",
+  "rust_targets": [
+   "browser/screenDisplays"
   ],
-  "proof": "none",
-  "proof_evidence": [],
+  "rust_shape": [],
+  "rust_sites": [
+   "mixdog-app-server-daemon/src/live_view.rs:735"
+  ],
+  "rust_composed": [],
+  "problems": [],
+  "proof": "test",
+  "proof_evidence": [
+   "mixdog-app-server-daemon/src/compose_domains/tests.rs:366",
+   "mixdog-app-server-transport/tests/it/websocket.rs:216"
+  ],
   "phone_o1": "unchanged",
-  "server": "unserved",
-  "class": "missing",
+  "server": "served",
+  "class": "exists-unproven",
   "feature": "Remote browser live view and tabs on the phone",
-  "unit": "RS-2 live view and remote screen",
+  "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Remote browser live view and tabs on the phone"
  },
  {
@@ -556,22 +561,26 @@
   "node": [
    "apps/desktop/src/main/remote-relay-client-calls.ts:241"
   ],
-  "inventory": "",
-  "rust_kind": "none",
-  "rust_targets": [],
-  "rust_shape": [],
-  "rust_sites": [],
-  "rust_composed": [],
-  "problems": [
-   "the Rust live view (mixdog-remote webrtc/liveview.rs LiveViewConnection) is built only by interop tests; nothing in the daemon starts it for a phone"
+  "inventory": "mechanics",
+  "rust_kind": "methods",
+  "rust_targets": [
+   "browser/stream"
   ],
-  "proof": "none",
-  "proof_evidence": [],
+  "rust_shape": [],
+  "rust_sites": [
+   "mixdog-app-server-daemon/src/live_view.rs:717"
+  ],
+  "rust_composed": [],
+  "problems": [],
+  "proof": "recording+test",
+  "proof_evidence": [
+   "browser-streams/streams.json (exact=True; names the wire method) <- mixdog-app-server-daemon/src/live_view_streams_replay.rs:29"
+  ],
   "phone_o1": "unchanged",
-  "server": "unserved",
-  "class": "missing",
-  "feature": "Remote browser live view and tabs on the phone",
-  "unit": "RS-2 live view and remote screen",
+  "server": "served",
+  "class": "same",
+  "feature": "",
+  "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Remote browser live view and tabs on the phone"
  },
  {
@@ -589,22 +598,26 @@
   "node": [
    "apps/desktop/src/main/remote-relay-client-calls.ts:403"
   ],
-  "inventory": "",
-  "rust_kind": "none",
-  "rust_targets": [],
-  "rust_shape": [],
-  "rust_sites": [],
-  "rust_composed": [],
-  "problems": [
-   "the Rust live view (mixdog-remote webrtc/liveview.rs LiveViewConnection) is built only by interop tests; nothing in the daemon starts it for a phone"
+  "inventory": "mechanics",
+  "rust_kind": "clientNotification",
+  "rust_targets": [
+   "browser/streamAck"
   ],
-  "proof": "none",
-  "proof_evidence": [],
+  "rust_shape": [],
+  "rust_sites": [
+   "mixdog-app-server-daemon/src/live_view.rs:756"
+  ],
+  "rust_composed": [],
+  "problems": [],
+  "proof": "recording+test",
+  "proof_evidence": [
+   "browser-streams/streams.json (exact=True; names the wire method) <- mixdog-app-server-daemon/src/live_view_streams_replay.rs:29"
+  ],
   "phone_o1": "unchanged",
-  "server": "unserved",
-  "class": "missing",
-  "feature": "Remote browser live view and tabs on the phone",
-  "unit": "RS-2 live view and remote screen",
+  "server": "served",
+  "class": "same",
+  "feature": "",
+  "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Remote browser live view and tabs on the phone"
  },
  {
@@ -743,21 +756,26 @@
    "apps/desktop/src/main/index.ts:2444"
   ],
   "inventory": "operations",
-  "rust_kind": "none",
-  "rust_targets": [],
-  "rust_shape": [],
-  "rust_sites": [],
-  "rust_composed": [],
-  "problems": [
-   "the Rust live view (mixdog-remote webrtc/liveview.rs LiveViewConnection) is built only by interop tests; nothing in the daemon starts it for a phone"
+  "rust_kind": "methods",
+  "rust_targets": [
+   "browser/webrtcSignal"
   ],
-  "proof": "none",
-  "proof_evidence": [],
+  "rust_shape": [],
+  "rust_sites": [
+   "mixdog-app-server-daemon/src/live_view.rs:728"
+  ],
+  "rust_composed": [],
+  "problems": [],
+  "proof": "test",
+  "proof_evidence": [
+   "mixdog-app-server-daemon/src/compose_domains/tests.rs:366",
+   "mixdog-app-server-daemon/src/live_view.rs:840"
+  ],
   "phone_o1": "unchanged",
-  "server": "unserved",
-  "class": "missing",
+  "server": "served",
+  "class": "exists-unproven",
   "feature": "Remote browser live view and tabs on the phone",
-  "unit": "RS-2 live view and remote screen",
+  "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Remote browser live view and tabs on the phone"
  },
  {
@@ -8529,23 +8547,23 @@
   "inventory": "EVENT_MAP",
   "rust_kind": "notification",
   "rust_targets": [
-   "host/browser/viewFrames"
+   "browser/frame"
   ],
   "rust_shape": [
-   "X17 binary frames, purpose browserView (SPEC In-app browser view)"
+   "the live view streams push a subscribed phone its JPEG-view frames (live_view_streams.rs), acknowledged by browser/streamAck"
   ],
-  "rust_sites": [],
+  "rust_sites": [
+   "browser/frame <- mixdog-app-server-daemon/src/live_view.rs:386"
+  ],
   "rust_composed": [],
-  "problems": [
-   "host/browser/viewFrames: static search found no publisher outside the protocol crates"
-  ],
+  "problems": [],
   "proof": "none",
   "proof_evidence": [],
   "phone_o1": "unchanged",
-  "server": "unserved",
-  "class": "missing",
+  "server": "served",
+  "class": "exists-unproven",
   "feature": "Remote browser live view on the phone",
-  "unit": "RS-2 live view and remote screen",
+  "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Remote browser live view on the phone"
  },
  {
@@ -8561,24 +8579,24 @@
   "inventory": "EVENT_MAP",
   "rust_kind": "notification",
   "rust_targets": [
-   "host/state/updated"
+   "browser/webrtcSignal"
   ],
   "rust_shape": [
-   "WebRTC signalling stays in Electron/core carrier (mixdog-remote webrtc); no phone-visible notification of this name"
+   "the live view relay pushes the phone its WebRTC signals (live_view.rs RelayAdapter::send)"
   ],
   "rust_sites": [
-   "host/state/updated <- mixdog-app-server-daemon/src/domain_seams/remote/e2e.rs:142"
+   "browser/webrtcSignal <- mixdog-app-server-daemon/src/live_view.rs:367"
   ],
   "rust_composed": [],
   "problems": [],
   "proof": "none",
   "proof_evidence": [],
-  "phone_o1": "replaced: packages/protocol-client/src/method-table.ts",
+  "phone_o1": "unchanged",
   "server": "served",
-  "class": "phone-changed",
-  "feature": "",
-  "unit": "",
-  "area": "Live updates on the phone"
+  "class": "exists-unproven",
+  "feature": "Remote browser live view on the phone",
+  "unit": "PH-2 phone UI calls -> protocol methods",
+  "area": "Remote browser live view on the phone"
  },
  {
   "surface": "event",

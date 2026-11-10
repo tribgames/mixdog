@@ -942,6 +942,33 @@ async fn a_managed_worktree_is_created_refused_while_unmerged_then_merged_and_re
     assert!(!std::path::Path::new(&made.path).exists());
     assert!(worktrees.list(None, &NoRetention, &cancel).await.unwrap().is_empty());
 }
+/// A transaction whose worktree another session retains is refused (`settleSessionAttempts`, manager.mjs:1387-1391), as Node refused
+/// the retry of a new task that was refused at another address after its worktree was made (new-task-quit `quit-in-request-worktree`:
+/// the retry's answer); nothing is made for it.
+#[tokio::test]
+async fn a_transaction_of_another_session_is_refused() {
+    use crate::worktree::manager::CreateRequest;
+    use crate::worktree::manager::Worktrees;
+    let golden: serde_json::Value = serde_json::from_str(include_str!("../../../fixtures/new-task-quit/golden.json")).unwrap();
+    let node = &golden["cases"]["quit-in-request-worktree"]["recorded"][1]["reply"];
+    let (_guard, repo, _head) = fixture_repo();
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "clean"]);
+    let data = tempfile::tempdir().unwrap();
+    let worktrees = Worktrees::new(scm(), data.path().to_path_buf());
+    let cancel = CancellationToken::new();
+    let request = CreateRequest { project_path: repo.clone(), session_id: "s1".into(), tx_id: "s-quit-worktree".into(), name_hint: "first".into(), ..CreateRequest::default() };
+    worktrees.create(request.clone(), &cancel).await.unwrap();
+    let refused = worktrees.create(CreateRequest { session_id: "s2".into(), ..request }, &cancel).await.unwrap_err();
+    // Node's text is `<code>: <message>\n[worktree-details] <details>` (worktree-validation.ts worktreeErrorWithCode), the details
+    // being the detail's fields as the desktop takes them (core-error.ts: all but `type`).
+    let mut details = serde_json::to_value(refused.detail().expect("details")).unwrap();
+    details.as_object_mut().expect("fields").remove("type");
+    let core = format!("{}: {}\n[worktree-details] {details}", refused.code().expect("a code"), refused.message().expect("its text"));
+    assert_eq!((Some(core.as_str()), refused.code()), (node["error"].as_str(), node["code"].as_str()));
+    assert_eq!(worktrees.list(None, &NoRetention, &cancel).await.unwrap().len(), 1, "nothing is made for the refused transaction");
+}
+
 async fn two_worktrees() -> (tempfile::TempDir, tempfile::TempDir, crate::worktree::manager::Worktrees, Vec<crate::worktree::registry::WorktreeRecord>, CancellationToken) {
     use crate::worktree::manager::CreateRequest;
     use crate::worktree::manager::Worktrees;

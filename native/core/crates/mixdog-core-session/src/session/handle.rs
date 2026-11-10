@@ -104,7 +104,7 @@ impl SessionHandle {
         &self.cell.stepped
     }
 
-    /// A turn runs, starts or is still settling (the next turn would be queued), as the actor last stepped.
+    /// The actor's `turn_busy()` after its last step: a next turn is queued while it holds.
     #[cfg(any(test, feature = "test-support"))]
     pub fn turn_busy(&self) -> bool {
         self.cell.busy.load(std::sync::atomic::Ordering::SeqCst)

@@ -37,10 +37,56 @@ pub struct ConfigEdit {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigValueWriteParams {
     pub op_id: OpId,
     #[serde(flatten)]
     pub edit: ConfigEdit,
+    /// The scope the writer announces once the write is saved (Node's `notifySettingsChanged(scope)` after
+    /// `updateSetting`, remote-methods.ts:1098): `ui/settings/changed` is published even when the write changed nothing,
+    /// before the `agent` change the write itself makes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub announce: Option<SettingsScope>,
+}
+
+/// Node's `SettingsChange.scope` (shared/settings-changed.ts `SETTINGS_SCOPES`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub enum SettingsScope {
+    Desktop,
+    Git,
+    Permissions,
+    Notifications,
+    Agent,
+}
+
+impl SettingsScope {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Desktop => "desktop",
+            Self::Git => "git",
+            Self::Permissions => "permissions",
+            Self::Notifications => "notifications",
+            Self::Agent => "agent",
+        }
+    }
+}
+
+/// `ui/settings/changed` (app feed) and `ui/settings/announce`: Node's `settings-changed` desktop event, which reached
+/// the windows and every paired device (ipc-state-bridge.ts:114, remote-relay-push-lanes.ts:54).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+pub struct UiSettingsChangedParams {
+    pub scope: SettingsScope,
+}
+
+/// `ui/providerModels/changed` (app feed) and `ui/providerModels/announce`: Node's `provider-models-changed` desktop
+/// event `{origin}` (ipc-state-bridge.ts:113, remote-relay-push-lanes.ts:53).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+pub struct UiProviderModelsChangedParams {
+    pub origin: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

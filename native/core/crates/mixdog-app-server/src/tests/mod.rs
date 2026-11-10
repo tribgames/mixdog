@@ -77,6 +77,8 @@ pub(crate) struct GateDomain {
     pub(crate) methods: &'static [&'static str],
     pub(crate) log: Mutex<Vec<String>>,
     pub(crate) permits: Semaphore,
+    /// Each call's hold on its reply (`CallContext::after_answer`), in call order.
+    pub(crate) held: Mutex<Vec<mixdog_rt::CancellationToken>>,
 }
 
 impl GateDomain {
@@ -98,6 +100,7 @@ impl DomainService for GateDomain {
             .unwrap_or("")
             .to_owned();
         let tag = format!("{}:{tag}", req.method);
+        self.held.lock().unwrap().push(req.ctx.after_answer.hold());
         self.log.lock().unwrap().push(format!("start {tag}"));
         self.permits.acquire().await.unwrap().forget();
         self.log.lock().unwrap().push(format!("end {tag}"));
@@ -245,8 +248,8 @@ impl CoreHandle for TestCore {
         self.mock.connection_opened(connection, origin, device, kind);
     }
 
-    fn request_started(&self) -> mixdog_core_api::handle::RequestGuard {
-        self.mock.request_started()
+    fn request_started(&self, method: &str, params: &serde_json::Value) -> mixdog_core_api::handle::RequestGuard {
+        self.mock.request_started(method, params)
     }
 }
 
@@ -336,6 +339,7 @@ impl Rig {
                         methods,
                         log: Mutex::new(Vec::new()),
                         permits: Semaphore::new(0),
+                        held: Mutex::new(Vec::new()),
                     };
                     (name, Arc::new(gate))
                 })
@@ -398,6 +402,27 @@ impl Rig {
         Client { handle, wire }
     }
 
+    /// A connection whose sink hands each control frame, with what `watch` saw at that instant, to the returned
+    /// [`Arrivals`] just before it queues the frame.
+    pub(crate) fn connect_watched<T: Send + 'static>(
+        &self,
+        id: u64,
+        watch: impl Fn() -> T + Send + Sync + 'static,
+    ) -> (Client, Arrivals<T>) {
+        let wire = Arc::new(MockConnection::new(ConnectionId(id), MockLimits::default()));
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let sink = WatchedSink {
+            inner: wire.clone(),
+            watch: Box::new(move |frame: &Bytes| {
+                let body = serde_json::from_slice(frame).expect("a control frame is JSON");
+                let _ = tx.send((body, watch()));
+            }),
+        };
+        self.origins.lock().unwrap().insert(ConnectionId(id), Origin::Local);
+        let handle = self.server.open(ConnectionId(id), Arc::new(sink));
+        (Client { handle, wire }, Arrivals(rx))
+    }
+
     /// A ready connection that names itself `device` (its `clientInfo.title`) and is a
     /// `kind` client.
     pub(crate) fn ready_as(&self, id: u64, device: &str, kind: &str) -> Client {
@@ -455,6 +480,48 @@ impl ConnectionSink for HookedSink {
         recovery: Arc<dyn LaneRecovery>,
     ) -> Result<(Arc<dyn Lane>, LaneRelease), SinkClosed> {
         self.inner.open_lane(sub, recovery)
+    }
+}
+
+struct WatchedSink {
+    inner: Arc<MockConnection>,
+    watch: Box<dyn Fn(&Bytes) + Send + Sync>,
+}
+
+impl ConnectionSink for WatchedSink {
+    fn id(&self) -> ConnectionId {
+        self.inner.id()
+    }
+
+    fn send_control(&self, frame: Bytes) -> Result<(), SinkClosed> {
+        (self.watch)(&frame);
+        self.inner.send_control(frame)
+    }
+
+    fn send_control_release(&self, frame: Bytes, release: LaneRelease) -> Result<(), SinkClosed> {
+        (self.watch)(&frame);
+        self.inner.send_control_release(frame, release)
+    }
+
+    fn open_lane(
+        &self,
+        sub: SubscriptionId,
+        recovery: Arc<dyn LaneRecovery>,
+    ) -> Result<(Arc<dyn Lane>, LaneRelease), SinkClosed> {
+        self.inner.open_lane(sub, recovery)
+    }
+}
+
+/// The control frames of a [`Rig::connect_watched`] connection as its sink queues them, each with what the watch saw.
+pub(crate) struct Arrivals<T>(tokio::sync::mpsc::UnboundedReceiver<(Value, T)>);
+
+impl<T> Arrivals<T> {
+    /// The next frame queued to the connection; `awaited` names it in the failure when none comes within `deadline`.
+    pub(crate) async fn next(&mut self, deadline: std::time::Duration, awaited: &str) -> (Value, T) {
+        tokio::time::timeout(deadline, self.0.recv())
+            .await
+            .unwrap_or_else(|_| panic!("no frame within {deadline:?}: awaited {awaited}"))
+            .unwrap_or_else(|| panic!("the connection closed: awaited {awaited}"))
     }
 }
 

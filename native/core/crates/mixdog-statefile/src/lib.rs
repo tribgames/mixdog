@@ -13,6 +13,7 @@
 mod access;
 mod json;
 mod lock;
+pub mod new_task_receipt;
 mod publish;
 mod trace;
 
@@ -27,6 +28,7 @@ pub use access::create_dir;
 pub use access::create_dir_all;
 pub use access::create_private_dir_all;
 pub use access::is_owner_only;
+pub use access::secure_private_dir;
 pub use access::sync_dir;
 pub use access::unlaned;
 #[cfg(windows)]
@@ -50,8 +52,13 @@ pub use json::with_lock;
 pub use json::write_file;
 pub use json::write_file_stepped;
 pub use json::write_json;
+pub use lock::Attempt;
 pub use lock::LockError;
 pub use lock::LockOpts;
+pub use lock::LockOwner;
+pub use lock::lock_retry_delay;
+pub use lock::ms_duration;
+pub use lock::steps as lock_steps;
 pub use lock::default_timeout;
 pub use lock::LockHold;
 pub use lock::hold_lock;

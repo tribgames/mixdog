@@ -1,0 +1,60 @@
+{
+  "cases": 131,
+  "command": "node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-phone-settings.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "the relay transport (encryption, admission), the window process (its answers are the WINDOW script), config.mjs's own debounce timer and file watch (the forced pass an in-process write starts is run when the call settled), and a paired device's push channel",
+    "runs": "executeRemoteFrame over createRemoteMethods (remote-methods.ts:828, :1256) with the settings store of createDesktopOperations over config.mjs, the notification store and center, and createRelayPushLanes for what each paired phone received"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 343937,
+      "path": "golden.json",
+      "sha256": "c9c9787d8e7d975e23b544c83307f8fe1643fdef96b0419c8e54a7e18d930450"
+    }
+  ],
+  "node": "v22.20.0",
+  "notRecorded": {
+    "coreRelayWriteRefusal": "A phone's config write outside Node's relay methods (remote.enabled, browser site permissions, cookie auto-import, retention, volume, initializeIfMissing, and an `announce` other than `desktop` after an updateSetting key) cannot be made through Node's relay: requiredDesktopSettingKey refuses every key outside its list before anything is written, and those cases are recorded above. The core's own refusal of such a write from a relay connection is the core test mixdog-core-config config::service::tests::a_relay_write_outside_nodes_relay_methods_changes_nothing.",
+    "notProducible": "feedback attachments over 2 MiB or 6 MiB in all, and a sparse attachment array, cannot reach the PC: the relay frame limit (maxFrameBytes 1 MiB) and JSON (no holes) stop them first; Feedback service is unavailable. (no relay URL) cannot happen to a phone that reached the PC through the relay"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-phone-settings.mjs",
+  "recorderFiles": [
+    {
+      "path": "benchmarks/rust-core/recorders/record-phone-settings.mjs",
+      "sha256": "e0aca3c459a9887d7df829e34dd17618fd78537d951b86df82c9fcd0a51092bd"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/phone-relay-core.mjs",
+      "sha256": "eec41958569e2413fba9721c3e6241758b0ea4dc65c9da84c5a9fa752bfb4ddc"
+    }
+  ],
+  "set": "phone-settings",
+  "syntheticInput": {
+    "feedback": "the relay /feedback endpoint answers by posted id (FEEDBACK_REPLIES: 429, 500, a body not JSON, a receipt for another id or status, a dropped connection); any other id is accepted with a receipt naming it",
+    "recipients": "caller and otherPhone are two relay clients with their channels up behind createRelayPushLanes (Node broadcast to every channel include admits, remote-relay-delivery.ts:177-187); desktop is b6f10295a DesktopStateBridge over the same desktop event bus, its webContents.send recorded",
+    "window": "Electron answers (updater, theme, OS notifications), the same script answers the core replay through host requests"
+  },
+  "totalBytes": 343937
+}

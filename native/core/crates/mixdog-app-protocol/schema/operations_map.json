@@ -772,16 +772,16 @@
       "list": "operations",
       "name": "notifyProviderModelsChanged",
       "target": {
-        "kind": "deleted",
-        "target": "publishers own their changes (DS §3)"
+        "kind": "method",
+        "target": "ui/providerModels/announce"
       }
     },
     {
       "list": "operations",
       "name": "notifySettingsChanged",
       "target": {
-        "kind": "deleted",
-        "target": "publishers own their changes (DS §3)"
+        "kind": "method",
+        "target": "ui/settings/announce"
       }
     },
     {
@@ -1095,8 +1095,8 @@
       "list": "operations",
       "name": "browserRemoteFrame",
       "target": {
-        "kind": "mediaFrame",
-        "target": "browserView"
+        "kind": "clientNotification",
+        "target": "host/browser/frame"
       }
     },
     {
@@ -1864,8 +1864,8 @@
       "list": "remote",
       "name": "notifyProviderModelsChanged",
       "target": {
-        "kind": "deleted",
-        "target": "publishers own their changes (DS §3)"
+        "kind": "method",
+        "target": "ui/providerModels/announce"
       }
     },
     {

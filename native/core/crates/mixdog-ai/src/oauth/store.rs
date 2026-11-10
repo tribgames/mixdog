@@ -93,7 +93,7 @@ pub enum Probe<T> {
 #[derive(Clone)]
 pub struct CredentialFile {
     path: PathBuf,
-    io: CredentialIo,
+    pub(super) io: CredentialIo,
     /// `MIXDOG_MODEL_PROXY=client`: the server holds no model credentials, so the file reads as
     /// absent and refuses every write (`modelProxyClientMode()` at each Node credential loader).
     remote_client: bool,
