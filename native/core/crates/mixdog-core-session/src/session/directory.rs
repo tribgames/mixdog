@@ -697,6 +697,12 @@ impl SessionDirectory {
         self.inner.exit_close.set(hook).map_err(|_| "the exit close is already bound")
     }
 
+    /// A stop was requested: the new-task attempts in flight end now, each as Node's attempt ends at the call it was awaiting when its
+    /// host is disposed ([`super::new_task::NewTaskReceipts::cut`]); [`Self::shutdown_for`] later waits for the writes they began.
+    pub fn cut_new_tasks(&self) {
+        self.inner.deps.new_tasks.cut();
+    }
+
     /// [`Self::shutdown_for`] with the reason of a daemon stop.
     pub async fn shutdown(&self) {
         self.shutdown_for("daemon shutdown").await;
@@ -1689,7 +1695,7 @@ impl ThreadDirectory for SessionDirectory {
                         path: "params".into(),
                         expected: "ThreadStartParams".into(),
                     })?;
-                if params.kind == ThreadStartKind::Task && params.initial_input.is_some() {
+                if super::new_task::starts_new_task(&req.params) {
                     return self.start_new_task(req, params).await;
                 }
                 let handle = self.begin_thread(&req, &params, None, None).await?;

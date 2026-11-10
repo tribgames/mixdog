@@ -564,19 +564,35 @@ impl Names {
     }
 }
 
-/// The core's state in the recording's terms: the receipt of `id` (less its signature, its address named) and every session the
-/// directory stores among `addresses`, with its prompts (at most the one this test's tasks send) and whether it is still only reserved.
+/// The core's state in the recording's terms: the receipt of `id` (less its signature, its address named) and every session among
+/// `addresses` as the replay reads one (`thread/items/list`, `threadNotFound` for one that is not there), with its user prompts and
+/// whether it is still only reserved (scenarios.mjs COMPARISON `recorded[].sessions`).
 async fn core_state(rig: &Rig, directory: &SessionDirectory, id: &str, names: &mut Names, addresses: &[String]) -> (Value, Value) {
     let mut receipt = unsigned(&String::from_utf8(std::fs::read(receipt_path(rig, id)).expect("the receipt")).expect("text"));
     let address = receipt["sessionId"].as_str().expect("an address").to_owned();
     receipt["sessionId"] = Value::String(names.of(id, &address));
     let mut sessions = serde_json::Map::new();
+    let deleted = rig.deletes.0.lock().unwrap().clone();
     for address in addresses {
-        let thread = mixdog_core_api::ids::ThreadId::from(address.clone());
-        if directory.try_stored_header(&thread).await.expect("read").is_some() {
-            let prompts = usize::from(directory.holds_user_conversation(&thread).await.expect("rows"));
-            sessions.insert(names.of(id, address), json!({ "prompts": prompts, "reserved": prompts == 0 }));
+        // A deleted session's files are purged with its delete (`delete.rs` `remove`); the test store keeps its rows, so the delete is read.
+        if deleted.contains(&format!("thread/deleted:{address}")) {
+            continue;
         }
+        let listed = directory
+            .request(CoreRequest {
+                method: Method("thread/items/list"),
+                params: json!({ "threadId": address }),
+                op: None,
+                ctx: CallContext::internal("test"),
+            })
+            .await;
+        let items = match listed {
+            Ok(Reply::Value(items)) => items,
+            Err(CoreError::ThreadNotFound { .. }) => continue,
+            other => panic!("thread/items/list of {address}: {:?}", other.map(|_| ())),
+        };
+        let prompts = items["data"].as_array().expect("items").iter().filter(|item| item["type"] == "userMessage").count();
+        sessions.insert(names.of(id, address), json!({ "prompts": prompts, "reserved": prompts == 0 }));
     }
     (receipt, Value::Object(sessions))
 }
@@ -588,6 +604,8 @@ async fn core_state(rig: &Rig, directory: &SessionDirectory, id: &str, names: &m
 /// flight gets no answer.
 async fn quit_inside(step: Steps, scenario: &str, id: &str, draft: fn() -> Value, held: impl FnOnce(&mut super::SessionDeps, Arc<tokio::sync::Notify>, Arc<tokio::sync::Semaphore>)) {
     let rig = Rig::new();
+    // The index lists a written record (its summary), which the discard of an unclaimed one reads as the store does.
+    rig.store.listed.store(true, Ordering::SeqCst);
     let runs = counting(&rig);
     let (entered, release) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Semaphore::new(0)));
     let mut deps = rig.deps_parts(rig.store.clone());
