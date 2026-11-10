@@ -2,10 +2,9 @@
 //! the policy and approval wait, concurrent execution, and the ordered commit
 //! of results.
 //!
-//! Calls start together unless a tool's declared scheduling keeps two of them
-//! apart (`parallel_safe`, `exclusive_with`); results are committed in the
-//! assistant's call order, so the transcript never depends on which call
-//! finished first.
+//! Calls start together unless one of Node's ordering barriers holds a call back
+//! ([`crate::barriers`]); results are committed in the assistant's call order, so the
+//! transcript never depends on which call finished first.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -33,7 +32,6 @@ use mixdog_core_api::domain::tool::Tool;
 use mixdog_core_api::domain::tool::ToolContext;
 use mixdog_core_api::domain::tool::ToolError;
 use mixdog_core_api::domain::tool::ToolErrorCode;
-use mixdog_core_api::domain::tool::ToolGroup;
 use mixdog_core_api::domain::tool::ToolIo;
 use mixdog_core_api::domain::tool::ToolOutcome;
 use mixdog_core_api::domain::tool::ToolOutput;
@@ -268,6 +266,23 @@ const FAILURE_PATH_KEYS: [&str; 9] = [
     "paths",
 ];
 
+/// Node `path.resolve(cwd, value)`: the path against `cwd`, with `.` and `..` removed and no file system consulted.
+pub(crate) fn resolve_lexically(value: &str, cwd: &std::path::Path) -> String {
+    let path = std::path::Path::new(value);
+    let joined = if path.is_absolute() { path.to_path_buf() } else { cwd.join(path) };
+    let mut clean = std::path::PathBuf::new();
+    for component in joined.components() {
+        match component {
+            std::path::Component::ParentDir => {
+                clean.pop();
+            }
+            std::path::Component::CurDir => {}
+            other => clean.push(other.as_os_str()),
+        }
+    }
+    clean.to_string_lossy().into_owned()
+}
+
 /// Lexical `normalize`/`resolve` of a path value against `cwd`, lowercased on
 /// Windows and with `/` separators, so two spellings of one path agree.
 fn normalize_failure_path(value: &str, cwd: &std::path::Path) -> String {
@@ -281,23 +296,7 @@ fn normalize_failure_path(value: &str, cwd: &std::path::Path) -> String {
     if value.is_empty() || has_scheme {
         return value.to_owned();
     }
-    let path = std::path::Path::new(value);
-    let joined = if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        cwd.join(path)
-    };
-    let mut clean = std::path::PathBuf::new();
-    for component in joined.components() {
-        match component {
-            std::path::Component::ParentDir => {
-                clean.pop();
-            }
-            std::path::Component::CurDir => {}
-            other => clean.push(other.as_os_str()),
-        }
-    }
-    let mut out = clean.to_string_lossy().into_owned();
+    let mut out = resolve_lexically(value, cwd);
     if cfg!(windows) {
         out = out.to_lowercase();
     }
@@ -540,6 +539,11 @@ impl Executed {
             output: None,
             returned: false,
         }
+    }
+
+    /// A call skipped, not run, because the earlier mutation it depends on failed (`waitForPreceding`).
+    pub(crate) fn skipped(call_id: &str, text: String) -> Self {
+        Self { message: AgentMessage::tool_text(call_id, text, ToolKind::Skipped), failed: false, ..Self::error(call_id, String::new()) }
     }
 
     /// A failure Node's executor returns as text (`return denial`): the call failed for the transcript, but it did
@@ -1015,14 +1019,6 @@ pub(crate) fn intra_turn_duplicates(calls: &[ToolCall], tools: &ToolSet) -> Hash
         }
     }
     duplicates
-}
-
-pub(crate) fn conflicts(a: &ToolSpec, b: &ToolSpec) -> bool {
-    !a.parallel_safe
-        || !b.parallel_safe
-        || a.exclusive_with
-            .iter()
-            .any(|group: &ToolGroup| b.exclusive_with.contains(group))
 }
 
 pub(crate) type CallFuture = Pin<Box<dyn Future<Output = (usize, Executed)> + Send>>;

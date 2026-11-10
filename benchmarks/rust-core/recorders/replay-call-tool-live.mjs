@@ -43,7 +43,10 @@ const server = createServer((req, res) => {
     res.end(chunk({ role: 'assistant', tool_calls }, null) + chunk({}, 'tool_calls') + 'data: [DONE]\n\n');
   });
 });
-await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+await new Promise((resolve, reject) => {
+  server.once('error', reject);
+  server.listen(0, '127.0.0.1', resolve);
+});
 const baseURL = `http://127.0.0.1:${server.address().port}/v1`;
 
 // ---- the core ----
@@ -58,13 +61,26 @@ const { parseDiscovery } = await here('apps/desktop/src/main/protocol/discovery.
 const child = spawn(exe, ['serve'], { env, stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true });
 let stderr = '';
 child.stderr.on('data', (chunk) => (stderr += chunk));
-const killTree = () => spawnSync('taskkill', ['/T', '/F', '/PID', String(child.pid)], { stdio: 'ignore' });
+// The core and everything it started, ended on every path; taskkill answers 128 when the process is already gone.
+const killTree = () => {
+  const ended = spawnSync('taskkill', ['/T', '/F', '/PID', String(child.pid)], { stdio: 'ignore', timeout: 15_000 });
+  if (ended.error || (ended.status !== 0 && ended.status !== 128)) throw new Error(`taskkill of mixdogd ${child.pid} failed: ${ended.error?.message ?? ended.status}`);
+};
+// Polls the state of the work until it is done, or fails naming what did not finish.
+const within = async (label, ms, ready) => {
+  const deadline = Date.now() + ms;
+  for (;;) {
+    const value = await ready();
+    if (value) return value;
+    if (Date.now() > deadline) throw new Error(`${label}: not done after ${ms} ms`);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+};
 const file = join(world, 'runtime', 'daemon.json');
-let endpoint = null;
-for (let i = 0; i < 600 && !endpoint; i++) {
+const endpoint = await within('mixdogd publishing its discovery file', 60_000, () => {
   if (child.exitCode !== null) throw new Error(`mixdogd exited ${child.exitCode}:\n${stderr}`);
-  try { endpoint = parseDiscovery(readFileSync(file, 'utf8')); } catch { await new Promise((r) => setTimeout(r, 100)); }
-}
+  try { return parseDiscovery(readFileSync(file, 'utf8')); } catch { return null; }
+});
 const { connect, sessionReducer } = await here('packages/protocol-client/src/index.ts');
 const { createWsConnector } = await here('apps/desktop/src/main/protocol/ws-connector.ts');
 const client = await connect({
@@ -99,9 +115,11 @@ try {
   if (scenario.goal) {
     out.goalSet = await client.call('thread/goal/set', { threadId, goal: scenario.goal });
   }
-  for (let i = 0; i < 300 && step < scenario.script.length; i++) await new Promise((r) => setTimeout(r, 100));
-  await new Promise((r) => setTimeout(r, 1500));
-  out.thread = await client.call('thread/read', { threadId, includeTurns: true });
+  // Done once the model has said everything the script holds and the turn has ended.
+  out.thread = await within('the turn ending', 60_000, async () => {
+    const read = await client.call('thread/read', { threadId, includeTurns: true });
+    return step >= scenario.script.length && read.items?.at(-1)?.type === 'turnEnd' ? read : null;
+  });
 } catch (error) {
   out.error = String(error?.message ?? error);
   out.detail = error?.detail ?? null;
@@ -109,6 +127,9 @@ try {
 out.modelRequests = requests.map((r) => ({ tools: (r.tools ?? []).map((t) => t.function?.name), messages: r.messages?.slice(-3) }));
 out.stderr = stderr.slice(-2000);
 console.log(JSON.stringify(out, null, 1));
-killTree();
-server.close();
-process.exit(0);
+try {
+  killTree();
+} finally {
+  server.close();
+}
+process.exit(out.error ? 1 : 0);

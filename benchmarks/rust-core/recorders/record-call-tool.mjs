@@ -37,9 +37,44 @@ const tree = resolveTree(parseArgs());
 const identity = exactProductIdentity(tree, NODE_COMMIT);
 const imp = (rel) => import(pathToFileURL(join(tree, rel)).href);
 const S = 'src/runtime/agent/orchestrator/';
+
+// ---- the event loop the scenarios run on ----------------------------------------------------------------------------------------
+// Every step a script controls (a hook, an executor, an approval card) takes one macrotask, so the microtask chains of all calls drain
+// between two steps and the order of a batch's observable events is the order of the steps, whatever depth Node's own awaits have.
+const macrotask = () => new Promise((resolve) => setImmediate(resolve));
+
+// The approval path of an `ask` also touches files: it reads the grants file (human-gate/gate.mjs:288 `allowanceForHookAsk` ->
+// store.mjs:59 `readGrants` -> shared/atomic-file.mjs:553 `readFileAsync`) and appends to the audit file after the answer
+// (human-gate/gate.mjs:402 `recordAudit` -> store.mjs `appendFile`). Real asynchronous file I/O of two concurrent calls finishes in an
+// order nothing controls, so each of the two is replaced by the same operation done synchronously after one macrotask: the position of a
+// call in the event loop is then the script's, and a scenario can hold one (`gates`, stages `grants` and `audit`).
+let fileStep = async () => {};
+{
+  const fsp = (await import('node:fs/promises')).default;
+  const fsSync = await import('node:fs');
+  const { syncBuiltinESMExports } = await import('node:module');
+  const kindOf = (path) => (String(path).endsWith('grants.json') ? 'grants' : String(path).endsWith('audit.jsonl') ? 'audit' : null);
+  const real = { readFile: fsp.readFile, appendFile: fsp.appendFile, mkdir: fsp.mkdir };
+  fsp.readFile = async (path, ...rest) => {
+    const kind = kindOf(path);
+    if (!kind) return real.readFile(path, ...rest);
+    await fileStep(kind);
+    return fsSync.readFileSync(path, ...rest);
+  };
+  fsp.appendFile = async (path, ...rest) => {
+    const kind = kindOf(path);
+    if (!kind) return real.appendFile(path, ...rest);
+    await fileStep(kind);
+    return fsSync.appendFileSync(path, ...rest);
+  };
+  fsp.mkdir = async (path, ...rest) => (String(path).endsWith('human-gate') ? fsSync.mkdirSync(path, ...rest) : real.mkdir(path, ...rest));
+  syncBuiltinESMExports();
+}
 const { createSession } = await imp(`${S}session/manager/session-lifecycle.mjs`);
 const { askSession } = await imp(`${S}session/manager/ask-session.mjs`);
-const { loadSession, deleteSession } = await imp(`${S}session/store.mjs`);
+const { loadSession, deleteSession, drainSessionStore } = await imp(`${S}session/store.mjs`);
+const { drainPathSync } = await imp('src/runtime/shared/buffered-appender.mjs');
+const { humanGateStore } = await imp(`${S}session/human-gate/store.mjs`);
 const { _withRegisteredProviderForTestAsync } = await imp(`${S}providers/registry.mjs`);
 const { setInternalToolsProvider } = await imp(`${S}internal-tools.mjs`);
 const { _registerMcpServerForTest, disconnectAll } = await imp(`${S}mcp/client.mjs`);
@@ -151,6 +186,93 @@ SCENARIOS.push({
   script: [round(call('c1', 'computer', { action: 'screenshot' }), call('c2', 'computer', { action: 'click' })), FINAL],
 });
 
+
+// ---- calls that take time ----------------------------------------------------------------------------------------------------------
+// A scenario holds one step of one call (`gates`) until something else has happened. The batch only comes out in the recorded order if the
+// calls really run together (a loop that ran them one after another waits forever for the entry that releases the gate).
+const at = (ev, extra = {}) => ({ ev, ...extra });
+const CONCURRENT = [
+  {
+    name: 'the first call is held in its tool while the second call runs through its hook, tool and post hook',
+    gates: [{ stage: 'tool', args: { q: '1' }, until: at('post', { name: 'probe_read' }) }],
+    script: [round(call('c1', 'probe_write', { q: '1' }), call('c2', 'probe_read', { q: '2' })), FINAL],
+  },
+  {
+    name: 'the first call is held in its PreToolUse hook until the second call has run',
+    gates: [{ stage: 'pre', args: { q: '1' }, until: at('ran', { name: 'probe_read' }) }],
+    script: [round(call('c1', 'probe_write', { q: '1' }), call('c2', 'probe_read', { q: '2' })), FINAL],
+  },
+  {
+    name: 'three calls finish in the reverse order of the batch',
+    gates: [
+      { stage: 'tool', args: { q: '1' }, until: at('post', { args: { q: '2' } }) },
+      { stage: 'tool', args: { q: '2' }, until: at('post', { args: { q: '3' } }) },
+    ],
+    script: [round(call('c1', 'probe_write', { q: '1' }), call('c2', 'probe_read', { q: '2' }), call('c3', 'probe_read', { q: '3' })), FINAL],
+  },
+  {
+    name: 'the first call is held in its PostToolUse hook until the second call has finished',
+    gates: [{ stage: 'post', args: { q: '1' }, until: at('post', { args: { q: '2' } }) }],
+    script: [round(call('c1', 'probe_write', { q: '1' }), call('c2', 'probe_read', { q: '2' })), FINAL],
+  },
+  {
+    name: 'a call waiting for its approval does not hold the calls behind it',
+    ask: ['probe_write'],
+    answers: [{ approved: true }],
+    gates: [{ stage: 'card', until: at('post', { name: 'probe_read' }) }],
+    script: [round(call('c1', 'probe_write', { q: '1' }), call('c2', 'probe_read', { q: '2' })), FINAL],
+  },
+  {
+    name: 'edits of two files run together and the second edit of a file waits for the first',
+    internal: ['edit'],
+    gates: [{ stage: 'tool', args: { file_path: 'x.txt', old_string: 'a' }, until: at('post', { args: { file_path: 'y.txt', old_string: 'a', new_string: 'b' } }) }],
+    script: [round(call('c1', 'edit', { file_path: 'x.txt', old_string: 'a', new_string: 'b' }), call('c2', 'edit', { file_path: 'y.txt', old_string: 'a', new_string: 'b' }), call('c3', 'edit', { file_path: 'x.txt', old_string: 'b', new_string: 'c' })), FINAL],
+  },
+  {
+    name: 'a shell command waits for the patch before it while the read after it runs',
+    internal: ['apply_patch', 'shell'],
+    gates: [{ stage: 'tool', name: 'apply_patch', until: at('post', { name: 'probe_read' }) }],
+    script: [round(call('c1', 'apply_patch', { patch: 'p' }), call('c2', 'shell', { command: 'echo ok' }), call('c3', 'probe_read', { q: 'r' })), FINAL],
+  },
+  {
+    name: 'a shell command is skipped when the patch before it failed',
+    internal: ['apply_patch', 'shell'],
+    script: [round(call('c1', 'apply_patch', { patch: 'p', fail: true }), call('c2', 'shell', { command: 'echo ok' }), call('c3', 'probe_read', { q: 'r' })), FINAL],
+  },
+  {
+    name: 'the first call is held in its tool while the second call, streamed behind it, finishes',
+    stream: true,
+    gates: [{ stage: 'tool', args: { q: '1' }, until: at('post', { name: 'probe_read' }) }],
+    script: [round(call('c1', 'probe_write', { q: '1' }), call('c2', 'probe_read', { q: '2' })), FINAL],
+  },
+];
+SCENARIOS.push(...CONCURRENT);
+
+// ---- two approvals in one batch ----------------------------------------------------------------------------------------------------
+// Each ask reads the grants file before its card is shown (human-gate/gate.mjs:288 `allowanceForHookAsk`) and appends to the audit file once
+// it is answered (gate.mjs:402 `recordAudit`). Those two operations of the two calls are the only things whose completion order varies
+// between runs; a scenario fixes it by holding the n-th read or append (stages `grants`, `audit`).
+const TWO_ASKS = { ask: ['probe_write'], script: [round(bridged('c1', 'probe_write', { q: '1' }), bridged('c2', 'probe_write', { q: '2' })), FINAL] };
+SCENARIOS.push(
+  {
+    ...TWO_ASKS,
+    name: 'two approvals in one batch, the first call asked first',
+    answers: [{ approved: true }, { approved: false, reason: 'no' }],
+    gates: [
+      { stage: 'grants', nth: 2, until: at('card', { args: { q: '1' } }) },
+      { stage: 'audit', nth: 2, until: at('ran', { args: { q: '1' } }) },
+    ],
+  },
+  {
+    ...TWO_ASKS,
+    name: 'two approvals in one batch, the second call asked first',
+    answers: [{ approved: true }, { approved: false, reason: 'no' }],
+    gates: [
+      { stage: 'grants', nth: 1, until: at('card', { args: { q: '2' } }) },
+      { stage: 'audit', nth: 2, until: at('ran', { args: { q: '2' } }) },
+    ],
+  }
+);
 // The same turns with a provider that streams its tool calls: each call reaches the loop (and starts its eager dispatch) before the response ends.
 const STREAMED = [
   'a read-only deferred tool through call_tool, twice in one turn and again in the next',
@@ -172,8 +294,11 @@ for (const name of STREAMED) {
 
 // ---- one scenario --------------------------------------------------------------------------------------------------------------
 let serial = 0;
-async function runScenario(scenario) {
-  const n = (serial += 1);
+let twins = 0;
+// `twin`: the same scenario with a provider that streams nothing, run only to learn which calls of each round the loop dispatches
+// (and so tells the host about as they settle): a streaming response ends once those have settled.
+async function runScenario(scenario, twin = false) {
+  const n = twin ? 1000 + (twins += 1) : (serial += 1);
   const scopeId = `call-tool-scope-${n}`;
   const sessionId = `sess_call_tool_${String(n).padStart(2, '0')}`;
   const providerName = `scripted-call-tool-${n}`;
@@ -184,6 +309,42 @@ async function runScenario(scenario) {
   const sends = [];
   // Everything observable, in the order it happened: the requests, the hooks, the cards, the tool events and the executors.
   const timeline = [];
+  const waiters = [];
+  const note = (entry) => {
+    timeline.push(entry);
+    for (const waiter of waiters.splice(0)) if (!waiter.hit(entry)) waiters.push(waiter);
+  };
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  // Resolves once an entry of the timeline has every field of `match` (now or later); a deadline that names it ends a scenario that never gets there.
+  const until = (match, label) => {
+    const hit = (entry) => Object.entries(match).every(([key, value]) => same(entry[key], value));
+    if (timeline.some(hit)) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`${scenario.name}: ${label} never happened (waiting for ${JSON.stringify(match)})`)), 10_000);
+      waiters.push({
+        hit: (entry) => {
+          if (!hit(entry)) return false;
+          clearTimeout(timer);
+          resolve();
+          return true;
+        },
+      });
+    });
+  };
+  // One step a script controls. A scenario can hold the n-th occurrence of a step (`gates`) until an entry of the timeline appears.
+  const gateSeen = new Map();
+  const step = async (stage, name = '', args = {}) => {
+    for (const gate of scenario.gates ?? []) {
+      if (gate.stage !== stage || (gate.name !== undefined && gate.name !== name) || (gate.args !== undefined && !same(gate.args, args))) continue;
+      const seen = (gateSeen.get(gate) ?? 0) + 1;
+      gateSeen.set(gate, seen);
+      if (seen !== (gate.nth ?? 1)) continue;
+      await until(gate.until, `${stage} of ${name || 'a call'} (held)`);
+      break;
+    }
+    await macrotask();
+  };
+  fileStep = (kind) => step(kind);
   let sessionRef = null;
   const restoreInternal = setInternalToolsProvider({
     scopeId,
@@ -191,7 +352,9 @@ async function runScenario(scenario) {
     executor: async (name, args) => {
       if (name === 'load_tool') return renderToolSearch(args, sessionRef, 'lead', {});
       executed.push({ name, args: clone(args) });
-      timeline.push({ ev: 'ran', name, args: clone(args) });
+      note({ ev: 'ran', name, args: clone(args) });
+      await step('tool', name, args);
+      if (args?.fail) throw new Error(`${name} failed`);
       return `ran ${name} ${JSON.stringify(args)}`;
     },
   });
@@ -203,7 +366,8 @@ async function runScenario(scenario) {
       {
         callTool: async (params) => {
           executed.push({ name: `mcp__mail__${params.name}`, args: clone(params.arguments ?? {}) });
-          timeline.push({ ev: 'ran', name: `mcp__mail__${params.name}`, args: clone(params.arguments ?? {}) });
+          note({ ev: 'ran', name: `mcp__mail__${params.name}`, args: clone(params.arguments ?? {}) });
+          await step('tool', `mcp__mail__${params.name}`, params.arguments ?? {});
           return { content: [{ type: 'text', text: `ran ${params.name} ${JSON.stringify(params.arguments ?? {})}` }] };
         },
       }
@@ -215,29 +379,25 @@ async function runScenario(scenario) {
     async send(messages, _model, _tools, sendOpts) {
       const i = sends.length;
       sends.push(clone(messages.filter((m) => m.role !== 'system')));
-      timeline.push({ ev: 'sent', n: i + 1 });
-      const step = scenario.script[i];
-      if (!step) throw new Error(`${scenario.name}: the script ran out at request ${i + 1}`);
-      if (step.calls) {
+      note({ ev: 'sent', n: i + 1 });
+      const reply = scenario.script[i];
+      if (!reply) throw new Error(`${scenario.name}: the script ran out at request ${i + 1}`);
+      if (reply.calls) {
         // A streaming provider hands the loop each tool call the moment it is complete (`opts.onToolCall`, which starts the
         // call's eager dispatch) and the response only at the end; a whole-response provider hands nothing before it returns.
         if (scenario.stream) {
-          for (const streamed of step.calls) {
+          for (const streamed of reply.calls) {
             sendOpts.onToolCall(clone(streamed));
-            await new Promise((resolve) => setImmediate(resolve));
+            await macrotask();
           }
-          // The response ends once the calls it streamed have nothing left to do: no entry of the timeline for 200 turns of the event loop. Counted in turns, not in time, so a loaded machine records the same order.
-          for (let quiet = 0, seen = timeline.length; quiet < 200; ) {
-            await new Promise((resolve) => setImmediate(resolve));
-            if (timeline.length === seen) quiet += 1;
-            else [quiet, seen] = [0, timeline.length];
-          }
+          // The response ends once every call the loop dispatches has settled and told the host (`notifyEarlyResult`, eager-dispatch/entry.mjs:98).
+          for (const id of reply.settles) await until({ ev: 'toolResult', id, early: true }, `the settlement of ${id}`);
         }
-        timeline.push({ ev: 'answered', n: i + 1 });
-        return { content: '', toolCalls: clone(step.calls), stopReason: 'tool_use', usage: { inputTokens: 1, outputTokens: 1 } };
+        note({ ev: 'answered', n: i + 1 });
+        return { content: '', toolCalls: clone(reply.calls), stopReason: 'tool_use', usage: { inputTokens: 1, outputTokens: 1 } };
       }
-      timeline.push({ ev: 'answered', n: i + 1 });
-      return { content: step.text, usage: { inputTokens: 1, outputTokens: 1 } };
+      note({ ev: 'answered', n: i + 1 });
+      return { content: reply.text, usage: { inputTokens: 1, outputTokens: 1 } };
     },
   };
   const answers = [...(scenario.answers ?? [])];
@@ -255,7 +415,8 @@ async function runScenario(scenario) {
     for (const key of ['toolSpec', 'featureDeniedTools']) if (scenario.session && key in scenario.session) session[key] = scenario.session[key];
     session.beforeToolHook = async (hookCall) => {
       hooks.before.push({ name: hookCall.name, args: clone(hookCall.args) });
-      timeline.push({ ev: 'pre', name: hookCall.name, args: clone(hookCall.args) });
+      note({ ev: 'pre', name: hookCall.name, args: clone(hookCall.args) });
+      await step('pre', hookCall.name, hookCall.args);
       const rewrite = scenario.hookRewrite?.[hookCall.name];
       if (rewrite) return { action: 'modify', ...rewrite };
       if (scenario.hookDeny?.includes(hookCall.name)) return { action: 'deny', reason: 'hook says no' };
@@ -264,7 +425,8 @@ async function runScenario(scenario) {
     };
     session.afterToolHook = async (hookCall) => {
       hooks.after.push({ name: hookCall.name, args: clone(hookCall.args), result: hookCall.result });
-      timeline.push({ ev: 'post', name: hookCall.name, args: clone(hookCall.args) });
+      note({ ev: 'post', name: hookCall.name, args: clone(hookCall.args) });
+      await step('post', hookCall.name, hookCall.args);
     };
     const surface = { exposure: session.toolExposureMode ?? null, toolSpec: session.toolSpec ?? null, tools: session.tools.map((t) => t.name), catalog: [...(session.deferredToolCatalog ?? []), ...(session.deferredLateToolCatalog ?? [])].map((t) => t.name), mcpNames: session.deferredMcpToolNames ?? null };
     const turn = await askSession(
@@ -273,26 +435,29 @@ async function runScenario(scenario) {
       null,
       (iteration, calls) => {
         events.push({ ev: 'toolCall', iteration, calls: clone(calls) });
-        timeline.push({ ev: 'toolCall', ids: calls.map((c) => c.id) });
+        note({ ev: 'toolCall', ids: calls.map((c) => c.id) });
       },
       null,
       null,
       {
         onToolApproval: async (card) => {
           cards.push(clone(card));
-          timeline.push({ ev: 'card', name: card.name, args: clone(card.args) });
+          note({ ev: 'card', name: card.name, args: clone(card.args) });
           // A person answers later: every call that needs no answer runs first.
-          await new Promise((resolve) => setImmediate(resolve));
+          await step('card', card.name, card.args);
           const answer = answers.shift();
           if (!answer) throw new Error(`${scenario.name}: an approval card nobody scripted`);
           return { ...answer, device: 'Pixel' };
         },
         onToolResult: (message) => {
           events.push({ ev: 'toolResult', message: stripTiming(message) });
-          timeline.push({ ev: 'toolResult', id: message.toolCallId, early: message.__earlyNotify === true });
+          note({ ev: 'toolResult', id: message.toolCallId, early: message.__earlyNotify === true });
         },
       }
     );
+    // The tails Node leaves after a turn: the debounced session save (session/store.mjs:305 `drainSessionStore`) and the buffered trace append (shared/buffered-appender.mjs:223 `drainPathSync`).
+    drainSessionStore();
+    drainPathSync(process.env.MIXDOG_AGENT_TRACE_PATH, { exiting: true });
     const stored = loadSession(session.id);
     result = { surface, answer: turn.content, stored: stored.messages.filter((m) => m.role !== 'system').map(stripTiming) };
     deleteSession(session.id);
@@ -312,6 +477,7 @@ async function runScenario(scenario) {
     answers: scenario.answers ?? [],
     hookRewrite: scenario.hookRewrite ?? null,
     hookDeny: scenario.hookDeny ?? [],
+    gates: scenario.gates ?? [],
     script: scenario.script,
     ...result,
     requests: sends,
@@ -328,8 +494,22 @@ function stripTiming(message) {
   return rest;
 }
 
+// The first approval of a process builds the human gate's store (human-gate/store.mjs:186 `humanGateStore`, a dynamic import): once, before any scenario.
+await humanGateStore();
+
 const scenarios = [];
-for (const scenario of SCENARIOS) scenarios.push(await runScenario(scenario));
+for (const scenario of SCENARIOS) {
+  if (scenario.stream) {
+    const twin = await runScenario({ ...scenario, stream: false }, true);
+    const sent = twin.timeline.flatMap((entry, at) => (entry.ev === 'sent' ? [at] : []));
+    scenario.script = scenario.script.map((reply, round) => {
+      if (!reply.calls) return reply;
+      const settles = twin.timeline.slice(sent[round], sent[round + 1]).filter((entry) => entry.ev === 'toolResult' && entry.early).map((entry) => entry.id);
+      return { ...reply, settles };
+    });
+  }
+  scenarios.push(await runScenario(scenario));
+}
 
 // The audit: the batch rows the loop wrote (`recordToolBatch`), in order, by scenario session.
 const trace = readFileSync(process.env.MIXDOG_AGENT_TRACE_PATH, 'utf8')
