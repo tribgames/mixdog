@@ -332,7 +332,14 @@ async fn a_scheduled_compaction_runs_once_the_turn_settles_and_the_next_turn_wai
         let handle = handle.clone();
         tokio::spawn(async move { turn(&handle, "next", "op-2").await })
     };
-    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    // The spawned turn gets every chance to run: time moves only by this explicit advance.
+    for _ in 0..50 {
+        tokio::task::yield_now().await;
+    }
+    tokio::time::advance(std::time::Duration::from_secs(5)).await;
+    for _ in 0..50 {
+        tokio::task::yield_now().await;
+    }
     assert!(!next.is_finished() && idle(&handle), "the next turn waits for the compaction");
     hold.notify_one();
     super::testing::awaiting(|| "the next turn to be taken once the compaction ended".to_owned(), next).await.expect("joined");
