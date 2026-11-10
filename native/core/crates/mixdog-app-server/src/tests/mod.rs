@@ -245,8 +245,8 @@ impl CoreHandle for TestCore {
         self.mock.connection_opened(connection, origin, device, kind);
     }
 
-    fn request_started(&self) -> mixdog_core_api::handle::RequestGuard {
-        self.mock.request_started()
+    fn request_started(&self, method: &str, params: &serde_json::Value) -> mixdog_core_api::handle::RequestGuard {
+        self.mock.request_started(method, params)
     }
 }
 

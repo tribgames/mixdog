@@ -1724,6 +1724,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // The route service is built after the directory and reads it: the route a `thread/start` thread begins on and the pick held for a turn start are late cells, bound where it is built.
     let late_new_route = Arc::new(mixdog_core::run_host::route_start::LateNewRoute::default());
     let late_new_place = Arc::new(crate::late_session::LateNewPlace::default());
+    let late_draft_settings = Arc::new(crate::late_session::LateDraftSettings::default());
     let late_pending_route = Arc::new(mixdog_core::run_host::route_start::LatePendingRoute::default());
     // flip-surface: the one production `SurfaceHost`. It is built BEFORE the directory (it goes into `SessionDeps.new_tools` and the compaction world), so the
     // directory-side reads are the late forms (`LateThreads`: `ThreadState` + `ThreadMessages`; `LateLiveSessions`), not `directory`/`SessionThreads` as the wiring row writes.
@@ -1989,6 +1990,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             let (config, gateway_routes, exclusions, registry, worktree_maintenance, surface_host, worktrees, owned_shells, job_board, blobs) = (config.clone(), gateway_routes.clone(), exclusions.clone(), registry.clone(), worktree_maintenance.clone(), surface_host.clone(), worktrees.clone(), owned_shells.clone(), job_board.clone(), blobs.clone());
             let (late_agent_status, late_turn_admission, late_room_members, handoff_hub, activity, turn_review, computer_pool) = (late_agent_status.clone(), late_turn_admission.clone(), late_room_members.clone(), handoff_hub.clone(), activity.clone(), turn_review.clone(), computer_pool.clone());
             let late_new_route = late_new_route.clone();
+            let late_draft_settings = late_draft_settings.clone();
             let office_startup = crate::office_startup::OfficeStartup::new(
                 handoff_hub.clone(), b.ext_host.clone(), b.data_dir.to_string_lossy().into_owned(),
             );
@@ -2068,10 +2070,12 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 resumed_tools: route_facts_ai.clone(), // `AiRouteFacts` is the `ResumedTools` too
                 room_members: late_room_members.clone(),
                 new_tools: surface_host.clone(), // `thread/start` composes its tools and prompt through it (flip-surface-2, -6)
+                new_tasks: mixdog_core_session::session::new_task::NewTaskReceipts::new(&data_dir.join("userdata"), tokens.durability_io), // the receipts of `thread/start` new tasks (<data>/userdata/new-task-receipts)
                 new_place, // the registered Projects (`thread/fork`) and the draft's worktree step (`thread/start`); bound with the workspaces
                 task_workspace, // `thread/start` of `kind: task` begins in it (Node `taskWorkspace()`, `AgentDefinitions::task_workspace`)
                 empty_surface: surface_host.clone(), // `thread/clear` with `rebuildPrompt` rebuilds the emptied thread's surface and prompt through it
                 new_route: late_new_route.clone(), // `thread/start` settles its route first (the draft's pick, else the default) and seats it once created
+                draft_settings: late_draft_settings.clone(), // the new task's draft workflow and mode, through `thread/setWorkflow` / `thread/setOrchestrationMode` (bound below)
         snapshots: { let worktree_snapshots: Arc<dyn mixdog_core_session::session::turn_snapshots::TurnSnapshots> = Arc::new(mixdog_core_session::session::turn_snapshots::WorktreeTurnSnapshots::new(snapshot_cleanups.clone(), worktrees.clone())); match &computer_pool { Some(pool) => Arc::new(mixdog_core::run_host::native_tools::SettlingSnapshots::new(worktree_snapshots, pool.clone())), None => worktree_snapshots } }, // wp-session-30; `directory.shutdown()` ends with `snapshots.dispose()`
                 lanes: mixdog_core_session::session::SessionLanes { cpu: tokens.cpu_interactive, io: tokens.interactive_io, durability: tokens.durability_io },
                 limits: Default::default(),
@@ -2769,7 +2773,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     )))?;
     // `thread/setWorkflow`, `thread/setOrchestrationMode`, `thread/setOutputStyle`, `thread/switchContext` (`compose-seams.md` "wu-thread-settings", landing wu-thread-settings-3; flip-brief A16): the context switch
     // closes the thread being left as `deleteSession` does and moves the surface generation with the gauge (`GaugeTarget`, Node's `invalidateContextStatusCache` + `invalidatePreSessionToolSurface`).
-    builder.register(Arc::new(mixdog_core_config::workflow::thread_settings::ThreadSettings {
+    let thread_settings = Arc::new(mixdog_core_config::workflow::thread_settings::ThreadSettings {
         workflow: workflow_config.clone(),
         styles: output_styles.clone(),
         switches: session_switches.clone(),
@@ -2779,7 +2783,10 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             Arc::new(mixdog_core_session::session::thread_switches::GaugeTarget(gauge.clone(), surface_generation.clone())),
         )),
         ops: domain_inputs.scopes.scopes("thread").map_err(ComposeError::ComposeDomains)?,
-    }))?;
+    });
+    // A new task's draft workflow and mode are these methods of the new thread (`configureDraft` → `invokeSession`).
+    late_draft_settings.bind(thread_settings.clone()).map_err(|_| ComposeError::AlreadyBound("draft settings"))?;
+    builder.register(thread_settings)?;
     // `thread/contextStatus` (`ThreadContextService`) over the same world; `thread/backgroundTerminals/*`, `thread/listShellJobs`, `thread/listStoppableShellJobs`
     // (`ShellJobsService`) over the one `SessionThreads`, the shell control and a git sight on the maintenance lane; both share the one `thread` op scope (in `OP_SCOPES`).
     builder.register(Arc::new(mixdog_core_session::session::thread_context::ThreadContextService::new(Arc::new(
@@ -2965,7 +2972,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     connection_owners
         .bind(crate::connection_close::ConnectionOwners::new(terminal.clone(), screen.clone(), workspace.clone(), composed.system.clone(), built_remote.registry.clone(), live_view))
         .map_err(|_| ComposeError::AlreadyBound("connection owners"))?;
-    crate::compose::verify_bound(&[&*late_new_place, &connection_owners, &*late_agent_status, &*late_turn_admission, &*room_approvals, &*late, &crate::late_session::LateReadinessHook(readiness.clone()), &*late_room_summaries, &*late_computer_hosts, &*late_dispatcher, &*late_catalog, &*late_skills, &*project_workspaces, &*bot_summaries, &*late_reactions, &*late_agent_port,&*late_cycle_llm, &*route_positions, &*live_route, &*agent_channels, &*chat_routes, &*routine_sessions, &mixdog_core::run_host::late_chats::LateAgentChats(late.clone()), &*late_setup_ui, &*late_workspaces, &*path.turn_settings, &*late_new_route, &*late_pending_route, &*late_route_session, &*extension_host, &crate::late_session::LateCallerSessions(late.clone()), &mixdog_core::run_host::compose_parts::LateHeaders(late.clone()), &mixdog_core::run_host::compose_parts::HookCommonCell(late.clone()), &crate::late_session::LateMediaProbe(provider_layer.clone()), &*setup_warmup, &crate::setup_host::ModelWarmupCell(model_warmup.clone()), &crate::setup_host::StatuslineWarmupCell(statusline_warmup.clone()), &*b.thread_gates, &*agent_evidence, &*session_facts, &*held_home, &*live_route, &*tool_surface])?;
+    crate::compose::verify_bound(&[&*late_new_place, &*late_draft_settings,&connection_owners, &*late_agent_status, &*late_turn_admission, &*room_approvals, &*late, &crate::late_session::LateReadinessHook(readiness.clone()), &*late_room_summaries, &*late_computer_hosts, &*late_dispatcher, &*late_catalog, &*late_skills, &*project_workspaces, &*bot_summaries, &*late_reactions, &*late_agent_port,&*late_cycle_llm, &*route_positions, &*live_route, &*agent_channels, &*chat_routes, &*routine_sessions, &mixdog_core::run_host::late_chats::LateAgentChats(late.clone()), &*late_setup_ui, &*late_workspaces, &*path.turn_settings, &*late_new_route, &*late_pending_route, &*late_route_session, &*extension_host, &crate::late_session::LateCallerSessions(late.clone()), &mixdog_core::run_host::compose_parts::LateHeaders(late.clone()), &mixdog_core::run_host::compose_parts::HookCommonCell(late.clone()), &crate::late_session::LateMediaProbe(provider_layer.clone()), &*setup_warmup, &crate::setup_host::ModelWarmupCell(model_warmup.clone()), &crate::setup_host::StatuslineWarmupCell(statusline_warmup.clone()), &*b.thread_gates, &*agent_evidence, &*session_facts, &*held_home, &*live_route, &*tool_surface])?;
     Ok(Real { defaults_separation, control_route_sync, late_lifecycle, connection_owners, local_dialer: late_dialer.clone(), remote: built_remote, directory, agent_dispatch, agent_host, code_graph_cache, exec: b.exec.clone(), maintenance_io: b.tokens.maintenance_io, domains, config, close_requested, resume_timer, goal_recovery, worktree_stop, maintenance_stop, worktree_task, maintenance_loop: std::sync::Mutex::new(maintenance_loop), ledgers: ledger_source, computer: computer_pool, terminal, room_host: room_host_registration, channels: channel_runtime, memory, log: b.log.clone(), publisher: state.publisher.clone(), gateway_routes: gateway_settle, model_proxy, event_pipeline, catalog_index: catalog_handle, heartbeat, heartbeat_run: Arc::default(), sub_agent_retention: Arc::default(), gateway_usage, #[cfg(test)] turn_review, #[cfg(test)] tool_pool: kept_tool_pool })
 }
 

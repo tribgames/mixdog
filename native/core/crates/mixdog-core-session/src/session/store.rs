@@ -137,7 +137,8 @@ impl Drop for StopMark {
 impl Projector {
     /// Starts the forwarding task on the current Tokio runtime.
     pub fn spawn(index: SqliteStore) -> Self {
-        // A failed projection leaves the session dirty; reconcile re-projects it from its log at the next start.
+        // A failed projection leaves the session dirty; reconcile re-projects it from its log at the next start. The open's own
+        // reconcile needs no wait here: every way into the index waits for it and answers its failure (`SqliteStore`'s gate).
         Self::spawn_with(move |projection| {
             let index = index.clone();
             async move { drop(index.project(projection).await) }

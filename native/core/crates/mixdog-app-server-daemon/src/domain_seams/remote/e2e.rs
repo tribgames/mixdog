@@ -199,8 +199,8 @@ impl CoreHandle for Core {
         self.mock.connection_opened(connection, origin, device, kind);
     }
 
-    fn request_started(&self) -> RequestGuard {
-        self.mock.request_started()
+    fn request_started(&self, method: &str, params: &serde_json::Value) -> RequestGuard {
+        self.mock.request_started(method, params)
     }
 }
 
