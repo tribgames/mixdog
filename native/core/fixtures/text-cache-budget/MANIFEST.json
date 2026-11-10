@@ -1,0 +1,44 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-text-cache-budget.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "exclusions": {},
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 2239,
+      "path": "golden.json",
+      "sha256": "6e321434d6e6342e92b40fdcfa5760628908dde6beb6f5ebcfeffeda8fcdd5e7"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-text-cache-budget.mjs",
+  "recorderSha256": "30cb5d285cef730c4f66cd2e195d6f778ed37fe62ca9cabdb7d8620879c3ee2f",
+  "set": "text-cache-budget",
+  "tests": [
+    "src/runtime/agent/orchestrator/session/cache/text-cache-budget.test.mjs:5",
+    "src/runtime/agent/orchestrator/session/cache/text-cache-budget.test.mjs:22"
+  ],
+  "totalBytes": 2239
+}
