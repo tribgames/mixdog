@@ -5,7 +5,12 @@
 // A step of the draft is held where Node's daemon waits outside itself, through a seam the product has:
 //   setRoute         the custom provider's reachability probe (`HEAD /` on its base URL), sent while `setRoute` readies the provider (the
 //                    probe and the model list are sent between `setOrchestrationMode`'s and `setRoute`'s lines of daemon.log)
-//   requestWorktree  its first git command (`rev-parse --is-bare-repository`, git.mjs:144) through the `git` first on the daemon's PATH
+//   requestWorktree  its last git command, the new worktree's lock (`worktree lock --reason "mixdog session=…"`, manager.mjs:1586), through
+//                    the `git` first on the daemon's PATH. Not its first one: the app waits DESKTOP_DAEMON_STOP_TIMEOUT_MS (5 s,
+//                    quit-sequence.ts:17, session-client.mjs:705-709) for the daemon's exit and then exits, its forked daemon with it
+//                    (session-client.mjs:658-659); held at its first command, the dozen git commands left after the release took 2-5 s on
+//                    this PC with four cases running, so one recording had the call settle (refused and reset) and another had the app's
+//                    exit cut it (the receipt left `configured`)
 // Not held, with the reason:
 //   create                 `client.create` (session-views.mjs:30-64) waits on nothing outside the daemon: no git, provider or file the
 //                          recorder could hold is touched before `session created` is logged
@@ -34,7 +39,7 @@ export const CONTENTS = {
 
 export const CASES = [
   { name: 'quit-in-set-route', id: 's-quit-route', content: CONTENTS.route, hold: { step: 'setRoute', provider: 'HEAD /' } },
-  { name: 'quit-in-request-worktree', id: 's-quit-worktree', content: CONTENTS.worktree, hold: { step: 'requestWorktree', git: '-c core.longpaths=true rev-parse --is-bare-repository' } },
+  { name: 'quit-in-request-worktree', id: 's-quit-worktree', content: CONTENTS.worktree, hold: { step: 'requestWorktree', git: '-c core.longpaths=true worktree lock --reason' } },
   { name: 'draft-settings', id: 's-settings', content: CONTENTS.settings, hold: null },
   { name: 'draft-missing-workflow', id: 's-missing-workflow', content: CONTENTS['missing-workflow'], hold: null },
 ];

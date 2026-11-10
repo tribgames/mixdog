@@ -27,9 +27,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 7227,
+      "bytes": 7219,
       "path": "golden.json",
-      "sha256": "097eb67960809551712a3f95addccd919910949241c9b2d2b7070031dd3613d7"
+      "sha256": "eb26f284cce60ca3671bc064f7c958c62097e23fce85b4ec1f6763e17db4421a"
     }
   ],
   "processes": "each case runs in a Windows job of its own (lib/process-job.mjs): every process it starts is ended with it, and a case that leaves one running fails; the daemon's memory runtime is not started (MIXDOG_DAEMON_SKIP_MEMORY=1, daemon.mjs:215-218): no recorded step reaches memory",
@@ -101,7 +101,7 @@
       },
       {
         "path": "benchmarks/rust-core/recorders/new-task-quit/cases.mjs",
-        "sha256": "58ad6d881343cc79df431d6840631bbab1634510f86abe912e072f763b18c54e"
+        "sha256": "591cb74a3ba5dd6a1d1f9bd01b78316e4d89980d3130b5fb45c4c062e7528d23"
       },
       {
         "path": "benchmarks/rust-core/recorders/new-task-quit/git-shim.cs",
@@ -113,7 +113,7 @@
       },
       {
         "path": "benchmarks/rust-core/recorders/new-task-quit/world.mjs",
-        "sha256": "1481863050449c57ff3aa46f4f92e61c21fe2898b9f349e0bf8c33649b8487c5"
+        "sha256": "dff0e06e15bfe63f4d1796d4d35720e6323004c81f7d361aa237b7b4ef1807f5"
       },
       {
         "path": "benchmarks/rust-core/recorders/record-new-task-quit.mjs",
@@ -122,5 +122,5 @@
     ]
   },
   "set": "new-task-quit",
-  "totalBytes": 7227
+  "totalBytes": 7219
 }
