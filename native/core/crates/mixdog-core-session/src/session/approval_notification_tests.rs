@@ -140,13 +140,26 @@ async fn waiting_on(input: &Value) -> Waiting {
             RunOutcome::Completed(Default::default())
         })
     }));
-    let directory = SessionDirectory::new(rig.deps());
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.devices = Arc::new(RelayedPhones);
+    let directory = SessionDirectory::new(Arc::new(deps));
     let handle = start_thread(&directory).await;
     let thread = handle.id.as_str().to_owned();
     turn(&handle, "go", "op-1").await;
     let shown = eventually_on!(&[&handle.cell.stepped], || directory.member_approval(&handle.id)).await;
     let id = shown["id"].as_str().unwrap().to_owned();
     Waiting { _rig: rig, directory, handle, thread, id, resolved }
+}
+
+/// The rig's devices (`desktop-<id>`), where phones a and b (connections 7 and 8) reach the core over the relay, as the registry
+/// describes a paired phone; connection 1 is this PC's window.
+struct RelayedPhones;
+
+impl mixdog_core_base::approvals::Devices for RelayedPhones {
+    fn describe(&self, connection: ConnectionId) -> mixdog_core_base::approvals::DeviceInfo {
+        let kind = if [7, 8].contains(&connection.0) { mixdog_protocol::ConnectionKind::Phone } else { mixdog_protocol::ConnectionKind::Desktop };
+        mixdog_core_base::approvals::DeviceInfo { device: format!("desktop-{connection}"), kind }
+    }
 }
 
 impl Waiting {
@@ -273,6 +286,48 @@ async fn a_cards_bare_allow_is_refused_where_nodes_was() {
             }
         }
     }
+}
+
+/// The same bare Allow answering the server request itself (a client's JSON-RPC response, `on_response` → `RunControl::decide`) from
+/// phone a, for the recorded cases whose first answer is phone a's bare Allow on the approval shown: the session takes it exactly where
+/// Node's page was given `true`. A response is told nothing, so what it came to is read from the case's next recorded answer (the card's
+/// Allow with `response: 'approve'`), which finds the approval still pending where Node refused the bare one.
+#[tokio::test(flavor = "current_thread")]
+async fn a_phones_bare_allow_answering_the_request_itself_is_refused_where_nodes_was() {
+    let golden: Value = serde_json::from_str(include_str!("../../../../../../apps/mobile/fixtures/phone-pushes/golden.json")).expect("golden.json");
+    let requests = golden["scenarios"]["approval-answers"]["cases"].as_array().expect("cases");
+    let mut replayed = Vec::new();
+    for case in golden["scenarios"]["approval-cards"]["cases"].as_array().expect("cases") {
+        let name = case["name"].as_str().unwrap();
+        let steps = case["answers"].as_array().unwrap();
+        if steps[0]["by"] != "phone" || steps[0]["stale"] == json!(true) || steps[0]["card"] != json!({ "approved": true }) {
+            continue;
+        }
+        replayed.push(name);
+        let input = &requests.iter().find(|request| request["name"] == case["request"]).expect("the recorded request")["input"];
+        let waiting = waiting_on(input).await;
+        let Waiting { directory, handle, thread, id, .. } = &waiting;
+        mixdog_core_api::thread::RunControl::decide(
+            &**handle,
+            mixdog_core_api::thread::Decision {
+                request: mixdog_core_api::ids::ServerRequestId(id.clone()),
+                connection: PHONE,
+                device: "desktop-7".into(),
+                connection_kind: mixdog_protocol::ConnectionKind::Phone,
+                result: steps[0]["card"].clone(),
+            },
+        )
+        .expect("the response is handed to the session");
+        let taken = if steps[0]["outcome"] == json!({ "value": true }) {
+            &steps[0]
+        } else {
+            let next = &steps[1];
+            assert_eq!(card_from(directory, PHONE, thread, id, &next["card"]).await, next["outcome"], "{name}: the card's answer after the response");
+            next
+        };
+        assert_eq!(waiting.took(name).await, json!([taken["decided"][0]]), "{name}: the decision the session took");
+    }
+    assert_eq!(replayed, ["outbound-payment", "outbound-delete", "office-rollback", "connector", "shell, a bare allow"], "the cases replayed");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

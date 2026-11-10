@@ -25,10 +25,10 @@ use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
 
-use mixdog_protocol::Origin;
+use mixdog_core_api::domain::approval::ApprovalRequest;
+use mixdog_protocol::ConnectionKind;
 
 use super::SessionDirectory;
-use super::SessionHandle;
 use super::room_approval::tool_approval;
 
 /// `requiredString(id, 'approval id', 1_024)`.
@@ -122,14 +122,14 @@ fn bare_allow(result: &Value) -> bool {
     result.get("approved") == Some(&Value::Bool(true)) && result.get("response").is_none_or(Value::is_null)
 }
 
-/// push-notifier.ts `approvalPointerOnly`: the thread shows `id` now, and only a click on its card may allow it.
-fn shows_pointer_only(handle: &SessionHandle, id: &str) -> bool {
-    handle
-        .cell
-        .shown_approval
-        .load_full()
-        .filter(|request| request.id.0.to_string() == id)
-        .is_some_and(|request| record(Some(&tool_approval(&request))).is_some_and(pointer_only))
+/// Node's remote `resolveToolApprovalForSession` (remote-session-methods.ts:168-183): a bare Allow (`approved` with no `response`) from a
+/// device over the relay, for the approval the thread shows now where only a click on its card may allow it (push-notifier.ts
+/// `approvalPointerOnly`), is not taken. Checked where every answer is decided (the actor's `Ctl::Decide`), whichever route it came
+/// by; this PC's own windows answer unchecked, as Node's IPC path.
+pub(super) fn refuses_remote_allow(kind: ConnectionKind, shown: Option<&ApprovalRequest>, request: &ServerRequestId, result: &Value) -> bool {
+    matches!(kind, ConnectionKind::Phone | ConnectionKind::RemoteDesktop)
+        && bare_allow(result)
+        && shown.is_some_and(|shown| shown.id.0.to_string() == request.0 && record(Some(&tool_approval(shown))).is_some_and(pointer_only))
 }
 
 fn reply(outcome: ApprovalNotificationOutcome) -> Result<Reply, CoreError> {
@@ -180,9 +180,6 @@ impl SessionDirectory {
         };
         let accepted = match self.handle(&params.thread_id) {
             None => false,
-            // A phone's bare Allow (`approved` with no `response`) for the approval the thread shows, where only a click on its card may
-            // allow it, is not taken (remote-session-methods.ts:168-183); this PC's window answers through its own path, unchecked.
-            Some(handle) if req.ctx.origin == Origin::Relay && bare_allow(&params.result) && shows_pointer_only(&handle, id) => false,
             Some(handle) => {
                 let device = handle.deps.devices.describe(connection);
                 handle
