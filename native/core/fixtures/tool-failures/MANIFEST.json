@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 34609,
+      "bytes": 36567,
       "path": "golden.json",
-      "sha256": "fe18b530ebc8d95b3d08293139416799818c084c13e21fa68e28d1488e0fb39c"
+      "sha256": "9d38e66909da0867cd1776d95fea87cb53d5f332abd7391d18bd60922c6c5ec5"
     }
   ],
   "node": "v22.20.0",
@@ -14,7 +14,8 @@
     "ts",
     "tool_ms",
     "workspace",
-    "data folder (with result_bytes_est counted on the masked text)"
+    "data folder (with result_bytes_est counted on the masked text)",
+    "leftAtExit: process ids dropped (a parent named by its place in the list), the workspace and the data folder in a command line as in the rows"
   ],
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
@@ -34,10 +35,10 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-tool-failures.mjs",
-  "recorderSha256": "3633b8b673829e7d3f990857bedee048a1279e9a3a7cd382d22f0f82eba902cf",
-  "rows": 19,
-  "rowsLibSha256": "fc327040e62e1c062ec1543c4a52332d16ce4c3d6f7d57ec4f4797d488ca276b",
-  "scenariosSha256": "57c3c350d6f49105f51e8d8d3fc33db673a938035228f9b5cdeb53300a9eb9c0",
+  "recorderSha256": "d2d119f9c90cbefbf37703d27ffbfd30498392c6b7839cb13974a898cfd6094f",
+  "rows": 20,
+  "rowsLibSha256": "1141c351da24d8fb378b55630833eb5e8a2393ee8b76920acb1b87353c64cc6b",
+  "scenariosSha256": "08cc29de5bfa19b5bffe75ceeb8dc5c012e102c0cb0a96fe1b469e0ba9a6b9e2",
   "set": "tool-failures",
   "syntheticInputs": {
     "approvalAnswers": [
@@ -47,6 +48,7 @@
         "scenario": "a call whose approval is denied"
       }
     ],
+    "heldFlushTimer": "a holdFlushTimer scenario: globalThis.setTimeout holds a timer whose callback is agent-trace-io.mjs _flushToolFailures (never started; every other timer runs); results[i].atStop records the delays asked for and the failures file just before process.exit",
     "hookDecisions": [
       {
         "action": "deny",
@@ -59,7 +61,7 @@
         "scenario": "a call whose approval is denied"
       }
     ],
-    "leftAtExit": "what each scenario's Node process left running in its job when it exited (lib/job-run.mjs), Node's own helpers set aside (lib/tool-failure-rows.mjs NODE_HELPERS: mixdog-spawn-*, mixdog-patch-* and their console hosts)",
+    "leftAtExit": "what each scenario's Node process left running in its job when it exited (lib/job-run.mjs), Node's own helpers set aside (lib/tool-failure-rows.mjs NODE_HELPERS: mixdog-spawn-*, mixdog-patch-* and their console hosts); each as its image name, its parent and its command line (lib/tool-failure-rows.mjs leftAtExit)",
     "mcpServer": {
       "file": "fx-mcp.mjs",
       "sha256": "9e696362b216516f7ddcd1517bb67cb04870e48a98c7f5fc6bb4652fc23baaf9",
@@ -76,6 +78,7 @@
         "abortWhenFile": null,
         "approval": null,
         "full": false,
+        "holdFlushTimer": false,
         "hook": null,
         "name": "tool errors, refusals and redaction in one batch",
         "replies": 3
@@ -84,6 +87,7 @@
         "abortWhenFile": null,
         "approval": null,
         "full": false,
+        "holdFlushTimer": false,
         "hook": null,
         "name": "a call whose arguments are not JSON",
         "replies": 2
@@ -92,6 +96,7 @@
         "abortWhenFile": null,
         "approval": null,
         "full": false,
+        "holdFlushTimer": false,
         "hook": null,
         "name": "a shell command that outlives its timeout",
         "replies": 2
@@ -100,6 +105,7 @@
         "abortWhenFile": null,
         "approval": null,
         "full": false,
+        "holdFlushTimer": false,
         "hook": {
           "action": "deny",
           "reason": "blocked by test hook"
@@ -114,6 +120,7 @@
           "reason": "no thanks"
         },
         "full": false,
+        "holdFlushTimer": false,
         "hook": {
           "action": "ask",
           "reason": "needs approval"
@@ -125,6 +132,7 @@
         "abortWhenFile": null,
         "approval": null,
         "full": true,
+        "holdFlushTimer": false,
         "hook": null,
         "name": "skill, delegated-agent and MCP tool failures",
         "replies": 2
@@ -133,6 +141,7 @@
         "abortWhenFile": null,
         "approval": null,
         "full": true,
+        "holdFlushTimer": false,
         "hook": null,
         "name": "MCP tool failures",
         "replies": 2
@@ -141,6 +150,7 @@
         "abortWhenFile": "started.flag",
         "approval": null,
         "full": false,
+        "holdFlushTimer": false,
         "hook": null,
         "name": "a turn ended while its shell command runs",
         "replies": 2
@@ -149,6 +159,7 @@
         "abortWhenFile": "batch.flag",
         "approval": null,
         "full": false,
+        "holdFlushTimer": false,
         "hook": null,
         "name": "a turn ended while a batch with failed calls runs",
         "replies": 2
@@ -157,6 +168,7 @@
         "abortWhenFile": null,
         "approval": null,
         "full": true,
+        "holdFlushTimer": false,
         "hook": null,
         "name": "a returned error that is offloaded",
         "replies": 2
@@ -165,8 +177,18 @@
         "abortWhenFile": null,
         "approval": null,
         "full": true,
+        "holdFlushTimer": false,
         "hook": null,
         "name": "MCP results that carry an image",
+        "replies": 2
+      },
+      {
+        "abortWhenFile": null,
+        "approval": null,
+        "full": false,
+        "holdFlushTimer": true,
+        "hook": null,
+        "name": "a failed call whose row is still queued when the process stops",
         "replies": 2
       }
     ],
@@ -187,5 +209,5 @@
       "fx-mcp.mjs": "9e696362b216516f7ddcd1517bb67cb04870e48a98c7f5fc6bb4652fc23baaf9"
     }
   },
-  "totalBytes": 34609
+  "totalBytes": 36567
 }
