@@ -446,6 +446,7 @@ fn every_method_of_the_domains_built_here_has_a_real_service() {
             ComposeConfig {
                 data_dir: crate::compose_test_support::data_in(&dir),
                 user_data_dir: dir.join("userdata"),
+                runtime_root: dir.join("runtime"),
                 js_runtime: crate::js_runtime::fixture(&dir),
                 ort_library: OrtRuntime::NoBinding,
                 outgoing: mixdog_app_server::Outgoing::new(),

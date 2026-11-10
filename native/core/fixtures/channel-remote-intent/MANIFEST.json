@@ -1,0 +1,47 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-channel-remote-intent.mjs --tree <tree>",
+  "exclusions": [
+    "transport.logs keeps only the lines starting \"remote intent \" or \"channel remote intent \": the listener, client-registry and pointer lines belong to the HTTP transport, which the core replaces with WebSocket connections",
+    "a log line that ends in an OS error message (the unreadable intent) is compared up to that message: the text is the platform error of the runtime, not of the product",
+    "transport.calls keeps the name and arguments handed to handleCall, not its third argument (client token, lead pid, cwd of the HTTP client registry)",
+    "the HTTP replies of /call are not recorded: the core answers channel/call over its own wire"
+  ],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 25603,
+      "path": "golden.json",
+      "sha256": "c888cfe7947022b09cf402b649da18e0567809323743ecf4c87227d2d1ea8891"
+    }
+  ],
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "provenance": {
+    "inputs": [
+      {
+        "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+        "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+      }
+    ],
+    "nodeVersion": "v22.20.0",
+    "recorderSha256": "2f4eb64c6f8258d8fe09aedea648608a2d9d7db76b0c6e07020a89e178578668"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-channel-remote-intent.mjs",
+  "set": "channel-remote-intent",
+  "totalBytes": 25603
+}
