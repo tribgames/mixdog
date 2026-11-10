@@ -20,6 +20,7 @@ pub mod error;
 pub mod json;
 pub mod models;
 pub mod policy;
+pub mod redirect;
 pub mod request;
 pub mod schema;
 pub mod serving;
@@ -29,6 +30,8 @@ pub mod traits;
 #[cfg(test)]
 mod conformance;
 #[cfg(test)]
+mod wire_tests;
+#[cfg(test)]
 mod tool_accept_tests;
 
 use adapter::GoogleAdapter;
@@ -37,6 +40,7 @@ use auth::RequestAuth;
 use auth::antigravity::AntigravityAuth;
 use auth::antigravity::TokenStore;
 use codec::GoogleCodec;
+use crate::providers::key_source::ApiKeySource;
 use crate::transport::HttpSend;
 use traits::ModelTraits;
 
@@ -46,22 +50,53 @@ pub fn gemini(
     http: Arc<dyn HttpSend>,
     traits: Arc<dyn ModelTraits>,
 ) -> GoogleAdapter {
-    let api_key = api_key.into();
-    let cache = cache::layer::ExplicitCache::new(
-        api_key.clone(),
-        codec::GEMINI_ORIGIN,
-        http.clone(),
+    gemini_keyed(Arc::new(auth::HeldKey(api_key.into())), http, traits)
+}
+
+/// [`gemini`] with a key read at each request and re-read after a 401 (`resolveProviderApiKey`,
+/// `reloadProviderApiKey`).
+pub fn gemini_keyed(
+    key: Arc<dyn ApiKeySource>,
+    http: Arc<dyn HttpSend>,
+    traits: Arc<dyn ModelTraits>,
+) -> GoogleAdapter {
+    gemini_with(
+        key,
+        http,
+        traits,
         Arc::new(cache::runtime::RtCacheRuntime),
         cache::registry::Registry::shared(),
         cache::policy::Tuning::from_env(|name| std::env::var(name).ok()),
+    )
+}
+
+/// [`gemini`] over the given clock/task seam, cache registry and tuning: the one wiring, so a test drives the
+/// production adapter with a virtual clock.
+pub fn gemini_with(
+    key: Arc<dyn ApiKeySource>,
+    http: Arc<dyn HttpSend>,
+    traits: Arc<dyn ModelTraits>,
+    runtime: Arc<dyn cache::layer::CacheRuntime>,
+    registry: Arc<cache::registry::Registry>,
+    tuning: cache::policy::Tuning,
+) -> GoogleAdapter {
+    // The cache serves the key of each request (`ExplicitCache::keyed`); this one is only its template.
+    let cache = cache::layer::ExplicitCache::new(
+        "",
+        codec::GEMINI_ORIGIN,
+        http.clone(),
+        runtime,
+        registry,
+        tuning,
     );
     GoogleAdapter::new(
         GoogleCodec::gemini(codec::GEMINI_ORIGIN, traits),
         policy::gemini(),
         http,
-        Arc::new(ApiKeyAuth::new(api_key)),
+        Arc::new(ApiKeyAuth::from_source(key.clone())),
         String::new(),
     )
+    .with_key_reload(key)
     .with_cache(cache)
 }
 
