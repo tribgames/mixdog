@@ -42,11 +42,16 @@ const arm = (fn, ms, every) => {
 globalThis.setTimeout = (fn, ms) => arm(fn, ms);
 globalThis.setInterval = (fn, ms) => arm(fn, ms, ms);
 globalThis.clearTimeout = globalThis.clearInterval = (timer) => void (timer && clock.timers.delete(timer.id));
-/** A wait on something the recorder must see happen (a call's answer, a call reaching its gate, a release): it ends, after `ms` of real time,
- *  in an error naming what did not happen. The virtual queue never runs a real deadline, so this is the one real timer of the recorder. */
+/** A wait on something the recorder must see happen (a call's answer, a call reaching its gate, a release): it ends the recorder, after `ms` of
+ *  real time, with a message naming what did not happen. It ends the process rather than rejecting: a rejection inside a hook the service
+ *  awaits would reach the service as the call's own failure and be recorded as Node's answer. The virtual queue never runs a real deadline, so
+ *  this is the one real timer of the recorder. */
 const within = (promise, what, ms = 20_000) =>
   new Promise((resolve, reject) => {
-    const timer = real.setTimeout(() => reject(new Error(`the recorder waited ${ms} ms for ${what}, which did not happen`)), ms);
+    const timer = real.setTimeout(() => {
+      console.error(`the recorder waited ${ms} ms for ${what}, which did not happen`);
+      process.exit(1);
+    }, ms);
     promise.then(
       (value) => (real.clearTimeout(timer), resolve(value)),
       (error) => (real.clearTimeout(timer), reject(error))
