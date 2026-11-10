@@ -1,6 +1,6 @@
 // The comparison accepts what Node's runs vary and nothing more: each mutation below is a trace no run recorded, and fails. The rule
 // compares a command's output by the screen it ends in (decided 2026-11-11), so a few traces no run recorded pass: each is a test of its
-// own below, named as passing, with the reason.
+// own below, named as passing, with the reason. In the slow lane: rendering Node's 50 runs to screens takes over the fast lane's 120 s.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import test from 'node:test';
