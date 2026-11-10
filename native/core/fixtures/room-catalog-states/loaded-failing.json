@@ -1,50 +1,51 @@
 {
   "scenario": "loaded-failing",
   "listFirst": true,
-  "failListingAfter": 1,
   "calls": [
     "create",
     "update",
     "reset"
   ],
-  "taskWorkspace": "D:\\mixdog-build\\tmp\\room-catalog-loaded-failing-Ie4XDO\\home\\AppData\\Roaming\\workspace\\unclassified",
+  "taskWorkspace": "D:\\mixdog-build\\tmp\\room-catalog-loaded-failing-XxjH6i\\home\\AppData\\Roaming\\workspace\\unclassified",
   "bots": [
     "alpha",
     "beta",
     "gamma"
   ],
   "room": {
-    "sessionId": "sess_room_mwaea1wv6812a66a",
-    "roomId": "mwaea1wv6812a66a"
+    "sessionId": "sess_room_mwah3ob11fd396da",
+    "roomId": "mwah3ob11fd396da"
   },
   "steps": [
     {
       "step": "list",
+      "listingFails": false,
       "loadedAfter": true,
-      "rooms": [],
+      "sessions": [],
       "events": []
     },
     {
       "step": "create",
+      "listingFails": true,
       "loadedBefore": true,
       "loadedAfter": true,
       "events": [
         {
           "kind": "published",
           "origin": "room-call",
-          "rooms": [
+          "sessions": [
             {
-              "id": "sess_room_mwaea1wv6812a66a",
+              "id": "sess_room_mwah3ob11fd396da",
               "preview": "",
               "title": "Room One",
-              "updatedAt": 1794297290296,
-              "activityAt": 1794297290296,
+              "updatedAt": 1794302031575,
+              "activityAt": 1794302031575,
               "messageCount": 0,
               "cwd": "",
               "classification": "task",
               "projectPath": null,
               "agentRoom": {
-                "id": "mwaea1wv6812a66a",
+                "id": "mwah3ob11fd396da",
                 "name": "Room One",
                 "members": [
                   "alpha",
@@ -66,33 +67,34 @@
         {
           "kind": "answered",
           "value": {
-            "sessionId": "sess_room_mwaea1wv6812a66a",
-            "roomId": "mwaea1wv6812a66a"
+            "sessionId": "sess_room_mwah3ob11fd396da",
+            "roomId": "mwah3ob11fd396da"
           }
         }
       ]
     },
     {
       "step": "update",
+      "listingFails": true,
       "loadedBefore": true,
       "loadedAfter": true,
       "events": [
         {
           "kind": "published",
           "origin": "room-call",
-          "rooms": [
+          "sessions": [
             {
-              "id": "sess_room_mwaea1wv6812a66a",
+              "id": "sess_room_mwah3ob11fd396da",
               "preview": "",
               "title": "Room Renamed",
-              "updatedAt": 1794297290296,
-              "activityAt": 1794297290296,
+              "updatedAt": 1794302031575,
+              "activityAt": 1794302031575,
               "messageCount": 0,
               "cwd": "",
               "classification": "task",
               "projectPath": null,
               "agentRoom": {
-                "id": "mwaea1wv6812a66a",
+                "id": "mwah3ob11fd396da",
                 "name": "Room Renamed",
                 "members": [
                   "alpha",
@@ -114,7 +116,7 @@
         {
           "kind": "answered",
           "value": {
-            "id": "mwaea1wv6812a66a",
+            "id": "mwah3ob11fd396da",
             "name": "Room Renamed",
             "members": [
               "alpha",
@@ -135,25 +137,26 @@
     },
     {
       "step": "reset",
+      "listingFails": true,
       "loadedBefore": true,
       "loadedAfter": true,
       "events": [
         {
           "kind": "published",
           "origin": "listing",
-          "rooms": [
+          "sessions": [
             {
-              "id": "sess_room_mwaea1wv6812a66a",
+              "id": "sess_room_mwah3ob11fd396da",
               "preview": "",
               "title": "Room Renamed",
-              "updatedAt": 1794297290296,
-              "activityAt": 1794297290296,
+              "updatedAt": 1794302031575,
+              "activityAt": 1794302031575,
               "messageCount": 0,
               "cwd": "",
               "classification": "task",
               "projectPath": null,
               "agentRoom": {
-                "id": "mwaea1wv6812a66a",
+                "id": "mwah3ob11fd396da",
                 "name": "Room Renamed",
                 "members": [
                   "alpha",
@@ -175,19 +178,19 @@
         {
           "kind": "published",
           "origin": "listing",
-          "rooms": [
+          "sessions": [
             {
-              "id": "sess_room_mwaea1wv6812a66a",
+              "id": "sess_room_mwah3ob11fd396da",
               "preview": "",
               "title": "Room Renamed",
-              "updatedAt": 1794297290296,
-              "activityAt": 1794297290296,
+              "updatedAt": 1794302031575,
+              "activityAt": 1794302031575,
               "messageCount": 0,
               "cwd": "",
               "classification": "task",
               "projectPath": null,
               "agentRoom": {
-                "id": "mwaea1wv6812a66a",
+                "id": "mwah3ob11fd396da",
                 "name": "Room Renamed",
                 "members": [
                   "alpha",
@@ -209,19 +212,19 @@
         {
           "kind": "published",
           "origin": "room-call",
-          "rooms": [
+          "sessions": [
             {
-              "id": "sess_room_mwaea1wv6812a66a",
+              "id": "sess_room_mwah3ob11fd396da",
               "preview": "",
               "title": "Room Renamed",
-              "updatedAt": 1794297290504,
-              "activityAt": 1794297290504,
+              "updatedAt": 1794302031808,
+              "activityAt": 1794302031808,
               "messageCount": 0,
               "cwd": "",
               "classification": "task",
               "projectPath": null,
               "agentRoom": {
-                "id": "mwaea1wv6812a66a",
+                "id": "mwah3ob11fd396da",
                 "name": "Room Renamed",
                 "members": [
                   "alpha",

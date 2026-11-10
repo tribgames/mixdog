@@ -1,24 +1,24 @@
 {
   "scenario": "not-loaded-failing",
   "listFirst": false,
-  "failListingAfter": 0,
   "calls": [
     "create",
     "update"
   ],
-  "taskWorkspace": "D:\\mixdog-build\\tmp\\room-catalog-not-loaded-failing-VhRbI6\\home\\AppData\\Roaming\\workspace\\unclassified",
+  "taskWorkspace": "D:\\mixdog-build\\tmp\\room-catalog-not-loaded-failing-5mvpU1\\home\\AppData\\Roaming\\workspace\\unclassified",
   "bots": [
     "alpha",
     "beta",
     "gamma"
   ],
   "room": {
-    "sessionId": "sess_room_mwae9zd53d985b11",
-    "roomId": "mwae9zd53d985b11"
+    "sessionId": "sess_room_mwah3mc316f7cf73",
+    "roomId": "mwah3mc316f7cf73"
   },
   "steps": [
     {
       "step": "create",
+      "listingFails": true,
       "loadedBefore": false,
       "loadedAfter": false,
       "events": [
@@ -28,14 +28,15 @@
         {
           "kind": "answered",
           "value": {
-            "sessionId": "sess_room_mwae9zd53d985b11",
-            "roomId": "mwae9zd53d985b11"
+            "sessionId": "sess_room_mwah3mc316f7cf73",
+            "roomId": "mwah3mc316f7cf73"
           }
         }
       ]
     },
     {
       "step": "update",
+      "listingFails": true,
       "loadedBefore": false,
       "loadedAfter": false,
       "events": [
@@ -45,7 +46,7 @@
         {
           "kind": "answered",
           "value": {
-            "id": "mwae9zd53d985b11",
+            "id": "mwah3mc316f7cf73",
             "name": "Room Renamed",
             "members": [
               "alpha",

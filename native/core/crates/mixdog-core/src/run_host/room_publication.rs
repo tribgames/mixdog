@@ -307,14 +307,53 @@ mod tests {
         serde_json::from_slice(&std::fs::read(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()))).expect("recording")
     }
 
-    /// The room log rows of the frames the app feed has been sent since the last drain, in order.
-    fn room_rows(app: &MockConnection) -> Vec<Value> {
+    /// The frames the app feed has been sent since the last drain, in order.
+    fn frames(app: &MockConnection) -> Vec<Value> {
         app.drain_text()
             .into_iter()
             .map(|text| serde_json::from_str::<Value>(&text[text.find('{').expect("json body")..]).unwrap_or_else(|error| panic!("{error}: {text}")))
-            .filter(|frame| frame["method"] == "thread/summary/updated" && frame["params"]["thread"]["agentRoom"].is_object())
-            .map(|frame| frame["params"]["thread"].clone())
             .collect()
+    }
+
+    /// What a listener of the app feed holds, folded as the roster folds it (`replay-roster-rows-live.mjs` `folded`): a thread edge
+    /// puts its row, a deletion takes it out, an archive or unarchive marks it. In the order rows first came.
+    #[derive(Default)]
+    struct Fold(Vec<(String, Value)>);
+    impl Fold {
+        fn apply(&mut self, frame: &Value) {
+            let params = &frame["params"];
+            match frame["method"].as_str().unwrap_or_default() {
+                "thread/started" | "thread/summary/updated" => {
+                    let id = params["thread"]["id"].as_str().expect("thread id").to_owned();
+                    match self.0.iter_mut().find(|(seen, _)| *seen == id) {
+                        Some((_, row)) => *row = params["thread"].clone(),
+                        None => self.0.push((id, params["thread"].clone())),
+                    }
+                }
+                "thread/deleted" => self.0.retain(|(id, _)| params["threadId"] != id.as_str()),
+                method @ ("thread/archived" | "thread/unarchived") => {
+                    if let Some((_, row)) = self.0.iter_mut().find(|(id, _)| params["threadId"] == id.as_str()) {
+                        let row = row.as_object_mut().expect("row");
+                        if method == "thread/archived" {
+                            row.insert("archived".into(), json!(true));
+                        } else {
+                            row.shift_remove("archived");
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        fn row(&self, id: &str) -> Option<&Value> {
+            self.0.iter().find(|(seen, _)| seen == id).map(|(_, row)| row)
+        }
+    }
+
+    /// The rows of the last publication pass in `frames` (the last run of `thread/summary/updated` frames), in the order sent.
+    fn last_pass(frames: &[Value]) -> Vec<&Value> {
+        let mut pass: Vec<&Value> = frames.iter().rev().take_while(|frame| frame["method"] == "thread/summary/updated").map(|frame| &frame["params"]["thread"]).collect();
+        pass.reverse();
+        pass
     }
 
     /// Where the two runs differ by what they are, not by what they do: the room's id (made at random) and each time field (each
@@ -332,10 +371,15 @@ mod tests {
         }
         fn named(&mut self, row: &Value) -> Value {
             let mut row = row.clone();
-            let id = row["agentRoom"]["id"].as_str().expect("room id").to_owned();
+            let room = row["agentRoom"]["id"].as_str().map(str::to_owned);
+            let id = room.clone().unwrap_or_else(|| row["id"].as_str().expect("session id").to_owned());
             let at = self.ids.iter().position(|seen| *seen == id).unwrap_or_else(|| (self.ids.push(id.clone()), self.ids.len() - 1).1);
-            row["id"] = json!(format!("<room log {at}>"));
-            row["agentRoom"]["id"] = json!(format!("<room {at}>"));
+            if room.is_some() {
+                row["id"] = json!(format!("<room log {at}>"));
+                row["agentRoom"]["id"] = json!(format!("<room {at}>"));
+            } else {
+                row["id"] = json!(format!("<session {at}>"));
+            }
             for key in ["createdAt", "updatedAt", "activityAt"] {
                 if let Some(time) = row.get(key).and_then(Value::as_i64) {
                     let seen = self.times.entry(key).or_default();
@@ -366,11 +410,11 @@ mod tests {
 
     /// Every room call of Node's recordings (`benchmarks/rust-core/recorders/record-room-catalog-states.mjs` →
     /// `fixtures/room-catalog-states`), replayed whole and in order through the production wiring: per call, whether the catalog was
-    /// loaded before and after it, how it ended, and the room rows its own publications sent before it answered (the room's
-    /// rename's whole listing and the room call's `republishCatalog`, Node's `room-rename`/`room-call` origins). Node's other
-    /// publications (a member session's reset or deletion, the store watcher) are other paths, the core's index edges; they are
-    /// recorded with their own origin and not part of a room call's answer. Node's listing fault (the daemon's `session.list`
-    /// failing) is the core's listing failing at its first step, the task workspace lookup.
+    /// loaded before and after it, how it ended, and the whole catalog the client holds when it answers (Node's last catalog the call
+    /// published before answering, every row, against the core's app feed folded as a listener folds it) and, where Node's background
+    /// listing published after the answer, the whole catalog after it. Only the store watcher's timer publications (a 400 ms / 2 s
+    /// refresh, no part of the call) are not the call's. Node's listing fault (the daemon's `session.list` failing, per step as
+    /// recorded) is the core's listing failing at its first step, the task workspace lookup.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn room_calls_replay_nodes_catalog_states() {
         let manifest: Value = serde_json::from_slice(
@@ -391,36 +435,46 @@ mod tests {
             step["events"].as_array()?.iter().find_map(|event| {
                 event["value"]["memberNames"]
                     .as_object()
-                    .or_else(|| event["rooms"].as_array()?.iter().find_map(|row| row["agentRoom"]["memberNames"].as_object()))
+                    .or_else(|| event["sessions"].as_array()?.iter().find_map(|row| row["agentRoom"]["memberNames"].as_object()))
                     .cloned()
             })
         });
         let names = named.expect("a step answers the members' names");
         let roster = bots.iter().map(|id| (id.clone(), names[id].as_str().expect("name").to_owned())).collect();
         let world = composed_with(Agents { lookup_fails: false.into(), roster }).await;
-        let fail_from = node["failListingAfter"].as_u64();
-        if fail_from == Some(0) {
-            world.agents.lookup_fails.store(true, std::sync::atomic::Ordering::SeqCst);
-        }
         let workspace = world.agents.path().await.unwrap_or_default();
         let (mut node_names, mut core_names) = (Names::new(node["taskWorkspace"].as_str().expect("task workspace")), Names::new(&workspace));
+        let mut fold = Fold::default();
         let mut room: Option<Value> = None;
+        // The room Node's calls act on: the one its last create answered.
+        let mut node_room = String::new();
         let mut created = 0;
         for step in node["steps"].as_array().expect("steps") {
             let name = step["step"].as_str().expect("step");
             let events = step["events"].as_array().cloned().unwrap_or_default();
-            let what = format!("{scenario} / {name}");            match name {
-                "list" => world.load_catalog().await,
+            let what = format!("{scenario} / {name}");
+            // Node's daemon fails the host's listing while the step runs; the core's listing fails at its first step.
+            world.agents.lookup_fails.store(step["listingFails"] == json!(true), std::sync::atomic::Ordering::SeqCst);
+            match name {
+                "list" => {
+                    world.load_catalog().await;
+                    for frame in frames(&world.app) {
+                        fold.apply(&frame);
+                    }
+                }
                 // The core's flag is the list service's, which a lost transport or a reloaded window does not replace.
                 "transport-loss-and-renderer-reload" => {}
                 call => {
                     assert_eq!(json!(world.list.catalog_loaded()), step["loadedBefore"], "{what}: loaded before the call");
-                    drop(world.app.drain_text());
+                    for frame in frames(&world.app) {
+                        fold.apply(&frame);
+                    }
                     created += 1;
                     let room_id = room.as_ref().map(|r| r["roomId"].clone()).unwrap_or(Value::Null);
                     let answer = match call {
                         "create" => world.call("room/create", json!({ "name": "Room One", "members": bots }), created).await,
                         "update" => world.call("room/update", json!({ "roomId": room_id, "name": "Room Renamed" }), created).await,
+                        "update-rounds" => world.call("room/update", json!({ "roomId": room_id, "maxRounds": 4 }), created).await,
                         "reset" => world.call("room/reset", json!({ "roomId": room_id }), created).await,
                         "remove" => world.call("room/remove", json!({ "roomId": room_id }), created).await,
                         "forget-member" => {
@@ -429,7 +483,7 @@ mod tests {
                         }
                         other => panic!("{what}: a call this replay does not know: {other}"),
                     };
-                    let sent = room_rows(&world.app);
+                    let sent = frames(&world.app);
                     let node_answer = events.iter().find(|e| e["kind"] == "answered" || e["kind"] == "threw").expect("the call's end");
                     match (&answer, node_answer["kind"].as_str()) {
                         (Ok(value), Some("answered")) => {
@@ -437,7 +491,10 @@ mod tests {
                                 room = Some(value.clone());
                             }
                             let core_room = room.as_ref().map(|r| r["roomId"].as_str().expect("room id").to_owned()).unwrap_or_default();
-                            let node_room = node["room"]["roomId"].as_str().unwrap_or_default();
+                            if call == "create" {
+                                node_room = node_answer["value"]["roomId"].as_str().expect("Node's room id").to_owned();
+                            }
+                            let node_room = node_room.as_str();
                             let core_text = value.to_string().replace(&core_room, "<room>");
                             // A call Node answers with nothing (`Promise<void>`, recorded as null) answers the protocol's empty object.
                             // (The member removal is no protocol call: its `()` is the null here.)
@@ -448,27 +505,101 @@ mod tests {
                         (Err(error), Some("threw")) => assert!(error.contains(node_answer["message"].as_str().expect("message")), "{what}: {error}"),
                         (got, _) => panic!("{what}: the core ended {got:?}, Node {node_answer}"),
                     }
-                    // The room rows Node's own publications of the call carried before it answered, the last one per room.
-                    let node_rows: Vec<&Value> = events
-                        .iter()
-                        .take_while(|e| e["kind"] != "answered" && e["kind"] != "threw")
-                        .filter(|e| e["kind"] == "published" && (e["origin"] == "room-call" || e["origin"] == "room-rename" || e["origin"] == "room-call-background-listing"))
-                        .filter_map(|e| e["rooms"].as_array())
-                        .last()
-                        .map(|rows| rows.iter().collect())
-                        .unwrap_or_default();
-                    let node_rows: Vec<Value> = node_rows.into_iter().map(|row| node_names.named(row)).collect();
-                    let core_last = sent.last().map(|row| core_names.named(row));
-                    match node_rows.as_slice() {
-                        [] => assert_eq!(core_last, None, "{what}: Node published no room row before answering"),
-                        [one] => assert_eq!(core_last.map(|row| live_form(row, one)).as_ref(), Some(one), "{what}: the room row published before the answer"),
-                        more => panic!("{what}: Node published {} rooms; the scenario has one", more.len()),
+                    for frame in &sent {
+                        fold.apply(frame);
                     }
-                    assert_eq!(json!(world.list.catalog_loaded()), step["loadedAfter"], "{what}: loaded after the call");                }
+                    // What the client held when the call answered: Node's last catalog published by the call before it answered (any
+                    // origin but the store watcher's timer, which is no part of the call), whole; the core's fold of its feed.
+                    let answered_at = events.iter().position(|e| e["kind"] == "answered" || e["kind"] == "threw").expect("the call's end");
+                    let published = |range: &[Value]| -> Option<Vec<Value>> {
+                        range.iter().filter(|e| e["kind"] == "published" && e["origin"] != "store-refresh").filter_map(|e| e["sessions"].as_array()).last().cloned()
+                    };
+                    match published(&events[..answered_at]) {
+                        Some(catalog) => {
+                            let node_rows: Vec<Value> = catalog.iter().map(|row| node_names.named(row)).collect();
+                            let core_rows = held(&fold, &sent, &mut core_names, &node_rows);
+                            assert_eq!(core_rows, node_rows, "{what}: the catalog the client holds when the call answers");
+                        }
+                        None => assert!(
+                            !sent.iter().any(|frame| frame["method"] == "thread/summary/updated"),
+                            "{what}: Node published no catalog before answering; the core sent rows: {sent:?}"
+                        ),
+                    }
+                    // Node's background listing, awaited by the recorder after the answer: the core's pass runs after the answer too.
+                    if let Some(catalog) = published(&events[answered_at..]) {
+                        let rows = catalog.len();
+                        let later = tokio::time::timeout(
+                            DEADLINE,
+                            world.app.drain_text_until(|texts| texts.iter().filter(|text| text.contains("\"thread/summary/updated\"")).count() >= rows),
+                        )
+                        .await
+                        .unwrap_or_else(|_| panic!("{what}: the core's background publication of {rows} rows did not come"));
+                        let later: Vec<Value> = later.iter().map(|text| serde_json::from_str::<Value>(&text[text.find('{').expect("json body")..]).expect("frame")).collect();
+                        for frame in &later {
+                            fold.apply(frame);
+                        }
+                        let node_rows: Vec<Value> = catalog.iter().map(|row| node_names.named(row)).collect();
+                        let core_rows = held(&fold, &later, &mut core_names, &node_rows);
+                        assert_eq!(core_rows, node_rows, "{what}: the catalog the client holds after the call's background listing");
+                    }
+                    assert_eq!(json!(world.list.catalog_loaded()), step["loadedAfter"], "{what}: loaded after the call");
+                }
             }
-            if name == "list" && fail_from == Some(1) {
-                world.agents.lookup_fails.store(true, std::sync::atomic::Ordering::SeqCst);
-            }
+        }
+    }
+
+    /// The core client's catalog, named: every row of the fold, in the order of the last publication pass in `sent` when that pass
+    /// carried every row (a whole publication is in catalog order), else in the order the rows first came. A row Node holds in its live
+    /// form is compared in that form (`live_form`).
+    fn held(fold: &Fold, sent: &[Value], names: &mut Names, node_rows: &[Value]) -> Vec<Value> {
+        let pass = last_pass(sent);
+        let ids: Vec<&str> = if pass.len() == fold.0.len() && fold.0.iter().all(|(id, _)| pass.iter().any(|row| row["id"] == id.as_str())) {
+            pass.iter().map(|row| row["id"].as_str().expect("id")).collect()
+        } else {
+            fold.0.iter().map(|(id, _)| id.as_str()).collect()
+        };
+        ids.into_iter()
+            .enumerate()
+            .map(|(at, id)| {
+                let row = names.named(fold.row(id).expect("a folded row"));
+                match node_rows.get(at) {
+                    Some(node) => live_form(row, node),
+                    None => row,
+                }
+            })
+            .collect()
+    }
+
+    /// The rig's delete seams, with `thread/deleted` sent on the app feed.
+    struct AppDeletion {
+        inner: Arc<dyn mixdog_core_session::session::delete::DeleteSeams>,
+        app: Arc<SectionFeedState>,
+    }
+    #[async_trait]
+    impl mixdog_core_session::session::delete::DeleteSeams for AppDeletion {
+        async fn release_session_work(&self, session_id: &str, reason: &str) {
+            self.inner.release_session_work(session_id, reason).await;
+        }
+        fn session_closed(&self, session_id: &str, reason: &str, header: &mixdog_store::schema::record::Header, closed_at_ms: i64) {
+            self.inner.session_closed(session_id, reason, header, closed_at_ms);
+        }
+        fn release_mcp_scope(&self, session_id: &str) {
+            self.inner.release_mcp_scope(session_id);
+        }
+        fn forget_session_search(&self, session_id: &str) {
+            self.inner.forget_session_search(session_id);
+        }
+        async fn release_deleted_worktree(&self, session_id: &str) {
+            self.inner.release_deleted_worktree(session_id).await;
+        }
+        fn thread_deleted(&self, thread: &ThreadId) {
+            self.app.notify("thread/deleted", &mixdog_app_protocol::v2::thread::ThreadIdParams { thread_id: thread.clone() });
+        }
+        fn current_session(&self) -> Option<String> {
+            self.inner.current_session()
+        }
+        fn hosted_busy(&self, session_id: &str) -> Option<bool> {
+            self.inner.hosted_busy(session_id)
         }
     }
 
@@ -490,11 +621,6 @@ mod tests {
         let index = data.index(index);
         let store = Arc::new(StoreThreads::over_data_dir(data.path(), index.clone(), Arc::new(MockOwnership::default()), tokens.maintenance_io).await.expect("thread store"));
         let rig = Rig::new();
-        let directory = Arc::new(SessionDirectory::new(Arc::new(rig.deps_parts(store.clone()))));
-        std::fs::create_dir_all(data.path().join("state")).expect("state dir");
-        let (state, _) = mixdog_store::state::CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &data.path().join("state").join("core.sqlite")).expect("core state");
-        let rooms = Arc::new(Rooms::new(StateRoomStore::new(data.state(state))));
-        let agents = Arc::new(agents);
         let limits = MockLimits::default();
         let feed = Arc::new(MockFeed::new("app".into(), mixdog_core_api::mock::epoch(1), Arc::new(mixdog_core_api::mock::EchoView), limits));
         let app = MockConnection::new(ConnectionId(1), limits);
@@ -503,7 +629,15 @@ mod tests {
         mixdog_core_api::sink::ConnectionSink::send_control_release(&app, bytes::Bytes::from_static(b"{}"), attached.release).expect("release");
         drop(app.drain_text());
         let sections = Arc::new(SectionFeedState::new(feed));
-        let room_rows = Arc::new(RoomListRows::new(rooms.clone(), Arc::new(Idle), agents.clone()));
+        // A delete says `thread/deleted` on the app feed, as the production seams do (`purge.rs` `thread_deleted`).
+        let mut parts = rig.deps_parts(store.clone());
+        parts.deletion = Arc::new(AppDeletion { inner: parts.deletion.clone(), app: sections.clone() });
+        let directory = Arc::new(SessionDirectory::new(Arc::new(parts)));
+        std::fs::create_dir_all(data.path().join("state")).expect("state dir");
+        let (state, _) = mixdog_store::state::CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &data.path().join("state").join("core.sqlite")).expect("core state");
+        let rooms = Arc::new(Rooms::new(StateRoomStore::new(data.state(state))));
+        let agents = Arc::new(agents);
+        let room_rows =Arc::new(RoomListRows::new(rooms.clone(), Arc::new(Idle), agents.clone()));
         let gate = Arc::new(Gate { armed: std::sync::Mutex::new(None), agents: agents.clone() });
         let list = Arc::new(ThreadListService::new(Arc::new(index.clone()), Arc::new(Quiet), room_rows, gate.clone()));
         list.fence(store);
