@@ -33,6 +33,8 @@ use crate::oauth::RefreshFailure;
 use crate::oauth::Refusal;
 use crate::oauth::classify_refresh_failure;
 use crate::oauth::http;
+use crate::oauth::pace::Pace;
+use crate::oauth::pace::SystemPace;
 use crate::oauth::pages;
 use crate::oauth::scrub::oauth_body_summary;
 use crate::providers::connect::ConnectFailure;
@@ -76,8 +78,20 @@ fn null_as_default<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<
 }
 
 impl StoredTokens {
+    /// `ensureAuth`'s `expiring` (`grok-oauth.mjs:392`): an expiry is known and falls before now plus the skew. An
+    /// expiry exactly at the margin is not due yet.
     pub fn needs_refresh(&self, now_ms: u64) -> bool {
-        self.expires_at > 0 && self.expires_at <= now_ms + REFRESH_SKEW_MS
+        self.expires_at > 0 && self.expires_at < now_ms + REFRESH_SKEW_MS
+    }
+
+    /// No expiry, or one at or after `valid_after` (`refreshTokens`' test of a generation it may adopt).
+    fn valid_at(&self, valid_after: u64) -> bool {
+        self.expires_at == 0 || self.expires_at >= valid_after
+    }
+
+    /// Still usable at `now`: no expiry, or one after it (`ensureAuth`'s grace test).
+    fn unexpired_at(&self, now: u64) -> bool {
+        self.expires_at == 0 || self.expires_at > now
     }
 }
 
@@ -118,16 +132,17 @@ pub fn refresh_form(tokens: &StoredTokens) -> String {
     form.finish()
 }
 
-/// A failed refresh by the shared verdict: a dead grant needs a new sign-in;
-/// everything else leaves the refresh token valid.
+/// A failed refresh (`_postRefresh`, `grok-oauth-tokens.mjs:339`): the body's OAuth `error`, lower-cased, is its code;
+/// `invalid_grant` and `invalid_client` are terminal (no further attempt, a new sign-in), everything else leaves the
+/// refresh token valid and is tried again.
 pub fn refresh_error(status: u16, headers: &[(String, String)], body: &[u8]) -> ProviderError {
     let parsed: Value = serde_json::from_slice(body).unwrap_or(Value::Null);
     let oauth = parsed
         .get("error")
         .and_then(Value::as_str)
         .unwrap_or_default()
-        .to_ascii_lowercase();
-    let terminal = classify_refresh_failure(Some(status), body) == RefreshFailure::Definitive;
+        .to_lowercase();
+    let terminal = oauth == "invalid_grant" || oauth == "invalid_client";
     let mut error = provider_error(
         ConnectFailure {
             code: String::new(),
@@ -147,15 +162,9 @@ pub fn refresh_error(status: u16, headers: &[(String, String)], body: &[u8]) -> 
     error
 }
 
-/// One refresh exchange. xAI rotates refresh tokens; the prior one is kept
-/// only when the response omits it.
-pub async fn refresh(http: &dyn HttpSend, tokens: &StoredTokens) -> Result<StoredTokens, ProviderError> {
-    if tokens.refresh_token.is_empty() {
-        let mut error = ProviderError::new(ErrorKind::Auth, DeliveryState::NotSent);
-        error.reauth_required = true;
-        error.message = format!("[grok-oauth] refresh token not available: {REAUTH_GUIDANCE}");
-        return Err(error);
-    }
+/// One refresh exchange (`_postRefresh`). xAI rotates refresh tokens; the prior one is kept only when the response
+/// omits it. `pace` is the clock the new expiry counts from.
+pub async fn refresh(http: &dyn HttpSend, pace: &dyn Pace, tokens: &StoredTokens) -> Result<StoredTokens, ProviderError> {
     // The discovery answer's connection is held until the exchange went out: Node returns its socket only after the code
     // that read it has run on, and the exchange follows at once, so it does not get it.
     let cached = DISCOVERED.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
@@ -200,7 +209,7 @@ pub async fn refresh(http: &dyn HttpSend, tokens: &StoredTokens) -> Result<Store
             .unwrap_or(fallback)
             .to_owned()
     };
-    let now = now_ms();
+    let now = pace.now_ms();
     Ok(StoredTokens {
         access_token: access.to_owned(),
         refresh_token: text("refresh_token", &tokens.refresh_token),
@@ -252,12 +261,125 @@ async fn discover_token_endpoint(http: &dyn HttpSend) -> Result<(String, Box<dyn
     }
 }
 
-/// The Bearer credential of the Grok CLI proxy. A turn refreshes first when
-/// the token is inside its skew; a rejected token is refreshed once more.
+/// `_postRefreshWithRetry` (`grok-oauth-tokens.mjs:376`): three exchanges at most. A terminal refusal (`invalid_grant`,
+/// `invalid_client`) ends it at once; between two, a pause of `min(2 s, 200 ms·2^n)` plus up to as much again at random.
+async fn refresh_with_retry(http: &dyn HttpSend, pace: &dyn Pace, tokens: &StoredTokens) -> Result<StoredTokens, ProviderError> {
+    let mut attempt = 0;
+    loop {
+        match refresh(http, pace, tokens).await {
+            Ok(fresh) => return Ok(fresh),
+            // `refresh_error` marks exactly the terminal refusals as needing a new sign-in.
+            Err(error) if error.reauth_required || attempt == 2 => return Err(error),
+            Err(_) => {
+                let base = 2_000f64.min(200.0 * 2f64.powi(attempt));
+                let delay = (base + pace.draw() * base).round() as u64;
+                pace.wait(std::time::Duration::from_millis(delay)).await;
+                attempt += 1;
+            }
+        }
+    }
+}
+
+fn is_invalid_grant(error: &ProviderError) -> bool {
+    error.reauth_required && error.code.as_deref() == Some("invalid_grant")
+}
+
+/// The stored generation `_loadOwnTokens` reads: one with both tokens, else none.
+async fn load_own(file: &CredentialFile) -> Option<StoredTokens> {
+    match file.load::<StoredTokens>().await {
+        Probe::Present(tokens) if !tokens.access_token.is_empty() && !tokens.refresh_token.is_empty() => Some(tokens),
+        _ => None,
+    }
+}
+
+/// One exchange of `old` and its rotation published only over the pair that was exchanged, so a process that rotated
+/// first wins.
+async fn exchange(http: &dyn HttpSend, pace: &dyn Pace, file: &CredentialFile, old: &StoredTokens) -> Result<StoredTokens, ProviderError> {
+    let fresh = refresh_with_retry(http, pace, old).await?;
+    let Value::Object(update) = serde_json::to_value(&fresh).map_err(|_| storage_error("tokens not serializable"))? else {
+        return Err(storage_error("tokens not serializable"));
+    };
+    let (access, refresh_token) = (old.access_token.clone(), old.refresh_token.clone());
+    let published = file
+        .replace_if(
+            move |doc| {
+                doc.get("access_token").and_then(Value::as_str).unwrap_or_default() == access
+                    && doc.get("refresh_token").and_then(Value::as_str).unwrap_or_default() == refresh_token
+            },
+            update,
+        )
+        .await
+        .map_err(|_| storage_error("the refreshed tokens could not be stored"))?;
+    // Another process rotated first: its generation is the live one.
+    if published {
+        return Ok(fresh);
+    }
+    match file.load::<StoredTokens>().await {
+        Probe::Present(tokens) => Ok(tokens),
+        Probe::Absent => Err(not_connected()),
+        Probe::Unreadable => Err(storage_error("the credential file cannot be read")),
+    }
+}
+
+/// `refreshTokens` (`grok-oauth-tokens.mjs:392`): a newer valid generation in the file is adopted without an exchange;
+/// otherwise the stored generation (or `tokens`) is exchanged, and a refused grant adopts or exchanges a generation
+/// another writer rotated in meanwhile. A forced refresh adopts any unexpired generation, an unforced one only one
+/// outside the skew.
+async fn refresh_tokens(
+    http: &dyn HttpSend,
+    pace: &dyn Pace,
+    file: &CredentialFile,
+    tokens: StoredTokens,
+    force: bool,
+) -> Result<StoredTokens, ProviderError> {
+    if tokens.refresh_token.is_empty() {
+        let mut error = ProviderError::new(ErrorKind::Auth, DeliveryState::NotSent);
+        error.reauth_required = true;
+        error.message = format!("[grok-oauth] refresh token not available: {REAUTH_GUIDANCE}");
+        return Err(error);
+    }
+    let valid_after = pace.now_ms() + if force { 0 } else { REFRESH_SKEW_MS };
+    let disk = load_own(file).await;
+    if let Some(disk) = &disk
+        && (disk.access_token != tokens.access_token || disk.refresh_token != tokens.refresh_token)
+        && disk.valid_at(valid_after)
+    {
+        return Ok(disk.clone());
+    }
+    let current = disk.unwrap_or(tokens);
+    match exchange(http, pace, file, &current).await {
+        Err(error) if is_invalid_grant(&error) => match load_own(file).await {
+            Some(rotated) if rotated.refresh_token != current.refresh_token => {
+                if rotated.valid_at(valid_after) {
+                    Ok(rotated)
+                } else {
+                    exchange(http, pace, file, &rotated).await
+                }
+            }
+            _ => Err(error),
+        },
+        outcome => outcome,
+    }
+}
+
+type SharedRefresh = futures::future::Shared<futures::future::BoxFuture<'static, Result<StoredTokens, ProviderError>>>;
+
+/// `_refreshesInFlight` (`grok-oauth-tokens.mjs:313`): the refresh in flight for a credential file, shared by every
+/// send of the process that needs one while it runs, and gone once it settled.
+static REFRESHES: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<std::path::PathBuf, (u64, SharedRefresh)>>> =
+    std::sync::LazyLock::new(Default::default);
+static REFRESH_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// The Bearer credential of the Grok CLI proxy (`ensureAuth`, `grok-oauth.mjs:370`). A turn refreshes first when the
+/// token is inside its skew; a rejected token is refreshed once more; a refresh that fails while the token is still
+/// valid leaves the token in use for the skew (the grace window) instead of failing the turn.
 pub struct GrokCredential {
     http: Arc<dyn HttpSend>,
     file: CredentialFile,
+    pace: Arc<dyn Pace>,
     current: ArcSwapOption<StoredTokens>,
+    /// `_refreshFallbackUntil`: until when (Unix ms) a failed unforced refresh is not tried again.
+    fallback_until: std::sync::atomic::AtomicU64,
 }
 
 fn storage_error(message: &str) -> ProviderError {
@@ -278,8 +400,16 @@ impl GrokCredential {
         Self {
             http,
             file,
+            pace: Arc::new(SystemPace),
             current: ArcSwapOption::empty(),
+            fallback_until: std::sync::atomic::AtomicU64::new(0),
         }
+    }
+
+    /// The clock, pause and random draw of the refreshes.
+    pub fn with_pace(mut self, pace: Arc<dyn Pace>) -> Self {
+        self.pace = pace;
+        self
     }
 
     /// `preconnect(PROXY_BASE_URL)` (`grok-oauth.mjs:328-335`, `:425-428`): before a turn, the proxy origin is warmed,
@@ -296,63 +426,132 @@ impl GrokCredential {
             .filter(|id| !id.is_empty())
     }
 
-    async fn stored(&self) -> Result<StoredTokens, ProviderError> {
-        match self.file.load::<StoredTokens>().await {
-            Probe::Present(tokens) => Ok(tokens),
-            Probe::Absent => Err(not_connected()),
-            Probe::Unreadable => Err(storage_error("the credential file cannot be read")),
-        }
-    }
-
+    /// The tokens in use: the file's generation when it holds one (another process may have rotated it since this one
+    /// last read it: `ensureAuth`'s scan of the file), else the one this process holds.
     async fn tokens(&self) -> Result<StoredTokens, ProviderError> {
-        match self.current.load_full() {
-            Some(tokens) => Ok((*tokens).clone()),
-            None => self.stored().await,
+        let probe = self.file.load::<StoredTokens>().await;
+        if let Probe::Present(tokens) = &probe
+            && !tokens.access_token.is_empty()
+            && !tokens.refresh_token.is_empty()
+        {
+            return Ok(tokens.clone());
+        }
+        if let Some(held) = self.current.load_full() {
+            return Ok((*held).clone());
+        }
+        match probe {
+            Probe::Unreadable => Err(storage_error("the credential file cannot be read")),
+            _ => Err(not_connected()),
         }
     }
 
-    /// Exchanges the refresh token and publishes the rotation only over the
-    /// pair that was exchanged, so a process that rotated first wins.
-    async fn rotate(&self, old: StoredTokens) -> Result<StoredTokens, ProviderError> {
-        let fresh = refresh(self.http.as_ref(), &old).await?;
-        let Value::Object(update) = serde_json::to_value(&fresh).map_err(|_| storage_error("tokens not serializable"))?
-        else {
-            return Err(storage_error("tokens not serializable"));
-        };
-        let (access, refresh_token) = (old.access_token.clone(), old.refresh_token.clone());
-        let published = self
-            .file
-            .replace_if(
-                move |doc| {
-                    doc.get("access_token").and_then(Value::as_str).unwrap_or_default() == access
-                        && doc.get("refresh_token").and_then(Value::as_str).unwrap_or_default() == refresh_token
-                },
-                update,
-            )
-            .await
-            .map_err(|_| storage_error("the refreshed tokens could not be stored"))?;
-        // Another process rotated first: its generation is the live one.
-        if published { Ok(fresh) } else { self.stored().await }
+    /// The refresh in flight for this credential's file, if one is.
+    fn in_flight(&self) -> Option<SharedRefresh> {
+        REFRESHES.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(self.file.path()).map(|(_, shared)| shared.clone())
     }
+
+    /// Starts the refresh of `tokens` every send needing one shares until it settled.
+    fn start(&self, tokens: StoredTokens, force: bool) -> SharedRefresh {
+        use futures::FutureExt;
+        let generation = REFRESH_GENERATION.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let (http, pace, file) = (self.http.clone(), self.pace.clone(), self.file.clone());
+        let path = file.path().to_path_buf();
+        let shared = async move {
+            let outcome = refresh_tokens(http.as_ref(), pace.as_ref(), &file, tokens, force).await;
+            let mut map = REFRESHES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if map.get(&path).is_some_and(|(id, _)| *id == generation) {
+                map.remove(&path);
+            }
+            outcome
+        }
+        .boxed()
+        .shared();
+        REFRESHES
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(self.file.path().to_path_buf(), (generation, shared.clone()));
+        shared
+    }
+
+    /// `ensureAuth({ forceRefresh })`.
+    async fn ensure(&self, force: bool) -> Result<StoredTokens, ProviderError> {
+        use std::sync::atomic::Ordering;
+        let mut tokens = self.tokens().await?;
+        let now = self.pace.now_ms();
+        if !force && self.fallback_until.load(Ordering::SeqCst) > now && tokens.unexpired_at(now) {
+            return Ok(tokens);
+        }
+        if !force && !tokens.needs_refresh(now) {
+            return Ok(tokens);
+        }
+        let refused = tokens.access_token.clone();
+        let outcome = match self.in_flight() {
+            Some(shared) => match shared.await {
+                // A forced caller does not take back the token that was refused: it starts its own forced refresh.
+                Ok(shared) if force && shared.access_token == refused => {
+                    tokens = shared.clone();
+                    self.current.store(Some(Arc::new(shared.clone())));
+                    self.in_flight().unwrap_or_else(|| self.start(shared, true)).await
+                }
+                outcome => outcome,
+            },
+            None => self.start(tokens.clone(), force).await,
+        };
+        match outcome {
+            Ok(fresh) => {
+                self.fallback_until.store(0, Ordering::SeqCst);
+                Ok(fresh)
+            }
+            Err(error) => {
+                let now = self.pace.now_ms();
+                if !force && !refused.is_empty() && tokens.unexpired_at(now) {
+                    self.fallback_until.store(now + REFRESH_SKEW_MS, Ordering::SeqCst);
+                    tracing::warn!(error = %error.message, "[grok-oauth] Refresh failed; using still-valid current token");
+                    return Ok(tokens);
+                }
+                Err(error)
+            }
+        }
+    }
+}
+
+/// `EXPIRED_TOKEN_CODES` (`grok-oauth.mjs:53`): the typed codes that say the bearer itself expired or was revoked.
+const EXPIRED_TOKEN_CODES: [&str; 6] = ["token_expired", "expired_token", "access_token_expired", "token_revoked", "revoked_token", "invalid_token"];
+
+/// `hasExpiredTokenSignature`: the refusal's error object names one of [`EXPIRED_TOKEN_CODES`] as its `code` or `type`
+/// (the fields Node's client lifts from the body's `error`), trimmed and lower-cased.
+fn has_expired_token_signature(body: &[u8]) -> bool {
+    let parsed: Value = serde_json::from_slice(body).unwrap_or(Value::Null);
+    let error = &parsed["error"];
+    ["code", "type"].iter().any(|field| {
+        error.get(field).and_then(Value::as_str).is_some_and(|text| EXPIRED_TOKEN_CODES.contains(&text.trim().to_lowercase().as_str()))
+    })
 }
 
 #[async_trait]
 impl Credential for GrokCredential {
     async fn header(&self, force_refresh: bool) -> Result<Option<(String, String)>, ProviderError> {
         self.preconnect();
-        let mut tokens = self.tokens().await?;
-        if force_refresh || tokens.needs_refresh(now_ms()) {
-            // The file may hold a newer generation than this process knows.
-            let stored = self.stored().await?;
-            let changed = stored.access_token != tokens.access_token || stored.refresh_token != tokens.refresh_token;
-            tokens = if changed && !stored.needs_refresh(now_ms()) {
-                stored
-            } else {
-                self.rotate(stored).await?
-            };
-        }
+        let tokens = self.ensure(force_refresh).await?;
         self.current.store(Some(Arc::new(tokens.clone())));
         Ok(Some(("authorization".to_owned(), format!("Bearer {}", tokens.access_token))))
+    }
+
+    /// `send`'s refresh-and-retry (`grok-oauth.mjs:466`): a 401, or a 403 whose error carries an expired-token code.
+    fn refreshes_on(&self, status: u16, body: &[u8]) -> bool {
+        status == 401 || (status == 403 && has_expired_token_signature(body))
+    }
+
+    /// Node resends after the refresh whatever token it gave back.
+    fn resend_needs_new(&self) -> bool {
+        false
+    }
+
+    /// A resend refused with a 401 on a token just refreshed needs a new sign-in.
+    fn refused_again(&self, status: u16, error: &mut ProviderError) {
+        if status == 401 {
+            error.reauth_required = true;
+        }
     }
 
     /// Node's OpenAI client writes its auth header right after its platform headers, before the provider's own
@@ -566,12 +765,12 @@ mod tests {
             ..StoredTokens::default()
         };
         let transport = TimingOut::new();
-        let error = refresh(transport.as_ref(), &tokens).await.expect_err("the token endpoint never answers");
+        let error = refresh(transport.as_ref(), &SystemPace, &tokens).await.expect_err("the token endpoint never answers");
         assert_transport("grokRefresh", &transport);
         assert_thrown("grokRefresh", &error.message);
 
         let transport = TimingOut::new();
-        let error = refresh(transport.as_ref(), &StoredTokens { token_endpoint: String::new(), ..tokens.clone() })
+        let error = refresh(transport.as_ref(), &SystemPace, &StoredTokens { token_endpoint: String::new(), ..tokens.clone() })
             .await
             .expect_err("the discovery never answers");
         assert_transport("grokDiscovery", &transport);
@@ -591,13 +790,16 @@ mod tests {
         assert_thrown("grokCodeExchange", login_message(&failure));
     }
 
+    /// `expiring = expires_at < now + TOKEN_REFRESH_SKEW_MS` (`grok-oauth.mjs:392`): an expiry exactly at the margin is
+    /// not due, one a millisecond inside it is.
     #[test]
     fn expiry_is_due_inside_the_skew() {
         let t = StoredTokens {
             expires_at: 1_000_000,
             ..StoredTokens::default()
         };
-        assert!(t.needs_refresh(1_000_000 - REFRESH_SKEW_MS));
+        assert!(!t.needs_refresh(1_000_000 - REFRESH_SKEW_MS));
+        assert!(t.needs_refresh(1_000_000 - REFRESH_SKEW_MS + 1));
         assert!(!t.needs_refresh(0));
         assert!(!StoredTokens::default().needs_refresh(u64::MAX / 2));
     }

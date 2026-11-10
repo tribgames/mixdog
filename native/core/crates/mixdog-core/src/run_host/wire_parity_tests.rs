@@ -173,6 +173,27 @@ impl RetryDecider for RecordedBackoff {
     }
 }
 
+/// The clock and pause of the token refreshes: the recording's clock, a pause recorded as a `sleep` event that moves the
+/// clock on by its delay without waiting, and the recorder's fixed `Math.random()` (0.5).
+struct RecordedPace(Arc<Loopback>, Arc<AtomicU64>);
+
+#[async_trait::async_trait]
+impl mixdog_ai::oauth::Pace for RecordedPace {
+    fn now_ms(&self) -> u64 {
+        self.1.load(Ordering::SeqCst)
+    }
+
+    async fn wait(&self, duration: Duration) {
+        let ms = duration.as_millis() as u64;
+        self.0.push(json!({ "kind": "sleep", "ms": ms }));
+        self.1.fetch_add(ms, Ordering::SeqCst);
+    }
+
+    fn draw(&self) -> f64 {
+        0.5
+    }
+}
+
 /// The events of the attempt in progress, folded as the loop folds them; a retry starts over.
 struct Folded(ResponseBuilder, String);
 
@@ -190,9 +211,14 @@ impl AttemptSink for Folded {
 fn selected<'a>(scenarios: &'a [Value], only: Option<&str>) -> &'a [Value] {
     let Some(only) = only else { return scenarios };
     let at = scenarios.iter().position(|s| s["id"] == only).unwrap_or_else(|| panic!("no scenario {only}"));
-    // Another provider's scenario stands alone, or (`continues`) runs after the one before it, whose process state it reads.
+    // Another provider's scenario stands alone, or (`continues`) runs after the ones before it, whose process state (and,
+    // `sameProvider`, whose provider) it reads.
     if scenarios[at]["provider"] != "openai-oauth" {
-        return &scenarios[at - usize::from(scenarios[at]["continues"] == true)..=at];
+        let mut start = at;
+        while start > 0 && scenarios[start]["continues"] == true {
+            start -= 1;
+        }
+        return &scenarios[start..=at];
     }
     let mut start = at;
     while start > 0 && scenarios[start]["fresh"] != true && scenarios[start - 1]["provider"] == "openai-oauth" {
@@ -237,9 +263,6 @@ async fn record_all(only: Option<&str>, node: &[Value]) -> Vec<Value> {
     // the machine. `auth.openai.com` is the refresh's host.
     // `auth.x.ai` is the Grok token endpoint's and discovery's host.
     let hosts = ["chatgpt.com", "api.anthropic.com", "generativelanguage.googleapis.com", "cli-chat-proxy.grok.com", "auth.openai.com", "auth.x.ai"];
-    // Node's recorder fixes `crypto.randomUUID` for its whole process; the Grok request id is the one value of these
-    // requests the core draws from it.
-    mixdog_ai::providers::grok::fix_request_id("00000000-0000-4000-8000-000000000000");
     let server = Arc::new(Loopback::start(&hosts).await);
     let schedule = KeepaliveSchedule::SPEC;
     let link = Arc::new(ReqwestLink::pinned(&schedule, server.addr, server.tls.clone()));
@@ -254,11 +277,14 @@ async fn record_all(only: Option<&str>, node: &[Value]) -> Vec<Value> {
     let clock = Arc::new(AtomicU64::new(now));
     let reading = clock.clone();
     env.openai_context = Arc::new(SessionContext::with_sources(move || reading.load(Ordering::SeqCst), || "0".repeat(32)).with_var(move |name| read.lock().unwrap().get(name).cloned()));
+    // The token refreshes read the same clock, and their backoffs are recorded as Node's recorder records them.
+    env.pace = Arc::new(RecordedPace(server.clone(), clock.clone()));
     let builder = DefaultProviderBuilder::new(env);
     let config = |provider: &str| if provider == "gemini" { json!({ "enabled": true, "apiKey": FAKE }) } else { json!({ "enabled": true }) };
 
     let mut out = Vec::new();
     let mut openai = None;
+    let mut grok = None;
     // The latest send of the run and its reply: what a compaction scenario forks.
     let mut last_send: Option<(ModelRequest, ModelResponse)> = None;
     for scenario in selected(doc["scenarios"].as_array().unwrap(), only) {
@@ -270,10 +296,17 @@ async fn record_all(only: Option<&str>, node: &[Value]) -> Vec<Value> {
             "gemini" => "gemini-3.8-flash",
             _ => scenario["model"].as_str().unwrap_or("grok-4.7"),
         };
-        // The scenario's credential files, written before its provider loads them.
+        // The scenario's credential files, written before its provider loads them; an expiry `{ fromNow }` is that many
+        // ms after the recording's clock at the scenario's start.
         for (file, body) in scenario["credentials"].as_object().into_iter().flatten() {
+            let mut body = body.clone();
+            if let Some(from_now) = body["expires_at"]["fromNow"].as_i64() {
+                body["expires_at"] = json!(clock.load(Ordering::SeqCst) as i64 + from_now);
+            }
             fixture_fs::write(data.join(file), body.to_string());
         }
+        // Node's recorder numbers its `randomUUID` draws from one again for each scenario.
+        mixdog_ai::providers::grok::number_request_ids_from_one();
         if provider == "openai-oauth" && (scenario["fresh"] == true || openai.is_none()) {
             // Closing the previous conversation's sockets is the harness's doing: the recorder is paused until every one
             // of them has closed, so nothing of it is in the recording.
@@ -287,7 +320,17 @@ async fn record_all(only: Option<&str>, node: &[Value]) -> Vec<Value> {
         }
         *settings.lock().unwrap() = scenario["env"].as_object().into_iter().flatten().map(|(k, v)| (k.clone(), text(v))).collect();
         server.begin(script_of(scenario));
-        let adapter = if provider == "openai-oauth" { openai.clone().unwrap() } else { builder.build(provider, &config(provider)).await.unwrap() };
+        let adapter = if provider == "openai-oauth" {
+            openai.clone().unwrap()
+        } else if provider == "grok-oauth" {
+            // `sameProvider`: the process's Grok adapter the previous scenario sent with; otherwise one built anew.
+            if scenario["sameProvider"] != true || grok.is_none() {
+                grok = Some(builder.build(provider, &config(provider)).await.unwrap());
+            }
+            grok.clone().unwrap()
+        } else {
+            builder.build(provider, &config(provider)).await.unwrap()
+        };
         let stored = stored_session(&session, scenario, node);
         let outcome = if scenario["compaction"] == true {
             // The compaction summary as the core's compaction sends it (`RequestFork`, the fork of the session's

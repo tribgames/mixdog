@@ -4,10 +4,12 @@
 // receives. The only substitution is the connection: `tls.connect` hands the client a plain socket to the loopback server,
 // so the clients write what they would write inside TLS to the real host (url, `Host`, headers, upgrade request, frames).
 //
-// Inputs that are fixed, not observed: the clock (`Date.now`), `randomUUID`, `Math.random` (0.5: a jittered backoff is its
-// step exactly), the host the User-Agent describes. A backoff sleep (the one in retry-backoff.mjs, and the WebSocket send's
-// own, `openai-ws-send-attempts/policy.mjs` `_defaultSleep`) does not wait: it is recorded as a `sleep` event with its
-// delay, and the clock advances by exactly that delay before the retry goes out. Every other timer is the real one.
+// Inputs that are fixed, not observed: the clock (`Date.now`), `randomUUID` (a sequence that starts over with each
+// scenario: its 1st id, its 2nd id, ..., so the recording shows which draw each use is), `Math.random` (0.5: a jittered
+// backoff is its step exactly), the host the User-Agent describes. A backoff sleep (the one in retry-backoff.mjs, the
+// WebSocket send's own, `openai-ws-send-attempts/policy.mjs` `_defaultSleep`, and the Grok token refresh's,
+// `grok-oauth-tokens.mjs` `_postRefreshWithRetry`) does not wait: it is recorded as a `sleep` event with its delay, and
+// the clock advances by exactly that delay before the retry goes out. Every other timer is the real one.
 //
 // Run it under the runtime the product runs its core under: the desktop's Electron in node mode
 // (`ELECTRON_RUN_AS_NODE=1 electron node-wire-capture.mjs ...`); the manifest names the runtime and the client versions.
@@ -40,8 +42,13 @@ function selected(scenarios) {
   if (!only) return scenarios;
   const at = scenarios.findIndex((s) => s.id === only);
   if (at < 0) throw new Error(`no scenario ${only}`);
-  // Another provider's scenario stands alone, or (`continues`) runs after the one before it, whose process state it reads.
-  if (scenarios[at].provider !== 'openai-oauth') return scenarios.slice(scenarios[at].continues ? at - 1 : at, at + 1);
+  // Another provider's scenario stands alone, or (`continues`) runs after the ones before it, whose process state (and,
+  // `sameProvider`, whose provider) it reads.
+  if (scenarios[at].provider !== 'openai-oauth') {
+    let start = at;
+    while (start > 0 && scenarios[start].continues) start -= 1;
+    return scenarios.slice(start, at + 1);
+  }
   let start = at;
   while (start > 0 && !scenarios[start].fresh && scenarios[start - 1].provider === 'openai-oauth') start -= 1;
   return scenarios.slice(start, at + 1);
@@ -56,7 +63,8 @@ Date.now = () => virtualNow;
 // random: that value is observed and replaced (wire-server.mjs RANDOM), not made up. Everything the providers draw
 // (request ids) comes from the fixed source below.
 await import(pathToFileURL(join(root, 'node_modules/ws/wrapper.mjs')).href);
-crypto.randomUUID = () => '00000000-0000-4000-8000-000000000000';
+let uuidDraws = 0;
+crypto.randomUUID = () => `00000000-0000-4000-8000-${String(++uuidDraws).padStart(12, '0')}`;
 Math.random = () => 0.5;
 crypto.randomBytes = (size) => Buffer.alloc(size);
 os.type = () => session.host.type;
@@ -68,7 +76,7 @@ const traffic = { sink: [], script: { dials: [], replies: [], http: [] }, unansw
 globalThis.setTimeout = (fn, ms, ...args) => {
   // The caller of `setTimeout` is the second frame of the stack.
   const caller = new Error().stack.split('\n')[2] ?? '';
-  if (!caller.includes('retry-backoff.mjs') && !caller.includes('openai-ws-send-attempts')) return realSetTimeout(fn, ms, ...args);
+  if (!['retry-backoff.mjs', 'openai-ws-send-attempts', 'grok-oauth-tokens.mjs'].some((file) => caller.includes(file))) return realSetTimeout(fn, ms, ...args);
   traffic.sink.push({ kind: 'sleep', ms });
   virtualNow += ms;
   return setImmediate(fn, ...args);
@@ -145,6 +153,7 @@ const stampOf = (uuid) => Number.parseInt(uuid.replaceAll('-', '').slice(0, 12),
 const results = [];
 const ENV_NAMES = [...new Set(doc.scenarios.flatMap((s) => Object.keys(s.env || {})))];
 let openaiProvider = null;
+let grokProvider = null;
 /** The latest send of the run and its reply: what a compaction scenario forks. */
 let lastSend = null;
 for (const scenario of selected(doc.scenarios)) {
@@ -155,6 +164,7 @@ for (const scenario of selected(doc.scenarios)) {
   for (const name of ENV_NAMES) delete process.env[name];
   Object.assign(process.env, scenario.env || {});
   traffic.sink = [];
+  uuidDraws = 0;
   traffic.script = { dials: structuredClone(scenario.dials || []), replies: structuredClone(scenario.ws || []), http: structuredClone(scenario.http || []) };
   const controller = new AbortController();
   // `abortWhenHeld`: the turn is cancelled (the session's abort signal) once the server has written a held reply.
@@ -176,8 +186,12 @@ for (const scenario of selected(doc.scenarios)) {
   // (`client-h1.js` onMessageComplete, `setImmediate(client[kResume])`).
   if (scenario.provider === 'grok-oauth') await within(`the event-loop turn before ${scenario.id}`, new Promise((resolve) => setImmediate(resolve)));
   // `credentials`: the credential files of the scenario's account (an expiring token, a stored token endpoint or none, a
-  // user id), written before its provider loads them.
-  for (const [file, value] of Object.entries(scenario.credentials || {})) writeFileSync(join(dataDir, file), JSON.stringify(value));
+  // user id), written before its provider loads them. An expiry `{ fromNow }` is that many ms after the recording's clock
+  // at the scenario's start, which earlier scenarios' backoffs have moved on.
+  for (const [file, value] of Object.entries(scenario.credentials || {})) {
+    const expiresAt = value.expires_at?.fromNow;
+    writeFileSync(join(dataDir, file), JSON.stringify(expiresAt === undefined ? value : { ...value, expires_at: virtualNow + expiresAt }));
+  }
   let provider;
   if (scenario.provider === 'openai-oauth') {
     if (scenario.fresh || !openaiProvider) {
@@ -190,6 +204,11 @@ for (const scenario of selected(doc.scenarios)) {
       openaiProvider = await providerOf['openai-oauth']();
     }
     provider = openaiProvider;
+  } else if (scenario.provider === 'grok-oauth') {
+    // `sameProvider`: the turn of the process's Grok provider the previous scenario sent with (its grace window, its
+    // tokens), as the product holds one provider per process; otherwise a provider loaded anew.
+    if (!scenario.sameProvider || !grokProvider) grokProvider = await providerOf['grok-oauth']();
+    provider = grokProvider;
   } else {
     provider = await providerOf[scenario.provider]();
   }
