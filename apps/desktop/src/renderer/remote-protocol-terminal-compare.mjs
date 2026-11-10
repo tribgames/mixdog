@@ -26,11 +26,13 @@
 //     parser holds unfinished; a state with such input pending makes no step of a sequence, its effect shows in the next). A stretch
 //     runs from one entry to the next (an activity change paired with its own output does not end it). For each tab in each stretch, the
 //     sequence of distinct states its output went through (and its paired activity changes among them) must be Node's, and so must the
-//     order in which the stretch's tabs changed; where Node's runs differ in those, the stretch's intermediate states (or its tab order)
-//     are exempt, named, and its last state is still compared unit by unit. An answer's `replay` is compared as the state it produces at
+//     order in which the stretch's tabs changed; where Node's runs differ in those, the trace must have one run's sequence (or order).
+//     Every place where the runs differ is then held together with the others (`consistentPlaces`): one run must have the trace's values
+//     at all of them, unless the recordings show two places varying apart. An answer's `replay` is compared as the state it produces at
 //     the tab's size.
 //   - A tab's output frame and its own activity change that every Node run sends directly next to each other (that frame on one side, not
-//     both, and nothing between them) are one place: the framing recording proves that exactly this pair flips with when the write lands
+//     both, and nothing between them), some runs frame first and some change first, are one place: the runs show both orders there,
+//     and the framing recording shows why: this pair flips with when the write lands
 //     against the relay's 16 ms window (RELAY_FRAMING_PROOF), which in a replay is call latency (0 ms in the recorder, a socket for a
 //     phone). Here the change must still be directly next to a frame of its own tab carrying output on one side only, as in Node's runs,
 //     it does not end the stretch, and in
@@ -66,7 +68,9 @@ function withoutDisposalPairs(list, part) {
   const text = new Map();
   const disposals = new Map();
   const kept = [];
-  const pairs = [];
+  // Each pair's place: how many entries besides output were kept before its `running` and before its `null`.
+  const pairs = new Map();
+  let entries = 0;
   for (const entry of list) {
     if (entry.call === 'termEnsure') {
       state.delete(entry.params[0]);
@@ -88,14 +92,17 @@ function withoutDisposalPairs(list, part) {
       const { id, state: activity } = entry.event;
       if (activity === 'running' && state.get(id) === 'disposed') {
         state.set(id, 'running');
-        pairs.push(`${id} dispose ${disposals.get(id)}`);
+        pairs.set(`${id} dispose ${disposals.get(id)}`, `at entry ${entries}`);
         continue;
       }
       if (activity === null && state.get(id) === 'running') {
         state.set(id, 'done');
+        const key = `${id} dispose ${disposals.get(id)}`;
+        pairs.set(key, `${pairs.get(key)} and ${entries}`);
         continue;
       }
     }
+    if (!isData(entry)) entries += 1;
     kept.push(entry);
   }
   for (const [id, at] of state) assert.notEqual(at, 'running', `${part}: ${id}'s running after its dispose answer never ended`);
@@ -321,13 +328,14 @@ async function analyse(list, paired) {
     if (!stretches.has(stretch)) stretches.set(stretch, { events: [], finals: new Map(), bytes: new Map() });
     return stretches.get(stretch);
   };
-  // A state with input pending in the parser (a frame cut inside a sequence) is the stretch's last state if nothing follows, but makes
-  // no step of the sequence: the input after it is read on from there, and what it does shows in the next state.
+  // Every frame's state is a step of the sequence, its pending parser input part of it, except a frame that changes nothing but the
+  // pending input (a cut inside a sequence: nothing shown differs, and what the input does shows in the next state).
+  const visible = (id) => JSON.stringify({ ...states[id], 'parser pending': undefined });
   const changed = (id, tab) => {
     const state = intern(stateOf(tab));
     const at = here();
     at.finals.set(id, state);
-    if (state !== tab.last && states[state]['parser pending'] === null) {
+    if (state !== tab.last && (states[state]['parser pending'] === null || tab.last === null || visible(state) !== visible(tab.last))) {
       at.events.push({ tab: id, screen: state });
       tab.last = state;
     }
@@ -411,7 +419,7 @@ function unitDifferences(got, node) {
  *  unit that differs is named. Where they differ, the units they differ on are named in `exemptions` with the runs that differ from run
  *  0, and `got` must be the whole of one run's: the runs do not show their differing units varying apart, so a mix of two runs' units
  *  is not one Node showed. Throws naming the units that fail (against the closest run). */
-function compareUnits(got, recorded, what, exemptions) {
+function compareUnits(got, recorded, what, exemptions, places) {
   const differing = recorded.flatMap((units, run) => (isDeepStrictEqual(units, recorded[0]) ? [] : [run]));
   if (differing.length === 0) {
     const failures = unitDifferences(got, recorded[0]);
@@ -425,6 +433,35 @@ function compareUnits(got, recorded, what, exemptions) {
     assert.fail(`${what}: no Node run has this whole (they differ on ${units.join(', ')}); against run ${closest[0]}, the closest:\n  ${closest[1].slice(0, 16).join('\n  ')}`);
   }
   exemptions.push(`${what}: ${units.join(', ')} (Node's runs ${differing.join(', ')} differ from run 0; here the whole of run ${matched.join('/')})`);
+  places.push({ what, values: recorded.map((units) => JSON.stringify(units)), mine: JSON.stringify(got) });
+}
+
+/** The places where Node's runs differ must be one run's together, except where the recordings show two places varying apart (every
+ *  pair of their values that the runs have at the two places alone appears together in some run): places that are not shown to vary
+ *  apart, directly or through others, form a group, and some one run must have the trace's value at every place of the group. */
+function consistentPlaces(places, exemptions) {
+  const parent = places.map((_, i) => i);
+  const root = (i) => (parent[i] === i ? i : (parent[i] = root(parent[i])));
+  const runs = places[0]?.values.length ?? 0;
+  for (let i = 0; i < places.length; i += 1) {
+    for (let j = i + 1; j < places.length; j += 1) {
+      if (root(i) === root(j)) continue;
+      const [a, b] = [new Set(places[i].values), new Set(places[j].values)];
+      const together = new Set(places[i].values.map((value, run) => `${value}\u0000${places[j].values[run]}`));
+      if (together.size < a.size * b.size) parent[root(i)] = root(j);
+    }
+  }
+  const groups = new Map();
+  places.forEach((place, i) => groups.set(root(i), [...(groups.get(root(i)) ?? []), place]));
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    const whole = Array.from({ length: runs }, (_, run) => run).filter((run) => group.every((place) => place.values[run] === place.mine));
+    if (whole.length === 0) {
+      const each = group.map((place) => `${place.what}: runs ${place.values.flatMap((value, run) => (value === place.mine ? [run] : [])).join(', ')}`);
+      assert.fail(`no one Node run has the trace's values at these places together (the runs do not show them varying apart):\n  ${each.slice(0, 24).join('\n  ')}`);
+    }
+    exemptions.push(`${group.length} places, one run's together (run ${whole.join('/')}): ${group.map((place) => place.what).slice(0, 8).join('; ')}${group.length > 8 ? '; …' : ''}`);
+  }
 }
 
 /** Where a stretch's events of one tab differ, for a message: the first state that differs, shown by the units in which it differs from
@@ -455,13 +492,17 @@ export async function nodeView(runs, part) {
   if (!views.has(key)) {
     const read = runs.map((run) => withoutDisposalPairs(pick(run, part) ?? [], `Node's ${part}`));
     const lists = read.map(({ kept }) => kept);
-    const pairs = read.map((run) => new Set(run.pairs));
+    const pairs = read.map((run) => run.pairs);
     const entries = (list) => list.filter((entry) => !isData(entry)).length;
     const lengths = lists.map(entries);
     assert.equal(new Set(lengths).size, 1, `Node's runs differ in ${part} beyond the recorded variation (${lengths.join(', ')} entries besides output)`);
     const sides = lists.map(ownSides);
     const single = (side) => side === 'before' || side === 'after';
-    const paired = new Set([...sides[0].keys()].filter((k) => sides.every((run) => single(run.get(k)))));
+    // A change and its own frame are one place only where the runs show both orders there (each run with the frame on one side, some
+    // before it and some after): adjacency alone is not variance, and elsewhere their order is compared as recorded.
+    const paired = new Set(
+      [...sides[0].keys()].filter((k) => sides.every((run) => single(run.get(k))) && new Set(sides.map((run) => run.get(k))).size === 2),
+    );
     views.set(key, { lists, pairs, paired, sides, analyses: await Promise.all(lists.map((list) => analyse(list, paired))) });
   }
   return views.get(key);
@@ -493,6 +534,7 @@ const tabOrder = (events) => events.map((event) => event.tab).filter((tab, i, al
  *  output bytes equal one Node run's exactly or the stretch passed on its states only. */
 export async function compareTraces(got, runs) {
   const exemptions = [];
+  const places = [];
   const sets = [];
   const bytes = [];
   const extra = Object.keys(got).filter((key) => !['order', 'claims', 'immediate', 'replayWindow'].includes(key));
@@ -502,13 +544,20 @@ export async function compareTraces(got, runs) {
     const { kept: mine, pairs: minePairs } = withoutDisposalPairs(pick(got, part) ?? [], part);
     // A disposal pair is taken out only where Node's runs vary on it: some run has it at that disposal and some does not; where every
     // run has it, the trace must too, and where none has it, the trace may not.
-    const disposals = [...new Set([...minePairs, ...node.pairs.flatMap((pairs) => [...pairs])])];
+    // Its place too: where every run that has it puts it the same way (and every run has it or none does), the trace must match.
+    const disposals = [...new Set([...minePairs.keys(), ...node.pairs.flatMap((pairs) => [...pairs.keys()])])];
     for (const disposal of disposals) {
-      const having = node.pairs.flatMap((pairs, run) => (pairs.has(disposal) ? [run] : []));
-      const here = minePairs.includes(disposal);
-      assert.ok(having.length > 0 || !here, `${part}: a running/null pair after ${disposal}'s answer, which no Node run has`);
-      assert.ok(having.length < runs.length || here, `${part}: no running/null pair after ${disposal}'s answer, which every Node run has`);
-      exemptions.push(`${part}: the running/null pair after ${disposal}'s answer (Node's runs ${having.join(', ')} have it; here ${here ? 'present' : 'absent'})`);
+      const values = node.pairs.map((pairs) => pairs.get(disposal) ?? 'absent');
+      const here = minePairs.get(disposal) ?? 'absent';
+      const what = `${part}: the running/null pair after ${disposal}'s answer`;
+      if (values.every((value) => value === values[0])) {
+        assert.equal(here, values[0], `${what}: got ${here}, every Node run ${values[0]}`);
+        continue;
+      }
+      assert.ok(values.includes(here), `${what}: got ${here}, which no Node run has (${[...new Set(values)].join(' | ')})`);
+      const having = values.flatMap((value, run) => (value === 'absent' ? [] : [run]));
+      exemptions.push(`${what} (Node's runs ${having.join(', ')} have it; here ${here})`);
+      places.push({ what, values, mine: here });
     }
     // An output entry is compared by its data alone, so it may carry nothing else.
     for (const entry of mine.filter(isData)) {
@@ -526,7 +575,7 @@ export async function compareTraces(got, runs) {
       sets.push(`${part} entry ${k}: ${id}'s activity change with its own frame (Node: frame ${recorded} it; here: ${mineSides.get(k)}), proved by ${RELAY_FRAMING_PROOF}`);
     }
     const analysis = await analyse(mine, node.paired);
-    analysis.entries.forEach((units, i) => compareUnits(units, node.analyses.map((run) => run.entries[i]), `${part} entry ${i}`, exemptions));
+    analysis.entries.forEach((units, i) => compareUnits(units, node.analyses.map((run) => run.entries[i]), `${part} entry ${i}`, exemptions, places));
     const both = [analysis, ...node.analyses];
     const points = [...new Set(both.flatMap((run) => [...run.stretches.keys()]))].sort((a, b) => a - b);
     for (const k of points) {
@@ -550,9 +599,11 @@ export async function compareTraces(got, runs) {
             assert.fail(`${part}: ${tab}'s states within the stretch ${where} are no Node run's (the runs differ there: ${differing.join(', ')} from run 0); against run 0:\n  ${eventsDifference(mineSequence, sequences[0], before(analysis), before(node.analyses[0]))}`);
           }
           exemptions.push(`${part}: ${tab}'s states within the stretch ${where} (Node's runs ${differing.join(', ')} differ from run 0; here run ${matched.join('/')}'s)`);
+          const key = (sequence) => sequence.map(eventKey).join(',');
+          places.push({ what: `${part}: ${tab}'s states within the stretch ${where}`, values: sequences.map(key), mine: key(mineSequence) });
         }
         // Its state at the end of the stretch.
-        compareUnits(stateAt(analysis, k, tab), node.analyses.map((run) => stateAt(run, k, tab)), `${part}: ${tab}'s screen ${where}`, exemptions);
+        compareUnits(stateAt(analysis, k, tab), node.analyses.map((run) => stateAt(run, k, tab)), `${part}: ${tab}'s screen ${where}`, exemptions, places);
         const mineBytes = stretch(analysis).bytes.get(tab) ?? '';
         const exact = node.analyses.some((run) => (stretch(run).bytes.get(tab) ?? '') === mineBytes);
         bytes.push({ part, where, tab, exact });
@@ -568,6 +619,7 @@ export async function compareTraces(got, runs) {
         const matched = orders.flatMap((order, run) => (isDeepStrictEqual(order, mineOrder) ? [run] : []));
         assert.ok(matched.length > 0, `${part}: the order of the tabs' output in the stretch ${where}: got ${mineOrder.join(', ')}, which no Node run has: ${orders.map((order) => order.join(', ')).join(' | ')}`);
         exemptions.push(`${part}: the order of the tabs' output in the stretch ${where} (Node's runs ${differing.join(', ')} differ from run 0; here run ${matched.join('/')}'s)`);
+        places.push({ what: `${part}: the order of the tabs' output in the stretch ${where}`, values: orders.map((order) => order.join(',')), mine: mineOrder.join(',') });
       }
     }
     const tabs = [...new Set([mine, ...node.lists].flatMap((list) => list.filter(isData).map((entry) => entry.event.id)))].sort();
@@ -576,9 +628,10 @@ export async function compareTraces(got, runs) {
       if (codes.every((code) => code !== undefined)) {
         const code = EXIT_AT_END.exec(streamOf(mine, tab))?.[1];
         assert.notEqual(code, undefined, `${part}: ${tab}'s output does not end with its exit line: ${show(streamOf(mine, tab).slice(-200))}`);
-        compareUnits({ code }, codes.map((recorded) => ({ code: recorded })), `${part}: ${tab}'s exit`, exemptions);
+        compareUnits({ code }, codes.map((recorded) => ({ code: recorded })), `${part}: ${tab}'s exit`, exemptions, places);
       }
     }
   }
+  consistentPlaces(places, exemptions);
   return { exemptions, sets, bytes };
 }

@@ -227,44 +227,25 @@ test("another tab's frame moved within a stretch where every run has the tabs' o
   await assert.rejects(compareTraces(withFrame(runs[0], false), first), /order of the tabs' output in the stretch/);
 });
 
-test("a tab's frame and its own activity change next to it in every run pass in either order, named as one place", async () => {
-  // A recording of its own: the fixture's runs have no such frame without other output of its tab right before it, so a swap there
-  // gives the change output on both sides, which no run has (the next tests). Swapped, the change has its frame after it only.
+test("a tab's frame and its own activity change pass in either order where Node's runs show both, named as one place", async () => {
   const running = { push: 'activity', event: { id: 't', state: 'running' } };
-  const node = [[STEP, D('A'), running, STEP], [STEP, D('A'), running, STEP]].map((order) => ({ order, claims: { order: [] }, immediate: { order: [] } }));
-  const { sets } = await compareTraces({ order: [STEP, running, D('A'), STEP], claims: { order: [] }, immediate: { order: [] } }, node);
-  assert.ok(sets.some((place) => place.includes("t's activity change") && place.includes('relay-framing')), 'the place is named with its proof');
+  const node = recorded([STEP, D('A'), running, STEP], [STEP, running, D('A'), STEP]);
+  for (const order of [[STEP, D('A'), running, STEP], [STEP, running, D('A'), STEP]]) {
+    const { sets } = await compareTraces(traceOf(order), node);
+    assert.ok(sets.some((place) => place.includes("t's activity change") && place.includes('relay-framing')), 'the place is named with its proof');
+  }
+});
+
+test("a change moved before its own frame where every Node run has the frame first is a different trace (adjacency is not variance)", async () => {
+  const running = { push: 'activity', event: { id: 't', state: 'running' } };
+  const node = recorded([STEP, D('A'), running, STEP], [STEP, D('A'), running, STEP]);
+  await assert.rejects(compareTraces(traceOf([STEP, running, D('A'), STEP]), node), /states within|screen/);
 });
 
 test("the reviewer's counterexample: a tab's output moved after its own completion (output, running, finished against running, finished, output) is a different trace", async () => {
-  // A change every run sends right after its own frame, the frame then moved after the change and the entry after it (preferably that
-  // tab's next activity change: the command's completion shown before its output).
-  let fallback = null;
-  for (const part of PARTS) {
-    const node = await nodeView(runs, part);
-    for (const k of node.paired) {
-      if (!node.sides.every((sides) => sides.get(k) === 'before')) continue;
-      const trace = copy();
-      const list = listOf(trace, part);
-      const kept = comparedList(list, part);
-      const change = kept.filter((entry) => !isData(entry))[k];
-      const at = kept.indexOf(change);
-      const [frame, next] = [kept[at - 1], kept[at + 1]];
-      if (next === undefined || isData(next)) continue;
-      const mutate = () => {
-        list.splice(list.indexOf(frame), 1);
-        list.splice(list.indexOf(next) + 1, 0, frame);
-        return trace;
-      };
-      if (next.push === 'activity' && next.event.id === change.event.id) {
-        await assert.rejects(compareTraces(mutate(), runs), /not next to its own output|states within|screen/);
-        return;
-      }
-      fallback ??= mutate;
-    }
-  }
-  assert.ok(fallback, 'the recording has an activity change right after its own frame');
-  await assert.rejects(compareTraces(fallback(), runs), /not next to its own output|states within|screen/);
+  const [running, finished] = ['running', 'finished'].map((state) => ({ push: 'activity', event: { id: 't', state } }));
+  const node = recorded([STEP, D('A'), running, finished, STEP], [STEP, running, D('A'), finished, STEP]);
+  await assert.rejects(compareTraces(traceOf([STEP, running, finished, D('A'), STEP]), node), /not next to its own output|states within|screen/);
 });
 
 test("the reviewer's counterexample: a tab's frame moved before its own activity change that no run sends next to it is a different trace", async () => {
@@ -293,29 +274,11 @@ test("the reviewer's counterexample: a tab's frame moved before its own activity
 });
 
 test('an activity change Node sends next to its own output is a different trace when something else comes between them', async () => {
-  for (const part of PARTS) {
-    const node = await nodeView(runs, part);
-    const trace = copy();
-    const list = listOf(trace, part);
-    const kept = comparedList(list, part);
-    let k = -1;
-    for (const [at, entry] of kept.entries()) {
-      if (isData(entry)) continue;
-      k += 1;
-      if (!node.paired.has(k)) continue;
-      const own = (other) => other !== undefined && isData(other) && other.event.id === entry.event.id;
-      // Only the frame after it is its own: a frame of another tab put between them.
-      if (own(kept[at - 1]) || !own(kept[at + 1])) continue;
-      const foreign = kept.find((other) => isData(other) && other.event.id !== entry.event.id);
-      list.splice(list.indexOf(entry) + 1, 0, { push: 'termData', event: { id: foreign.event.id, data: '' } });
-      await assert.rejects(compareTraces(trace, runs), /not next to its own output/);
-      // Nor is an empty frame of its own tab its output.
-      list[list.indexOf(entry) + 1] = { push: 'termData', event: { id: entry.event.id, data: '' } };
-      await assert.rejects(compareTraces(trace, runs), /not next to its own output/);
-      return;
-    }
-  }
-  assert.fail('the recording has no activity change sent before its own output only');
+  const running = { push: 'activity', event: { id: 't', state: 'running' } };
+  const node = recorded([STEP, D('x', 'u'), D('A'), running, STEP], [STEP, D('x', 'u'), running, D('A'), STEP]);
+  await assert.rejects(compareTraces(traceOf([STEP, D('x', 'u'), running, D('', 'u'), D('A'), STEP]), node), /not next to its own output/);
+  // Nor is an empty frame of its own tab its output.
+  await assert.rejects(compareTraces(traceOf([STEP, D('x', 'u'), D('A'), D(''), running, STEP]), node), /not next to its own output/);
 });
 
 test('frames moved across a lane switch are a different trace', async () => {
@@ -415,7 +378,8 @@ test("a state or an entry assembled from parts of different runs is a different 
 
 test('an activity change Node has next to its own frame on one side is a different trace with its own output on both sides', async () => {
   const running = { push: 'activity', event: { id: 't', state: 'running' } };
-  const node = recorded([D('A'), running], [D('A'), running]);
+  // The runs show both orders, so the change and its frame are one place; the trace has its own output on both sides of it.
+  const node = recorded([D('A'), running], [running, D('A')]);
   await compareTraces(traceOf([D('A'), running]), node);
   await assert.rejects(compareTraces(traceOf([D('A'), running, D('\x1b[m')]), node), /not next to its own output on one side[\s\S]*here: both/);
 });
@@ -429,15 +393,38 @@ test("a disposal pair is taken out only where Node's runs vary on it", async () 
   const without = [ensure, D('PS> ', tab), dispose, exit];
   const withPair = [ensure, D('PS> ', tab), dispose, ...pair, exit];
   // Every run without it: a pair is not taken out.
-  await assert.rejects(compareTraces(traceOf(withPair), recorded(without, without)), /running\/null pair after term_ph2a dispose 1's answer, which no Node run has/);
+  await assert.rejects(compareTraces(traceOf(withPair), recorded(without, without)), /pair after term_ph2a dispose 1's answer: got at entry \d+ and \d+, every Node run absent/);
   // Every run with it: it must be there.
-  await assert.rejects(compareTraces(traceOf(without), recorded(withPair, withPair)), /no running\/null pair after term_ph2a dispose 1's answer, which every Node run has/);
+  await assert.rejects(compareTraces(traceOf(without), recorded(withPair, withPair)), /pair after term_ph2a dispose 1's answer: got absent, every Node run at entry/);
+  // Every run with it in one place: it must be there, not after the next entry.
+  const placed = [ensure, D('PS> ', tab), dispose, ...pair, STEP, exit];
+  const moved = [ensure, D('PS> ', tab), dispose, STEP, ...pair, exit];
+  await assert.rejects(compareTraces(traceOf(moved), recorded(placed, placed)), /pair after term_ph2a dispose 1's answer: got at entry 3 and 3, every Node run at entry 2 and 2/);
   // The runs vary: either passes, named.
   const varied = recorded(without, withPair);
   for (const order of [without, withPair]) {
     const { exemptions } = await compareTraces(traceOf(order), varied);
     assert.ok(exemptions.some((line) => line.includes('term_ph2a dispose 1') && line.includes("Node's runs 1 have it")));
   }
+});
+
+test('a screen a frame draws is compared even when the frame ends inside a sequence', async () => {
+  const node = recorded([D('Z'), STEP], [D('Z'), STEP]);
+  await assert.rejects(compareTraces(traceOf([D('EVIL\x1b['), D('2K\rZ'), STEP]), node), /states within the stretch before the first entry/);
+});
+
+test("where Node's runs differ at two places that no run shows varying apart, the trace has one run's values at both", async () => {
+  // A tab whose `A` comes before or after the step: shown twice or never is no run's.
+  const twice = recorded([D('Z'), D('\rA'), D('\rZ'), STEP], [D('Z'), STEP, D('\rA'), D('\rZ')]);
+  await compareTraces(traceOf([D('Z'), STEP, D('\rA'), D('\rZ')]), twice);
+  await assert.rejects(compareTraces(traceOf([D('Z'), D('\rA'), D('\rZ'), STEP, D('\rA'), D('\rZ')]), twice), /no one Node run has the trace's values at these places together/);
+  await assert.rejects(compareTraces(traceOf([D('Z'), STEP]), twice), /no one Node run|no Node run/);
+  // Two tabs at one place.
+  const tabs = recorded([D('A', 'a'), D('X', 'b'), STEP], [D('B', 'a'), D('Y', 'b'), STEP]);
+  await assert.rejects(compareTraces(traceOf([D('A', 'a'), D('Y', 'b'), STEP]), tabs), /no one Node run has the trace's values at these places together/);
+  // Shown varying apart (every pair of values in some run): either mix passes.
+  const apart = recorded([D('A', 'a'), D('X', 'b'), STEP], [D('B', 'a'), D('Y', 'b'), STEP], [D('A', 'a'), D('Y', 'b'), STEP], [D('B', 'a'), D('X', 'b'), STEP]);
+  await compareTraces(traceOf([D('A', 'a'), D('Y', 'b'), STEP]), apart);
 });
 
 test('an absent answer where Node answered null is a different trace', async () => {

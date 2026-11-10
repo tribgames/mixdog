@@ -27,13 +27,13 @@ const WAIT_MS = 60_000;
 // A touched file's content changes with every touch (what the watcher reports is the change, not the time).
 let touches = 0;
 const RECORDING_MS = 15 * 60_000;
-// Why the comparison takes the PowerShell disposal pair out on every allow-listed tab and not only where the five kept runs differ.
+// What the comparison takes a PowerShell disposal pair out on.
 const DISPOSAL_PAIR_EVIDENCE =
-  'A 20-run recording with this recorder (the script before 17658be467: 116 entries, runs.json sha256 fe8fe7060db1b780fc67c4507b06f97a91911e6a7db3253b2f830d153dea03fb, not kept in the repository) had a running/null pair after the dispose answer on term_ph2a in 25 of 60 disposals, term_ph2_l1 2/20, term_ph2_l2 5/20, term_ph2_l4 2/20, term_ph2_l5 6/20, term_ph2_l6 3/20, term_ph2_i1 3/20, term_ph2_i2 0/20, and never on a non-PowerShell tab; the mechanism (PSConsoleHostReadLine C marker against the console close) is the same on every PowerShell tab at its prompt.';
+  'The comparison (remote-protocol-terminal-compare.mjs) takes a running/null pair after a dispose answer out only on the PowerShell tabs of its allow-list and only where the runs in runs.json vary at that disposal: some run has the pair there and some does not, and the trace must then have one of the runs\' values (absent, or present at the same entries), held together with its other choices (consistentPlaces). Where every run has it at the same entries the trace must too; where none has it the trace may not. The mechanism (PSConsoleHostReadLine C marker against the console close) is why only those tabs are allowed; the recorded variance is what each exemption rests on.';
 // What the scripted framing recording proves for the replay's one exempted order (an output frame against its own activity change), and
 // what it does not.
 const FRAMING_PROOF =
-  'apps/mobile/fixtures/relay-framing drives Node\'s relay lane (remote-relay-push-lanes.ts) with a scripted source on a virtual clock: given output and activity changes at set times, Node\'s frames, their times and their order against the changes (G15 against G16/G17: a write and its change 15 ms after a frame go change first, 16 or 17 ms after it frame first). mixdog-spawn service::relay_buffer the_frames_are_nodes_for_the_recorded_script feeds the same steps to the core\'s RelayBuffer, the buffer the feed pump uses. The core\'s ordering of a change after its chunk is in the relay buffer is shown by mixdog-spawn terminal::lock_order tests (a_marker_change_waits_for_the_pump_to_take_its_chunk, the_pump_counts_from_its_first_event_after_an_evicted_prefix, a_paused_producers_chunk_changes_nothing_until_it_enters_the_feed, the_tabs_end_follows_the_output_before_the_exit). Not proved by any recording: that the core\'s PTY reader hands the relay the same chunks at the same times node-pty did (the reader\'s cuts and timing against ConPTY); the real replay compares the states that output produces, not its cuts.';
+  'apps/mobile/fixtures/relay-framing drives Node\'s relay lane (remote-relay-push-lanes.ts) with a scripted source on a virtual clock: given output and activity changes at set times, Node\'s frames, their times and their order against the changes (G15 against G16/G17: a write and its change 15 ms after a frame go change first, 16 or 17 ms after it frame first). mixdog-spawn service::relay_buffer the_frames_are_nodes_for_the_recorded_script feeds the same steps to the core\'s RelayBuffer, the buffer the feed pump uses. The core\'s ordering of a change after its chunk is in the relay buffer is shown by mixdog-spawn terminal::lock_order tests (a_marker_change_waits_for_the_pump_to_take_its_chunk, the_pump_counts_from_its_first_event_after_an_evicted_prefix, a_paused_producers_chunk_changes_nothing_until_it_enters_the_feed, the_tabs_end_follows_the_output_before_the_exit, an_eviction_while_the_pump_subscribes_does_not_end_it, the_tabs_end_goes_between_the_output_before_the_exit_and_the_exit_line, a_shells_end_during_a_claim_waits_for_the_pump_to_reach_the_exit_line) and service::feeds output_written_right_after_a_claims_cut_is_held. Not proved by any recording: that the core\'s PTY reader hands the relay the same chunks at the same times node-pty did (the reader\'s cuts and timing against ConPTY); the real replay compares the states that output produces, not its cuts.';
 /** The recording's ConPTY shells are children of the child: the whole tree ends. A pid that no longer exists is fine (taskkill answers 128 for it);
  *  any other status, or a killer that does not finish in 30 s, is a tree left running. */
 function endTree(child) {
@@ -54,6 +54,7 @@ function endTree(child) {
 }
 const args = parseArgs();
 const tree = resolveTree(args);
+const RECORDER_SHA256 = createHash('sha256').update(readFileSync(fileURLToPath(import.meta.url))).digest('hex');
 
 // `--merge <folder>`: the fixture's runs and then those of each `run-*` folder under <folder> (each a `--runs 1 --out` recording of
 // this recorder), in the folders' name order, become the fixture's runs.json; golden.json stays the fixture's run 0. Each folder's
@@ -63,21 +64,43 @@ if (args.has('merge')) {
   const manifest = JSON.parse(readFileSync(join(finalOut, 'MANIFEST.json'), 'utf8'));
   const traces = JSON.parse(readFileSync(join(finalOut, 'runs.json'), 'utf8'));
   const kept = traces.length;
-  const folders = readdirSync(args.get('merge')).filter((name) => /^run-\d+$/.test(name)).sort();
+  // Every entry of the folder must be a run (`run-<n>` folder, its log `run-<n>.log` beside it), taken in the runs' numeric order; each
+  // run must have been recorded by this recorder as it is now (its content hash, written into the run's manifest when it was recorded).
+  const entries = readdirSync(args.get('merge'));
+  const strays = entries.filter((name) => !/^run-\d+(\.log)?$/.test(name));
+  if (strays.length > 0) throw new Error(`${args.get('merge')}: not runs: ${strays.join(', ')}`);
+  const folders = entries.filter((name) => /^run-\d+$/.test(name)).sort((a, b) => Number(a.slice(4)) - Number(b.slice(4)));
+  const sources = [];
   for (const folder of folders) {
     const dir = join(args.get('merge'), folder);
     const added = JSON.parse(readFileSync(join(dir, 'MANIFEST.json'), 'utf8'));
-    for (const key of ['product', 'scriptSha256', 'recorder', 'command', 'set']) {
+    for (const key of ['product', 'scriptSha256', 'command', 'set']) {
       if (JSON.stringify(added[key]) !== JSON.stringify(manifest[key])) throw new Error(`${dir}: its ${key} is not the fixture's`);
     }
-    traces.push(...JSON.parse(readFileSync(join(dir, 'runs.json'), 'utf8')));
+    if (added.recorderSha256 !== RECORDER_SHA256) throw new Error(`${dir}: recorded by another recorder (${added.recorderSha256 ?? 'no hash'}, this one ${RECORDER_SHA256})`);
+    const files = readdirSync(dir).sort();
+    if (JSON.stringify(files) !== JSON.stringify(['MANIFEST.json', 'golden.json', 'runs.json', 'variance.json'])) throw new Error(`${dir}: not one run's files: ${files.join(', ')}`);
+    const added_runs = JSON.parse(readFileSync(join(dir, 'runs.json'), 'utf8'));
+    if (added_runs.length !== 1) throw new Error(`${dir}: ${added_runs.length} runs, not one`);
+    traces.push(...added_runs);
+    sources.push(folder);
   }
   const golden = readFileSync(join(finalOut, 'golden.json'));
   const out = stageSet(finalOut);
   writeFileSync(join(out, 'golden.json'), golden);
   writeJson(join(out, 'variance.json'), { runs: traces.length, ...varianceReport(traces) });
   writeJson(join(out, 'runs.json'), traces);
-  const { command, set, recorder, product, fileCount, files, totalBytes, ...extra } = manifest;
+  const { command, set, recorder, product, fileCount, files, totalBytes, runList, ...extra } = manifest;
+  // Every run kept, by its place and content hash, so "none dropped, none chosen" is checkable from the fixture alone.
+  const previous = runList ?? [];
+  const listed = traces.map((run, index) => ({
+    run: index,
+    from: previous[index]?.from ?? (index < kept ? 'the fixture before runList was kept' : `--merge ${sources[index - kept]} (recorder ${RECORDER_SHA256})`),
+    sha256: createHash('sha256').update(JSON.stringify(run)).digest('hex'),
+  }));
+  for (const [index, entry] of previous.entries()) {
+    if (listed[index].sha256 !== entry.sha256) throw new Error(`runs.json run ${index} is not the one the manifest lists`);
+  }
   writeSetManifest(out, {
     set,
     recorder,
@@ -85,6 +108,9 @@ if (args.has('merge')) {
     identity: exactProductIdentity(tree, REF),
     extra: {
       ...extra,
+      disposalPairEvidence: DISPOSAL_PAIR_EVIDENCE,
+      framingProof: FRAMING_PROOF,
+      runList: listed,
       // Each merge adds to what earlier merges recorded.
       runsMerged: `${extra.runsMerged ? `${extra.runsMerged} Then: ` : ''}runs.json: runs 0-${kept - 1} from the fixture's ${kept}-run recording, runs ${kept}-${traces.length - 1} from ${folders.length} recordings of one run each (${folders.join(', ')}), merged with --merge in that order.`,
     },
@@ -194,6 +220,8 @@ if (!args.has('child')) {
       scriptSha256: createHash('sha256').update(readFileSync(new URL('./lib/phone-terminal-script.mjs', import.meta.url))).digest('hex'),
       disposalPairEvidence: DISPOSAL_PAIR_EVIDENCE,
       framingProof: FRAMING_PROOF,
+      // This file's content when it recorded the runs (`--merge` takes only runs of the recorder as it is then).
+      recorderSha256: RECORDER_SHA256,
     },
   });
   commitStage(out, finalOut);
