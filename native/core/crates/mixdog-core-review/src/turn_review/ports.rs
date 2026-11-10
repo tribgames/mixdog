@@ -58,9 +58,16 @@ pub trait ReviewWorktrees: Send + Sync {
     async fn create(&self, worktree: &str) -> Option<Arc<dyn WorktreeBase>>;
     /// `noteTurnWorktreeChange(paths)`: a boundary signal; `None` means anything may have changed.
     fn note_change(&self, paths: Option<&[String]>);
+    /// `onTurnReviewChanged(listener)`: the listener runs once after the task that stamped a worktree
+    /// or changed a snapshot's review.
+    fn on_review_changed(&self, listener: Arc<dyn Fn() + Send + Sync>) -> Arc<dyn Fn() -> bool + Send + Sync>;
     /// `canonicalPath(path)`: the path with the symlinks of its nearest existing ancestor
     /// resolved, spelled the way Git reports the root.
     fn canonical_path(&self, path: &str) -> String;
+    /// Resolves once every review signal raised so far has reached its listeners (what a Node caller gets from one `await` after the
+    /// signal's task). Only a worktree port that dispatches signals has anything to wait for.
+    #[cfg(any(test, feature = "test-support"))]
+    async fn review_signal_settled(&self) {}
 }
 
 pub struct GitRun {
