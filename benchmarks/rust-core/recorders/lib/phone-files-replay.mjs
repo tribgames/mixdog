@@ -174,7 +174,9 @@ async function replayScenario({ exe, world, name, make, expected, relay }) {
         window?.asked.splice(0);
         let frame;
         try {
-          const value = await router.call(name, params);
+          // The page's own arguments: what the relay's JSON turned into null is undefined on the page (an argument the app left out);
+          // the router hands it to the adapter as Node's PC received it.
+          const value = await router.call(name, params.map((value) => (value === null ? undefined : value)));
           frame = { ok: true, value: value === undefined ? null : clone(value) };
         } catch (error) {
           frame = { ok: false, error: error.message, ...(typeof error.code === 'string' && error.code ? { errorCode: error.code } : {}) };
