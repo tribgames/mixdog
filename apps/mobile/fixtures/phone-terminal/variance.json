@@ -2,11 +2,11 @@
   "runs": 5,
   "order": {
     "entries": [
-      112,
       113,
-      112,
-      111,
-      112
+      113,
+      114,
+      113,
+      113
     ],
     "entriesWithoutData": [
       93,
@@ -15,7 +15,7 @@
       93,
       93
     ],
-    "distinctSequencesWithoutData": 1,
+    "distinctSequencesWithoutData": 2,
     "afterLastDispose": [
       [
         "lane terminal false",
@@ -55,14 +55,14 @@
           43
         ],
         "slotsWhereBytesDiffer": 2,
-        "concatenatedBytesDistinct": 3,
+        "concatenatedBytesDistinct": 2,
         "bytesBeforeDisposeDistinct": 1
       },
       "term_ph2b": {
         "slotsWithData": 2,
         "slotsWhereDataPresenceDiffers": [],
         "slotsWhereBytesDiffer": 1,
-        "concatenatedBytesDistinct": 3,
+        "concatenatedBytesDistinct": 2,
         "bytesBeforeDisposeDistinct": 1
       },
       "term_ph2c": {
@@ -76,33 +76,37 @@
   },
   "claims.order": {
     "entries": [
-      197,
-      197,
-      195,
-      191,
-      191
+      213,
+      201,
+      207,
+      204,
+      200
     ],
     "entriesWithoutData": [
-      144,
-      146,
-      144,
-      144,
-      144
+      148,
+      148,
+      152,
+      150,
+      148
     ],
-    "distinctSequencesWithoutData": 2,
+    "distinctSequencesWithoutData": 5,
     "afterLastDispose": [
       [
         "lane terminal false"
       ],
       [
-        "term_ph2_l4 running",
-        "term_ph2_l4 null",
         "lane terminal false"
       ],
       [
+        "term_ph2_l1 running",
+        "term_ph2_l5 running",
+        "term_ph2_l1 null",
+        "term_ph2_l5 null",
         "lane terminal false"
       ],
       [
+        "term_ph2_l1 running",
+        "term_ph2_l1 null",
         "lane terminal false"
       ],
       [
@@ -111,54 +115,65 @@
     ],
     "perTab": {
       "term_ph2_l1": {
-        "slotsWithData": 8,
+        "slotsWithData": 9,
         "slotsWhereDataPresenceDiffers": [
-          144
+          148,
+          149
         ],
-        "slotsWhereBytesDiffer": 4,
-        "concatenatedBytesDistinct": 1,
-        "bytesBeforeDisposeDistinct": 1
+        "slotsWhereBytesDiffer": 6,
+        "concatenatedBytesDistinct": 2,
+        "bytesBeforeDisposeDistinct": 2
       },
       "term_ph2_l2": {
-        "slotsWithData": 9,
+        "slotsWithData": 11,
         "slotsWhereDataPresenceDiffers": [
+          51,
           52,
-          144
+          146,
+          147,
+          149
         ],
-        "slotsWhereBytesDiffer": 7,
-        "concatenatedBytesDistinct": 5,
-        "bytesBeforeDisposeDistinct": 5
+        "slotsWhereBytesDiffer": 9,
+        "concatenatedBytesDistinct": 3,
+        "bytesBeforeDisposeDistinct": 3
       },
       "term_ph2_l4": {
-        "slotsWithData": 8,
+        "slotsWithData": 9,
         "slotsWhereDataPresenceDiffers": [
-          144
+          146,
+          147,
+          149
         ],
-        "slotsWhereBytesDiffer": 4,
-        "concatenatedBytesDistinct": 1,
-        "bytesBeforeDisposeDistinct": 1
+        "slotsWhereBytesDiffer": 6,
+        "concatenatedBytesDistinct": 2,
+        "bytesBeforeDisposeDistinct": 2
       },
       "term_ph2_l5": {
-        "slotsWithData": 8,
+        "slotsWithData": 13,
         "slotsWhereDataPresenceDiffers": [
-          144
+          134,
+          146,
+          147,
+          148,
+          150
         ],
-        "slotsWhereBytesDiffer": 4,
-        "concatenatedBytesDistinct": 1,
-        "bytesBeforeDisposeDistinct": 1
+        "slotsWhereBytesDiffer": 10,
+        "concatenatedBytesDistinct": 3,
+        "bytesBeforeDisposeDistinct": 3
       },
       "term_ph2_l6": {
-        "slotsWithData": 9,
+        "slotsWithData": 11,
         "slotsWhereDataPresenceDiffers": [
           43,
           44,
-          142,
-          143,
-          144
+          146,
+          147,
+          148,
+          150
         ],
-        "slotsWhereBytesDiffer": 7,
-        "concatenatedBytesDistinct": 1,
-        "bytesBeforeDisposeDistinct": 1
+        "slotsWhereBytesDiffer": 8,
+        "concatenatedBytesDistinct": 2,
+        "bytesBeforeDisposeDistinct": 2
       }
     }
   }

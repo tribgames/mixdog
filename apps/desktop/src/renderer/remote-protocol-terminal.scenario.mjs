@@ -176,8 +176,7 @@ async function run(core) {
   const lanes = {
     terminal: () => [
       api.subscribeTermData((event) => {
-        events.order.push({ push: 'termData', event: { id: event.id, data: event.data } });
-        events.output[event.id] = (events.output[event.id] ?? '') + event.data;
+        events.order.push({ push: 'termData', event: { id: event.id, data: event.data } });        events.output[event.id] = (events.output[event.id] ?? '') + event.data;
         changed();
       }),
       api.subscribeTermActivity(push('activity')),

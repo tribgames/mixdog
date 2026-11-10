@@ -8,8 +8,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { compareTraces } from './remote-protocol-terminal-compare.mjs';
 
-const golden = JSON.parse(readFileSync(new URL('../../../mobile/fixtures/phone-terminal/golden.json', import.meta.url), 'utf8')).trace;
-const variance = JSON.parse(readFileSync(new URL('../../../mobile/fixtures/phone-terminal/variance.json', import.meta.url), 'utf8'));
+const runs = JSON.parse(readFileSync(new URL('../../../mobile/fixtures/phone-terminal/runs.json', import.meta.url), 'utf8'));
 const runner = fileURLToPath(new URL('./remote-protocol-terminal.scenario.mjs', import.meta.url));
 
 test('phone terminal adapter replays the Node recording over a real core', () => {
@@ -19,5 +18,5 @@ test('phone terminal adapter replays the Node recording over a real core', () =>
   assert.ok(child.status === 0 && at >= 0, `scenario failed (${child.status}):\n${child.stdout.slice(-1500)}\n${child.stderr.slice(-3000)}`);
   const got = JSON.parse(child.stdout.slice(at + '@@TRACE@@'.length));
   if (process.env.PHONE_TERMINAL_KEEP_TRACE) writeFileSync(process.env.PHONE_TERMINAL_KEEP_TRACE, JSON.stringify(got)); // for looking at a difference
-  compareTraces(got, golden, variance);
+  compareTraces(got, runs);
 });

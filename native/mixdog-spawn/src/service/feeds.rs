@@ -39,6 +39,7 @@ use mixdog_rt::TaskClass;
 use serde_json::Value;
 use serde_json::json;
 
+use super::relay_buffer::RelayBuffer;
 use crate::manager::LocalProcessManager;
 use crate::terminal::REPLAY_BUFFER_LIMIT;
 use crate::terminal::ReplayBuffer;
@@ -171,6 +172,9 @@ fn exited_params(handle: &ProcessHandle, exit: &ProcessExit) -> Value {
 struct Entry {
     handle: ProcessHandle,
     publisher: FramePublisher,
+    /// A terminal tab's output as Node's relay lane sent it to a phone (`process:relay:<tab>`, see [`super::relay_buffer`]); `None` for a
+    /// process feed.
+    relay: Option<FramePublisher>,
     /// A terminal feed: its snapshot carries the screen text; a process feed's carries only the
     /// run state (its replay is the feed's ring).
     text: bool,
@@ -208,15 +212,35 @@ pub struct ProcessFeeds {
 struct Gate {
     feeds: Arc<ProcessFeeds>,
     entry: Arc<Entry>,
+    /// The tab's relay feed rather than its raw one.
+    relay: bool,
+}
+
+impl Gate {
+    fn publisher(&self) -> &FramePublisher {
+        match (&self.entry.relay, self.relay) {
+            (Some(relay), true) => relay,
+            _ => &self.entry.publisher,
+        }
+    }
+}
+
+impl Entry {
+    fn close(&self) {
+        self.publisher.close();
+        if let Some(relay) = &self.relay {
+            relay.close();
+        }
+    }
 }
 
 impl FeedSource for Gate {
     fn feed_id(&self) -> FeedId {
-        self.entry.publisher.id().clone()
+        self.publisher().id().clone()
     }
 
     fn attach(&self, req: AttachRequest) -> Result<AttachDecision, CoreError> {
-        let decision = self.entry.publisher.source().attach(req)?;
+        let decision = self.publisher().source().attach(req)?;
         if !self.entry.started.swap(true, Ordering::AcqRel) {
             Arc::clone(&self.feeds).start_pump(Arc::clone(&self.entry));
         }
@@ -224,7 +248,7 @@ impl FeedSource for Gate {
     }
 
     fn detach(&self, sub: SubscriptionId) {
-        self.entry.publisher.source().detach(sub);
+        self.publisher().source().detach(sub);
     }
 }
 
@@ -247,6 +271,15 @@ impl ProcessFeeds {
     /// The feed of `handle`, created on first use. A terminal feed (`text`) also keeps the screen
     /// text for its snapshot. A finished run's feed is replaced when the same handle runs again.
     pub(crate) fn feed(self: &Arc<Self>, handle: &str, text: bool) -> Arc<dyn FeedSource> {
+        self.feed_for(handle, text, false)
+    }
+
+    /// The relay feed of a terminal tab (`process:relay:<tab>`): what a phone reads, its output framed by Node's relay rule.
+    pub(crate) fn relay_feed(self: &Arc<Self>, handle: &str) -> Arc<dyn FeedSource> {
+        self.feed_for(handle, true, true)
+    }
+
+    fn feed_for(self: &Arc<Self>, handle: &str, text: bool, relay: bool) -> Arc<dyn FeedSource> {
         let mut entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(entry) = entries.get(handle) {
             let rerun = entry.finished.load(Ordering::Acquire)
@@ -255,14 +288,16 @@ impl ProcessFeeds {
                 return Arc::new(Gate {
                     feeds: Arc::clone(self),
                     entry: Arc::clone(entry),
+                    relay,
                 });
             }
-            entry.publisher.close();
+            entry.close();
         }
         let state = if text { json!({ "text": "" }) } else { json!({}) };
         let entry = Arc::new(Entry {
             handle: ProcessHandle::from(handle),
-            publisher: FramePublisher::create(self.scoped.as_ref(), FeedId::from(format!("process:{handle}")), state),
+            publisher: FramePublisher::create(self.scoped.as_ref(), FeedId::from(format!("process:{handle}")), state.clone()),
+            relay: text.then(|| FramePublisher::create(self.scoped.as_ref(), FeedId::from(format!("process:relay:{handle}")), state)),
             text,
             started: AtomicBool::new(false),
             finished: AtomicBool::new(false),
@@ -273,6 +308,7 @@ impl ProcessFeeds {
         Arc::new(Gate {
             feeds: Arc::clone(self),
             entry,
+            relay,
         })
     }
 
@@ -324,7 +360,7 @@ impl ProcessFeeds {
             evicted
         };
         for old in evicted {
-            old.publisher.close();
+            old.close();
         }
     }
 
@@ -354,31 +390,62 @@ impl ProcessFeeds {
         // The window a late subscriber is given: Node's replay buffer, the last 200,000 UTF-16 units (a cut may fall inside a non-BMP
         // character, which then reads as U+FFFD at the window's start).
         let mut screen = ReplayBuffer::new(REPLAY_BUFFER_LIMIT, 0);
-        while let Some(event) = events.next().await {
+        // The relay feed's framing (Node's relay lane), timed on the runtime's clock.
+        let mut relay = RelayBuffer::default();
+        let output = |publisher: &FramePublisher, bytes: &[u8], state: Value| {
+            publisher.publish("process/outputDelta", json!({ "processHandle": handle, "bytesB64": STANDARD.encode(bytes) }), state);
+        };
+        let relay_out = |frames: Vec<Vec<u8>>, state: &Value| {
+            if let Some(publisher) = &entry.relay {
+                for frame in frames {
+                    output(publisher, &frame, state.clone());
+                }
+            }
+        };
+        loop {
+            let next = match relay.due() {
+                Some(due) => tokio::select! {
+                    biased;
+                    event = events.next() => Some(event),
+                    () = tokio::time::sleep_until(due) => None,
+                },
+                None => Some(events.next().await),
+            };
             Self::unheld(entry).await;
+            let state = if entry.text { json!({ "text": screen.read() }) } else { json!({}) };
+            let Some(event) = next else {
+                relay_out(relay.flush(tokio::time::Instant::now()), &state);
+                continue;
+            };
             match event {
-                ProcessEvent::Output { bytes, .. } => {
+                Some(ProcessEvent::Output { bytes, .. }) => {
                     let state = if entry.text {
                         screen.append(&String::from_utf8_lossy(&bytes));
                         json!({ "text": screen.read() })
                     } else {
                         json!({})
                     };
-                    entry.publisher.publish(
-                        "process/outputDelta",
-                        json!({ "processHandle": handle, "bytesB64": STANDARD.encode(&bytes) }),
-                        state,
-                    );
+                    output(&entry.publisher, &bytes, state.clone());
+                    relay_out(relay.push(&bytes, tokio::time::Instant::now()), &state);
                 }
-                ProcessEvent::Exited { exit, .. } => {
+                Some(ProcessEvent::Exited { exit, .. }) => {
                     let state = if entry.text {
                         json!({ "text": screen.read(), "exited": true })
                     } else {
                         json!({ "exited": true })
                     };
-                    entry.publisher.publish("process/exited", exited_params(handle, &exit), state);
+                    entry.publisher.publish("process/exited", exited_params(handle, &exit), state.clone());
+                    // Node's relay lane sends what waits when its 16 ms are up, exit or not; the relay feed ends after it.
+                    if let Some(due) = relay.due() {
+                        tokio::time::sleep_until(due).await;
+                        relay_out(relay.flush(tokio::time::Instant::now()), &state);
+                    }
+                    if let Some(publisher) = &entry.relay {
+                        publisher.publish("process/exited", exited_params(handle, &exit), state);
+                    }
                     break;
                 }
+                None => break,
             }
         }
         self.finish(entry);

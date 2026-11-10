@@ -23,6 +23,8 @@ const rpc = async (client: Client, method: string, params: unknown): Promise<any
 };
 
 const TERMINAL_LANE = 'terminal';
+/** A tab's relay feed: `process:relay:<tabId>`. */
+const RELAY_FEED = 'process:relay:';
 const FILES_LANE = 'files';
 /** How many request ids are remembered; the core re-delivers app-feed events after a reconnect. */
 const REMEMBERED_RUNS = 256;
@@ -109,7 +111,9 @@ function wire(host: PhoneProtocolHost, client: Client): () => void {
       }
     };
     const feedsOpen = new Set<string>();
-    const declareFeeds = (): void => host.declareLane(TERMINAL_LANE, [...feedsOpen].map((id) => `process:${id}`));
+    // The relay feed of each tab: its output framed as Node's relay lane sent it (first output at once, then 16 ms), so the phone gets
+    // Node's frames and their place among the activity events.
+    const declareFeeds = (): void => host.declareLane(TERMINAL_LANE, [...feedsOpen].map((id) => `${RELAY_FEED}${id}`));
     const readTabs = (): void => {
       const tabs = Array.isArray(sectionValue(client, 'terminalTabs')) ? (sectionValue(client, 'terminalTabs') as Record<string, any>[]) : [];
       const next = new Map<string, { cols: number; rows: number; owner: string }>();
@@ -149,15 +153,15 @@ function wire(host: PhoneProtocolHost, client: Client): () => void {
     const offEvents = client.on((event) => {
       if (event.type !== 'notification') return;
       const { method, params, feed } = event.notification as { method: string; params?: any; feed?: { id: string } };
-      if (method === 'process/outputDelta' && feed?.id.startsWith('process:')) {
-        const id = feed.id.slice('process:'.length);
+      if (method === 'process/outputDelta' && feed?.id.startsWith(RELAY_FEED)) {
+        const id = feed.id.slice(RELAY_FEED.length);
         let decoder = decoders.get(id);
         if (!decoder) decoders.set(id, (decoder = new TextDecoder()));
         const data = decoder.decode(Uint8Array.from(atob(String(params?.bytesB64 ?? '')), (c) => c.charCodeAt(0)), { stream: true });
         if (data && laneInUse()) ctx.fanOut(ctx.termListeners, { id, data });
-      } else if (method === 'process/exited' && feed?.id.startsWith('process:')) {
-        decoders.delete(feed.id.slice('process:'.length));
-        if (feedsOpen.delete(feed.id.slice('process:'.length))) declareFeeds();
+      } else if (method === 'process/exited' && feed?.id.startsWith(RELAY_FEED)) {
+        decoders.delete(feed.id.slice(RELAY_FEED.length));
+        if (feedsOpen.delete(feed.id.slice(RELAY_FEED.length))) declareFeeds();
       } else if (method === 'fs/changed' && feed?.id.startsWith('fs:')) {
         const dir = watchDirs().get(feed.id.slice('fs:'.length));
         if (dir !== undefined && ctx.activeLanes.has(FILES_LANE)) ctx.fanOut(ctx.folderChangeListeners, dir);

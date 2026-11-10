@@ -214,6 +214,8 @@ pub struct TabEntry {
 }
 
 const SESSION_TERMINAL_PREFIX: &str = "session-terminal:";
+/// How long a disposed tab's shell has to end after its terminal closed before its tree is ended.
+const HANG_UP_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
 const DEFAULT_COLS: u32 = 80;
 const DEFAULT_ROWS: u32 = 24;
 
@@ -1310,8 +1312,32 @@ impl TerminalTabs {
             .entry(tab.id.clone())
             .and_modify(|floor| *floor = (*floor).max(cursor))
             .or_insert(cursor);
+        self.end_process(&tab.handle);
+    }
+
+    /// Ends a disposed tab's process as node-pty's `kill` did on Windows: its terminal is closed, so the shell ends with its own answer to
+    /// that (`STATUS_CONTROL_C_EXIT`: the exit line Node's phone saw, golden.json, every `[process exited with code -1073741510]`); the
+    /// tree is ended once the shell has exited (what it started may outlive the console), or after [`HANG_UP_GRACE`] if it has not.
+    /// Elsewhere, and for a tab whose terminal cannot be closed, the tree is ended at once.
+    fn end_process(&self, handle: &ProcessHandle) {
         // Already gone is fine.
-        let _ = self.manager.kill_with(&tab.handle, KillReason::Requested);
+        let events = if cfg!(windows) { self.manager.subscribe(handle, None).ok() } else { None };
+        let Some(mut events) = events.filter(|_| self.manager.hang_up(handle).is_ok()) else {
+            let _ = self.manager.kill_with(handle, KillReason::Requested);
+            return;
+        };
+        let (manager, handle) = (self.manager.clone(), handle.clone());
+        mixdog_rt::spawn("terminal-hang-up", mixdog_rt::TaskClass::Work, async move {
+            let _ = tokio::time::timeout(HANG_UP_GRACE, async {
+                while let Some(event) = events.next().await {
+                    if matches!(event, ProcessEvent::Exited { .. }) {
+                        return;
+                    }
+                }
+            })
+            .await;
+            let _ = manager.kill_with(&handle, KillReason::Requested);
+        });
     }
 
     /// The whole disposal (the tab's removal, its activity end, the forgetting of its claims and the kill) holds the id's claim

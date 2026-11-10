@@ -708,7 +708,11 @@ async fn size_owner_follows_claims_not_focus() {
     // with the tab without an owner event (Node's `forgetSizeClaims` emits none), and the clock was never read again.
     rig.tabs.dispose(id);
     let (_, exit) = collect(&rig.manager, &mixdog_protocol::ProcessHandle::from(id)).await;
-    assert!(exit.killed.is_some(), "the shell ended because the tab was disposed");
+    // On Windows the disposal closes the shell's terminal and the shell ends itself (its code is its own answer, which the replay
+    // compares with Node's exit lines); elsewhere the tree is killed.
+    if !cfg!(windows) {
+        assert!(exit.killed.is_some(), "the shell ended because the tab was disposed");
+    }
     assert_eq!(rig.tabs.size_owner(id), None);
     let after: Vec<(String, u16, u16)> = rig.events.owners(id).into_iter().map(|c| (c.owner, c.cols, c.rows)).collect();
     assert_eq!(after, owners, "a disposal announces no owner change");
