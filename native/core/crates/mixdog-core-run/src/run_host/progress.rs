@@ -399,6 +399,7 @@ impl RunProgress {
             has_first_semantic: in_ask(e.first_semantic_at),
             awaiting_user: e.approval_waits > 0,
             last_semantic_kind: e.last_semantic_kind,
+            current_tool: e.last_tool_call.clone(),
         })
     }
 

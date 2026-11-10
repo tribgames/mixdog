@@ -34,7 +34,7 @@ impl Watchdog {
         signal: Cancel,
         clock: Arc<dyn Clock>,
         snapshot: impl Fn(i64) -> Option<Snapshot> + Send + 'static,
-        on_stale: impl FnOnce() + Send + 'static,
+        on_stale: impl FnOnce(&Snapshot, &str, i64) + Send + 'static,
     ) -> Option<Self> {
         (unattended && policy.active()).then(|| {
             // Node's `setInterval(…, 1000)` is made as the watchdog arms (`startDispatchWatchdog`), so the first sweep is one period after
@@ -48,10 +48,12 @@ impl Watchdog {
                         return;
                     }
                     let now = clock.now_ms();
-                    if let Some(message) = snapshot(now).and_then(|snapshot| stale_report(&snapshot, now, &policy)) {
-                        // The reap is armed before the abort propagates (`armTurnTimeout`), while
+                    if let Some(snapshot) = snapshot(now)
+                        && let Some(message) = stale_report(&snapshot, now, &policy)
+                    {
+                        // The stop is recorded and the reap armed before the abort propagates (`armTurnTimeout`), while
                         // nothing else has stopped the turn.
-                        on_stale();
+                        on_stale(&snapshot, &message, now);
                         signal.abort(&message);
                         return;
                     }
@@ -182,7 +184,7 @@ mod tests {
         let signal = Cancel::new();
         let sweeps = Arc::new(Sweeps::default());
         let clock = Arc::new(Virtual(tokio::time::Instant::now()));
-        let watchdog = Watchdog::arm(unattended, POLICY, signal.clone(), clock, counted(&sweeps, snapshot), || {});
+        let watchdog = Watchdog::arm(unattended, POLICY, signal.clone(), clock, counted(&sweeps, snapshot), |_, _, _| {});
         (watchdog, signal, sweeps)
     }
 
@@ -251,7 +253,7 @@ mod tests {
                         None => POLICY,
                     };
                     let progress = last_progress.clone();
-                    let watchdog = Watchdog::arm(true, policy, signal.clone(), clock.clone(), counted(&sweeps, move |_| Some(streaming(progress.load(Ordering::SeqCst)))), || {});
+                    let watchdog = Watchdog::arm(true, policy, signal.clone(), clock.clone(), counted(&sweeps, move |_| Some(streaming(progress.load(Ordering::SeqCst)))), |_, _, _| {});
                     let dog = arm["dog"].as_str().unwrap().to_owned();
                     assert_eq!(watchdog.is_some(), node(&dog)["armed"].as_bool().unwrap(), "{name}/{dog}: whether the run is armed");
                     running.push(Replayed { name: dog, armed_at: stop, watchdog, signal, sweeps, last_progress });
@@ -334,7 +336,7 @@ mod tests {
         let arm = |last: i64| {
             let (signal, reaped) = (Cancel::new(), reaped.clone());
             let clock = Arc::new(Virtual(tokio::time::Instant::now()));
-            let hook = { let (signal, reaped) = (signal.clone(), reaped.clone()); move || { assert!(!signal.is_aborted(), "armed before the abort"); reaped.fetch_add(1, Ordering::SeqCst); } };
+            let hook = { let (signal, reaped) = (signal.clone(), reaped.clone()); move |_: &Snapshot, _: &str, _: i64| { assert!(!signal.is_aborted(), "armed before the abort"); reaped.fetch_add(1, Ordering::SeqCst); } };
             (Watchdog::arm(true, POLICY, signal.clone(), clock, counted(&sweeps, move |_| Some(streaming(last))), hook), signal)
         };
         let (live_dog, live) = arm(T0 + 3_600_000);
