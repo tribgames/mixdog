@@ -555,6 +555,7 @@ fn ws_request(wire: &WireRequest) -> Result<Request, ProviderError> {
         .as_str()
         .into_client_request()
         .map_err(|_| invalid("url"))?;
+    request.extensions_mut().insert(crate::transport::ws::CallerHeaders(wire.headers.clone()));
     for (name, value) in &wire.headers {
         request.headers_mut().append(
             HeaderName::from_bytes(name.as_bytes()).map_err(|_| invalid("header name"))?,

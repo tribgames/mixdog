@@ -16,6 +16,7 @@ pub mod link;
 pub mod node_http;
 pub mod tcp;
 pub mod ws;
+mod wsio;
 
 /// The loopback TLS server and the recording manifest the wire parity checks of every provider share (the Rust half of
 /// `benchmarks/terminal-bench-2.1/analysis/parity/wire-server.mjs`).
