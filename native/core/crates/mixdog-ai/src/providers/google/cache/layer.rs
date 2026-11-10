@@ -92,6 +92,12 @@ pub struct ExplicitCache {
 }
 
 impl ExplicitCache {
+    /// The Gemini API's clock: the one time source of the cache layer (`CacheRuntime::now_ms`), which the dated
+    /// model redirects read too (`this._now`).
+    pub(in crate::providers::google) fn now_ms(&self) -> u64 {
+        self.runtime.now_ms()
+    }
+
     pub fn new(
         api_key: impl Into<String>,
         origin: impl Into<String>,

@@ -32,6 +32,8 @@ mod conformance;
 #[cfg(test)]
 mod wire_tests;
 #[cfg(test)]
+mod socket_tests;
+#[cfg(test)]
 mod tool_accept_tests;
 
 use adapter::GoogleAdapter;
@@ -80,7 +82,6 @@ pub fn gemini_with(
     registry: Arc<cache::registry::Registry>,
     tuning: cache::policy::Tuning,
 ) -> GoogleAdapter {
-    let clock = runtime.clone();
     // The cache serves the key of each request (`ExplicitCache::keyed`); this one is only its template.
     let cache = cache::layer::ExplicitCache::new(
         "",
@@ -99,7 +100,6 @@ pub fn gemini_with(
     )
     .with_key_reload(key)
     .with_cache(cache)
-    .with_clock(Arc::new(move || clock.now_ms()))
 }
 
 /// `vertex-ai` on a project, with minted tokens or a key. `place` decides each

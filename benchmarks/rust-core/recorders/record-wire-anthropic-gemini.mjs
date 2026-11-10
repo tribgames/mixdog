@@ -14,7 +14,9 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { gunzipSync } from 'node:zlib';
+import { createHash } from 'node:crypto';
+import net from 'node:net';
+import { gunzipSync, gzipSync } from 'node:zlib';
 import { pathToFileURL } from 'node:url';
 import { FIXTURES_ROOT, exactProductIdentity, parseArgs, resolveTree, writeSetManifest } from './lib/common.mjs';
 import { nodeRealTool, writeJsonCompact } from './lib/tool-definitions.mjs';
@@ -58,7 +60,12 @@ const REQUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 const ledgerView = (row) => ({ ...row, id: row.id.replace(REQUEST_ID, '<req>'), rates: JSON.stringify(row.rates) });
 
 // No connection of any kind leaves this process.
-const { Dispatcher, setGlobalDispatcher } = await import(pathToFileURL(join(tree, 'node_modules/undici/index.js')).href);
+const { Dispatcher, getGlobalDispatcher, setGlobalDispatcher } = await import(pathToFileURL(join(tree, 'node_modules/undici/index.js')).href);
+// What the socket scenarios (the end) use again: Node's own client, before the recording replaces it.
+const realFetch = globalThis.fetch;
+const originalDispatcher = getGlobalDispatcher();
+const realSetTimeout = globalThis.setTimeout;
+const realClearTimeout = globalThis.clearTimeout;
 setGlobalDispatcher(
   new (class NoNetwork extends Dispatcher {
     dispatch() {
@@ -74,10 +81,18 @@ let script = [];
 // answer is stored on the request itself.
 let responder = null;
 let captured = [];
-const bodyText = (body, headers) => {
-  if (typeof body === 'string') return body;
+// The body as the client was handed it: the text, and whether it was gzip bytes (the gzip magic, not the header).
+const bodyOf = (body) => {
+  if (typeof body === 'string') return { text: body, compressed: false };
   const bytes = Buffer.from(body instanceof ArrayBuffer ? new Uint8Array(body) : body);
-  return new Headers(headers).get('content-encoding') === 'gzip' ? gunzipSync(bytes).toString('utf8') : bytes.toString('utf8');
+  const compressed = bytes.length > 1 && bytes[0] === 0x1f && bytes[1] === 0x8b;
+  return { text: (compressed ? gunzipSync(bytes) : bytes).toString('utf8'), compressed };
+};
+// Every header as the caller gave it, in order, duplicates kept: [lowercase name, value] pairs.
+const headerPairs = (headers) => {
+  if (headers == null) return [];
+  const entries = Array.isArray(headers) ? headers : headers instanceof Headers ? [...headers.entries()] : Object.entries(headers);
+  return entries.map(([name, value]) => [String(name).toLowerCase(), String(value)]);
 };
 // A reply with `chunks` arrives in pieces: the first at once, the rest when `release()` is called if the reply is held
 // (`hold`), else straight after. The body then ends. `released` collects the releases of held replies.
@@ -100,8 +115,16 @@ const replyBody = (reply) => {
   return stream;
 };
 globalThis.fetch = async (url, init = {}) => {
-  const headers = Object.fromEntries(new Headers(init.headers || {}));
-  captured.push({ method: init.method || 'GET', url: String(url), headers, body: init.body == null ? null : bodyText(init.body, headers) });
+  const headers = headerPairs(init.headers);
+  const body = init.body == null ? null : bodyOf(init.body);
+  captured.push({
+    method: init.method || 'GET',
+    url: String(url),
+    headers,
+    contentEncoding: headers.find(([name]) => name === 'content-encoding')?.[1] ?? null,
+    compressed: body?.compressed ?? false,
+    body: body?.text ?? null,
+  });
   const reply = responder ? responder(captured.at(-1)) : script.shift();
   if (!reply) throw new Error(`no scripted reply for ${init.method} ${url}`);
   if (responder) captured.at(-1).reply = { status: reply.status, body: reply.body };
@@ -568,10 +591,157 @@ async function runGemini(realTool) {
   return out;
 }
 
+// ---- the observer stream ----
+
+// What a client's observer is called with, in order, when the provider raises a notice (the Gemini redirect's
+// `onStageChange('notice', { tone, message })`) among the other things a send reports: Node's real `agentLoop` runs
+// over a scripted provider and every callback it was given is written down, none left out. The text is the redirect's
+// own (gemini.mjs:326) and the tones are both ways a notice goes (the TUI/desktop row is `pushNotice(…, tone)`).
+const REDIRECT_NOTICE = 'gemini-2.5-pro is now served by Google as gemini-3.8-flash (redirect effective 2026-12-01; billed at gemini-3.8-flash rates)';
+const observerScenarios = [
+  { id: 'warn-notice-then-text', steps: [['notice', 'warn', REDIRECT_NOTICE], ['text', 'ok']] },
+  { id: 'info-notice-then-text', steps: [['notice', 'info', 'a note'], ['text', 'ok']] },
+  { id: 'text-notice-text', steps: [['text', 'one '], ['notice', 'warn', REDIRECT_NOTICE], ['text', 'two']] },
+  { id: 'two-notices-then-text', steps: [['notice', 'warn', REDIRECT_NOTICE], ['notice', 'info', 'a note'], ['text', 'ok']] },
+  { id: 'notice-then-refusal', steps: [['notice', 'warn', REDIRECT_NOTICE], ['fail', 401, 'API key not valid. Please pass a valid API key.']] },
+];
+async function runObserver() {
+  const { agentLoop } = await load('src/runtime/agent/orchestrator/session/agent-loop.mjs');
+  const out = [];
+  for (const scenario of observerScenarios) {
+    const observed = [];
+    const callbacks = {};
+    for (const name of ['onProviderSendStarted', 'onStageChange', 'onTextDelta', 'onReasoningDelta', 'onStreamDelta', 'onToolCall', 'onAssistantText', 'onTextReset', 'onUsage', 'onIterationStart']) {
+      callbacks[name] = (...a) => observed.push([name, ...a.map((v) => (v === undefined ? null : structuredClone(v)))]);
+    }
+    const provider = {
+      name: 'scripted',
+      async send(_messages, model, _tools, opts) {
+        let said = '';
+        for (const [kind, ...rest] of scenario.steps) {
+          if (kind === 'notice') opts.onStageChange('notice', { tone: rest[0], message: rest[1] });
+          else if (kind === 'text') {
+            opts.onStreamDelta('text');
+            opts.onTextDelta(rest[0]);
+            said += rest[0];
+          } else {
+            const error = new Error(rest[1]);
+            error.status = rest[0];
+            throw error;
+          }
+        }
+        return { content: said, toolCalls: [], usage: {}, model };
+      },
+    };
+    let outcome;
+    try {
+      const result = await agentLoop(provider, [{ role: 'user', content: 'go' }], 'm', [], async () => '', process.cwd(), callbacks);
+      outcome = { content: result.content ?? null };
+    } catch (error) {
+      outcome = { error: error.message, status: error.status ?? null };
+    }
+    out.push({ id: scenario.id, steps: scenario.steps, observed, outcome });
+  }
+  return out;
+}
+// ---- the socket ----
+
+// What Node's real client (undici, through the LLM dispatcher the providers use) puts on a socket on top of the
+// request a provider hands it: one recorded request of each provider is sent to a local listener that keeps the raw
+// bytes. Over plain HTTP the listener reads the request head and body; over TLS it reads the ClientHello (the ALPN
+// the client offers) and hangs up. The Rust test sends the same request through the production transport.
+const deadline = (what, wait, ms = 15_000) =>
+  new Promise((resolve, reject) => {
+    const timer = realSetTimeout(() => reject(new Error(`${what}: nothing arrived within ${ms} ms`)), ms);
+    wait.then(
+      (value) => (realClearTimeout(timer), resolve(value)),
+      (error) => (realClearTimeout(timer), reject(error))
+    );
+  });
+const listen = (onSocket) =>
+  new Promise((resolve) => {
+    const server = net.createServer(onSocket);
+    server.listen(0, '127.0.0.1', () => resolve(server));
+  });
+/** The head (lines as received, original case) and body of one HTTP/1.1 request, read off the socket. */
+function readHttp(socket) {
+  return new Promise((resolve) => {
+    let raw = Buffer.alloc(0);
+    socket.on('data', (chunk) => {
+      raw = Buffer.concat([raw, chunk]);
+      const end = raw.indexOf('\r\n\r\n');
+      if (end < 0) return;
+      const lines = raw.subarray(0, end).toString('latin1').split('\r\n');
+      const headers = lines.slice(1).map((line) => [line.slice(0, line.indexOf(':')), line.slice(line.indexOf(':') + 1).trim()]);
+      const value = (name) => headers.find(([n]) => n.toLowerCase() === name)?.[1];
+      const body = raw.subarray(end + 4);
+      const chunked = value('transfer-encoding') === 'chunked';
+      if (chunked ? !body.toString('latin1').endsWith('0\r\n\r\n') : body.length < Number(value('content-length') ?? 0)) return;
+      socket.end('HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 2\r\nconnection: close\r\n\r\n{}');
+      resolve({ requestLine: lines[0], headers, chunked, body });
+    });
+  });
+}
+/** What a ClientHello offers: the ALPN protocols, the server name and the TLS versions. */
+function readHello(socket) {
+  return new Promise((resolve) => {
+    socket.once('data', (buf) => {
+      let at = 5 + 4 + 2 + 32;
+      at += 1 + buf[at];
+      at += 2 + buf.readUInt16BE(at);
+      at += 1 + buf[at];
+      const end = at + 2 + buf.readUInt16BE(at);
+      at += 2;
+      const hello = { alpn: [], serverName: null, supportedVersions: [] };
+      while (at < end) {
+        const type = buf.readUInt16BE(at);
+        const body = buf.subarray(at + 4, at + 4 + buf.readUInt16BE(at + 2));
+        at += 4 + body.length;
+        if (type === 16) for (let i = 2; i < body.length; i += 1 + body[i]) hello.alpn.push(body.subarray(i + 1, i + 1 + body[i]).toString('latin1'));
+        if (type === 0 && body.length > 5) hello.serverName = body.subarray(5).toString('latin1');
+        if (type === 43) for (let i = 1; i < body.length; i += 2) hello.supportedVersions.push(body.readUInt16BE(i).toString(16));
+      }
+      socket.destroy();
+      resolve(hello);
+    });
+  });
+}
+async function runSockets(requests) {
+  globalThis.fetch = realFetch;
+  setGlobalDispatcher(originalDispatcher);
+  const { getLlmDispatcher } = await load('src/runtime/shared/llm/http-agent.mjs');
+  const out = [];
+  for (const [provider, recorded] of Object.entries(requests)) {
+    const body = recorded.compressed ? gzipSync(Buffer.from(recorded.body, 'utf8')) : Buffer.from(recorded.body, 'utf8');
+    const url = new URL(recorded.url);
+    const send = (origin) =>
+      realFetch(`${origin}${url.pathname}${url.search}`, { method: recorded.method, headers: Object.fromEntries(recorded.headers), body, dispatcher: getLlmDispatcher() });
+    let seen;
+    const plain = await listen((socket) => (seen = readHttp(socket)));
+    const sent = send(`http://127.0.0.1:${plain.address().port}`);
+    const http = await deadline(`${provider}: the request head`, (async () => (await sent, seen))());
+    plain.close();
+    let heard;
+    const tls = await listen((socket) => (heard = readHello(socket)));
+    await send(`https://127.0.0.1:${tls.address().port}`).catch(() => {});
+    const hello = await deadline(`${provider}: the ClientHello`, (async () => heard)());
+    tls.close();
+    out.push({
+      provider,
+      request: { method: recorded.method, path: `${url.pathname}${url.search}`, headers: recorded.headers, bodyBase64: body.toString('base64') },
+      received: { requestLine: http.requestLine, headers: http.headers, chunked: http.chunked, bodySha256: createHash('sha256').update(http.body).digest('hex') },
+      hello,
+    });
+  }
+  return out;
+}
 const realTool = await nodeRealTool(tree);
 const anthropic = await runAnthropic(realTool);
 installVirtualTime();
 const geminiRuns = await runGemini(realTool);
+const observerRuns = await runObserver();
+const generate = geminiRuns[0].sends[0].requests.find((r) => r.method === 'POST' && !r.url.endsWith('/cachedContents'));
+const socketRuns = await runSockets({ anthropic: anthropic.scenarios[0].sends[0].requests[0], gemini: generate });
 rmSync(OUT, { recursive: true, force: true });
 await writeJsonCompact(tree, join(OUT, 'anthropic.json'), { recorder: 'benchmarks/rust-core/recorders/record-wire-anthropic-gemini.mjs', capabilities: anthropic.capabilities, scenarios: anthropic.scenarios });
 await writeJsonCompact(tree, join(OUT, 'gemini.json'), { recorder: 'benchmarks/rust-core/recorders/record-wire-anthropic-gemini.mjs', scenarios: geminiRuns });
@@ -581,6 +751,8 @@ writeSetManifest(OUT, {
   command: 'node benchmarks/rust-core/recorders/record-wire-anthropic-gemini.mjs --tree <exact export of b6f10295a>',
   identity,
 });
+await writeJsonCompact(tree, join(OUT, 'sockets.json'), { recorder: 'benchmarks/rust-core/recorders/record-wire-anthropic-gemini.mjs', scenarios: socketRuns });
+await writeJsonCompact(tree, join(OUT, 'observer.json'), { recorder: 'benchmarks/rust-core/recorders/record-wire-anthropic-gemini.mjs', scenarios: observerRuns });
 closeUsageLedgers();
 rmSync(dataDir, { recursive: true, force: true });
 console.log(`recorded ${anthropic.scenarios.length} anthropic and ${geminiRuns.length} gemini scenarios`);

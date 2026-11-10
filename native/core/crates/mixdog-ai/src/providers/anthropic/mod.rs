@@ -40,6 +40,8 @@ mod shared_prefix_tests;
 mod tests;
 #[cfg(test)]
 pub(crate) mod wire_tests;
+#[cfg(test)]
+pub(crate) mod socket_tests;
 
 pub use adapter::AnthropicAdapter;
 pub use adapter::ApiKeySource;
