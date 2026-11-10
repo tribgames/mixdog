@@ -96,10 +96,20 @@ jobs:
           tar -xzf "$archive" -C "$RUNNER_TEMP/pg-runtime"
           echo "MIXDOG_PG_RUNTIME=$RUNNER_TEMP/pg-runtime" >> "$GITHUB_ENV"
 
-      # Replays Node's review recording against the core composed as the daemon composes it, stopped and composed again over one data directory.
+      # The nextest release the local runs use (`.config/nextest.toml` profiles), as its prebuilt binary.
+      - name: cargo-nextest
+        run: |
+          case "$RUNNER_OS" in
+            Linux) target=linux ;;
+            macOS) target=mac ;;
+          esac
+          curl -fsSL "https://get.nexte.st/0.9.151/$target" | tar -xzf - -C "${CARGO_HOME:-$HOME/.cargo}/bin"
+
+      # Replays Node's review recording against the core composed as the daemon composes it, stopped and composed again over one data directory:
+      # the `pg` profile (the same command the merge check runs).
       - name: Review restart replay over the composed core
         timeout-minutes: 20
-        run: cargo test -p mixdog-app-server-daemon --lib compose::review_restart_tests:: -- --ignored --test-threads=1
+        run: cargo nextest run --profile pg --run-ignored only -p mixdog-app-server-daemon
 
       - name: Clippy
         run: cargo clippy -p mixdog-app-server-daemon --all-targets -- -D warnings
