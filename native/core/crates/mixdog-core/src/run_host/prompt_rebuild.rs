@@ -25,7 +25,6 @@ use super::prewarm::ComposeJob;
 use super::prewarm::PromptFacts;
 use super::prewarm::StartupProbes;
 use super::prewarm::compose;
-use super::prewarm::compose_read_only;
 use super::prompt_session::PromptPaths;
 use super::prompt_session::SessionPrompt;
 use super::prompt_session::SessionPromptInput;
@@ -55,12 +54,6 @@ pub struct RebuildRequest {
 #[async_trait]
 pub trait PromptRebuild: Send + Sync + 'static {
     async fn rebuild(&self, request: RebuildRequest) -> Result<SessionPrompt, String>;
-
-    /// The same composition for a reader that must leave no trace (the request snapshot): the startup observations it
-    /// reads are not marked used, no missing one is probed and no refresh is started. Node's counterpart reads the
-    /// prompt the session holds and composes nothing (`nextMainRequest`, `session/side-question.mjs:59-99`), so it
-    /// touches the probe cache (`runtime-capabilities.mjs`) not at all.
-    fn read_only(self: Arc<Self>) -> Arc<dyn PromptRebuild>;
 }
 
 /// `buildSkillManifest(collectPromptSkillsCached(cwd, config))`: the manifest of the skills a session working in `cwd` may see.
@@ -153,35 +146,9 @@ impl Owned {
     }
 }
 
-/// [`ComposedPrompt`] composing over a copy of the startup observations, with no probe run ([`PromptRebuild::read_only`]).
-struct ReadOnlyPrompt(Arc<ComposedPrompt>);
-
-#[async_trait]
-impl PromptRebuild for ReadOnlyPrompt {
-    async fn rebuild(&self, request: RebuildRequest) -> Result<SessionPrompt, String> {
-        self.0.compose(request, true).await
-    }
-
-    fn read_only(self: Arc<Self>) -> Arc<dyn PromptRebuild> {
-        self
-    }
-}
-
 #[async_trait]
 impl PromptRebuild for ComposedPrompt {
     async fn rebuild(&self, request: RebuildRequest) -> Result<SessionPrompt, String> {
-        self.compose(request, false).await
-    }
-
-    fn read_only(self: Arc<Self>) -> Arc<dyn PromptRebuild> {
-        Arc::new(ReadOnlyPrompt(self))
-    }
-}
-
-impl ComposedPrompt {
-    /// The composition; `read_only` composes over a copy of the observations and probes nothing
-    /// ([`super::prewarm::compose_read_only`]).
-    async fn compose(&self, request: RebuildRequest, read_only: bool) -> Result<SessionPrompt, String> {
         let header = &request.header;
         let text = |key: &str| header.get(key).and_then(Value::as_str).unwrap_or_default().to_owned();
         let identity = header.get("promptIdentity").cloned().unwrap_or(Value::Null);
@@ -226,11 +193,7 @@ impl ComposedPrompt {
             let sources = RealSources::new(lane, host, observed);
             compose_session_prompt(&owned.input(), &paths, &sources)
         });
-        let mut composed = if read_only {
-            compose_read_only(&self.io, &self.observed, self.facts.clone(), job).await?
-        } else {
-            compose(&self.io, &self.probes, &self.observed, self.facts.clone(), job).await?
-        };
+        let mut composed = compose(&self.io, &self.probes, &self.observed, self.facts.clone(), job).await?;
         composed.sections.workflow_name = workflow_name;
         Ok(composed)
     }

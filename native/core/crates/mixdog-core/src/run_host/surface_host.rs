@@ -172,7 +172,6 @@ impl FeatureDenied for RunWorkflowSurface {
 }
 
 /// What the Lead's surface is built from.
-#[derive(Clone)]
 pub struct SurfaceSources {
     /// `rt.mode` (`normalizeToolMode(params.toolMode)`); anything but `readonly`/`lead` is `full`.
     pub mode: String,
@@ -234,42 +233,6 @@ pub struct LeadSurfaceHost {
     applied: std::sync::Mutex<HashMap<String, Applied>>,
     /// Thread id to the inputs its last MCP reconcile left (`RECONCILE_STATE`); in this process only, as Node's is.
     mcp_state: std::sync::Mutex<HashMap<String, Value>>,
-}
-
-/// One thread's header held in memory, where [`TurnSettings::projected`] lets a turn start write: a patch lands on the
-/// copy as the session actor would apply it to the stored header, a conditional one only while what it expects holds.
-struct HeaderCopy(std::sync::Mutex<Header>);
-
-#[async_trait]
-impl ThreadState for HeaderCopy {
-    async fn header(&self, _: &ThreadId) -> Result<Header, PortError> {
-        Ok(self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone())
-    }
-
-    async fn patch_header(&self, _: &ThreadId, set: Map<String, Value>, unset: Vec<String>) -> Result<(), PortError> {
-        let mut header = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        for key in &unset {
-            header.shift_remove(key);
-        }
-        header.extend(set);
-        Ok(())
-    }
-
-    async fn patch_header_if(&self, _: &ThreadId, expect: Map<String, Value>, set: Map<String, Value>, unset: Vec<String>) -> Result<Option<Map<String, Value>>, PortError> {
-        let mut header = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if expect.iter().any(|(key, value)| header.get(key).unwrap_or(&Value::Null) != value) {
-            return Ok(Some(expect.keys().map(|key| (key.clone(), header.get(key).cloned().unwrap_or(Value::Null))).collect()));
-        }
-        for key in &unset {
-            header.shift_remove(key);
-        }
-        header.extend(set);
-        Ok(None)
-    }
-
-    async fn publish(&self, thread: &ThreadId, _: mixdog_core_ports::ports::threads::Section) -> Result<(), PortError> {
-        Err(PortError::Failed { capability: "tools".into(), message: format!("thread {}: a projected turn start publishes nothing", thread.as_str()) })
-    }
 }
 
 /// `deferredSurfaceModeForLead`.
@@ -666,34 +629,6 @@ impl TurnSettings for LeadSurfaceHost {
     /// `refreshDeferredMcpToolCatalog(session)` at a request boundary, a tool call or a `load_tool`.
     async fn refresh_mcp(&self, thread: &ThreadId) -> Result<(), String> {
         self.fold(thread, false).await.map(|_| ()).map_err(|error| format!("{error:?}"))
-    }
-
-    /// The turn start and the first request boundary run as they run for a turn ([`Self::reconcile`], then
-    /// [`Self::migrate_exposure`] and [`Self::refresh_mcp`]), by the same host over a copy of the thread's header and
-    /// of the reconcile memory: every write lands in the copies, which are dropped. A switch held for the next turn is
-    /// applied before the reconcile and decides the request, so a thread that holds one is refused.
-    async fn projected(&self, thread: &ThreadId, conversation: bool, rows: &[Value]) -> Result<Header, String> {
-        let stored = self.sources.threads.header(thread).await.map_err(|error| format!("{:?}", port(thread, error)))?;
-        if let Some(held) = ["pendingRoute", "pendingOrchestrationMode", "pendingWorkflowId"].into_iter().find(|key| stored.contains_key(*key)) {
-            return Err(format!("the thread holds {held} for its next turn: its request is decided when the turn starts"));
-        }
-        let copy = Arc::new(HeaderCopy(std::sync::Mutex::new(stored)));
-        fn memory<T: Clone>(cell: &std::sync::Mutex<HashMap<String, T>>) -> std::sync::Mutex<HashMap<String, T>> {
-            std::sync::Mutex::new(cell.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone())
-        }
-        let shadow = LeadSurfaceHost {
-            mode: self.mode,
-            // The prompt is composed as a reader composes it: the startup observations are read, not used up, and no
-            // probe or refresh is started.
-            sources: SurfaceSources { threads: copy.clone(), prompt: self.sources.prompt.clone().read_only(), ..self.sources.clone() },
-            agent_defs: self.agent_defs.clone(),
-            applied: memory(&self.applied),
-            mcp_state: memory(&self.mcp_state),
-        };
-        shadow.reconcile(thread, conversation).await?;
-        shadow.migrate_exposure(thread, rows).await?;
-        shadow.refresh_mcp(thread).await?;
-        Ok(copy.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone())
     }
 
     /// `currentAgents()`: a coding Lead's agent catalog for its workflow and mode, as the prompt would list it

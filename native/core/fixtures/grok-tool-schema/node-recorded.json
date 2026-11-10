@@ -959,6 +959,141 @@
       "source": "synthetic-js",
       "name": "contract_input_spread_of_a_bmp_string",
       "json": "{\"type\":\"object\",\"properties\":{\"action\":{\"enum\":[\"a\",\"b\"]},\"input\":{\"0\":\"y\",\"1\":\"z\",\"description\":\"Allowed input by action (* required): a(n>=1); b(n>=2).\"}}}"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "description_own_tostring_true",
+      "threw": "TypeError: Cannot convert object to primitive value"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "description_own_tostring_false",
+      "threw": "TypeError: Cannot convert object to primitive value"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "description_own_tostring_array",
+      "threw": "TypeError: Cannot convert object to primitive value"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "description_own_tostring_empty_array",
+      "threw": "TypeError: Cannot convert object to primitive value"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "description_own_tostring_empty_string",
+      "threw": "TypeError: Cannot convert object to primitive value"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "description_own_tostring_zero",
+      "threw": "TypeError: Cannot convert object to primitive value"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "description_own_valueof_string_with_own_tostring",
+      "threw": "TypeError: Cannot convert object to primitive value"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "description_own_valueof_string_only",
+      "json": "{\"properties\":{\"x\":{\"type\":\"array\",\"description\":\"[object Object] Pass one or more values as an array.\"}}}"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "description_own_valueof_number_with_own_tostring",
+      "threw": "TypeError: Cannot convert object to primitive value"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "description_own_valueof_number_only",
+      "json": "{\"properties\":{\"x\":{\"type\":\"array\",\"description\":\"[object Object] Pass one or more values as an array.\"}}}"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "description_own_valueof_true_with_own_tostring",
+      "threw": "TypeError: Cannot convert object to primitive value"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "description_own_valueof_true_only",
+      "json": "{\"properties\":{\"x\":{\"type\":\"array\",\"description\":\"[object Object] Pass one or more values as an array.\"}}}"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "description_own_valueof_null_with_own_tostring",
+      "threw": "TypeError: Cannot convert object to primitive value"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "description_own_valueof_null_only",
+      "json": "{\"properties\":{\"x\":{\"type\":\"array\",\"description\":\"[object Object] Pass one or more values as an array.\"}}}"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "description_own_valueof_array_with_own_tostring",
+      "threw": "TypeError: Cannot convert object to primitive value"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "description_own_valueof_array_only",
+      "json": "{\"properties\":{\"x\":{\"type\":\"array\",\"description\":\"[object Object] Pass one or more values as an array.\"}}}"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "description_own_valueof_object_with_own_tostring",
+      "threw": "TypeError: Cannot convert object to primitive value"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "description_own_valueof_object_only",
+      "json": "{\"properties\":{\"x\":{\"type\":\"array\",\"description\":\"[object Object] Pass one or more values as an array.\"}}}"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "contract_minimum_own_tostring_true",
+      "threw": "TypeError: Cannot convert object to primitive value"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "contract_minimum_own_tostring_array",
+      "threw": "TypeError: Cannot convert object to primitive value"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "contract_minimum_own_tostring_string",
+      "threw": "TypeError: Cannot convert object to primitive value"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "contract_minimum_own_valueof_only",
+      "json": "{\"type\":\"object\",\"properties\":{\"action\":{\"enum\":[\"a\",\"b\"]},\"input\":{\"type\":\"object\",\"properties\":{\"n\":{\"minimum\":{\"valueOf\":1}}},\"description\":\"Allowed input by action (* required): a(n>=[object Object]); b(n>=2).\"}}}"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "astral_keys_and_values_kept_whole",
+      "json": "{\"type\":\"object\",\"properties\":{\"k😀\":{\"type\":\"string\",\"description\":\"v🎉\",\"enum\":[\"e😀\",\"f🎉\"]}}}"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "nested_properties_string_with_a_pair_merged",
+      "json": "{\"type\":\"object\",\"properties\":{\"o\":{\"type\":\"object\",\"properties\":{\"0\":{\"anyOf\":[\"\\ud83d\",\"x\"]},\"1\":{\"anyOf\":[\"\\ude00\",\"\\ud83c\"]},\"2\":\"\\udf89\"}}}}"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "nested_properties_string_low_then_high_halves",
+      "json": "{\"type\":\"object\",\"properties\":{\"o\":{\"type\":\"object\",\"properties\":{\"0\":\"\\ud83c\",\"1\":{\"type\":\"string\"},\"2\":\"\\ud83d\",\"3\":\"\\ude00\"}}}}"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "astral_description_noted",
+      "json": "{\"properties\":{\"x\":{\"type\":\"array\",\"description\":\"😀 text Pass one or more values as an array.\"}}}"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "contract_enum_with_astral_values",
+      "json": "{\"type\":\"object\",\"properties\":{\"action\":{\"enum\":[\"a😀\",\"b\"]},\"input\":{\"type\":\"object\",\"properties\":{\"n\":{\"enum\":[\"x🎉\",\"y\",\"z\"]}},\"description\":\"Allowed input by action (* required): a😀(n=x🎉|y); b(n=z).\"}}}"
     }
   ]
 }

@@ -382,11 +382,6 @@ impl SessionRoutes {
         Ok(())
     }
 
-    /// Whether a model pick is held in memory for `thread`'s next turn (`applyPendingRoute` takes it).
-    pub fn holds_pending(&self, thread: &ThreadId) -> bool {
-        self.pending_lock().contains_key(thread.as_str())
-    }
-
     fn pending_lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, Option<u64>>> {
         self.pending.lock().expect("pending picks lock")
     }

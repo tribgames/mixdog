@@ -1,24 +1,171 @@
 {
-  "steps": [
+  "observerCheck": {
+    "creationGit": [
+      "status",
+      "check-ignore"
+    ],
+    "fsCalls": [
+      {
+        "call": "writeFileSync",
+        "kind": "write",
+        "path": "probe-a.txt"
+      },
+      {
+        "call": "readdirSync",
+        "kind": "list",
+        "path": ""
+      },
+      {
+        "call": "writeFile",
+        "kind": "write",
+        "path": "probe-b.txt"
+      }
+    ]
+  },
+  "cases": [
     {
-      "step": "creation",
-      "gitRequested": [
-        "status",
-        "check-ignore"
-      ]
+      "name": "no-user-conversation",
+      "before": null,
+      "request": null,
+      "fsCalls": [],
+      "gitRequested": []
     },
     {
-      "step": "request-without-sending",
-      "requestBuilt": true,
-      "gitRequested": [],
-      "dataFilesChanged": []
+      "name": "existing-transcript",
+      "before": null,
+      "request": {
+        "provider": "anthropic",
+        "model": "claude-test",
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are the Lead."
+          },
+          {
+            "role": "user",
+            "content": "hi"
+          },
+          {
+            "role": "assistant",
+            "content": "ok"
+          }
+        ],
+        "tools": [
+          {
+            "name": "read",
+            "description": "Read a file",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "providerToolSnapshotAuthoritative": true,
+        "providerNativeToolPrefixCount": 0,
+        "iteration": 1
+      },
+      "fsCalls": [],
+      "gitRequested": []
     },
     {
-      "step": "next-turn-composition",
-      "gitRequested": [
-        "status",
-        "check-ignore"
-      ]
+      "name": "no-user-conversation-after-a-new-ignored-directory",
+      "before": "ignored-directory",
+      "request": null,
+      "fsCalls": [],
+      "gitRequested": []
+    },
+    {
+      "name": "existing-transcript-after-a-new-ignored-directory",
+      "before": "ignored-directory",
+      "request": {
+        "provider": "anthropic",
+        "model": "claude-test",
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are the Lead."
+          },
+          {
+            "role": "user",
+            "content": "hi"
+          },
+          {
+            "role": "assistant",
+            "content": "ok"
+          }
+        ],
+        "tools": [
+          {
+            "name": "read",
+            "description": "Read a file",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "providerToolSnapshotAuthoritative": true,
+        "providerNativeToolPrefixCount": 0,
+        "iteration": 1
+      },
+      "fsCalls": [],
+      "gitRequested": []
+    },
+    {
+      "name": "no-user-conversation-after-the-skill-catalog-was-invalidated",
+      "before": "invalidate-skills",
+      "request": null,
+      "fsCalls": [],
+      "gitRequested": []
+    },
+    {
+      "name": "existing-transcript-after-the-skill-catalog-was-invalidated",
+      "before": "invalidate-skills",
+      "request": {
+        "provider": "anthropic",
+        "model": "claude-test",
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are the Lead."
+          },
+          {
+            "role": "user",
+            "content": "hi"
+          },
+          {
+            "role": "assistant",
+            "content": "ok"
+          }
+        ],
+        "tools": [
+          {
+            "name": "read",
+            "description": "Read a file",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "providerToolSnapshotAuthoritative": true,
+        "providerNativeToolPrefixCount": 0,
+        "iteration": 1
+      },
+      "fsCalls": [],
+      "gitRequested": []
     }
   ]
 }

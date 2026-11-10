@@ -32,7 +32,10 @@ const cases = inputs.map(({ source, name, input }) => {
 
 const stage = stageSet(finalDir, ['node-recorded.json', 'MANIFEST.json']);
 writeJson(join(stage, 'node-recorded.json'), { cases });
-const extra = { recorderSha256: sha256(readFileSync(fileURLToPath(import.meta.url))) };
+const extra = {
+  recorderSha256: sha256(readFileSync(fileURLToPath(import.meta.url))),
+  runtime: { node: process.version, electron: process.versions.electron ?? null },
+};
 writeSetManifest(stage, { set: 'grok-tool-schema', recorder, command: `node ${recorder} --tree <b6f10295a export>`, identity, extra });
 commitStage(stage, finalDir);
 console.log(`${cases.length} cases recorded from ${COMMIT}`);

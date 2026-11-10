@@ -32,14 +32,13 @@ pub enum ProbeRequest {
     Ignored { directory: String, names: Vec<String> },
 }
 
-#[derive(Default, Clone, Debug, PartialEq)]
+#[derive(Default)]
 struct ChangeEntry {
     value: Option<String>,
     unserved: bool,
     pending: bool,
 }
 
-#[derive(Clone, Debug, PartialEq)]
 struct IgnoreEntry {
     names: HashSet<String>,
     ignored: HashSet<String>,
@@ -56,7 +55,7 @@ impl IgnoreEntry {
     }
 }
 
-#[derive(Default, Clone, Debug, PartialEq)]
+#[derive(Default)]
 struct State {
     shell_tools: Option<(String, String)>,
     git_present: Option<(String, i64, bool)>,
@@ -73,17 +72,6 @@ pub struct StartupObservations {
 impl StartupObservations {
     pub fn new(clock: Arc<dyn Clock>) -> Self {
         Self { clock, state: Mutex::new(State::default()) }
-    }
-
-    /// A copy of the observations as they stand, on the same clock: what a composition over it marks or asks for stays
-    /// in the copy.
-    pub fn copy(&self) -> Self {
-        Self { clock: self.clock.clone(), state: Mutex::new(self.state().clone()) }
-    }
-
-    /// Whether `self` and `other` hold the same observations, marks and asks.
-    pub fn same_as(&self, other: &Self) -> bool {
-        *self.state() == *other.state()
     }
 
     fn state(&self) -> std::sync::MutexGuard<'_, State> {

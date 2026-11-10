@@ -2443,13 +2443,6 @@ mod tests {
             }
             self.threads().header(thread).await.map_err(|error| format!("{error:?}"))
         }
-
-        async fn projected(&self, thread: &ThreadId, _: bool, _: &[Value]) -> Result<mixdog_store::schema::record::Header, String> {
-            use mixdog_core_ports::ports::threads::ThreadState;
-            let mut header = self.threads().header(thread).await.map_err(|error| format!("{error:?}"))?;
-            header.extend(lock(&self.1).clone());
-            Ok(header)
-        }
     }
     /// The done-when turn: `TurnPath::new` over test implementations of the missing owner traits, a
     /// scripted provider behind the accounted registry, a tool call, the stored rows and the ledger row.
@@ -2624,40 +2617,6 @@ mod tests {
         (provider, heard)
     }
 
-    /// What `tools/toolsStatus` with `snapshot` returns for a thread that has not been sent to is the request its first
-    /// turn then hands the provider: the same messages (the turn it answers, then the tail reminder when the model has
-    /// one), the same tools, the same wire body. Run for a model whose rules give a reminder and for one whose do not.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn the_snapshot_is_the_request_a_real_turn_hands_the_provider() {
-        let korean = json!({ "id": "ko", "name": "Korean" });
-        for (model, language, reminder) in [("claude-opus-5-5", Some(korean), true), ("m", None, false)] {
-            let (provider, mut heard) = handing();
-            let world = turn_world(provider.clone()).await;
-            let mut header = json!({ "provider": "scripted", "model": model });
-            if let Some(language) = language {
-                header["responseLanguage"] = language;
-            }
-            let (id, handle) = started_thread(&world, header).await;
-
-            let status = snapshot_call(&tools_status(&world), &id, "go").await;
-
-            let started = handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
-            let Reply::Value(started) = started else { panic!("turn/start answers a value") };
-            assert_eq!(started["kind"], "started");
-            let sent = tokio::time::timeout(Duration::from_secs(30), heard.recv())
-                .await
-                .unwrap_or_else(|_| panic!("timed out after 30000 ms awaiting the request the turn hands the provider ({model})"))
-                .expect("the provider is alive");
-
-            let header = handle.live_header().header();
-            let handed = super::super::request_snapshot::snapshot(&header, &*provider, &sent).expect("the sent request encodes");
-            assert_eq!(status["requestSnapshot"], handed, "{model}: the snapshot is not the request the turn handed the provider");
-            let last = sent.messages.last().expect("a request has messages");
-            assert_eq!(last.source == Some(mixdog_core_api::domain::provider::MessageSource::TailReminder), reminder, "{model}: the tail reminder of the sent request");
-            assert_eq!(sent.messages.iter().filter(|m| m.role == Role::User).count(), 1 + usize::from(reminder), "{model}: the turn and the reminder are the user messages");
-        }
-    }
-
     /// The snapshot taken now, and the request the thread's next turn (`op`, prompt `go`) then hands the provider,
     /// encoded the same way.
     async fn snapshot_then_turn(
@@ -2694,35 +2653,26 @@ mod tests {
         .await;
     }
 
-    /// A setting that moved after the thread was created reaches the snapshot as the turn start would bring it: the
-    /// snapshot is the request the turn then sends, and the stored thread is not written by taking it.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn the_snapshot_carries_the_settings_the_turn_start_would_apply() {
-        let (provider, mut heard) = handing();
-        let world = turn_world(provider.clone()).await;
-        let (id, handle) = started_thread(&world, json!({ "provider": "scripted", "model": "claude-opus-5-5" })).await;
-        lock(&world.settings).insert("responseLanguage".into(), json!({ "id": "ko", "name": "Korean" }));
-        let before = stored_state(&world, &id, &handle);
-        let status = snapshot_call(&tools_status(&world), &id, "go").await;
-        assert_eq!(stored_state(&world, &id, &handle), before, "the snapshot stored the settings it computed");
-        let (snapshot, handed) = snapshot_then_turn(&world, &provider, &mut heard, &id, &handle, "op-1").await;
-        assert_eq!(status["requestSnapshot"], snapshot, "two snapshots of the same thread differ");
-        assert_eq!(snapshot, handed, "the snapshot is not the request the turn handed the provider");
-    }
-
-    /// A thread with history: the snapshot taken between two turns is the request the second turn sends.
+    /// A thread with history: the snapshot is `nextMainRequest`'s, the stored header and transcript as they are with the
+    /// asked user message after them, so for a thread whose settings did not move since (and a model whose rules give no
+    /// tail reminder) it is the request the next turn sends. Taking it stores nothing.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn the_snapshot_of_a_thread_with_history_is_its_next_request() {
         let (provider, mut heard) = handing();
         let world = turn_world(provider.clone()).await;
-        let (id, handle) = started_thread(&world, json!({ "provider": "scripted", "model": "claude-opus-5-5" })).await;
+        let (id, handle) = started_thread(&world, json!({ "provider": "scripted", "model": "m" })).await;
         let covered_before = handle.header_snapshot().get("turnCoverage").cloned();
-        let (first, handed) = snapshot_then_turn(&world, &provider, &mut heard, &id, &handle, "op-1").await;
-        assert_eq!(first, handed, "first turn");
+        let started = handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
+        assert!(matches!(started, Reply::Value(_)), "turn/start answers a value");
+        tokio::time::timeout(Duration::from_secs(30), heard.recv()).await.unwrap_or_else(|_| panic!("timed out after 30000 ms awaiting the first turn's request")).expect("the provider is alive");
         settled_turns(&world, &id, &handle, 1, covered_before).await;
-        let (second, handed) = snapshot_then_turn(&world, &provider, &mut heard, &id, &handle, "op-2").await;
-        assert_eq!(second, handed, "second turn: the snapshot is not the request the turn handed the provider");
-        assert_ne!(first, second, "the history is in the second request");
+        let before = stored_state(&world, &id, &handle);
+        let first = snapshot_call(&tools_status(&world), &id, "go").await;
+        assert_eq!(stored_state(&world, &id, &handle), before, "the snapshot call wrote to the stored thread");
+        let (snapshot, handed) = snapshot_then_turn(&world, &provider, &mut heard, &id, &handle, "op-2").await;
+        assert!(snapshot.is_object(), "a thread with a conversation has a request");
+        assert_eq!(first["requestSnapshot"], snapshot, "two snapshots of the same thread differ");
+        assert_eq!(snapshot, handed, "the snapshot is not the request the next turn handed the provider");
     }
 
     /// The whole of what is stored for a thread and its session directory, as Debug text: every record of the store (header,
@@ -2744,22 +2694,79 @@ mod tests {
         format!("{:#?}\n{:#?}\n{:#?}\n{:#?}", world.rig.store.records(id), handle.live_header().header(), lock(&world.ledger.0), on_disk)
     }
 
-    /// Asking for a snapshot reads. A stored thread with no conversation is the one the reconcile would change, so its
-    /// whole stored state (records, live header, accounting, files) is the same after the call as before it.
+    // An inline module's path is resolved from `src/run_host/factory/tests/`.
+    #[path = "../../../../../mixdog-ai/src/providers/grok/fixture_manifest.rs"]
+    mod tests_manifest;
+
+    /// Node's `nextMainRequest` over the cases `snapshot_effects/record.mjs` recorded (no user conversation, a transcript,
+    /// each again after a new ignored directory and after the skill catalog was invalidated): it is null without a user
+    /// conversation, otherwise the stored transcript as it is (its iteration 1), and it writes, lists and probes nothing.
+    /// The core's snapshot request for a thread without a conversation and for one whose transcript is the recorded one
+    /// (a turn `hi` answered `ok`): null where Node's is, the same conversation messages where Node has them, and the
+    /// thread's stored state untouched by the call. The core's snapshot path holds no prompt composition, probe or skill
+    /// catalog to touch (`HostRunParts::snapshot_request` builds from the header and the rows).
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_snapshot_call_leaves_the_stored_thread_exactly_as_it_was() {
+    async fn the_snapshot_answers_where_nodes_next_main_request_answers() {
+        let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../..");
+        let set = repo_root.join("native/core/fixtures/request-snapshot-effects");
+        tests_manifest::verify_dir(&repo_root, &set, "native/core/crates/mixdog-core/src/run_host/snapshot_effects/record.mjs");
+        let node: Value = serde_json::from_slice(&std::fs::read(set.join("node-recorded.json")).unwrap()).unwrap();
+        let (provider, mut heard) = handing();
+        let world = turn_world(provider.clone()).await;
+        let (empty, empty_handle) = started_thread(&world, json!({ "provider": "scripted", "model": "m" })).await;
+        let (talked, talked_handle) = started_thread(&world, json!({ "provider": "scripted", "model": "m" })).await;
+        let covered_before = talked_handle.header_snapshot().get("turnCoverage").cloned();
+        let started = talked_handle.request(request("turn/start", json!({ "threadId": talked, "opId": "op-1", "input": { "prompt": "hi" } }), "op-1")).await.expect("turn/start");
+        assert!(matches!(started, Reply::Value(_)), "turn/start answers a value");
+        tokio::time::timeout(Duration::from_secs(30), heard.recv()).await.unwrap_or_else(|_| panic!("timed out after 30000 ms awaiting the turn's request")).expect("the provider is alive");
+        settled_turns(&world, &talked, &talked_handle, 1, covered_before).await;
+        let (directory, parts) = world.next.bound().expect("bound");
+        let directory = directory.upgrade().expect("directory");
+        for case in node["cases"].as_array().unwrap() {
+            let name = case["name"].as_str().unwrap();
+            assert_eq!((case["fsCalls"].clone(), case["gitRequested"].clone()), (json!([]), json!([])), "{name}: Node's call did something");
+            let (id, handle) = if case["request"].is_null() { (&empty, &empty_handle) } else { (&talked, &talked_handle) };
+            let before = stored_state(&world, id, handle);
+            let status = snapshot_call(&tools_status(&world), id, "").await;
+            assert_eq!(stored_state(&world, id, handle), before, "{name}: the snapshot call wrote to the stored thread");
+            let prior = directory.model_context(id).read().await.expect("rows");
+            let built = parts.snapshot_request(id, &handle.live_header().header(), &handle.surface().borrow().clone(), prior, None).await;
+            match (&case["request"], built) {
+                (Value::Null, None) => assert_eq!(status["requestSnapshot"], Value::Null, "{name}"),
+                (request, Some((_, built))) if !request.is_null() => {
+                    let conversation = |messages: Vec<(String, String)>| messages.into_iter().filter(|(role, _)| role != "system").collect::<Vec<_>>();
+                    let nodes = request["messages"].as_array().unwrap().iter().map(|m| (m["role"].as_str().unwrap().to_owned(), m["content"].as_str().unwrap().to_owned())).collect();
+                    let text = |content: &mixdog_core_api::domain::provider::Content| match content {
+                        mixdog_core_api::domain::provider::Content::Text(text) => text.clone(),
+                        mixdog_core_api::domain::provider::Content::Parts(parts) => parts
+                            .iter()
+                            .filter_map(|part| match part {
+                                mixdog_core_api::domain::provider::ContentPart::Text(text, _) => Some(text.as_str()),
+                                _ => None,
+                            })
+                            .collect(),
+                    };
+                    let cores = built.messages.iter().map(|m| (format!("{:?}", m.role).to_lowercase(), text(&m.content))).collect();
+                    assert_eq!(conversation(cores), conversation(nodes), "{name}: the conversation of the request");
+                    assert_eq!(request["iteration"], json!(built.options.iteration), "{name}: the iteration");
+                    assert!(status["requestSnapshot"].is_object(), "{name}");
+                }
+                (request, built) => panic!("{name}: Node {request}, the core {:?}", built.map(|(_, r)| r.messages.len())),
+            }
+        }
+    }
+
+    /// `nextMainRequest` is null for a session with no user conversation (`side-question.mjs:67`), so is the snapshot:
+    /// nothing is composed for it, and the thread's whole stored state (records, live header, accounting, files) is the
+    /// same after the call as before it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_thread_with_no_conversation_has_no_snapshot_and_the_call_stores_nothing() {
         let (provider, _heard) = handing();
         let world = turn_world(provider).await;
         let (id, handle) = started_thread(&world, json!({ "provider": "scripted", "model": "m" })).await;
         let before = stored_state(&world, &id, &handle);
         let status = snapshot_call(&tools_status(&world), &id, "go").await;
-        assert!(status["requestSnapshot"]["body"].is_object(), "the call built the request");
+        assert_eq!(status["requestSnapshot"], Value::Null, "Node's nextMainRequest is null without a user conversation");
         assert_eq!(stored_state(&world, &id, &handle), before, "the snapshot call wrote to the stored thread");
-        // The reconcile the other readout runs does change it: the comparison sees a write.
-        let service = tools_status(&world);
-        use mixdog_core_api::DomainService;
-        let plain = CoreRequest { method: Method("tools/toolsStatus"), params: json!({ "threadId": id }), op: None, ctx: CallContext::internal("test") };
-        service.call(plain).await.expect("a plain readout");
-        assert_ne!(stored_state(&world, &id, &handle), before, "a reconciling readout is a write, and the state comparison sees it");
     }
 }
