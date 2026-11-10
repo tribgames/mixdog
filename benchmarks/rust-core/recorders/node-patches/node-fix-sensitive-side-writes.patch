@@ -1,0 +1,145 @@
+diff --git a/src/runtime/agent/orchestrator/agent-trace-format.mjs b/src/runtime/agent/orchestrator/agent-trace-format.mjs
+index dbdb31c..abbe563 100644
+--- a/src/runtime/agent/orchestrator/agent-trace-format.mjs
++++ b/src/runtime/agent/orchestrator/agent-trace-format.mjs
+@@ -3,6 +3,7 @@ import { stableHashStringify } from './stable-hash-stringify.mjs';
+ import { countJsonNextCalls } from './tools/next-call-utils.mjs';
+ import { parseGrepContextHeader, splitGrepLinePrefix } from './tools/builtin/grep-formatting.mjs';
+ import { isReadOnlyNavigationMiss } from './session/result-classification.mjs';
++import { redactSensitiveToolCall } from './session/sensitive-projection.mjs';
+ import { nonNegativeInt } from '../../shared/numbers.mjs';
+ import { isUserControlCancellation } from '../../shared/tool-status.mjs';
+ import {
+@@ -506,6 +507,9 @@ function traceAgentToolFailure({
+ }) {
+   if (process.env.MIXDOG_AGENT_TRACE_DISABLE === '1') return;
+   if (!_resolveToolFailurePath()) return;
++  // The failure log is a file: a value the session marked sensitive (a fill's
++  // text) goes there as the marker, as in the session's own stored copy.
++  toolArgs = redactSensitiveToolCall(sessionId, { arguments: toolArgs }).arguments;
+   try {
+     const cleanText = _redactLogText(toolTraceText(resultText));
+     // A session close is deliberate orchestration, not a tool failure.
+@@ -578,6 +582,9 @@ function traceAgentTool({
+   executionIntervals = null,
+   cwd,
+ }) {
++  // The trace is a file: a value the session marked sensitive goes there (and
++  // into the argument hash) as the marker, as in the session's stored copy.
++  toolArgs = redactSensitiveToolCall(sessionId, { arguments: toolArgs }).arguments;
+   const nextCallCount = countJsonNextCalls(resultText);
+   const resultBytesEst = typeof resultText === 'string' ? Buffer.byteLength(resultText, 'utf8') : 0;
+   const resultLinesEst = typeof resultText === 'string' && resultText.length > 0 ? resultText.split('\n').length : 0;
+diff --git a/src/runtime/agent/orchestrator/session/sensitive-side-writes.test.mjs b/src/runtime/agent/orchestrator/session/sensitive-side-writes.test.mjs
+new file mode 100644
+index 0000000..10d15c3
+--- /dev/null
++++ b/src/runtime/agent/orchestrator/session/sensitive-side-writes.test.mjs
+@@ -0,0 +1,80 @@
++// A value a fill marked sensitive is in none of the files written beside the
++// session's own: the memory database's ingest and the agent trace with its
++// tool-failure log get the marker, as the session file does.
++import assert from 'node:assert/strict';
++import test from 'node:test';
++import { spawnSync } from 'node:child_process';
++import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import { join } from 'node:path';
++import { rememberSensitiveValues } from './sensitive-values.mjs';
++import { createMemoryIngest } from '../../../../session-runtime/lifecycle/memory-ingest.mjs';
++
++const CODE = '482913';
++const fill = { name: 'browser', arguments: { action: 'fill', input: { sensitive: true, text: CODE } } };
++
++test('a closing session goes to memory with its sensitive values as the marker', async () => {
++  const sessionId = 'sess_sensitive_memory';
++  rememberSensitiveValues(sessionId, [fill]);
++  const seen = [];
++  const ingest = createMemoryIngest({
++    getMemoryModPromise: () => Promise.resolve({ handleToolCall: async (_name, args) => seen.push(args) }),
++    getCurrentCwd: () => 'C:/work',
++    withTeardownDeadline: (promise) => promise,
++  });
++  const messages = [
++    { role: 'tool', toolCallId: 'm', content: `Your code is ${CODE}` },
++    { role: 'assistant', content: '', toolCalls: [{ id: 'f', ...fill }] },
++  ];
++  await ingest({ id: sessionId, cwd: 'C:/work', messages });
++  assert.equal(seen.length, 1);
++  assert.ok(!JSON.stringify(seen[0]).includes(CODE), JSON.stringify(seen[0]));
++  assert.equal(seen[0].messages[0].content, 'Your code is [redacted]');
++  assert.equal(seen[0].messages[1].toolCalls[0].arguments.input.text, '[redacted]');
++  assert.equal(messages[0].content, `Your code is ${CODE}`, 'the loaded session keeps the value');
++});
++
++test('a failed sensitive fill reaches the trace and the failure log with the marker', () => {
++  const directory = mkdtempSync(join(tmpdir(), 'mixdog-sensitive-trace-'));
++  try {
++    const result = spawnSync(
++      process.execPath,
++      [
++        '--input-type=module',
++        '-e',
++        `
++      import { rememberSensitiveValues } from './src/runtime/agent/orchestrator/session/sensitive-values.mjs';
++      import { traceAgentTool } from './src/runtime/agent/orchestrator/agent-trace-format.mjs';
++      import { drainAgentTrace } from './src/runtime/agent/orchestrator/agent-trace-io.mjs';
++      const fill = ${JSON.stringify(fill)};
++      rememberSensitiveValues('sess_sensitive_trace', [fill]);
++      traceAgentTool({
++        sessionId: 'sess_sensitive_trace', iteration: 1, toolName: 'browser', toolKind: 'internal',
++        toolMs: 1, toolArgs: fill.arguments, resultKind: 'error', resultText: 'Error: no such field',
++      });
++      await drainAgentTrace();
++    `,
++      ],
++      {
++        cwd: process.cwd(),
++        encoding: 'utf8',
++        windowsHide: true,
++        env: {
++          ...process.env,
++          MIXDOG_AGENT_TRACE_PATH: join(directory, 'trace.jsonl'),
++          MIXDOG_TOOL_FAILURE_LOG_PATH: join(directory, 'failures.jsonl'),
++        },
++      }
++    );
++    assert.equal(result.status, 0, result.stderr);
++    const trace = readFileSync(join(directory, 'trace.jsonl'), 'utf8');
++    const failures = readFileSync(join(directory, 'failures.jsonl'), 'utf8');
++    for (const text of [trace, failures]) {
++      assert.ok(!text.includes(CODE), text);
++      assert.ok(text.includes('[redacted]'), text);
++    }
++    assert.equal(JSON.parse(failures.trim()).tool_args.input.text, '[redacted]');
++  } finally {
++    rmSync(directory, { recursive: true, force: true });
++  }
++});
+diff --git a/src/session-runtime/lifecycle/memory-ingest.mjs b/src/session-runtime/lifecycle/memory-ingest.mjs
+index 7ff8432..1c0f501 100644
+--- a/src/session-runtime/lifecycle/memory-ingest.mjs
++++ b/src/session-runtime/lifecycle/memory-ingest.mjs
+@@ -2,6 +2,8 @@
+  * src/session-runtime/lifecycle/memory-ingest.mjs - best-effort persist of a
+  * closing session's conversation into the memory DB.
+  */
++import { redactSensitiveMessages } from '../../runtime/agent/orchestrator/session/sensitive-projection.mjs';
++
+ const INGEST_DEADLINE_MS = 2500;
+ 
+ // Sessions that never compacted have no session-sourced rows unless ingested
+@@ -15,8 +17,11 @@ export function createMemoryIngest({ getMemoryModPromise, getCurrentCwd, withTea
+   return async function ingestSessionIntoMemory(session) {
+     if (process.env.MIXDOG_DISABLE_MEMORY_INGEST === '1') return;
+     try {
+-      const messages = Array.isArray(session?.messages) ? session.messages : [];
+-      if (!session?.id || messages.length === 0) return;
++      const loaded = Array.isArray(session?.messages) ? session.messages : [];
++      if (!session?.id || loaded.length === 0) return;
++      // The memory database is written to disk: a value the session marked
++      // sensitive goes there as the marker, as in the session's stored copy.
++      const messages = redactSensitiveMessages(session.id, loaded);
+       const modPromise = getMemoryModPromise();
+       if (!modPromise) return;
+       await withTeardownDeadline(
