@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 3676291,
+      "bytes": 3785029,
       "path": "golden.json",
-      "sha256": "a5b5a835eb61674ad3eba8847bc67dada8bd5ccc9c46801c9a4973cbe7f0e6b2"
+      "sha256": "5c3412a4a032693a47f74786b409990e3ce828448de274b84eadedd148d6cb37"
     }
   ],
   "nodeRuntime": "v22.20.0",
@@ -33,8 +33,8 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-call-tool.mjs",
-  "recorderSha256": "658e34eba639131aded823125d2cf2048b351f9e91006bc91c2fd2613309d74b",
-  "scenarios": 58,
+  "recorderSha256": "af3224312c3e3bfe81398875422b5f06dcfe8876cf61baa65ab7a8f71922143e",
+  "scenarios": 60,
   "set": "call-tool",
   "syntheticInputs": [
     "the provider: a scripted `send` that returns each scenario's replies in order; for a streamed scenario it hands every call to `onToolCall` one macrotask apart and ends the response once the calls the twin run saw settle early (`settles`)",
@@ -43,9 +43,11 @@
     "the approvals: `onToolApproval` answers each card from the scenario's `answers`, in order, as the device `Pixel`",
     "the hooks: `beforeToolHook` asks / denies / rewrites per the scenario (`ask`, `hookDeny`, `hookRewrite`), `afterToolHook` only records",
     "the gates (`gates`): a step of one call (`pre`, `tool`, `post`, `card`, `grants`, `audit`) held until an entry of the timeline appears; each step also takes one macrotask",
+    "the cancellation (`abortWhen`): once every listed timeline entry has happened the recorder calls `abortSessionTurn(<session>, 'cancelled by the scenario')` and notes `aborted`; the turn's rejection is recorded as `turnError`, and the recorder then waits until each call of `settled` has told the host it settled and every script step still in progress has ended",
+    "the cut stream (`cut` on a reply): after handing its calls to `onToolCall` and waiting for their settlement, the streaming provider throws `{ code: TRUNCATED_STREAM, truncatedStream: true, partialToolCalls: <the calls>, pendingToolUse: true }` and notes `cut`",
     "synchronous file work: `fs/promises` readFile / appendFile / mkdir of the human gate's grants.json and audit.jsonl are replaced by the same operation done synchronously after one macrotask (the recorder's `fileStep`), so the order of two concurrent approvals is the scenario's",
     "the session: createSession with the sandbox profile (MIXDOG_DATA_DIR and the home variables under the sandbox), a fixed id per scenario, a work directory holding x.txt"
   ],
-  "totalBytes": 3676291,
+  "totalBytes": 3785029,
   "twoRunIdentity": "two recordings in a row produce byte-identical golden.json and MANIFEST.json (compare their sha256 entries)"
 }

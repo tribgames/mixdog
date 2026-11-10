@@ -66,6 +66,18 @@ function namingProfile(sandbox) {
     .filter(Boolean);
 }
 
+/** Waits, at most `ms`, for the processes `entries` (`"<pid> <name>"`) to exit: `Wait-Process` waits on each process's own exit
+ *  (its handle), never by listing again. Nothing is ended; a pid that has already exited is no wait. */
+function awaitExit(entries, ms) {
+  const ids = entries.map((entry) => entry.split(' ')[0]).join(',');
+  const waited = spawnSync(
+    'powershell.exe',
+    ['-NoProfile', '-Command', `Wait-Process -Id ${ids} -Timeout ${Math.ceil(ms / 1000)} -ErrorAction SilentlyContinue`],
+    { encoding: 'utf8', timeout: ms + 30_000, windowsHide: true }
+  );
+  if (waited.error) throw new Error(`cannot wait for ${entries.join(', ')} to exit: ${waited.error.message}`);
+}
+
 /** The whole end of a profile. Returns the failures (an empty list: the profile is gone); throws nothing. */
 export function endSandbox(sandbox, settleMs = 0, dataDir = join(sandbox, 'mixdog_data_dir')) {
   if (!existsSync(sandbox)) return [];
@@ -76,14 +88,14 @@ export function endSandbox(sandbox, settleMs = 0, dataDir = join(sandbox, 'mixdo
     failures.push(error.message);
   }
   try {
-    // A short-lived child of a killed recorder (an `initdb` writing the cluster) ends by itself: it is given `settleMs` to, and never killed.
-    const until = Date.now() + settleMs;
+    // A short-lived child of a killed recorder (an `initdb` writing the cluster) ends by itself: its exit is awaited for at most
+    // `settleMs`, once, and it is never killed. The profile is then looked up once more: a pid reused meanwhile names it no longer.
     let left = namingProfile(sandbox);
-    while (left.length && Date.now() < until) {
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000);
+    if (left.length && settleMs > 0) {
+      awaitExit(left, settleMs);
       left = namingProfile(sandbox);
     }
-    if (left.length) failures.push(`still running and naming ${sandbox}: ${left.join(', ')}`);
+    if (left.length) failures.push(`still running and naming ${sandbox} after ${settleMs} ms: ${left.join(', ')}`);
   } catch (error) {
     failures.push(error.message);
   }

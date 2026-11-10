@@ -343,6 +343,22 @@ pub enum RunEvent {
     /// `loop/tool-phase.mjs:46` before `onToolCall`): what runs, so a bridged `call_tool` is recorded as its target. The host writes
     /// the `batch` trace row from it (`mixdog_trace::batch_record`) with a fresh batch id, and tags the batch's tool rows with it.
     ToolBatch(ToolBatch),
+    /// A cut stream that ended after complete tool calls goes on as a tool-call turn (`recoverPartialToolCalls`,
+    /// `session/send-with-recovery.mjs:767`): Node's `partial_tool_recovery` trace row.
+    PartialToolRecovery(PartialToolRecovery),
+}
+
+/// What `recoverPartialToolCalls` traces (`traceLoop(state, 'partial_tool_recovery', ...)`).
+#[derive(Clone, PartialEq, Debug)]
+pub struct PartialToolRecovery {
+    /// The round's iteration (`nextIteration`).
+    pub iteration: u32,
+    /// `toolCalls`: the complete calls the turn goes on with.
+    pub tool_calls: usize,
+    /// `droppedIncompleteInput`: a call's arguments were still streaming at the cut.
+    pub dropped_incomplete_input: bool,
+    /// `partialContentLen`: the cut response's text, in UTF-16 units.
+    pub partial_content_len: usize,
 }
 
 /// One tool batch of the audit: the turn's iteration and the execution view of its calls, in call order.

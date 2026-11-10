@@ -223,6 +223,7 @@ impl Run {
             guards: Arc::clone(&self.env.guards),
             tool_env: self.tool_env.clone(),
             cancel: self.cancel.clone(),
+            signal: self.config.signal.clone().unwrap_or_else(|| crate::cancel::Cancel::from_token(&self.cancel)),
             clock: Arc::clone(&self.env.clock),
             mcp: self.env.mcp.clone(),
         })
@@ -319,7 +320,7 @@ impl Run {
         self.eager.insert(id, handle);
     }
 
-    /// Eager results of a dead attempt or an unused call are dropped. A read is wound down; a write that started
+    /// Eager results of a dead attempt are dropped before the next attempt. A read is wound down; a write that started
     /// is not stopped, as Node leaves it (its cancel token ends it with the run).
     pub(crate) fn drop_eager(&mut self) {
         for (id, handle) in self.eager.drain() {
@@ -331,21 +332,26 @@ impl Run {
         self.eager_started.clear();
         self.barriers.clear();
         self.eager_single.clear();
+        self.streamed_ids.clear();
     }
 
-    /// The batch is over. A streamed call no listed call consumed (the provider ran a text-recovered call and then
-    /// returned the native call that repeats it) is left to finish: Node does not stop it, and its result is
-    /// never stored.
+    /// The batch is over, or its turn was cancelled. A started call no listed call consumed (the provider ran a
+    /// text-recovered call and then returned the native call that repeats it, or the cancel ended the batch first) is
+    /// left to finish and tell the host it settled: Node stops none of them (a call waiting for its hook, its approval or
+    /// a barrier ends itself with the abort's text, `execute_gated`), and its result is never stored.
     fn release_eager(&mut self) {
         self.eager.clear();
         self.eager_sigs.clear();
         self.eager_started.clear();
         self.barriers.clear();
         self.eager_single.clear();
+        self.streamed_ids.clear();
     }
 
-    pub(crate) fn eager_dispatched(&self, id: &str) -> bool {
-        self.eager.contains_key(id)
+    /// Whether the stream of the request in flight handed this complete call over (Node's `relayWitness.dispatchedToolCallIds`,
+    /// `send-instrumentation.mjs:146`: every call given to `onToolCall`, admitted for an eager run or not).
+    pub(crate) fn stream_dispatched(&self, id: &str) -> bool {
+        self.streamed_ids.contains(id)
     }
 
     /// What one call is, in Node's order: surface denial, one-per-turn tools,
@@ -695,11 +701,7 @@ impl Run {
             }
         }
         drop(running);
-        if aborted {
-            self.drop_eager();
-        } else {
-            self.release_eager();
-        }
+        self.release_eager();
 
         if !aborted {
             self.finalize_results(&calls, &mut staged, &was_executed, &cacheable, &outputs).await;
