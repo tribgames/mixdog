@@ -2,6 +2,12 @@
 //! Fields keep today's argument names; open values are `JsonValue` where
 //! today's contract carries an open record. `threadId` on carried-over session
 //! actions is today's `sessionId` addressing (absent = the control session).
+//!
+//! The arguments of the source-control calls a paired phone makes (`git/*`, `github/*`) decode as any JSON value, a
+//! missing one included (`Option<JsonValue>`): Node's host checked each one itself, in its call's order and with its own
+//! text (an explicit `null` and a missing argument apart, a number taken through `Number(...)`), so a typed decode here
+//! would refuse first, with other text. The owner (mixdog-scm `input.rs`) checks the raw request. The schema and the
+//! generated TypeScript of each such field (`schemars(with)`, `ts(as)`) stay the valid shape a correct caller sends.
 
 #![allow(clippy::derive_partial_eq_without_eq)]
 
@@ -5063,11 +5069,14 @@ impl crate::common::HasOpId for DocumentInstallLibreOfficeParams {
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct GitStatusParams {
-    pub cwd: String,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub cwd: Option<JsonValue>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reuse_line_stats: Option<bool>,
+    #[cfg_attr(feature = "codegen", schemars(with = "Option<bool>"), ts(as = "Option<bool>"))]
+    pub reuse_line_stats: Option<JsonValue>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub skip_line_stats: Option<bool>,
+    #[cfg_attr(feature = "codegen", schemars(with = "Option<bool>"), ts(as = "Option<bool>"))]
+    pub skip_line_stats: Option<JsonValue>,
 }
 
 /// Params of `git/branches`.
@@ -5075,7 +5084,8 @@ pub struct GitStatusParams {
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GitBranchesParams {
-    pub cwd: String,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub cwd: Option<JsonValue>,
 }
 
 /// Params of `git/log`.
@@ -5084,13 +5094,17 @@ pub struct GitBranchesParams {
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct GitLogParams {
-    pub cwd: String,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub cwd: Option<JsonValue>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub query: Option<String>,
+    #[cfg_attr(feature = "codegen", schemars(with = "Option<String>"), ts(as = "Option<String>"))]
+    pub query: Option<JsonValue>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub skip: Option<u32>,
+    #[cfg_attr(feature = "codegen", schemars(with = "Option<u32>"), ts(as = "Option<u32>"))]
+    pub skip: Option<JsonValue>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub limit: Option<u32>,
+    #[cfg_attr(feature = "codegen", schemars(with = "Option<u32>"), ts(as = "Option<u32>"))]
+    pub limit: Option<JsonValue>,
 }
 
 /// Params of `git/show`.
@@ -5098,8 +5112,10 @@ pub struct GitLogParams {
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GitShowParams {
-    pub cwd: String,
-    pub hash: String,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub cwd: Option<JsonValue>,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub hash: Option<JsonValue>,
 }
 
 /// Params of `git/showDiff`.
@@ -5107,9 +5123,12 @@ pub struct GitShowParams {
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GitShowDiffParams {
-    pub cwd: String,
-    pub hash: String,
-    pub path: String,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub cwd: Option<JsonValue>,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub hash: Option<JsonValue>,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub path: Option<JsonValue>,
 }
 
 /// Params of `git/showFile`.
@@ -5117,9 +5136,12 @@ pub struct GitShowDiffParams {
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GitShowFileParams {
-    pub cwd: String,
-    pub rev: String,
-    pub path: String,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub cwd: Option<JsonValue>,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub rev: Option<JsonValue>,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub path: Option<JsonValue>,
 }
 
 /// Params of `git/diff`.
@@ -5128,13 +5150,18 @@ pub struct GitShowFileParams {
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct GitDiffParams {
-    pub cwd: String,
-    pub path: String,
-    pub staged: bool,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub cwd: Option<JsonValue>,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub path: Option<JsonValue>,
+    #[cfg_attr(feature = "codegen", schemars(with = "bool"), ts(as = "bool"))]
+    pub staged: Option<JsonValue>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub worktree_only: Option<bool>,
+    #[cfg_attr(feature = "codegen", schemars(with = "Option<bool>"), ts(as = "Option<bool>"))]
+    pub worktree_only: Option<JsonValue>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub untracked: Option<bool>,
+    #[cfg_attr(feature = "codegen", schemars(with = "Option<bool>"), ts(as = "Option<bool>"))]
+    pub untracked: Option<JsonValue>,
 }
 
 /// Params of `git/stashList`.
@@ -5142,7 +5169,8 @@ pub struct GitDiffParams {
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GitStashListParams {
-    pub cwd: String,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub cwd: Option<JsonValue>,
 }
 
 /// Params of `git/requestContext`.
@@ -5150,8 +5178,10 @@ pub struct GitStashListParams {
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GitRequestContextParams {
-    pub cwd: String,
-    pub input: GitRequestContextInput,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub cwd: Option<JsonValue>,
+    #[cfg_attr(feature = "codegen", schemars(with = "GitRequestContextInput"), ts(as = "GitRequestContextInput"))]
+    pub input: Option<JsonValue>,
 }
 
 /// Input of `git/requestContext` (`requiredGitRequestContextInput`): the listed
@@ -5174,7 +5204,8 @@ pub struct GitRequestContextInput {
 #[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct GitCliStatusParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub refresh: Option<bool>,
+    #[cfg_attr(feature = "codegen", schemars(with = "Option<bool>"), ts(as = "Option<bool>"))]
+    pub refresh: Option<JsonValue>,
 }
 
 /// Params of `git/globalConfig/read`.
@@ -5205,8 +5236,10 @@ pub struct GitUnwatchParams {
 #[serde(rename_all = "camelCase")]
 pub struct GitStageParams {
     pub op_id: OpId,
-    pub cwd: String,
-    pub paths: Vec<String>,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub cwd: Option<JsonValue>,
+    #[cfg_attr(feature = "codegen", schemars(with = "Vec<String>"), ts(as = "Vec<String>"))]
+    pub paths: Option<JsonValue>,
 }
 
 impl crate::common::HasOpId for GitStageParams {
@@ -5221,8 +5254,10 @@ impl crate::common::HasOpId for GitStageParams {
 #[serde(rename_all = "camelCase")]
 pub struct GitUnstageParams {
     pub op_id: OpId,
-    pub cwd: String,
-    pub paths: Vec<String>,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub cwd: Option<JsonValue>,
+    #[cfg_attr(feature = "codegen", schemars(with = "Vec<String>"), ts(as = "Vec<String>"))]
+    pub paths: Option<JsonValue>,
 }
 
 impl crate::common::HasOpId for GitUnstageParams {
@@ -5237,8 +5272,10 @@ impl crate::common::HasOpId for GitUnstageParams {
 #[serde(rename_all = "camelCase")]
 pub struct GitCommitParams {
     pub op_id: OpId,
-    pub cwd: String,
-    pub message: String,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub cwd: Option<JsonValue>,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub message: Option<JsonValue>,
 }
 
 impl crate::common::HasOpId for GitCommitParams {
@@ -5253,7 +5290,8 @@ impl crate::common::HasOpId for GitCommitParams {
 #[serde(rename_all = "camelCase")]
 pub struct GitCommitPathsParams {
     pub op_id: OpId,
-    pub cwd: String,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub cwd: Option<JsonValue>,
     pub input: GitCommitPathsInput,
 }
 
@@ -5263,9 +5301,11 @@ pub struct GitCommitPathsParams {
 #[serde(rename_all = "camelCase")]
 pub struct GitCommitPathsInput {
     /// 1–20 000 characters.
-    pub message: String,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub message: Option<JsonValue>,
     /// Repository-relative, 1–500 paths.
-    pub paths: Vec<String>,
+    #[cfg_attr(feature = "codegen", schemars(with = "Vec<String>"), ts(as = "Vec<String>"))]
+    pub paths: Option<JsonValue>,
 }
 
 impl crate::common::HasOpId for GitCommitPathsParams {
@@ -5281,9 +5321,11 @@ impl crate::common::HasOpId for GitCommitPathsParams {
 #[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct GitAmendParams {
     pub op_id: OpId,
-    pub cwd: String,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub cwd: Option<JsonValue>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub message: Option<String>,
+    #[cfg_attr(feature = "codegen", schemars(with = "Option<String>"), ts(as = "Option<String>"))]
+    pub message: Option<JsonValue>,
 }
 
 impl crate::common::HasOpId for GitAmendParams {
@@ -5298,7 +5340,8 @@ impl crate::common::HasOpId for GitAmendParams {
 #[serde(rename_all = "camelCase")]
 pub struct GitUndoLastCommitParams {
     pub op_id: OpId,
-    pub cwd: String,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub cwd: Option<JsonValue>,
 }
 
 impl crate::common::HasOpId for GitUndoLastCommitParams {
@@ -5313,7 +5356,8 @@ impl crate::common::HasOpId for GitUndoLastCommitParams {
 #[serde(rename_all = "camelCase")]
 pub struct GitPushParams {
     pub op_id: OpId,
-    pub cwd: String,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub cwd: Option<JsonValue>,
 }
 
 impl crate::common::HasOpId for GitPushParams {
@@ -5328,7 +5372,8 @@ impl crate::common::HasOpId for GitPushParams {
 #[serde(rename_all = "camelCase")]
 pub struct GitPullParams {
     pub op_id: OpId,
-    pub cwd: String,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub cwd: Option<JsonValue>,
 }
 
 impl crate::common::HasOpId for GitPullParams {
@@ -5343,7 +5388,8 @@ impl crate::common::HasOpId for GitPullParams {
 #[serde(rename_all = "camelCase")]
 pub struct GitFetchParams {
     pub op_id: OpId,
-    pub cwd: String,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub cwd: Option<JsonValue>,
 }
 
 impl crate::common::HasOpId for GitFetchParams {
@@ -5358,7 +5404,8 @@ impl crate::common::HasOpId for GitFetchParams {
 #[serde(rename_all = "camelCase")]
 pub struct GitSyncParams {
     pub op_id: OpId,
-    pub cwd: String,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub cwd: Option<JsonValue>,
 }
 
 impl crate::common::HasOpId for GitSyncParams {
@@ -5374,9 +5421,11 @@ impl crate::common::HasOpId for GitSyncParams {
 #[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct GitStashParams {
     pub op_id: OpId,
-    pub cwd: String,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub cwd: Option<JsonValue>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub message: Option<String>,
+    #[cfg_attr(feature = "codegen", schemars(with = "Option<String>"), ts(as = "Option<String>"))]
+    pub message: Option<JsonValue>,
 }
 
 impl crate::common::HasOpId for GitStashParams {
@@ -5391,7 +5440,8 @@ impl crate::common::HasOpId for GitStashParams {
 #[serde(rename_all = "camelCase")]
 pub struct GitStashPopParams {
     pub op_id: OpId,
-    pub cwd: String,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub cwd: Option<JsonValue>,
 }
 
 impl crate::common::HasOpId for GitStashPopParams {
@@ -5406,8 +5456,10 @@ impl crate::common::HasOpId for GitStashPopParams {
 #[serde(rename_all = "camelCase")]
 pub struct GitStashApplyParams {
     pub op_id: OpId,
-    pub cwd: String,
-    pub r#ref: String,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub cwd: Option<JsonValue>,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub r#ref: Option<JsonValue>,
 }
 
 impl crate::common::HasOpId for GitStashApplyParams {
@@ -5422,8 +5474,10 @@ impl crate::common::HasOpId for GitStashApplyParams {
 #[serde(rename_all = "camelCase")]
 pub struct GitStashDropParams {
     pub op_id: OpId,
-    pub cwd: String,
-    pub r#ref: String,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub cwd: Option<JsonValue>,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub r#ref: Option<JsonValue>,
 }
 
 impl crate::common::HasOpId for GitStashDropParams {
@@ -5438,9 +5492,12 @@ impl crate::common::HasOpId for GitStashDropParams {
 #[serde(rename_all = "camelCase")]
 pub struct GitCreateTagParams {
     pub op_id: OpId,
-    pub cwd: String,
-    pub value: String,
-    pub at: String,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub cwd: Option<JsonValue>,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub value: Option<JsonValue>,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub at: Option<JsonValue>,
 }
 
 impl crate::common::HasOpId for GitCreateTagParams {
@@ -5455,8 +5512,10 @@ impl crate::common::HasOpId for GitCreateTagParams {
 #[serde(rename_all = "camelCase")]
 pub struct GitDeleteTagParams {
     pub op_id: OpId,
-    pub cwd: String,
-    pub value: String,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub cwd: Option<JsonValue>,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub value: Option<JsonValue>,
 }
 
 impl crate::common::HasOpId for GitDeleteTagParams {
@@ -5471,7 +5530,8 @@ impl crate::common::HasOpId for GitDeleteTagParams {
 #[serde(rename_all = "camelCase")]
 pub struct GitDeleteBranchParams {
     pub op_id: OpId,
-    pub cwd: String,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub cwd: Option<JsonValue>,
     pub input: GitDeleteBranchInput,
 }
 
@@ -5480,7 +5540,8 @@ pub struct GitDeleteBranchParams {
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GitDeleteBranchInput {
-    pub branch: String,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub branch: Option<JsonValue>,
 }
 
 impl crate::common::HasOpId for GitDeleteBranchParams {
@@ -5495,7 +5556,8 @@ impl crate::common::HasOpId for GitDeleteBranchParams {
 #[serde(rename_all = "camelCase")]
 pub struct GitRenameBranchParams {
     pub op_id: OpId,
-    pub cwd: String,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub cwd: Option<JsonValue>,
     pub input: GitRenameBranchInput,
 }
 
@@ -5504,8 +5566,10 @@ pub struct GitRenameBranchParams {
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GitRenameBranchInput {
-    pub branch: String,
-    pub next_branch: String,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub branch: Option<JsonValue>,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub next_branch: Option<JsonValue>,
 }
 
 impl crate::common::HasOpId for GitRenameBranchParams {
@@ -5521,11 +5585,15 @@ impl crate::common::HasOpId for GitRenameBranchParams {
 #[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct GitResetToCommitParams {
     pub op_id: OpId,
-    pub cwd: String,
-    pub value: String,
-    pub mode: String,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub cwd: Option<JsonValue>,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub value: Option<JsonValue>,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub mode: Option<JsonValue>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub confirmed_dirty: Option<bool>,
+    #[cfg_attr(feature = "codegen", schemars(with = "Option<bool>"), ts(as = "Option<bool>"))]
+    pub confirmed_dirty: Option<JsonValue>,
 }
 
 impl crate::common::HasOpId for GitResetToCommitParams {
@@ -5540,8 +5608,10 @@ impl crate::common::HasOpId for GitResetToCommitParams {
 #[serde(rename_all = "camelCase")]
 pub struct GitRevertCommitParams {
     pub op_id: OpId,
-    pub cwd: String,
-    pub value: String,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub cwd: Option<JsonValue>,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub value: Option<JsonValue>,
 }
 
 impl crate::common::HasOpId for GitRevertCommitParams {
@@ -5557,11 +5627,15 @@ impl crate::common::HasOpId for GitRevertCommitParams {
 #[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct GitRevertFileParams {
     pub op_id: OpId,
-    pub cwd: String,
-    pub path: String,
-    pub untracked: bool,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub cwd: Option<JsonValue>,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub path: Option<JsonValue>,
+    #[cfg_attr(feature = "codegen", schemars(with = "bool"), ts(as = "bool"))]
+    pub untracked: Option<JsonValue>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mode: Option<String>,
+    #[cfg_attr(feature = "codegen", schemars(with = "Option<String>"), ts(as = "Option<String>"))]
+    pub mode: Option<JsonValue>,
 }
 
 impl crate::common::HasOpId for GitRevertFileParams {
@@ -5576,8 +5650,10 @@ impl crate::common::HasOpId for GitRevertFileParams {
 #[serde(rename_all = "camelCase")]
 pub struct GitCherryPickCommitParams {
     pub op_id: OpId,
-    pub cwd: String,
-    pub value: String,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub cwd: Option<JsonValue>,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub value: Option<JsonValue>,
 }
 
 impl crate::common::HasOpId for GitCherryPickCommitParams {
@@ -5593,11 +5669,15 @@ impl crate::common::HasOpId for GitCherryPickCommitParams {
 #[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct GitApplyPatchParams {
     pub op_id: OpId,
-    pub cwd: String,
-    pub path: String,
-    pub patch: String,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub cwd: Option<JsonValue>,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub path: Option<JsonValue>,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub patch: Option<JsonValue>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reverse: Option<bool>,
+    #[cfg_attr(feature = "codegen", schemars(with = "Option<bool>"), ts(as = "Option<bool>"))]
+    pub reverse: Option<JsonValue>,
 }
 
 impl crate::common::HasOpId for GitApplyPatchParams {
@@ -5613,10 +5693,13 @@ impl crate::common::HasOpId for GitApplyPatchParams {
 #[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct GitIgnoreParams {
     pub op_id: OpId,
-    pub cwd: String,
-    pub path: String,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub cwd: Option<JsonValue>,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub path: Option<JsonValue>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scope: Option<String>,
+    #[cfg_attr(feature = "codegen", schemars(with = "Option<String>"), ts(as = "Option<String>"))]
+    pub scope: Option<JsonValue>,
 }
 
 impl crate::common::HasOpId for GitIgnoreParams {
@@ -5631,7 +5714,8 @@ impl crate::common::HasOpId for GitIgnoreParams {
 #[serde(rename_all = "camelCase")]
 pub struct GitContinueParams {
     pub op_id: OpId,
-    pub cwd: String,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub cwd: Option<JsonValue>,
 }
 
 impl crate::common::HasOpId for GitContinueParams {
@@ -5646,7 +5730,8 @@ impl crate::common::HasOpId for GitContinueParams {
 #[serde(rename_all = "camelCase")]
 pub struct GitAbortOperationParams {
     pub op_id: OpId,
-    pub cwd: String,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub cwd: Option<JsonValue>,
 }
 
 impl crate::common::HasOpId for GitAbortOperationParams {
@@ -5661,8 +5746,10 @@ impl crate::common::HasOpId for GitAbortOperationParams {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct GitGlobalConfigWriteParams {
     pub op_id: OpId,
-    pub key: String,
-    pub value: String,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub key: Option<JsonValue>,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub value: Option<JsonValue>,
 }
 
 impl crate::common::HasOpId for GitGlobalConfigWriteParams {
@@ -5692,7 +5779,8 @@ impl crate::common::HasOpId for GitCliInstallParams {
 #[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct GithubStatusParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub refresh: Option<bool>,
+    #[cfg_attr(feature = "codegen", schemars(with = "Option<bool>"), ts(as = "Option<bool>"))]
+    pub refresh: Option<JsonValue>,
 }
 
 /// Params of `github/account`.
@@ -5709,7 +5797,8 @@ pub struct GithubAccountParams {}
 pub struct GithubLoginStartParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub open_browser: Option<bool>,
+    #[cfg_attr(feature = "codegen", schemars(with = "Option<bool>"), ts(as = "Option<bool>"))]
+    pub open_browser: Option<JsonValue>,
 }
 
 impl crate::common::HasOpId for GithubLoginStartParams {
@@ -5723,7 +5812,8 @@ impl crate::common::HasOpId for GithubLoginStartParams {
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GithubLoginStatusParams {
-    pub flow_id: LoginFlowId,
+    #[cfg_attr(feature = "codegen", schemars(with = "LoginFlowId"), ts(as = "LoginFlowId"))]
+    pub flow_id: Option<JsonValue>,
 }
 
 /// Params of `github/login/openBrowser`.
@@ -5732,7 +5822,8 @@ pub struct GithubLoginStatusParams {
 #[serde(rename_all = "camelCase")]
 pub struct GithubLoginOpenBrowserParams {
     pub op_id: OpId,
-    pub flow_id: LoginFlowId,
+    #[cfg_attr(feature = "codegen", schemars(with = "LoginFlowId"), ts(as = "LoginFlowId"))]
+    pub flow_id: Option<JsonValue>,
 }
 
 impl crate::common::HasOpId for GithubLoginOpenBrowserParams {
@@ -5747,7 +5838,8 @@ impl crate::common::HasOpId for GithubLoginOpenBrowserParams {
 #[serde(rename_all = "camelCase")]
 pub struct GithubLoginCancelParams {
     pub op_id: OpId,
-    pub flow_id: LoginFlowId,
+    #[cfg_attr(feature = "codegen", schemars(with = "LoginFlowId"), ts(as = "LoginFlowId"))]
+    pub flow_id: Option<JsonValue>,
 }
 
 impl crate::common::HasOpId for GithubLoginCancelParams {
@@ -5790,7 +5882,8 @@ impl crate::common::HasOpId for GithubInstallParams {
 #[serde(rename_all = "camelCase")]
 pub struct GithubRequestParams {
     pub op_id: OpId,
-    pub cwd: String,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub cwd: Option<JsonValue>,
     pub input: JsonValue,
 }
 
@@ -5825,7 +5918,8 @@ impl crate::common::HasOpId for GithubStarParams {
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GithubPrListParams {
-    pub cwd: String,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub cwd: Option<JsonValue>,
 }
 
 /// Params of `github/pr/view`.
@@ -5833,7 +5927,8 @@ pub struct GithubPrListParams {
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GithubPrViewParams {
-    pub cwd: String,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub cwd: Option<JsonValue>,
     pub value: JsonValue,
 }
 
@@ -5842,7 +5937,8 @@ pub struct GithubPrViewParams {
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GithubPrDiffParams {
-    pub cwd: String,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub cwd: Option<JsonValue>,
     pub value: JsonValue,
 }
 
@@ -5851,7 +5947,8 @@ pub struct GithubPrDiffParams {
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GithubPrDefaultBranchParams {
-    pub cwd: String,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub cwd: Option<JsonValue>,
 }
 
 /// Params of `github/pr/create`.
@@ -5860,7 +5957,8 @@ pub struct GithubPrDefaultBranchParams {
 #[serde(rename_all = "camelCase")]
 pub struct GithubPrCreateParams {
     pub op_id: OpId,
-    pub cwd: String,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub cwd: Option<JsonValue>,
     pub value: JsonValue,
 }
 
@@ -5876,7 +5974,8 @@ impl crate::common::HasOpId for GithubPrCreateParams {
 #[serde(rename_all = "camelCase")]
 pub struct GithubPrCheckoutParams {
     pub op_id: OpId,
-    pub cwd: String,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub cwd: Option<JsonValue>,
     pub value: JsonValue,
 }
 
@@ -5892,7 +5991,8 @@ impl crate::common::HasOpId for GithubPrCheckoutParams {
 #[serde(rename_all = "camelCase")]
 pub struct GithubPrMergeParams {
     pub op_id: OpId,
-    pub cwd: String,
+    #[cfg_attr(feature = "codegen", schemars(with = "String"), ts(as = "String"))]
+    pub cwd: Option<JsonValue>,
     pub value: JsonValue,
     pub method: JsonValue,
 }

@@ -309,10 +309,10 @@ fn guard_task_args(args: JsonValue) -> Result<JsonValue, String> {
     a.retain(|_, v| !v.is_null());
     let action = a.get("action").and_then(JsonValue::as_str).map(|s| mixdog_js::js_trim(s).to_lowercase()).unwrap_or_default();
     if matches!(action.as_str(), "list" | "read" | "cancel") {
-        a.remove("timeout_ms");
+        a.shift_remove("timeout_ms");
     }
     if action == "list" && a.get("task_id").and_then(JsonValue::as_str).is_some_and(|s| mixdog_js::js_trim(s).is_empty()) {
-        a.remove("task_id");
+        a.shift_remove("task_id");
     }
     for key in STRING_LIST_ARG_KEYS {
         let Some(JsonValue::Array(source)) = a.get(key) else { continue };
@@ -328,7 +328,7 @@ fn guard_task_args(args: JsonValue) -> Result<JsonValue, String> {
             continue;
         }
         if flat.is_empty() {
-            a.remove(key);
+            a.shift_remove(key);
         } else {
             a.insert(key.to_owned(), JsonValue::Array(flat));
         }

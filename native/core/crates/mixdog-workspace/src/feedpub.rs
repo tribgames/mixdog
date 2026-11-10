@@ -61,6 +61,15 @@ impl Publisher {
         Self { feed, model, lock: Mutex::new(()) }
     }
 
+    /// [`Self::create`] for a feed of the ordered class: `fs:<watchId>` (Node's `folderChanged`,
+    /// `remote-relay-push-lanes.ts:169-170`) and `lsp:<root>` (`:171-174`) are never dropped.
+    pub fn create_ordered(feeds: &dyn ScopedFeeds, id: &str, initial_state: Value) -> Self {
+        let id = FeedId::from(id);
+        let model = Arc::new(Model { id: id.clone(), state: Mutex::new(initial_state) });
+        let feed = feeds.create_ordered(id, model.clone());
+        Self { feed, model, lock: Mutex::new(()) }
+    }
+
     pub fn source(&self) -> Arc<dyn FeedSource> {
         self.feed.clone()
     }

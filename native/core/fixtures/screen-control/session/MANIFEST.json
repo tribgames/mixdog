@@ -1,0 +1,76 @@
+{
+  "command": "(cd <tree>/apps/desktop && node --import tsx benchmarks/rust-core/recorders/record-screen-control-session.mjs --tree <tree> --patch node-fix-helper-stale-socket.patch)",
+  "common": "benchmarks/rust-core/recorders/lib/common.mjs",
+  "commonSha256": "d4d0064b5b40d5fcb833a69fb3d68a69b1c1317606b5fe341c3445d5d0bbefd4",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 131084,
+      "path": "scenarios.json",
+      "sha256": "b5296687feb8f823fc0ef58c02f46b79a35599267e25929d50acfec9906a1d71"
+    }
+  ],
+  "inputs": {
+    "scenarios": [
+      "a start admits a paired viewer, locks the geometry, shows the indicator and decides live",
+      "a second start while running is refused",
+      "a start is refused while the viewer is unpaired",
+      "a start whose display is gone is refused",
+      "a host that cannot start stops the session with error",
+      "the secure desktop without a helper blocks: input rejected, status secure-desktop, an install offered",
+      "the helper takes over the secure desktop: activated before the switch, frames located, control after video",
+      "the lock screen and an in-place elevation prompt: reasons, the warm helper and control",
+      "a stopped service is started at start and when the helper is activated unconnected; a failed start shows failed",
+      "a helper issue shows while the helper is active, ends at a change, and grant_expired ends with the next relayed grant",
+      "the phone’s install request: the outcome, detail and new offer land in the status; a later request wins",
+      "the phone’s password request goes through PC access once at a time; the answer is forced into the status",
+      "a password request without PC access is unavailable",
+      "a password request outstanding when the session stops is aborted and its answer dropped",
+      "challenges, holds, runs and grants pass while running and paired",
+      "input: pointer mapping, the geometry generation, keys, a combo, text, release and an out-of-bounds point",
+      "cursor sampling: once per frame interval, mapped to video pixels, published on change; none on the helper",
+      "a display change renews the geometry; an unchanged one does nothing; a removed display stops the session",
+      "a lost authorization stops the session with its reason",
+      "the indicator’s stop button stops the session as user",
+      "a host that exits on its own stops the session with error",
+      "stop: input cancelled, released through the queue, the backends closed; idempotent",
+      "a hung host: the stop deadline kills it, abandons the queue and counts the dropped releases",
+      "a host whose graceful stop never ends is killed at the deadline",
+      "another session holds the helper: in-use, and a hold passes when it lets go"
+    ],
+    "tree": "export of b6f10295a2f698afc85332467192de28500bd146 with node-fix-helper-stale-socket.patch (sha256 35d457764abeceaf0b64b5a4e3d7f05b8ff5149ffa8c9eed0e5e4e2e7bafc5b2) applied"
+  },
+  "lib": "benchmarks/rust-core/recorders/record-screen-control-lib.mjs",
+  "libSha256": "2773fb248d6b5f2f60686f18c6fece766ebb8e4de65db58b3f728be860216fb5",
+  "node": "v22.20.0",
+  "product": {
+    "appsSha256": "18993e38af8ff30e2c3db944433187c7c9ab55f9ab560239caddd40ac6dcaf8a",
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "patch": {
+      "file": "node-fix-helper-stale-socket.patch",
+      "paths": [
+        "apps/desktop/src/main/secure-desktop/client.ts",
+        "apps/desktop/src/main/secure-desktop/secure-desktop.test.mjs"
+      ],
+      "sha256": "35d457764abeceaf0b64b5a4e3d7f05b8ff5149ffa8c9eed0e5e4e2e7bafc5b2"
+    },
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 2
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-screen-control-session.mjs",
+  "recorderSha256": "396e7577e3c2491823222b50b95a99e9686f515ee19b71791da6b86fdd1c19e8",
+  "set": "screen-control/session",
+  "totalBytes": 131084
+}

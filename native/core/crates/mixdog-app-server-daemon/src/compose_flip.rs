@@ -2002,6 +2002,9 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             let (config, gateway_routes, exclusions, registry, worktree_maintenance, surface_host, worktrees, owned_shells, job_board, blobs) = (config.clone(), gateway_routes.clone(), exclusions.clone(), registry.clone(), worktree_maintenance.clone(), surface_host.clone(), worktrees.clone(), owned_shells.clone(), job_board.clone(), blobs.clone());
             let (late_agent_status, late_turn_admission, late_room_members, handoff_hub, activity, turn_review, computer_pool) = (late_agent_status.clone(), late_turn_admission.clone(), late_room_members.clone(), handoff_hub.clone(), activity.clone(), turn_review.clone(), computer_pool.clone());
             let late_new_route = late_new_route.clone();
+            let office_startup = crate::office_startup::OfficeStartup::new(
+                handoff_hub.clone(), b.ext_host.clone(), b.data_dir.to_string_lossy().into_owned(),
+            );
             let mcp_glue = mcp.glue.clone();
             let (early_todos, early_work) = (early.todos.clone(), early.work.clone());
             let (process_unsupported, early_cycles, early_goals, hop_codex_declared, hop_source, mcp_catalog, memory_module, memory_search) = (process.unsupported.clone(), early.cycles.clone(), early.goals.clone(), ready.hop.codex_declared.clone(), ready.hop.source.clone(), mcp.catalog.clone(), memory.module(), memory.search());
@@ -2074,7 +2077,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 code_graph_prewarm: session_prewarm.clone(), // batch i: the sessions' busy-state, first-visible and cwd events reach the one timer
                 agent_status: late_agent_status.clone(),
                 turn_admission: late_turn_admission.clone(),
-                runtime_hooks: handoff_hub.clone(),
+                runtime_hooks: office_startup,
                 resumed_tools: route_facts_ai.clone(), // `AiRouteFacts` is the `ResumedTools` too
                 room_members: late_room_members.clone(),
                 new_tools: surface_host.clone(), // `thread/start` composes its tools and prompt through it (flip-surface-2, -6)
