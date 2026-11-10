@@ -271,6 +271,109 @@ impl Tool for TaskTool {
     }
 
     async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
+        match guard_task_args(args) {
+            Ok(args) => self.execute(ctx, args).await,
+            Err(text) => invalid("args", text),
+        }
+    }
+}
+
+/// `describeType` (`arg-guard.mjs`): how a refusal names the type it got.
+fn describe_type(value: &JsonValue) -> &'static str {
+    match value {
+        JsonValue::Null => "null",
+        JsonValue::Array(_) => "array",
+        JsonValue::String(_) => "string",
+        JsonValue::Number(_) => "number",
+        JsonValue::Bool(_) => "boolean",
+        JsonValue::Object(_) => "object",
+    }
+}
+
+/// Keys whose array values `normalizeStringListArgs` flattens one level and strips of blanks.
+const STRING_LIST_ARG_KEYS: [&str; 15] = [
+    "path", "paths", "root", "file", "files", "pattern", "patterns", "query", "regex", "needle", "glob", "file_pattern",
+    "include", "type", "symbols",
+];
+
+/// `validateBuiltinArgs('task', args)` (`arg-guard.mjs`): the null drops and normalisations that come first, then
+/// `guardTask`. The arguments the tool then runs with, or the refusal text.
+fn guard_task_args(args: JsonValue) -> Result<JsonValue, String> {
+    let JsonValue::Object(mut a) = args else {
+        return Err(if args.is_null() {
+            "Error: task requires arguments object (got null)".to_owned()
+        } else {
+            format!("Error: task arguments must be an object (got {})", describe_type(&args))
+        });
+    };
+    a.retain(|_, v| !v.is_null());
+    let action = a.get("action").and_then(JsonValue::as_str).map(|s| mixdog_js::js_trim(s).to_lowercase()).unwrap_or_default();
+    if matches!(action.as_str(), "list" | "read" | "cancel") {
+        a.remove("timeout_ms");
+    }
+    if action == "list" && a.get("task_id").and_then(JsonValue::as_str).is_some_and(|s| mixdog_js::js_trim(s).is_empty()) {
+        a.remove("task_id");
+    }
+    for key in STRING_LIST_ARG_KEYS {
+        let Some(JsonValue::Array(source)) = a.get(key) else { continue };
+        let mut flat: Vec<JsonValue> = Vec::new();
+        for entry in source {
+            let items: Vec<&JsonValue> = match entry {
+                JsonValue::Array(inner) => inner.iter().collect(),
+                other => vec![other],
+            };
+            flat.extend(items.into_iter().filter(|e| !e.is_null() && !e.as_str().is_some_and(|s| mixdog_js::js_trim(s).is_empty())).cloned());
+        }
+        if flat == *source {
+            continue;
+        }
+        if flat.is_empty() {
+            a.remove(key);
+        } else {
+            a.insert(key.to_owned(), JsonValue::Array(flat));
+        }
+    }
+    let Some(raw_action) = a.get("action") else {
+        return Err("Error: task requires explicit \"action\"".to_owned());
+    };
+    if !matches!(action.as_str(), "list" | "read" | "wait" | "cancel") {
+        return Err(format!(
+            "Error: task arg \"action\" must be one of list|read|wait|cancel (got {})",
+            serde_json::to_string(raw_action).unwrap_or_default()
+        ));
+    }
+    if let Some(key) = a.keys().find(|k| !matches!(k.as_str(), "action" | "task_id" | "timeout_ms" | "output")) {
+        return Err(format!("Error: task arg \"{key}\" is unsupported; use only action, task_id, timeout_ms, and output"));
+    }
+    if let Some(output) = a.get("output") {
+        if action != "read" && action != "wait" {
+            return Err("Error: task arg \"output\" is only valid for action=read or wait".to_owned());
+        }
+        if !matches!(output.as_str(), Some("new" | "tail")) {
+            return Err("Error: task arg \"output\" must be new or tail".to_owned());
+        }
+    }
+    if action == "list" {
+        return Ok(JsonValue::Object(a));
+    }
+    let Some(id) = a.get("task_id") else {
+        return Err("Error: task requires \"task_id\"".to_owned());
+    };
+    if !id.as_str().is_some_and(|s| !mixdog_js::js_trim(s).is_empty()) {
+        return Err(format!("Error: task arg \"task_id\" must be a non-empty string (got {})", describe_type(id)));
+    }
+    if let Some(timeout) = a.get("timeout_ms") {
+        let whole = timeout.as_f64().is_some_and(|n| n.is_finite() && n.fract() == 0.0 && n >= 0.0);
+        if !whole {
+            return Err(format!("Error: task arg \"timeout_ms\" must be a non-negative integer (got {})", describe_type(timeout)));
+        }
+    }
+    Ok(JsonValue::Object(a))
+}
+
+impl TaskTool {
+    /// `executeTaskTool`: the handler behind the argument guard.
+    pub async fn execute(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
         let action = args
             .get("action")
             .and_then(JsonValue::as_str)

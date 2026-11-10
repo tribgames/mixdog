@@ -2,6 +2,8 @@
 //! provider-safe tool names, the result normalization and the output cap.
 
 use base64::Engine;
+use mixdog_core_api::domain::tool::ImageData;
+use mixdog_core_api::domain::tool::ToolPart;
 use mixdog_mcp::naming::qualified_tool_name;
 use mixdog_mcp::result::OutputPolicy;
 use mixdog_mcp::result::Part;
@@ -86,26 +88,32 @@ fn outbound_classification_equals_nodes() {
     }
 }
 
-fn texts(parts: &Value) -> String {
-    parts
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|p| p["type"] == "text")
-        .map(|p| p["text"].as_str().unwrap())
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
 #[tokio::test]
 async fn normalization_equals_nodes() {
     let (_dir, spiller) = spiller();
     for case in golden()["normalize"].as_array().unwrap() {
         let (input, expected) = (&case["input"], &case["expected"]);
         if input["isError"] == true {
-            let error = map_call_result(input, OutputPolicy::default(), &spiller).await.unwrap_err();
-            let want = if expected.is_string() { expected.as_str().unwrap().to_owned() } else { texts(&expected["content"]) };
-            assert_eq!(error.text, want, "{input}");
+            let mapped = map_call_result(input, OutputPolicy::default(), &spiller).await;
+            if let Some(want) = expected.as_str() {
+                // Node's `Error: …` string: the call's reported error.
+                assert_eq!(mapped.unwrap_err().text, want, "{input}");
+                continue;
+            }
+            // Node's structured result (an `isError` with media): the parts, in order, as a result.
+            let output = mapped.unwrap_or_else(|e| panic!("{input}: a structured result, not the error {}", e.text));
+            let want = expected["content"].as_array().unwrap();
+            assert_eq!(output.parts.len(), want.len(), "{input}");
+            for (part, want) in output.parts.iter().zip(want) {
+                match part {
+                    ToolPart::Text(text) => assert_eq!((want["type"].as_str(), text.as_str()), (Some("text"), want["text"].as_str().unwrap()), "{input}"),
+                    ToolPart::Image { mime, data: ImageData::Bytes(bytes) } => {
+                        assert_eq!((want["type"].as_str(), mime.as_str()), (Some("image"), want["mimeType"].as_str().unwrap()), "{input}");
+                        assert_eq!(*bytes, base64::engine::general_purpose::STANDARD.decode(want["data"].as_str().unwrap()).unwrap(), "{input}");
+                    }
+                    other => panic!("{input}: {other:?}"),
+                }
+            }
             continue;
         }
         let parts = normalize_parts(input, &spiller).await;
