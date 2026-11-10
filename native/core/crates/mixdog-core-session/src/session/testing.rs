@@ -250,8 +250,11 @@ pub struct MemStore {
     pub head_reads: AtomicU64,
     /// Every stored header read (`read_header`).
     pub header_reads: AtomicU64,
-    /// Every copy of a thread's records, whichever read route took it (`records`): a read of the whole record cannot
-    /// avoid this, so counting here leaves no uncounted route.
+    /// Every access to a session's stored record, whichever route took it. The routes that copy the log do it through
+    /// `records`; the others (`read_window`, `thread_op`, `fenced_ops`, `session_meta`, `open_log`) have nothing to copy
+    /// here but read the index or the log's frames in the real store (`StoreThreads`), so each counts itself. Of the
+    /// `ThreadStore` methods only `decode` and `context_cpu` (they work on what a read returned), `purge_deleted` (index
+    /// maintenance, no session) and `create_log` (a write) are left out.
     pub record_reads: AtomicU64,
     /// The next barrier fails (rolled back).
     pub fail_next: Arc<AtomicBool>,
@@ -385,6 +388,7 @@ impl ThreadStore for MemStore {
         _id: &ThreadId,
         _head: &HeadRead,
     ) -> Result<WindowRead, CoreError> {
+        self.record_reads.fetch_add(1, Ordering::SeqCst);
         Ok(WindowRead(Box::new(())))
     }
 
@@ -431,6 +435,7 @@ impl ThreadStore for MemStore {
         &self,
         _id: &ThreadId,
     ) -> futures::future::BoxFuture<'static, Result<Option<super::seams::SessionMeta>, CoreError>> {
+        self.record_reads.fetch_add(1, Ordering::SeqCst);
         let listed = self.listed.load(Ordering::SeqCst);
         Box::pin(async move { Ok(listed.then(super::seams::SessionMeta::default)) })
     }
@@ -493,6 +498,7 @@ impl ThreadStore for MemStore {
         id: &ThreadId,
         _at: AppendPosition,
     ) -> Result<Box<dyn SessionLog>, BarrierError> {
+        self.record_reads.fetch_add(1, Ordering::SeqCst);
         Ok(Box::new(MemLog {
             log: self.log(id),
             fail_next: self.fail_next.clone(),
@@ -544,11 +550,13 @@ impl ThreadStore for MemStore {
     }
 
     fn fenced_ops(&self, _lane: &InLane<InteractiveIo>, _id: &ThreadId) -> Result<Vec<String>, CoreError> {
+        self.record_reads.fetch_add(1, Ordering::SeqCst);
         Ok(Vec::new())
     }
 
     /// The in-memory store keeps no op index.
     fn thread_op(&self, _lane: &InLane<InteractiveIo>, _id: &ThreadId, _op: &str) -> Result<Option<super::seams::StoredOp>, CoreError> {
+        self.record_reads.fetch_add(1, Ordering::SeqCst);
         Ok(None)
     }
 

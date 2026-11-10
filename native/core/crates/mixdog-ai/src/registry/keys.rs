@@ -131,6 +131,8 @@ impl ApiKeyStore {
     }
 
     fn set_env(&self, name: &str) -> Option<String> {
+        #[cfg(feature = "count-work")]
+        crate::work::credential_read();
         self.env.var(name).filter(|v| !v.is_empty())
     }
 
@@ -165,6 +167,8 @@ impl ApiKeyStore {
     /// A vault read. A read that RAN and failed is "nothing stored" (Node's `catch`); `Err` only
     /// when it never ran.
     async fn stored(&self, account: &str) -> Result<Option<String>, VaultError> {
+        #[cfg(feature = "count-work")]
+        crate::work::credential_read();
         match self.vault.get(account).await {
             Ok(value) => Ok(value),
             Err(error) if error.unrun => Err(error),

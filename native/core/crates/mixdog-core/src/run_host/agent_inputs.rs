@@ -170,14 +170,29 @@ mod tests {
         assert!(stamp.len() == 24 && stamp.ends_with('Z') && stamp.as_bytes()[10] == b'T', "{stamp}");
     }
 
+    /// The work `decisions.md` "Node daemon hot paths found by profiling" 6 forbids a reader of non-credential settings,
+    /// counted where every route passes (the `work` modules of the two crates, on only in this crate's test builds): a
+    /// config file read by any instance, a rebuild of the agent section, a load of the provider map, the construction of
+    /// a provider, a credential read (a credential file, the account roster, the keychain, a key variable). The counters
+    /// are process-wide: the suite runs under nextest, one process per test.
+    const FORBIDDEN: [&str; 5] = ["config file reads", "agent-section rebuilds", "provider-map loads", "providers built", "credential reads"];
+
+    fn forbidden_work() -> [u64; 5] {
+        [
+            mixdog_core_config::work::file_reads(),
+            mixdog_core_config::work::agent_rebuilds(),
+            mixdog_ai::work::provider_loads(),
+            mixdog_ai::work::providers_built(),
+            mixdog_ai::work::credential_reads(),
+        ]
+    }
+
     /// `decisions.md` "Node daemon hot paths found by profiling" 6: the stale-row deadline needs only `autoClear`; it reads the
     /// published snapshot, so it neither reloads the config nor goes through the provider loader that probes credentials.
     #[tokio::test]
     async fn the_reap_window_read_neither_reloads_the_config_nor_probes_credentials() {
-        let dir = tempfile::tempdir().expect("dir");
-        let tokens = mixdog_rt::testing::tokens();
-        let lanes = mixdog_core_config::config::ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
-        let (config, _) = Config::open(dir.path().join("mixdog-config.json"), Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes).await.expect("config");
+        let world = crate::run_host::process_tests::world(&[], json!({}), Vec::new()).await;
+        let config = world.services.config.clone();
         config
             .update(|doc| {
                 doc.insert("agent".into(), serde_json::json!({ "autoClear": { "providerIdleMs": { "openai": 120_000 } } }));
@@ -186,17 +201,71 @@ mod tests {
             .await
             .expect("saved");
         let reap = ConfigReap::new(config.clone());
-        // What the forbidden work is counted at: the config's file reads and agent-section rebuilds (an equal document
-        // moves no revision), and the provider loads and credential reads of `mixdog_ai::registry::effective`.
-        let before = (config.revision(), config.loads(), mixdog_ai::registry::effective::work::loads(), mixdog_ai::registry::effective::work::probes());
+        let (revision, before) = (config.revision(), forbidden_work());
         for _ in 0..5 {
             assert_eq!(reap.terminal_reap_ms("openai"), 120_000.0);
         }
-        let after = (config.revision(), config.loads(), mixdog_ai::registry::effective::work::loads(), mixdog_ai::registry::effective::work::probes());
-        assert_eq!(after.1, before.1, "a reap-window read loaded or rebuilt the config");
-        assert_eq!(after.3, before.3, "a reap-window read probed a credential");
-        assert_eq!(after.2, before.2, "a reap-window read built the providers");
-        assert_eq!(after.0, before.0, "a reap-window read installed a document");
+        let after = forbidden_work();
+        for ((name, before), after) in FORBIDDEN.iter().zip(before).zip(after) {
+            assert_eq!(after, before, "a reap-window read did {name}");
+        }
+        assert_eq!(config.revision(), revision, "a reap-window read installed a document");
+    }
+
+    /// The counters of the test above are live on every route the forbidden work can take, including the ones that do not
+    /// pass through the instance under test: another `Config` opening or reloading the file, the provider builder's own
+    /// `build` and `custom_key_ids`, a credential file, the keychain and the key variables.
+    #[tokio::test]
+    async fn every_route_to_the_forbidden_work_moves_its_counter() {
+        use mixdog_ai::registry::builder::DefaultProviderBuilder;
+        use mixdog_ai::registry::effective::EffectiveProviders;
+        use mixdog_ai::registry::keys::ApiKeyStore;
+        use mixdog_ai::registry::providers::ProviderBuilder;
+        use mixdog_core_config::config::ConfigLanes;
+
+        let world = crate::run_host::process_tests::world(&[("OPENAI_API_KEY", "k")], json!({}), Vec::new()).await;
+        let services = &world.services;
+        let builder = Arc::new(DefaultProviderBuilder::new(crate::run_host::builder_env::builder_env(services)));
+        let keys = ApiKeyStore::new(services.vault.clone(), services.env.clone(), false);
+        let effective = EffectiveProviders::new(builder.clone(), ApiKeyStore::new(services.vault.clone(), services.env.clone(), false), services.env.clone());
+        let tokens = mixdog_rt::testing::tokens();
+        let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+        let other = tempfile::tempdir().expect("dir");
+        let agent = services.config.agent();
+
+        let moved = |name: &str, before: [u64; 5], counter: usize| {
+            assert!(forbidden_work()[counter] > before[counter], "{name} moved no {} counter", FORBIDDEN[counter]);
+        };
+        let before = forbidden_work();
+        Config::open(other.path().join("mixdog-config.json"), Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes).await.expect("another instance");
+        moved("opening another Config", before, 0);
+        let before = forbidden_work();
+        services.config.reload().await.expect("reload");
+        moved("Config::reload", before, 0);
+        let before = forbidden_work();
+        services.config.loaded_agent().await.expect("rebuilt");
+        moved("Config::loaded_agent", before, 1);
+        let before = forbidden_work();
+        effective.load(&agent, false).await.expect("loaded");
+        moved("EffectiveProviders::load", before, 2);
+        let before = forbidden_work();
+        builder.build("openai", &json!({ "enabled": true, "apiKey": "k" })).await.expect("built");
+        moved("DefaultProviderBuilder::build", before, 3);
+        let before = forbidden_work();
+        builder.custom_key_ids("custom-acme").await.expect("roster");
+        moved("DefaultProviderBuilder::custom_key_ids", before, 4);
+        let before = forbidden_work();
+        builder.oauth_credentials_usable("openai-oauth").await.expect("probe");
+        moved("DefaultProviderBuilder::oauth_credentials_usable", before, 4);
+        let before = forbidden_work();
+        builder.oauth_credential_state("openai-oauth").await.expect("state");
+        moved("DefaultProviderBuilder::oauth_credential_state", before, 4);
+        let before = forbidden_work();
+        keys.get("openai").await.expect("key");
+        moved("ApiKeyStore::get", before, 4);
+        let before = forbidden_work();
+        effective.load(&agent, true).await.expect("loaded with secrets");
+        moved("EffectiveProviders::load with secrets", before, 4);
     }
 
     /// `resolveAgentTerminalReapMs`: openai-oauth keeps the finite hour its unlimited cache needs, a

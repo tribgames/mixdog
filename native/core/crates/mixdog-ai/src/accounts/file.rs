@@ -78,6 +78,8 @@ fn write_opts() -> Opts {
 /// holds the lock for the whole wait it is left in place and the answer is the empty
 /// roster.
 pub(crate) async fn read_roster(io: &CredentialIo, path: PathBuf) -> io::Result<Value> {
+    #[cfg(feature = "count-work")]
+    crate::work::credential_read();
     let first = path.clone();
     let peeked = io.read_job(move |lane| mixdog_statefile::peek(lane, &first, Some(&validate))).await?;
     match peeked {

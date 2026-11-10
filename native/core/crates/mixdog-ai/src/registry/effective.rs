@@ -32,26 +32,6 @@ const KEY_PROVIDERS: [(&str, &str); 6] = [
 const OAUTH_ALWAYS: [&str; 6] = ["openai-oauth", "anthropic-oauth", "grok-oauth", "muse-code-oauth", "command-code-oauth", "opencode-go-oauth"];
 const OAUTH_DEV_GATED: [&str; 4] = ["mimo-oauth", "cursor-oauth", "devin-oauth", "antigravity-oauth"];
 
-/// What this module has done since the process started. A reader that needs only non-credential settings must move
-/// neither counter (`decisions.md` "Node daemon hot paths" 6); a test takes the difference around the read.
-pub mod work {
-    use std::sync::atomic::AtomicU64;
-    use std::sync::atomic::Ordering;
-
-    pub(crate) static LOADS: AtomicU64 = AtomicU64::new(0);
-    pub(crate) static PROBES: AtomicU64 = AtomicU64::new(0);
-
-    /// Provider loads built (`EffectiveProviders::load`).
-    pub fn loads() -> u64 {
-        LOADS.load(Ordering::Relaxed)
-    }
-
-    /// Credential reads: an OAuth credential probe, or a stored or environment API key read.
-    pub fn probes() -> u64 {
-        PROBES.load(Ordering::Relaxed)
-    }
-}
-
 pub struct EffectiveProviders {
     builder: Arc<dyn ProviderBuilder>,
     keys: ApiKeyStore,
@@ -67,6 +47,10 @@ impl EffectiveProviders {
     async fn defaults(&self, detect: bool) -> Map<String, Value> {
         let mut providers = Map::new();
         for (name, variable) in KEY_PROVIDERS {
+            #[cfg(feature = "count-work")]
+            if detect {
+                crate::work::credential_read();
+            }
             let key = if detect { self.env.var(variable).filter(|key| !key.is_empty()) } else { None };
             let mut entry = Map::new();
             entry.insert("enabled".into(), Value::Bool(key.is_some()));
@@ -93,7 +77,6 @@ impl EffectiveProviders {
     /// one never probed, is carried as `credentialProbeUnavailable` (never a logout).
     async fn oauth_entry(&self, name: &str, detect: bool, extra: Value) -> Value {
         let state = if detect {
-            work::PROBES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             // A probe that never ran is a momentary failure (Node's catch), not a logout.
             Some(self.builder.oauth_credential_state(name).await.unwrap_or(CredentialState::Unreadable))
         } else {
@@ -113,7 +96,8 @@ impl EffectiveProviders {
     /// `loadConfig({ secrets: include_secrets }).providers` over the stored agent section. `Err`
     /// only when a keychain read never ran: a missing key would read as "not configured".
     pub async fn load(&self, agent: &Map<String, Value>, include_secrets: bool) -> Result<Map<String, Value>, String> {
-        work::LOADS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        #[cfg(feature = "count-work")]
+        crate::work::providers_loaded();
         let stored = agent.get("providers").and_then(Value::as_object);
         let mut merged = self.defaults(include_secrets).await;
         for (name, value) in stored.into_iter().flatten() {
@@ -139,7 +123,6 @@ impl EffectiveProviders {
         }
         if include_secrets {
             for (name, _) in KEY_PROVIDERS {
-                work::PROBES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 if let Some(key) = self.keys.get(name).await.map_err(|error| error.message)? {
                     let mut entry = merged.get(name).and_then(Value::as_object).cloned().unwrap_or_default();
                     entry.insert("apiKey".into(), Value::String(key));
@@ -161,6 +144,8 @@ impl EffectiveProviders {
                 if let Some(variable) = entry.get("apiKeyEnv").and_then(Value::as_str).filter(|v| !v.is_empty()).map(str::to_owned) {
                     // Env mode: the named variable is the only key source.
                     entry = entry.into_iter().filter(|(key, _)| key != "apiKey").collect();
+                    #[cfg(feature = "count-work")]
+                    crate::work::credential_read();
                     if let Some(key) = self.env.var(&variable).filter(|key| !key.is_empty()) {
                         entry.insert("apiKey".into(), Value::String(key));
                     }
