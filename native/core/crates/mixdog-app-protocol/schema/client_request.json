@@ -2868,7 +2868,7 @@
       "description": "What a paired phone asks to download (`transfer/authorizeRead`).",
       "oneOf": [
         {
-          "description": "A file of a conversation's project, by its path in the project.",
+          "description": "A file of the conversation's project, by its path in the project. The project is the host catalog's, never the caller's.",
           "properties": {
             "kind": {
               "enum": [
@@ -2878,20 +2878,16 @@
             },
             "rel": {
               "type": "string"
-            },
-            "root": {
-              "type": "string"
             }
           },
           "required": [
             "kind",
-            "rel",
-            "root"
+            "rel"
           ],
           "type": "object"
         },
         {
-          "description": "A file a conversation names, by its absolute path; `projectPath` is the conversation's project, if it has one.",
+          "description": "A file the conversation names, by its absolute path or its path in the conversation's folder.",
           "properties": {
             "kind": {
               "enum": [
@@ -2901,12 +2897,6 @@
             },
             "path": {
               "type": "string"
-            },
-            "projectPath": {
-              "type": [
-                "string",
-                "null"
-              ]
             }
           },
           "required": [

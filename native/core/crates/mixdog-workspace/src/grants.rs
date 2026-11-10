@@ -36,6 +36,21 @@ const MISMATCH: &str = "The selected-file permission does not match this path.";
 #[async_trait::async_trait]
 pub trait SessionCatalog: Send + Sync {
     async fn has(&self, session_id: &str) -> WsResult<bool>;
+
+    /// The conversation's row in the host's current catalog (Node's `host.listSessions()` entry, `sessionRow`): `None` for one the
+    /// catalog does not list. A catalog that cannot say lists none, so a download of it is refused.
+    async fn row(&self, _session_id: &str) -> WsResult<Option<SessionRow>> {
+        Ok(None)
+    }
+}
+
+/// What a download needs of a conversation (Node's `DesktopSessionSummary`): whether it is a project conversation, its project as the
+/// conversation states it, and its folder.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionRow {
+    pub project: bool,
+    pub project_path: Option<String>,
+    pub cwd: String,
 }
 
 type Table = Mutex<Vec<(String, Grant)>>;
@@ -112,6 +127,11 @@ impl GrantStore {
     fn table(&self, credential: &str, connection: u64) -> Arc<Table> {
         let mut bound = self.bound.lock().expect("grants");
         bound.entry(connection).or_insert_with(|| self.devices.lock().expect("grants").entry(credential.to_owned()).or_default().clone()).clone()
+    }
+
+    /// Node's `sessionRow`: the conversation a download names, as the catalog lists it now.
+    pub async fn session_row(&self, session_id: &str) -> WsResult<Option<SessionRow>> {
+        self.catalog.row(session_id).await
     }
 
     pub async fn conversation_gone(&self, session_id: &str) -> WsResult<bool> {

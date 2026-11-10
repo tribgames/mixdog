@@ -222,7 +222,7 @@ impl StatePublisher for Published {
 
 /// The core booted as `compose` and `serving::attach` boot it, with one paired device ("Pixel", `CRED`) in the relay's roster.
 struct Harness {
-    /// The file the debug build's download clock is read from (`MIXDOG_DOWNLOAD_CLOCK_FILE`), which only the test writes: Node's recorder
+    /// The file the downloads' clock is read from (`<MIXDOG_DOWNLOAD_REPLAY_DIR>/clock`), which only the test writes: Node's recorder
     /// moved its own clock by explicit steps too.
     wall: std::path::PathBuf,
     dir: tempfile::TempDir,
@@ -264,6 +264,19 @@ impl Harness {
     async fn start_with(revoke_ok: bool, displays: bool) -> Self {
         let tokens = mixdog_rt::testing::tokens();
         let dir = tempfile::tempdir().unwrap();
+        // The downloads' clock is the file `talk/clock` (a build with `replay-controls`, told its folder), read when the workspace is made.
+        // The replay controls name their folder once for the process (every scenario of a test shares it), so the folder outlives a harness.
+        static TALK: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+        let talk = TALK.get_or_init(|| {
+            let folder = tempfile::tempdir().unwrap();
+            let talk = folder.path().to_path_buf();
+            std::mem::forget(folder);
+            // SAFETY: set before the first workspace is made; each test of this module is a process of its own under nextest.
+            unsafe { std::env::set_var("MIXDOG_DOWNLOAD_REPLAY_DIR", &talk) };
+            talk
+        });
+        let wall = talk.join("clock");
+        std::fs::write(&wall, DOWNLOAD_CLOCK_START.to_string()).unwrap();
         let path = dir.path().to_path_buf();
         // An install that used remote access before: activated, with its E2EE identity on disk.
         std::fs::write(path.join("remote-activated.json"), br#"{"activatedAt":1}"#).unwrap();
@@ -331,10 +344,7 @@ impl Harness {
             releases: mixdog_workspace::release::FolderReleases::new(),
         })
         .unwrap();
-        let wall = dir.path().join("download-clock");
-        // SAFETY: set before the harness serves a call; each test of this module is a process of its own under nextest.
-        unsafe { std::env::set_var("MIXDOG_DOWNLOAD_CLOCK_FILE", &wall) };
-        let grants = Arc::new(mixdog_workspace::grants::GrantStore::new(Arc::new(mixdog_workspace::transfer::SystemClock), Arc::new(AllSessions)));
+        let grants = Arc::new(mixdog_workspace::grants::GrantStore::new(Arc::new(mixdog_workspace::transfer::SystemClock), Arc::new(AllSessions(dir.path().to_string_lossy().into_owned()))));
         workspace.set_phone_grants(grants.clone(), phone_credential(remote.registry.clone()));
         remote
             .events
@@ -430,11 +440,15 @@ impl Harness {
     }
 }
 
-/// Every conversation exists (the catalog the grants are checked against has none to remove).
-struct AllSessions;
+/// Every conversation exists, a project conversation of the harness folder (the catalog the grants are checked against has none to remove).
+struct AllSessions(String);
 
 #[async_trait::async_trait]
 impl mixdog_workspace::grants::SessionCatalog for AllSessions {
+    async fn row(&self, _: &str) -> mixdog_workspace::error::WsResult<Option<mixdog_workspace::grants::SessionRow>> {
+        Ok(Some(mixdog_workspace::grants::SessionRow { project: true, project_path: Some(self.0.clone()), cwd: self.0.clone() }))
+    }
+
     async fn has(&self, _: &str) -> mixdog_workspace::error::WsResult<bool> {
         Ok(true)
     }

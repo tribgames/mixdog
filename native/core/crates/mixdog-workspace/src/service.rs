@@ -253,6 +253,8 @@ pub struct WorkspaceService {
     /// The desktop host's channel, for the methods only an Electron window can answer.
     host: OnceLock<Arc<dyn HostChannel>>,
     phone_grants: OnceLock<PhoneGrants>,
+    /// The sweepers run once, whatever the number of calls to [WorkspaceService::spawn_idle_sweeper].
+    sweepers: std::sync::Once,
     /// The user's Markdown default view, read when editor settings are (see [`Self::set_user_markdown_view`]).
     user_markdown_view: OnceLock<UserMarkdownView>,
     /// Where a path inside a managed worktree is resolved to its owner Project (see [`ManagedProjects`]).
@@ -343,6 +345,7 @@ impl WorkspaceService {
             state: deps.state,
             host: OnceLock::new(),
             phone_grants: OnceLock::new(),
+            sweepers: std::sync::Once::new(),
             user_markdown_view: OnceLock::new(),
             managed: OnceLock::new(),
             releases: deps.releases,
@@ -355,9 +358,18 @@ impl WorkspaceService {
     /// per-upload `setTimeout(idleMs)`: it sleeps to the earliest idle deadline and sweeps then, so a
     /// partial file does not wait for the next upload call. Call once after construction.
     pub fn spawn_idle_sweeper(&self) {
+        self.sweepers.call_once(|| self.start_sweepers());
+    }
+
+    fn start_sweepers(&self) {
         let sweeping = self.transfers.clone();
-        // Node's 15 s sweeper of grants and phone transfers: their handles close at its tick although no call comes.
+        // Node's 15 s sweeper of grants and phone transfers: their handles close at its tick although no call comes. It ends with the
+        // runtime at shutdown, like the other tasks of the daemon. A core built for the replay of the recording ticks on the replay's clock.
         drop(mixdog_rt::spawn("download-sweep", mixdog_rt::TaskClass::Work, async move {
+            #[cfg(feature = "replay-controls")]
+            if let Some(clock) = crate::replay_controls::clock() {
+                return sweeping.run_download_sweeper(&*clock).await;
+            }
             sweeping.run_download_sweeper(&crate::transfer::TokioTimer).await;
         }));
         let (transfers, lanes) = (self.transfers.clone(), self.lanes);
@@ -1042,28 +1054,33 @@ impl WorkspaceService {
                 let session = s(params, "sessionId")?.to_owned();
                 let mark = self.transfers.mark(&owner, &session);
                 let t = self.transfers.clone();
+                // Node's `sessionRow`: the conversation must be in the host's catalog now, whoever asks, and its project is the catalog's, never
+                // the caller's.
+                let grants = self.phone_grants.get().ok_or_else(|| WsError::new(Reason::Unsupported, "Paired-device downloads are not available."))?;
+                let row = grants.store.session_row(&session).await?.ok_or_else(unavailable)?;
+                // `projectRoot`: only a project conversation whose project is still a registered one has a root.
+                let project = match (&row.project_path, row.project) {
+                    (Some(given), true) => self.catalog.resolve(given).await.ok(),
+                    _ => None,
+                };
+                let given = row.project_path.as_deref().map(PathBuf::from);
                 let opened = match source.get("kind").and_then(Value::as_str) {
                     Some("file") => {
-                        let outside = || WsError::new(Reason::Download("file-download:outside-project"), "The file is outside the conversation's project.");
-                        let root = self.root(req.ctx.origin, source).await.map_err(|_| outside())?;
+                        let root = project.ok_or_else(|| WsError::new(Reason::Download("file-download:outside-project"), "The file is outside the conversation's project."))?;
                         let rel = s(source, "rel")?.to_owned();
-                        run_fallible(self.lanes.interactive, &cancel, move || crate::transfer::open_project_download(&root, &rel)).await?
+                        run_fallible(self.lanes.interactive, &cancel, move || crate::transfer::open_project_download(&root, &rel, &|point| t.point(point))).await?
                     }
                     Some("sessionFile") => {
                         let path = s(source, "path")?.to_owned();
-                        // The conversation's project counts only while it is still a registered one.
-                        let given = source.get("projectPath").and_then(Value::as_str).map(PathBuf::from);
-                        let project = match &given {
-                            Some(given) => self.catalog.resolve(&given.to_string_lossy()).await.ok(),
-                            None => None,
-                        };
+                        let cwd = row.cwd.clone();
                         run_fallible(self.lanes.interactive, &cancel, move || {
-                            crate::transfer::open_session_download(&path, project.as_deref(), given.as_deref())
+                            crate::transfer::open_session_download(&path, &cwd, project.as_deref(), given.as_deref(), &|point| t.point(point))
                         })
                         .await?
                     }
                     _ => return Err(WsError::invalid("source.kind is invalid.")),
                 };
+                let t = self.transfers.clone();
                 let granted = t.authorize(&owner, &session, mark, opened)?;
                 // Node's `stillAuthorized`: a conversation that left the catalog while the file was opened leaves no grant behind.
                 if self.session_gone(&session).await? {

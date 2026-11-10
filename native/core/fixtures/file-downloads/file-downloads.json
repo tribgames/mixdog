@@ -6393,7 +6393,7 @@
     },
     {
       "name": "session never listed",
-      "note": "a conversation no published catalog listed is not gone: a publication that omits it ends nothing",
+      "note": "a conversation no published catalog listed is not gone: a publication that omits it ends nothing, but a new authorize needs the conversation in the catalog",
       "steps": [
         {
           "op": "write",
@@ -6462,8 +6462,951 @@
               }
             }
           }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "session",
+                "sessionId": "s1",
+                "path": "<dir>/a.bin"
+              },
+              "purpose": "save"
+            }
+          ],
+          "frame": {
+            "id": 260,
+            "ok": false,
+            "error": "This conversation is not available.",
+            "errorCode": "file-download:unavailable"
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "session",
+                "sessionId": "never-existed",
+                "path": "<dir>/a.bin"
+              },
+              "purpose": "save"
+            }
+          ],
+          "frame": {
+            "id": 261,
+            "ok": false,
+            "error": "This conversation is not available.",
+            "errorCode": "file-download:unavailable"
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "project",
+                "sessionId": "s1",
+                "relPath": "a.bin"
+              },
+              "purpose": "save"
+            }
+          ],
+          "frame": {
+            "id": 262,
+            "ok": false,
+            "error": "This conversation is not available.",
+            "errorCode": "file-download:unavailable"
+          }
         }
       ]
+    },
+    {
+      "name": "ancestor swapped between resolving and opening",
+      "note": "a folder above the file replaced by a junction after the path was resolved opens another file: changed, and no handle is left",
+      "steps": [
+        {
+          "op": "write",
+          "file": "project/sub/a.bin",
+          "text": "inside bytes"
+        },
+        {
+          "op": "write",
+          "file": "outside/a.bin",
+          "text": "outside bytes"
+        },
+        {
+          "op": "hold",
+          "gate": "afterResolve"
+        },
+        {
+          "op": "send",
+          "key": "authorize",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "project",
+                "sessionId": "s1",
+                "relPath": "sub/a.bin"
+              },
+              "purpose": "save"
+            }
+          ]
+        },
+        {
+          "op": "junction",
+          "file": "project/sub",
+          "target": "outside"
+        },
+        {
+          "op": "release",
+          "gate": "afterResolve"
+        },
+        {
+          "op": "answer",
+          "key": "authorize",
+          "frame": {
+            "id": 263,
+            "ok": false,
+            "error": "The file changed on the host.",
+            "errorCode": "file-download:changed"
+          }
+        },
+        {
+          "op": "handles",
+          "open": 0
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "project",
+                "sessionId": "s1",
+                "relPath": "sub/a.bin"
+              },
+              "purpose": "save"
+            }
+          ],
+          "frame": {
+            "id": 264,
+            "ok": false,
+            "error": "The file is outside the conversation's project.",
+            "errorCode": "file-download:outside-project"
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "session",
+                "sessionId": "s1",
+                "path": "<dir>/project/sub/a.bin"
+              },
+              "purpose": "save"
+            }
+          ],
+          "frame": {
+            "id": 265,
+            "ok": false,
+            "error": "The link resolves outside the conversation's project.",
+            "errorCode": "file-download:outside-project"
+          }
+        },
+        {
+          "op": "handles",
+          "open": 0
+        }
+      ]
+    },
+    {
+      "name": "file moved",
+      "note": "a file renamed or removed after authorize: begin, range and finish answer changed; renamed away and back it is the file that was authorized",
+      "steps": [
+        {
+          "op": "write",
+          "file": "a.bin",
+          "text": "0123456789abcdef"
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "session",
+                "sessionId": "s1",
+                "path": "<dir>/a.bin"
+              },
+              "purpose": "save"
+            }
+          ],
+          "frame": {
+            "id": 266,
+            "ok": true,
+            "value": {
+              "grantId": "<grantId#66>",
+              "name": "a.bin",
+              "size": 16,
+              "mime": "application/octet-stream",
+              "version": "<version#30>",
+              "expiresAt": 1924992060000
+            }
+          }
+        },
+        {
+          "op": "rename",
+          "file": "a.bin",
+          "to": "moved.bin"
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadBegin",
+          "params": [
+            "<grantId#66>"
+          ],
+          "frame": {
+            "id": 267,
+            "ok": false,
+            "error": "The file changed on the host.",
+            "errorCode": "file-download:changed"
+          }
+        },
+        {
+          "op": "handles",
+          "open": 0
+        },
+        {
+          "op": "rename",
+          "file": "moved.bin",
+          "to": "a.bin"
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "session",
+                "sessionId": "s1",
+                "path": "<dir>/a.bin"
+              },
+              "purpose": "save"
+            }
+          ],
+          "frame": {
+            "id": 268,
+            "ok": true,
+            "value": {
+              "grantId": "<grantId#67>",
+              "name": "a.bin",
+              "size": 16,
+              "mime": "application/octet-stream",
+              "version": "<version#30>",
+              "expiresAt": 1924992060000
+            }
+          }
+        },
+        {
+          "op": "rename",
+          "file": "a.bin",
+          "to": "moved.bin"
+        },
+        {
+          "op": "rename",
+          "file": "moved.bin",
+          "to": "a.bin"
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadBegin",
+          "params": [
+            "<grantId#67>"
+          ],
+          "frame": {
+            "id": 269,
+            "ok": true,
+            "value": {
+              "transferId": "<transferId#37>",
+              "name": "a.bin",
+              "size": 16,
+              "mime": "application/octet-stream",
+              "version": "<version#30>",
+              "expiresAt": 1924993800000,
+              "rangeMaxBytes": 4194304,
+              "media": {
+                "assetId": "<assetId#37>",
+                "variant": "download",
+                "expiresAt": 1924993800000
+              }
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadRange",
+          "params": [
+            "<transferId#37>",
+            0,
+            4,
+            "<version#30>"
+          ],
+          "frame": {
+            "id": 270,
+            "ok": true,
+            "value": {
+              "transferId": "<transferId#37>",
+              "offset": 0,
+              "length": 4,
+              "data": "MDEyMw==",
+              "version": "<version#30>",
+              "eof": false
+            }
+          }
+        },
+        {
+          "op": "rename",
+          "file": "a.bin",
+          "to": "moved.bin"
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadRange",
+          "params": [
+            "<transferId#37>",
+            4,
+            4,
+            "<version#30>"
+          ],
+          "frame": {
+            "id": 271,
+            "ok": false,
+            "error": "The file changed on the host.",
+            "errorCode": "file-download:changed"
+          }
+        },
+        {
+          "op": "handles",
+          "open": 0
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadRange",
+          "params": [
+            "<transferId#37>",
+            4,
+            4,
+            "<version#30>"
+          ],
+          "frame": {
+            "id": 272,
+            "ok": false,
+            "error": "This download is no longer available.",
+            "errorCode": "file-download:expired"
+          }
+        },
+        {
+          "op": "rename",
+          "file": "moved.bin",
+          "to": "a.bin"
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "session",
+                "sessionId": "s1",
+                "path": "<dir>/a.bin"
+              },
+              "purpose": "save"
+            }
+          ],
+          "frame": {
+            "id": 273,
+            "ok": true,
+            "value": {
+              "grantId": "<grantId#68>",
+              "name": "a.bin",
+              "size": 16,
+              "mime": "application/octet-stream",
+              "version": "<version#30>",
+              "expiresAt": 1924992060000
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadBegin",
+          "params": [
+            "<grantId#68>"
+          ],
+          "frame": {
+            "id": 274,
+            "ok": true,
+            "value": {
+              "transferId": "<transferId#38>",
+              "name": "a.bin",
+              "size": 16,
+              "mime": "application/octet-stream",
+              "version": "<version#30>",
+              "expiresAt": 1924993800000,
+              "rangeMaxBytes": 4194304,
+              "media": {
+                "assetId": "<assetId#38>",
+                "variant": "download",
+                "expiresAt": 1924993800000
+              }
+            }
+          }
+        },
+        {
+          "op": "rename",
+          "file": "a.bin",
+          "to": "moved.bin"
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadFinish",
+          "params": [
+            "<transferId#38>"
+          ],
+          "frame": {
+            "id": 275,
+            "ok": false,
+            "error": "The file changed on the host.",
+            "errorCode": "file-download:changed"
+          }
+        },
+        {
+          "op": "handles",
+          "open": 0
+        },
+        {
+          "op": "rename",
+          "file": "moved.bin",
+          "to": "a.bin"
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "session",
+                "sessionId": "s1",
+                "path": "<dir>/a.bin"
+              },
+              "purpose": "save"
+            }
+          ],
+          "frame": {
+            "id": 276,
+            "ok": true,
+            "value": {
+              "grantId": "<grantId#69>",
+              "name": "a.bin",
+              "size": 16,
+              "mime": "application/octet-stream",
+              "version": "<version#30>",
+              "expiresAt": 1924992060000
+            }
+          }
+        },
+        {
+          "op": "remove",
+          "file": "a.bin"
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadBegin",
+          "params": [
+            "<grantId#69>"
+          ],
+          "frame": {
+            "id": 277,
+            "ok": false,
+            "error": "The file changed on the host.",
+            "errorCode": "file-download:changed"
+          }
+        },
+        {
+          "op": "write",
+          "file": "a.bin",
+          "text": "0123456789abcdef"
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "session",
+                "sessionId": "s1",
+                "path": "<dir>/a.bin"
+              },
+              "purpose": "save"
+            }
+          ],
+          "frame": {
+            "id": 278,
+            "ok": true,
+            "value": {
+              "grantId": "<grantId#70>",
+              "name": "a.bin",
+              "size": 16,
+              "mime": "application/octet-stream",
+              "version": "<version#31>",
+              "expiresAt": 1924992060000
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadBegin",
+          "params": [
+            "<grantId#70>"
+          ],
+          "frame": {
+            "id": 279,
+            "ok": true,
+            "value": {
+              "transferId": "<transferId#39>",
+              "name": "a.bin",
+              "size": 16,
+              "mime": "application/octet-stream",
+              "version": "<version#31>",
+              "expiresAt": 1924993800000,
+              "rangeMaxBytes": 4194304,
+              "media": {
+                "assetId": "<assetId#39>",
+                "variant": "download",
+                "expiresAt": 1924993800000
+              }
+            }
+          }
+        },
+        {
+          "op": "remove",
+          "file": "a.bin"
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadRange",
+          "params": [
+            "<transferId#39>",
+            0,
+            4,
+            "<version#31>"
+          ],
+          "frame": {
+            "id": 280,
+            "ok": false,
+            "error": "The file changed on the host.",
+            "errorCode": "file-download:changed"
+          }
+        },
+        {
+          "op": "handles",
+          "open": 0
+        }
+      ]
+    },
+    {
+      "name": "session paths",
+      "note": "a session path may be relative to the conversation's folder; a leading double separator is a network path",
+      "steps": [
+        {
+          "op": "write",
+          "file": "project/rel.bin",
+          "text": "relative bytes"
+        },
+        {
+          "op": "write",
+          "file": "outside/note.md",
+          "text": "outside bytes"
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "session",
+                "sessionId": "s1",
+                "path": "rel.bin"
+              },
+              "purpose": "save"
+            }
+          ],
+          "frame": {
+            "id": 281,
+            "ok": true,
+            "value": {
+              "grantId": "<grantId#71>",
+              "name": "rel.bin",
+              "size": 14,
+              "mime": "application/octet-stream",
+              "version": "<version#32>",
+              "expiresAt": 1924992060000
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "session",
+                "sessionId": "s1",
+                "path": "sub/../rel.bin"
+              },
+              "purpose": "save"
+            }
+          ],
+          "frame": {
+            "id": 282,
+            "ok": true,
+            "value": {
+              "grantId": "<grantId#72>",
+              "name": "rel.bin",
+              "size": 14,
+              "mime": "application/octet-stream",
+              "version": "<version#32>",
+              "expiresAt": 1924992060000
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "session",
+                "sessionId": "s1",
+                "path": "../outside/note.md"
+              },
+              "purpose": "save"
+            }
+          ],
+          "frame": {
+            "id": 283,
+            "ok": true,
+            "value": {
+              "grantId": "<grantId#73>",
+              "name": "note.md",
+              "size": 13,
+              "mime": "text/markdown",
+              "version": "<version#33>",
+              "expiresAt": 1924992060000
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "session",
+                "sessionId": "s1",
+                "path": "missing.bin"
+              },
+              "purpose": "save"
+            }
+          ],
+          "frame": {
+            "id": 284,
+            "ok": false,
+            "error": "The file no longer exists.",
+            "errorCode": "file-download:not-found"
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "session",
+                "sessionId": "s1",
+                "path": "\\\\server\\share\\x.txt"
+              },
+              "purpose": "save"
+            }
+          ],
+          "frame": {
+            "id": 285,
+            "ok": false,
+            "error": "Only files on this PC can be downloaded.",
+            "errorCode": "file-download:not-a-file"
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "session",
+                "sessionId": "s1",
+                "path": "/\\server/share/x.txt"
+              },
+              "purpose": "save"
+            }
+          ],
+          "frame": {
+            "id": 286,
+            "ok": false,
+            "error": "Only files on this PC can be downloaded.",
+            "errorCode": "file-download:not-a-file"
+          }
+        },
+        {
+          "op": "handles",
+          "open": 3
+        }
+      ]
+    },
+    {
+      "name": "windows path names",
+      "note": "a stream name, a device name, a namespace prefix and a drive-relative path, as this host's realpath and open treat them",
+      "steps": [
+        {
+          "op": "write",
+          "file": "outside/note.md",
+          "text": "outside bytes"
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "session",
+                "sessionId": "s1",
+                "path": "<dir>/outside/note.md:alt"
+              },
+              "purpose": "save"
+            }
+          ],
+          "frame": {
+            "id": 287,
+            "ok": false,
+            "error": "The file no longer exists.",
+            "errorCode": "file-download:not-found"
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "session",
+                "sessionId": "s1",
+                "path": "<dir>/outside/note.md::$DATA"
+              },
+              "purpose": "save"
+            }
+          ],
+          "frame": {
+            "id": 288,
+            "ok": true,
+            "value": {
+              "grantId": "<grantId#74>",
+              "name": "note.md-$DATA",
+              "size": 13,
+              "mime": "application/octet-stream",
+              "version": "<version#34>",
+              "expiresAt": 1924992060000
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "session",
+                "sessionId": "s1",
+                "path": "<dir>/outside/NUL"
+              },
+              "purpose": "save"
+            }
+          ],
+          "frame": {
+            "id": 289,
+            "ok": false,
+            "error": "The file no longer exists.",
+            "errorCode": "file-download:not-found"
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "session",
+                "sessionId": "s1",
+                "path": "NUL"
+              },
+              "purpose": "save"
+            }
+          ],
+          "frame": {
+            "id": 290,
+            "ok": false,
+            "error": "The file no longer exists.",
+            "errorCode": "file-download:not-found"
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "session",
+                "sessionId": "s1",
+                "path": "//?/<dir>/outside/note.md"
+              },
+              "purpose": "save"
+            }
+          ],
+          "frame": {
+            "id": 291,
+            "ok": false,
+            "error": "Only files on this PC can be downloaded.",
+            "errorCode": "file-download:not-a-file"
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "session",
+                "sessionId": "s1",
+                "path": "<dir>/outside/note.md."
+              },
+              "purpose": "save"
+            }
+          ],
+          "frame": {
+            "id": 292,
+            "ok": false,
+            "error": "The file no longer exists.",
+            "errorCode": "file-download:not-found"
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "session",
+                "sessionId": "s1",
+                "path": "<dir>/outside/note.md "
+              },
+              "purpose": "save"
+            }
+          ],
+          "frame": {
+            "id": 293,
+            "ok": true,
+            "value": {
+              "grantId": "<grantId#75>",
+              "name": "note.md",
+              "size": 13,
+              "mime": "text/markdown",
+              "version": "<version#34>",
+              "expiresAt": 1924992060000
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "session",
+                "sessionId": "s1",
+                "path": "<dir>/outside/NOTE.MD"
+              },
+              "purpose": "save"
+            }
+          ],
+          "frame": {
+            "id": 294,
+            "ok": true,
+            "value": {
+              "grantId": "<grantId#76>",
+              "name": "NOTE.MD",
+              "size": 13,
+              "mime": "text/markdown",
+              "version": "<version#34>",
+              "expiresAt": 1924992060000
+            }
+          }
+        },
+        {
+          "op": "handles",
+          "open": 3
+        }
+      ],
+      "platform": "win32"
     }
   ]
 }

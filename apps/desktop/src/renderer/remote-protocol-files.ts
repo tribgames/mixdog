@@ -10,7 +10,6 @@ import {
   FILE_DOWNLOAD_MAX_BYTES,
   FILE_DOWNLOAD_PURPOSES,
   FILE_DOWNLOAD_RANGE_MAX_BYTES,
-  FileDownloadError,
   type FileDownloadPurpose,
 } from '../shared/file-downloads';
 import { requiredString } from '../shared/remote-arguments';
@@ -91,8 +90,8 @@ async function grantedPlace(host: PhoneProtocolHost, target: Params): Promise<{ 
 }
 
 // ── a paired phone's downloads (Node's `fileDownloadRemoteMethods`, main/file-downloads.ts:960-1070 at b6f10295a) ──
-// The arguments are checked here, in Node's order and with its sentences. The conversation a request names is the adapter's to resolve
-// (Node's `sessionRow` / `projectRoot`): the core is told the project, and the conversation's id, whose deletion ends the grant.
+// The arguments are checked here, in Node's order and with its sentences. The conversation a request names is the core's to resolve
+// (Node's `sessionRow` / `projectRoot`), and its deletion ends the grant.
 const DOWNLOAD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const DOWNLOAD_VERSION = /^[A-Za-z0-9_-]{43}$/;
 const SESSION_ID = /^[A-Za-z0-9_-]+$/;
@@ -139,32 +138,13 @@ function downloadRequest(value: unknown): DownloadRequest {
   throw new TypeError('download source is invalid.');
 }
 
-/** The registered project of a conversation (null for a task conversation); one the core does not hold is Node's `unavailable`. */
-async function conversationProject(host: PhoneProtocolHost, sessionId: string): Promise<string | null> {
-  let read: { thread?: { projectPath?: unknown } };
-  try {
-    read = (await (host.client().call as (m: string, p: unknown) => Promise<unknown>)('thread/read', { threadId: sessionId })) as typeof read;
-  } catch {
-    throw new FileDownloadError('unavailable', 'This conversation is not available.');
-  }
-  const project = read.thread?.projectPath;
-  return typeof project === 'string' && project ? project : null;
-}
-
-async function authorizeDownload(host: PhoneProtocolHost, value: unknown): Promise<unknown> {
+/** The conversation, its project and its folder are the core's to resolve from its own catalog (Node's `sessionRow` / `projectRoot`): a
+ *  conversation it does not list is Node's `unavailable`, whoever asks, so the request names only the conversation and the file. */
+function authorizeDownload(host: PhoneProtocolHost, value: unknown): Promise<unknown> {
   const request = downloadRequest(value);
-  const project = await conversationProject(host, request.sessionId);
-  if (request.kind === 'project') {
-    if (project === null) throw new FileDownloadError('outside-project', "The file is outside the conversation's project.");
-    return rpc(host, 'transfer/authorizeRead', { sessionId: request.sessionId, source: { kind: 'file', root: project, rel: request.relPath }, purpose: request.purpose });
-  }
-  return rpc(host, 'transfer/authorizeRead', {
-    sessionId: request.sessionId,
-    source: { kind: 'sessionFile', path: request.path, ...(project === null ? {} : { projectPath: project }) },
-    purpose: request.purpose,
-  });
+  const source = request.kind === 'project' ? { kind: 'file', rel: request.relPath } : { kind: 'sessionFile', path: request.path };
+  return rpc(host, 'transfer/authorizeRead', { sessionId: request.sessionId, source, purpose: request.purpose });
 }
-
 function downloadRange(transferId: unknown, offset: unknown, length: unknown, version: unknown): Params {
   const id = downloadId(transferId, 'transfer id');
   if (typeof offset !== 'number' || !Number.isSafeInteger(offset) || offset < 0 || offset > FILE_DOWNLOAD_MAX_BYTES) throw new TypeError('offset is invalid.');

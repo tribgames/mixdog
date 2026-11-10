@@ -10,7 +10,7 @@
 // The recording is a script: each step is a file operation, a clock advance, a revoke, or a phone call with the whole frame the phone got.
 // The random ids and the file versions (they hold the file's inode) are replaced by `<kind#n>`, numbered by first appearance over the whole
 // recording; every other value is Node's.
-import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, truncateSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FIXTURES_ROOT, commitStage, exactProductIdentity, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
@@ -21,7 +21,7 @@ if (args.get('replay')) {
   const { replayDownloads } = await import('./lib/file-downloads-replay.mjs');
   const { readFileSync } = await import('node:fs');
   const recording = JSON.parse(readFileSync(join(FIXTURES_ROOT, 'file-downloads', 'file-downloads.json'), 'utf8'));
-  process.exit(await replayDownloads({ exe: args.get('replay'), recording }));
+  process.exit(await replayDownloads({ exe: args.get('replay'), recording, writeRequests: Boolean(args.get('write-requests')) }));
 }
 const tree = resolveTree(args);
 const identity = exactProductIdentity(tree, args.get('commit') ?? (() => { throw new Error('--commit is required'); })());
@@ -57,10 +57,12 @@ const within = (promise, what, ms = 20_000) =>
       (error) => (real.clearTimeout(timer), reject(error))
     );
   });
-const turn = () => new Promise((resolve) => setImmediate(resolve));
-/** Runs every promise continuation that can run without a timer. */
+/** The closes the service has started and Node has not completed: a close is a file-system request finished by the loop, not by a timer. It is
+ *  the only work the service leaves running after a call has answered or a timer has fired (a sweep and a revoke close handles and do
+ *  nothing else asynchronous), so waiting for exactly these is waiting for the work itself. */
+const closing = new Set();
 const settle = async () => {
-  for (let i = 0; i < 20; i += 1) await turn();
+  while (closing.size) await within(Promise.allSettled([...closing]), 'the closes the service started to complete');
 };
 const advance = async (ms) => {
   const target = clock.now + ms;
@@ -119,8 +121,6 @@ const gate = (name) => {
 };
 /** The handles the service has opened and not closed: what a grant or a transfer holds (the service closes them when it drops one). */
 const openHandles = new Set();
-/** The closes the service has started and Node has not completed: a close is a file-system request, finished by the loop, not by a timer. */
-const closing = new Set();
 const trackHandle = (handle) => {
   openHandles.add(handle);
   const close = handle.close.bind(handle);
@@ -196,6 +196,12 @@ const fileOps = {
   size: ({ file, bytes }) => truncateSync(path(file), bytes),
   remove: ({ file }) => rmSync(path(file), { force: true }),
   mkdir: ({ file }) => mkdirSync(path(file), { recursive: true }),
+  rename: ({ file, to }) => renameSync(path(file), path(to)),
+  // The folder `file` is replaced by a junction (a symlink off Windows) to the folder `target`: an ancestor swapped for a link.
+  junction: ({ file, target }) => {
+    rmSync(path(file), { recursive: true, force: true });
+    symlinkSync(path(target), path(file), 'junction');
+  },
 };
 const file = (op, entry) => {
   fileOps[op](entry);
@@ -241,7 +247,6 @@ const catalog = (ids) => {
 /** How many handles the service holds open now, after everything that can run without a timer has run. */
 const handles = async () => {
   await settle();
-  await within(Promise.allSettled([...closing]), 'the closes the service started to complete');
   step({ op: 'handles', open: openHandles.size });
 };
 const release = async (name, held) => {
@@ -673,12 +678,91 @@ await answer('begin');
 await handles();
 await call('phone', 'fileDownloadBegin', [grantOf(grant)]);
 
-begin('session never listed', 'a conversation no published catalog listed is not gone: a publication that omits it ends nothing');
+begin('session never listed', 'a conversation no published catalog listed is not gone: a publication that omits it ends nothing, but a new authorize needs the conversation in the catalog');
 file('write', { file: 'a.bin', text: '0123456789abcdef' });
 grant = await call('phone', 'fileDownloadAuthorize', [session('a.bin')]);
 catalog(['s2']);
 await handles();
 await call('phone', 'fileDownloadBegin', [grantOf(grant)]);
+await call('phone', 'fileDownloadAuthorize', [session('a.bin')]);
+await call('phone', 'fileDownloadAuthorize', [session('a.bin', 'never-existed')]);
+await call('phone', 'fileDownloadAuthorize', [request('project', { relPath: 'a.bin' })]);
+
+// ── 13. the file moving, and the path being swapped under the open ──
+begin('ancestor swapped between resolving and opening', 'a folder above the file replaced by a junction after the path was resolved opens another file: changed, and no handle is left');
+file('write', { file: 'project/sub/a.bin', text: 'inside bytes' });
+file('write', { file: 'outside/a.bin', text: 'outside bytes' });
+const swapping = gate('afterResolve');
+step({ op: 'hold', gate: 'afterResolve' });
+await call('phone', 'fileDownloadAuthorize', [request('project', { relPath: 'sub/a.bin' })], { key: 'authorize' });
+await swapping.arrived;
+file('junction', { file: 'project/sub', target: 'outside' });
+await release('afterResolve', swapping);
+await answer('authorize');
+await handles();
+await call('phone', 'fileDownloadAuthorize', [request('project', { relPath: 'sub/a.bin' })]);
+await call('phone', 'fileDownloadAuthorize', [session('project/sub/a.bin')]);
+await handles();
+
+begin('file moved', 'a file renamed or removed after authorize: begin, range and finish answer changed; renamed away and back it is the file that was authorized');
+file('write', { file: 'a.bin', text: '0123456789abcdef' });
+grant = await call('phone', 'fileDownloadAuthorize', [session('a.bin')]);
+file('rename', { file: 'a.bin', to: 'moved.bin' });
+await call('phone', 'fileDownloadBegin', [grantOf(grant)]);
+await handles();
+file('rename', { file: 'moved.bin', to: 'a.bin' });
+grant = await call('phone', 'fileDownloadAuthorize', [session('a.bin')]);
+file('rename', { file: 'a.bin', to: 'moved.bin' });
+file('rename', { file: 'moved.bin', to: 'a.bin' });
+lease = await call('phone', 'fileDownloadBegin', [grantOf(grant)]);
+await call('phone', 'fileDownloadRange', [transferOf(lease), 0, 4, versionOf(lease)]);
+file('rename', { file: 'a.bin', to: 'moved.bin' });
+await call('phone', 'fileDownloadRange', [transferOf(lease), 4, 4, versionOf(lease)]);
+await handles();
+await call('phone', 'fileDownloadRange', [transferOf(lease), 4, 4, versionOf(lease)]);
+file('rename', { file: 'moved.bin', to: 'a.bin' });
+grant = await call('phone', 'fileDownloadAuthorize', [session('a.bin')]);
+lease = await call('phone', 'fileDownloadBegin', [grantOf(grant)]);
+file('rename', { file: 'a.bin', to: 'moved.bin' });
+await call('phone', 'fileDownloadFinish', [transferOf(lease)]);
+await handles();
+file('rename', { file: 'moved.bin', to: 'a.bin' });
+grant = await call('phone', 'fileDownloadAuthorize', [session('a.bin')]);
+file('remove', { file: 'a.bin' });
+await call('phone', 'fileDownloadBegin', [grantOf(grant)]);
+file('write', { file: 'a.bin', text: '0123456789abcdef' });
+grant = await call('phone', 'fileDownloadAuthorize', [session('a.bin')]);
+lease = await call('phone', 'fileDownloadBegin', [grantOf(grant)]);
+file('remove', { file: 'a.bin' });
+await call('phone', 'fileDownloadRange', [transferOf(lease), 0, 4, versionOf(lease)]);
+await handles();
+
+begin('session paths', 'a session path may be relative to the conversation\'s folder; a leading double separator is a network path');
+file('write', { file: 'project/rel.bin', text: 'relative bytes' });
+file('write', { file: 'outside/note.md', text: 'outside bytes' });
+await call('phone', 'fileDownloadAuthorize', [{ source: { kind: 'session', sessionId: 's1', path: 'rel.bin' }, purpose: 'save' }]);
+await call('phone', 'fileDownloadAuthorize', [{ source: { kind: 'session', sessionId: 's1', path: 'sub/../rel.bin' }, purpose: 'save' }]);
+await call('phone', 'fileDownloadAuthorize', [{ source: { kind: 'session', sessionId: 's1', path: '../outside/note.md' }, purpose: 'save' }]);
+await call('phone', 'fileDownloadAuthorize', [{ source: { kind: 'session', sessionId: 's1', path: 'missing.bin' }, purpose: 'save' }]);
+await call('phone', 'fileDownloadAuthorize', [{ source: { kind: 'session', sessionId: 's1', path: '\\\\server\\share\\x.txt' }, purpose: 'save' }]);
+await call('phone', 'fileDownloadAuthorize', [{ source: { kind: 'session', sessionId: 's1', path: '/\\server/share/x.txt' }, purpose: 'save' }]);
+await handles();
+
+if (process.platform === 'win32') {
+  begin('windows path names', 'a stream name, a device name, a namespace prefix and a drive-relative path, as this host\'s realpath and open treat them');
+  scenarios.at(-1).platform = 'win32';
+  file('write', { file: 'outside/note.md', text: 'outside bytes' });
+  const named = (text) => ({ source: { kind: 'session', sessionId: 's1', path: text }, purpose: 'save' });
+  await call('phone', 'fileDownloadAuthorize', [named(`${path('outside/note.md')}:alt`)]);
+  await call('phone', 'fileDownloadAuthorize', [named(`${path('outside/note.md')}::$DATA`)]);
+  await call('phone', 'fileDownloadAuthorize', [named(path('outside/NUL'))]);
+  await call('phone', 'fileDownloadAuthorize', [named('NUL')]);
+  await call('phone', 'fileDownloadAuthorize', [named(`\\\\?\\${path('outside/note.md')}`)]);
+  await call('phone', 'fileDownloadAuthorize', [named(`${path('outside/note.md')}.`)]);
+  await call('phone', 'fileDownloadAuthorize', [named(`${path('outside/note.md')} `)]);
+  await call('phone', 'fileDownloadAuthorize', [named(path('outside/NOTE.MD'))]);
+  await handles();
+}
 
 // ── the remap ──
 const KINDS = [
