@@ -237,32 +237,51 @@ async fn an_accepted_receipt_found_at_start_answers_the_session_and_sends_nothin
     assert_eq!(std::fs::read(receipt_path(&rig, "sub-m")).expect("receipt"), on_disk, "nothing is written for a replay");
     assert!(receipts.writes.lock().unwrap().is_empty());
 }
-/// A lost reply: the client's connection ends while its request runs and the client retries. The attempt does not end with its
-/// caller (Node's promise runs without it), so whatever phase the reply was lost after, the retry finds the attempt running and
-/// joins it, or finds it `accepted`: one task, one prompt.
+/// The first route adoption is held until released and says when it is entered: an attempt stopped between `reserved` and
+/// `configured`.
+struct HeldRoute {
+    entered: Arc<tokio::sync::Notify>,
+    release: Arc<tokio::sync::Semaphore>,
+    held: std::sync::atomic::AtomicBool,
+}
+
+#[async_trait::async_trait]
+impl super::NewThreadRoute for HeldRoute {
+    async fn adopt(&self, _: &mixdog_core_api::ids::ThreadId, _: Option<&serde_json::Map<String, Value>>) -> Result<serde_json::Map<String, Value>, String> {
+        if !self.held.swap(true, Ordering::SeqCst) {
+            self.entered.notify_one();
+            self.release.acquire().await.expect("open").forget();
+        }
+        Ok(serde_json::Map::new())
+    }
+
+    async fn adopt_control(&self, _: &mixdog_core_api::ids::ThreadId) -> Result<serde_json::Map<String, Value>, String> {
+        Ok(serde_json::Map::new())
+    }
+
+    async fn seat(&self, _: &mixdog_core_api::ids::ThreadId) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+/// A lost reply: the client's connection ends while its request runs, and the client retries. The attempt does not end with its
+/// caller (Node's promise runs without it), so the reply lost after any phase leaves the attempt running on to `accepted` (or to a
+/// refusal): the retry joins it or reads its receipt. One task, one prompt.
 #[tokio::test(start_paused = true)]
 async fn a_request_whose_reply_is_lost_runs_on_and_the_retry_gets_its_task() {
     let rig = Rig::new();
-    let (sending, release) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Semaphore::new(0)));
-    let runs = Arc::new(AtomicUsize::new(0));
-    let (counted, at_run, held) = (runs.clone(), sending.clone(), release.clone());
-    rig.set_script(Arc::new(move |_run| {
-        counted.fetch_add(1, Ordering::SeqCst);
-        at_run.notify_one();
-        let held = held.clone();
-        Box::pin(async move {
-            held.acquire().await.expect("open").forget();
-            RunOutcome::Completed(Default::default())
-        })
-    }));
-    let (directory, _) = directory_over(&rig);
+    let runs = counting(&rig);
+    let (entered, release) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Semaphore::new(0)));
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.new_route = Arc::new(HeldRoute { entered: entered.clone(), release: release.clone(), held: false.into() });
+    let directory = SessionDirectory::new(Arc::new(deps));
     let connection = CancellationToken::new();
-    // The prompt is being sent: the connection ends and the call is dropped with it, before any answer.
+    // The attempt is past `reserved`: the connection ends and the call is dropped with it, before any answer.
     tokio::select! {
-        biased;
-        () = sending.notified() => connection.cancel(),
-        answered = submit_on(&directory, "op-1", "sub-l", "write the report", json!({}), connection.clone()) => panic!("answered before the connection ended: {answered:?}"),
+        () = entered.notified() => connection.cancel(),
+        answered = submit_on(&directory, "op-1", "sub-l", "write the report", json!({}), connection.clone()) => panic!("answered while held: {answered:?}"),
     }
+    assert_eq!(stored(&rig, "sub-l").expect("receipt").phase(), Phase::Reserved, "the reply is lost after `reserved`");
     release.add_permits(1);
     let retry = submit(&directory, "op-2", "sub-l", "write the report", json!({})).await.expect("retry");
     assert_eq!(retry, derived("sub-l"));
