@@ -681,6 +681,15 @@ mod tests {
                 let recorded = unhex(message["frames"][0].as_str().unwrap());
                 assert_eq!(out[0] & 0x40, recorded[0] & 0x40, "compressed or not, {} / {}", case["name"], message["name"]);
                 assert_eq!(out[1] & 0x80, recorded[1] & 0x80, "masked");
+                // Whole frames, where ws's bytes are the same for the same input: a deflate stream with no history, which is
+                // every message when the client's context does not carry over, the first ones of a stream, and ones that
+                // do not compress or are empty. Where a message refers back to earlier ones the match zlib picks differs
+                // from zlib-rs's (valid either way), so only the meaning is compared there.
+                let name = message["name"].as_str().unwrap();
+                let deterministic = codec.extension.client_no_context_takeover || ["small text", "medium text", "binary noise", "empty text"].contains(&name);
+                if deterministic {
+                    assert_eq!(hexed(&out), hexed(&recorded), "{} / {name}: ws's bytes", case["name"]);
+                }
                 // The bytes of a later message differ with the deflate backend (zlib-rs here, zlib there) but not
                 // in meaning: an independent server-side stream reads them back.
                 let head = parse(&out, MAX_PAYLOAD).unwrap().unwrap();
@@ -725,17 +734,42 @@ mod tests {
                     break;
                 }
             }
-            match negative["result"]["error"]["closeCode"].as_u64() {
-                Some(code) => assert_eq!(outcome.expect_err(name).code, code as u16, "{name}"),
-                None => assert!(outcome.is_ok(), "{name}: ws accepts it"),
+            let code = negative["result"]["error"]["closeCode"].as_u64().expect("a negative has a close code");
+            assert_eq!(outcome.expect_err(name).code, code as u16, "{name}");
+        }
+    }
+
+    // Sequences that look wrong and that `ws` accepts: a plain message ahead of a compressed one, and a ping inside a
+    // fragmented compressed message. The messages come out as `ws` reads them.
+    #[test]
+    fn what_ws_accepts_is_accepted_and_read_as_the_same_messages() {
+        for accepted in vectors()["accepted"].as_array().unwrap() {
+            let name = accepted["name"].as_str().unwrap();
+            let mut codec = Codec::new(Extension::default());
+            let mut out = Vec::new();
+            for wire in accepted["frames"].as_array().unwrap() {
+                codec.inbound(&mut unhex(wire.as_str().unwrap()), &mut out).unwrap_or_else(|f| panic!("{name}: {f:?}"));
             }
+            let mut got = Vec::new();
+            while let Some(head) = parse(&out, MAX_PAYLOAD).unwrap() {
+                got.push((head.opcode(), hexed(&out[head.header..head.total()])));
+                out.drain(..head.total());
+            }
+            let expected: Vec<(u8, String)> = accepted["result"]["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|m| if m["ping"] == true { (9, hexed(b"p")) } else { (if m["binary"] == true { 2 } else { 1 }, m["hex"].as_str().unwrap().to_owned()) })
+                .collect();
+            let got: Vec<(u8, String)> = got.into_iter().filter(|(op, _)| *op != 0).collect();
+            assert_eq!(got, expected, "{name}");
         }
     }
 
     #[test]
     fn plain_messages_around_a_compressed_one_pass_in_order() {
-        let negatives = vectors();
-        let case = negatives["negatives"].as_array().unwrap().iter().find(|n| n["name"] == "plain text and a compressed message after it").unwrap();
+        let vectors = vectors();
+        let case = vectors["accepted"].as_array().unwrap().iter().find(|n| n["name"] == "plain text and a compressed message after it").unwrap();
         let mut codec = Codec::new(Extension::default());
         let mut out = Vec::new();
         for wire in case["frames"].as_array().unwrap() {
@@ -744,7 +778,6 @@ mod tests {
         let first = parse(&out, MAX_PAYLOAD).unwrap().unwrap();
         assert_eq!(&out[first.header..first.total()], b"plain");
     }
-
     #[test]
     fn a_message_is_bounded_while_it_inflates() {
         let mut codec = Codec::new(Extension::default());

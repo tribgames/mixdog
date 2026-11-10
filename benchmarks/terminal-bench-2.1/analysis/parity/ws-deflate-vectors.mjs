@@ -150,8 +150,13 @@ const compressedFrame = async (text, first) => {
 };
 
 const good = await compressedFrame('compressed and fine ' + 'x'.repeat(200));
+// `negatives` are the frame sequences ws refuses (an error and a close code); `accepted` are ones that look wrong but ws
 const negatives = [];
-const negative = async (name, withExtension, frames) => negatives.push({ name, extension: withExtension, frames: frames.map(hex), result: await receive(withExtension, frames) });
+const accepted = [];
+const negative = async (name, withExtension, frames) => {
+  const result = await receive(withExtension, frames);
+  (result.error ? negatives : accepted).push({ name, extension: withExtension, frames: frames.map(hex), result });
+};
 await negative('RSV1 without the extension', false, [Buffer.concat([Buffer.from([0xc1]), good.subarray(1)])]);
 await negative('RSV2 set', true, [frame(0xa1, 'x')]);
 await negative('RSV3 set', true, [frame(0x91, 'x')]);
@@ -168,5 +173,7 @@ await negative('a message beyond the limit', true, [frame(0xc1, (await compresse
 await negative('plain text and a compressed message after it', true, [frame(0x81, 'plain'), good]);
 await negative('a ping inside a compressed message', true, [Buffer.concat([Buffer.from([0x41]), good.subarray(1)]), frame(0x89, 'p'), frame(0x80, '')]);
 
-writeFileSync(out, JSON.stringify({ nodeCommit: commit, ws: wsVersion, maxPayload: MAX_PAYLOAD, cases: recorded, negatives }, null, 1));
-console.log(`wrote ${out}: ${recorded.length} negotiations, ${negatives.length} negatives (ws ${wsVersion})`);
+// A case listed as a negative that ws accepted, or the reverse, would be a mislabelled vector.
+if (negatives.some((n) => !n.result.error) || accepted.some((a) => a.result.error)) throw new Error('vectors are filed under the wrong outcome');
+writeFileSync(out, JSON.stringify({ nodeCommit: commit, node: process.version, ws: wsVersion, zlib: process.versions.zlib, maxPayload: MAX_PAYLOAD, cases: recorded, negatives, accepted }, null, 1));
+console.log(`wrote ${out}: ${recorded.length} negotiations, ${negatives.length} negatives, ${accepted.length} accepted (node ${process.version}, ws ${wsVersion})`);

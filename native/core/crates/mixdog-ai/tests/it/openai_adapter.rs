@@ -230,7 +230,7 @@ fn adapter(
 fn adapter_in(
     context: Arc<SessionContext>,
     transport: TransportKind,
-    http: Arc<ScriptedHttp>,
+    http: Arc<dyn HttpSend>,
     dial: Arc<ScriptedDial>,
     credentials: Arc<Credentials>,
 ) -> OpenAiAdapter {
@@ -489,4 +489,36 @@ async fn a_failed_warm_up_clears_the_stamp_so_the_next_turn_warms_again() {
     // Every warm-up fails: the constructor's, and then one before each of two turns 1 ms apart, well inside the TTL
     // (`http-agent.mjs:520-526` deletes the stamp on failure). Nothing reaches the caller: both turns succeed.
     assert_eq!(warmups_after(None, &[1, 2], true).await, 2);
+}
+
+// `foreignDispatcher()` (`http-agent.mjs:57`) is a global undici dispatcher somebody else installed (a `ProxyAgent`,
+// a `MockAgent`): the warm-up steps aside for it. The core has no process-global dispatcher to find foreign, so it
+// never does. A network proxy *setting* is not foreign in Node either (its own router carries it), and the warm-up
+// then goes through the proxy leg: here the HEAD's connection is a CONNECT to the Codex origin at the proxy.
+#[tokio::test]
+async fn the_warm_up_goes_through_the_proxy_the_network_setting_names() {
+    use mixdog_ai::netproxy::{EnvLookup, NetworkProxy, SystemProxy};
+    use tokio::io::AsyncReadExt;
+    struct NoEnv;
+    impl EnvLookup for NoEnv {
+        fn get(&self, _: &str) -> Option<String> {
+            None
+        }
+    }
+    let proxy = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = proxy.local_addr().unwrap();
+    let (first_line, line) = tokio::sync::oneshot::channel::<String>();
+    tokio::spawn(async move {
+        let (mut stream, _) = proxy.accept().await.unwrap();
+        let mut buf = [0u8; 512];
+        let n = stream.read(&mut buf).await.unwrap();
+        let _ = first_line.send(String::from_utf8_lossy(&buf[..n]).lines().next().unwrap_or_default().to_owned());
+    });
+    let policy = NetworkProxy::new(Arc::new(NoEnv), SystemProxy::default());
+    policy.adopt(&serde_json::json!({ "mode": "manual", "url": format!("http://{addr}") }));
+    let link = Arc::new(mixdog_ai::transport::ReqwestLink::routed(&KeepaliveSchedule::SPEC, false, policy));
+    let now = Arc::new(std::sync::atomic::AtomicU64::new(1_000));
+    let _adapter = adapter_in(clocked(&now, None), TransportKind::Http1, link, ScriptedDial::with(vec![]), Credentials::new("t", None));
+    let line = tokio::time::timeout(std::time::Duration::from_secs(20), line).await.expect("the warm-up reached the proxy").unwrap();
+    assert_eq!(line, "CONNECT chatgpt.com:443 HTTP/1.1");
 }
