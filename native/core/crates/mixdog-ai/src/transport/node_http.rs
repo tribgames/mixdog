@@ -44,8 +44,8 @@ use decode::Decoder;
 use h1::BODY_TIMEOUT;
 use h1::H1Body;
 use h1::Reuse;
-use pool::Idle;
 use pool::Pool;
+use pool::Taken;
 
 pub trait Io: AsyncRead + AsyncWrite + Unpin + Send {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> Io for T {}
@@ -320,6 +320,31 @@ fn refused(text: String, surface: Surface) -> ProviderError {
     error
 }
 
+/// A method `fetch` refuses: its `Request` constructor throws the `TypeError` itself, before any network, so its text is
+/// not the `fetch failed` of a network error. The SDK wraps whatever its fetch throws in its own connection error.
+fn refused_method(text: String, surface: Surface) -> ProviderError {
+    let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent);
+    error.message = if surface == Surface::Sdk { surface.text(|| text) } else { text };
+    error
+}
+
+/// The method written for `method`. `fetch` (`fetch/request.js`, Node 22's bundled undici; recorded in
+/// `parity/fixtures/node-methods.json`) refuses one that is no token, refuses `CONNECT`, `TRACE` and `TRACK` in any
+/// letter case, and writes `DELETE`, `GET`, `HEAD`, `OPTIONS`, `POST` and `PUT` in upper case however they were
+/// given, any other (`patch`) as given. `undici.request` writes the method as given; a `CONNECT` is refused there too,
+/// since hyper would read its answer as a tunnel's.
+fn request_method(method: &str, writer: Writer) -> Result<String, String> {
+    if hyper::Method::from_bytes(method.as_bytes()).is_err() {
+        return Err(format!("'{method}' is not a valid HTTP method."));
+    }
+    let upper = method.to_ascii_uppercase();
+    if matches!(upper.as_str(), "CONNECT" | "TRACE" | "TRACK") {
+        return Err(format!("'{method}' HTTP method is unsupported."));
+    }
+    let normalized = writer == Writer::Fetch && matches!(upper.as_str(), "DELETE" | "GET" | "HEAD" | "OPTIONS" | "POST" | "PUT");
+    Ok(if normalized { upper } else { method.to_owned() })
+}
+
 impl NodeClient {
     pub fn new(tcp: TcpKeepalive, policy: Option<Arc<NetworkProxy>>) -> Self {
         let pool = Arc::new(Pool::default());
@@ -454,11 +479,16 @@ impl NodeClient {
     pub async fn send(&self, request: &WireRequest, writer: Writer, surface: Surface) -> Result<HttpResponse, ProviderError> {
         let url = url::Url::parse(&request.url).map_err(|e| refused(e.to_string(), surface))?;
         check_headers(&request.headers).map_err(|text| refused(text, surface))?;
-        let method = hyper::Method::from_bytes(request.method.as_bytes()).map_err(|_| refused(format!("invalid HTTP method {}", request.method), surface))?;
-        // `fetch` forbids these methods (`fetch/request.js`): a `CONNECT` answer is framed differently by hyper, and`n        // a `TRACE` or `TRACK` never leaves the process.
-        if method == hyper::Method::CONNECT || method == hyper::Method::TRACE || request.method.eq_ignore_ascii_case("TRACK") {
-            return Err(refused(format!("'{}' HTTP method is unsupported.", request.method), surface));
-        }
+        let method = request_method(&request.method, writer).map_err(|text| refused_method(text, surface))?;
+        let normalized;
+        let request = if method == request.method {
+            request
+        } else {
+            normalized = WireRequest { method, ..request.clone() };
+            &normalized
+        };
+        // Read before the route is decided: a route change from here on retires what this request dials.
+        let generation = self.pool.generation();
         let proxy = self.route(&url).await?;
         let key = self.key(&url, &proxy);
         let mut replayed = false;
@@ -466,9 +496,11 @@ impl NodeClient {
             let reused = self.pool.take(&key).await;
             let was_reused = reused.is_some();
             let outcome = match reused {
-                Some(Idle::H1 { conn, .. }) => self.exchange_h1(conn, &key, request, &url, writer, surface).await,
-                Some(Idle::H2 { id, send }) => self.exchange_h2(&key, id, send, request, &url, writer, surface).await,
+                Some(Taken::H1(conn)) => self.exchange_h1(conn, &key, request, &url, writer, surface).await,
+                Some(Taken::H2 { id, send, guard }) => self.exchange_h2(&key, id, send, guard, request, &url, writer, surface).await,
                 None => {
+                    #[cfg(test)]
+                    self.pool.at(pool::At::Dial);
                     let dialled = tokio::time::timeout(CONNECT_TIMEOUT, self.dial(&url, &proxy, surface))
                         .await
                         .map_err(|_| timed_out("UND_ERR_CONNECT_TIMEOUT", "Connect Timeout Error", DeliveryState::NotSent, surface))??;
@@ -489,10 +521,10 @@ impl NodeClient {
                             }
                             pool.remove_h2(&origin, id);
                         });
-                        self.pool.put_h2(key.clone(), id, send.clone());
-                        self.exchange_h2(&key, id, send, request, &url, writer, surface).await
+                        let guard = self.pool.put_h2(key.clone(), id, send.clone(), generation);
+                        self.exchange_h2(&key, id, send, guard, request, &url, writer, surface).await
                     } else {
-                        let conn = h1::Conn::open(io, self.pool.birth(), self.pool.generation())
+                        let conn = h1::Conn::open(io, self.pool.birth(), generation)
                             .await
                             .map_err(|e| chain_error(&e, DeliveryState::NotSent, surface))?;
                         self.exchange_h1(conn, &key, request, &url, writer, surface).await
@@ -567,13 +599,13 @@ impl NodeClient {
         key: &str,
         id: u64,
         send: h2::client::SendRequest<Bytes>,
+        // The connection is idle again when this stream and every other has ended (`H2Body` holds the guard).
+        guard: pool::H2Guard,
         request: &WireRequest,
         url: &url::Url,
         writer: Writer,
         surface: Surface,
     ) -> Result<HttpResponse, Failure> {
-        // The connection is idle again when this stream and every other has ended (`H2Body` holds the guard).
-        let guard = self.pool.h2_open(key, id);
         // A connection that errs is no longer offered to the next request.
         let failed = |e: &h2::Error, replay: bool| {
             self.pool.remove_h2(key, id);
@@ -661,5 +693,56 @@ impl BodyStream for H2Body {
                 return Some(Ok(out));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
+    use mixdog_core_api::domain::keepalive::TransportKind;
+    use tokio::io::AsyncReadExt;
+    use tokio::io::AsyncWriteExt;
+
+    use super::*;
+
+    const WITHIN: Duration = Duration::from_secs(20);
+
+    // H2 (recheck): a route change while a request dials retires the connection it dials. Held at the dial, the route
+    // changes; the connection serves its request and is then closed, not pooled under the old route.
+    #[tokio::test]
+    async fn a_route_change_during_the_dial_retires_the_dialled_connection() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut head = Vec::new();
+            let mut byte = [0u8; 1];
+            while !head.ends_with(b"\r\n\r\n") {
+                stream.read_exact(&mut byte).await.unwrap();
+                head.push(byte[0]);
+            }
+            stream.write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\n\r\nok").await.unwrap();
+            // The client's close shows as the end of the stream; a pooled connection never shows it.
+            stream.read(&mut byte).await.unwrap()
+        });
+        let tls = crate::netproxy::tunnel::tls_config().unwrap();
+        let client = NodeClient::pinned(KeepaliveSchedule::SPEC.tcp, Pinned { addr, tls });
+        let pool = client.pool.clone();
+        client.pool.hook(pool::At::Dial, move || pool.clear());
+        let request = WireRequest {
+            transport: TransportKind::Http1,
+            method: "GET".into(),
+            url: "http://pinned.test/x".into(),
+            headers: Vec::new(),
+            body: Vec::new(),
+        };
+        let mut response = tokio::time::timeout(WITHIN, client.send(&request, Writer::Fetch, Surface::Fetch)).await.expect("an answer within 20 s").unwrap();
+        while let Some(chunk) = tokio::time::timeout(WITHIN, response.body.next()).await.expect("the body within 20 s") {
+            chunk.unwrap();
+        }
+        let key = client.key(&url::Url::parse(&request.url).unwrap(), &None);
+        assert_eq!(client.pool.idle_count(&key), 0, "not pooled under the old route");
+        let read = tokio::time::timeout(WITHIN, server).await.expect("the peer sees the close within 20 s").unwrap();
+        assert_eq!(read, 0, "the peer sees the close");
     }
 }

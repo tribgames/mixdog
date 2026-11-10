@@ -452,17 +452,46 @@ async fn h4_a_head_answer_with_a_content_length_has_no_body() {
     assert!(body(response).await.unwrap().is_empty());
 }
 
+// H4 (recheck): every method of Node's recording (`parity/node-method-capture.mjs`, Node's global `fetch`) is written
+// as `fetch` writes it, or refused with its text before any socket; the cases in the recording's order.
 #[tokio::test]
-async fn h4_connect_and_trace_never_reach_the_socket() {
-    let (addr, accepted) = listen(move |_, mut stream| async move {
-        read_request(&mut stream).await;
+async fn h4_methods_are_written_or_refused_as_nodes_fetch_does() {
+    use sha2::{Digest, Sha256};
+    const RECORDING: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../benchmarks/terminal-bench-2.1/analysis/parity/fixtures/node-methods.json"));
+    const CAPTURE: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../benchmarks/terminal-bench-2.1/analysis/parity/node-method-capture.mjs"));
+    let node: serde_json::Value = serde_json::from_str(RECORDING).unwrap();
+    assert_eq!(node["manifest"]["exact"], true);
+    let sha: String = Sha256::digest(CAPTURE).iter().map(|b| format!("{b:02x}")).collect();
+    assert_eq!(node["manifest"]["harness"]["node-method-capture.mjs"], sha.as_str(), "node-method-capture.mjs changed since the recording");
+    let (lines_tx, mut lines) = tokio::sync::mpsc::unbounded_channel::<String>();
+    let (addr, _) = listen(move |_, mut stream| {
+        let lines_tx = lines_tx.clone();
+        async move {
+            if let Some(head) = read_request(&mut stream).await {
+                let head = String::from_utf8_lossy(&head).into_owned();
+                lines_tx.send(head.split(' ').next().unwrap().to_owned()).unwrap();
+                stream.write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\nconnection: close\r\n\r\n").await.unwrap();
+            }
+        }
     })
     .await;
-    for method in ["CONNECT", "TRACE", "TRACK"] {
-        let outcome = link().send(request(method, format!("http://{addr}/"), &[], b""), deadlines::OPENAI_CATALOG).await;
-        assert!(outcome.is_err(), "{method}");
+    let link = link();
+    let mut rust = Vec::new();
+    for case in node["methods"].as_array().unwrap() {
+        let method = case["method"].as_str().unwrap();
+        let entry = match link.send(request(method, format!("http://{addr}/m"), &[], b""), deadlines::OPENAI_CATALOG).await {
+            Ok(response) => {
+                body(response).await.unwrap();
+                let wrote = tokio::time::timeout(WITHIN, lines.recv()).await.expect("the request line within WITHIN").unwrap();
+                serde_json::json!({ "method": method, "wrote": wrote })
+            }
+            // A refusal in Rust has no JavaScript class; Node's is a `TypeError` in every refused case.
+            Err(error) => serde_json::json!({ "method": method, "error": { "name": "TypeError", "message": error.message } }),
+        };
+        rust.push(entry);
     }
-    assert_eq!(accepted.load(Ordering::SeqCst), 0);
+    assert_eq!(serde_json::Value::Array(rust), node["methods"]);
+    assert!(lines.try_recv().is_err(), "no refused method reached the socket");
 }
 
 // H5: a write that fails once bytes may have left is the request's error, not a reason to send it again (undici fails

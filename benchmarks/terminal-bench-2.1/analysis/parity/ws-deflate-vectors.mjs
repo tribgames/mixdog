@@ -11,7 +11,7 @@ const arg = (name) => process.argv[process.argv.indexOf(name) + 1];
 const commit = arg('--node-commit');
 const out = resolve(arg('--out'));
 const require = createRequire(`${tree}/package.json`);
-// ws's xports hides its internals; they are required by path from the package's own directory.
+// ws's `exports` hides its internals; they are required by path from the package's own directory.
 const wsRoot = dirname(require.resolve('ws'));
 const internal = (name) => require(join(wsRoot, 'lib', name));
 const Sender = internal('sender');
@@ -170,6 +170,10 @@ await negative('a masked server frame', true, [frame(0x81, 'ab', true)]);
 await negative('invalid deflate data', true, [frame(0xc1, Buffer.from([0xff, 0xff, 0xff, 0xff]))]);
 await negative('a reserved opcode', true, [frame(0x83, 'ab')]);
 await negative('a message beyond the limit', true, [frame(0xc1, (await compressedFrame('a'.repeat(MAX_PAYLOAD + 1024))).subarray(4))]);
+// Lengths a 64-bit header declares past what ws reads (`getPayloadLength64`: above 2^53 - 1), alone and as the
+// continuation of a fragment already received.
+await negative('a text frame declaring 2^53', true, [Buffer.from('817f0020000000000000', 'hex')]);
+await negative('a continuation declaring 2^64 - 1 after a fragment', true, [frame(0x01, 'ab'), Buffer.from('807fffffffffffffffff', 'hex')]);
 await negative('plain text and a compressed message after it', true, [frame(0x81, 'plain'), good]);
 await negative('a ping inside a compressed message', true, [Buffer.concat([Buffer.from([0x41]), good.subarray(1)]), frame(0x89, 'p'), frame(0x80, '')]);
 
