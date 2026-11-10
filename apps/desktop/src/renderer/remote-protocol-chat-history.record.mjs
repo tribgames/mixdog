@@ -164,6 +164,8 @@ async function nextDueAll() {
 /** Every clock to `at`, firing what is due there: this process first, then each daemon process in role order, settling after each. A
  *  held clock stays where it is (its due timers fire once it is released, at the instant the others reached). */
 async function fireAll(at, what) {
+  // A move of the clocks is an input of its own: a replay moves its side's clock here, between the same inputs.
+  if (at !== clockNow().perf) inputs.push({ at: history.length, clock: at - PERF_BASE, input: 'clock' });
   if (!held.has('host')) {
     fireDue(at);
     await settle(`${what}: this process's timers at ${at - PERF_BASE}`);
