@@ -160,7 +160,7 @@
       "unusedReplies": 0
     },
     {
-      "name": "two-processes",
+      "name": "two-owners-in-one-process",
       "lock": null,
       "actions": [],
       "file": "{\"access_token\":\"a0\",\"refresh_token\":\"r0\",\"expires_at\":1800000001000,\"token_endpoint\":\"https://auth.x.ai/oauth2/token\"}",
@@ -246,7 +246,7 @@
       "unusedReplies": 0
     },
     {
-      "name": "two-processes-the-second-forced",
+      "name": "two-owners-in-one-process-the-second-forced",
       "lock": null,
       "actions": [],
       "file": "{\"access_token\":\"a0\",\"refresh_token\":\"r0\",\"expires_at\":1800000001000,\"token_endpoint\":\"https://auth.x.ai/oauth2/token\"}",
@@ -332,7 +332,7 @@
       "unusedReplies": 0
     },
     {
-      "name": "two-processes-the-first-forced",
+      "name": "two-owners-in-one-process-the-first-forced",
       "lock": null,
       "actions": [],
       "file": "{\"access_token\":\"a0\",\"refresh_token\":\"r0\",\"expires_at\":1800000001000,\"token_endpoint\":\"https://auth.x.ai/oauth2/token\"}",
@@ -703,6 +703,77 @@
         }
       ],
       "fileAfter": "{\"access_token\":\"a9\",\"refresh_token\":\"r9\",\"expires_at\":1800000000724,\"token_endpoint\":\"https://auth.x.ai/oauth2/token\"}",
+      "entries": [
+        "grok-oauth.json"
+      ],
+      "unusedReplies": 1
+    },
+    {
+      "name": "rewritten-while-waiting-forced-expiry-at-now",
+      "lock": {
+        "kind": "live",
+        "ageMs": 0
+      },
+      "actions": [
+        {
+          "at": 500,
+          "kind": "write",
+          "text": "{\"access_token\":\"a9\",\"refresh_token\":\"r9\",\"expires_at\":1800000000723,\"token_endpoint\":\"https://auth.x.ai/oauth2/token\"}"
+        },
+        {
+          "at": 500,
+          "kind": "release"
+        }
+      ],
+      "file": "{\"access_token\":\"a0\",\"refresh_token\":\"r0\",\"expires_at\":1800000001000,\"token_endpoint\":\"https://auth.x.ai/oauth2/token\"}",
+      "replies": [
+        {
+          "afterMs": 1,
+          "status": 200,
+          "body": "{\"access_token\":\"a1\",\"refresh_token\":\"r1\",\"expires_in\":3600}"
+        }
+      ],
+      "callers": [
+        {
+          "at": 0,
+          "proc": "A",
+          "force": true
+        }
+      ],
+      "events": [
+        {
+          "at": 37,
+          "kind": "wait",
+          "ms": 37
+        },
+        {
+          "at": 112,
+          "kind": "wait",
+          "ms": 75
+        },
+        {
+          "at": 249,
+          "kind": "wait",
+          "ms": 137
+        },
+        {
+          "at": 486,
+          "kind": "wait",
+          "ms": 237
+        },
+        {
+          "at": 723,
+          "kind": "wait",
+          "ms": 237
+        },
+        {
+          "at": 723,
+          "kind": "result",
+          "caller": 0,
+          "token": "a9"
+        }
+      ],
+      "fileAfter": "{\"access_token\":\"a9\",\"refresh_token\":\"r9\",\"expires_at\":1800000000723,\"token_endpoint\":\"https://auth.x.ai/oauth2/token\"}",
       "entries": [
         "grok-oauth.json"
       ],

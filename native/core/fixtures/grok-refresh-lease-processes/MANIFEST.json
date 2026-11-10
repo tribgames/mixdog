@@ -1,0 +1,40 @@
+{
+  "command": "node native/core/crates/mixdog-ai/src/providers/grok/refresh_lease/processes.mjs --tree <b6f10295a export>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 11682,
+      "path": "node-recorded.json",
+      "sha256": "2fd3e90ba91c33dffc2b69089117bb5ae45c62b850a4dfd334d92c9baf9178c4"
+    }
+  ],
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "native/core/crates/mixdog-ai/src/providers/grok/refresh_lease/processes.mjs",
+  "recorderSha256": "06f1987c087e6be555ce6aebd457fa8f5098d00e736e64e425bb670d035c23e0",
+  "runtime": {
+    "electron": "43.8.4",
+    "node": "v24.22.1"
+  },
+  "scripts": {
+    "benchmarks/rust-core/recorders/lib/common.mjs": "9589fead747478ec019ecaf501b504bb240bfc83723f69039ea16c1ebc2d088a",
+    "native/core/crates/mixdog-ai/src/providers/grok/refresh_lease/node_child.mjs": "744380ebc7eb6d4461215a5138977050156bc92f5417857a9ef8cefddeafaa23"
+  },
+  "set": "grok-refresh-lease-processes",
+  "totalBytes": 11682
+}

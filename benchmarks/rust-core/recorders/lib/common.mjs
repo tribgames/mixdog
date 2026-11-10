@@ -78,7 +78,7 @@ const gitBlobSha1 = (data) => createHash('sha1').update(`blob ${data.length}\0`)
  */
 export function productIdentity(tree = loadedTree, ref = 'HEAD') {
   if (!tree) throw new Error('productIdentity: no tree resolved yet (call resolveTree first)');
-  const git = (...a) => execFileSync('git', a, { cwd: REPO_ROOT, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, timeout: GIT_TIMEOUT_MS });
+  const git = (...a) => execFileSync('git', a, { cwd: REPO_ROOT, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, timeout: GIT_TIMEOUT_MS, windowsHide: true });
   const perRoot = {};
   const blobs = new Map();
   const lfBlobs = new Map();
@@ -144,7 +144,7 @@ export function productIdentity(tree = loadedTree, ref = 'HEAD') {
  */
 export function tagCheckoutIdentity(tree, tag) {
   if (!existsSync(join(tree, '.git'))) throw new Error(`tree ${tree} is not a git checkout (no .git): record from a clone at ${tag}`);
-  const git = (...a) => execFileSync('git', ['-C', tree, ...a], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, timeout: GIT_TIMEOUT_MS }).trim();
+  const git = (...a) => execFileSync('git', ['-C', tree, ...a], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, timeout: GIT_TIMEOUT_MS, windowsHide: true }).trim();
   const commit = git('rev-parse', 'HEAD');
   const tagged = git('rev-parse', `refs/tags/${tag}^{commit}`);
   if (commit !== tagged) throw new Error(`tree ${tree} is at ${commit}, not at ${tag} (${tagged})`);
@@ -184,7 +184,7 @@ export function exactProductIdentity(tree, commit) {
 export function commitCheckoutIdentity(tree, commit) {
   if (!/^[0-9a-f]{40}$/.test(commit)) throw new Error(`commit must be a full id, got ${commit}`);
   if (!existsSync(join(tree, '.git'))) throw new Error(`tree ${tree} is not a git checkout (no .git): record from a clone at ${commit}`);
-  const git = (...a) => execFileSync('git', ['-C', tree, ...a], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, timeout: GIT_TIMEOUT_MS }).trim();
+  const git = (...a) => execFileSync('git', ['-C', tree, ...a], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, timeout: GIT_TIMEOUT_MS, windowsHide: true }).trim();
   const head = git('rev-parse', 'HEAD');
   if (head !== commit) throw new Error(`tree ${tree} is at ${head}, not at ${commit}`);
   const changed = git('status', '--porcelain', '--untracked-files=all');
