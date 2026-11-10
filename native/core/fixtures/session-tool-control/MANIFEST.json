@@ -16,6 +16,7 @@
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
     "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
     "files": 9139,
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -36,7 +37,8 @@
       }
     ],
     "nodeVersion": "v22.20.0",
-    "recorderSha256": "f994022c190f0d7e29d40dff2f0ae59f31924a3569b9bab2846372c96caebbde"
+    "recorder": "benchmarks/rust-core/recorders/record-session-tool-control.mjs",
+    "recorderSha256": "39381cfb9a061aa3d21599a50d29671852ff6283ed9854af416fa7b4ea795809"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-tool-control.mjs",
   "scenarios": 44,
