@@ -58,6 +58,7 @@ use crate::providers::cursor::auth::FileAccess;
 use super::gateway::GatewayAdapter;
 use super::gateway::GatewayHttp;
 use super::gateway::ResponsesEngine;
+use super::gateway::Sdk;
 use super::gateway::WirePick;
 use super::multiwire::MultiWireAdapter;
 use crate::providers::compat::responses::CompatResponsesCodec;
@@ -713,7 +714,6 @@ impl DefaultProviderBuilder {
     }
 
     async fn build_compat(&self, name: &str, cfg: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
-        let http: Arc<dyn crate::transport::HttpSend> = Arc::new(GatewayHttp::new(self.env.http.clone()));
         let mut login_headers: Vec<(String, String)> = Vec::new();
         let (profile, key, base_url): (CompatProfile, Arc<dyn ApiKeySource>, Option<String>) = match name {
             "xai" => (CompatProfile::xai(), self.key_source(name, cfg), None),
@@ -751,6 +751,13 @@ impl DefaultProviderBuilder {
             other => return Err(format!("unknown enabled provider: {other}")),
         };
         let config = self.compat_config(&profile, cfg, base_url, login_headers);
+        // The OpenAI client's `defaultHeaders`: the gateway's own headers and the user's (MiMo posts on its own).
+        let defaults: Vec<(String, String)> =
+            profile.headers.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).chain(config.extra_headers.iter().cloned()).collect();
+        let http: Arc<dyn crate::transport::HttpSend> = Arc::new(match name {
+            "mimo-oauth" => GatewayHttp::new(self.env.http.clone()),
+            _ => GatewayHttp::new(self.env.http.clone()).through_sdk(Sdk::OpenAi, &defaults),
+        });
         let codec = CompatChatCodec::new(profile.clone(), config.clone());
         let chat_base = codec.base_url().to_owned();
         let model_wires = cfg
@@ -777,6 +784,8 @@ impl DefaultProviderBuilder {
             profile.headers.iter().filter(|(k, _)| !k.eq_ignore_ascii_case("accept")).map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect();
         identifying.extend(config.extra_headers.iter().cloned());
         let keyed = |header: &'static str, bearer: bool| -> Arc<dyn Credential> { Arc::new(KeyHeader { source: key.clone(), header, bearer }) };
+        // The Messages engines post through the Anthropic client, the gateway's headers as its `defaultHeaders`.
+        let anthropic_http = || GatewayHttp::new(self.env.http.clone()).through_sdk(Sdk::Anthropic, &identifying);
         // The Anthropic SDK appends `/v1/messages` to the base (`messagesBaseFromOpenAIBase`).
         let messages_base = |base: &str| -> String {
             let base = base.trim_end_matches('/');
@@ -790,22 +799,21 @@ impl DefaultProviderBuilder {
             "muse-code-oauth" => (vec![(Wire::Responses, responses())], WirePick::Fixed(Wire::Responses), false),
             "deepseek" => {
                 let base = format!("{}/anthropic", messages_base(&chat_base));
-                let engine = self.gateway_messages_engine(name, base, keyed("x-api-key", false), identifying.clone(), http.clone());
+                let engine = self.gateway_messages_engine(name, base, keyed("x-api-key", false), identifying.clone(), Arc::new(anthropic_http()));
                 (vec![(Wire::Messages, Arc::new(engine))], WirePick::Routed, false)
             }
             "openrouter" => {
-                let engine = self.gateway_messages_engine(name, messages_base(&chat_base), keyed("authorization", true), identifying.clone(), http.clone());
+                let engine = self.gateway_messages_engine(name, messages_base(&chat_base), keyed("authorization", true), identifying.clone(), Arc::new(anthropic_http()));
                 (vec![(Wire::Messages, Arc::new(engine)), (Wire::Responses, responses())], WirePick::Routed, false)
             }
             "command-code-oauth" => {
                 // The key as `x-api-key` and, right after it, as a bearer (`CommandCodeMessagesEngine`).
-                let mirrored: Arc<dyn crate::transport::HttpSend> =
-                    Arc::new(GatewayHttp::new(self.env.http.clone()).mirroring_key_as_bearer());
+                let mirrored: Arc<dyn crate::transport::HttpSend> = Arc::new(anthropic_http().mirroring_key_as_bearer());
                 let engine = self.gateway_messages_engine(name, messages_base(&chat_base), keyed("x-api-key", false), identifying.clone(), mirrored);
                 (vec![(Wire::Messages, Arc::new(engine)), (Wire::Responses, responses())], WirePick::Routed, false)
             }
             "opencode-go-oauth" => {
-                let messages = self.gateway_messages_engine(name, messages_base(&chat_base), keyed("x-api-key", false), identifying.clone(), http.clone());
+                let messages = self.gateway_messages_engine(name, messages_base(&chat_base), keyed("x-api-key", false), identifying.clone(), Arc::new(anthropic_http()));
                 // The generateContent routes live under `.../go/v1`, not the organization's chat base
                 // (`opencode-go.mjs` `_geminiEngine`); the Gemini codec writes `/v1beta`.
                 let origin = chat_base.strip_suffix("/openai/v1").unwrap_or(&chat_base).to_owned();
@@ -814,7 +822,7 @@ impl DefaultProviderBuilder {
                         GatewayHttp::new(self.env.http.clone())
                             .moving_path("/v1beta/models/", "/v1/models/")
                             .plain_system_instruction()
-                            .with_headers(identifying.iter().cloned().chain([("accept".to_owned(), "*/*".to_owned())]).collect()),
+                            .with_headers(identifying.clone()),
                     );
                 let gemini = google::adapter::GoogleAdapter::new(
                     google::codec::GoogleCodec::gemini(origin, self.env.google_traits.clone()),
@@ -1162,7 +1170,7 @@ impl DefaultProviderBuilder {
                     let engine = HttpAdapter::new(
                         ProviderId::from(name),
                         Arc::new(RewriteCodec::new(family, CustomRewriter { config: request.clone() })),
-                        self.env.http.clone(),
+                        Arc::new(GatewayHttp::new(self.env.http.clone()).through_sdk(Sdk::OpenAi, &request.headers)),
                         key("authorization", true),
                         retry.clone(),
                     );
@@ -1212,7 +1220,7 @@ impl DefaultProviderBuilder {
         HttpAdapter::new(
             ProviderId::from(name),
             Arc::new(RewriteCodec::new(Arc::new(codec), CustomRewriter { config: request.clone() })),
-            self.env.http.clone(),
+            Arc::new(GatewayHttp::new(self.env.http.clone()).through_sdk(Sdk::Anthropic, &request.headers)),
             credential,
             policy,
         )

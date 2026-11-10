@@ -132,7 +132,20 @@ fn plain(kind: ErrorKind, code: Option<&str>, message: String) -> ProviderError 
 fn pool_error(error: PoolError) -> ProviderError {
     let message = error.message();
     match error.cause {
-        Cause::Provider(provider) => provider,
+        // `quotaExhausted`: the pool's proof that no key can serve the model decides the kind
+        // (`describeProviderErrorKind`), and its reset stands in when the refusal stamped none.
+        Cause::Provider(mut provider) => {
+            if let Some(proof) = &error.quota_exhausted {
+                provider.kind = ErrorKind::QuotaExhausted;
+                if provider.reset_at.is_none() {
+                    provider.reset_at = proof
+                        .reset_at
+                        .and_then(|ms| u64::try_from(ms).ok())
+                        .map(|ms| std::time::UNIX_EPOCH + std::time::Duration::from_millis(ms));
+                }
+            }
+            provider
+        }
         Cause::AccountsExhausted { .. } => plain(ErrorKind::QuotaExhausted, Some("provider_accounts_exhausted"), message),
         Cause::CoolingDown { retry_after_ms } => {
             let mut cooling = plain(ErrorKind::RateLimited, Some("rate_limited"), message);

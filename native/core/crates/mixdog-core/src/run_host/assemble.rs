@@ -258,9 +258,7 @@ fn boundary_tools(header: &Header, tools: Vec<mixdog_core_api::domain::provider:
 
 /// The session's `wireRoute` as the pin a gateway's send reads; `None` without one.
 fn wire_pin_of(route: Option<&Value>) -> Option<mixdog_core_api::domain::provider::WirePin> {
-    let route = route?;
-    let field = |key: &str| route.get(key).and_then(Value::as_str).filter(|v| !v.is_empty()).map(str::to_owned);
-    Some(mixdog_core_api::domain::provider::WirePin { provider: field("provider")?, model: field("model")?, wire: field("wire")? })
+    mixdog_core_api::domain::provider::WirePin::from_route(route?)
 }
 
 fn refuse(message: impl Into<String>) -> TurnError {

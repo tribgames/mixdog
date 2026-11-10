@@ -124,6 +124,10 @@
           "payload": null
         },
         {
+          "on": "streamDelta",
+          "kind": "reasoning"
+        },
+        {
           "on": "textDelta",
           "text": "The result is 42."
         }
@@ -138,7 +142,8 @@
           "inputTokens": 20,
           "outputTokens": 8
         },
-        "providerMetadata": null
+        "providerMetadata": null,
+        "wireReroute": null
       }
     }
   ]

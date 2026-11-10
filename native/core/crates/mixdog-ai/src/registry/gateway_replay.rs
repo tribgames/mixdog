@@ -1,15 +1,14 @@
 //! Replays Node's end-to-end gateway and key-pool sends (`fixtures/provider-gateways`, recorded by
 //! `benchmarks/rust-core/recorders/record-provider-gateways.mjs` from `b6f10295a`) through the real registry, the
-//! real builder and the real codecs: every request the provider makes is compared with the one Node sent (method,
-//! URL, the headers the product sets, body bytes), in order and count, and the answer Node's endpoint gave is served
-//! back, so the folded result is compared with Node's.
+//! real builder and the real codecs: every request the provider makes is compared whole with the one Node sent
+//! (method, origin, path, every header in the order the request head carries it, body bytes), in order and count,
+//! and the answer Node's endpoint gave is served back, so the events and the result are compared with Node's.
 //!
-//! Headers the HTTP client or the vendor SDK adds on its own (`TRANSPORT_HEADERS`: undici's `host`, `connection`,
-//! `content-length`, `accept-encoding`, `accept-language`, `sec-fetch-mode`; the SDK's `user-agent` and
-//! `x-stainless-*`, and `fetch`'s own `user-agent: node`) are not product behaviour and are left out on both sides; every other recorded header must be
-//! sent with Node's value and no other header may be sent. Header order is not compared (HTTP gives it no meaning).
+//! The Rust request is put in its head the way the product's HTTP client writes it (`node_http::head`, the
+//! Node-equal client of every provider call). The manifest's `replayExclusions` name the two normalizations: the
+//! `accept-encoding` undici writes for the recorder's plain-http loopback, and the Node runtime version the SDK
+//! names.
 
-use std::collections::BTreeMap;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -59,17 +58,27 @@ fn fixture(id: &str) -> Value {
     serde_json::from_str(&std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"))).unwrap()
 }
 
-/// What the HTTP client or the vendor SDK writes on its own.
-fn transport_header(name: &str, value: &str) -> bool {
-    matches!(name, "host" | "connection" | "content-length" | "accept-encoding" | "accept-language" | "sec-fetch-mode")
-        || name.starts_with("x-stainless-")
-        || (name == "user-agent" && (value == "node" || value.starts_with("OpenAI/JS") || value.starts_with("Anthropic/JS")))
+/// The Node runtime the recorder ran under (the manifest's `provenance.nodeVersion`): the SDK's
+/// `x-stainless-runtime-version` names it, where the product names its own (`grok::SDK_RUNTIME_VERSION`).
+fn recorder_node() -> String {
+    let manifest: Value = serde_json::from_str(&std::fs::read_to_string(format!("{DIR}/MANIFEST.json")).unwrap()).unwrap();
+    manifest["provenance"]["nodeVersion"].as_str().unwrap().to_owned()
+}
+
+/// How the answer's body reaches the decoder.
+#[derive(Clone, Copy, PartialEq)]
+enum Chunking {
+    /// One SSE event per chunk, as a streaming server writes it.
+    PerEvent,
+    /// The whole body in one chunk, as a server that buffers writes it.
+    Whole,
 }
 
 /// Answers each request with the next recorded answer and keeps what was sent.
 struct Endpoint {
     answers: Mutex<VecDeque<(u16, String)>>,
-    sent: Mutex<Vec<WireRequest>>,
+    sent: Mutex<Vec<(WireRequest, crate::transport::node_http::Writer)>>,
+    chunking: Chunking,
     /// The send's event log as Node's recorder keeps it: each request's arrival, then the stream's events as the
     /// session takes them.
     log: Mutex<Vec<Value>>,
@@ -81,15 +90,16 @@ impl Endpoint {
     }
 }
 
-/// The answer one event per body chunk, as a streaming server writes it. (A decoder fed several events in one
-/// chunk loses the events before an in-band error: `WireDecoder::feed` returns the error alone.)
+/// The answer's body as chunks.
 struct Chunks(VecDeque<Bytes>);
 
 impl Chunks {
-    fn of(body: String) -> Self {
+    fn of(body: String, chunking: Chunking) -> Self {
         let mut chunks = VecDeque::new();
         let mut rest = body.as_str();
-        while let Some(at) = rest.find("\n\n") {
+        while chunking == Chunking::PerEvent
+            && let Some(at) = rest.find("\n\n")
+        {
             chunks.push_back(Bytes::from(rest[..at + 2].to_owned()));
             rest = &rest[at + 2..];
         }
@@ -109,13 +119,13 @@ impl BodyStream for Chunks {
 
 #[async_trait]
 impl HttpSend for Endpoint {
-    async fn send(&self, request: WireRequest, _: Exchange) -> Result<HttpResponse, ProviderError> {
+    async fn send(&self, request: WireRequest, exchange: Exchange) -> Result<HttpResponse, ProviderError> {
         let url = request.url.clone();
-        self.sent.lock().unwrap().push(request);
+        self.sent.lock().unwrap().push((request, exchange.writer));
         let n = self.log.lock().unwrap().iter().filter(|e| e["on"] == "request").count() + 1;
         self.note(json!({"on": "request", "n": n}));
         let (status, body) = self.answers.lock().unwrap().pop_front().unwrap_or_else(|| panic!("no recorded answer for {url}"));
-        Ok(HttpResponse { status, headers: vec![], body: Box::new(Chunks::of(body)) })
+        Ok(HttpResponse { status, headers: vec![], body: Box::new(Chunks::of(body, self.chunking)) })
     }
 }
 
@@ -151,7 +161,7 @@ struct World {
     registry: ProviderRegistry,
 }
 
-fn world(scenario: &Value) -> World {
+fn world(scenario: &Value, chunking: Chunking) -> World {
     let dir = tempfile::tempdir().unwrap();
     let tokens = mixdog_rt::testing::tokens();
     let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
@@ -169,7 +179,7 @@ fn world(scenario: &Value) -> World {
     for request in listing.iter().chain(sends.iter().flat_map(|s| s["requests"].as_array().unwrap())) {
         answers.push_back((request["answer"]["status"].as_u64().unwrap() as u16, request["answer"]["body"].as_str().unwrap().to_owned()));
     }
-    let endpoint = Arc::new(Endpoint { answers: Mutex::new(answers), sent: Mutex::default(), log: Mutex::default() });
+    let endpoint = Arc::new(Endpoint { answers: Mutex::new(answers), sent: Mutex::default(), chunking, log: Mutex::default() });
     let vault = Arc::new(MemoryVault::default());
     let accounts = AccountStore::new(dir.path().to_path_buf(), io);
     let env: Arc<dyn super::keys::Environment> = Arc::new(NoEnv);
@@ -258,7 +268,14 @@ fn message(provider: &str, value: &Value) -> Message {
 }
 
 /// The session's view of one stream event in Node's callback vocabulary, for the events the replay compares.
-fn shown(event: &StreamEvent) -> Option<Value> {
+/// `chunked`: the stream announced its chunks' kinds, so its deltas report none of their own
+/// (`StreamEvent::progress_kinds`).
+fn shown(event: &StreamEvent, chunked: &mut bool) -> Option<Value> {
+    *chunked |= matches!(event, StreamEvent::ChunkProgress(_));
+    let reports = !(*chunked && matches!(event, StreamEvent::TextDelta(_) | StreamEvent::ReasoningDelta(_)));
+    if reports && event.progress_kind() == Some("reasoning") {
+        return Some(json!({"on": "streamDelta", "kind": "reasoning"}));
+    }
     match event {
         StreamEvent::TextDelta(text) => Some(json!({"on": "textDelta", "text": text})),
         StreamEvent::AccountStage(AccountStage::Switching { message }) => {
@@ -274,7 +291,7 @@ fn shown(event: &StreamEvent) -> Option<Value> {
 /// Node's events the replay compares (the manifest's `replayExclusions` name what it leaves out and why).
 fn compared(event: &Value) -> bool {
     match event["on"].as_str() {
-        Some("request" | "textDelta") => true,
+        Some("request" | "textDelta" | "streamDelta") => true,
         Some("stageChange") => !matches!(event["stage"].as_str(), Some("requesting" | "streaming")),
         _ => false,
     }
@@ -291,34 +308,53 @@ fn tool(name: &str) -> ToolDefinition {
     }
 }
 
-/// The request as Node's endpoint saw it, the transport's own headers left out.
-fn recorded(request: &Value) -> Value {
-    let headers: BTreeMap<String, String> = request["headers"]
+/// The request as Node's endpoint saw it: every header in arrival order, the SDK's runtime version as the product
+/// names it.
+fn recorded(request: &Value, node: &str) -> Value {
+    let headers: Vec<(String, String)> = request["headers"]
         .as_object()
         .unwrap()
         .iter()
-        .map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned()))
-        .filter(|(k, v)| !transport_header(k, v))
+        .map(|(k, v)| {
+            let v = v.as_str().unwrap();
+            if k == "x-stainless-runtime-version" {
+                assert_eq!(v, node, "the SDK names the recorder's Node runtime");
+                return (k.clone(), crate::providers::grok::SDK_RUNTIME_VERSION.to_owned());
+            }
+            (k.clone(), v.to_owned())
+        })
         .collect();
-    json!({"method": request["method"], "url": format!("{}{}", request["origin"].as_str().unwrap(), request["path"].as_str().unwrap()), "headers": headers, "body": request["body"]})
+    json!({"method": request["method"], "origin": request["origin"], "path": request["path"], "headers": headers, "body": request["body"]})
 }
 
-fn sent(request: &WireRequest) -> Value {
-    let headers: BTreeMap<String, String> = request
-        .headers
-        .iter()
-        .map(|(k, v)| (k.to_lowercase(), v.clone()))
-        .filter(|(k, v)| !transport_header(k, v))
+/// The request as the product's HTTP client writes its head, for the recorder's plain-http loopback (undici's
+/// `accept-encoding` follows the scheme it dials).
+fn sent((request, writer): &(WireRequest, crate::transport::node_http::Writer)) -> Value {
+    let product = url::Url::parse(&request.url).unwrap();
+    let mut dialed = product.clone();
+    dialed.set_scheme("http").unwrap();
+    let (head, _) = crate::transport::node_http::head(request, &dialed, *writer);
+    let head = String::from_utf8(head).unwrap();
+    let mut lines = head.split("\r\n").filter(|l| !l.is_empty());
+    let line = lines.next().unwrap();
+    let mut parts = line.split(' ');
+    let (method, path) = (parts.next().unwrap(), parts.next().unwrap());
+    let headers: Vec<(String, String)> = lines
+        .map(|l| {
+            let (name, value) = l.split_once(": ").unwrap();
+            (name.to_lowercase(), value.to_owned())
+        })
         .collect();
-    json!({"method": request.method, "url": request.url, "headers": headers, "body": String::from_utf8(request.body.clone()).unwrap()})
+    json!({"method": method, "origin": product.origin().ascii_serialization(), "path": path, "headers": headers, "body": String::from_utf8(request.body.clone()).unwrap()})
 }
 
 /// Node's result fields from the stream the adapter returned.
 fn folded(events: &[StreamEvent]) -> Value {
     let (mut content, mut usage, mut stop, mut calls) = (String::new(), Value::Null, Value::Null, Vec::new());
-    let (mut reasoning_content, mut metadata) = (Value::Null, Value::Null);
+    let (mut reasoning_content, mut metadata, mut reroute) = (Value::Null, Value::Null, Value::Null);
     for event in events {
         match event {
+            StreamEvent::WireRerouted(route) => reroute = route.clone(),
             StreamEvent::TextDelta(text) => content.push_str(text),
             StreamEvent::ReasoningReplay(replay) => {
                 if let Some(text) = replay.items.get("reasoningContent") {
@@ -343,12 +379,28 @@ fn folded(events: &[StreamEvent]) -> Value {
             _ => {}
         }
     }
-    json!({"content": content, "toolCalls": calls, "reasoningContent": reasoning_content, "stopReason": stop, "usage": usage, "providerMetadata": metadata})
+    // Node's `reasoning` result field: no engine of these wires returns one, and the core has no such field (the
+    // reasoning shown is the `streamDelta` events, the reasoning kept is `reasoningContent`).
+    json!({"content": content, "reasoning": null, "toolCalls": calls, "reasoningContent": reasoning_content, "stopReason": stop, "usage": usage, "providerMetadata": metadata, "wireReroute": reroute})
+}
+
+/// Node's error fields from the error the send ended with.
+fn error_of(error: &ProviderError, provider: &str, model: &str) -> Value {
+    let quota = (error.kind == mixdog_core_api::domain::provider::ErrorKind::QuotaExhausted).then(|| {
+        let reset = error.reset_at.map(|at| at.duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64);
+        json!({"provider": provider, "model": model, "resetAt": reset})
+    });
+    json!({"message": error.message, "status": error.status, "code": error.code, "quotaExhausted": quota})
 }
 
 async fn replay(id: &str) {
+    replay_as(id, Chunking::PerEvent).await;
+}
+
+async fn replay_as(id: &str, chunking: Chunking) {
     let scenario = fixture(id);
-    let w = world(&scenario);
+    let node_version = recorder_node();
+    let w = world(&scenario, chunking);
     let provider = scenario["provider"].as_str().unwrap();
     if let Some(doc) = login(provider) {
         std::fs::write(w._dir.path().join(format!("{provider}.json")), doc.to_string()).unwrap();
@@ -374,9 +426,9 @@ async fn replay(id: &str) {
             .unwrap()
             .iter()
             .filter(|r| r["origin"] != "https://raw.githubusercontent.com" && r["origin"] != "https://models.dev")
-            .map(recorded)
+            .map(|r| recorded(r, &node_version))
             .collect();
-        assert_eq!(sent_now, node_now, "{id}: the listing requests");
+        assert!(sent_now == node_now, "{id}: the listing requests\nrust: {}\nnode: {}", json!(sent_now), json!(node_now));
     }
     for (n, send) in scenario["sends"].as_array().unwrap().iter().enumerate() {
         let before = w.endpoint.sent.lock().unwrap().len();
@@ -386,8 +438,9 @@ async fn replay(id: &str) {
         messages.push(message(provider, &json!({"role": "user", "content": "Look up the answer."})));
         let mut options = RequestOptions { session_id: send["sessionId"].as_str().map(str::to_owned), ..RequestOptions::default() };
         if let Some(pin) = send.get("pin") {
-            options.wire_pin = pin["wire"].as_str().map(|wire| WirePin { provider: provider.to_owned(), model: send["model"].as_str().unwrap().to_owned(), wire: wire.to_owned() });
+            options.wire_pin = WirePin::from_route(pin);
         }
+        let pinned = options.wire_pin.clone();
         let request = ModelRequest {
             model: send["model"].as_str().unwrap().to_owned(),
             messages,
@@ -398,10 +451,11 @@ async fn replay(id: &str) {
             Ok(mut stream) => {
                 let mut events = Vec::new();
                 let mut failed = None;
+                let mut chunked = false;
                 while let Some(item) = stream.next().await {
                     match item {
                         Ok(event) => {
-                            if let Some(view) = shown(&event) {
+                            if let Some(view) = shown(&event, &mut chunked) {
                                 w.endpoint.note(view);
                             }
                             events.push(event);
@@ -420,25 +474,32 @@ async fn replay(id: &str) {
             Err(e) => Err(e),
         };
         let sent_now: Vec<Value> = w.endpoint.sent.lock().unwrap()[before..].iter().map(sent).collect();
-        let node_now: Vec<Value> = send["requests"].as_array().unwrap().iter().map(recorded).collect();
-        assert_eq!(sent_now, node_now, "{id} send {n}: the requests");
+        let node_now: Vec<Value> = send["requests"].as_array().unwrap().iter().map(|r| recorded(r, &node_version)).collect();
+        assert!(sent_now == node_now, "{id} send {n}: the requests\nrust: {}\nnode: {}", json!(sent_now), json!(node_now));
         let node_events: Vec<Value> = send["events"].as_array().unwrap().iter().filter(|e| compared(e)).cloned().collect();
         assert_eq!(*w.endpoint.log.lock().unwrap(), node_events, "{id} send {n}: the requests and what the session was shown, in order");
+        let model = send["model"].as_str().unwrap();
         match (&outcome, send.get("result")) {
-            (Ok(result), Some(node)) => {
-                let node_result = json!({
-                    "content": node["content"], "toolCalls": node["toolCalls"], "reasoningContent": node["reasoningContent"],
-                    "stopReason": node["stopReason"], "usage": node["usage"], "providerMetadata": node["providerMetadata"],
-                });
-                assert_eq!(result, &node_result, "{id} send {n}: the result");
-            }
+            (Ok(result), Some(node)) => assert_eq!(result, node, "{id} send {n}: the result"),
             (Err(error), Some(_)) => panic!("{id} send {n}: Node answered, Rust failed: {error:?}"),
             (Ok(_), None) => panic!("{id} send {n}: Node failed with {}, Rust answered", send["error"]),
             (Err(error), None) => {
-                let node = &send["error"];
-                assert_eq!(error.message, node["message"].as_str().unwrap(), "{id} send {n}: the error");
-                assert_eq!(error.status.map(u64::from), node["status"].as_u64(), "{id} send {n}: the status");
+                let mut node = send["error"].clone();
+                if let Some(code) = node["code"].as_u64() {
+                    node["code"] = json!(code.to_string());
+                }
+                assert_eq!(error_of(error, provider, model), node, "{id} send {n}: the error");
             }
+        }
+        // The session's pin after the send: the reroute when the session's pin named this provider and model (the
+        // agent's rule for `StreamEvent::WireRerouted`), else the pin it had.
+        if let Some(node_after) = send.get("pinAfter") {
+            let reroute = outcome.as_ref().ok().map(|r| r["wireReroute"].clone()).filter(|r| !r.is_null());
+            let after = match (reroute, &pinned) {
+                (Some(route), Some(pin)) if WirePin::from_route(&route).is_some_and(|new| new.provider == pin.provider && new.model == pin.model) => route,
+                _ => send["pin"].clone(),
+            };
+            assert_eq!(&after, node_after, "{id} send {n}: the session's pin after the send");
         }
     }
     assert!(w.endpoint.answers.lock().unwrap().is_empty(), "{id}: Node made requests Rust did not");
@@ -488,6 +549,22 @@ scenarios! {
     every_key_refused_reports_the_exhausted_roster => "custom-keys-exhausted",
     a_refusal_that_is_not_quota_ends_the_send_on_its_key => "custom-keys-not-quota",
     a_refusal_after_output_started_is_never_resent => "custom-keys-after-output",
+    reasoning_before_a_quota_refusal_is_shown_and_the_key_is_kept => "custom-keys-reasoning-then-quota",
+    an_unsupported_wire_refusal_moves_the_send_and_the_pin_to_the_next_wire => "openrouter-reroute-unsupported",
+    a_refusal_that_names_no_unsupported_wire_ends_the_send => "openrouter-refusal-stays",
+    the_wire_switches_once => "openrouter-reroute-once",
+}
+
+/// The same answers with the whole body in one chunk: the events decoded before an in-band refusal still reach
+/// the caller first, so the pool sees the output and keeps the key.
+#[tokio::test]
+async fn reasoning_then_a_quota_refusal_in_one_chunk() {
+    replay_as("custom-keys-reasoning-then-quota", Chunking::Whole).await;
+}
+
+#[tokio::test]
+async fn text_then_a_quota_refusal_in_one_chunk() {
+    replay_as("custom-keys-after-output", Chunking::Whole).await;
 }
 
 #[test]

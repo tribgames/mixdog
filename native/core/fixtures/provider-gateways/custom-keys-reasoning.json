@@ -32,7 +32,7 @@
   ],
   "keyIds": [
     "default",
-    "22c83518-5023-4564-8fe4-5f71312a432e"
+    "02126c98-fe17-483b-8f4f-ccac941ab854"
   ],
   "pool": {
     "accounts": [
@@ -44,11 +44,11 @@
         "label": "Account 1"
       },
       {
-        "id": "22c83518-5023-4564-8fe4-5f71312a432e",
+        "id": "02126c98-fe17-483b-8f4f-ccac941ab854",
         "label": "Account 2"
       }
     ],
-    "selectedId": "22c83518-5023-4564-8fe4-5f71312a432e",
+    "selectedId": "02126c98-fe17-483b-8f4f-ccac941ab854",
     "auto": true,
     "policy": "limit",
     "useCredits": true
@@ -200,7 +200,7 @@
           "stage": "account-changed",
           "payload": {
             "provider": "custom-keys-reasoning",
-            "accountId": "22c83518-5023-4564-8fe4-5f71312a432e",
+            "accountId": "02126c98-fe17-483b-8f4f-ccac941ab854",
             "at": 1794225600000
           }
         }
@@ -218,10 +218,11 @@
         "providerMetadata": {
           "accountRouting": {
             "provider": "custom-keys-reasoning",
-            "accountId": "22c83518-5023-4564-8fe4-5f71312a432e",
-            "sessionAccountId": "22c83518-5023-4564-8fe4-5f71312a432e"
+            "accountId": "02126c98-fe17-483b-8f4f-ccac941ab854",
+            "sessionAccountId": "02126c98-fe17-483b-8f4f-ccac941ab854"
           }
-        }
+        },
+        "wireReroute": null
       }
     }
   ]

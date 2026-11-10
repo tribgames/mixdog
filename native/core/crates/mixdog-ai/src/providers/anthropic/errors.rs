@@ -131,6 +131,42 @@ fn truncate_chars(text: &str, max: usize) -> String {
     text.chars().take(max).collect()
 }
 
+/// The message the Anthropic SDK's `APIError` carries for a refused request (`makeMessage`): the body's
+/// `message` when it has one, else the parsed body as JSON, else its text, after the status.
+pub(crate) fn sdk_message(response: &ErrorResponse) -> String {
+    let text = String::from_utf8_lossy(&response.body);
+    let msg = match serde_json::from_str::<Value>(&text) {
+        Ok(body) => match body.get("message") {
+            Some(Value::String(m)) if !m.is_empty() => m.clone(),
+            Some(m) if !matches!(m, Value::Null | Value::Bool(false) | Value::String(_)) && m.as_f64() != Some(0.0) => m.to_string(),
+            _ => body.to_string(),
+        },
+        Err(_) => text.into_owned(),
+    };
+    match response.status {
+        Some(status) if !msg.is_empty() => format!("{status} {msg}"),
+        Some(status) => format!("{status} status code (no body)"),
+        None if !msg.is_empty() => msg,
+        None => "(no status code or body)".to_owned(),
+    }
+}
+
+/// Anthropic's documented error type for a status (`STATUS_ERROR_TYPE`), when the body names none.
+fn status_type(status: u16) -> Option<&'static str> {
+    Some(match status {
+        400 => "invalid_request_error",
+        401 => "authentication_error",
+        403 => "permission_error",
+        404 => "not_found_error",
+        409 => "conflict_error",
+        429 => "rate_limit_error",
+        500 => "api_error",
+        504 => "timeout_error",
+        529 => "overloaded_error",
+        _ => return None,
+    })
+}
+
 /// The single classification point of a non-success HTTP response.
 pub(crate) fn classify_response(response: &ErrorResponse) -> ProviderError {
     let body: Value = serde_json::from_slice(&response.body).unwrap_or(Value::Null);
@@ -158,7 +194,8 @@ pub(crate) fn classify_response(response: &ErrorResponse) -> ProviderError {
     }
     let mut err = ProviderError::new(kind, DeliveryState::Accepted);
     err.status = response.status;
-    err.code = code;
+    // `applyAnthropicErrorContract`: a body that names no type gets the documented one for its status.
+    err.code = code.or_else(|| response.status.and_then(status_type).map(str::to_owned));
     err.retry_after = retry_after(&response.headers);
     err.reset_at = reset_at(&response.headers);
     err.should_retry = match header(&response.headers, "x-should-retry").map(str::trim) {

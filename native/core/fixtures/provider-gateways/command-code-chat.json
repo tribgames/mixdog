@@ -99,7 +99,8 @@
           "inputTokens": 20,
           "outputTokens": 8
         },
-        "providerMetadata": null
+        "providerMetadata": null,
+        "wireReroute": null
       }
     }
   ]

@@ -527,6 +527,8 @@ enum Shown {
     Barrier(tokio::sync::oneshot::Sender<()>),
     /// A hosted web search's spend, as `reportNativeWebSearchUsage` shapes it.
     SearchUsage(Value),
+    /// A stage the client shows as its status, with its detail.
+    Stage(String, Option<Value>),
 }
 
 /// What the interrupted request had produced that the transcript does not hold yet
@@ -701,6 +703,11 @@ impl RunObserver for PortObserver {
             // The context section is the route's window choice (`runtime.contextPercent`, exact `contextTokens` only for a
             // non-default window), never the usage reading: usage reaches clients as `thread/tokenUsage/updated`.
             // `applyStageChange('account-changed')`: the selection change is thread state, never a transcript item.
+            // The pool's `onStageChange('reconnecting', { message })` before it retries on the next account: the
+            // client's status (`applyStageChange`: the spinner's mode and verb), never a transcript notice.
+            RunEvent::Stage(Stage::AccountSwitching { message }) => {
+                let _ = self.out.send(Shown::Stage("reconnecting".to_owned(), Some(serde_json::json!({ "message": message }))));
+            }
             RunEvent::Stage(Stage::AccountChanged { provider, account_id, at }) => {
                 let change = mixdog_app_protocol::v2::thread::ProviderAccountChange { provider, account_id, at };
                 let _ = self.out.send(Shown::Section(mixdog_core_ports::ports::threads::Section::ProviderAccount(change)));
@@ -1119,6 +1126,7 @@ async fn drive(
                 Shown::Compact(event) => shown_port.compact_event(event).await,
                 Shown::Check(check) => shown_port.send_check(check).await,
                 Shown::SearchUsage(delta) => shown_port.search_usage(delta).await,
+                Shown::Stage(stage, detail) => shown_port.stage(stage, detail).await,
                 Shown::Pass(pass) => shown_port.compact_pass(pass).await,
                 Shown::ToolStream => shown_port.tool_stream().await,
                 Shown::CompactUsage(report) => shown_port.compact_usage(report).await,
@@ -2050,6 +2058,61 @@ mod tests {
         // Woken by each step of the thread's actor.
         eventually_on_awaiting(|| "the thread/tokenUsage/updated frame carrying the usage delta".to_owned(), &[handle.stepped()], || heard().contains(&delta).then_some(())).await;
         assert_eq!(heard().iter().filter(|usage| **usage == delta).count(), 1);
+    }
+
+    /// The account pool's two notices reach the thread once each, as status and as thread state (Node
+    /// `applyStageChange`), never as transcript rows: on a direct run and on one whose provider answers through the
+    /// model proxy's wire.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_pools_switching_and_changed_notices_reach_the_thread_once_each() {
+        use mixdog_core_api::domain::provider::AccountStage;
+        use mixdog_core_domains::domains::ai_admin::model_proxy as proxy;
+        let switching = "Quota exhausted — switching to the next account";
+        let events = vec![
+            StreamEvent::AccountStage(AccountStage::Switching { message: switching.into() }),
+            StreamEvent::TextDelta("ok".into()),
+            StreamEvent::AccountStage(AccountStage::Changed { provider: "custom-x".into(), account_id: "k2".into(), at: 7 }),
+            StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None },
+        ];
+        let crossed: Vec<StreamEvent> = events
+            .iter()
+            .map(|event| {
+                let wire = serde_json::to_value(proxy::event_out(event)).unwrap();
+                match proxy::event_in(serde_json::from_value(wire).unwrap()).unwrap() {
+                    proxy::Incoming::Event(event) => event,
+                    other => panic!("{other:?}"),
+                }
+            })
+            .collect();
+        for (how, script) in [("direct", events.clone()), ("model proxy", crossed)] {
+            let provider = Arc::new(Scripted {
+                id: ProviderId::from("custom-x"),
+                policy: RetryPolicy::codex_default(),
+                keepalive: KeepaliveSchedule::SPEC,
+                codec: MockCodec,
+                script: Mutex::new(VecDeque::from([script])),
+                requests: Mutex::new(Vec::new()),
+                fail_first: std::sync::atomic::AtomicBool::new(false),
+            });
+            let workspace = tempfile::tempdir().unwrap();
+            let rig = Rig::new();
+            let mut deps = rig.deps_parts(rig.store.clone());
+            deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider, workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None })));
+            let directory = SessionDirectory::new(Arc::new(deps));
+            let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+            let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
+            let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
+            let handle = directory.handle(&id).expect("loaded");
+            handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
+            let frames = |method: &str| -> Vec<Value> { rig.feeds.frames(id.as_str()).into_iter().filter(|(_, m, _)| m == method).map(|(_, _, params)| params).collect() };
+            eventually_on_awaiting(|| format!("{how}: the turn's end"), &[handle.stepped()], || (!frames("turn/completed").is_empty()).then_some(())).await;
+            let stages = frames("thread/stage/updated");
+            assert_eq!(stages, [json!({ "threadId": id, "stage": "reconnecting", "detail": { "message": switching } })], "{how}: the switching status, once");
+            let changed: Vec<Value> = frames("thread/providerAccount/changed").into_iter().filter(|p| p.to_string().contains("\"k2\"")).collect();
+            assert_eq!(changed.len(), 1, "{how}: the account change, once: {changed:?}");
+            let rows = serde_json::to_string(&rig.feeds.frames(id.as_str()).into_iter().filter(|(_, m, _)| m.starts_with("item/")).collect::<Vec<_>>()).unwrap();
+            assert!(!rows.contains(switching), "{how}: the switching message is not a transcript row");
+        }
     }
 
     // ---- the real assembly -------------------------------------------------------------------------

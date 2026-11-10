@@ -10670,6 +10670,11 @@
     },
     {
       "delivery": "thread",
+      "method": "thread/stage/updated",
+      "params": "ThreadStageUpdatedParams"
+    },
+    {
+      "delivery": "thread",
       "method": "thread/name/updated",
       "params": "ThreadNameUpdatedParams"
     },

@@ -643,6 +643,9 @@ pub enum ProxyEvent {
         #[cfg_attr(feature = "codegen", ts(type = "number"))]
         at: i64,
     },
+    /// The send went out once more on another wire after a refusal; the session's new `wireRoute`, whole
+    /// (`StreamEvent::WireRerouted`, Node `wireReroute`).
+    WireRerouted { route: JsonValue },
     /// `pricing_model`: the catalog model the send bills as when it differs from the one sent.
     /// `request_ms`: the request's wall time as the usage ledger measured it (Node `usageDurationMs`).
     Completed {
