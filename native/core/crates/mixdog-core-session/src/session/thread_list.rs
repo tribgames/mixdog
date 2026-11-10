@@ -378,6 +378,8 @@ pub struct RoomSummaries {
     directory: Arc<super::SessionDirectory>,
     /// One pass at a time, in the order they were asked for.
     pass: Arc<mixdog_rt::SerialChain>,
+    /// The index writes' notifications ([`Self::follow`]): a pass reads only once every write made before it is published.
+    edges: std::sync::OnceLock<Arc<super::thread_edges::ThreadEdges>>,
     /// The background listings started by [`Self::republish_catalog`] that have not ended (a test's step boundary).
     #[cfg(any(test, feature = "test-support"))]
     background: tokio::sync::watch::Sender<usize>,
@@ -408,11 +410,26 @@ impl RoomSummaries {
             app,
             directory,
             pass: mixdog_rt::SerialChain::new(),
+            edges: std::sync::OnceLock::new(),
             #[cfg(any(test, feature = "test-support"))]
             background: tokio::sync::watch::Sender::new(0),
             #[cfg(any(test, feature = "test-support"))]
             in_hand: tokio::sync::Notify::new(),
         })
+    }
+
+    /// The index writes' notifications this publisher's passes follow: the edge task and a pass both send a written row, and a
+    /// pass that read the row before its write's `thread/started` went out would send `thread/summary/updated` for a row the
+    /// client has not been told of. Each pass first waits for the writes made before it (Node sends one catalog for both).
+    pub fn follow(&self, edges: Arc<super::thread_edges::ThreadEdges>) {
+        drop(self.edges.set(edges));
+    }
+
+    /// Every index write made so far, published.
+    async fn written(&self) {
+        if let Some(edges) = self.edges.get() {
+            edges.settled().await;
+        }
     }
 
     /// Waits until a listing has had its rows in hand since the last such wait (a test forcing the listing ahead of a reply).
@@ -475,6 +492,7 @@ impl RoomSummaries {
     /// listing made loaded publishes after it.
     async fn publish_listing(&self, publish: impl std::future::Future<Output = ()>) -> Result<(), CoreError> {
         let _pass = self.pass.acquire().await;
+        self.written().await;
         let rows = self.list.whole_listing().await?;
         #[cfg(any(test, feature = "test-support"))]
         self.in_hand.notify_one();
@@ -504,6 +522,7 @@ impl RoomSummaries {
     /// [`Self::publish`].
     pub async fn publish_room(&self, room_thread: &ThreadId, view: Option<ThreadRoomView>) {
         let _pass = self.pass.acquire().await;
+        self.written().await;
         let handle = match &view {
             Some(_) => match self.directory.open_handle(room_thread, &mixdog_core_api::call::CallContext::internal("room-view")).await {
                 Ok(handle) => Some(handle),
@@ -538,6 +557,7 @@ impl RoomSummaries {
     /// ([`ThreadListService::room_row`]).
     async fn publish_rooms(&self) -> Result<(), CoreError> {
         let _pass = self.pass.acquire().await;
+        self.written().await;
         let threads = self.list.rooms.room_threads().await.map_err(|error| failed(DOMAIN, error))?;
         let mut first = None;
         for id in threads {
