@@ -80,7 +80,12 @@ const SHUTTING_DOWN: &str = "[supervisor-pg] process is shutting down; PG start 
 
 /// A stack over `dir` whose runtime comes from `source`.
 async fn stack_over(dir: &std::path::Path, source: PgRuntimeSource) -> Arc<MemoryStack> {
-    MemoryStack::start(MemoryBoot {
+    MemoryStack::start(boot_over(dir, source)).await.expect("the stack is built without a database")
+}
+
+/// What a stack over `dir` whose runtime comes from `source` is built from.
+fn boot_over(dir: &std::path::Path, source: PgRuntimeSource) -> MemoryBoot {
+    MemoryBoot {
         data_dir: dir.to_owned(),
         pg_runtime: source,
         embedder: None,
@@ -95,9 +100,7 @@ async fn stack_over(dir: &std::path::Path, source: PgRuntimeSource) -> Arc<Memor
         backfill: None,
         processes: crate::tidy::process::Processes::for_tests(),
         cancel: tokio_util::sync::CancellationToken::new(),
-    })
-    .await
-    .expect("the stack is built without a database")
+    }
 }
 
 /// An install that counts its entries, announces each on the returned channel and then runs `run` with the stack's cancel.
@@ -170,27 +173,71 @@ async fn a_failed_install_is_retried_by_the_next_use_and_a_good_one_goes_on_to_t
     stack.stop().await.expect("stop");
 }
 
-/// Two first uses while the runtime is still downloading share the one install (Node's callers all await the one `initPromise`, `http-router.mjs:34-46`), wait for
-/// it rather than fail, and both see its outcome.
+/// An install held at a gate that it does not leave for the stop's cancel (it announces the cancel and goes on waiting), announced when it runs past the gate, and
+/// ending with `outcome`.
+struct Held {
+    install: PgInstall,
+    installs: Arc<AtomicUsize>,
+    entered: tokio::sync::mpsc::UnboundedReceiver<()>,
+    gate: tokio::sync::oneshot::Sender<()>,
+    cancelled: tokio::sync::mpsc::UnboundedReceiver<()>,
+    finished: tokio::sync::mpsc::UnboundedReceiver<()>,
+}
+
+fn held_install(outcome: impl Fn() -> crate::memory::error::Result<std::path::PathBuf> + Send + Sync + 'static) -> Held {
+    let (gate, opened) = tokio::sync::oneshot::channel::<()>();
+    let opened = Arc::new(tokio::sync::Mutex::new(Some(opened)));
+    let (saw_cancel, cancelled) = tokio::sync::mpsc::unbounded_channel::<()>();
+    let (passed, finished) = tokio::sync::mpsc::unbounded_channel::<()>();
+    let outcome = Arc::new(outcome);
+    let (install, installs, entered) = install_of(move |_, cancel| {
+        let (opened, saw_cancel, passed, outcome) = (opened.clone(), saw_cancel.clone(), passed.clone(), outcome.clone());
+        Box::pin(async move {
+            let mut gate = opened.lock().await.take().expect("one install");
+            tokio::select! {
+                _ = &mut gate => {}
+                () = cancel.cancelled() => {
+                    let _ = saw_cancel.send(());
+                    let _ = gate.await;
+                }
+            }
+            let _ = passed.send(());
+            outcome()
+        })
+    });
+    Held { install, installs, entered, gate, cancelled, finished }
+}
+
+fn failing(text: &'static str) -> impl Fn() -> crate::memory::error::Result<std::path::PathBuf> + Send + Sync + 'static {
+    move || Err(MemoryError::Runtime(text.to_owned()))
+}
+
+/// Stops `stack` while its opening is held, and moves the held clock to the stop's 6 s give-up once the opening has seen the cancel (the stop's bounded wait
+/// for it has begun by then); returns the stop's result.
+async fn stop_past_the_give_up(stack: &Arc<MemoryStack>, cancelled: &mut tokio::sync::mpsc::UnboundedReceiver<()>) -> crate::memory::error::Result<()> {
+    let stopping = tokio::spawn({
+        let stack = stack.clone();
+        async move { stack.stop().await }
+    });
+    awaiting_for(std::time::Duration::from_secs(5), "the opening to see the stop's cancel", cancelled.recv()).await.expect("cancelled");
+    tokio::time::advance(std::time::Duration::from_secs(6)).await;
+    awaiting("the stop to give up at 6 s", stopping).await.unwrap()
+}
+
+/// Two first uses while the runtime is still downloading share the one install (Node's callers all await the one shared ensure, `supervisor.mjs:659-665`),
+/// wait for it rather than fail, and both see its outcome. One use goes through the `memory` schema's handle and the other through the session search's: the
+/// two handles reach the database through the stack's one opening.
 ///
 /// Both uses are polled in one round of a `join`: the first enters the install (announced), and the second, polled after it in the same round, has reached the
 /// shared opening and parks on it without entering an install of its own. The install is then released at a gate.
 #[tokio::test]
 async fn two_first_uses_share_one_install_and_see_its_outcome() {
     let dir = tempfile::tempdir().expect("dir");
-    let (gate, opened) = tokio::sync::oneshot::channel::<()>();
-    let opened = Arc::new(tokio::sync::Mutex::new(Some(opened)));
-    let (install, installs, mut entered) = install_of(move |_, _| {
-        let opened = opened.clone();
-        Box::pin(async move {
-            let gate = opened.lock().await.take().expect("one install");
-            let _ = gate.await;
-            Err(MemoryError::Runtime("the download failed".to_owned()))
-        })
-    });
+    let Held { install, installs, mut entered, gate, .. } = held_install(failing("the download failed"));
     let stack = stack_over(dir.path(), PgRuntimeSource::Install(install)).await;
-    let (first, second) = (stack.db(), stack.db());
-    let mut both = Box::pin(futures::future::join(first.client(), second.client()));
+    let search = stack.search().db().clone();
+    let memory = stack.db();
+    let mut both = Box::pin(futures::future::join(memory.client(), search.session_ids()));
     assert!(futures::poll!(&mut both).is_pending(), "both uses wait for the install");
     awaiting_for(std::time::Duration::from_secs(5), "the install to be entered", entered.recv()).await.expect("the install was entered");
     assert!(entered.try_recv().is_err(), "the second use did not enter an install of its own");
@@ -199,6 +246,117 @@ async fn two_first_uses_share_one_install_and_see_its_outcome() {
     let (one, two) = awaiting("both uses to see the install's end", both).await;
     assert_eq!((message(one), message(two)), ("postgres runtime: the download failed".to_owned(), "postgres runtime: the download failed".to_owned()));
     assert_eq!(installs.load(Ordering::SeqCst), 1);
+}
+
+/// The opening is the stack's own task: when every use that waited for it is gone, it still runs to its end (Node's shared promise keeps running whatever its
+/// callers do), and the next use starts after it rather than finding it stalled.
+#[tokio::test]
+async fn an_opening_runs_to_its_end_when_every_use_is_dropped() {
+    let dir = tempfile::tempdir().expect("dir");
+    let Held { install, installs, mut entered, gate, mut finished, .. } = held_install(failing("the download failed"));
+    let stack = stack_over(dir.path(), PgRuntimeSource::Install(install)).await;
+    let db = stack.db();
+    let using = tokio::spawn(async move { db.client().await.map(drop) });
+    awaiting_for(std::time::Duration::from_secs(5), "the install to be entered", entered.recv()).await.expect("entered");
+    using.abort();
+    assert!(using.await.unwrap_err().is_cancelled(), "the only use is gone");
+    gate.send(()).expect("the install waits at the gate");
+    awaiting_for(std::time::Duration::from_secs(5), "the install to run past its gate with no use waiting", finished.recv()).await.expect("finished");
+    assert_eq!(installs.load(Ordering::SeqCst), 1);
+    stack.stop().await.expect("stop");
+}
+
+/// Every use is dropped, then the stack stops: the opening, still the stack's, sees the cancel and the stop joins it at once, with no time passing on the held
+/// clock (it does not sit out the 6 s give-up).
+#[tokio::test(start_paused = true)]
+async fn a_stop_cancels_and_joins_an_opening_nobody_waits_for() {
+    let dir = tempfile::tempdir().expect("dir");
+    let (seen, mut cancelled) = tokio::sync::mpsc::unbounded_channel::<()>();
+    let (install, _installs, mut entered) = install_of(move |_, cancel| {
+        let seen = seen.clone();
+        Box::pin(async move {
+            cancel.cancelled().await;
+            let _ = seen.send(());
+            Err(MemoryError::Runtime("cancelled".to_owned()))
+        })
+    });
+    let stack = stack_over(dir.path(), PgRuntimeSource::Install(install)).await;
+    let db = stack.db();
+    let using = tokio::spawn(async move { db.client().await.map(drop) });
+    awaiting_for(std::time::Duration::from_secs(5), "the install to be entered", entered.recv()).await.expect("entered");
+    using.abort();
+    assert!(using.await.unwrap_err().is_cancelled(), "the only use is gone");
+    let before = tokio::time::Instant::now();
+    awaiting_for(std::time::Duration::from_secs(5), "the stop of an opening nobody waits for", stack.stop()).await.expect("stop");
+    assert_eq!(tokio::time::Instant::now(), before, "the stop joined the cancelled opening without waiting out its bound");
+    awaiting_for(std::time::Duration::from_secs(5), "the install to see the cancel", cancelled.recv()).await.expect("cancelled");
+    assert!(!dir.path().join("pgdata").exists(), "the cancelled opening started nothing");
+}
+
+/// A use after the stop began is refused with Node's text before it can join an opening still in flight (`ensurePgInstance` checks shutdown first,
+/// `supervisor.mjs:647-665`): here the opening ignores the cancel and the stop has given up on it.
+#[tokio::test(start_paused = true)]
+async fn a_use_after_stop_is_refused_while_an_opening_is_in_flight() {
+    let dir = tempfile::tempdir().expect("dir");
+    let Held { install, installs, mut entered, gate, mut cancelled, .. } = held_install(failing("the download failed"));
+    let stack = stack_over(dir.path(), PgRuntimeSource::Install(install)).await;
+    let db = stack.db();
+    let using = tokio::spawn(async move { db.client().await.map(drop) });
+    awaiting_for(std::time::Duration::from_secs(5), "the install to be entered", entered.recv()).await.expect("entered");
+    let stopped = stop_past_the_give_up(&stack, &mut cancelled).await;
+    let refused = awaiting_for(std::time::Duration::from_secs(5), "a use after the stop", stack.db().client()).await.map(drop);
+    drop(gate);
+    let first = awaiting("the first use to end with its opening", using).await.unwrap();
+    stopped.expect("stop goes on without the opening");
+    assert_eq!(message(refused), SHUTTING_DOWN);
+    assert!(first.is_err());
+    assert_eq!(installs.load(Ordering::SeqCst), 1, "the refused use started no opening");
+}
+
+/// An opening that ignores the stop's cancel and ends after the stop gave up on it starts nothing: the cluster step is never begun once the stack is stopping, so
+/// no postmaster is left without an owner (Node's exit hook stops one an abandoned opening published, `supervisor.mjs:793-835`; here there is none to stop).
+#[tokio::test(start_paused = true)]
+async fn an_opening_that_ends_after_the_stop_gave_up_starts_nothing() {
+    let dir = tempfile::tempdir().expect("dir");
+    let runtime = dir.path().join("runtime");
+    let Held { install, mut entered, gate, mut cancelled, .. } = held_install(move || Ok(runtime.clone()));
+    let stack = stack_over(dir.path(), PgRuntimeSource::Install(install)).await;
+    let db = stack.db();
+    let using = tokio::spawn(async move { db.client().await.map(drop) });
+    awaiting_for(std::time::Duration::from_secs(5), "the install to be entered", entered.recv()).await.expect("entered");
+    let stopped = stop_past_the_give_up(&stack, &mut cancelled).await;
+    gate.send(()).expect("the install waits at the gate");
+    let ended = awaiting("the abandoned opening to end", using).await.unwrap();
+    stopped.expect("stop goes on without the opening");
+    assert_eq!(message(ended), SHUTTING_DOWN);
+    assert!(!dir.path().join("pgdata").exists(), "the abandoned opening began no cluster step");
+}
+
+/// The spawn lock is Node's file, `<profile>/pg-spawn.lock` beside the cluster (`supervisor.mjs:618`), so the two exclude each other: while a holder (as a Node
+/// process would) has it, a use whose start does not wait is refused before the cluster is touched; once it is released, the next use goes on to `initdb`.
+#[tokio::test]
+async fn the_spawn_lock_is_nodes_file_beside_the_cluster() {
+    struct Silent;
+    impl crate::memory::pg::cluster::Health for Silent {
+        fn healthy(&self, _port: u16) -> futures::future::BoxFuture<'static, bool> {
+            Box::pin(async { false })
+        }
+    }
+    let dir = tempfile::tempdir().expect("dir");
+    let lock_file = dir.path().join("pg-spawn.lock");
+    let (taken, held) = tokio::sync::oneshot::channel();
+    let hold = mixdog_statefile::hold_lock(&lock_file, &mixdog_statefile::LockOpts::default(), move |outcome| {
+        let _ = taken.send(outcome);
+    });
+    awaiting("the holder to take the spawn lock", held).await.unwrap().expect("the lock is taken");
+    let start = crate::memory::pg::cluster::Start { health: Arc::new(Silent), recovery_wait: std::time::Duration::ZERO, lock_wait: std::time::Duration::ZERO };
+    let stack = MemoryStack::start_with(boot_over(dir.path(), PgRuntimeSource::Dir(dir.path().join("runtime"))), start).await.expect("built");
+    let refused = message(awaiting("the use while Node's lock is held", stack.db().client()).await);
+    hold.release_and_wait();
+    let next = message(awaiting("the use after the lock is released", stack.db().client()).await);
+    stack.stop().await.expect("stop");
+    assert!(refused.contains("atomic lock contended (try-once)") && refused.contains(&lock_file.display().to_string()), "{refused}");
+    assert!(next.contains("initdb"), "{next}");
 }
 
 /// A stop while the install is held ends it and starts nothing; both waiting uses end with the install's cancellation, and a use after the stop gets Node's text.
@@ -216,7 +374,6 @@ async fn a_stop_ends_the_install_the_uses_wait_for() {
     let mut both = Box::pin(futures::future::join(first.client(), second.client()));
     assert!(futures::poll!(&mut both).is_pending());
     awaiting_for(std::time::Duration::from_secs(5), "the install to be entered", entered.recv()).await.expect("entered");
-    // The uses are what drive the opening, so they are polled while the stop waits for it.
     let (stopped, (one, two)) = awaiting("the stop and both uses under a held install", async { tokio::join!(stack.stop(), both) }).await;
     stopped.expect("stop ends the install in progress");
     assert!(message(one).contains("cancelled") && message(two).contains("cancelled"));
@@ -250,10 +407,14 @@ async fn a_stop_gives_up_on_an_opening_that_ignores_the_cancel_after_six_seconds
     // The install saw the cancel, so the stop is in its bounded wait for the opening.
     awaiting_for(std::time::Duration::from_secs(5), "the stop to cancel the opening", cancelled.recv()).await.expect("cancelled");
     tokio::time::advance(std::time::Duration::from_millis(5_999)).await;
-    assert!(!stopping.is_finished(), "still waiting for the opening at 5.999 s");
+    let pending_before = !stopping.is_finished();
     tokio::time::advance(std::time::Duration::from_millis(1)).await;
-    awaiting("the stop to give up at 6 s", stopping).await.unwrap().expect("stop goes on without the opening");
+    let stopped = awaiting("the stop to give up at 6 s", stopping).await.unwrap();
+    // The use waits on an opening that never ends: it is ended here, before any assertion.
     using.abort();
+    let _ = using.await;
+    assert!(pending_before, "still waiting for the opening at 5.999 s");
+    stopped.expect("stop goes on without the opening");
 }
 
 /// A stop while the opening waits for an alive postmaster that does not answer (the cluster step of a restart after the core was killed): the wait observes the
@@ -281,12 +442,13 @@ async fn a_stop_ends_the_opening_that_waits_for_an_alive_postmaster() {
     for question in 1..=3 {
         awaiting_for(std::time::Duration::from_secs(10), &format!("the probe's question {question} of the start"), connections.recv()).await.expect("accepting");
     }
-    awaiting_for(std::time::Duration::from_secs(5), "the stop to end the wait", stack.stop()).await.expect("stop");
+    let stopped = awaiting_for(std::time::Duration::from_secs(5), "the stop to end the wait", stack.stop()).await;
     let ended = awaiting_for(std::time::Duration::from_secs(5), "the use to end", using).await.unwrap();
-    assert_eq!(message(ended), "postgres runtime: the start was cancelled before postgres was ready");
-    assert!(pgdata.join("postmaster.pid").exists(), "a postmaster that is not ours is left alone");
     server.abort();
     let _ = server.await;
+    stopped.expect("stop");
+    assert_eq!(message(ended), "postgres runtime: the start was cancelled before postgres was ready");
+    assert!(pgdata.join("postmaster.pid").exists(), "a postmaster that is not ours is left alone");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -325,4 +487,84 @@ async fn a_started_stack_serves_the_close_ingest_and_the_turn_search_copy() {
     stack.search().settle("boot-1").await;
     assert!(stack.search().db().session_ids().await.expect("ids").contains("boot-1"));
     stack.stop().await.expect("stops");
+}
+
+/// The postmaster's pid in the profile's cluster (line one of `postmaster.pid`), when there is one.
+fn postmaster_pid(profile: &std::path::Path) -> Option<u32> {
+    std::fs::read_to_string(profile.join("pgdata").join("postmaster.pid")).ok()?.lines().next()?.trim().parse().ok()
+}
+
+/// A core killed while its PostgreSQL runs (it never stops the stack), then a second core on the same profile: as Node's (`tryReusePgInstance`'s
+/// `postmaster.pid` attach, `supervisor.mjs:437-452`, then `stopPgForShutdown` of the attached `_live`, `:715-729`), the second attaches to the surviving
+/// postmaster instead of starting another, and its stop ends that postmaster. The server log is Node's `<profile>/pg.log`, outside the cluster.
+///
+/// The first core is a child process (this test binary running [`a_killed_core`]) that opens the stack and is then killed, so whatever its death takes
+/// with it (the jobs of its process manager) goes as it would with a killed core.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
+#[allow(clippy::disallowed_methods, reason = "test setup: the killed core is a child process")]
+async fn a_core_after_a_killed_one_attaches_to_its_postmaster_and_stops_it() {
+    use std::io::BufRead as _;
+    let runtime = PathBuf::from(std::env::var_os("MIXDOG_PG_RUNTIME").expect("MIXDOG_PG_RUNTIME names a bundled postgres runtime dir"));
+    let dir = tempfile::tempdir().expect("temp dir");
+    let mut killed = std::process::Command::new(std::env::current_exe().expect("this test binary"))
+        .args(["--exact", "memory::tests::boot::a_killed_core", "--ignored", "--nocapture"])
+        .env(KILLED_CORE_PROFILE, dir.path())
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("the first core");
+    let stdout = killed.stdout.take().expect("its output");
+    let opened = awaiting(
+        "the first core to open its database",
+        tokio::task::spawn_blocking(move || std::io::BufReader::new(stdout).lines().map_while(std::result::Result::ok).any(|line| line == OPENED)),
+    )
+    .await
+    .expect("the reader");
+    let _ = killed.kill();
+    let _ = killed.wait();
+    assert!(opened, "the first core opened its database");
+    let first = postmaster_pid(dir.path()).expect("the first core's postmaster");
+    let second = stack_over(dir.path(), PgRuntimeSource::Dir(runtime)).await;
+    drop(awaiting("the second core's first use", second.db().client()).await.expect("the second core opens"));
+    let attached = postmaster_pid(dir.path());
+    let stopped = awaiting("the second core's stop", second.stop()).await;
+    let alive = mixdog_statefile::process_exists(first);
+    stopped.expect("the stop ends the postmaster");
+    assert_eq!(attached, Some(first), "the second core attached to the surviving postmaster");
+    assert!(!alive, "the attached postmaster is stopped by the second core's stop");
+    assert!(dir.path().join("pg.log").exists() && !dir.path().join("pgdata").join("pg.log").exists(), "the server log is Node's <profile>/pg.log");
+}
+
+/// Where [`a_killed_core`] opens its stack.
+const KILLED_CORE_PROFILE: &str = "MIXDOG_TEST_KILLED_CORE_PROFILE";
+/// The line [`a_killed_core`] prints once its database is open.
+const OPENED: &str = "the killed core's database is open";
+
+/// The first core of [`a_core_after_a_killed_one_attaches_to_its_postmaster_and_stops_it`], run by it as a child process: it opens a stack over the
+/// profile it is given, says so, and waits to be killed. Run without that profile (as a test of its own) it has nothing to do.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: the child process of a_core_after_a_killed_one_attaches_to_its_postmaster_and_stops_it"]
+#[allow(clippy::disallowed_methods, reason = "test setup: reads the parent's environment and waits on its stdin")]
+async fn a_killed_core() {
+    let Some(profile) = std::env::var_os(KILLED_CORE_PROFILE) else { return };
+    let runtime = PathBuf::from(std::env::var_os("MIXDOG_PG_RUNTIME").expect("MIXDOG_PG_RUNTIME names a bundled postgres runtime dir"));
+    let stack = stack_over(std::path::Path::new(&profile), PgRuntimeSource::Dir(runtime)).await;
+    drop(stack.db().client().await.expect("the first core opens"));
+    println!("{OPENED}");
+    // The parent kills this process; its stdin ends only then.
+    let _ = tokio::task::spawn_blocking(|| std::io::stdin().read_line(&mut String::new())).await;
+}
+
+/// A use after the stop of a stack that is open is refused with Node's text (`ensurePgInstance` refuses before its fast path, `supervisor.mjs:647-650`).
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
+async fn a_use_after_the_stop_of_an_open_stack_is_refused() {
+    let runtime = PathBuf::from(std::env::var_os("MIXDOG_PG_RUNTIME").expect("MIXDOG_PG_RUNTIME names a bundled postgres runtime dir"));
+    let dir = tempfile::tempdir().expect("temp dir");
+    let stack = stack_over(dir.path(), PgRuntimeSource::Dir(runtime)).await;
+    drop(awaiting("the first use", stack.db().client()).await.expect("opens"));
+    awaiting("the stop", stack.stop()).await.expect("stops");
+    assert_eq!(message(stack.db().client().await), SHUTTING_DOWN);
 }

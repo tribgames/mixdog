@@ -5,10 +5,13 @@
 //! only process of its data dir, so there is no secondary-attach protocol.
 
 //!
-//! Every child (`initdb`, `pg_ctl start|status|reload|stop`) runs under the one process manager
-//! through [`Processes`], with Node's limits (`runtime/memory/lib/pg/process.mjs`): `status` 3 s,
-//! `reload` 5 s, `stop` its `-t` seconds plus one; `initdb` has none, as in Node, and is ended by
-//! the caller's cancel; `pg_ctl start` is not waited for (the readiness poll, 30 s, is its bound).
+//! Every child but `pg_ctl start` (`initdb`, `pg_ctl status|reload|stop`) runs under the one process
+//! manager through [`Processes`], with Node's limits (`runtime/memory/lib/pg/process.mjs`): `status`
+//! 3 s, `reload` 5 s, `stop` its `-t` seconds plus one; `initdb` has none, as in Node, and is ended by
+//! the caller's cancel. `pg_ctl start` is spawned outside the manager and not waited for (the
+//! readiness poll, 30 s, is its bound), as Node spawns it: the manager holds each child's tree in a
+//! job that ends with this process, and the postmaster must outlive a killed core as Node's
+//! outlives a killed daemon, so the next core attaches to it.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -196,33 +199,70 @@ async fn is_postgres_pid(processes: &Processes, pid: u32) -> bool {
     done.code != 0 || done.stdout.contains("postgres")
 }
 
-/// `healthcheckPg` as a start asks it. The one production implementation is [`SessionHealth`]; the port exists so a test can hold a postmaster that
-/// does not answer and see exactly when a wait began.
+/// `healthcheckPg` as a test holds it: a postmaster that does not answer, and the moment each question is asked.
+#[cfg(test)]
 pub(crate) trait Health: Send + Sync {
     fn healthy(&self, port: u16) -> futures::future::BoxFuture<'static, bool>;
 }
 
-/// A session on the port answers `SELECT 1`.
-pub(crate) struct SessionHealth;
-
-impl Health for SessionHealth {
-    fn healthy(&self, port: u16) -> futures::future::BoxFuture<'static, bool> {
-        Box::pin(healthcheck(port))
-    }
-}
-
 /// What a start asks and waits on: the readiness probe, the wait for an alive postmaster that does not answer yet (`waitForPostmasterReady`'s
-/// `timeoutMs`, 30 s) and the wait for the spawn lock (`withFileLock(…, { timeoutMs: 30_000 })`, `supervisor.mjs:618`).
-pub(crate) struct Start<'a> {
-    pub health: &'a dyn Health,
+/// `timeoutMs`, 30 s) and the wait for the spawn lock (`withFileLock(…, { timeoutMs: 30_000 })`, `supervisor.mjs:618`). A release build has only Node's
+/// (the session probe and the two 30 s waits) and carries nothing: the fields exist in a test build alone.
+#[derive(Clone)]
+pub(crate) struct Start {
+    #[cfg(test)]
+    pub health: std::sync::Arc<dyn Health>,
+    #[cfg(test)]
     pub recovery_wait: Duration,
+    #[cfg(test)]
     pub lock_wait: Duration,
 }
 
-impl Start<'static> {
+impl Start {
     /// Node's: the session probe and 30 s for each wait.
-    pub(crate) const fn node() -> Self {
-        Self { health: &SessionHealth, recovery_wait: RECOVERY_WAIT, lock_wait: SPAWN_LOCK_WAIT }
+    pub(crate) fn node() -> Self {
+        #[cfg(test)]
+        {
+            struct SessionHealth;
+            impl Health for SessionHealth {
+                fn healthy(&self, port: u16) -> futures::future::BoxFuture<'static, bool> {
+                    Box::pin(healthcheck(port))
+                }
+            }
+            Self { health: std::sync::Arc::new(SessionHealth), recovery_wait: RECOVERY_WAIT, lock_wait: SPAWN_LOCK_WAIT }
+        }
+        #[cfg(not(test))]
+        Self {}
+    }
+
+    #[cfg(not(test))]
+    async fn healthy(&self, port: u16) -> bool {
+        healthcheck(port).await
+    }
+
+    #[cfg(test)]
+    async fn healthy(&self, port: u16) -> bool {
+        self.health.healthy(port).await
+    }
+
+    #[cfg(not(test))]
+    fn recovery_wait(&self) -> Duration {
+        RECOVERY_WAIT
+    }
+
+    #[cfg(test)]
+    fn recovery_wait(&self) -> Duration {
+        self.recovery_wait
+    }
+
+    #[cfg(not(test))]
+    fn lock_wait(&self) -> Duration {
+        SPAWN_LOCK_WAIT
+    }
+
+    #[cfg(test)]
+    fn lock_wait(&self) -> Duration {
+        self.lock_wait
     }
 }
 
@@ -240,10 +280,10 @@ enum Recovery {
 }
 
 /// `waitForPostmasterReady`: probes every `READY_POLL` while the pid lives, giving up at `wait` (Node's `Date.now()` deadline; here the runtime's clock, which a test holds).
-async fn await_recovery(pid: u32, port: u16, wait: Duration, health: &dyn Health, cancel: &CancellationToken) -> Recovery {
-    let deadline = tokio::time::Instant::now() + wait;
+async fn await_recovery(pid: u32, port: u16, start: &Start, cancel: &CancellationToken) -> Recovery {
+    let deadline = tokio::time::Instant::now() + start.recovery_wait();
     while mixdog_statefile::process_exists(pid) {
-        if health.healthy(port).await {
+        if start.healthy(port).await {
             return Recovery::Ready;
         }
         if tokio::time::Instant::now() >= deadline {
@@ -261,7 +301,7 @@ async fn await_recovery(pid: u32, port: u16, wait: Duration, health: &dyn Health
 /// What Node does with a `postmaster.pid` it finds while the cluster does not answer (`supervisor.mjs:571-613`): a postmaster that is alive owns the data
 /// directory, so it is waited for up to `wait` and attached to when it comes up (recovery after a kill), and a start beside it is refused; the file of a
 /// dead one is removed so the new postmaster does not start over it. `Some(port)` is an attached postmaster; `None` means the directory is free to start.
-async fn settle_leftover_postmaster(lane: DurabilityIo, processes: &Processes, data_dir: &Path, start: &Start<'_>, cancel: &CancellationToken) -> Result<Option<u16>> {
+async fn settle_leftover_postmaster(lane: DurabilityIo, processes: &Processes, data_dir: &Path, start: &Start, cancel: &CancellationToken) -> Result<Option<u16>> {
     // `readPostmasterInfo` (`supervisor.mjs:288-300`): line one is the pid, line four the port.
     let Some(pid) = read_postmaster_pid(lane, data_dir).await else { return Ok(None) };
     // `pm.pid && pm.port && await isPostmasterAlive(pm.pid)`: a live pid (`isPidAlive`, EPERM counts as alive) whose process is a postgres.
@@ -270,7 +310,7 @@ async fn settle_leftover_postmaster(lane: DurabilityIo, processes: &Processes, d
         && is_postgres_pid(processes, pid).await
     {
         mixdog_rt::memory_stderr!("[supervisor-pg] postmaster PID {pid} alive but not ready — awaiting recovery");
-        match await_recovery(pid, port, start.recovery_wait, start.health, cancel).await {
+        match await_recovery(pid, port, start, cancel).await {
             Recovery::Ready => {
                 mixdog_rt::memory_stderr!("[supervisor-pg] attaching to recovered PG pid={pid} port={port}");
                 return Ok(Some(port));
@@ -356,7 +396,45 @@ impl std::fmt::Debug for PgCluster {
 
 /// `pg_ctl start`'s outcome while it is being waited for: it is not waited for to exit (Node
 /// spawns it and polls readiness), so this only reports an exit that came before readiness.
-type StartRun = tokio::task::JoinHandle<Result<ProcessResult>>;
+type StartRun = tokio::task::JoinHandle<Result<()>>;
+
+/// `pg_ctl start` as Node's `startAndWaitReady` spawns it (`process.mjs:375-400`: `spawn` with piped output and `windowsHide`, never killed by its
+/// starter). On Windows Node's child is in libuv's job, which lets the processes it starts leave it silently, so the postmaster `pg_ctl` starts belongs to
+/// no job of the daemon and outlives it (`process.mjs:378-385`); this child is not given to the process manager, whose job would end the postmaster
+/// with this process. Its stdout and stderr are read only after a failed exit: a postmaster that started holds the inherited pipe ends for its whole
+/// life, and one that failed has exited, so they reach their end.
+fn spawn_start(runtime: &PgRuntime, args: &[String]) -> Result<StartRun> {
+    use tokio::io::AsyncReadExt as _;
+    let mut command = tokio::process::Command::new(runtime.bin("pg_ctl"));
+    command
+        .args(args)
+        .env_clear()
+        .envs(runtime.env())
+        .current_dir(&runtime.dir)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(false);
+    #[cfg(windows)]
+    command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW, as Node's windowsHide
+    let mut child = command.spawn().map_err(|error| MemoryError::Runtime(format!("pg_ctl failed: {error}")))?;
+    let (stdout, stderr) = (child.stdout.take(), child.stderr.take());
+    Ok(mixdog_rt::spawn("services.memory.pg-start", TaskClass::Work, async move {
+        let status = child.wait().await.map_err(|error| MemoryError::Runtime(format!("pg_ctl failed: {error}")))?;
+        if status.success() {
+            return Ok(());
+        }
+        let mut texts = [String::new(), String::new()];
+        if let Some(mut stderr) = stderr {
+            let _ = stderr.read_to_string(&mut texts[0]).await;
+        }
+        if let Some(mut stdout) = stdout {
+            let _ = stdout.read_to_string(&mut texts[1]).await;
+        }
+        let text = texts.iter().map(|text| text.trim()).find(|text| !text.is_empty()).map_or_else(|| format!("status {}", status.code().unwrap_or(-1)), str::to_owned);
+        Err(MemoryError::Runtime(format!("pg_ctl failed: {text}")))
+    }))
+}
 
 /// Why the spawn lock was not taken.
 enum LockWait {
@@ -386,44 +464,33 @@ async fn take_spawn_lock(lock_file: &Path, wait: Duration, cancel: &Cancellation
 }
 
 impl PgCluster {
-    /// Attach to the cluster that serves `data_dir`, or initialise and start it. `cancel` ends an
-    /// `initdb` in progress (it has no time limit, as in Node), a wait for another starter's lock or
-    /// postmaster, and the readiness wait.
-    pub async fn ensure(
+    /// `_doEnsure`'s cluster part (`supervisor.mjs:479-628`) for the profile data directory `profile`: the cluster is `<profile>/pgdata` (`_pgdataDir`), the
+    /// spawn lock `<profile>/pg-spawn.lock` (`:618`) and the server log `<profile>/pg.log` (`_startFresh`, `:358`), both outside the cluster as in Node (an
+    /// `initdb` refuses a directory that holds anything, and a postmaster in crash recovery fsyncs every file of its directory). The prelock reuse of a
+    /// postmaster that answers, then the spawn lock (30 s) around the reuse again, the leftover postmaster, `initdb` and the start. A lock another starter
+    /// holds for the whole wait falls back to one more reuse and else fails (`:619-627`). `cancel` ends an `initdb` in progress (it has no time limit, as in
+    /// Node), a wait for another starter's lock or postmaster, and the readiness wait; a start is never begun once it is cancelled.
+    pub(crate) async fn ensure(
         runtime: PgRuntime,
-        data_dir: impl Into<PathBuf>,
+        profile: &Path,
         preferred_port: u16,
         lane: DurabilityIo,
         processes: Processes,
         cancel: &CancellationToken,
+        start: &Start,
     ) -> Result<Self> {
-        Self::ensure_with(runtime, data_dir, preferred_port, lane, processes, cancel, &Start::node()).await
-    }
-
-    /// `_doEnsure`'s cluster part (`supervisor.mjs:479-628`): the prelock reuse of a postmaster that answers, then the spawn lock
-    /// (`<dataDir>/pg-spawn.lock`, 30 s) around the reuse again, the leftover postmaster, `initdb` and the start. A lock another
-    /// starter holds for the whole wait falls back to one more reuse and else fails (`:619-627`).
-    pub(crate) async fn ensure_with(
-        runtime: PgRuntime,
-        data_dir: impl Into<PathBuf>,
-        preferred_port: u16,
-        lane: DurabilityIo,
-        processes: Processes,
-        cancel: &CancellationToken,
-        start: &Start<'_>,
-    ) -> Result<Self> {
-        let data_dir = data_dir.into();
+        let data_dir = profile.join("pgdata");
         fsio::create_dir_all(lane, &data_dir).await?;
         if let Some(port) = read_postmaster_port(lane, &data_dir).await
-            && start.health.healthy(port).await
+            && start.healthy(port).await
         {
             return Ok(Self { runtime, data_dir, port, lane, processes });
         }
-        let _spawn_lock = match take_spawn_lock(&data_dir.join("pg-spawn.lock"), start.lock_wait, cancel).await {
+        let _spawn_lock = match take_spawn_lock(&profile.join("pg-spawn.lock"), start.lock_wait(), cancel).await {
             Ok(hold) => hold,
             Err(LockWait::Timeout(error)) => {
                 if let Some(port) = read_postmaster_port(lane, &data_dir).await
-                    && start.health.healthy(port).await
+                    && start.healthy(port).await
                 {
                     return Ok(Self { runtime, data_dir, port, lane, processes });
                 }
@@ -433,7 +500,7 @@ impl PgCluster {
             Err(LockWait::Failed(message)) => return Err(MemoryError::Runtime(message)),
         };
         if let Some(port) = read_postmaster_port(lane, &data_dir).await
-            && start.health.healthy(port).await
+            && start.healthy(port).await
         {
             return Ok(Self { runtime, data_dir, port, lane, processes });
         }
@@ -443,8 +510,12 @@ impl PgCluster {
         if !fsio::exists(lane, &data_dir.join("PG_VERSION")).await? {
             Self::init(lane, &processes, &runtime, &data_dir, cancel).await?;
         }
+        // A start that was cancelled (a stop) while it ran a step that does not observe the cancel begins no postmaster: nothing would own it.
+        if cancel.is_cancelled() {
+            return Err(MemoryError::Runtime(CANCELLED_START.to_owned()));
+        }
         let port = free_port(preferred_port).await?;
-        let log = data_dir.join("pg.log");
+        let log = profile.join("pg.log");
         let args: Vec<String> = [
             "start".to_owned(),
             "-D".to_owned(),
@@ -457,16 +528,11 @@ impl PgCluster {
         .into();
         // Not waited for, as in Node: `pg_ctl start` is spawned and readiness is polled; the
         // postmaster outlives it. An exit before readiness is a start failure.
-        let mut started: Option<StartRun> = Some({
-            let (runtime, processes) = (runtime.clone(), processes.clone());
-            mixdog_rt::spawn("services.memory.pg-start", TaskClass::Work, async move {
-                runtime.run(&processes, "pg_ctl", &args, Duration::ZERO, None).await
-            })
-        });
+        let mut started: Option<StartRun> = Some(spawn_start(&runtime, &args).map_err(|error| MemoryError::Runtime(format!("pg_ctl start failed: {}", error.message())))?);
         let deadline = tokio::time::Instant::now() + START_DEADLINE;
         let mut early: Option<MemoryError> = None;
         loop {
-            if start.health.healthy(port).await && read_postmaster_port(lane, &data_dir).await == Some(port) {
+            if start.healthy(port).await && read_postmaster_port(lane, &data_dir).await == Some(port) {
                 return Ok(Self { runtime, data_dir, port, lane, processes });
             }
             if started.as_ref().is_some_and(tokio::task::JoinHandle::is_finished)
