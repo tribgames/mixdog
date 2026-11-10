@@ -447,6 +447,7 @@ async fn every_method_of_the_domains_built_here_has_a_real_service() {
             log: crate::daemon_log::DaemonLog::new(dir.path().join("daemon.log"), tokens.maintenance_io, mixdog_rt::CancellationToken::new()),
             stop: mixdog_rt::CancellationToken::new(),
             catalog_http: crate::compose_test_support::offline_http(),
+            pg_install: None,
         },
     )
     .await
@@ -543,6 +544,7 @@ async fn every_method_of_the_domains_built_here_has_a_real_service() {
             local_target: Arc::new(NoDial),
             notification_clicks: quiet.clone(),
             browser_surfaces: quiet.clone(),
+            visualize_panes: Arc::default(),
             instructions_changed: quiet.clone(),
             system_proxy: Arc::new(mixdog_ai::netproxy::system::SystemProxy::default()),
             plugins: PluginSeams { host: quiet.clone(), git: quiet.clone(), announce: Arc::new(|| {}) },

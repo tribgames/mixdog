@@ -235,17 +235,23 @@ impl MediaStore {
         if is_unc_path(file) || is_windows_device_path(file) || has_unsafe_win32_component(file) {
             return None;
         }
+        // Node's `storedAssetPath` (`store.mjs:171-175`): `resolve(root, file)`, lexically (an absolute name stands on its own, `..` steps
+        // back), kept only when it is under the root. A name that steps out and back in (`images/../a.png`) is served, as Node serves it.
         let root = self.assets_dir();
-        let mut path = root.clone();
-        for part in file.replace('\\', "/").split('/') {
+        let mut path = PathBuf::new();
+        for part in root.join(file.replace('\\', "/")).components() {
             match part {
-                "" | "." => {}
-                ".." => return None,
-                p if p.contains(':') => return None,
-                p => path.push(p),
+                std::path::Component::CurDir => {}
+                std::path::Component::ParentDir => {
+                    path.pop();
+                }
+                std::path::Component::Normal(name) if name.to_string_lossy().contains(':') => return None,
+                other => path.push(other),
             }
         }
-        (path != root).then_some(path)
+        // The root itself is accepted as Node accepts it (`path === root`); a reader then finds a folder, not a file, and refuses it
+        // there (a download answers `not-a-file`), and a discard's `remove_file` cannot remove a folder.
+        path.starts_with(&root).then_some(path)
     }
 
     fn read_assets(&self) -> Result<Vec<Value>, MediaError> {
@@ -779,5 +785,12 @@ mod tests {
         assert!(s.stored_asset_path("C:/x").is_none());
         assert!(s.stored_asset_path("//server/share/a.png").is_none() && s.stored_asset_path("\\\\.\\PhysicalDrive0").is_none());
         assert!(s.stored_asset_path("images/a.png").is_some());
+        // Node resolves the name lexically: a step out and back in names the same file, a step past the root is refused, and a root
+        // name (`/a.png`) stands on its own, outside.
+        assert_eq!(s.stored_asset_path("images/../a.png"), s.stored_asset_path("a.png"));
+        assert!(s.stored_asset_path("images/../a.png").is_some());
+        assert!(s.stored_asset_path("images/../../index.json").is_none());
+        assert!(s.stored_asset_path("/a.png").is_none());
+        assert_eq!(s.stored_asset_path(""), Some(s.assets_dir()), "an empty name is the root, as Node's `resolve(root, '')`");
     }
 }

@@ -245,6 +245,7 @@ async fn world() -> World {
         app: Arc::new(mixdog_core_base::state::SectionFeedState::new(feed)),
         ops: scopes(ops.path(), "thread").await,
         surface: surface.clone(),
+        archive_stamps: Arc::default(),
     });
     World { rig, directory, workspace, settings, projects, notes, effort, agent_only, app, surface, _ops: ops }
 }

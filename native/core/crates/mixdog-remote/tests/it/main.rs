@@ -11,6 +11,7 @@ mod live_view_host;
 mod live_view_viewer;
 mod lr9_origin;
 mod native_push_kat;
+mod relay_closed;
 mod relay_interop;
 mod relay_redial;
 mod remote_modules;

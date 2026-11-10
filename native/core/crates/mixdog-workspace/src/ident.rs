@@ -173,6 +173,56 @@ pub fn names_equal(a: &std::ffi::OsStr, b: &std::ffi::OsStr) -> bool {
     }
 }
 
+/// Where an OPEN file lives, read from the handle itself and never from the path it was opened by (Node's `openedFilePath`,
+/// `opened-file-path.ts`): an ancestor swapped for a junction or a link between resolving and opening redirects the open without
+/// changing the path text a check saw, so only an answer tied to the handle says which file the bytes belong to. Windows:
+/// `GetFinalPathNameByHandleW` in the form `realpath` returns; Linux: the kernel's own name for the descriptor; macOS: `F_GETPATH`;
+/// any other platform locates nothing, and Node authorizes nothing there either.
+#[cfg(windows)]
+pub fn handle_path(file: &File) -> io::Result<std::path::PathBuf> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::GetFinalPathNameByHandleW;
+    const MAX_PATH_CHARS: usize = 32_768;
+    let mut buffer = vec![0u16; MAX_PATH_CHARS];
+    // SAFETY: the handle is open for the call and the buffer is as long as the length says; flags 0 are FILE_NAME_NORMALIZED | VOLUME_NAME_DOS.
+    let length = unsafe { GetFinalPathNameByHandleW(file.as_raw_handle() as _, buffer.as_mut_ptr(), MAX_PATH_CHARS as u32, 0) } as usize;
+    if length == 0 || length >= MAX_PATH_CHARS {
+        return Err(io::Error::other("The open file cannot be located."));
+    }
+    // The same form `realpath` returns (Node strips the namespace prefix the same way).
+    let text = String::from_utf16_lossy(&buffer[..length]);
+    let text = match text.strip_prefix(r"\\?\UNC\") {
+        Some(rest) => format!(r"\\{rest}"),
+        None => text.strip_prefix(r"\\?\").map_or(text.clone(), str::to_owned),
+    };
+    Ok(std::path::PathBuf::from(text))
+}
+
+#[cfg(target_os = "linux")]
+pub fn handle_path(file: &File) -> io::Result<std::path::PathBuf> {
+    use std::os::fd::AsRawFd;
+    std::fs::read_link(format!("/proc/self/fd/{}", file.as_raw_fd()))
+}
+
+#[cfg(target_os = "macos")]
+pub fn handle_path(file: &File) -> io::Result<std::path::PathBuf> {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::ffi::OsStringExt;
+    let mut path = vec![0u8; libc::PATH_MAX as usize];
+    // SAFETY: the descriptor is open for the call and F_GETPATH writes at most PATH_MAX bytes into the buffer.
+    if unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETPATH, path.as_mut_ptr()) } == -1 {
+        return Err(io::Error::last_os_error());
+    }
+    let end = path.iter().position(|byte| *byte == 0).filter(|end| *end > 0).ok_or_else(|| io::Error::other("The open file cannot be located."))?;
+    path.truncate(end);
+    Ok(std::path::PathBuf::from(std::ffi::OsString::from_vec(path)))
+}
+
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+pub fn handle_path(_: &File) -> io::Result<std::path::PathBuf> {
+    Err(io::Error::new(io::ErrorKind::Unsupported, "An open file cannot be located on this platform."))
+}
+
 /// Opens `path` (file or directory) only to read its identity.
 pub fn path_id(path: &Path) -> io::Result<FileId> {
     let mut options = std::fs::OpenOptions::new();

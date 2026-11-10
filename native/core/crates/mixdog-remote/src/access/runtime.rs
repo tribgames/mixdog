@@ -138,6 +138,10 @@ pub trait RemoteEvents: Send + Sync {
     /// A device is being unpaired, before the relay is asked (`remote-relay.ts` `revokeClient`): its download grants, link grants and
     /// transfers end now. Its connections are still attached under its credential.
     fn device_unpaired(&self, _credential_id: &str) {}
+    /// The relay handle is closed (`remote-relay.ts` `close`: remote access switched off, the identities rotated, the core stopping),
+    /// before the leg goes: every download grant and transfer ends now. A suspend, a resume or a lost leg that is redialed is no close
+    /// (Node's `suspend` and `resume` keep the handle and its downloads).
+    fn relay_closed(&self) {}
     /// The relay confirmed the unpair (`remote-relay-session-wiring.ts` `forgetClient`): the runtime has dropped the device's push
     /// registrations; its notification preferences go with them.
     fn device_forgotten<'a>(&'a self, _credential_id: &'a str) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
@@ -765,6 +769,7 @@ impl RemoteRuntime {
             // The paired devices are remembered while the relay can still be asked.
             let _ = self.remember_clients().await;
         }
+        self.inner.cfg.events.relay_closed();
         self.close_leg();
         self.inner.refresh();
         Ok(())
@@ -776,6 +781,7 @@ impl RemoteRuntime {
         if let Some(cancel) = self.inner.state().retry_cancel.take() {
             cancel.cancel();
         }
+        self.inner.cfg.events.relay_closed();
         self.close_leg();
     }
 
@@ -808,6 +814,7 @@ impl RemoteRuntime {
             self.start_gated(true).await?;
         }
         let _gate = self.inner.enter().await;
+        self.inner.cfg.events.relay_closed();
         self.close_leg();
         self.rotate_identities().await?;
         self.start_gated(true).await?;

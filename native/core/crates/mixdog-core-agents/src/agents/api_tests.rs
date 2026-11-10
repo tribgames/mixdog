@@ -184,6 +184,81 @@ fn seed(data: &Path, name: &str, params: &Value) -> Option<std::io::Result<()>> 
 
 #[tokio::test]
 async fn the_agent_methods_answer_what_the_recorded_node_handlers_answered() {
+    assert_eq!(replay_twin(false).await, 0);
+}
+
+/// The authority writers Node's host marked no-widen for a paired phone (`remote-authority.ts` `NO_WIDEN`, agent ones).
+const NO_WIDEN: [&str; 5] = ["setAgentPermission", "setAgentConnectorToolPermission", "setAgentConnectorEnabled", "setAgentConnectors", "saveAgentDefinition"];
+
+/// A phone's call of an authority writer carries no options of its own (Node's arity forbids them) and Node's host added
+/// `{ noWiden: true }` (`fixtures/phone-guards/golden.json`, `capability`: every forwarded call of these ends with it). So each
+/// twin step that Node ran with `options: { noWiden: true }` is replayed from a relay connection with the options removed,
+/// and answers, and leaves on disk, what Node's writer did with them. A standing allow is refused before any writer
+/// (the next test), so that step stays a desktop call.
+#[tokio::test]
+async fn a_relay_writer_call_is_no_widen_whatever_it_sends() {
+    let golden: Value =
+        serde_json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/phone-guards/golden.json"))).unwrap();
+    let mut marked = 0;
+    for step in golden["scenarios"]["capability"].as_array().unwrap() {
+        let request = &step["params"][0];
+        if step["frame"]["ok"] == true && NO_WIDEN.contains(&request["capability"].as_str().unwrap()) {
+            assert_eq!(step["forwarded"][0]["args"].as_array().unwrap().last(), Some(&serde_json::json!({ "noWiden": true })), "{request}");
+            marked += 1;
+        }
+    }
+    assert_eq!(marked, 7);
+    assert_eq!(replay_twin(true).await, 8);
+}
+
+/// Node's refusal of a standing allow from a paired phone (`assertRemoteCapabilityCall`), replayed from a relay connection
+/// with the recorded arguments; the modes Node let through reach the permission store.
+#[tokio::test]
+async fn a_relay_standing_allow_is_refused_with_nodes_text() {
+    let golden: Value =
+        serde_json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/phone-guards/golden.json"))).unwrap();
+    let (_dir, agents) = writable(serde_json::json!({})).await;
+    let agents = Arc::new(agents);
+    let tokens = mixdog_rt::testing::tokens();
+    let data = dir_data(&agents);
+    let connectors = AgentConnectors::new(agents.clone(), Arc::new(Catalog { servers: Vec::new(), tools: Vec::new() }));
+    let grants = FileGrantStore::with_clock(data.join("human-gate"), tokens.interactive_io, tokens.durability_io, Arc::new(|| 1));
+    let service = AgentService::new(agents, connectors, AgentPermissions::new(grants), super::lifecycle_twin_tests::quiet_lifecycle());
+    let mut seen = 0;
+    for step in golden["scenarios"]["capability"].as_array().unwrap() {
+        let request = &step["params"][0];
+        if request["capability"] != "setAgentPermission" {
+            continue;
+        }
+        seen += 1;
+        let args = &request["args"];
+        let params = serde_json::json!({ "agentId": args[0], "action": args[1], "mode": args[2] });
+        let ctx = CallContext::connection(mixdog_core_api::ids::ConnectionId(1), mixdog_protocol::Origin::Relay, CancellationToken::new());
+        let answer = service.call(CoreRequest { method: Method("agent/setAgentPermission"), params, op: None, ctx }).await;
+        let frame = &step["frame"];
+        if frame["ok"] == true {
+            // Forwarded by Node with `noWiden`, and the recorded value is the recorder's stand-in's: the relay call is
+            // answered as the desktop's call with that option is (the same call again: the setter is idempotent).
+            let mut params = serde_json::json!({ "agentId": args[0], "action": args[1], "mode": args[2] });
+            params["options"] = serde_json::json!({ "noWiden": true });
+            let desktop = service.call(CoreRequest { method: Method("agent/setAgentPermission"), params, op: None, ctx: CallContext::internal("agents") }).await;
+            assert_eq!(format!("{answer:?}"), format!("{desktop:?}"), "{request}");
+        } else {
+            let Err(CoreError::DomainError { code, message, detail, .. }) = answer else { panic!("{request}: {answer:?}") };
+            let mut node = serde_json::json!({ "ok": false, "error": message.as_deref() });
+            if let Some(code) = code.as_deref() {
+                node["errorCode"] = serde_json::json!(code);
+            }
+            assert_eq!((&node, detail), (frame, None), "{request}");
+        }
+    }
+    assert_eq!(seen, 4);
+}
+
+/// Replays the agent twin; with `relay`, its no-widen writer steps come from a relay connection without their options.
+/// Answers how many steps were so replayed.
+async fn replay_twin(relay: bool) -> usize {
+    let mut relayed = 0;
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/desktop/settings/agent-api-twin.json");
     let twin: Value = serde_json::from_slice(&mixdog_statefile::read_content(&path).unwrap().unwrap()).unwrap();
     let strings = |key: &str| -> Vec<String> { twin[key].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect() };
@@ -201,7 +276,16 @@ async fn the_agent_methods_answer_what_the_recorded_node_handlers_answered() {
     for (index, step) in twin["steps"].as_array().unwrap().iter().enumerate() {
         let name = step["method"].as_str().unwrap();
         let method = AGENT_METHODS.iter().find(|full| full.ends_with(&format!("/{name}"))).copied().unwrap_or("");
-        let request = CoreRequest { method: Method(method), params: step["params"].clone(), op: None, ctx: CallContext::internal("agents") };
+        let marked = step["params"]["options"]["noWiden"] == true && step["params"]["mode"] != "allow" && NO_WIDEN.contains(&name);
+        let request = if relay && marked {
+            relayed += 1;
+            let mut params = step["params"].clone();
+            params.as_object_mut().unwrap().remove("options");
+            let ctx = CallContext::connection(mixdog_core_api::ids::ConnectionId(1), mixdog_protocol::Origin::Relay, CancellationToken::new());
+            CoreRequest { method: Method(method), params, op: None, ctx }
+        } else {
+            CoreRequest { method: Method(method), params: step["params"].clone(), op: None, ctx: CallContext::internal("agents") }
+        };
         let label = format!("step {index} {name} {}", step["params"]);
         if let Some(outcome) = seed(&data, name, &step["params"]) {
             outcome.unwrap();
@@ -235,4 +319,5 @@ async fn the_agent_methods_answer_what_the_recorded_node_handlers_answered() {
             same_files(&label, snapshot(&data), &want);
         }
     }
+    relayed
 }
