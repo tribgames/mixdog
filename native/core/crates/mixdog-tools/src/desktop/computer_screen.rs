@@ -11,6 +11,10 @@ use mixdog_core_api::domain::computer::InputOutcome;
 use mixdog_core_api::domain::computer::ScreenInput;
 use mixdog_core_api::domain::media::MediaFrameSource;
 
+#[cfg(windows)]
+mod adapter;
+#[cfg(windows)]
+mod helper_client;
 #[cfg(any(windows, test))]
 mod installer;
 #[cfg(any(windows, test))]
@@ -23,6 +27,10 @@ mod session;
 mod switch;
 #[cfg(any(windows, test))]
 mod video;
+#[cfg(all(windows, test))]
+mod adapter_tests;
+#[cfg(all(windows, test))]
+mod helper_client_tests;
 #[cfg(test)]
 mod installer_tests;
 #[cfg(test)]

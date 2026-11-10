@@ -1,0 +1,54 @@
+{
+  "command": "(cd <tree>/apps/desktop && node --import tsx benchmarks/rust-core/recorders/record-screen-control-adapter.mjs --tree <tree>)",
+  "common": "benchmarks/rust-core/recorders/lib/common.mjs",
+  "commonSha256": "d4d0064b5b40d5fcb833a69fb3d68a69b1c1317606b5fe341c3445d5d0bbefd4",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 54812,
+      "path": "scenarios.json",
+      "sha256": "1f9d05810cb4daf5ab098d3b0456c1228733faef16f5d4451832716f54984c13"
+    }
+  ],
+  "inputs": {
+    "scenarios": [
+      "not installed: reports nothing, activation and input do nothing, a grant is refused",
+      "the first activation dials; the connect re-declares the run, activates and reports the change",
+      "a failed connect is dialled again after 1 s, doubling to 30 s; a connect resets the backoff",
+      "a deactivation cancels the redial; a close without wanted activation does not dial",
+      "a close while activation is wanted clears the frame and is dialled again",
+      "input becomes the protocol events; a button without a position goes to the last pointer",
+      "a refused send rejects with the client’s error",
+      "Ctrl+Alt+Delete becomes sas while the helper holds Ctrl and Alt; any release point clears the record",
+      "the client’s events: desktop changes, challenges, issues and frames reach the listeners",
+      "the video run is sent while connected; a grant goes to the client",
+      "dispose: the redial is cancelled, listeners dropped, the connection closed; a late connect is closed",
+      "a connect still running at dispose is closed when it succeeds"
+    ],
+    "tree": "exact export of b6f10295a2f698afc85332467192de28500bd146"
+  },
+  "lib": "benchmarks/rust-core/recorders/record-screen-control-lib.mjs",
+  "libSha256": "0a1ae13debb18c68ef5d7d32880a127f7f4e5bf60e7d7a475596b351872842f3",
+  "node": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-screen-control-adapter.mjs",
+  "recorderSha256": "27cc879aff1eb2c90a89905358ea4c0201ab30101539c3cdeb142ee4a2cf31fd",
+  "set": "screen-control/adapter",
+  "totalBytes": 54812
+}

@@ -752,14 +752,9 @@ impl Inner {
         self.deps.timers.spawn(task);
     }
 
-    /// Node's `answer.then(reaction)` on a dependency's answer: the answer is asked for now, and the reaction
-    /// runs one turn after it settles. The task is polled once here, so an answer that is already settled is
-    /// taken up by the task's first turn, as Node's reaction job is; otherwise the task waits like any other.
-    fn then(&self, mut task: BoxFuture<()>) {
-        let waker = futures::task::noop_waker();
-        if task.as_mut().poll(&mut std::task::Context::from_waker(&waker)).is_pending() {
-            self.deps.timers.spawn(task);
-        }
+    /// A reaction to a dependency's answer ([`Timers::react`]).
+    fn then(&self, task: BoxFuture<()>) {
+        self.deps.timers.react(task);
     }
 
     fn paired(&self) -> bool {
