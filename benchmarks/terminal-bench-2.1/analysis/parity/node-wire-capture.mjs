@@ -123,6 +123,7 @@ const providerOf = {
 };
 const { seedSessionMessages } = await load('src/runtime/agent/orchestrator/session/manager/session-prompt-composition.mjs');
 const { buildRequestSendOptions } = await load('src/runtime/agent/orchestrator/session/manager/ask-turn-loop-options.mjs');
+const { buildSessionRecord, sessionOriginFields } = await load('src/runtime/agent/orchestrator/session/manager/session-record.mjs');
 const { _clearWebSocketPoolForTest } = await load(P + 'openai-ws-pool.mjs');
 const { captureSideQuestionRequest } = await load('src/runtime/agent/orchestrator/session/side-question-store.mjs');
 const { summarizeOnSharedPrefix } = await load('src/runtime/agent/orchestrator/session/compact/forked-summary.mjs');
@@ -185,9 +186,29 @@ for (const scenario of selected(doc.scenarios)) {
     // not the Codex wire identity, the session's `codexWireSessionId` is.
     // `sendOpts` are the turn's effort and the session's fast flag, the two inputs of the effort and service-tier
     // scenarios; a scenario without them sends as the first turn does.
-    const { turnId, sendOpts = {} } = scenario;
-    const record = { id: doc.nodeSessionId, provider: 'openai-oauth', model: route.model, promptCacheKey: 'mixdog-codex', codexWireSessionId: session.storedHeader.codexWireSessionId, ...(sendOpts.fast === true ? { fast: true } : {}) };
-    opts = buildRequestSendOptions({ sessionId: doc.nodeSessionId, session: record, turnEffort: sendOpts.effort, effortConfiguration: undefined, stepAutoEffort: null, codexTurnId: turnId, startedAtMs: stampOf(turnId), signal: controller.signal });
+    const { turnId, sendOpts = {}, identity = {} } = scenario;
+    let sessionId = doc.nodeSessionId;
+    let record = { id: sessionId, provider: 'openai-oauth', model: route.model, promptCacheKey: 'mixdog-codex', codexWireSessionId: identity.stored ?? session.storedHeader.codexWireSessionId, ...(sendOpts.fast === true ? { fast: true } : {}) };
+    if (identity.subAgent) {
+      // A sub-agent's session as Node creates it (`buildSessionRecord`, session-record.mjs): its own record, with the wire
+      // identity minted for it at creation, under the parent that delegated it. The clock reads the recording's instant
+      // while the record is built, so the identity it mints is fixed.
+      sessionId = identity.subAgent.sessionId;
+      const opts2 = { provider: 'openai-oauth', owner: 'agent', agent: identity.subAgent.agent, parentSessionId: doc.nodeSessionId, ownerSessionId: doc.nodeSessionId, cwd: dataDir };
+      const realNow = Date.now;
+      Date.now = () => doc.nowMs;
+      try {
+        const origin = sessionOriginFields(opts2, { profile: null, presetObj: null, providerCacheOpts: null, surface: { toolPermission: null, hasCallerAllow: false } });
+        const routeOf = { providerName: 'openai-oauth', modelName: route.model, toolPreset: null, effort: null, fast: false, autoEffort: undefined, modelParameters: {}, contextPercent: null, contextTokens: null, id: sessionId };
+        record = buildSessionRecord({ opts: opts2, route: routeOf, presetObj: null, surface: { tools: [], toolSpec: null, sessionDeny: [] }, prompt: {}, messages: [], contextMeta: {}, origin });
+      } finally {
+        Date.now = realNow;
+      }
+      entry.storedHeader = { codexWireSessionId: record.codexWireSessionId, promptCacheKey: record.promptCacheKey, owner: record.owner, parentSessionId: record.parentSessionId };
+    }
+    // The record as a resumed session has it: through the store's JSON (`saveSession`, `loadSession`).
+    record = JSON.parse(JSON.stringify(record));
+    opts = buildRequestSendOptions({ sessionId, session: record, turnEffort: sendOpts.effort, effortConfiguration: undefined, stepAutoEffort: null, codexTurnId: turnId, startedAtMs: stampOf(turnId), signal: controller.signal });
   }
   try {
     if (scenario.compaction) {
