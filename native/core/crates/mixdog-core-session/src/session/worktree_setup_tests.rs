@@ -497,7 +497,7 @@ async fn a_delete_reaches_the_board_the_routes_the_app_feed_and_the_worktrees() 
     std::fs::write(&routes_file, stored.to_string()).unwrap();
     let maintenance = mixdog_rt::testing::tokens().maintenance_io;
     let deletion = crate::session::purge::SessionDeletion {
-        app: Arc::new(mixdog_core_base::state::SectionFeedState::new(feed)),
+        deleted: crate::session::thread_edges::ThreadDeletions::new(Arc::new(mixdog_core_base::state::SectionFeedState::new(feed))),
         search: None,
         worktrees: Arc::new(open_maintenance(&rig, cancelled.clone())),
         board: board.clone(),

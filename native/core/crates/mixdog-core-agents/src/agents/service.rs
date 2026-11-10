@@ -144,8 +144,12 @@ impl AgentService {
         Self { agents, connectors, permissions, lifecycle }
     }
 
-    async fn dispatch(&self, method: &str, params: &Value) -> Result<Value, CoreError> {
+    /// `relay`: a paired phone's call. Node's host marked its authority writes no-widen whatever the phone sent
+    /// (`remote-authority.ts` `remoteCapabilityArgs`: the phone cannot pass its own options, the arity forbids them) and
+    /// refused a standing allow (`remote-methods.ts` `assertRemoteCapabilityCall`).
+    async fn dispatch(&self, method: &str, params: &Value, relay: bool) -> Result<Value, CoreError> {
         let arg = |key: &str| params.get(key).unwrap_or(&Value::Null);
+        let no_widen = |params: &Value| relay || no_widen(params);
         match method {
             "agent/agentDefinitionPresence" => {
                 let wanted = ids(params);
@@ -170,13 +174,13 @@ impl AgentService {
             "agent/saveAgentDefinition" => {
                 let payload = params.get("payload").and_then(Value::as_object).ok_or_else(|| invalid("params.payload", "object"))?;
                 let options = SaveOptions { no_widen: no_widen(params), approved: None };
-                let saved = self.agents.save_with(payload, options).await.map_err(failed)?;
                 // The dialog that saved it greets it (or it already existed).
-                if let Some(id) = saved.get("id").and_then(Value::as_str)
-                    && let Err(error) = self.lifecycle.greetings.note_created(id).await
-                {
-                    tracing::warn!("[mixdog-session] Could not record the new agent: {error:?}");
-                }
+                let saved = self
+                    .lifecycle
+                    .greetings
+                    .saving(self.agents.save_with(payload, options), |saved| saved.get("id").and_then(Value::as_str).map(str::to_owned))
+                    .await
+                    .map_err(failed)?;
                 Ok(saved)
             }
             "agent/deleteAgentDefinition" => {
@@ -211,8 +215,16 @@ impl AgentService {
                 .await
                 .map_err(failed),
             "agent/setAgentPermission" => {
+                if relay && arg("mode") == "allow" {
+                    return Err(CoreError::DomainError {
+                        domain: DOMAIN.into(),
+                        code: None,
+                        message: Some("setAgentPermission cannot create a standing allow over remote access; use the desktop.".into()),
+                        detail: None,
+                    });
+                }
                 // The permission store judges `noWiden` strictly: only `true` counts.
-                let strict = params.get("options").and_then(|options| options.get("noWiden")) == Some(&Value::Bool(true));
+                let strict = relay || params.get("options").and_then(|options| options.get("noWiden")) == Some(&Value::Bool(true));
                 self.permissions.set(arg("agentId"), arg("action"), arg("mode"), strict).await.map_err(failed)
             }
             "agent/recordAgentApprovalAudit" => {
@@ -230,7 +242,8 @@ impl DomainService for AgentService {
     }
 
     async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
-        Ok(Reply::Value(self.dispatch(req.method.as_str(), &req.params).await?))
+        let relay = req.ctx.origin == mixdog_protocol::Origin::Relay;
+        Ok(Reply::Value(self.dispatch(req.method.as_str(), &req.params, relay).await?))
     }
 
     fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {

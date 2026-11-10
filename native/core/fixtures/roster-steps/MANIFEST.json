@@ -1,0 +1,49 @@
+{
+  "actions": [
+    "created",
+    "turns",
+    "archive",
+    "unarchive",
+    "archive-again",
+    "delete",
+    "agent-home",
+    "room",
+    "agent-delete"
+  ],
+  "command": "(cwd <tree>/apps/desktop) node --import ./scripts/test-tsx.mjs <repo>/benchmarks/rust-core/recorders/record-roster-steps.mjs --tree <tree> --harness <real-turn-harness dir>",
+  "exact": true,
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 35500,
+      "path": "steps.json",
+      "sha256": "7602990fe3f090de9cb68dd123975b04338377426b046120d675827cf350f944"
+    }
+  ],
+  "harness": {
+    "lib/deadline.mjs": "d89fb8c88b96bcb122df03c55964d2fa40d7cd0bbe36325d6ab8aa7878073539",
+    "lib/env.mjs": "358840d97f5df0ec1649b0c66d55be23ea31e1498cc9f5274505cb0767ead715",
+    "lib/fake-provider.mjs": "53d200f2b45e147baa971086bb87462e4399f15ac0c80d170d39ae93b391f699",
+    "lib/scenarios.mjs": "e8c34cc876cf300d803a533f3ae5aa0e08553fff2f20ba3db7e6a5906e5c37d8"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-roster-steps.mjs",
+  "set": "roster-steps",
+  "totalBytes": 35500
+}

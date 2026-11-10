@@ -29,6 +29,21 @@ pub struct DocumentService {
     pool: Arc<dyn ExtPool>,
     /// Where converted PDFs and rasterized pages are cached (the runtime keeps its own subfolders).
     cache_root: String,
+    /// What a paired phone may render as pages; without it a relay connection renders nothing.
+    relay: Option<RelayScope>,
+}
+
+/// The files a paired phone may name by path: a registered project's entry or a file its device holds a one-file grant for
+/// (the workspace's `relay_file`), answering Node's refusal otherwise. The answer is the folder and the entry as admitted
+/// (Node's `target.root`, `target.rel`): the worker is asked for those, not for what the phone sent.
+#[async_trait]
+pub trait RelayFiles: Send + Sync {
+    async fn admit(&self, req: &CoreRequest, root: &str, rel: &str) -> Result<(String, String), CoreError>;
+}
+
+struct RelayScope {
+    files: Arc<dyn RelayFiles>,
+    panes: Arc<crate::VisualizePanes>,
 }
 
 fn invalid(path: &str, expected: &str) -> CoreError {
@@ -85,7 +100,26 @@ fn map_error(error: ExtError) -> CoreError {
 
 impl DocumentService {
     pub fn new(pool: Arc<dyn ExtPool>, cache_root: impl Into<String>) -> Self {
-        Self { pool, cache_root: cache_root.into() }
+        Self { pool, cache_root: cache_root.into(), relay: None }
+    }
+
+    /// What a relay connection's `document/previewPages` may name: Node's `previewDocumentPages` took a project file or a
+    /// granted one (`remoteFileTarget`), its `visualizePanePages` a PDF or Office pane's own file inside the pane's root.
+    pub fn with_relay_scope(mut self, files: Arc<dyn RelayFiles>, panes: Arc<crate::VisualizePanes>) -> Self {
+        self.relay = Some(RelayScope { files, panes });
+        self
+    }
+
+    /// A relay connection's page request, checked before the worker is asked: the folder and the entry the worker is asked
+    /// for. A pane's are the pane's own root and file, which is what was matched; a file's are the workspace's answer.
+    async fn admit_relay(&self, req: &CoreRequest, root: &str, abs: &AbsPath, rel: &str) -> Result<(String, String), CoreError> {
+        let Some(scope) = &self.relay else {
+            return Err(CoreError::CapabilityUnavailable { capability: "relayFiles".into(), detail: "noClaimant".into() });
+        };
+        if scope.panes.page_file(abs.as_path(), rel) {
+            return Ok((root.to_owned(), rel.to_owned()));
+        }
+        scope.files.admit(req, root, rel).await
     }
 
     /// One pool call to completion. `cancel`: dropping the stream cancels the worker's call; an
@@ -139,7 +173,14 @@ impl DocumentService {
             }
             "document/previewPages" => {
                 let (root, abs) = root()?;
-                let rel = text("rel").ok_or_else(|| invalid("rel", "a project-relative path"))?;
+                let rel = text("rel").ok_or_else(|| invalid("rel", "a project-relative path"))?.to_owned();
+                let (root, abs, rel) = if req.ctx.origin == mixdog_protocol::Origin::Relay {
+                    let (root, rel) = self.admit_relay(req, &root, &abs, &rel).await?;
+                    let abs = AbsPath::new(PathBuf::from(&root)).ok_or_else(|| invalid("root", "an absolute path"))?;
+                    (root, abs, rel)
+                } else {
+                    (root, abs, rel)
+                };
                 let options = req.params.get("options").cloned().unwrap_or_else(|| json!({}));
                 let params = json!({ "root": root, "rel": rel, "options": options, "cacheRoot": self.cache_root });
                 self.ext(thread, "document.previewPages", params, vec![abs], Some(&req.ctx.cancel)).await
@@ -291,6 +332,106 @@ mod tests {
             let CoreError::DomainError { message, .. } = error else { panic!("a coded error") };
             assert_eq!(message.as_deref(), Some("m"), "{code}");
         }
+    }
+
+    /// The workspace's refusal for a file it does not admit, as the phone-files recording has it (relay scenario,
+    /// `previewDocumentPages` on a folder that is no project): the stand-in for every file outside the panes here.
+    struct NoFiles(CoreError);
+
+    #[async_trait]
+    impl RelayFiles for NoFiles {
+        async fn admit(&self, _: &CoreRequest, _: &str, _: &str) -> Result<(String, String), CoreError> {
+            Err(self.0.clone())
+        }
+    }
+
+    fn relay(method: &'static str, params: Value) -> CoreRequest {
+        let ctx = CallContext::connection(ConnectionId(1), mixdog_protocol::Origin::Relay, CancellationToken::new());
+        CoreRequest { method: Method(method), params, op: None, ctx }
+    }
+
+    fn phone_files_refusal() -> (CoreError, Value) {
+        let golden: Value = serde_json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../apps/mobile/fixtures/phone-files/golden.json"))).unwrap();
+        let frame = golden["scenarios"]["relay"]["steps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|step| step["call"] == "previewDocumentPages" && step["frame"]["errorCode"] == "PROJECT_UNAVAILABLE")
+            .unwrap()["frame"]
+            .clone();
+        let error = CoreError::DomainError {
+            domain: "workspace".into(),
+            code: frame["errorCode"].as_str().map(|code| code.to_owned().into()),
+            message: frame["error"].as_str().map(|text| text.to_owned().into()),
+            detail: None,
+        };
+        (error, frame)
+    }
+
+    /// Node's `visualizePanePages` over its mirror of one snapshot (`fixtures/phone-guards/golden.json`, `visualize`): a pane Node
+    /// rendered is rendered for a relay connection that names the pane's file in the pane's root (`pane.root ?? tab.cwd`), with no
+    /// project or grant behind it; a pane Node refused is not, and gets the file refusal. An event that empties the session takes
+    /// its panes away, as Node's mirror dropped the session.
+    #[tokio::test]
+    async fn a_relay_preview_of_a_visualize_pane_follows_nodes_mirror() {
+        let golden: Value =
+            serde_json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/phone-guards/golden.json"))).unwrap();
+        let recorded = &golden["scenarios"]["visualize"];
+        let (refusal, refusal_frame) = phone_files_refusal();
+        let panes = Arc::new(crate::VisualizePanes::default());
+        panes.fold(&recorded["snapshot"]);
+        let tab = &recorded["snapshot"][0]["tabs"][0];
+        let request_for = |index: usize| -> Option<Value> {
+            let pane = tab["panes"].get(index)?;
+            let root = pane["root"].as_str().or(tab["cwd"].as_str()).unwrap();
+            let rel = std::path::Path::new(pane["path"].as_str().unwrap()).strip_prefix(root).unwrap().to_string_lossy().replace('\\', "/");
+            Some(json!({ "root": root, "rel": rel, "options": { "pages": [1] } }))
+        };
+        let mut rendered = 0;
+        for (index, step) in recorded["steps"].as_array().unwrap().iter().enumerate() {
+            let frame = &step["frame"];
+            let Some(params) = request_for(index) else {
+                // A closed pane has no file a request could name.
+                assert_eq!(frame["error"], "This visualize pane is closed.");
+                continue;
+            };
+            let (service, pool) = service(Ok(frame["value"].clone()));
+            let service = service.with_relay_scope(Arc::new(NoFiles(refusal.clone())), panes.clone());
+            let answer = service.call(relay("document/previewPages", params.clone())).await;
+            let seen = pool.seen.lock().unwrap();
+            if frame["ok"] == true {
+                let Ok(Reply::Value(value)) = answer else { panic!("{params}: {answer:?}") };
+                assert_eq!(json!({ "ok": true, "value": value }), *frame, "{params}");
+                assert_eq!((seen.len(), &seen[0].params["root"], &seen[0].params["rel"]), (1, &params["root"], &params["rel"]));
+                rendered += 1;
+            } else {
+                let Err(CoreError::DomainError { code, message, .. }) = answer else { panic!("{params}: {answer:?}") };
+                assert_eq!(json!({ "ok": false, "error": message.as_deref(), "errorCode": code.as_deref() }), refusal_frame, "{params}");
+                assert!(seen.is_empty(), "{params}: the worker is not asked");
+            }
+        }
+        assert_eq!(rendered, 2);
+
+        panes.fold(&json!({ "sessionId": "s1", "state": { "sessionId": "s1", "tabs": [] } }));
+        let (service, pool) = service(Ok(json!({})));
+        let service = service.with_relay_scope(Arc::new(NoFiles(refusal.clone())), panes.clone());
+        assert!(service.call(relay("document/previewPages", request_for(0).unwrap())).await.is_err(), "the session is gone");
+        assert!(pool.seen.lock().unwrap().is_empty());
+    }
+
+    /// The file rule is the workspace's (`RelayFiles`); a desktop connection is not asked it, and a relay connection with no
+    /// scope wired renders nothing.
+    #[tokio::test]
+    async fn only_a_relay_preview_is_held_to_the_phones_files() {
+        let (refusal, _) = phone_files_refusal();
+        let params = json!({ "root": root(), "rel": "a.pdf" });
+        let (service, pool) = service(Ok(json!({ "pageCount": 1 })));
+        let service = service.with_relay_scope(Arc::new(NoFiles(refusal.clone())), Arc::default());
+        assert_eq!(service.call(relay("document/previewPages", params.clone())).await.unwrap_err(), refusal);
+        assert!(service.call(request("document/previewPages", params.clone())).await.is_ok(), "a desktop call");
+        assert_eq!(pool.seen.lock().unwrap().len(), 1);
+        let (bare, _) = service_failing("x");
+        assert!(matches!(bare.call(relay("document/previewPages", params)).await, Err(CoreError::CapabilityUnavailable { .. })));
     }
 
     fn service_failing(code: &str) -> (DocumentService, Arc<Scripted>) {

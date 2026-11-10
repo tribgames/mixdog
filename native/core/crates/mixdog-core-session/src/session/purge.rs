@@ -34,7 +34,6 @@ use super::shell_jobs::OwnedShells;
 use super::tool_events::ToolEventsLog;
 use super::worktree::WorktreeMaintenance;
 use mixdog_store::schema::record::Header;
-use mixdog_core_base::state::SectionFeedState;
 
 /// The memory service's transcript ingest as the transcript hook sees it: the read positions
 /// kept per transcript file (`memoryRuntime.forgetTranscripts`).
@@ -280,8 +279,8 @@ impl PurgeHooks {
 
 /// [`DeleteSeams`] over the process's services.
 pub struct SessionDeletion {
-    /// The app feed's notifications.
-    pub app: Arc<SectionFeedState>,
+    /// `thread/deleted` on the app feed, with what ends when a conversation leaves the catalog.
+    pub deleted: Arc<super::thread_edges::ThreadDeletions>,
     /// The memory service's session-search writer; `None` when memory is off.
     pub search: Option<Arc<SessionSearchIngest>>,
     pub worktrees: Arc<WorktreeMaintenance>,
@@ -301,6 +300,10 @@ pub struct SessionDeletion {
 impl DeleteSeams for SessionDeletion {
     fn session_closed(&self, session_id: &str, reason: &str, header: &Header, closed_at_ms: i64) {
         self.tool_events.session_closed(session_id, header, reason, closed_at_ms);
+    }
+
+    fn tombstoned(&self, thread: &ThreadId) {
+        self.deleted.tell(thread);
     }
 
     fn release_mcp_scope(&self, session_id: &str) {
@@ -334,6 +337,6 @@ impl DeleteSeams for SessionDeletion {
     }
 
     fn thread_deleted(&self, thread: &ThreadId) {
-        self.app.notify("thread/deleted", &mixdog_app_protocol::v2::thread::ThreadIdParams { thread_id: thread.clone() });
+        self.deleted.publish(thread);
     }
 }
