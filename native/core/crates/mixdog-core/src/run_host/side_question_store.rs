@@ -192,7 +192,7 @@ impl ForkScope {
 
 impl Drop for ForkScope {
     fn drop(&mut self) {
-        self.provider.release_session(&self.name);
+        self.provider.release_transport_scope(&self.name);
     }
 }
 

@@ -542,6 +542,7 @@ impl DefaultProviderBuilder {
             AdapterLinks {
                 http: self.env.http.clone(),
                 dial: self.env.dial.clone(),
+                compress_lane: self.env.gzip_lane,
                 credentials,
                 context: self.env.openai_context.clone(),
                 listing: self.env.listing.clone(),

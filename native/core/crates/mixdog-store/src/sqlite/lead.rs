@@ -162,7 +162,9 @@ impl SqliteStore {
     /// `None`), and whether more follow.
     pub async fn lead_page(&self, after: Option<CatalogCursor>, filter: LeadFilter, limit: usize) -> Result<LeadPage, DbError> {
         self.read(move |c| {
-            let mut stmt = c.prepare_cached(SCAN_SQL)?;
+            // One snapshot for every batch of the scan: a session whose activity changes meanwhile is neither missed nor listed twice.
+            let snapshot = c.unchecked_transaction()?;
+            let mut stmt = snapshot.prepare_cached(SCAN_SQL)?;
             let mut position = after;
             let mut rows = Vec::new();
             loop {

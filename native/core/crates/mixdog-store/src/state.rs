@@ -306,6 +306,22 @@ impl CoreState {
         Ok((state, recovered))
     }
 
+    /// Test teardown: the writer's connection to the file is replaced by an in-memory one (closing the file; a later write fails
+    /// against an empty database) and the read pool's idle connections close, so the files can be removed while other handles
+    /// still exist. Returns once the writer has done it.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn close(&self) {
+        let (done, closed) = mpsc::channel::<()>();
+        let job: Job = Box::new(move |conn| {
+            *conn = Connection::open_in_memory().expect("an in-memory database opens");
+            let _ = done.send(());
+        });
+        if self.sender.send(job).is_ok() {
+            let _ = closed.recv();
+        }
+        self.shared.pool.close();
+    }
+
     /// Runs `f` in one `BEGIN IMMEDIATE` transaction on the writer; commits when it
     /// returns `Ok`, rolls back otherwise.
     pub async fn write<R, F>(&self, f: F) -> Result<R, DbError>

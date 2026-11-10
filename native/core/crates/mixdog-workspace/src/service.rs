@@ -60,6 +60,7 @@ use crate::recovery::RecoveryStore;
 use crate::search::SearchSessions;
 use crate::search::SessionConfig;
 use crate::textsearch::TextQuery;
+use crate::transfer::Owner;
 use crate::transfer::Transfers;
 use crate::watcher::ChangeKind;
 use crate::watcher::ChangeSink;
@@ -253,6 +254,8 @@ pub struct WorkspaceService {
     /// The desktop host's channel, for the methods only an Electron window can answer.
     host: OnceLock<Arc<dyn HostChannel>>,
     phone_grants: OnceLock<PhoneGrants>,
+    /// The sweepers run once, whatever the number of calls to [WorkspaceService::spawn_idle_sweeper].
+    sweepers: std::sync::Once,
     /// The user's Markdown default view, read when editor settings are (see [`Self::set_user_markdown_view`]).
     user_markdown_view: OnceLock<UserMarkdownView>,
     /// Where a path inside a managed worktree is resolved to its owner Project (see [`ManagedProjects`]).
@@ -275,7 +278,7 @@ fn s<'a>(params: &'a Value, key: &str) -> WsResult<&'a str> {
 }
 
 /// Largest staged upload and its chunk size (`shared/server-files.ts`).
-use crate::transfer::{UPLOAD_CHUNK_BYTES, UPLOAD_MAX_BYTES};
+use crate::transfer::{UPLOAD_CHUNK_BYTES, UPLOAD_MAX_BYTES, unavailable};
 
 /// A relay call's file as admitted (Node's `remoteFileTarget` answer): the registered project and the entry in it, or the
 /// granted file's own folder and its name.
@@ -314,6 +317,16 @@ fn text_query(options: &Value) -> WsResult<TextQuery> {
 
 impl WorkspaceService {
     pub fn new(deps: Deps) -> WsResult<Arc<Self>> {
+        Self::build(deps, Arc::new(Transfers::default()))
+    }
+
+    /// A service over a transfer table whose clock a test moves (the whole download path then runs on that clock).
+    #[cfg(test)]
+    pub(crate) fn new_with_transfers(deps: Deps, transfers: Arc<Transfers>) -> WsResult<Arc<Self>> {
+        Self::build(deps, transfers)
+    }
+
+    fn build(deps: Deps, transfers: Arc<Transfers>) -> WsResult<Arc<Self>> {
         let router = Arc::new(Router { fs: Mutex::default(), search: OnceLock::new() });
         let watcher = Arc::new(FolderWatcher::new(router.clone())?);
         let search = SearchSessions::new(deps.lanes, deps.feeds.clone(), watcher.clone());
@@ -328,7 +341,7 @@ impl WorkspaceService {
             catalog: Catalog::new(deps.state.clone(), deps.lanes),
             fs: Arc::new(ProjectFs::new(Arc::new(RecoveryStore::new(deps.recovery_dir)))),
             paths: path_claims(),
-            transfers: Arc::new(Transfers::default()),
+            transfers,
             file_leases: Arc::default(),
             read_windows: crate::readwindow::ReadWindows::default(),
             watcher,
@@ -347,6 +360,7 @@ impl WorkspaceService {
             state: deps.state,
             host: OnceLock::new(),
             phone_grants: OnceLock::new(),
+            sweepers: std::sync::Once::new(),
             user_markdown_view: OnceLock::new(),
             managed: OnceLock::new(),
             releases: deps.releases,
@@ -359,6 +373,20 @@ impl WorkspaceService {
     /// per-upload `setTimeout(idleMs)`: it sleeps to the earliest idle deadline and sweeps then, so a
     /// partial file does not wait for the next upload call. Call once after construction.
     pub fn spawn_idle_sweeper(&self) {
+        self.sweepers.call_once(|| self.start_sweepers());
+    }
+
+    fn start_sweepers(&self) {
+        let sweeping = self.transfers.clone();
+        // Node's 15 s sweeper of grants and phone transfers: their handles close at its tick although no call comes. It ends with the
+        // runtime at shutdown, like the other tasks of the daemon. A core built for the replay of the recording ticks on the replay's clock.
+        drop(mixdog_rt::spawn("download-sweep", mixdog_rt::TaskClass::Work, async move {
+            #[cfg(feature = "replay-controls")]
+            if let Some(clock) = crate::replay_controls::clock() {
+                return sweeping.run_download_sweeper(&*clock).await;
+            }
+            sweeping.run_download_sweeper(&crate::transfer::TokioTimer).await;
+        }));
         let (transfers, lanes) = (self.transfers.clone(), self.lanes);
         drop(mixdog_rt::spawn("upload-idle-sweep", mixdog_rt::TaskClass::Work, async move {
             let cancel = CancellationToken::new();
@@ -421,6 +449,12 @@ impl WorkspaceService {
         store: Arc<crate::grants::GrantStore>,
         credential_of: Arc<dyn Fn(ConnectionId) -> Option<String> + Send + Sync>,
     ) {
+        // A device that unpairs loses its downloads in the same step as its grants, whether or not any connection of it is attached.
+        let transfers = self.transfers.clone();
+        store.on_unpaired(Arc::new(move |credential| transfers.revoke_owner(&Owner::device(credential))));
+        // A conversation a publication lists again is a member again (Node's replaceable catalog).
+        let transfers = self.transfers.clone();
+        store.on_listed(Arc::new(move |sessions| transfers.relisted(sessions)));
         let _ = self.phone_grants.set(PhoneGrants { store, credential_of });
     }
 
@@ -462,7 +496,7 @@ impl WorkspaceService {
 
     /// A connection closed: its watches, searches and transfers end with it.
     pub fn connection_closed(&self, connection: &ConnectionId) {
-        let owner = connection.to_string();
+        let owner = Owner::connection(connection.0).to_string();
         self.transfers.end_owner(&owner);
         if let Some(grants) = self.phone_grants.get() {
             grants.store.release(connection.0);
@@ -480,8 +514,42 @@ impl WorkspaceService {
         }
     }
 
-    pub fn revoke_device(&self, device: &str) {
-        self.transfers.end_owner(device);
+    /// The host's catalog dropped a conversation, and this is told in the step that publishes the change (Node's `retainSessions`): the
+    /// downloads on it end at once, a call of them in flight finds it removed, and a conversation no published catalog ever listed ends
+    /// nothing (Node's `seenSessions`).
+    pub fn session_removed(&self, session: &str) {
+        if self.phone_grants.get().is_some_and(|grants| grants.store.has_seen(session)) {
+            self.transfers.remove_session(session);
+        }
+    }
+
+    /// An unpair ends what the device holds. `connection` is the number of one of the device's attached connections, which the unpair
+    /// walks (`PairedDeviceCleanup::unpaired`): what the connection owns ends, and so do the downloads of the credential it is attached
+    /// under. The downloads of a device with no connection attached end through the grant store, which is told the credential
+    /// (see [`Self::set_phone_grants`]).
+    pub fn revoke_device(&self, connection: &str) {
+        let Ok(id) = connection.parse::<u64>() else { return };
+        self.transfers.revoke_owner(&Owner::connection(id));
+        if let Some(credential) = self.phone_grants.get().and_then(|grants| (grants.credential_of)(ConnectionId(id))).filter(|credential| !credential.is_empty()) {
+            self.transfers.revoke_owner(&Owner::device(&credential));
+        }
+    }
+
+    /// The relay handle closed (switched off, rotated, the core stopping): every phone download ends in that step, and a call in flight
+    /// finds it revoked (Node's `fileDownloads.revokeAll` in the relay's `close`, `remote-relay.ts:653`).
+    pub fn revoke_all_downloads(&self) {
+        self.transfers.revoke_all();
+    }
+
+    /// Who a phone's download calls belong to: its paired credential (only a relay peer admitted under one has it), else (a local
+    /// client) the connection (Node's `downloadRequester`).
+    fn download_owner(&self, req: &CoreRequest) -> Owner {
+        match (&req.ctx.caller, self.phone_grants.get()) {
+            (mixdog_core_api::call::Caller::Connection(id), Some(grants)) => {
+                (grants.credential_of)(*id).filter(|c| !c.is_empty()).map_or_else(|| Owner::connection(id.0), |credential| Owner::device(&credential))
+            }
+            _ => Self::owner(req),
+        }
     }
 
     fn unwatch(&self, id: &str) {
@@ -620,10 +688,10 @@ impl WorkspaceService {
         Ok(self.relay_target(req, &root, &rel).await?.absolute.to_string_lossy().into_owned())
     }
 
-    fn owner(req: &CoreRequest) -> String {
+    fn owner(req: &CoreRequest) -> Owner {
         match &req.ctx.caller {
-            mixdog_core_api::call::Caller::Connection(id) => id.to_string(),
-            mixdog_core_api::call::Caller::Internal(name) => (*name).to_owned(),
+            mixdog_core_api::call::Caller::Connection(id) => Owner::connection(id.0),
+            mixdog_core_api::call::Caller::Internal(name) => Owner::internal(name),
         }
     }
 
@@ -912,12 +980,12 @@ impl WorkspaceService {
                     self.router.fs.lock().expect("fs watches").remove(&id);
                     return Err(error);
                 }
-                self.watches.lock().expect("watches").insert(id, Owned { connection: Self::owner(req), publisher: publisher.clone() });
+                self.watches.lock().expect("watches").insert(id, Owned { connection: Self::owner(req).to_string(), publisher: publisher.clone() });
                 Ok(Reply::Subscribe(Subscribe { result: json!({}), feed: publisher.source(), window: Window::Fixed, resume_from: None }))
             }
             "fs/unwatch" => {
                 let id = s(params, "watchId")?;
-                let owned = self.watches.lock().expect("watches").get(id).is_some_and(|w| w.connection == Self::owner(req));
+                let owned = self.watches.lock().expect("watches").get(id).is_some_and(|w| w.connection == *Self::owner(req));
                 if owned {
                     self.unwatch(id);
                 }
@@ -948,7 +1016,7 @@ impl WorkspaceService {
                     beyond_budget: None,
                 };
                 let publisher = self.search.start(&id, config)?;
-                self.search_owner.lock().expect("search owners").insert(id, Self::owner(req));
+                self.search_owner.lock().expect("search owners").insert(id, Self::owner(req).to_string());
                 Ok(Reply::Subscribe(Subscribe { result: json!({}), feed: publisher.source(), window: Window::Fixed, resume_from: None }))
             }
             "search/update" => {
@@ -1019,12 +1087,109 @@ impl WorkspaceService {
                     return value(run_fallible(self.lanes.interactive, &cancel, move || crate::transfer::read_path_range(&root, &rel, offset, length)).await?);
                 }
                 let id = s(params, "transferId")?.to_owned();
-                let (owner, t) = (Self::owner(req), self.transfers.clone());
-                let range = run_fallible(self.lanes.interactive, &cancel, move || t.read_range(&owner, &id, offset, length)).await?;
+                let (owner, connection, t) = (self.download_owner(req), Self::owner(req), self.transfers.clone());
+                let owners = [owner.as_str(), connection.as_str()];
+                let version = params.get("version").and_then(Value::as_str).map(str::to_owned);
+                let range = run_fallible(self.lanes.interactive, &cancel, {
+                    let (owners, id) = (owners.map(str::to_owned), id.clone());
+                    move || t.read_range(&[owners[0].as_str(), owners[1].as_str()], &id, offset, length, version.as_deref())
+                })
+                .await?;
+                // The lane answered some time after the range took its last look: a revoke that landed since is never followed by bytes.
+                if !self.transfers.holds(&owners, &id) {
+                    return Err(WsError::expired());
+                }
                 value(json!(range))
             }
+            "transfer/authorizeRead" => {
+                // Node's `requiredFileDownloadRequest`, check for check and before anything is looked up: the core is the boundary, whoever
+                // calls it, and each identifier is the trimmed text Node goes on with.
+                let source = params.get("source").filter(|source| source.is_object()).ok_or_else(|| WsError::invalid("download source is invalid."))?;
+                if !matches!(params.get("purpose").and_then(Value::as_str), Some("save" | "share" | "open")) {
+                    return Err(WsError::invalid("download purpose is invalid."));
+                }
+                let session = crate::transfer::required_session_id(params.get("sessionId"))?;
+                let requested = crate::transfer::DownloadRequest::of(source)?;
+                let owner = self.download_owner(req);
+                let mark = self.transfers.mark(&owner, &session);
+                let t = self.transfers.clone();
+                // Node's `sessionRow`: the conversation must be in the host's catalog now, whoever asks, and its project is the catalog's, never
+                // the caller's.
+                let grants = self.phone_grants.get().ok_or_else(|| WsError::new(Reason::Unsupported, "Paired-device downloads are not available."))?;
+                let row = grants.store.session_row(&session).await?.ok_or_else(unavailable)?;
+                // `projectRoot`: only a project conversation whose project is still a registered one has a root.
+                let project = match (&row.project_path, row.project) {
+                    (Some(given), true) => self.catalog.resolve(given).await.ok(),
+                    _ => None,
+                };
+                let given = row.project_path.as_deref().map(PathBuf::from);
+                let mut left_out = None;
+                let opened = match requested {
+                    crate::transfer::DownloadRequest::Project(rel) => {
+                        let root = project.ok_or_else(|| WsError::new(Reason::Download("file-download:outside-project"), "The file is outside the conversation's project."))?;
+                        run_fallible(self.lanes.interactive, &cancel, move || crate::transfer::open_project_download(&root, &rel, &|point| t.point(point))).await?
+                    }
+                    crate::transfer::DownloadRequest::Session(path) => {
+                        let cwd = row.cwd.clone();
+                        run_fallible(self.lanes.interactive, &cancel, move || {
+                            crate::transfer::open_session_download(&path, &cwd, project.as_deref(), given.as_deref(), &|point| t.point(point))
+                        })
+                        .await?
+                    }
+                    crate::transfer::DownloadRequest::Media(asset) => {
+                        // Node's `authorizeMediaAsset`: the conversation is in the catalog (above), the asset is the media store's.
+                        let entry = grants.store.media(&asset).await?;
+                        run_fallible(self.lanes.interactive, &cancel, move || crate::transfer::open_media_download(entry.as_ref(), &|point| t.point(point))).await?
+                    }
+                    crate::transfer::DownloadRequest::Link(href) => {
+                        // Node's `authorizeLinkedFile`: the link decoded as the desktop decodes it, then opened as a path the conversation names.
+                        let path = crate::transfer::link_path(&href).ok_or_else(|| WsError::new(Reason::Download("file-download:not-a-file"), "Only files on this PC can be downloaded."))?;
+                        let cwd = row.cwd.clone();
+                        run_fallible(self.lanes.interactive, &cancel, move || {
+                            crate::transfer::open_session_download(&path, &cwd, project.as_deref(), given.as_deref(), &|point| t.point(point))
+                        })
+                        .await?
+                    }
+                    crate::transfer::DownloadRequest::Attachment(id) => {
+                        // Node's `authorizeAttachment`: an id the conversation the core resolved names, staged by the attachment domain.
+                        let source = self.sources.iter().find(|x| x.kind() == "attachment").ok_or_else(|| WsError::new(Reason::Unsupported, "Attachments are not available."))?;
+                        let read = source.bytes(&json!({ "sessionId": session, "attachmentId": id }), &cancel).await.map_err(crate::transfer::source_refusal)?;
+                        let (owner, session) = (owner.clone(), session.clone());
+                        run_fallible(self.lanes.interactive, &cancel, move || t.stage(&owner, &session, &read.bytes, read.name, read.mime_type)).await?
+                    }
+                    crate::transfer::DownloadRequest::Folder(path) => {
+                        // Node's `authorizeFolderZip`: the folder as the conversation names it, zipped as `zipFolder` zips it, staged.
+                        let cwd = row.cwd.clone();
+                        let (root, given) = (project.clone(), given.clone());
+                        let folder = run_fallible(self.lanes.maintenance, &cancel, move || crate::transfer::phone_folder(&path, &cwd, root.as_deref(), given.as_deref())).await?;
+                        let scan = crate::zip::scan_folder(self.tracked.as_ref(), self.lanes, &cancel, &folder, crate::transfer::ZIP_MAX_BYTES, crate::transfer::ZIP_MAX_FILES, None)
+                            .await
+                            .map_err(crate::transfer::phone_folder_refusal)?;
+                        left_out = Some(crate::transfer::LeftOut { ignored: scan.ignored, secret: 0 });
+                        let (t, owner, session) = (self.transfers.clone(), owner.clone(), session.clone());
+                        run_fallible(self.lanes.cpu_bulk, &cancel, move || {
+                            let (archive, name) = crate::transfer::folder_zip(&folder, &scan.files, &|point| t.point(point))?;
+                            t.stage(&owner, &session, &archive, name, "application/zip".into())
+                        })
+                        .await?
+                    }
+                };
+                let t = self.transfers.clone();
+                let mut authorized = t.authorize(&owner, &session, mark, opened)?;
+                authorized.left_out = left_out;
+                value(json!(authorized))
+            }
+            "transfer/redeemGrant" => {
+                let (owner, t, id) = (self.download_owner(req), self.transfers.clone(), crate::transfer::required_download_id(params.get("grantId"), "grant id")?);
+                value(json!(run_fallible(self.lanes.interactive, &cancel, move || t.begin_grant(&owner, &id)).await?))
+            }
+            "transfer/finishRead" => {
+                let (owner, t, id) = (self.download_owner(req), self.transfers.clone(), crate::transfer::required_download_id(params.get("transferId"), "transfer id")?);
+                value(json!(run_fallible(self.lanes.interactive, &cancel, move || t.finish_read(&owner, &id)).await?))
+            }
             "transfer/endRead" => {
-                value(json!({ "ended": self.transfers.end_read(&Self::owner(req), s(params, "transferId")?) }))
+                let (owner, connection, id) = (self.download_owner(req), Self::owner(req), s(params, "transferId")?);
+                value(json!({ "ended": self.transfers.end_read(&[owner.as_str(), connection.as_str()], id) }))
             }
             "transfer/beginWrite" if params.get("scope").is_some() => {
                 // `serverUploadBegin(name, size, scope)`: staged under the data dir, named at commit.
@@ -1405,6 +1570,9 @@ impl DomainService for WorkspaceService {
             "transfer/beginRead",
             "transfer/beginZip",
             "transfer/readRange",
+            "transfer/authorizeRead",
+            "transfer/redeemGrant",
+            "transfer/finishRead",
             "transfer/endRead",
             "transfer/beginWrite",
             "transfer/writeChunk",

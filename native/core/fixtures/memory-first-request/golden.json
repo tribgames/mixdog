@@ -1,0 +1,93 @@
+{
+  "scenarios": [
+    {
+      "name": "recall then memoryControl while the spawn lock is held by another live process",
+      "requests": [
+        {
+          "action": "recall",
+          "args": [
+            "build target",
+            {}
+          ],
+          "answer": {
+            "status": 200,
+            "body": {
+              "error": "memory runtime did not become ready"
+            }
+          },
+          "answeredWithin": "60-90 s"
+        },
+        {
+          "action": "memoryControl",
+          "args": [
+            {
+              "action": "status"
+            }
+          ],
+          "answer": {
+            "status": 200,
+            "body": {
+              "error": "memory runtime did not become ready"
+            }
+          },
+          "answeredWithin": "60-90 s"
+        }
+      ]
+    },
+    {
+      "name": "recall on a fresh profile whose runtime is installed",
+      "requests": [
+        {
+          "action": "recall",
+          "args": [
+            "build target",
+            {}
+          ],
+          "answer": {
+            "status": 200,
+            "body": {
+              "result": {
+                "value": "(no results)"
+              }
+            }
+          },
+          "answeredWithin": "before 15 s"
+        }
+      ]
+    },
+    {
+      "name": "recall then memoryControl when the runtime install fails",
+      "requests": [
+        {
+          "action": "recall",
+          "args": [
+            "build target",
+            {}
+          ],
+          "answer": {
+            "status": 200,
+            "body": {
+              "error": "memory runtime did not become ready"
+            }
+          },
+          "answeredWithin": "30-60 s"
+        },
+        {
+          "action": "memoryControl",
+          "args": [
+            {
+              "action": "status"
+            }
+          ],
+          "answer": {
+            "status": 200,
+            "body": {
+              "error": "memory runtime did not become ready"
+            }
+          },
+          "answeredWithin": "30-60 s"
+        }
+      ]
+    }
+  ]
+}

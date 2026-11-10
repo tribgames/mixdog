@@ -224,6 +224,9 @@ impl ProviderAdapter for AccountedAdapter {
     fn release_session(&self, session_id: &str) {
         self.inner.release_session(session_id);
     }
+    fn release_transport_scope(&self, scope: &str) {
+        self.inner.release_transport_scope(scope);
+    }
     fn native_pdf(&self) -> bool {
         self.inner.native_pdf()
     }

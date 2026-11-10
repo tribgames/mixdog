@@ -447,6 +447,7 @@ async fn every_method_of_the_domains_built_here_has_a_real_service() {
             log: crate::daemon_log::DaemonLog::new(dir.path().join("daemon.log"), tokens.maintenance_io, mixdog_rt::CancellationToken::new()),
             stop: mixdog_rt::CancellationToken::new(),
             catalog_http: crate::compose_test_support::offline_http(),
+            pg_install: None,
         },
     )
     .await
