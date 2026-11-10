@@ -57,6 +57,14 @@ pub struct NewTaskReceipts {
     folder: PathBuf,
     io: DurabilityIo,
     active: Mutex<HashMap<String, Active>>,
+    /// Cancelled at shutdown: each attempt is cut at its next await, and no new one starts.
+    closing: CancellationToken,
+    /// A read hold per running attempt and per receipt write that began; `shutdown` takes the write hold, so it returns once
+    /// every attempt is cut and every write that began has ended whole.
+    alive: Arc<tokio::sync::RwLock<()>>,
+    /// Told each time a request joins an attempt in flight.
+    #[cfg(test)]
+    pub(super) joined: tokio::sync::Notify,
     /// The identity of the folder as it was secured (`securedFolders`); held while it is secured, so a second request joins.
     secured: tokio::sync::Mutex<Option<String>>,
     /// Every receipt written, as `phase` (`+refused` when marked) and whether it was flushed before being reported.
@@ -82,6 +90,23 @@ fn sha256_hex(bytes: &[u8]) -> String {
 
 fn reused() -> CoreError {
     failed("session", "Submission id was reused for different content.")
+}
+
+fn shutting_down() -> CoreError {
+    CoreError::ServerShuttingDown { drain_reason: mixdog_core_api::handle::DrainReason::Quit }
+}
+
+/// An attempt's place in `active`, given up however the attempt ends (an answer, a panic, the cut at shutdown): a later request
+/// for the id then starts a new attempt instead of joining one that will never answer.
+struct Leave {
+    gate: Arc<NewTaskReceipts>,
+    key: String,
+}
+
+impl Drop for Leave {
+    fn drop(&mut self) {
+        lock(&self.gate.active).remove(&self.key);
+    }
 }
 
 /// `freshSessionId`: `sess_desktop_` and 32 random bytes in hex.
@@ -135,10 +160,22 @@ impl NewTaskReceipts {
             folder: user_data.join("new-task-receipts"),
             io,
             active: Mutex::default(),
+            closing: CancellationToken::new(),
+            alive: Arc::default(),
+            #[cfg(test)]
+            joined: tokio::sync::Notify::new(),
             secured: tokio::sync::Mutex::new(None),
             #[cfg(test)]
             writes: Mutex::default(),
         })
+    }
+
+    /// At shutdown, what a process that ends there leaves: every attempt in flight is cut at its next await, its receipt in the
+    /// last phase it wrote (a write that began ends whole first); none runs on with a closed directory, whose refusals would mark
+    /// its receipt refused. The next start resumes each phase as it resumes it after a crash. Requests after this are refused.
+    pub async fn shutdown(&self) {
+        self.closing.cancel();
+        drop(self.alive.write().await);
     }
 
     /// How many requests are in flight.
@@ -196,8 +233,18 @@ impl NewTaskReceipts {
         lock(&self.writes).push((format!("{}{}", receipt.phase().name(), if receipt.refused() { "+refused" } else { "" }), durable));
         let (path, bytes) = (path.to_owned(), receipt.to_bytes());
         let opts = mixdog_statefile::Opts { fsync: durable, fsync_dir: durable, ..mixdog_statefile::Opts::default() };
-        on_lane(self.io, &CancellationToken::new(), move |lane| mixdog_statefile::write_file(lane, &path, &bytes, &opts))
-            .await?
+        let alive = self.alive.clone().try_read_owned().map_err(|_| shutting_down())?;
+        let (io, written) = (self.io, tokio::sync::oneshot::channel());
+        // A write that began ends whole even when its attempt is cut at shutdown, which waits for it.
+        drop(mixdog_rt::spawn("new-task-receipt-write", TaskClass::Work, async move {
+            let result = on_lane(io, &CancellationToken::new(), move |lane| mixdog_statefile::write_file(lane, &path, &bytes, &opts)).await;
+            let _ = written.0.send(result);
+            drop(alive);
+        }));
+        written
+            .1
+            .await
+            .map_err(|_| failed("session", "The receipt write ended without an answer."))??
             .map(drop)
             .map_err(|error| failed("session", error.to_string()))
     }
@@ -216,18 +263,32 @@ impl NewTaskReceipts {
                 if existing.signature != signature {
                     return Err(reused());
                 }
+                #[cfg(test)]
+                self.joined.notify_one();
                 existing.done.clone()
             } else {
                 if active.len() >= MAX_ACTIVE {
                     return Err(failed("session", "Too many new task requests are in progress."));
                 }
+                if self.closing.is_cancelled() {
+                    return Err(shutting_down());
+                }
+                let alive = self.alive.clone().try_read_owned().map_err(|_| shutting_down())?;
                 let (settled, done) = watch::channel(None);
                 active.insert(key.clone(), Active { signature: signature.clone(), done: done.clone() });
                 let gate = self.clone();
                 drop(mixdog_rt::spawn("new-task-request", TaskClass::Work, async move {
-                    let outcome = gate.attempt(&key, signature, execute).await;
-                    lock(&gate.active).remove(&key);
-                    let _ = settled.send(Some(outcome));
+                    let leave = Leave { gate: gate.clone(), key: key.clone() };
+                    let outcome = tokio::select! {
+                        biased;
+                        () = gate.closing.cancelled() => None,
+                        outcome = gate.attempt(&key, signature, execute) => Some(outcome),
+                    };
+                    drop(leave);
+                    if let Some(outcome) = outcome {
+                        let _ = settled.send(Some(outcome));
+                    }
+                    drop(alive);
                 }));
                 done
             }

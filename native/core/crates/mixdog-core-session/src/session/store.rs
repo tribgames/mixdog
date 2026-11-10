@@ -138,17 +138,26 @@ impl Projector {
     /// Starts the forwarding task on the current Tokio runtime.
     pub fn spawn(index: SqliteStore) -> Self {
         // A failed projection leaves the session dirty; reconcile re-projects it from its log at the next start.
-        Self::spawn_with(move |projection| {
-            let index = index.clone();
-            async move { drop(index.project(projection).await) }
-        })
+        let settling = index.clone();
+        Self::spawn_with(
+            move |projection| {
+                let index = index.clone();
+                async move { drop(index.project(projection).await) }
+            },
+            move || {
+                let index = settling.clone();
+                async move { drop(index.reconciled().await) }
+            },
+        )
     }
 
     /// The forwarding task over `project`, one projection at a time in barrier order.
-    fn spawn_with<F, P>(mut project: P) -> Self
+    fn spawn_with<F, P, G, R>(mut project: P, mut reconciled: R) -> Self
     where
         P: FnMut(Projection) -> F + Send + 'static,
         F: std::future::Future<Output = ()> + Send,
+        R: FnMut() -> G + Send + 'static,
+        G: std::future::Future<Output = ()> + Send,
     {
         let (queue, mut rx) = mpsc::unbounded_channel::<Projecting>();
         let pending = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -162,7 +171,13 @@ impl Projector {
                         project(*projection).await;
                         done_count.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
                     }
-                    Projecting::Flush(done) => drop(done.send(())),
+                    // A read after the flush also waits for the open's reconcile of dirty
+                    // sessions (a failed one leaves their rows as the crash did; the index's
+                    // own reads and writes report it).
+                    Projecting::Flush(done) => {
+                        reconciled().await;
+                        let _ = done.send(());
+                    }
                 }
             }
         });
@@ -1187,7 +1202,7 @@ mod projector_tests {
     /// on it from then on: the wait that was pending ends, and no later list gets one.
     #[tokio::test]
     async fn a_projector_that_died_is_not_waited_on() {
-        let projector = Projector::spawn_with(|_| async { panic!("the projection panicked") });
+        let projector = Projector::spawn_with(|_| async { panic!("the projection panicked") }, || async {});
         projector.send(empty_projection("sess_lost"));
         projector.settle().expect("a queued projection is pending").await;
         assert!(projector.settle().is_none(), "a dead projector is waited on");
@@ -1200,7 +1215,7 @@ mod projector_tests {
     async fn an_exact_read_behind_a_stuck_projection_fails_at_the_bound() {
         let bound = super::super::thread_list::FENCE_BOUND;
         let _clock = crate::session::testing::HeldClock::hold();
-        let projector = Projector::spawn_with(|_| std::future::pending::<()>());
+        let projector = Projector::spawn_with(|_| std::future::pending::<()>(), || async {});
         projector.send(empty_projection("sess_stuck"));
         let read = projector.caught_up();
         tokio::pin!(read);
@@ -1228,7 +1243,7 @@ mod projector_tests {
         let store = StoreThreads::over_data_dir(data.path(), index, Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()), tokens.maintenance_io)
             .await
             .expect("store");
-        let mut stuck = Projector::spawn_with(|_| std::future::pending::<()>());
+        let mut stuck = Projector::spawn_with(|_| std::future::pending::<()>(), || async {});
         stuck.bound = std::time::Duration::ZERO;
         stuck.send(empty_projection("sess_a"));
         let store = Arc::new(StoreThreads { projector: stuck, ..store });

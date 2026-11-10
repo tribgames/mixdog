@@ -129,6 +129,7 @@ impl SqliteStore {
     /// Every session the idle sweep visits (agent-only ones too): the one listing, then one
     /// `stat` of each session's newest log file under `sessions` (`<data>/sessions`).
     pub async fn sweep_sessions(&self, sessions: PathBuf) -> Result<Vec<SweepSession>, DbError> {
+        self.reconciled().await?;
         self.shared
             .pool
             .run_in_lane(move |lane, c| {

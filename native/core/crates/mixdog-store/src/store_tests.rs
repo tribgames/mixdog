@@ -143,8 +143,12 @@ impl Env {
     }
 
     async fn create(&self, id: &str, base: Option<(&str, u64)>) -> LogWriter {
+        self.create_from(id, session(id, base)).await
+    }
+
+    async fn create_from(&self, id: &str, rec: Encoded) -> LogWriter {
         self.store.upsert(head(id, "task", "Title"), DirtyMark::Set).await.unwrap();
-        let (dir, deps, rec) = (self.dir(id), self.deps(), session(id, base));
+        let (dir, deps) = (self.dir(id), self.deps());
         let (w, ack) = on_lane(move |l| LogWriter::create(l, &dir, rec, deps).unwrap()).await;
         self.store.project(ack.projection).await.unwrap();
         w
@@ -789,6 +793,93 @@ async fn boot_projects_the_frames_a_crash_left_unprojected() {
     let again = open_index(&env.data).unwrap();
     let (rows, _) = again.history_page(lineage(&[("s1", None)]), None, None, 10).await.unwrap();
     assert_eq!(iids(&rows), ["c", "b", "a"]);
+}
+
+/// Every column of every `sessions` row of the index under `data`, in id order.
+fn session_rows(data: &Path) -> Vec<Vec<rusqlite::types::Value>> {
+    let conn = rusqlite::Connection::open(data.join(INDEX_FILE)).unwrap();
+    let mut stmt = conn.prepare("SELECT * FROM sessions ORDER BY id").unwrap();
+    let width = stmt.column_count();
+    stmt.query_map([], |r| (0..width).map(|i| r.get(i)).collect()).unwrap().collect::<Result<_, _>>().unwrap()
+}
+
+/// A process that ends after the boot reconcile projected a crash-cut tail but before it wrote
+/// the session's row leaves the cursor at the log's end and the row stale: the next boot
+/// still reconciles the session, and its row is the one a rebuild from the log writes.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_boot_ended_between_the_projection_and_the_row_reconciles_again() {
+    let env = Env::new();
+    // A header with its own `updatedAt`: the row does not take the clock of its write.
+    let header = json!({"k":"session","v":2,"id":"s1","log_id":LOG_ID,"header":{"inline":{"title":"t","updatedAt":5}}});
+    let w = env.create_from("s1", rec(header)).await;
+    let (w, _) = env.commit(w, vec![item("a")]).await;
+    let (_w, acked) = env.append(w, vec![item("b"), item("c")]).await;
+    let end = acked.unwrap().positions.last().unwrap().ordinal + 1;
+    crate::sqlite::reconcile_seam::arm(&env.data);
+    let ended = open_index(&env.data).unwrap();
+    assert!(matches!(ended.reconciled().await, Err(DbError::Stopped)));
+    drop(ended);
+    let reopened = open_index(&env.data).unwrap();
+    assert_eq!(reopened.projected("s1").await.unwrap().unwrap().ordinal, end);
+    drop(reopened);
+    let rebuilt = tempfile::tempdir().unwrap();
+    copy_tree(&env.dir("s1"), &rebuilt.path().join("sessions").join("s1"));
+    drop(open_index(rebuilt.path()).unwrap());
+    assert_eq!(session_rows(&env.data), session_rows(rebuilt.path()));
+}
+
+/// On the production lanes (not the inline test backend): the open returns while the
+/// reconcile of a crash-cut session still waits to start, and reads and writes wait for it,
+/// then see the rows it projected.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_store_opens_before_its_reconcile_and_reads_wait_for_it() {
+    let (_exec, tokens) = mixdog_rt::exec::boot(mixdog_rt::exec::RtConfig::for_cores(4)).expect("production lanes");
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tmp.path().to_path_buf();
+    let open = |data: PathBuf| {
+        let job = tokens.maintenance_io.submit(&CancellationToken::new(), move |lane| {
+            SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &data)
+        });
+        async move { job.expect("lane").await.expect("job ran") }
+    };
+    let durable = |f: Box<dyn FnOnce(&InLane<DurabilityIo>) + Send>| {
+        let job = tokens.durability_io.submit(&CancellationToken::new(), move |lane| f(lane));
+        async move { job.expect("lane").await.expect("job ran") }
+    };
+    let store = open(data.clone()).await.unwrap();
+    store.upsert(head("s1", "task", "Title"), DirtyMark::Set).await.unwrap();
+    let deps = WriterDeps {
+        io: Arc::new(OsIo),
+        blobs: BlobStore::new(&data),
+        ownership: Arc::new(MockOwnership::default()),
+        index: Arc::new(store.clone()),
+    };
+    let (dir, (tx, rx)) = (data.join("sessions").join("s1"), std::sync::mpsc::channel());
+    durable(Box::new(move |lane| {
+        let (mut w, created) = LogWriter::create(lane, &dir, session("s1", None), deps).unwrap();
+        let first = w.append_barrier(lane, vec![item("a")]).unwrap();
+        // Acked on disk, never projected: the process ended.
+        w.append_barrier(lane, vec![item("b"), item("c")]).unwrap();
+        tx.send((created.projection, first.projection)).unwrap();
+    }))
+    .await;
+    let (created, first) = rx.recv().unwrap();
+    store.project(created).await.unwrap();
+    store.project(first).await.unwrap();
+    drop(store);
+    let release = crate::sqlite::reconcile_seam::hold(&data);
+    let reopened = tokio::time::timeout(std::time::Duration::from_secs(60), open(data.clone()))
+        .await
+        .expect("the open returned within 60 s while its reconcile was held")
+        .unwrap();
+    let (reader, writer) = (reopened.clone(), reopened.clone());
+    let read = tokio::spawn(async move { reader.history_page(lineage(&[("s1", None)]), None, None, 10).await });
+    let write = tokio::spawn(async move { writer.mark_dirty("s1").await });
+    assert!(!read.is_finished() && !write.is_finished());
+    release.send(()).unwrap();
+    let (rows, _) = read.await.unwrap().unwrap();
+    assert_eq!(iids(&rows), ["c", "b", "a"]);
+    write.await.unwrap().unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
