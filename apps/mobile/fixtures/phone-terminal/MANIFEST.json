@@ -11,14 +11,14 @@
       "sha256": "02ff643f9cb65e8b80cf0216601d58c557e90bc8974439e5bfad96bb4dda8f2b"
     },
     {
-      "bytes": 4604134,
+      "bytes": 5950548,
       "path": "runs.json",
-      "sha256": "8dff843e55f9c00acf42d704fd1b68ed4f5a4ba399f692565d4298ca0dd4165c"
+      "sha256": "062fe742025a04cbcadc138040590595debe09a21cd14671b882bde34dd3b351"
     },
     {
-      "bytes": 8334,
+      "bytes": 9923,
       "path": "variance.json",
-      "sha256": "6d57c06ef888394b494f9d1ea7d103b58f96b900b19a56b7be04cffd40005971"
+      "sha256": "ce97d663ee3269e6e6e50fc0b58c04d585afb2ac628a083e899f770d1650d263"
     }
   ],
   "framingProof": "apps/mobile/fixtures/relay-framing drives Node's relay lane (remote-relay-push-lanes.ts) with a scripted source on a virtual clock: given output and activity changes at set times, Node's frames, their times and their order against the changes (G15 against G16/G17: a write and its change 15 ms after a frame go change first, 16 or 17 ms after it frame first). mixdog-spawn service::relay_buffer the_frames_are_nodes_for_the_recorded_script feeds the same steps to the core's RelayBuffer, the buffer the feed pump uses. The core's ordering of a change after its chunk is in the relay buffer is shown by mixdog-spawn terminal::lock_order tests (a_marker_change_waits_for_the_pump_to_take_its_chunk, the_pump_counts_from_its_first_event_after_an_evicted_prefix, a_paused_producers_chunk_changes_nothing_until_it_enters_the_feed, the_tabs_end_follows_the_output_before_the_exit). Not proved by any recording: that the core's PTY reader hands the relay the same chunks at the same times node-pty did (the reader's cuts and timing against ConPTY); the real replay compares the states that output produces, not its cuts.",
@@ -40,9 +40,9 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-phone-terminal.mjs",
-  "runsMerged": "runs.json: runs 0-4 from the fixture's 5-run recording, runs 5-22 from 18 recordings of one run each (run-06, run-07, run-08, run-09, run-10, run-11, run-12, run-13, run-14, run-15, run-16, run-17, run-18, run-19, run-20, run-21, run-22, run-23), merged with --merge in that order.",
+  "runsMerged": "runs.json: runs 0-4 from the fixture's 5-run recording, runs 5-22 from 18 recordings of one run each (run-06 to run-23), merged with --merge in that order. Then: runs 0-22 from the fixture's 23-run recording, runs 23-29 from 7 recordings of one run each (run-24, run-25, run-26, run-27, run-28, run-29, run-30), merged with --merge in that order.",
   "scriptSha256": "bbd2a80901dc8444f034726c36a433523a7e43f617ba5c98dee77c61c3add389",
   "set": "phone-terminal",
   "settled": "Output no answered call causes (a resize re-render, a prompt after idle, a closing output against the next dispose) is waited for before the next call: its place among later calls is call latency, 0 ms in this in-process recorder and a socket round trip for a phone. The immediate part keeps the answer-ordered sequences (ensure then first output, dispose then closing output) unsettled.",
-  "totalBytes": 4805965
+  "totalBytes": 6153968
 }
