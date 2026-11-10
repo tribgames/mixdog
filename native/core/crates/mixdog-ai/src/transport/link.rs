@@ -316,6 +316,13 @@ impl ReqwestLink {
         Self { clients: Clients::Node(NodeClient::pinned(schedule.tcp, Pinned { addr, tls: Arc::new(config) })) }
     }
 
+    /// [`NodeClient::tap`] of the Node-equal client; another client has no such tap and refuses it.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn tap(&self, tap: Option<super::node_http::Tap>) {
+        let Clients::Node(client) = &self.clients else { panic!("only the Node-equal client is tapped") };
+        client.tap(tap);
+    }
+
     #[cfg(any(test, feature = "test-support"))]
     /// The link with its client built from `tweak(link_builder)`: a test pins hosts to a loopback server and trusts its
     /// certificate there, and everything else about the client is the production one.

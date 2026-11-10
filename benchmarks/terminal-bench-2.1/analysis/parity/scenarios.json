@@ -2618,6 +2618,34 @@
       ]
     },
     {
+      "id": "anthropic-oauth-gzip-refused-same-tick",
+      "provider": "anthropic-oauth",
+      "expectError": true,
+      "extraWithResend": { "at": 2, "gap": "none" },
+      "messages": [
+        { "role": "user", "content": "parity gzip same tick" }
+      ],
+      "http": [
+        { "status": 415, "headers": { "content-type": "application/json" }, "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"unsupported content encoding\"}}" },
+        { "status": 400, "headers": { "content-type": "application/json" }, "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"parity refusal\"}}" },
+        { "status": 400, "headers": { "content-type": "application/json" }, "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"parity refusal\"}}" }
+      ]
+    },
+    {
+      "id": "anthropic-oauth-gzip-refused-next-turn",
+      "provider": "anthropic-oauth",
+      "expectError": true,
+      "extraWithResend": { "at": 2, "gap": "immediate" },
+      "messages": [
+        { "role": "user", "content": "parity gzip next turn" }
+      ],
+      "http": [
+        { "status": 415, "headers": { "content-type": "application/json" }, "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"unsupported content encoding\"}}" },
+        { "status": 400, "headers": { "content-type": "application/json" }, "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"parity refusal\"}}" },
+        { "status": 400, "headers": { "content-type": "application/json" }, "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"parity refusal\"}}" }
+      ]
+    },
+    {
       "id": "anthropic-oauth-gzip-refused",
       "provider": "anthropic-oauth",
       "messages": [
@@ -2731,6 +2759,22 @@
         { "headers": { "content-type": "text/event-stream" }, "body": "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"uncached held answer\"}]},\"finishReason\":\"STOP\",\"index\":0}],\"usageMetadata\":{\"promptTokenCount\":9020,\"candidatesTokenCount\":3,\"totalTokenCount\":9023},\"modelVersion\":\"gemini-3.8-flash\"}\r\n\r\n", "then": "withhold" },
         { "headers": { "content-type": "application/json" }, "body": "{\"name\":\"cachedContents/parity-7\",\"model\":\"models/gemini-3.8-flash\",\"usageMetadata\":{\"totalTokenCount\":9020}}" },
         { "headers": { "content-type": "text/event-stream" }, "body": "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"third answer\"}]},\"finishReason\":\"STOP\",\"index\":0}],\"usageMetadata\":{\"promptTokenCount\":9020,\"candidatesTokenCount\":2,\"totalTokenCount\":9022,\"cachedContentTokenCount\":8900},\"modelVersion\":\"gemini-3.8-flash\"}\r\n\r\n" }
+      ]
+    },
+    {
+      "id": "gemini-cache-refused-next-turn",
+      "provider": "gemini",
+      "extraWithResend": { "at": 3, "gap": "immediate" },
+      "messages": [
+        { "role": "user", "content": "parity turn probe" },
+        { "role": "assistant", "content": "parity turn reply" },
+        { "role": "user", "content": "parity turn next" }
+      ],
+      "http": [
+        { "headers": { "content-type": "application/json" }, "body": "{\"name\":\"cachedContents/parity-8\",\"model\":\"models/gemini-3.8-flash\",\"usageMetadata\":{\"totalTokenCount\":9020}}" },
+        { "status": 404, "headers": { "content-type": "application/json" }, "body": "{\"error\":{\"code\":404,\"message\":\"CachedContent not found (or permission denied)\",\"status\":\"NOT_FOUND\"}}" },
+        { "headers": { "content-type": "text/event-stream" }, "body": "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"uncached answer\"}]},\"finishReason\":\"STOP\",\"index\":0}],\"usageMetadata\":{\"promptTokenCount\":9020,\"candidatesTokenCount\":2,\"totalTokenCount\":9022},\"modelVersion\":\"gemini-3.8-flash\"}\r\n\r\n" },
+        { "headers": { "content-type": "text/event-stream" }, "body": "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"uncached answer\"}]},\"finishReason\":\"STOP\",\"index\":0}],\"usageMetadata\":{\"promptTokenCount\":9020,\"candidatesTokenCount\":2,\"totalTokenCount\":9022},\"modelVersion\":\"gemini-3.8-flash\"}\r\n\r\n" }
       ]
     },
     {

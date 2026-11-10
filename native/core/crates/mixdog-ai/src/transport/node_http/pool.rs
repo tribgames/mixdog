@@ -157,17 +157,25 @@ impl Pool {
         }
     }
 
-    /// `conn`'s answer was read whole by a caller that sends its next request at once: undici gives the socket back a
-    /// turn of the event loop after the body ended, so that request finds it busy and a request after it finds it free
+    /// `conn`'s answer was read whole by a caller that sends its next request at once: undici gives the socket back one
+    /// `setImmediate` after the body ended (`client-h1.js:842-846`, undici 8.12.3), so that request, and any other
+    /// dispatched in the same turn of the event loop, finds it busy and a request a turn later finds it free
     /// (`resendIfEncodingRejected`, request-compression.mjs:60-68). It stays out of the pool until the next request of
-    /// `key` has its connection ([`Pool::free_held`]) or the hold ends ([`Pool::end_hold`]); the hold's number is returned.
+    /// `key` has its connection and its task has yielded once ([`Pool::free_held`]) or the hold ends
+    /// ([`Pool::end_hold`]); the hold's number is returned.
     pub fn hold_h1(&self, key: String, conn: Conn, ttl: Duration) -> u64 {
         let hold = self.birth();
         self.lock().held.entry(key).or_default().push((hold, conn, ttl));
         hold
     }
 
-    /// The next request of `key` has its connection: every connection held for it goes into the pool.
+    /// Whether a connection of `key` is held ([`Pool::hold_h1`]).
+    pub fn holds(&self, key: &str) -> bool {
+        self.lock().held.contains_key(key)
+    }
+
+    /// The next request of `key` has its connection and a turn has passed: every connection held for it goes into the
+    /// pool.
     pub fn free_held(self: &Arc<Self>, key: &str) {
         let freed = self.lock().held.remove(key).unwrap_or_default();
         for (_, conn, ttl) in freed {
@@ -276,18 +284,23 @@ impl Pool {
         drop(all);
     }
 
-    /// The oldest idle connection of `key` that is still open. A socket that was used is looked at again after one
-    /// turn of the scheduler, so a close that has arrived is seen (`client-h1.js` `scheduleIdleSocketValidation`).
+    /// The oldest idle connection of `key` that is still open. It is chosen at once, as undici's pool picks a free
+    /// client inside `dispatch`, so a request after this one in the same turn finds it busy; a socket that was used is
+    /// written to after one turn of the scheduler, so a close that has arrived by then is seen and another one is
+    /// chosen (`client-h1.js` `scheduleIdleSocketValidation`).
     pub async fn take(self: &Arc<Self>, key: &str) -> Option<Taken> {
-        // Without an idle connection nothing waits: the caller dials within the same poll.
-        if !self.lock().idle.contains_key(key) {
-            return None;
+        loop {
+            // Without an idle connection nothing waits: the caller dials within the same poll.
+            let taken = self.checkout(key)?;
+            tokio::task::yield_now().await;
+            match taken {
+                Taken::H1(conn) if conn.is_closed() => drop(conn),
+                taken => return Some(taken),
+            }
         }
-        tokio::task::yield_now().await;
-        self.checkout(key)
     }
 
-    /// [`Pool::take`] after its turn of the scheduler.
+    /// The connection [`Pool::take`] chooses.
     fn checkout(self: &Arc<Self>, key: &str) -> Option<Taken> {
         loop {
             let found = {

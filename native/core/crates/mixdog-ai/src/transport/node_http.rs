@@ -250,10 +250,17 @@ pub struct NodeClient {
     policy: Option<Arc<NetworkProxy>>,
     #[cfg(any(test, feature = "test-support"))]
     pinned: Option<Pinned>,
+    /// What a test runs as each request has its connection ([`NodeClient::tap`]).
+    #[cfg(any(test, feature = "test-support"))]
+    tap: std::sync::Mutex<Option<Tap>>,
     pool: Arc<Pool>,
     /// A change of the network proxy setting closes every idle connection (`http-agent.mjs` `onProxyRouteChange`).
     _retire: Option<Subscription>,
 }
+
+/// Called with each request once it has its connection, before the request is written.
+#[cfg(any(test, feature = "test-support"))]
+pub type Tap = Box<dyn Fn(&WireRequest) + Send + Sync>;
 
 fn tls_config() -> Result<Arc<rustls::ClientConfig>, io::Error> {
     static CONFIG: OnceLock<Result<Arc<rustls::ClientConfig>, String>> = OnceLock::new();
@@ -372,6 +379,8 @@ impl NodeClient {
             policy,
             #[cfg(any(test, feature = "test-support"))]
             pinned: None,
+            #[cfg(any(test, feature = "test-support"))]
+            tap: std::sync::Mutex::new(None),
             pool,
             _retire: retire,
         }
@@ -381,6 +390,13 @@ impl NodeClient {
     #[cfg(any(test, feature = "test-support"))]
     pub fn pinned(tcp: TcpKeepalive, pinned: Pinned) -> Self {
         Self { pinned: Some(pinned), ..Self::new(tcp, None) }
+    }
+
+    /// Runs `tap` with each request once it has its connection (`None`: no longer), as Node's recorder taps the
+    /// dispatches of the global dispatcher (`node-wire-capture.mjs` `tapDispatches`).
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn tap(&self, tap: Option<Tap>) {
+        *self.tap.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = tap;
     }
 
     /// The address every connect goes to, when a test pinned it.
@@ -505,8 +521,17 @@ impl NodeClient {
         let mut replayed = false;
         loop {
             let reused = self.pool.take(&key).await;
-            // This request has its connection (or dials one): a connection held for it is free for the next.
-            self.pool.free_held(&key);
+            #[cfg(any(test, feature = "test-support"))]
+            if let Some(tap) = self.tap.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref() {
+                tap(request);
+            }
+            // This request has its connection (or dials one). A connection held for it is busy for the rest of this
+            // turn, which ends when this task yields: a request polled beside this one before then finds it busy,
+            // one after it finds it free ([`Pool::hold_h1`]).
+            if self.pool.holds(&key) {
+                tokio::task::yield_now().await;
+                self.pool.free_held(&key);
+            }
             let was_reused = reused.is_some();
             let outcome = match reused {
                 Some(Taken::H1(conn)) => self.exchange_h1(conn, &key, request, &url, writer, surface).await,
