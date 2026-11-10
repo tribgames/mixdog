@@ -301,7 +301,7 @@ impl DeviceCleanup for PairedDeviceCleanup {
         Box::pin(async move {
             // `removeDevice`: this PC's own entry stays, and a device with none stored has nothing to drop.
             let Some(Value::Object(mut devices)) = self.config.get("notifications.devices") else { return };
-            if credential_id == "pc" || devices.remove(credential_id).is_none() {
+            if credential_id == "pc" || devices.shift_remove(credential_id).is_none() {
                 return;
             }
             let _ = self.config.write("notifications.devices", Value::Object(devices), mixdog_protocol::ConfigWriteMode::Replace).await;
