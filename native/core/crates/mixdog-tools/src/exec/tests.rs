@@ -33,6 +33,8 @@ struct FakeProcesses {
     limited: Mutex<std::collections::HashSet<ProcessHandle>>,
     /// Every spawn request, in order.
     seen: Mutex<Vec<(CommandSpec, EnvSpec)>>,
+    /// Every script fed on stdin, in order.
+    fed: Mutex<Vec<String>>,
     /// The `echo X; Start-Sleep 30` command prints nothing at spawn; the test prints later.
     quiet: std::sync::atomic::AtomicBool,
     /// A kill that cannot be sent (the process manager refuses it).
@@ -61,68 +63,10 @@ impl ProcessManager for FakeProcesses {
         };
         let (tx, rx) = mpsc::unbounded_channel();
         let mut seq = 0;
-        let exit = |status, killed| ProcessExit { status, killed };
         self.seen.lock().unwrap().push((request.command.clone(), request.env.clone()));
-        if script == "run-limited" {
-            self.limited.lock().unwrap().insert(request.handle.clone());
-        } else if let Some(tee) = script
-            .split("-FilePath '")
-            .nth(1)
-            .filter(|_| script.contains("Tee-Object"))
-            .and_then(|rest| rest.split('\'').next())
-        {
-            // A filter pipeline whose producer failed: the tee holds what the filters swallowed.
-            std::fs::write(tee, "boom\n").unwrap();
-            send(&tx, &mut seq, |seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(1), None) });
-        } else if script == "echo begin; Start-Sleep 30" {
-            let bytes = b"begin\n".to_vec();
-            send(&tx, &mut seq, |seq| ProcessEvent::Output { seq, stream: OutputStream::Stdout, bytes });
-            send(&tx, &mut seq, |seq| ProcessEvent::Exited {
-                seq,
-                exit: exit(ExitStatus::Signal(9), Some(KillReason::TimeLimit)),
-            });
-        } else if self.quiet.load(std::sync::atomic::Ordering::SeqCst) && script.ends_with("; Start-Sleep 30") {
-        } else if let Some(word) = script.strip_suffix("; Start-Sleep 30").and_then(|s| s.strip_prefix("echo ")) {
-            let bytes = format!("{word}\n").into_bytes();
-            send(&tx, &mut seq, |seq| ProcessEvent::Output { seq, stream: OutputStream::Stdout, bytes });
-        } else if script == "echo done-out" {
-            // Silent until the test prints and ends it, as Node's process had printed nothing when
-            // the task was promoted.
-        } else if let Some(rest) = script.strip_prefix("echo ") {
-            send(&tx, &mut seq, |seq| ProcessEvent::Output {
-                seq,
-                stream: OutputStream::Stdout,
-                bytes: format!("{rest}\n").into_bytes(),
-            });
-            send(&tx, &mut seq, |seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(0), None) });
-        } else if script.starts_with("grep ") {
-            send(&tx, &mut seq, |seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(1), None) });
-        } else if script == "korean" {
-            send(&tx, &mut seq, |seq| ProcessEvent::Output {
-                seq,
-                stream: OutputStream::Stdout,
-                bytes: vec![0xC7, 0xD1, 0xB1, 0xDB, 0x20, 0xC3, 0xE2, 0xB7, 0xC2, 0x0A],
-            });
-            send(&tx, &mut seq, |seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(0), None) });
-        } else if script == "repeat" {
-            send(&tx, &mut seq, |seq| ProcessEvent::Output {
-                seq,
-                stream: OutputStream::Stdout,
-                bytes: "tick\n".repeat(200).into_bytes(),
-            });
-            send(&tx, &mut seq, |seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(0), None) });
-        } else if script == "fail" {
-            send(&tx, &mut seq, |seq| ProcessEvent::Output {
-                seq,
-                stream: OutputStream::Stderr,
-                bytes: b"boom\n".to_vec(),
-            });
-            send(&tx, &mut seq, |seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(3), None) });
-        } else if script == "timeout" {
-            send(&tx, &mut seq, |seq| ProcessEvent::Exited {
-                seq,
-                exit: exit(ExitStatus::Signal(9), Some(KillReason::TimeLimit)),
-            });
+        // A script fed on stdin acts when it arrives.
+        if !request.stdin_piped {
+            self.act(script, &request.handle, &tx, &mut seq);
         }
         self.senders.lock().unwrap().insert(request.handle.clone(), (tx, seq));
         self.receivers.lock().unwrap().insert(request.handle.clone(), rx);
@@ -138,11 +82,17 @@ impl ProcessManager for FakeProcesses {
         Ok(Box::new(ChanSource(rx)))
     }
 
-    async fn write_stdin(&self, _: &ProcessHandle, _: Vec<u8>) -> Result<(), ProcessError> {
-        Err(ProcessError::StdinClosed)
+    async fn write_stdin(&self, handle: &ProcessHandle, bytes: Vec<u8>) -> Result<(), ProcessError> {
+        let script = String::from_utf8(bytes).unwrap();
+        self.fed.lock().unwrap().push(script.clone());
+        let mut senders = self.senders.lock().unwrap();
+        let (tx, seq) = senders.get_mut(handle).ok_or(ProcessError::UnknownHandle)?;
+        let tx = tx.clone();
+        self.act(&script, handle, &tx, seq);
+        Ok(())
     }
     fn close_stdin(&self, _: &ProcessHandle) -> Result<(), ProcessError> {
-        Err(ProcessError::StdinClosed)
+        Ok(())
     }
     fn resize_pty(&self, _: &ProcessHandle, _: PtySize) -> Result<(), ProcessError> {
         Err(ProcessError::NotPty)
@@ -162,6 +112,74 @@ impl ProcessManager for FakeProcesses {
     }
     fn list(&self) -> Vec<ProcessInfo> {
         Vec::new()
+    }
+}
+
+impl FakeProcesses {
+    /// What the process of `script` prints and how it ends.
+    fn act(&self, script: &str, handle: &ProcessHandle, tx: &Chan, seq: &mut u64) {
+        let exit = |status, killed| ProcessExit { status, killed };
+        if script == "run-limited" {
+            self.limited.lock().unwrap().insert(handle.clone());
+        } else if let Some(tee) = script
+            .split("-FilePath '")
+            .nth(1)
+            .filter(|_| script.contains("Tee-Object"))
+            .and_then(|rest| rest.split('\'').next())
+        {
+            // A filter pipeline whose producer failed: the tee holds what the filters swallowed.
+            std::fs::write(tee, "boom\n").unwrap();
+            send(tx, seq,|seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(1), None) });
+        } else if script == "echo begin; Start-Sleep 30" {
+            let bytes = b"begin\n".to_vec();
+            send(tx, seq,|seq| ProcessEvent::Output { seq, stream: OutputStream::Stdout, bytes });
+            send(tx, seq,|seq| ProcessEvent::Exited {
+                seq,
+                exit: exit(ExitStatus::Signal(9), Some(KillReason::TimeLimit)),
+            });
+        } else if self.quiet.load(std::sync::atomic::Ordering::SeqCst) && script.ends_with("; Start-Sleep 30") {
+        } else if let Some(word) = script.strip_suffix("; Start-Sleep 30").and_then(|s| s.strip_prefix("echo ")) {
+            let bytes = format!("{word}\n").into_bytes();
+            send(tx, seq,|seq| ProcessEvent::Output { seq, stream: OutputStream::Stdout, bytes });
+        } else if script == "echo done-out" {
+            // Silent until the test prints and ends it, as Node's process had printed nothing when
+            // the task was promoted.
+        } else if let Some(rest) = script.strip_prefix("echo ") {
+            send(tx, seq,|seq| ProcessEvent::Output {
+                seq,
+                stream: OutputStream::Stdout,
+                bytes: format!("{rest}\n").into_bytes(),
+            });
+            send(tx, seq,|seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(0), None) });
+        } else if script.starts_with("grep ") {
+            send(tx, seq,|seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(1), None) });
+        } else if script == "korean" {
+            send(tx, seq,|seq| ProcessEvent::Output {
+                seq,
+                stream: OutputStream::Stdout,
+                bytes: vec![0xC7, 0xD1, 0xB1, 0xDB, 0x20, 0xC3, 0xE2, 0xB7, 0xC2, 0x0A],
+            });
+            send(tx, seq,|seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(0), None) });
+        } else if script == "repeat" {
+            send(tx, seq,|seq| ProcessEvent::Output {
+                seq,
+                stream: OutputStream::Stdout,
+                bytes: "tick\n".repeat(200).into_bytes(),
+            });
+            send(tx, seq,|seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(0), None) });
+        } else if script == "fail" {
+            send(tx, seq,|seq| ProcessEvent::Output {
+                seq,
+                stream: OutputStream::Stderr,
+                bytes: b"boom\n".to_vec(),
+            });
+            send(tx, seq,|seq| ProcessEvent::Exited { seq, exit: exit(ExitStatus::Code(3), None) });
+        } else if script == "timeout" {
+            send(tx, seq,|seq| ProcessEvent::Exited {
+                seq,
+                exit: exit(ExitStatus::Signal(9), Some(KillReason::TimeLimit)),
+            });
+        }
     }
 }
 
@@ -1166,8 +1184,9 @@ async fn a_powershell_command_gets_the_utf8_preamble_and_the_skill_function() {
     let (spec, _) = rig.processes.seen.lock().unwrap()[0].clone();
     let CommandSpec::Shell { script, shell: Some(program) } = spec else { panic!("{spec:?}") };
     assert_eq!(program, "powershell.exe");
+    assert_eq!(script, super::invocation::POWERSHELL_BOOTSTRAP);
     assert_eq!(
-        script,
+        rig.processes.fed.lock().unwrap()[0],
         format!(
             "{}\n{}\necho hi",
             super::invocation::POWERSHELL_UTF8_PREFIX,
@@ -1300,8 +1319,7 @@ async fn a_swallowing_filter_pipeline_gets_the_rescue_tail_and_its_tee_is_consum
         text,
         "[exit code: 1]\n\n(no output)\n\n[filter-swallowed output rescue] the command failed but its trailing filter(s) matched nothing, so the visible output was empty. Unfiltered pipeline output (tail):\nboom\n"
     );
-    let (spec, _) = rig.processes.seen.lock().unwrap()[0].clone();
-    let CommandSpec::Shell { script, .. } = spec else { panic!() };
+    let script = rig.processes.fed.lock().unwrap()[0].clone();
     let tee = script.split("-FilePath '").nth(1).and_then(|r| r.split('\'').next()).unwrap().to_owned();
     assert!(!std::path::Path::new(&tee).exists(), "the tee file is deleted");
 }

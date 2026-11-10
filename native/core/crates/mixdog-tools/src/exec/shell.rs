@@ -70,6 +70,7 @@ use super::guard::guard_shell_call;
 use super::hoist::plan_hoist;
 use super::hygiene::preflight_powershell_hygiene;
 use super::invocation::EVAL_SCRIPT;
+use super::invocation::POWERSHELL_BOOTSTRAP;
 use super::invocation::build_powershell_filter_tee_plan;
 use super::invocation::filter_rescue_note;
 use super::invocation::prefix_powershell_skill_function;
@@ -743,6 +744,9 @@ impl ShellTool {
         )
         .await;
         let mut tee_path: Option<PathBuf> = None;
+        // A PowerShell script is fed on stdin to `POWERSHELL_BOOTSTRAP` (Node's fresh pwsh spawn,
+        // `shell-run-spawn.mjs`).
+        let mut fed_script: Option<String> = None;
         let spec = match direct {
             Some(direct) => CommandSpec::Argv {
                 program: direct.exe.to_string_lossy().into_owned(),
@@ -758,12 +762,11 @@ impl ShellTool {
                     let tee = build_powershell_filter_tee_plan(&command, &spill::fresh_token(), &tmp, '\\');
                     let body = tee.as_ref().map_or_else(|| command.clone(), |t| t.command.clone());
                     tee_path = tee.map(|t| PathBuf::from(t.tee_path));
-                    CommandSpec::Shell { script: prefix_powershell_utf8(&body, skill), shell: Some(shell_program) }
+                    fed_script = Some(prefix_powershell_utf8(&body, skill));
+                    CommandSpec::Shell { script: POWERSHELL_BOOTSTRAP.to_owned(), shell: Some(shell_program) }
                 } else if runtime.config.powershell {
-                    CommandSpec::Shell {
-                        script: prefix_powershell_skill_function(&command, skill),
-                        shell: Some(shell_program),
-                    }
+                    fed_script = Some(prefix_powershell_skill_function(&command, skill));
+                    CommandSpec::Shell { script: POWERSHELL_BOOTSTRAP.to_owned(), shell: Some(shell_program) }
                 } else if !runtime.config.windows && (shell_program.contains("bash") || shell_program.contains("zsh")) {
                     // The command travels in the environment, not argv, behind a snapshot of the
                     // user's shell state when one can be made.
@@ -807,7 +810,7 @@ impl ShellTool {
             cwd,
             env,
             pty: None,
-            stdin_piped: false,
+            stdin_piped: fed_script.is_some(),
             output: OutputMode::Separate,
             owner: ProcessOwner::Tool {
                 thread_id: ctx.thread_id.clone(),
@@ -827,6 +830,12 @@ impl ShellTool {
                 return Err(spawn_failure(error));
             }
         };
+        if let Some(script) = fed_script {
+            // One write, then end of input: the bootstrap reads to the end before it compiles. A
+            // process that is already gone has nothing to read; its exit is reported as it is.
+            let _ = ctx.processes.write_stdin(&job.handle, script.into_bytes()).await;
+            let _ = ctx.processes.close_stdin(&job.handle);
+        }
         ctx.progress.progress(ToolProgress::ProcessStarted(job.handle.clone()));
         // The hoisted file goes when the command has settled (a promoted or killed tree may still
         // be running from it until then).

@@ -28,6 +28,13 @@ macro_rules! lazy_re {
 pub const POWERSHELL_UTF8_PREFIX: &str =
     "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $OutputEncoding=New-Object System.Text.UTF8Encoding $false;";
 
+/// What every PowerShell run executes as its `-Command` (Node's `STANDBY_BOOTSTRAP`,
+/// `shell-warm-standby.mjs`); the script itself arrives on stdin. Input and output are UTF-8
+/// before the script compiles, so a parse error is reported as `ParserError: <message>` in UTF-8
+/// instead of PowerShell's own text in the console code page, and a script whose last command
+/// failed exits 1.
+pub const POWERSHELL_BOOTSTRAP: &str = r#"$null = . ([scriptblock]::Create('$null')); [Console]::InputEncoding=[System.Text.UTF8Encoding]::new($false); [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); try { $__mixdogScript = [scriptblock]::Create([Console]::In.ReadToEnd() + "`nif (-not `$?) { exit 1 }") } catch { [Console]::Error.WriteLine('ParserError: ' + $_.Exception.GetBaseException().Message); exit 1 }; . $__mixdogScript"#;
+
 pub const SKILL_LAUNCHER_COMMAND: &str = "mixdog-skill-node";
 const SKILL_ARGV_ENV: &str = "MIXDOG_SKILL_ARGV";
 const SKILL_ARGV_TAG: &str = "mixdog1";

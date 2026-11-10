@@ -34,6 +34,7 @@ pub use fold::fold_carriage_return_frames;
 pub use fold::fold_consecutive_duplicate_lines;
 pub use text::escape_harness_tags;
 pub use hoist::ExtSyntax;
+pub use invocation::POWERSHELL_BOOTSTRAP;
 pub use invocation::SkillRuntime;
 pub use invocation::skill_launcher_dir;
 pub use hoist::ScriptSyntax;
