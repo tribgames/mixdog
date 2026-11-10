@@ -1,6 +1,6 @@
 // Records what Node's phone gets back from a Stop (`abortSession`), for every case Node's abort distinguishes (abort.mjs:112-221): Node's own
 // daemon and SessionHost from the exact export of b6f10295a, run unchanged, with a model endpoint that holds the turn open
-// (remote-protocol-chat-abort-provider.mjs). Each case is a fresh thread: the first prompt starts a turn the endpoint holds, the phone's Stop
+// (remote-protocol-chat-abort-provider.mjs). Each case runs in its own world (a fresh environment, its own daemon and host) on a fresh thread: the first prompt starts a turn the endpoint holds, the phone's Stop
 // (`host.abortSession`) is sent once the turn is in the state the case names, and the host's whole reply and the thread's stored row after the
 // turn ended are recorded.
 //
@@ -44,151 +44,146 @@ process.env.HARNESS_ENV_ROOT = join(harness, 'run', 'env-ph2-chat-abort-node');
 const { daemonEnv, isolatedPaths } = await hload('env.mjs');
 const { createDeadline, latch } = await hload('deadline.mjs');
 const envPaths = isolatedPaths();
-rmSync(envPaths.envRoot, { recursive: true, force: true });
-for (const d of [envPaths.dataDir, envPaths.runtimeRoot, envPaths.appData, envPaths.localAppData, envPaths.tmp, envPaths.workspace]) mkdirSync(d, { recursive: true });
 const project = join(envPaths.workspace, 'a');
-mkdirSync(project, { recursive: true });
-writeFileSync(join(project, PROJECT_FILE.name), PROJECT_FILE.text);
-writeFileSync(join(project, ASKED_PROJECT_FILE.name), ASKED_PROJECT_FILE.text);
-writeFileSync(join(envPaths.dataDir, 'hooks.json'), JSON.stringify(HOOK_RULES));
-// Everything started is ended on every path: the model endpoint, the host and the daemon are closed by `end`, whichever step failed.
-let deadline;
-let discovery;
-let host;
-let provider;
-// Each step ends whether or not the one before it did: a host that fails to dispose still has its daemon shut down and its endpoint closed.
-const end = async () => {
-  deadline?.clear();
-  const ended = createDeadline(90_000, () => 'ending the abort recording');
-  try {
-    try {
-      if (host) await ended.race(host.dispose(), 'the host to dispose');
-    } finally {
-      try {
-        // The model endpoint goes first: a turn it still holds (a runtime's turn that was queued again after its Stop) keeps the daemon busy.
-        if (provider) await ended.race(provider.close(), 'the model endpoint to close');
-      } finally {
-        // Node's own bounded wait for the daemon to exit.
-        if (discovery) await sessionClient.shutdownDaemon(discovery, { waitForExit: true, timeoutMs: 60_000 });
-      }
-    }
-  } finally {
-    ended.clear();
-  }
+/** Every case starts in the same declared environment, clean: the env folder removed and made again (data, runtime, app data, temp,
+ *  the project with its two files, the hook rules and the provider config), so nothing one case leaves (the prompt history, the stored
+ *  threads, the daemon) is seen by the next. */
+const freshEnvironment = (baseURL) => {
+  rmSync(envPaths.envRoot, { recursive: true, force: true });
+  for (const d of [envPaths.dataDir, envPaths.runtimeRoot, envPaths.appData, envPaths.localAppData, envPaths.tmp, envPaths.workspace]) mkdirSync(d, { recursive: true });
+  mkdirSync(project, { recursive: true });
+  writeFileSync(join(project, PROJECT_FILE.name), PROJECT_FILE.text);
+  writeFileSync(join(project, ASKED_PROJECT_FILE.name), ASKED_PROJECT_FILE.text);
+  writeFileSync(join(envPaths.dataDir, 'hooks.json'), JSON.stringify(HOOK_RULES));
+  writeFileSync(join(envPaths.dataDir, 'mixdog-config.json'), JSON.stringify({ agent: { providers: { 'custom-harness': { type: 'custom', schemaVersion: 2, name: 'harness', protocol: 'openai-chat', baseURL, auth: 'none', enabled: true, modelOverrides: { 'harness-model': { manual: true } } } } } }));
 };
-let sessionClient;
-let frames;
-try {
-provider = await startAbortProvider();
-writeFileSync(join(envPaths.dataDir, 'mixdog-config.json'), JSON.stringify({ agent: { providers: { 'custom-harness': { type: 'custom', schemaVersion: 2, name: 'harness', protocol: 'openai-chat', baseURL: provider.baseURL, auth: 'none', enabled: true, modelOverrides: { 'harness-model': { manual: true } } } } } }));
 const route = { provider: 'custom-harness', model: 'harness-model' };
+const plain = (value) => JSON.parse(JSON.stringify(value));
 for (const key of Object.keys(process.env)) if (/^MIXDOG_/i.test(key)) delete process.env[key];
 Object.assign(process.env, daemonEnv(envPaths));
 // The daemon is forked with this process's flags; it runs as a plain script.
 process.execArgv = [];
 const { SessionHost } = await load('main/session-host.ts');
-sessionClient = await import(pathToFileURL(join(exportDir, 'src/standalone/session-client.mjs')).href);
+const sessionClient = await import(pathToFileURL(join(exportDir, 'src/standalone/session-client.mjs')).href);
 const { createSessionProtocolClient } = await import(pathToFileURL(join(exportDir, 'src/standalone/session-protocol.mjs')).href);
 const { createDesktopRuntime } = await import(pathToFileURL(join(exportDir, 'src/standalone/daemon-desktop-runtime.mjs')).href);
-
-deadline = createDeadline(240_000, () => `node abort recording; frames seen: ${frames.length}; last frame: ${frames.at(-1)?.slice(0, 600)}; snapshot: ${JSON.stringify(Object.keys(host?.getSnapshot(lastId) ?? {}))} ${host?.getSnapshot(lastId)?.status}; provider requests: ${JSON.stringify(provider.requests.map((r) => [r.held, r.prompt.slice(0, 40)]))}`);
-frames = [];
-discovery = await deadline.race(sessionClient.ensureDaemon({ cwd: envPaths.workspace, attempts: 1, readyTimeoutMs: 60_000 }), 'the Node daemon');
-const waiters = new Set();
-const wake = () => waiters.forEach((check) => check());
-const until = (ready, what) => {
-  const done = latch();
-  const check = () => { if (ready()) { waiters.delete(check); done.resolve(); } };
-  waiters.add(check);
-  check();
-  return deadline.race(done.promise, what);
-};
-const runtime = {
-  ...createDesktopRuntime({ getLocalSessionBridge: () => null }),
-  attachSessionClient: async (options) => {
-    const attached = await sessionClient.attachSession({
-      discovery,
-      cwd: envPaths.workspace,
-      onFrame: (frame) => { frames.push(JSON.stringify(frame)); options.onFrame(frame); wake(); },
-      onFatal: options.onFatal,
-    });
-    return createSessionProtocolClient({ call: (name, args, callOptions) => attached.call(name, args, callOptions), close: (reason) => attached.close(reason) });
-  },
-};
-host = await deadline.race(SessionHost.create({ userDataPath: envPaths.appData, resourcesPath: envPaths.workspace, appPath: envPaths.workspace, packaged: false }, runtime), 'the session host');
-const plain = (value) => JSON.parse(JSON.stringify(value));
-// Everything the phone is told of a thread, in the order the host told it: each session state the host published for it
-// (`subscribeSessionStates`, what remote-relay-session-wiring.ts:203-207 hands the phone's fanout), each change of its list row in a
-// roster the host published (`subscribeSessions`, what the phone's catalog is sent), and each reply to the phone's own calls. A state or
-// row equal to the one before it is no change and not kept.
-const told = [];
-const lastState = new Map();
-const lastRow = new Map();
-let published = [];
-host.subscribeSessions((rows) => {
-  published = rows;
-  const listed = new Map(rows.map((row) => [row.id, row]));
-  for (const id of new Set([...lastRow.keys(), ...listed.keys()])) {
-    const row = listed.has(id) ? plain(listed.get(id)) : null;
-    if (JSON.stringify(row) === JSON.stringify(lastRow.get(id) ?? null)) continue;
-    lastRow.set(id, row);
-    told.push({ sessionId: id, kind: 'row', row });
-  }
-  wake();
-});
-host.subscribeSessionStates((update) => {
-  const snapshot = plain(update.snapshot ?? null);
-  const key = JSON.stringify(snapshot);
-  if (lastState.get(update.sessionId) === key) return;
-  lastState.set(update.sessionId, key);
-  told.push({ sessionId: update.sessionId, kind: 'state', frameSource: update.frameSource ?? null, snapshot });
-});
-// The approvals a notification's Allow may answer: Node's push notifier, fed the host's session states as remote-relay-session-wiring.ts:148,203-204
-// feeds it, handed to the phone's table as remote-relay.ts:468-472 hands it. It is created disabled: it sends no push (nothing here could
-// receive one); the shown approvals it keeps do not depend on that (push-notifier.ts onSessionState sets them first).
 const { createPushNotifier } = await load('main/push-notifier.ts');
-const notifier = createPushNotifier({ store: {}, isEnabled: () => false, readFinalAnswer: async () => null, isClientForeground: () => false });
-host.subscribeSessionStates((update) => notifier.onSessionState(update));
-const approvalNotifications = {
-  approvalAllowDecision: (sessionId, approvalId) => notifier.approvalAllowDecision(sessionId, approvalId),
-  approvalPointerOnly: (sessionId, approvalId) => notifier.approvalPointerOnly(sessionId, approvalId),
-};
-/** The session is idle: the host's own state for it says no turn runs. */
-/** The session state the host holds for a thread (the daemon's session-state frames folded: session-host-publication.ts projections). */
- const sessionState = (id) => host.publication.projections.get(id)?.snapshot;
- const idle = (id) => host.getSnapshot(id)?.busy === false;
+const { sessionRemoteMethods } = await load('main/remote-session-methods.ts');
 
-const cases = [];
-let lastId = '';
-  // The phone's entry into the host: remote-session-methods.ts `sessionRemoteMethods`, one table per paired device (its `deviceName` is what the
-  // relay names the connection after). It validates the options as the phone's call is validated (`requiredSubmitOptions`, `requiredAbortOptions`),
-  // stamps the connection's device on the submission and on the Stop, and calls `host.submitNewTask` / `submitToSession` / `abortSession`
-  // (remote-session-methods.ts:149-167); nothing between the phone's frame and the host is skipped.
-  const { sessionRemoteMethods } = await load('main/remote-session-methods.ts');
-  const phones = new Map();
-  const phone = (device) => {
-    if (!phones.has(device)) {
-      const methods = sessionRemoteMethods(host, { deviceName: async () => device }, undefined, approvalNotifications);
-      // Each call's reply is told to the phone in its place among the pushes.
-      phones.set(device, new Proxy(methods, {
-        get: (table, method) => async (args) => {
-          // Every call of the table but submitNewTask names its thread first; a new task's thread is the one its reply names.
-          const sessionId = method === 'submitNewTask' ? undefined : args?.[0];
-          let reply;
-          try {
-            reply = plain((await table[method](args)) ?? null);
-          } catch (error) {
-            told.push({ sessionId, kind: 'reply', method, device, error: String(error?.message ?? error) });
-            throw error;
-          }
-          told.push({ sessionId: sessionId ?? reply?.sessionId, kind: 'reply', method, device, reply });
-          return reply;
-        },
-      }));
+/** One case in its own world: a fresh environment, Node's daemon and SessionHost started for it and ended after it. */
+async function recordCase(c, provider) {
+  freshEnvironment(provider.baseURL);
+  let discovery;
+  let host;
+  let frames = [];
+  let lastId = '';
+  const deadline = createDeadline(240_000, () => `node abort recording of ${c.name}; frames seen: ${frames.length}; last frame: ${frames.at(-1)?.slice(0, 600)}; snapshot: ${JSON.stringify(Object.keys(host?.getSnapshot(lastId) ?? {}))} ${host?.getSnapshot(lastId)?.status}; provider requests: ${JSON.stringify(provider.requests.map((r) => [r.held, r.prompt.slice(0, 40)]))}`);
+  // Each step ends whether or not the one before it did: a host that fails to dispose still has its daemon shut down.
+  let ending;
+  const end = () => (ending ??= endWorld());
+  const endWorld = async () => {
+    deadline.clear();
+    const ended = createDeadline(90_000, () => `ending the world of ${c.name}`);
+    try {
+      try {
+        if (host) await ended.race(host.dispose(), 'the host to dispose');
+      } finally {
+        // Node's own bounded wait for the daemon to exit, under this deadline too.
+        if (discovery) await ended.race(sessionClient.shutdownDaemon(discovery, { waitForExit: true, timeoutMs: 60_000 }), `the Node daemon of ${c.name} to exit`);
+      }
+    } finally {
+      ended.clear();
     }
-    return phones.get(device);
   };
-  for (const c of CASES) {
+  try {
+    discovery = await deadline.race(sessionClient.ensureDaemon({ cwd: envPaths.workspace, attempts: 1, readyTimeoutMs: 60_000 }), 'the Node daemon');
+    const waiters = new Set();
+    const wake = () => waiters.forEach((check) => check());
+    const until = (ready, what) => {
+      const done = latch();
+      const check = () => { if (ready()) { waiters.delete(check); done.resolve(); } };
+      waiters.add(check);
+      check();
+      return deadline.race(done.promise, what);
+    };
+    const runtime = {
+      ...createDesktopRuntime({ getLocalSessionBridge: () => null }),
+      attachSessionClient: async (options) => {
+        const attached = await sessionClient.attachSession({
+          discovery,
+          cwd: envPaths.workspace,
+          onFrame: (frame) => { frames.push(JSON.stringify(frame)); options.onFrame(frame); wake(); },
+          onFatal: options.onFatal,
+        });
+        return createSessionProtocolClient({ call: (name, args, callOptions) => attached.call(name, args, callOptions), close: (reason) => attached.close(reason) });
+      },
+    };
+    host = await deadline.race(SessionHost.create({ userDataPath: envPaths.appData, resourcesPath: envPaths.workspace, appPath: envPaths.workspace, packaged: false }, runtime), 'the session host');
+    // Everything the phone is told of a thread, in the order the host told it: each session state the host published for it
+    // (`subscribeSessionStates`, what remote-relay-session-wiring.ts:203-207 hands the phone's fanout), each change of its list row in a
+    // roster the host published (`subscribeSessions`, what the phone's catalog is sent), and each reply to the phone's own calls. A state or
+    // row equal to the one before it is no change and not kept.
+    const told = [];
+    const lastState = new Map();
+    const lastRow = new Map();
+    let published = [];
+    host.subscribeSessions((rows) => {
+      published = rows;
+      const listed = new Map(rows.map((row) => [row.id, row]));
+      for (const id of new Set([...lastRow.keys(), ...listed.keys()])) {
+        const row = listed.has(id) ? plain(listed.get(id)) : null;
+        if (JSON.stringify(row) === JSON.stringify(lastRow.get(id) ?? null)) continue;
+        lastRow.set(id, row);
+        told.push({ sessionId: id, kind: 'row', row });
+      }
+      wake();
+    });
+    host.subscribeSessionStates((update) => {
+      const snapshot = plain(update.snapshot ?? null);
+      const key = JSON.stringify(snapshot);
+      if (lastState.get(update.sessionId) === key) return;
+      lastState.set(update.sessionId, key);
+      told.push({ sessionId: update.sessionId, kind: 'state', frameSource: update.frameSource ?? null, snapshot });
+    });
+    // The approvals a notification's Allow may answer: Node's push notifier, fed the host's session states as remote-relay-session-wiring.ts:148,203-204
+    // feeds it, handed to the phone's table as remote-relay.ts:468-472 hands it. It is created disabled: it sends no push (nothing here could
+    // receive one); the shown approvals it keeps do not depend on that (push-notifier.ts onSessionState sets them first).
+    const notifier = createPushNotifier({ store: {}, isEnabled: () => false, readFinalAnswer: async () => null, isClientForeground: () => false });
+    host.subscribeSessionStates((update) => notifier.onSessionState(update));
+    const approvalNotifications = {
+      approvalAllowDecision: (sessionId, approvalId) => notifier.approvalAllowDecision(sessionId, approvalId),
+      approvalPointerOnly: (sessionId, approvalId) => notifier.approvalPointerOnly(sessionId, approvalId),
+    };
+    /** The session state the host holds for a thread (the daemon's session-state frames folded: session-host-publication.ts projections). */
+    const sessionState = (id) => host.publication.projections.get(id)?.snapshot;
+    const idle = (id) => host.getSnapshot(id)?.busy === false;
+    // The phone's entry into the host: remote-session-methods.ts `sessionRemoteMethods`, one table per paired device (its `deviceName` is what the
+    // relay names the connection after). It validates the options as the phone's call is validated (`requiredSubmitOptions`, `requiredAbortOptions`),
+    // stamps the connection's device on the submission and on the Stop, and calls `host.submitNewTask` / `submitToSession` / `abortSession`
+    // (remote-session-methods.ts:149-167); nothing between the phone's frame and the host is skipped.
+    const phones = new Map();
+    const phone = (device) => {
+      if (!phones.has(device)) {
+        const methods = sessionRemoteMethods(host, { deviceName: async () => device }, undefined, approvalNotifications);
+        // Each call's reply is told to the phone in its place among the pushes.
+        phones.set(device, new Proxy(methods, {
+          get: (table, method) => async (args) => {
+            // Every call of the table but submitNewTask names its thread first; a new task's thread is the one its reply names.
+            const sessionId = method === 'submitNewTask' ? undefined : args?.[0];
+            let reply;
+            try {
+              reply = plain((await table[method](args)) ?? null);
+            } catch (error) {
+              told.push({ sessionId, kind: 'reply', method, device, error: String(error?.message ?? error) });
+              throw error;
+            }
+            told.push({ sessionId: sessionId ?? reply?.sessionId, kind: 'reply', method, device, reply });
+            return reply;
+          },
+        }));
+      }
+      return phones.get(device);
+    };
     const since0 = Date.now();
     const submitter = phone(c.submitter ?? DEVICES.a);
     const canceller = phone(c.canceller ?? c.submitter ?? DEVICES.a);
@@ -247,17 +242,28 @@ let lastId = '';
     // A requeued turn runs on; the thread is deleted once recorded so the daemon has no turn left when it is shut down.
     if (c.requeued) await deadline.race(host.deleteSession(id), `deleteSession of ${c.name}`);
     const stream = told.filter((event) => event.sessionId === id).map(({ sessionId: _id, ...event }) => event);
-    cases.push({ name: c.name, id, stop: c.stop ?? null, ...(c.again ? { again: c.again } : {}), node: { reply, ...(second ? { second } : {}), ...(c.notify ? { answers } : {}), items, row, promptRestore, stream } });
+    const recorded = { name: c.name, id, stop: c.stop ?? null, ...(c.again ? { again: c.again } : {}), node: { reply, ...(second ? { second } : {}), ...(c.notify ? { answers } : {}), items, row, promptRestore, stream } };
+    await end();
+    return recorded;
+  } catch (error) {
+    // The failure that stopped the recording is the one reported; a failure to end what was started is printed beside it.
+    await end().catch((ending) => process.stderr.write(`ending the world of ${c.name} failed too: ${ending?.stack ?? ending}\n`));
+    throw error;
   }
-  writeFileSync(outFile, `${JSON.stringify({
-    manifest: { exact: true, commit: COMMIT, filesVerified: checked, source: 'Node daemon + SessionHost from the exact export, run unchanged; model endpoint remote-protocol-chat-abort-provider.mjs' },
-    cases,
-  }, null, 2)}\n`);
-  console.log(`recorded ${cases.length} abort cases`);
-} catch (error) {
-  // The failure that stopped the recording is the one reported; a failure to end what was started is printed beside it.
-  await end().catch((ending) => process.stderr.write(`ending what the recording started failed too: ${ending?.stack ?? ending}\n`));
-  throw error;
 }
-await end();
+
+// The model endpoint answers by prompt (each case's prompt is its own) and is shared by the cases; it is closed on every path.
+const provider = await startAbortProvider();
+const cases = [];
+try {
+  for (const c of CASES) cases.push(await recordCase(c, provider));
+} finally {
+  const closing = createDeadline(60_000, () => 'the model endpoint to close');
+  try { await closing.race(provider.close(), 'the model endpoint to close'); } finally { closing.clear(); }
+}
+writeFileSync(outFile, `${JSON.stringify({
+  manifest: { exact: true, commit: COMMIT, filesVerified: checked, environment: 'one fresh environment per case (freshEnvironment): its own data, runtime, app data, temp and project folders, hook rules and provider config; its own Node daemon and SessionHost', source: 'Node daemon + SessionHost from the exact export, run unchanged; model endpoint remote-protocol-chat-abort-provider.mjs' },
+  cases,
+}, null, 2)}\n`);
+console.log(`recorded ${cases.length} abort cases`);
 process.exit(0);

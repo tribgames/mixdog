@@ -54,7 +54,8 @@ function killCluster(dataDir) {
   if (out.status !== 0) throw new Error(`ending the memory cluster under ${dataDir} failed (${out.status ?? out.error}): ${out.stderr}`);
 }
 
-/** `only` names one case of ABORT_CASES to run alone; without it every case runs (what the test's full run compares). */
+/** `only` names one case of ABORT_CASES to run alone; without it every case runs (what the test's full run compares). Each case runs in
+ *  its own world, as Node's recording runs it: a fresh environment and its own core, ended after the case. */
 export async function runAbortLive({ only } = {}) {
   const chosen = only === undefined ? ABORT_CASES : ABORT_CASES.filter((c) => c.name === only);
   if (!chosen.length) throw new Error(`--only names no abort case: ${JSON.stringify(only)}`);
@@ -69,149 +70,144 @@ export async function runAbortLive({ only } = {}) {
   const { seedPgRuntime } = await load('stage.mjs');
   const { launch } = await load('proc.mjs');
   const { createDeadline, latch } = await load('deadline.mjs');
-
   const paths = isolatedPaths();
-  rmSync(paths.envRoot, { recursive: true, force: true });
-  for (const d of [paths.dataDir, paths.runtimeRoot, paths.appData, paths.localAppData, paths.tmp, paths.workspace]) mkdirSync(d, { recursive: true });
   const project = join(paths.workspace, 'a');
-  mkdirSync(project, { recursive: true });
-  writeFileSync(join(project, PROJECT_FILE.name), PROJECT_FILE.text);
-  writeFileSync(join(project, ASKED_PROJECT_FILE.name), ASKED_PROJECT_FILE.text);
-  writeFileSync(join(paths.dataDir, 'hooks.json'), JSON.stringify(HOOK_RULES));
-  seedPgRuntime(paths.dataDir);
+  const route = { provider: 'custom-harness', model: 'harness-model' };
+  const plain = (value) => (value === undefined ? null : JSON.parse(JSON.stringify(value)));
+  // The router arms a per-call deadline on the page's window timers; this run has its own deadline, so the page's never fires.
+  globalThis.window ??= { setTimeout: () => 0, clearTimeout() {} };
+  const { adapter } = await import('./remote-protocol-chat.ts');
+  const { createProtocolRouter } = await import('./remote-shim-protocol.ts');
 
-  const notes = [];
-  const told = [];
-  let core;
-  const clients = [];
-  let watcher;
-  let provider;
-  let deadline = createDeadline(240_000, () => `${core?.tail() ?? '(core not started)'}\nnotifications: ${notes.slice(-12).map((n) => n.method).join(', ')}\nphone was told last: ${JSON.stringify(told.slice(-3)).slice(-4000)}\nlast row told: ${JSON.stringify(told.findLast((event) => event.kind === 'row') ?? null)}`);
-  try {
-    provider = await deadline.race(startAbortProvider(), 'the model endpoint to listen');
-    writeFileSync(join(paths.dataDir, 'mixdog-config.json'), JSON.stringify({ agent: { providers: { 'custom-harness': { type: 'custom', schemaVersion: 2, name: 'harness', protocol: 'openai-chat', baseURL: provider.baseURL, auth: 'none', enabled: true, modelOverrides: { 'harness-model': { manual: true } } } } } }));
-    const route = { provider: 'custom-harness', model: 'harness-model' };
+  /** The environment Node's recording declares for every case (remote-protocol-chat-abort.record.mjs `freshEnvironment`), made clean. */
+  const freshEnvironment = (baseURL) => {
+    rmSync(paths.envRoot, { recursive: true, force: true });
+    for (const d of [paths.dataDir, paths.runtimeRoot, paths.appData, paths.localAppData, paths.tmp, paths.workspace]) mkdirSync(d, { recursive: true });
+    mkdirSync(project, { recursive: true });
+    writeFileSync(join(project, PROJECT_FILE.name), PROJECT_FILE.text);
+    writeFileSync(join(project, ASKED_PROJECT_FILE.name), ASKED_PROJECT_FILE.text);
+    writeFileSync(join(paths.dataDir, 'hooks.json'), JSON.stringify(HOOK_RULES));
+    writeFileSync(join(paths.dataDir, 'mixdog-config.json'), JSON.stringify({ agent: { providers: { 'custom-harness': { type: 'custom', schemaVersion: 2, name: 'harness', protocol: 'openai-chat', baseURL, auth: 'none', enabled: true, modelOverrides: { 'harness-model': { manual: true } } } } } }));
+    seedPgRuntime(paths.dataDir);
+  };
 
-    core = launch(bin, ['serve'], { env: daemonEnv(paths, { RUST_LOG: 'warn' }), cwd: paths.envRoot });
-    const daemonDoc = () => {
-      const file = join(paths.runtimeRoot, 'daemon.json');
-      if (!existsSync(file)) return null;
-      try {
-        const d = JSON.parse(readFileSync(file, 'utf8'));
-        return d?.core?.state === 'serving' && d.core.rpc?.port ? d : null;
-      } catch { return null; }
-    };
-    const served = latch();
-    watcher = watch(paths.runtimeRoot, () => { const d = daemonDoc(); if (d) served.resolve(d); });
-    const early = daemonDoc();
-    if (early) served.resolve(early);
-    const doc = await deadline.race(served.promise, 'the core to serve');
-
-    const plain = (value) => (value === undefined ? null : JSON.parse(JSON.stringify(value)));
-    // The router arms a per-call deadline on the page's window timers; this run has its own deadline, so the page's never fires.
-    globalThis.window ??= { setTimeout: () => 0, clearTimeout() {} };
-    const { adapter } = await import('./remote-protocol-chat.ts');
-    const { createProtocolRouter } = await import('./remote-shim-protocol.ts');
-    const endpoint = parseDiscovery(readFileSync(join(paths.runtimeRoot, 'daemon.json'), 'utf8'));
-    // What each phone was told, in order (the same three kinds Node's recording keeps): a reply to one of its calls, a change of a thread's
-    // state as its client folds it, a change of a thread's row in a roster its adapter published. Equal consecutive values are no change.
-    const waiters = new Set();
-    const wake = () => { for (const check of [...waiters]) check(); };
-    // One phone per paired device: its own client (the core stamps a prompt and a Stop with the connection's `clientInfo.title`), router and adapter.
-    const connectPhone = async (title) => {
-      const client = await deadline.race(connect({
-        target: { id: 'core' },
-        connector: createWsConnector(async () => endpoint),
-        // The device a decision is stamped with is the paired device's name, which the relay's pairing gives a phone connection; this
-        // run connects without the relay, so it names the device as a local client does, by its title (the core stamps that).
-        clientInfo: { name: 'mixdog-phone', title, version: '1.4.5', kind: 'tui' },
-        capabilities: { optOutNotificationMethods: [], experimentalApi: false },
-        threadReducer: sessionReducer,
-        // The client sleeps only on its reconnect ladder after a dropped transport; this run never drops one, and a drop fails it.
-        clock: { sleep: () => Promise.reject(new Error('the phone dropped its connection')) },
-        random: Math.random,
-      }), `the client of ${title} to connect`);
-      clients.push(client);
-      const lastState = new Map();
-      const lastRow = new Map();
-      client.on((event) => {
-        if (event.type === 'notification') notes.push({ method: event.notification.method, params: event.notification.params, device: title });
-        wake();
-      });
-      client.store.subscribe((change) => {
-        if (change.type === 'thread') {
-          const snapshot = plain(sessionStateOf(client, change.threadId));
-          const key = JSON.stringify(snapshot);
-          if (lastState.get(change.threadId) !== key) {
-            lastState.set(change.threadId, key);
-            told.push({ device: title, sessionId: change.threadId, kind: 'state', snapshot });
-          }
-        }
-        wake();
-      });
-      const ctx = {
-        phone: { start: async () => undefined },
-        sessionsCatalog: {
-          publish: (rows) => {
-            const listed = new Map(rows.map((row) => [row.id, row]));
-            for (const id of new Set([...lastRow.keys(), ...listed.keys()])) {
-              const row = listed.has(id) ? plain(listed.get(id)) : null;
-              if (JSON.stringify(row) === JSON.stringify(lastRow.get(id) ?? null)) continue;
-              lastRow.set(id, row);
-              told.push({ device: title, sessionId: id, kind: 'row', row });
-            }
-            wake();
-          },
-        },
-      };
-      const router = createProtocolRouter([adapter], {
-        host: { ctx, client: () => client, declareLane() {} },
-        started: async () => undefined,
-        synced: async () => undefined,
-        probe() {},
-        silentSince: () => false,
-      });
-      router.install();
-      // The phone's view opens the app feed first (apps/mobile/src/phone-view.ts `attach`): the roster's edges arrive on it.
-      await deadline.race(client.subscribeApp(), `the app feed of ${title}`);
-      // The page's boot read of the list (remote-shim-api.ts listSessions): the roster the adapter publishes edges onto from then on.
-      await deadline.race(router.call('listSessions', []), `the first list read of ${title}`);
-      const phoneCall = async (method, args) => {
-        const sessionId = method === 'submitNewTask' ? undefined : args[0];
-        let reply;
+  async function runCase(c, provider) {
+    freshEnvironment(provider.baseURL);
+    const notes = [];
+    const told = [];
+    let core;
+    const clients = [];
+    let watcher;
+    const deadline = createDeadline(240_000, () => `${c.name}: ${core?.tail() ?? '(core not started)'}\nnotifications: ${notes.slice(-12).map((n) => n.method).join(', ')}\nphone was told last: ${JSON.stringify(told.slice(-3)).slice(-4000)}\nlast row told: ${JSON.stringify(told.findLast((event) => event.kind === 'row') ?? null)}`);
+    try {
+      core = launch(bin, ['serve'], { env: daemonEnv(paths, { RUST_LOG: 'warn' }), cwd: paths.envRoot });
+      const daemonDoc = () => {
+        const file = join(paths.runtimeRoot, 'daemon.json');
+        if (!existsSync(file)) return null;
         try {
-          reply = plain(await deadline.race(router.call(method, args), `the reply of ${title} to ${method}`));
-        } catch (error) {
-          told.push({ device: title, sessionId, kind: 'reply', method, error: String(error?.message ?? error) });
-          throw error;
-        }
-        told.push({ device: title, sessionId: sessionId ?? reply?.sessionId, kind: 'reply', method, reply });
-        return reply;
+          const d = JSON.parse(readFileSync(file, 'utf8'));
+          return d?.core?.state === 'serving' && d.core.rpc?.port ? d : null;
+        } catch { return null; }
       };
-      return { client, call: phoneCall, list: () => router.call('listSessions', []) };
-    };
-    const until = (ready, what) => {
-      const done = latch();
-      const check = () => { if (ready()) { waiters.delete(check); done.resolve(); } };
-      waiters.add(check);
-      check();
-      return deadline.race(done.promise, what);
-    };
-    // What the submitting device's connection was told (it holds the thread open); the other device only sends its Stop.
-    let viewer = '';
-    const seen = (id, method, text) => notes.filter((n) => n.device === viewer && n.method === method && n.params?.threadId === id && (text === undefined || JSON.stringify(n.params).includes(text))).length;
-    const phones = new Map();
-    const phone = async (title) => {
-      if (!phones.has(title)) phones.set(title, await connectPhone(title));
-      return phones.get(title);
-    };
-
-    const cases = [];
-    for (const c of chosen) {
+      const served = latch();
+      watcher = watch(paths.runtimeRoot, () => { const d = daemonDoc(); if (d) served.resolve(d); });
+      const early = daemonDoc();
+      if (early) served.resolve(early);
+      await deadline.race(served.promise, 'the core to serve');
+      const endpoint = parseDiscovery(readFileSync(join(paths.runtimeRoot, 'daemon.json'), 'utf8'));
+      // What each phone was told, in order (the same three kinds Node's recording keeps): a reply to one of its calls, a change of a thread's
+      // state as its client folds it, a change of a thread's row in a roster its adapter published. Equal consecutive values are no change.
+      const waiters = new Set();
+      const wake = () => { for (const check of [...waiters]) check(); };
+      // One phone per paired device: its own client (the core stamps a prompt and a Stop with the connection's `clientInfo.title`), router and adapter.
+      const connectPhone = async (title) => {
+        const client = await deadline.race(connect({
+          target: { id: 'core' },
+          connector: createWsConnector(async () => endpoint),
+          // The device a decision is stamped with is the paired device's name, which the relay's pairing gives a phone connection; this
+          // run connects without the relay, so it names the device as a local client does, by its title (the core stamps that).
+          clientInfo: { name: 'mixdog-phone', title, version: '1.4.5', kind: 'tui' },
+          capabilities: { optOutNotificationMethods: [], experimentalApi: false },
+          threadReducer: sessionReducer,
+          // The client sleeps only on its reconnect ladder after a dropped transport; this run never drops one, and a drop fails it.
+          clock: { sleep: () => Promise.reject(new Error('the phone dropped its connection')) },
+          random: Math.random,
+        }), `the client of ${title} to connect`);
+        clients.push(client);
+        const lastState = new Map();
+        const lastRow = new Map();
+        client.on((event) => {
+          if (event.type === 'notification') notes.push({ method: event.notification.method, params: event.notification.params, device: title });
+          wake();
+        });
+        client.store.subscribe((change) => {
+          if (change.type === 'thread') {
+            const snapshot = plain(sessionStateOf(client, change.threadId));
+            const key = JSON.stringify(snapshot);
+            if (lastState.get(change.threadId) !== key) {
+              lastState.set(change.threadId, key);
+              told.push({ device: title, sessionId: change.threadId, kind: 'state', snapshot });
+            }
+          }
+          wake();
+        });
+        const ctx = {
+          phone: { start: async () => undefined },
+          sessionsCatalog: {
+            publish: (rows) => {
+              const listed = new Map(rows.map((row) => [row.id, row]));
+              for (const id of new Set([...lastRow.keys(), ...listed.keys()])) {
+                const row = listed.has(id) ? plain(listed.get(id)) : null;
+                if (JSON.stringify(row) === JSON.stringify(lastRow.get(id) ?? null)) continue;
+                lastRow.set(id, row);
+                told.push({ device: title, sessionId: id, kind: 'row', row });
+              }
+              wake();
+            },
+          },
+        };
+        const router = createProtocolRouter([adapter], {
+          host: { ctx, client: () => client, declareLane() {} },
+          started: async () => undefined,
+          synced: async () => undefined,
+          probe() {},
+          silentSince: () => false,
+        });
+        router.install();
+        // The phone's view opens the app feed first (apps/mobile/src/phone-view.ts `attach`): the roster's edges arrive on it.
+        await deadline.race(client.subscribeApp(), `the app feed of ${title}`);
+        // The page's boot read of the list (remote-shim-api.ts listSessions): the roster the adapter publishes edges onto from then on.
+        await deadline.race(router.call('listSessions', []), `the first list read of ${title}`);
+        const phoneCall = async (method, args) => {
+          const sessionId = method === 'submitNewTask' ? undefined : args[0];
+          let reply;
+          try {
+            reply = plain(await deadline.race(router.call(method, args), `the reply of ${title} to ${method}`));
+          } catch (error) {
+            told.push({ device: title, sessionId, kind: 'reply', method, error: String(error?.message ?? error) });
+            throw error;
+          }
+          told.push({ device: title, sessionId: sessionId ?? reply?.sessionId, kind: 'reply', method, reply });
+          return reply;
+        };
+        return { client, call: phoneCall, list: () => router.call('listSessions', []) };
+      };
+      const until = (ready, what) => {
+        const done = latch();
+        const check = () => { if (ready()) { waiters.delete(check); done.resolve(); } };
+        waiters.add(check);
+        check();
+        return deadline.race(done.promise, what);
+      };
+      const phones = new Map();
+      const phone = async (title) => {
+        if (!phones.has(title)) phones.set(title, await connectPhone(title));
+        return phones.get(title);
+      };
       const submitter = await phone(c.submitter ?? DEVICES.a);
       const canceller = await phone(c.canceller ?? c.submitter ?? DEVICES.a);
-      const mark = notes.length;
-      viewer = c.submitter ?? DEVICES.a;
+      // What the submitting device's connection was told (it holds the thread open); the other device only sends its Stop.
+      const viewer = c.submitter ?? DEVICES.a;
       const toldFrom = told.length;
       const since0 = Date.now();
       // The phone's own calls, with the arguments Node's recording gave its phone table.
@@ -257,34 +253,48 @@ export async function runAbortLive({ only } = {}) {
       const row = (await deadline.race(submitter.list(), `listSessions after ${c.name}`)).find((r) => r.id === id) ?? null;
       const promptRestore = plain(state()?.promptRestore ?? null);
       const stream = told.slice(toldFrom).filter((event) => event.sessionId === id && event.device === viewer || (event.kind === 'reply' && event.sessionId === id)).map(({ sessionId: _s, device, ...event }) => (event.kind === 'reply' ? { ...event, device } : event));
-      cases.push({ name: c.name, id, core: { reply, ...(second ? { second } : {}), ...(c.notify ? { answers } : {}), items: read.items, row, promptRestore, stream } });
-    }    return {
-      manifest: {
-        binary: bin, binarySha256: createHash('sha256').update(readFileSync(bin)).digest('hex'), binaryBuilt: statSync(bin).mtime.toISOString(), builtFrom: built,
-        source: 'running mixdogd serve, isolated env (real-turn harness env.mjs / stage.mjs / proc.mjs), model endpoint remote-protocol-chat-abort-provider.mjs, driven through the phone\'s router and chat adapter over the protocol client',
-      },
-      cases,
-    };
-  } finally {
-    deadline.clear();
-    const ended = createDeadline(60_000, () => `ending the abort run; core: ${core?.tail()}`);
-    try {
-      watcher?.close();
-      for (const client of clients) client.close?.();
+      return { name: c.name, id, core: { reply, ...(second ? { second } : {}), ...(c.notify ? { answers } : {}), items: read.items, row, promptRestore, stream } };
+    } finally {
+      deadline.clear();
+      const ended = createDeadline(60_000, () => `ending the world of ${c.name}; core pid ${core?.pid}: ${core?.tail()}`);
       try {
-        if (core) {
-          core.kill();
-          await ended.race(core.exited, 'the core to exit');
-        }
-      } finally {
+        watcher?.close();
+        for (const client of clients) client.close?.();
         try {
-          if (provider) await ended.race(provider.close(), 'the model endpoint to close');
+          if (core) {
+            core.kill();
+            await ended.race(core.exited, `the core of ${c.name} (pid ${core?.pid}) to exit`);
+          }
         } finally {
           killCluster(paths.dataDir);
         }
+      } finally {
+        ended.clear();
       }
-    } finally {
-      ended.clear();
     }
   }
+
+  // The model endpoint answers by prompt (each case's prompt is its own) and is shared by the cases; it is closed on every path.
+  let provider;
+  const startup = createDeadline(60_000, () => 'the model endpoint to listen');
+  try {
+    provider = await startup.race(startAbortProvider(), 'the model endpoint to listen');
+  } finally {
+    startup.clear();
+  }
+  const cases = [];
+  try {
+    for (const c of chosen) cases.push(await runCase(c, provider));
+  } finally {
+    const closing = createDeadline(60_000, () => 'the model endpoint to close');
+    try { await closing.race(provider.close(), 'the model endpoint to close'); } finally { closing.clear(); }
+  }
+  return {
+    manifest: {
+      binary: bin, binarySha256: createHash('sha256').update(readFileSync(bin)).digest('hex'), binaryBuilt: statSync(bin).mtime.toISOString(), builtFrom: built,
+      environment: 'one fresh environment per case (freshEnvironment), its own core',
+      source: 'running mixdogd serve, isolated env (real-turn harness env.mjs / stage.mjs / proc.mjs), model endpoint remote-protocol-chat-abort-provider.mjs, driven through the phone\'s router and chat adapter over the protocol client',
+    },
+    cases,
+  };
 }
