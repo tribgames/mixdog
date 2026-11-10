@@ -937,7 +937,7 @@ impl ReadTool {
         if files.is_empty() {
             return Ok(None);
         }
-        files.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        files.sort_by(|a, b| b.1.unwrap_or(0).cmp(&a.1.unwrap_or(0)).then_with(|| a.0.cmp(&b.0)));
         let capped = files.len() > GLOB_SURVEY_FILES;
         files.truncate(GLOB_SURVEY_FILES);
         let limit = match be.limit {
