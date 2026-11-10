@@ -44,6 +44,8 @@ export interface PhoneBoot {
   /** Dials (once): credentials, registration, the client. Resolves when the client is up and its view is being attached. */
   start(): Promise<PhoneClient>;
   client(): ProtocolClient<SessionFold> | undefined;
+  /** Called with the client that is up and with every client that replaces it (a re-pairing dials a new one); returns the unsubscribe. */
+  onClient(listener: (client: ProtocolClient<SessionFold>) => void): () => void;
   /** Resolves when the connection that is up has attached the app feed and the open threads. */
   synced(): Promise<void>;
   setVisibleSessions(threadIds: readonly string[]): Promise<boolean>;
@@ -68,6 +70,7 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
   let lanes: LaneFeeds | undefined;
   let pendingLanes: Iterable<string> = [];
   const declaredLanes = new Map<string, readonly string[]>();
+  const clientListeners = new Set<(client: ProtocolClient<SessionFold>) => void>();
   // The page told the PC it is in the background (Node's `reportedBackground`).
   let background = false;
   // Node's resyncOnWake / resyncAfterWakeProbe: a page that was away, or whose connection ended, resyncs on its next wake, and only once the relay
@@ -221,6 +224,8 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
     lanes = createLaneFeeds(connected.client);
     for (const [lane, feeds] of declaredLanes) lanes.declare(lane, feeds);
     lanes.use(pendingLanes);
+    // Each client the page dials (a re-pairing makes a new one in the same page) is handed to whoever reads its events.
+    for (const listener of [...clientListeners]) listener(connected.client);
     // The threads the page named (or the last visit had); the first sync, and every later connection's, is the view machine's own.
     void view.set(ctx.lastVisibleSessionIds).catch(() => undefined);
     return connected;
@@ -305,6 +310,11 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
     wakeProbe: () => wake(),
     silentSince: (since: number): boolean => phone?.link.silentSince(since) ?? false,
     client: () => phone?.client,
+    onClient: (listener) => {
+      clientListeners.add(listener);
+      if (phone) listener(phone.client);
+      return () => void clientListeners.delete(listener);
+    },
     synced: async () => {
       await start();
       await view!.synced();
