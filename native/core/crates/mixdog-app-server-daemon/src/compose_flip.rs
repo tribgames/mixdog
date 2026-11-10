@@ -1193,6 +1193,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let channel_admin = mixdog_services::channels::ChannelAdmin::new(mixdog_services::channels::AdminDeps {
         schedules: schedules.clone(),
         webhooks: webhooks.clone(),
+        owned: Arc::new(mixdog_services::channels::routines_db::OwnedRoutines::new(b.core_state.clone())),
         routines: routines.clone(),
         runtime: channel_runtime.clone(),
         settings: channel_settings,
