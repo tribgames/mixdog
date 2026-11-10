@@ -27,9 +27,29 @@ const WORLDS = join(REPO_ROOT, '.replay-new-task-dedupe');
 const here = (path) => import(pathToFileURL(join(REPO_ROOT, path)).href);
 const sha = async (text) => (await import('node:crypto')).createHash('sha256').update(text).digest('hex');
 
+/** A synchronous child with one deadline: a child that cannot start or outlives `ms` (and is then ended) is an error naming `what`. The children run here start no
+ *  process of their own that outlives them, except `pg_ctl start`, whose server is ended by its caller on failure. */
+function runSync(what, command, args, ms, options = {}) {
+  const result = spawnSync(command, args, { ...options, timeout: ms, windowsHide: true });
+  if (result.error) throw new Error(`${what} did not finish within ${ms} ms: ${result.error.message}`);
+  return result;
+}
+
+/** Resolves when `child` has exited; fails with a message naming `what` after `ms`. */
+const exitWithin = (child, ms, what) =>
+  child.exitCode !== null || child.signalCode !== null
+    ? Promise.resolve()
+    : new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`${what} did not exit within ${ms} ms`)), ms);
+        child.once('exit', () => {
+          clearTimeout(timer);
+          resolve();
+        });
+      });
+
 /** Every descendant of `pid` now (the core's database, for one): a crash of the core leaves them running. */
 function descendants(pid) {
-  const listed = spawnSync('powershell', ['-NoProfile', '-Command', 'Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId | ConvertTo-Json -Compress'], { encoding: 'utf8' });
+  const listed = runSync('listing the processes', 'powershell', ['-NoProfile', '-Command', 'Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId | ConvertTo-Json -Compress'], 60_000, { encoding: 'utf8' });
   const rows = JSON.parse(listed.stdout);
   const found = [];
   const walk = (parent) => {
@@ -51,15 +71,22 @@ function databaseEnded(dataDir) {
   const bin = join(dataDir, 'runtime', readdirSync(join(dataDir, 'runtime')).find((name) => name.startsWith('runtime-pg')), 'bin', 'pg_ctl.exe');
   const pgdata = join(dataDir, 'pgdata');
   const [pid, , , port] = readFileSync(pidFile, 'utf8').split('\n').map((line) => line.trim());
-  const running = spawnSync('powershell', ['-NoProfile', '-Command', `if (Get-Process -Id ${pid} -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }`]).status === 0;
+  const running = runSync(`looking for the database's process ${pid}`, 'powershell', ['-NoProfile', '-Command', `if (Get-Process -Id ${pid} -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }`], 60_000).status === 0;
+  // pg_ctl's own `-t 600` bounds its wait; the child's deadline is above it.
+  const stop = (mode) => runSync(`pg_ctl stop -m ${mode}`, bin, ['stop', '-D', pgdata, '-m', mode, '-w', '-t', '600'], 660_000, { stdio: 'ignore' });
   if (!running) {
     // On Windows `pg_ctl start -w` takes a pid file whose start time is within 2 s of its own start as the new server's, ready: the dead one's file would end its wait at once
     // and the stop below would find no server, leaving the recovering one to hold the data directory against the core. The dead server's file is removed first.
     rmSync(pidFile);
-    const started = spawnSync(bin, ['start', '-D', pgdata, '-w', '-t', '600', '-o', `-p ${port}`], { stdio: 'ignore' });
+    let started;
+    try {
+      started = runSync("recovering the killed core's database (pg_ctl start)", bin, ['start', '-D', pgdata, '-w', '-t', '600', '-o', `-p ${port}`], 660_000, { stdio: 'ignore' });
+    } finally {
+      if (started?.status !== 0) stop('immediate');
+    }
     if (started.status !== 0) throw new Error(`recovering the killed core's database failed: pg_ctl start exited ${started.status}`);
   }
-  const stopped = spawnSync(bin, ['stop', '-D', pgdata, '-m', 'fast', '-w', '-t', '600'], { stdio: 'ignore' });
+  const stopped = stop('fast');
   if (stopped.status !== 0) throw new Error(`stopping the core's database failed: pg_ctl stop exited ${stopped.status}`);
 }
 /** The port of the core's database, which the core keeps in its data directory and takes again at its next start. */
@@ -84,9 +111,14 @@ async function holdPort(port) {
 /** The core is stopped as its own quit stops it, and ended with its database; the returned function frees the database's port for the next start. */
 async function stopCore(exe, core) {
   const port = databasePort(core.dataDir);
-  const exited = new Promise((resolve) => core.child.once('exit', resolve));
-  spawnSync(exe, ['ctl', 'stop', '--when-idle', '--reason', 'userStop'], { env: core.env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-  await exited;
+  const exited = exitWithin(core.child, 120_000, 'the core asked to stop');
+  try {
+    runSync('mixdogd ctl stop', exe, ['ctl', 'stop', '--when-idle', '--reason', 'userStop'], 60_000, { env: core.env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    await exited;
+  } catch (error) {
+    killTree(core.child);
+    throw error;
+  }
   databaseEnded(core.dataDir);
   return port ? holdPort(port) : () => {};
 }
@@ -221,8 +253,9 @@ async function replayScenario({ exe, scenario, numberFresh }) {
     // The next scenario's database takes the first free port; this one's must have let go of its own.
     if (core.child.exitCode === null) await stopCore(exe, core).then((free) => free(), () => {});
     killTree(core.child);
-    if (core.child.exitCode === null) await new Promise((resolve) => core.child.once('exit', resolve));
-    for (const pid of survivors) spawnSync('taskkill', ['/F', '/PID', String(pid)], { stdio: 'ignore' });
+    await exitWithin(core.child, 60_000, "the core's process tree, ended with taskkill");
+    // A pid already gone is no error here.
+    for (const pid of survivors) runSync(`taskkill of the crashed core's process ${pid}`, 'taskkill', ['/F', '/PID', String(pid)], 60_000, { stdio: 'ignore' });
   }
   return numberFresh(scenario, got);
 }

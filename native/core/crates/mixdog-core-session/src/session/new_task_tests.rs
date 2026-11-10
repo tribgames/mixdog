@@ -349,22 +349,24 @@ async fn the_129th_request_in_flight_is_refused() {
     let rig = Rig::new();
     let receipts = NewTaskReceipts::new(&rig._data.path().join("userdata"), mixdog_rt::testing::tokens().durability_io);
     let release = Arc::new(tokio::sync::Semaphore::new(0));
+    let running = Arc::new(tokio::sync::Semaphore::new(0));
     let mut held = Vec::new();
     for index in 0..super::new_task::MAX_ACTIVE {
-        let (receipts, release) = (receipts.clone(), release.clone());
+        let (receipts, release, running) = (receipts.clone(), release.clone(), running.clone());
         held.push(tokio::spawn(async move {
             receipts
                 .run(&format!("held-{index}"), &json!({ "n": index }), move |_| async move {
+                    running.add_permits(1);
                     release.acquire().await.expect("open").forget();
                     Err(mixdog_core_base::support::failed("session", "released"))
                 })
                 .await
         }));
     }
-    // Every held request has its place before the next asks for one.
-    while receipts.in_flight() < super::new_task::MAX_ACTIVE {
-        tokio::task::yield_now().await;
-    }
+    // Every held request runs its attempt, so holds its place, before the next asks for one.
+    let all = u32::try_from(super::new_task::MAX_ACTIVE).expect("fits");
+    running.acquire_many(all).await.expect("open").forget();
+    assert_eq!(receipts.in_flight(), super::new_task::MAX_ACTIVE);
     let refused = receipts.run("one-more", &json!({}), |_| async { Err(mixdog_core_base::support::failed("session", "never runs")) }).await;
     assert!(matches!(&refused, Err(CoreError::DomainError { message: Some(message), .. }) if message.as_ref() == "Too many new task requests are in progress."), "{refused:?}");
     release.add_permits(super::new_task::MAX_ACTIVE);
