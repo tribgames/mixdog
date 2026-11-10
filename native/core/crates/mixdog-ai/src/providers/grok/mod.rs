@@ -124,20 +124,22 @@ fn sdk_headers() -> Vec<(String, String)> {
 /// `randomUUID()` of `proxyHeaders`: a new id per request.
 fn request_id() -> String {
     #[cfg(any(test, feature = "test-support"))]
-    if let Some(fixed) = FIXED_REQUEST_ID.get() {
-        return fixed.clone();
+    if let Some(drawn) = NUMBERED_REQUEST_IDS.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_mut() {
+        *drawn += 1;
+        return format!("00000000-0000-4000-8000-{drawn:012}");
     }
     random_uuid()
 }
 
 #[cfg(any(test, feature = "test-support"))]
-static FIXED_REQUEST_ID: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+static NUMBERED_REQUEST_IDS: std::sync::Mutex<Option<u64>> = std::sync::Mutex::new(None);
 
-/// Every Grok request id of this process is `id`, as the Node wire recorder fixes `crypto.randomUUID` for its whole
-/// process. Compiled for tests and the `test-support` feature only.
+/// From now on the Grok request ids of this process are a sequence starting over at its 1st id
+/// (`00000000-0000-4000-8000-000000000001`, ...), as the Node wire recorder's `crypto.randomUUID` is for each scenario.
+/// Compiled for tests and the `test-support` feature only.
 #[cfg(any(test, feature = "test-support"))]
-pub fn fix_request_id(id: &str) {
-    FIXED_REQUEST_ID.get_or_init(|| id.to_owned());
+pub fn number_request_ids_from_one() {
+    *NUMBERED_REQUEST_IDS.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(0);
 }
 
 /// Points the xAI request at the proxy and adds the CLI identity headers.

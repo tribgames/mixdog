@@ -1018,7 +1018,7 @@ impl DefaultProviderBuilder {
             "xai" | "deepseek" | "openrouter" | "mimo-oauth" | "command-code-oauth" | "muse-code-oauth"
             | "opencode-go-oauth" => self.build_compat(name, cfg).await,
             "grok-oauth" => {
-                let credential = Arc::new(GrokCredential::new(self.env.http.clone(), self.file(name)?));
+                let credential = Arc::new(GrokCredential::new(self.env.http.clone(), self.file(name)?).with_pace(self.env.pace.clone()));
                 let retry = CompatProfile::xai().retry_policy();
                 Ok(adapter(grok::adapter(
                     self.env.http.clone(),

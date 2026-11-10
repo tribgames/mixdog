@@ -77,6 +77,20 @@ pub trait Credential: Send + Sync {
     fn refreshable(&self) -> bool {
         false
     }
+
+    /// Whether a refusal (its status and body) is answered with a forced refresh and one resend: a 401, when the
+    /// credential can refresh.
+    fn refreshes_on(&self, status: u16, _body: &[u8]) -> bool {
+        status == 401 && self.refreshable()
+    }
+
+    /// Whether the resend after a refresh needs a credential other than the refused one.
+    fn resend_needs_new(&self) -> bool {
+        true
+    }
+
+    /// Marks the error of a resend refused again after a refresh.
+    fn refused_again(&self, _status: u16, _error: &mut ProviderError) {}
 }
 
 /// One credential header that never changes (or none: a keyless endpoint).
@@ -106,6 +120,7 @@ pub async fn run_attempt(
     let mut header = credential.header(false).await?;
     let mut wire = codec.encode(request)?;
     let mut again = false;
+    let mut refreshed = false;
     // The read refusal before an immediate resend: Node returns its socket to the pool only after the code that read it
     // has run on, so the resend does not get it; it is let go once the resend went out.
     let mut held = None;
@@ -123,15 +138,20 @@ pub async fn run_attempt(
         let status = head.status;
         let (rejected, body) = head.read_all_held(true).await?;
         if again {
-            return Err(codec.classify(&rejected));
+            let mut error = codec.classify(&rejected);
+            if refreshed {
+                credential.refused_again(status, &mut error);
+            }
+            return Err(error);
         }
-        if status == 401 && credential.refreshable() {
+        if credential.refreshes_on(status, &rejected.body) {
             // The refresh waits on the network, so the refusal's socket is free again before the resend.
             drop(body);
             again = true;
+            refreshed = true;
             let next = credential.header(true).await?;
-            // The same rejected credential is not sent again.
-            if next != header {
+            // The same rejected credential is not sent again, unless the provider resends whatever the refresh gave.
+            if next != header || !credential.resend_needs_new() {
                 header = next;
                 continue;
             }
