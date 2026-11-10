@@ -83,6 +83,30 @@ async fn running_on_records(rig: &Rig) -> (SessionDirectory, Arc<SessionHandle>)
     (directory, handle)
 }
 
+/// [`eventually_on`] with a deadline the test drives, never the runtime's auto-advance: each round gives the tasks their turns, then moves
+/// the paused clock one second, and 60 rounds with the probe still unmet end the wait with `None` (a failure path only).
+async fn eventually_within<T>(wakes: &[&tokio::sync::Notify], probe: impl FnMut() -> Option<T>) -> Option<T> {
+    let wait = eventually_on(wakes, probe);
+    tokio::pin!(wait);
+    for _ in 0..60 {
+        for _ in 0..32 {
+            tokio::select! { biased; found = &mut wait => return Some(found), _ = tokio::task::yield_now() => {} }
+        }
+        tokio::time::advance(std::time::Duration::from_secs(1)).await;
+    }
+    None
+}
+
+/// The deadline of [`eventually_within`] ends a wait whose probe is never met, with virtual time only, and a met probe returns at once.
+#[tokio::test(start_paused = true)]
+async fn the_driven_deadline_ends_a_wait_that_is_never_met() {
+    let wake = tokio::sync::Notify::new();
+    let started = tokio::time::Instant::now();
+    assert_eq!(eventually_within(&[&wake], || None::<()>).await, None);
+    assert!(started.elapsed() >= std::time::Duration::from_secs(60), "the test drove the clock to the deadline");
+    assert_eq!(eventually_within(&[&wake], || Some(7)).await, Some(7));
+}
+
 fn prompt_restores(rig: &Rig, handle: &SessionHandle) -> Vec<Value> {
     rig.feeds.frames(handle.id.as_str()).into_iter().filter(|(_, method, _)| method == "thread/promptRestore").map(|(_, _, value)| value).collect()
 }
@@ -113,11 +137,21 @@ async fn another_device_stopping_sends_the_prompt_to_the_sender_through_prompt_r
     let reply = stop(&handle, 2, None).await;
     assert_eq!((reply["aborted"].clone(), reply["restoreText"].clone(), reply["restoredSubmissionIds"].clone()), (json!(true), json!(""), json!([])));
     eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || idle(&handle).then_some(())).await;
-    let restores = eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || Some(prompt_restores(&rig, &handle)).filter(|frames| !frames.is_empty())).await;
-    let restore = &restores.last().unwrap()["value"];
-    assert_eq!((restore["text"].clone(), restore["device"].clone(), restore["ids"].clone()), (json!("draft"), json!("desktop-1"), json!(["sub1"])));
-    assert!(restore["id"].as_str().unwrap().starts_with("restore-"));
-    assert!(restore["at"].is_number());
+    let restores = eventually_within(&[&handle.cell.stepped, &*rig.feeds.published], || Some(prompt_restores(&rig, &handle)).filter(|frames| !frames.is_empty()))
+        .await
+        .expect("the prompt restore was published");
+    let all: Value = serde_json::from_str(include_str!("../../../../fixtures/phone-chat-core/phone-chat-core.json")).unwrap();
+    let case = all["cases"].as_array().unwrap().iter().find(|case| case["name"] == "another device cancels: the prompt travels through the state").unwrap();
+    // The only restore Node's state held and published, whole. Two parts are the rig's, not the core's: the clock (Node's recorded
+    // 1700000000450 is its fake clock; the id `restore-<clock>-<first submission id>` and `at` carry it) and the device name (Node's "PC" is
+    // connection 1, which `NamedDevices` names `desktop-1`).
+    let mut want = case["after"]["promptRestore"].clone();
+    let at = restores[0]["value"]["at"].clone();
+    want["id"] = json!(format!("restore-{at}-{}", want["ids"][0].as_str().unwrap()));
+    want["at"] = at;
+    assert_eq!(want["device"], "PC");
+    want["device"] = json!("desktop-1");
+    assert_eq!(restores.into_iter().map(|mut frame| { frame.as_object_mut().unwrap().remove("threadId"); frame }).collect::<Vec<_>>(), vec![json!({ "value": want })]);
 }
 
 /// The recorded `nothing queued` / `no id names nothing`: an idle stop stops nothing.
@@ -583,13 +617,8 @@ async fn every_recorded_submit_is_accepted_or_refused_as_nodes_is() {
         }
         if notification {
             // The notice reaches the thread through its inbox: wait for the entry on the queue.
-            // Paused time: the deadline is virtual and fires only when no step can still enqueue it, so a missing enqueue fails here.
-            let queued = tokio::time::timeout(
-                std::time::Duration::from_secs(60),
-                eventually_on(&[&handle.cell.stepped], || (handle.cell.queue.load().len() == 1).then_some(())),
-            )
-            .await;
-            assert!(queued.is_ok(), "{name}: the channel notification never reached the thread's queue (held entries: {})", handle.cell.queue.load().len());
+            let queued = eventually_within(&[&handle.cell.stepped], || (handle.cell.queue.load().len() == 1).then_some(())).await;
+            assert!(queued.is_some(), "{name}: the channel notification never reached the thread's queue (held entries: {})", handle.cell.queue.load().len());
         }
         let since = || frames().into_iter().skip(base_frames).collect::<Vec<_>>();
         let node = &case["after"];
@@ -597,13 +626,8 @@ async fn every_recorded_submit_is_accepted_or_refused_as_nodes_is() {
         let clock = rig.clock.0.load(std::sync::atomic::Ordering::SeqCst);
         let (mut rust_labels, mut node_labels) = (Labels::default(), Labels::default());
         let want_frames: Vec<(String, Value)> = node_frames(node["publications"].as_array().unwrap(), at, clock).into_iter().map(|(method, params)| (method, renumber(&params, &mut node_labels))).collect();
-        // Paused time: the deadline is virtual, it only fires when no step can publish what Node did, so a missing frame fails here.
-        let arrived = tokio::time::timeout(
-            std::time::Duration::from_secs(60),
-            eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || (since().len() >= want_frames.len()).then_some(())),
-        )
-        .await;
-        assert!(arrived.is_ok(), "{name}: frames never arrived: {:?}, Node: {want_frames:?}", since());
+        let arrived = eventually_within(&[&handle.cell.stepped, &*rig.feeds.published], || (since().len() >= want_frames.len()).then_some(())).await;
+        assert!(arrived.is_some(), "{name}: frames never arrived: {:?}, Node: {want_frames:?}", since());
         let store: Vec<Value> = rig.store.records(&handle.id)[base_records..].iter().map(|(_, record)| serde_json::to_value(record).unwrap()).collect();
         // The ids Rust gave: the user item's and its turn's, the queue entry's.
         let id_of = |value: &Value, key: &str| value[key].as_str().unwrap().to_owned();
@@ -870,8 +894,8 @@ async fn every_recorded_rewind_resolves_the_displayed_id_as_nodes_does() {
 fn every_recorded_image_shape_is_published_as_nodes_queue_projection_shows_it() {
     use super::seams::Transcript;
     let all: Value = serde_json::from_str(include_str!("../../../../fixtures/phone-chat-core/phone-chat-core.json")).unwrap();
-    let cases: Vec<&Value> = all["cases"].as_array().unwrap().iter().filter(|case| case["kind"] == "image-shape").collect();
-    assert!(cases.len() >= 20, "the recorded shapes");
+    let cases: Vec<&Value> = all["cases"].as_array().unwrap().iter().filter(|case| case["kind"] == "image-shape" || case["kind"] == "queue-shape").collect();
+    assert!(cases.len() >= 34, "the recorded shapes");
     for case in cases {
         let name = case["name"].as_str().unwrap();
         let projected = case["projected"].as_array().unwrap();
@@ -882,15 +906,10 @@ fn every_recorded_image_shape_is_published_as_nodes_queue_projection_shows_it() 
         }
         let entry = json!({ "message": case["content"], "enqueuedAt": 1, "priority": "next", "options": options });
         let got = super::transcript::RecordTranscript::new().queued("<qid>", &entry);
-        let (mut got, mut want) = (got, queue_row(&projected[0], 1, 1));
-        if case["content"][1].get("attachmentRef").is_some() {
-            // The text of a prompt holding a stored attachment is read from the attachment store (`promptDisplayText`), which this
-            // case has not seeded on either side: the text is that read's, not the image list's, and has its own goldens.
-            got["text"] = Value::Null;
-            want["text"] = Value::Null;
+        assert_eq!(got, queue_row(&projected[0], 1, 1), "{name}");
+        if case["kind"] == "image-shape" {
+            assert_eq!(projected[0]["images"].as_array().map(Vec::len), Some(1), "{name}: Node shows the image");
         }
-        assert_eq!(got, want, "{name}");
-        assert_eq!(projected[0]["images"].as_array().map(Vec::len), Some(1), "{name}: Node shows the image");
     }
 }
 

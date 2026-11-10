@@ -127,23 +127,31 @@ mod tests {
 
     const SHELL: &str = "<task-notification>\n<task-id>job-7</task-id>\n<status>completed</status>\n<summary>Shell task completed (exit 0)</summary>\n<result>\nok\n</result>\n</task-notification>";
 
-    /// `markCompletionEntry(text, {meta: {execution_id, status}})` persisted.
+    /// Every recorded completion: `markCompletionEntry` tags it and `normalizePersistedEntry` is what Node persists (the pending spool),
+    /// compared whole with the entry the core queues for the same text and execution. The surface and status are the bus event's, which the
+    /// core's caller passes (the recorded envelopes name `shell` and `completed`). Node's in-memory queue entry for the same completion
+    /// (`createExecutionDelivery`) has priority `next` and is neither visible nor editable, so Node mirrors and publishes none of it; the
+    /// persisted entry has no priority, which every reader of the queue takes as `next` (`queuePriorityValue`), so a queue persisted by
+    /// either side orders the same.
     #[test]
     fn a_completion_is_queued_as_nodes_persisted_entry() {
-        let (id, entry) = entry("shell", "job-7", "completed", &format!("  {SHELL}\n"), 42).unwrap();
-        // sha256("execution:job-7"), first 24 hex digits.
-        assert_eq!(id, format!("completion_{}", &hex(&Sha256::digest(b"execution:job-7"))[..24]));
-        assert_eq!(
-            entry,
-            json!({
-                "message": SHELL,
-                "notificationKind": "completion_notification",
-                "mode": "task-notification",
-                "executionId": "job-7",
-                "execution": { "surface": "shell", "id": "job-7", "status": "completed" },
-                "enqueuedAt": 42,
-            })
-        );
+        let all: Value = serde_json::from_str(include_str!("../../../../fixtures/phone-chat-core/phone-chat-core.json")).unwrap();
+        let cases: Vec<&Value> = all["cases"].as_array().unwrap().iter().filter(|case| case["kind"] == "completion").collect();
+        assert!(cases.len() >= 2, "the recorded completions");
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let (id, mut queued) = entry("shell", case["options"]["executionId"].as_str().unwrap(), "completed", case["text"].as_str().unwrap(), case["persisted"]["enqueuedAt"].as_i64().unwrap()).unwrap();
+            queued["id"] = json!(id);
+            assert_eq!(queued, case["persisted"], "{name}");
+            assert_eq!(case["queued"], json!({ "mode": "task-notification", "priority": "next", "visible": false, "editable": false }), "{name}");
+            use crate::session::run::{Priority, within_priority};
+            for ceiling in [Priority::Next, Priority::Later] {
+                let mut with_priority = queued.clone();
+                with_priority["priority"] = case["queued"]["priority"].clone();
+                assert_eq!(within_priority(&queued, ceiling), within_priority(&with_priority, ceiling), "{name}: the stored priority changes no ordering");
+            }
+        }
+        let (_, entry) = entry("shell", "job-7", "completed", &format!("  {SHELL}\n"), 42).unwrap();
         assert!(is_notification(&entry));
         assert!(is_notification(&json!({ "message": "x", "mode": "task-notification" })));
         assert!(!is_notification(&json!({ "message": "x" })));

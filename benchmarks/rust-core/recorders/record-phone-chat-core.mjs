@@ -412,11 +412,31 @@ await rewinding('the second of two prompts with the same text is rewound', { ite
 
 // The image shapes a queue entry can hold (a persisted queue entry carries whatever the producer wrote): Node's real `makeQueueEntry`
 // builds the entry and `projectSessionState` shows it to a client, so `images` is what `promptContentImageMeta` gives for the shape.
-function imageShape(name, part, pastedImages = null) {
-  const content = [{ type: 'text', text: 'see [Image #1]' }, { type: 'image', ...part }];
-  const entry = makeQueueEntry(content, { id: 'q1', submittedAt: 1, ...(pastedImages ? { pastedImages } : {}) }, () => 'unused');
-  cases.push({ name, kind: 'image-shape', content, pastedImages, projected: plain(projectSessionState({}, { queued: [entry] }).queued) });
+function queueShape(name, kind, content, pastedImages = null, literal = null) {
+  // `content` is the entry as a store or the wire holds it (JSON): a literal NaN or infinity is null there, and `literal` names what the
+  // producer wrote. The core receives only JSON, so `projected` is Node's real projection of that JSON entry; `projectedLiteral` is what
+  // Node shows for the in-process non-finite number, kept so the difference is on the record.
+  const wire = JSON.parse(JSON.stringify(content));
+  const show = (held) => plain(projectSessionState({}, { queued: [makeQueueEntry(held, { id: 'q1', submittedAt: 1, ...(pastedImages ? { pastedImages } : {}) }, () => 'unused')] }).queued);
+  cases.push({ name, kind, content: wire, literal, pastedImages, projected: show(wire), ...(literal ? { projectedLiteral: show(content) } : {}) });
 }
+function imageShape(name, part, pastedImages = null, literal = null) {
+  queueShape(name, 'image-shape', [{ type: 'text', text: 'see [Image #1]' }, { type: 'image', ...part }], pastedImages, literal);
+}
+queueShape('a file part shows as [File]', 'queue-shape', [{ type: 'text', text: 'read this' }, { type: 'file', filename: 'a.pdf', text: 'ignored' }]);
+queueShape('a string part is its own text', 'queue-shape', ['plain', { type: 'text', text: 'and more' }]);
+queueShape('a media reference text part is dropped', 'queue-shape', [{ type: 'text', text: 'ask' }, { type: 'text', text: 'Image kept on disk', attachmentReference: true }]);
+queueShape('an unknown part shows its text', 'queue-shape', [{ type: 'text', text: 'ask' }, { type: 'audio', text: 'heard' }]);
+imageShape('sizeBytes an empty string', { data: 'AAAA', mimeType: 'image/png', sizeBytes: '' });
+imageShape('sizeBytes a blank string', { data: 'AAAA', mimeType: 'image/png', sizeBytes: '   ' });
+imageShape('sizeBytes an exponent string', { data: 'AAAA', mimeType: 'image/png', sizeBytes: '1e3' });
+imageShape('sizeBytes false', { data: 'AAAA', mimeType: 'image/png', sizeBytes: false });
+imageShape('sizeBytes negative', { data: 'AAAA', mimeType: 'image/png', sizeBytes: -5 });
+imageShape('sizeBytes NaN', { data: 'AAAA', mimeType: 'image/png', sizeBytes: Number.NaN }, null, 'NaN');
+imageShape('sizeBytes negative infinity', { data: 'AAAA', mimeType: 'image/png', sizeBytes: Number.NEGATIVE_INFINITY }, null, '-Infinity');
+imageShape('sizeBytes a very large number', { data: 'AAAA', mimeType: 'image/png', sizeBytes: 1e300 });
+imageShape('sizeBytes a very large numeric string', { data: 'AAAA', mimeType: 'image/png', sizeBytes: '1e400' });
+imageShape('sizeBytes an array of one', { data: 'AAAA', mimeType: 'image/png', sizeBytes: [7] });
 imageShape('data and mimeType', { data: 'AAAA', mimeType: 'image/png' });
 imageShape('content and no data', { content: 'BBBBBBBB', mimeType: 'image/jpeg' });
 imageShape('data that is no string falls back to content', { data: 7, content: 'CCCCC', mimeType: 'image/jpeg' });
@@ -437,6 +457,38 @@ imageShape('sizeBytes null', { data: 'AAAA', mimeType: 'image/png', sizeBytes: n
 imageShape('sizeBytes an object', { data: 'AAAA', mimeType: 'image/png', sizeBytes: {} });
 imageShape('sizeBytes infinite', { data: 'AAAA', mimeType: 'image/png', sizeBytes: 'Infinity' });
 imageShape('a stored attachment keeps its reference', { mimeType: 'image/png', sizeBytes: 99, attachmentRef: 'a'.repeat(64) });
+
+// A completion notification, as Node persists it and as it queues in memory. Persisted: `markCompletionEntry` tags it and
+// `normalizePersistedEntry` is the shape the pending spool writes (pending-message-entry.mjs), which holds no priority. In memory:
+// the real `createExecutionDelivery` enqueues it (priority `next`, execution-delivery.mjs:96) through the real `makeQueueEntry`.
+const { markCompletionEntry, normalizePersistedEntry } = await importFrom(tree, 'src/runtime/agent/orchestrator/session/manager/pending-message-entry.mjs');
+const { createExecutionDelivery } = await importFrom(tree, 'src/tui/session/agent-job-feed/execution-delivery.mjs');
+const { isQueuedEntryEditable, isQueuedEntryVisible } = await importFrom(tree, 'src/tui/session/queue-helpers.mjs');
+const SHELL_DONE = '<task-notification>\n<task-id>job-7</task-id>\n<status>completed</status>\n<summary>Shell task completed (exit 0)</summary>\n<result>\nok\n</result>\n</task-notification>';
+function completion(name, text, options) {
+  const marked = markCompletionEntry(text, options);
+  const persisted = normalizePersistedEntry(marked);
+  const queued = [];
+  const delivery = createExecutionDelivery({
+    dedup: { hasNotificationKey: () => false, rememberNotificationKey() {}, responseState: () => null, rememberResponseState() {}, promote() {} },
+    pendingResume: { isDiscarded: () => false },
+    enqueue: (body, opts) => { queued.push(makeQueueEntry(body, opts, () => 'unused')); return true; },
+    nextId: () => 'card',
+    pushResponse() {},
+    statusRefresh: { refresh() {} },
+  });
+  const event = { meta: options.meta || {} };
+  delivery.deliver({ event, text: text.trim(), parsed: null, delivery: { modelContent: text, displayText: 'shown' }, executionId: options.executionId, status: 'completed', terminal: true, notificationKey: undefined });
+  const [entry] = queued;
+  cases.push({
+    name, kind: 'completion', text, options, persisted: plain(persisted),
+    queued: plain({ mode: entry.mode, priority: entry.priority, visible: isQueuedEntryVisible(entry), editable: isQueuedEntryEditable(entry) }),
+  });
+}
+completion('a completion with its execution', `  ${SHELL_DONE}\n`, { executionId: 'job-7', meta: { execution_surface: 'shell', status: 'completed' } });
+completion('a completion with an id and no meta', SHELL_DONE.replace('job-7', 'job-8'), { executionId: 'job-8' });
+// A completion naming no execution anywhere is not recorded: Node's `normalizePersistedEntry` recurses without end on it
+// (`completionExecutionId` -> `pendingMessageText` -> `completionEntryFields`), so Node persists no such entry.
 
 const out = join(FIXTURES_ROOT, 'phone-chat-core', 'phone-chat-core.json');
 mkdirSync(join(FIXTURES_ROOT, 'phone-chat-core'), { recursive: true });

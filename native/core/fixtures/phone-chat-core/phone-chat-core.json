@@ -4193,6 +4193,507 @@
       }
     },
     {
+      "name": "a file part shows as [File]",
+      "kind": "queue-shape",
+      "content": [
+        {
+          "type": "text",
+          "text": "read this"
+        },
+        {
+          "type": "file",
+          "filename": "a.pdf",
+          "text": "ignored"
+        }
+      ],
+      "literal": null,
+      "pastedImages": null,
+      "projected": [
+        {
+          "id": "q1",
+          "submittedAt": 1,
+          "text": "read this\n[File]",
+          "displayText": "read this\n[File]",
+          "mode": "prompt",
+          "priority": "next"
+        }
+      ]
+    },
+    {
+      "name": "a string part is its own text",
+      "kind": "queue-shape",
+      "content": [
+        "plain",
+        {
+          "type": "text",
+          "text": "and more"
+        }
+      ],
+      "literal": null,
+      "pastedImages": null,
+      "projected": [
+        {
+          "id": "q1",
+          "submittedAt": 1,
+          "text": "plain\nand more",
+          "displayText": "plain\nand more",
+          "mode": "prompt",
+          "priority": "next"
+        }
+      ]
+    },
+    {
+      "name": "a media reference text part is dropped",
+      "kind": "queue-shape",
+      "content": [
+        {
+          "type": "text",
+          "text": "ask"
+        },
+        {
+          "type": "text",
+          "text": "Image kept on disk",
+          "attachmentReference": true
+        }
+      ],
+      "literal": null,
+      "pastedImages": null,
+      "projected": [
+        {
+          "id": "q1",
+          "submittedAt": 1,
+          "text": "ask",
+          "displayText": "ask",
+          "mode": "prompt",
+          "priority": "next"
+        }
+      ]
+    },
+    {
+      "name": "an unknown part shows its text",
+      "kind": "queue-shape",
+      "content": [
+        {
+          "type": "text",
+          "text": "ask"
+        },
+        {
+          "type": "audio",
+          "text": "heard"
+        }
+      ],
+      "literal": null,
+      "pastedImages": null,
+      "projected": [
+        {
+          "id": "q1",
+          "submittedAt": 1,
+          "text": "ask\nheard",
+          "displayText": "ask\nheard",
+          "mode": "prompt",
+          "priority": "next"
+        }
+      ]
+    },
+    {
+      "name": "sizeBytes an empty string",
+      "kind": "image-shape",
+      "content": [
+        {
+          "type": "text",
+          "text": "see [Image #1]"
+        },
+        {
+          "type": "image",
+          "data": "AAAA",
+          "mimeType": "image/png",
+          "sizeBytes": ""
+        }
+      ],
+      "literal": null,
+      "pastedImages": null,
+      "projected": [
+        {
+          "id": "q1",
+          "submittedAt": 1,
+          "text": "see [Image #1]\n[Image]",
+          "displayText": "see [Image #1]\n[Image]",
+          "mode": "prompt",
+          "priority": "next",
+          "images": [
+            {
+              "id": null,
+              "name": "Image 1",
+              "mimeType": "image/png",
+              "bytes": 4
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "sizeBytes a blank string",
+      "kind": "image-shape",
+      "content": [
+        {
+          "type": "text",
+          "text": "see [Image #1]"
+        },
+        {
+          "type": "image",
+          "data": "AAAA",
+          "mimeType": "image/png",
+          "sizeBytes": "   "
+        }
+      ],
+      "literal": null,
+      "pastedImages": null,
+      "projected": [
+        {
+          "id": "q1",
+          "submittedAt": 1,
+          "text": "see [Image #1]\n[Image]",
+          "displayText": "see [Image #1]\n[Image]",
+          "mode": "prompt",
+          "priority": "next",
+          "images": [
+            {
+              "id": null,
+              "name": "Image 1",
+              "mimeType": "image/png",
+              "bytes": 4
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "sizeBytes an exponent string",
+      "kind": "image-shape",
+      "content": [
+        {
+          "type": "text",
+          "text": "see [Image #1]"
+        },
+        {
+          "type": "image",
+          "data": "AAAA",
+          "mimeType": "image/png",
+          "sizeBytes": "1e3"
+        }
+      ],
+      "literal": null,
+      "pastedImages": null,
+      "projected": [
+        {
+          "id": "q1",
+          "submittedAt": 1,
+          "text": "see [Image #1]\n[Image]",
+          "displayText": "see [Image #1]\n[Image]",
+          "mode": "prompt",
+          "priority": "next",
+          "images": [
+            {
+              "id": null,
+              "name": "Image 1",
+              "mimeType": "image/png",
+              "bytes": 1000
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "sizeBytes false",
+      "kind": "image-shape",
+      "content": [
+        {
+          "type": "text",
+          "text": "see [Image #1]"
+        },
+        {
+          "type": "image",
+          "data": "AAAA",
+          "mimeType": "image/png",
+          "sizeBytes": false
+        }
+      ],
+      "literal": null,
+      "pastedImages": null,
+      "projected": [
+        {
+          "id": "q1",
+          "submittedAt": 1,
+          "text": "see [Image #1]\n[Image]",
+          "displayText": "see [Image #1]\n[Image]",
+          "mode": "prompt",
+          "priority": "next",
+          "images": [
+            {
+              "id": null,
+              "name": "Image 1",
+              "mimeType": "image/png",
+              "bytes": 4
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "sizeBytes negative",
+      "kind": "image-shape",
+      "content": [
+        {
+          "type": "text",
+          "text": "see [Image #1]"
+        },
+        {
+          "type": "image",
+          "data": "AAAA",
+          "mimeType": "image/png",
+          "sizeBytes": -5
+        }
+      ],
+      "literal": null,
+      "pastedImages": null,
+      "projected": [
+        {
+          "id": "q1",
+          "submittedAt": 1,
+          "text": "see [Image #1]\n[Image]",
+          "displayText": "see [Image #1]\n[Image]",
+          "mode": "prompt",
+          "priority": "next",
+          "images": [
+            {
+              "id": null,
+              "name": "Image 1",
+              "mimeType": "image/png",
+              "bytes": -5
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "sizeBytes NaN",
+      "kind": "image-shape",
+      "content": [
+        {
+          "type": "text",
+          "text": "see [Image #1]"
+        },
+        {
+          "type": "image",
+          "data": "AAAA",
+          "mimeType": "image/png",
+          "sizeBytes": null
+        }
+      ],
+      "literal": "NaN",
+      "pastedImages": null,
+      "projected": [
+        {
+          "id": "q1",
+          "submittedAt": 1,
+          "text": "see [Image #1]\n[Image]",
+          "displayText": "see [Image #1]\n[Image]",
+          "mode": "prompt",
+          "priority": "next",
+          "images": [
+            {
+              "id": null,
+              "name": "Image 1",
+              "mimeType": "image/png",
+              "bytes": 4
+            }
+          ]
+        }
+      ],
+      "projectedLiteral": [
+        {
+          "id": "q1",
+          "submittedAt": 1,
+          "text": "see [Image #1]\n[Image]",
+          "displayText": "see [Image #1]\n[Image]",
+          "mode": "prompt",
+          "priority": "next",
+          "images": [
+            {
+              "id": null,
+              "name": "Image 1",
+              "mimeType": "image/png",
+              "bytes": 4
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "sizeBytes negative infinity",
+      "kind": "image-shape",
+      "content": [
+        {
+          "type": "text",
+          "text": "see [Image #1]"
+        },
+        {
+          "type": "image",
+          "data": "AAAA",
+          "mimeType": "image/png",
+          "sizeBytes": null
+        }
+      ],
+      "literal": "-Infinity",
+      "pastedImages": null,
+      "projected": [
+        {
+          "id": "q1",
+          "submittedAt": 1,
+          "text": "see [Image #1]\n[Image]",
+          "displayText": "see [Image #1]\n[Image]",
+          "mode": "prompt",
+          "priority": "next",
+          "images": [
+            {
+              "id": null,
+              "name": "Image 1",
+              "mimeType": "image/png",
+              "bytes": 4
+            }
+          ]
+        }
+      ],
+      "projectedLiteral": [
+        {
+          "id": "q1",
+          "submittedAt": 1,
+          "text": "see [Image #1]\n[Image]",
+          "displayText": "see [Image #1]\n[Image]",
+          "mode": "prompt",
+          "priority": "next",
+          "images": [
+            {
+              "id": null,
+              "name": "Image 1",
+              "mimeType": "image/png",
+              "bytes": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "sizeBytes a very large number",
+      "kind": "image-shape",
+      "content": [
+        {
+          "type": "text",
+          "text": "see [Image #1]"
+        },
+        {
+          "type": "image",
+          "data": "AAAA",
+          "mimeType": "image/png",
+          "sizeBytes": 1e+300
+        }
+      ],
+      "literal": null,
+      "pastedImages": null,
+      "projected": [
+        {
+          "id": "q1",
+          "submittedAt": 1,
+          "text": "see [Image #1]\n[Image]",
+          "displayText": "see [Image #1]\n[Image]",
+          "mode": "prompt",
+          "priority": "next",
+          "images": [
+            {
+              "id": null,
+              "name": "Image 1",
+              "mimeType": "image/png",
+              "bytes": 1e+300
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "sizeBytes a very large numeric string",
+      "kind": "image-shape",
+      "content": [
+        {
+          "type": "text",
+          "text": "see [Image #1]"
+        },
+        {
+          "type": "image",
+          "data": "AAAA",
+          "mimeType": "image/png",
+          "sizeBytes": "1e400"
+        }
+      ],
+      "literal": null,
+      "pastedImages": null,
+      "projected": [
+        {
+          "id": "q1",
+          "submittedAt": 1,
+          "text": "see [Image #1]\n[Image]",
+          "displayText": "see [Image #1]\n[Image]",
+          "mode": "prompt",
+          "priority": "next",
+          "images": [
+            {
+              "id": null,
+              "name": "Image 1",
+              "mimeType": "image/png",
+              "bytes": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "sizeBytes an array of one",
+      "kind": "image-shape",
+      "content": [
+        {
+          "type": "text",
+          "text": "see [Image #1]"
+        },
+        {
+          "type": "image",
+          "data": "AAAA",
+          "mimeType": "image/png",
+          "sizeBytes": [
+            7
+          ]
+        }
+      ],
+      "literal": null,
+      "pastedImages": null,
+      "projected": [
+        {
+          "id": "q1",
+          "submittedAt": 1,
+          "text": "see [Image #1]\n[Image]",
+          "displayText": "see [Image #1]\n[Image]",
+          "mode": "prompt",
+          "priority": "next",
+          "images": [
+            {
+              "id": null,
+              "name": "Image 1",
+              "mimeType": "image/png",
+              "bytes": 7
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "data and mimeType",
       "kind": "image-shape",
       "content": [
@@ -4206,6 +4707,7 @@
           "mimeType": "image/png"
         }
       ],
+      "literal": null,
       "pastedImages": null,
       "projected": [
         {
@@ -4240,6 +4742,7 @@
           "mimeType": "image/jpeg"
         }
       ],
+      "literal": null,
       "pastedImages": null,
       "projected": [
         {
@@ -4275,6 +4778,7 @@
           "mimeType": "image/jpeg"
         }
       ],
+      "literal": null,
       "pastedImages": null,
       "projected": [
         {
@@ -4308,6 +4812,7 @@
           "mimeType": "image/jpeg"
         }
       ],
+      "literal": null,
       "pastedImages": null,
       "projected": [
         {
@@ -4342,6 +4847,7 @@
           "mediaType": "image/webp"
         }
       ],
+      "literal": null,
       "pastedImages": null,
       "projected": [
         {
@@ -4377,6 +4883,7 @@
           "mediaType": "image/webp"
         }
       ],
+      "literal": null,
       "pastedImages": null,
       "projected": [
         {
@@ -4412,6 +4919,7 @@
           "mediaType": "image/webp"
         }
       ],
+      "literal": null,
       "pastedImages": null,
       "projected": [
         {
@@ -4445,6 +4953,7 @@
           "data": "AAAA"
         }
       ],
+      "literal": null,
       "pastedImages": {
         "1": {
           "id": 3,
@@ -4484,6 +4993,7 @@
           "data": "AAAA"
         }
       ],
+      "literal": null,
       "pastedImages": null,
       "projected": [
         {
@@ -4519,6 +5029,7 @@
           "sizeBytes": 4096
         }
       ],
+      "literal": null,
       "pastedImages": null,
       "projected": [
         {
@@ -4554,6 +5065,7 @@
           "sizeBytes": "12"
         }
       ],
+      "literal": null,
       "pastedImages": null,
       "projected": [
         {
@@ -4589,6 +5101,7 @@
           "sizeBytes": " 0x10 "
         }
       ],
+      "literal": null,
       "pastedImages": null,
       "projected": [
         {
@@ -4624,6 +5137,7 @@
           "sizeBytes": 12.5
         }
       ],
+      "literal": null,
       "pastedImages": null,
       "projected": [
         {
@@ -4659,6 +5173,7 @@
           "sizeBytes": 0
         }
       ],
+      "literal": null,
       "pastedImages": null,
       "projected": [
         {
@@ -4694,6 +5209,7 @@
           "sizeBytes": "abc"
         }
       ],
+      "literal": null,
       "pastedImages": null,
       "projected": [
         {
@@ -4729,6 +5245,7 @@
           "sizeBytes": true
         }
       ],
+      "literal": null,
       "pastedImages": null,
       "projected": [
         {
@@ -4764,6 +5281,7 @@
           "sizeBytes": null
         }
       ],
+      "literal": null,
       "pastedImages": null,
       "projected": [
         {
@@ -4799,6 +5317,7 @@
           "sizeBytes": {}
         }
       ],
+      "literal": null,
       "pastedImages": null,
       "projected": [
         {
@@ -4834,6 +5353,7 @@
           "sizeBytes": "Infinity"
         }
       ],
+      "literal": null,
       "pastedImages": null,
       "projected": [
         {
@@ -4869,6 +5389,7 @@
           "attachmentRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         }
       ],
+      "literal": null,
       "pastedImages": null,
       "projected": [
         {
@@ -4889,6 +5410,64 @@
           ]
         }
       ]
+    },
+    {
+      "name": "a completion with its execution",
+      "kind": "completion",
+      "text": "  <task-notification>\n<task-id>job-7</task-id>\n<status>completed</status>\n<summary>Shell task completed (exit 0)</summary>\n<result>\nok\n</result>\n</task-notification>\n",
+      "options": {
+        "executionId": "job-7",
+        "meta": {
+          "execution_surface": "shell",
+          "status": "completed"
+        }
+      },
+      "persisted": {
+        "id": "completion_6461658429e51da170940440",
+        "message": "<task-notification>\n<task-id>job-7</task-id>\n<status>completed</status>\n<summary>Shell task completed (exit 0)</summary>\n<result>\nok\n</result>\n</task-notification>",
+        "notificationKind": "completion_notification",
+        "mode": "task-notification",
+        "executionId": "job-7",
+        "execution": {
+          "surface": "shell",
+          "id": "job-7",
+          "status": "completed"
+        },
+        "enqueuedAt": 1700000004050
+      },
+      "queued": {
+        "mode": "task-notification",
+        "priority": "next",
+        "visible": false,
+        "editable": false
+      }
+    },
+    {
+      "name": "a completion with an id and no meta",
+      "kind": "completion",
+      "text": "<task-notification>\n<task-id>job-8</task-id>\n<status>completed</status>\n<summary>Shell task completed (exit 0)</summary>\n<result>\nok\n</result>\n</task-notification>",
+      "options": {
+        "executionId": "job-8"
+      },
+      "persisted": {
+        "id": "completion_cb5a600c5138c0e6bddf64a0",
+        "message": "<task-notification>\n<task-id>job-8</task-id>\n<status>completed</status>\n<summary>Shell task completed (exit 0)</summary>\n<result>\nok\n</result>\n</task-notification>",
+        "notificationKind": "completion_notification",
+        "mode": "task-notification",
+        "executionId": "job-8",
+        "execution": {
+          "surface": "shell",
+          "id": "job-8",
+          "status": "completed"
+        },
+        "enqueuedAt": 1700000004050
+      },
+      "queued": {
+        "mode": "task-notification",
+        "priority": "next",
+        "visible": false,
+        "editable": false
+      }
     }
   ]
 }
