@@ -3,12 +3,17 @@
   "exclusions": [
     "what each scenario process left running at its exit (Node's resident search server) is ended with its job and not recorded"
   ],
-  "fileCount": 2,
+  "fileCount": 3,
   "files": [
     {
       "bytes": 2585,
       "path": "glob-absolute.json",
       "sha256": "fef0b08b65c8f65960b6b66464b08a11b7f2eec9475fb393a60f76fa44c6ccb0"
+    },
+    {
+      "bytes": 5764,
+      "path": "grep-multi-pattern.json",
+      "sha256": "bdc916edfe128b04f558b81ec23ec5b5be58282e6b6b7f67a02150abcc965083"
     },
     {
       "bytes": 8255,
@@ -52,11 +57,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-tools-fs-search.mjs",
-  "recorderSha256": "964d865e166ce201dc57a94b31d4ed822aba3319dc97ca820e54a0267afac249",
+  "recorderSha256": "450c2281c0d9770fea02ff930312ab8d64e28de0ce0a4a3c2c9c6e6964601683",
   "scenarios": [
+    "grep-multi-pattern",
     "glob-absolute",
     "list-glob-path"
   ],
   "set": "tools-fs-search",
-  "totalBytes": 10840
+  "totalBytes": 16604
 }
