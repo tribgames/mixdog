@@ -115,10 +115,12 @@ export function terminalScript(root) {
       { op: 'fire', name: 'termResize', params: [TAB, 60, 20, false] },
       { op: 'call', name: 'termEnsure', params: [TAB, cwd, null] },
       { op: 'call', name: 'termAttach', params: [TAB] },
-      // The clamp to 2..500 x 2..200 on a tab of its own: a shell in a 2-column terminal crashes at a time nothing awaits, so no screen of
-      // it is compared; the owner's size, which is what the clamp decides, is.
+      // The clamp to 2..500 x 2..200 on a tab of its own; the owner's size is what the clamp decides. Its prompt is drawn before the resize:
+      // whether the shell has written it when a 2-column console repaints (and the shell then fails) would otherwise be a race with the calls'
+      // own latency (Node's are in-process, the core's cross a socket).
       { op: 'call', name: 'termEnsure', params: [CLAMP, cwd, null] },
       { op: 'until', kind: 'activity', event: { id: CLAMP, state: 'idle' } },
+      { op: 'until', kind: 'text', tab: CLAMP, text: `${prompt} ` },
       { op: 'fire', name: 'termResize', params: [CLAMP, 1, 900, true] },
       { op: 'until', kind: 'sizeOwner', event: { id: CLAMP, cols: 2, rows: 200, own: true } },
       { op: 'call', name: 'termDispose', params: [CLAMP] },

@@ -141,7 +141,9 @@ mod tests {
     /// The frames of Node's relay lane for a scripted sequence of chunks on a virtual clock (apps/mobile/fixtures/relay-framing, recorded
     /// by benchmarks/rust-core/recorders/record-relay-framing.mjs): the same steps through the relay buffer, driven as the feed pump
     /// drives it (a due buffer is flushed when due; an exit flushes what waits when due), give the same frames at the same times, each
-    /// as a phone decodes it (the bytes through one streaming UTF-8 decoder per tab, the lone units at its edges around them).
+    /// as a phone decodes it (the bytes through one streaming UTF-8 decoder per tab, the lone units at its edges around them), and each
+    /// tab's activity changes in the same place among its frames: a change inside an open window before the held frame, one after a
+    /// quiet window after the chunk's frame, the write after a re-render at 15, 16 and 17 ms.
     #[test]
     fn the_frames_are_nodes_for_the_recorded_script() {
         use std::collections::BTreeMap;
@@ -196,13 +198,22 @@ mod tests {
                 }
             }
         };
-        for step in golden["steps"].as_array().unwrap() {
+        // In time order, equal times as listed (the recorder's order).
+        let mut steps: Vec<&Value> = golden["steps"].as_array().unwrap().iter().collect();
+        steps.sort_by_key(|step| step["at"].as_u64().unwrap());
+        for step in steps {
             let at = ms(&step["at"]);
             run_due(&mut tabs, at);
-            let Some(segments) = step.get("bytes") else { continue };
             let (buffer, carry, got) = tabs.entry(step["tab"].as_str().unwrap().to_owned()).or_default();
-            let frames = buffer.push(&bytes_of(segments), at);
-            send(frames, at, carry, got);
+            if let Some(segments) = step.get("bytes") {
+                let frames = buffer.push(&bytes_of(segments), at);
+                send(frames, at, carry, got);
+            }
+            // A change the chunk's marker (or a call) causes goes once the pump has taken the chunk: after what the push sent at once,
+            // before what it holds (`terminal::RelayOrder`, tested by `a_marker_change_waits_for_the_pump_to_take_its_chunk`).
+            if let Some(activity) = step.get("activity") {
+                got.push(json!({ "at": (at - start).as_millis() as u64, "activity": activity }));
+            }
         }
         run_due(&mut tabs, start + Duration::from_secs(3600));
         let mut node: BTreeMap<String, Vec<Value>> = BTreeMap::new();

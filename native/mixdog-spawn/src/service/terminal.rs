@@ -307,7 +307,7 @@ impl DomainService for TerminalService {
                 // first ensure and pumping, so a `feed/subscribe` of `process:<id>` finds it and reads its output.
                 // Node answered the ensure in-process before the new shell's first output (all five recorded runs, runs.json): the
                 // feed is held until the answer is in the connection's outgoing queue, as for a disposal.
-                let held = self.feeds.open_terminal(&attached.id);
+                let held = self.feeds.open_terminal(&attached.id, || self.tabs.relay_order(&attached.id));
                 let _ = self.changes.send(Change::Tabs);
                 req.ctx.after_answer.keep(held);
                 Ok(Reply::Value(attached_reply(&attached, &client)))
@@ -415,11 +415,92 @@ impl DomainService for TerminalService {
                 if let Ok(size) = serde_json::from_value::<TerminalResizeParams>(params) {
                     // Only a claiming view is a size owner; any other view's resize has no client.
                     let client = if size.claim == Some(true) { connection_key(from) } else { String::new() };
+                    // Node resized the PTY and announced the new owner in one call (terminal-manager.ts:485-488), before the console
+                    // could answer the resize with output: the tab's feed is held until the announcement is published, so the
+                    // re-render reaches the phone after it.
+                    let held = self.feeds.hold(size.tab_id.as_str());
                     self.tabs.resize(size.tab_id.as_str(), u32::from(size.cols), u32::from(size.rows), &client);
+                    if let Some(held) = held {
+                        let (published, done) = tokio::sync::oneshot::channel();
+                        if self.changes.send(Change::Barrier(published)).is_ok() {
+                            mixdog_rt::spawn("terminal-owner-first", TaskClass::Work, async move {
+                                let _ = tokio::time::timeout(PUBLISH_DEADLINE, done).await;
+                                drop(held);
+                            });
+                        }
+                    }
                 }
             }
             _ => {}
         }
         Admit::Accepted
+    }
+}
+
+#[cfg(all(test, feature = "core-test"))]
+mod tests {
+    use std::sync::Mutex;
+    use std::time::Duration;
+
+    use mixdog_core_api::call::CallContext;
+    use mixdog_core_api::mock::MockLimits;
+    use mixdog_core_api::mock::MockScopedFeeds;
+    use mixdog_core_api::mock::MockStatePublisher;
+    use mixdog_protocol::Origin;
+    use tokio_util::sync::CancellationToken;
+
+    use super::*;
+
+    const DEADLINE: Duration = Duration::from_secs(60);
+
+    /// Holds the next tab-list publication (where a size owner is published) until the test opens the gate.
+    #[derive(Default)]
+    struct Gated {
+        inner: MockStatePublisher,
+        gate: Mutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
+    }
+
+    impl StatePublisher for Gated {
+        fn publish(&self, section: SectionName, key: Option<String>, change: SectionChange) {
+            if section == SectionName::TerminalTabs {
+                let gate = self.gate.lock().unwrap().take();
+                if let Some((held, open)) = gate {
+                    held.send(()).unwrap();
+                    open.recv_timeout(DEADLINE).expect("the test opens the gate");
+                }
+            }
+            self.inner.publish(section, key, change);
+        }
+    }
+
+    /// A claim's resize holds the tab's feed until its size owner is published: the console's re-render for the new size reaches the
+    /// phone after the announcement, as Node's did (it resized and announced in one call).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_claims_rerender_waits_for_its_owner_announcement() {
+        let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, crate::manager::ProcessConfig::default());
+        let feeds = ProcessFeeds::new(manager.clone(), Arc::new(MockScopedFeeds::new(MockLimits::default())));
+        let publisher = Arc::new(Gated::default());
+        let service = TerminalService::new(manager, Arc::clone(&feeds), Arc::clone(&publisher) as Arc<dyn StatePublisher>, TerminalServiceConfig::default());
+        let cwd = std::env::temp_dir().to_string_lossy().into_owned();
+        let ensure = CoreRequest {
+            method: Method("terminal/ensure"),
+            params: json!({ "tabId": "term_owner", "options": { "cwd": cwd }, "opId": "op-ensure" }),
+            op: None,
+            ctx: CallContext::connection(ConnectionId(1), Origin::Local, CancellationToken::new()),
+        };
+        let after = ensure.ctx.after_answer.clone();
+        service.call(ensure).await.unwrap();
+        after.release();
+        service.published().await;
+        assert_eq!(feeds.holds_of("term_owner"), 0, "nothing holds the feed before the claim");
+
+        let (held, open) = (std::sync::mpsc::channel(), std::sync::mpsc::channel());
+        *publisher.gate.lock().unwrap() = Some((held.0, open.1));
+        let _ = service.notify(Method("terminal/resize"), json!({ "tabId": "term_owner", "cols": 101, "rows": 31, "claim": true }), ConnectionId(1));
+        held.1.recv_timeout(DEADLINE).expect("the owner's publication reached the publisher");
+        assert_eq!(feeds.holds_of("term_owner"), 1, "the feed is held while the owner's announcement is unpublished");
+        open.0.send(()).unwrap();
+        tokio::time::timeout(DEADLINE, feeds.released("term_owner")).await.expect("the hold ends once the owner is published");
+        service.tabs.dispose("term_owner");
     }
 }

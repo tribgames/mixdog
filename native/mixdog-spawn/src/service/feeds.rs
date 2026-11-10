@@ -185,6 +185,9 @@ struct Entry {
     retired: AtomicBool,
     /// How many holds are out; while any is, the pump publishes nothing more (see [`FeedHold`]).
     hold: tokio::sync::watch::Sender<usize>,
+    /// Told the bytes of output the pump has taken, after each output event went through the relay buffer (`u64::MAX` when it ends):
+    /// a terminal tab's activity changes wait for it (`TerminalTabs::relay_order`).
+    taken: OnceLock<Arc<dyn Fn(u64) + Send + Sync>>,
 }
 
 /// A call's hold on its tab's feed: the pump publishes nothing until every hold is dropped. Node answered `termEnsure` and `termDispose`
@@ -311,6 +314,7 @@ impl ProcessFeeds {
             finished: AtomicBool::new(false),
             retired: AtomicBool::new(false),
             hold: tokio::sync::watch::Sender::new(0),
+            taken: OnceLock::new(),
         });
         entries.insert(handle.to_owned(), Arc::clone(&entry));
         Arc::new(Gate {
@@ -322,12 +326,20 @@ impl ProcessFeeds {
 
     /// The feed of a terminal tab, live and pumping before anyone subscribes: a `feed/subscribe` attaches the publisher's own source,
     /// which never passes the [`Gate`] that starts the pump, so a tab read only through the feed lane would never be pumped.
-    /// Returns a hold taken before the pump starts: the ensure's answer goes ahead of the shell's first output.
-    pub(crate) fn open_terminal(self: &Arc<Self>, handle: &str) -> Option<FeedHold> {
+    /// Returns a hold taken before the pump starts: the ensure's answer goes ahead of the shell's first output. `order` is asked, when
+    /// this starts the pump, for what the pump tells how much output it has taken (`TerminalTabs::relay_order`).
+    pub(crate) fn open_terminal(
+        self: &Arc<Self>,
+        handle: &str,
+        order: impl FnOnce() -> Option<Arc<dyn Fn(u64) + Send + Sync>>,
+    ) -> Option<FeedHold> {
         let _ = self.feed(handle, true);
         let entry = self.entries.lock().unwrap_or_else(|e| e.into_inner()).get(handle).cloned()?;
         let held = entry.hold();
         if !entry.started.swap(true, Ordering::AcqRel) {
+            if let Some(order) = order() {
+                let _ = entry.taken.set(order);
+            }
             Arc::clone(self).start_pump(Arc::clone(&entry));
         }
         Some(held)
@@ -401,6 +413,7 @@ impl ProcessFeeds {
         let mut screen = ReplayBuffer::new(REPLAY_BUFFER_LIMIT, 0);
         // The relay feed's framing (Node's relay lane), timed on the runtime's clock.
         let mut relay = RelayBuffer::default();
+        let mut taken = 0u64;
         let output = |publisher: &FramePublisher, bytes: &[u8], state: Value| {
             publisher.publish("process/outputDelta", json!({ "processHandle": handle, "bytesB64": STANDARD.encode(bytes) }), state);
         };
@@ -449,6 +462,10 @@ impl ProcessFeeds {
                     if entry.relay.as_ref().is_some_and(|relay| relay.feed.subscribers() > 0) {
                         relay_out(relay.push(&bytes, tokio::time::Instant::now()), &state);
                     }
+                    taken += bytes.len() as u64;
+                    if let Some(tell) = entry.taken.get() {
+                        tell(taken);
+                    }
                 }
                 Some(ProcessEvent::Exited { exit, .. }) => {
                     let state = if entry.text {
@@ -478,6 +495,10 @@ impl ProcessFeeds {
     /// its own terminal entry, terminal-manager.ts `spawnTerminal`).
     fn finish(&self, entry: &Arc<Entry>) {
         entry.finished.store(true, Ordering::Release);
+        // Nothing more is taken: whatever still waits for it goes.
+        if let Some(tell) = entry.taken.get() {
+            tell(u64::MAX);
+        }
         if let Some(hook) = self.on_exit.get() {
             hook(entry.handle.as_str());
         }
@@ -488,6 +509,20 @@ impl ProcessFeeds {
             .get(entry.handle.as_str())
             .is_some_and(|live| Arc::ptr_eq(live, entry));
         self.retire(if current { vec![Arc::clone(entry)] } else { Vec::new() });
+    }
+}
+
+#[cfg(test)]
+impl ProcessFeeds {
+    /// How many holds are out on the current feed of `handle`.
+    pub(crate) fn holds_of(&self, handle: &str) -> usize {
+        self.entries.lock().unwrap().get(handle).map_or(0, |entry| *entry.hold.borrow())
+    }
+
+    /// Returns once no hold is out on the current feed of `handle`.
+    pub(crate) async fn released(&self, handle: &str) {
+        let entry = self.entries.lock().unwrap().get(handle).cloned().expect("the feed exists");
+        Self::unheld(&entry).await;
     }
 }
 

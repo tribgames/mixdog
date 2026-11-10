@@ -17,6 +17,7 @@ mod profiles;
 mod replay;
 
 use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -289,6 +290,22 @@ struct TabState {
     exited: bool,
     output_paused: bool,
     size: (u16, u16),
+    /// Bytes of output handed to the feed so far.
+    emitted: u64,
+    /// Set once the tab's relay feed pumps its output (see [`RelayOrder`]).
+    order: Option<RelayOrder>,
+}
+
+/// The order of a tab's activity changes against its output on the relay feed. Node's PTY handler emitted a chunk's text into the relay
+/// lane's buffer and only then applied the chunk's markers (terminal-manager.ts:366-371), and its activity went out at once: a frame the
+/// buffer sent at once preceded the change, a frame it held followed it. The core's relay buffer lives in the feed's pump, so a change
+/// the output (or input) causes waits here until the pump has taken the output written before it, and then goes.
+#[derive(Default)]
+struct RelayOrder {
+    /// Bytes of output the pump has taken.
+    taken: u64,
+    /// Changes waiting, each with the output it follows.
+    waiting: VecDeque<(u64, Option<ActivityState>)>,
 }
 
 struct Tab {
@@ -319,9 +336,41 @@ impl Tab {
         self.pty_gate.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    fn publish(&self, change: Option<Option<ActivityState>>) {
-        if let Some(state) = change {
-            self.events.activity(&self.id, state);
+    /// Publishes a change now, after the changes still waiting for the pump (see [`RelayOrder`]).
+    fn publish(&self, state: &mut TabState, change: Option<Option<ActivityState>>) {
+        if let Some(order) = state.order.as_mut() {
+            for (_, waiting) in order.waiting.drain(..) {
+                self.events.activity(&self.id, waiting);
+            }
+        }
+        if let Some(activity) = change {
+            self.events.activity(&self.id, activity);
+        }
+    }
+
+    /// Publishes a change the output or input caused once the pump has taken the output written before it (see [`RelayOrder`]).
+    fn publish_after_output(&self, state: &mut TabState, change: Option<Option<ActivityState>>) {
+        let Some(activity) = change else { return };
+        let emitted = state.emitted;
+        match state.order.as_mut() {
+            Some(order) if order.taken < emitted || !order.waiting.is_empty() => order.waiting.push_back((emitted, activity)),
+            _ => self.events.activity(&self.id, activity),
+        }
+    }
+
+    /// Counts output handed to the feed.
+    fn emitted(state: &mut TabState, bytes: usize) {
+        state.emitted += bytes as u64;
+    }
+
+    /// The relay feed's pump has taken `taken` bytes of output: the changes that follow no more than that go.
+    fn taken(&self, taken: u64) {
+        let mut state = self.lock();
+        let Some(order) = state.order.as_mut() else { return };
+        order.taken = taken;
+        while order.waiting.front().is_some_and(|(after, _)| *after <= taken) {
+            let (_, activity) = order.waiting.pop_front().expect("a waiting change");
+            self.events.activity(&self.id, activity);
         }
     }
 
@@ -363,9 +412,10 @@ impl OutputFilter for TabFilter {
             None => (decoded, Vec::new()),
         };
         state.buffer.append(&text);
+        Tab::emitted(&mut state, text.len());
         for marker in markers {
             let change = state.activity.marker(marker);
-            self.0.publish(change);
+            self.0.publish_after_output(&mut state, change);
         }
         text.into_bytes()
     }
@@ -375,6 +425,7 @@ impl OutputFilter for TabFilter {
         let mut text = state.scanner.as_mut().map(MarkerScanner::flush).unwrap_or_default();
         text.push_str(&state.decoder.finish());
         state.buffer.append(&text);
+        Tab::emitted(&mut state, text.len());
         text.into_bytes()
     }
 }
@@ -1045,6 +1096,8 @@ impl TerminalTabs {
                 exited: false,
                 output_paused: false,
                 size: (cols, rows),
+                emitted: 0,
+                order: None,
             }),
             pty_gate: Mutex::new(()),
             events: Arc::clone(&self.config.events),
@@ -1086,8 +1139,9 @@ impl TerminalTabs {
                 state.exited = true;
                 state.output_paused = false;
                 let change = state.activity.exit();
-                tab.publish(change);
+                tab.publish(&mut state, change);
                 state.buffer.append(&line);
+                Tab::emitted(&mut state, line.len());
                 line.into_bytes()
             })
         };
@@ -1198,6 +1252,14 @@ impl TerminalTabs {
         self.live(id).map(|tab| tab.seq)
     }
 
+    /// Orders the activity changes of the live tab `id` after its output on the relay feed (see [`RelayOrder`]): returns what the feed's
+    /// pump calls with the bytes of output it has taken so far (`u64::MAX` when it ends). Called by whoever starts that pump, once.
+    pub fn relay_order(&self, id: &str) -> Option<Arc<dyn Fn(u64) + Send + Sync>> {
+        let tab = self.live(id)?;
+        tab.lock().order = Some(RelayOrder::default());
+        Some(Arc::new(move |taken| tab.taken(taken)))
+    }
+
     /// Who owns this PTY's size right now, if anyone.
     pub fn size_owner(&self, id: &str) -> Option<SizeOwner> {
         self.claims.owner_of(id)
@@ -1218,7 +1280,7 @@ impl TerminalTabs {
         let mut state = tab.lock();
         if state.scanner.is_some() {
             let change = state.activity.input(data);
-            tab.publish(change);
+            tab.publish_after_output(&mut state, change);
         }
         pending
     }
@@ -1251,7 +1313,7 @@ impl TerminalTabs {
         let client = if client.is_empty() { "desktop" } else { client };
         let mut state = tab.lock();
         let change = state.activity.set_focus(client, focused);
-        tab.publish(change);
+        tab.publish(&mut state, change);
     }
 
     /// A connection closed: its focus ends on every tab. Its size claims are not released: Node's
@@ -1260,7 +1322,7 @@ impl TerminalTabs {
         for tab in self.all_tabs() {
             let mut state = tab.lock();
             let change = state.activity.set_focus(client, false);
-            tab.publish(change);
+            tab.publish(&mut state, change);
         }
     }
 
@@ -1300,7 +1362,7 @@ impl TerminalTabs {
             let was_paused = std::mem::replace(&mut state.output_paused, false);
             state.exited = true;
             let change = state.activity.exit();
-            tab.publish(change);
+            tab.publish(&mut state, change);
             (was_paused, state.buffer.cursor())
         };
         self.claims.forget_held(&tab.id);
@@ -1429,6 +1491,8 @@ mod lock_order {
                 exited: false,
                 output_paused: false,
                 size: (80, 24),
+                emitted: 0,
+                order: None,
             }),
             pty_gate: Mutex::new(()),
             events: Arc::new(Quiet),
@@ -1466,6 +1530,59 @@ mod lock_order {
         dispose.join().unwrap();
         respawn.join().unwrap();
         assert!(tabs.cursor_floors.lock().unwrap().contains_key("term_1"));
+    }
+
+    struct Recorded(Mutex<Vec<Option<ActivityState>>>);
+
+    impl TerminalEvents for Recorded {
+        fn activity(&self, _: &str, state: Option<ActivityState>) {
+            self.0.lock().unwrap().push(state);
+        }
+        fn size_owner(&self, _: &SizeOwnerChange) {}
+        fn size_claims_forgotten(&self, _: &str) {}
+    }
+
+    /// With the relay feed pumping (`relay_order`), a change a chunk's marker causes goes once the pump has taken that chunk's text, not
+    /// before (Node emitted the text into its relay buffer and then applied the marker); a change published directly goes after it.
+    #[test]
+    fn a_marker_change_waits_for_the_pump_to_take_its_chunk() {
+        let events = Arc::new(Recorded(Mutex::new(Vec::new())));
+        let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, ProcessConfig::default());
+        let tab = Arc::new(Tab {
+            id: "term_1".to_owned(),
+            seq: 1,
+            handle: ProcessHandle::from("term_1"),
+            shell: "pwsh".to_owned(),
+            cwd: None,
+            state: Mutex::new(TabState {
+                buffer: ReplayBuffer::new(REPLAY_BUFFER_LIMIT, 0),
+                scanner: Some(MarkerScanner::default()),
+                decoder: Utf8Decoder::default(),
+                activity: ActivityTracker::new(false),
+                exited: false,
+                output_paused: false,
+                size: (80, 24),
+                emitted: 0,
+                order: Some(RelayOrder::default()),
+            }),
+            pty_gate: Mutex::new(()),
+            events: Arc::clone(&events) as Arc<dyn TerminalEvents>,
+            manager,
+        });
+        let seen = || events.0.lock().unwrap().clone();
+        let mut filter = TabFilter(Arc::clone(&tab));
+        let text = filter.filter(b"PS> \x1b]697;P\x07");
+        assert_eq!(text, b"PS> ");
+        assert_eq!(seen(), Vec::new(), "the prompt's change waits for its text to be taken");
+        tab.taken(3);
+        assert_eq!(seen(), Vec::new(), "part of the text is not enough");
+        tab.taken(4);
+        assert_eq!(seen(), vec![Some(ActivityState::Idle)]);
+        let _ = filter.filter(b"x\r\n\x1b]697;C\x07");
+        tab.publish(&mut tab.lock(), Some(Some(ActivityState::Finished)));
+        assert_eq!(seen(), vec![Some(ActivityState::Idle), Some(ActivityState::Running), Some(ActivityState::Finished)], "a direct change goes after the waiting ones");
+        tab.taken(u64::MAX);
+        assert_eq!(seen().len(), 3, "nothing goes twice");
     }
 }
 #[cfg(all(test, feature = "core-test"))]
