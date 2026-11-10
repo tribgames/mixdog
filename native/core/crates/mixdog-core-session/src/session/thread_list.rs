@@ -280,10 +280,24 @@ impl ThreadListService {
         Ok(row)
     }
 
-    /// The whole first page, as Node's background `publishCatalogs` lists it (`listSessions`, which marks the catalog loaded).
-    async fn whole_listing(&self) -> Result<ThreadListResponse, CoreError> {
-        self.list(ThreadListParams { cursor: None, limit: None, sort_key: None, sort_direction: None, archived: None, cwd: None, search_term: None })
-            .await
+    /// The whole catalog, every page of it, as Node's `listSessions` lists it for `publishCatalogs` (one unpaged `session.list`,
+    /// `session-host.ts:797-804`); marked loaded only once it is all in hand, as Node marks it after its listing answered (`:807`).
+    async fn whole_listing(&self) -> Result<Vec<ThreadSummary>, CoreError> {
+        let mut rows = Vec::new();
+        let mut cursor = None;
+        loop {
+            let page = self
+                .page(ThreadListParams { cursor, limit: Some(MAX_PAGE_LIMIT as u32), sort_key: None, sort_direction: None, archived: None, cwd: None, search_term: None })
+                .await?;
+            rows.extend(page.data);
+            match page.next_cursor {
+                Some(next) => cursor = Some(next),
+                None => break,
+            }
+        }
+        self.loaded.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.published(&rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>());
+        Ok(rows)
     }
 
     /// The host's task workspace; a lookup that fails fails the listing (`listSessions` asks the host first, `session-host.ts:793`).
@@ -301,6 +315,15 @@ impl ThreadListService {
     }
 
     async fn list(&self, params: ThreadListParams) -> Result<ThreadListResponse, CoreError> {
+        let response = self.page(params).await?;
+        // Loaded once the listing is in hand, before anything hears of it (`session-host.ts:807` precedes `sessionCatalog()`).
+        self.loaded.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.published(&response.data.iter().map(|row| row.id.as_str()).collect::<Vec<_>>());
+        Ok(response)
+    }
+
+    /// One page of the listing.
+    async fn page(&self, params: ThreadListParams) -> Result<ThreadListResponse, CoreError> {
         if params.search_term.as_deref().is_some_and(|term| !term.is_empty()) {
             return Err(invalid("searchTerm", "absent: the listing has no text search (`thread/search` is the search)"));
         }
@@ -345,9 +368,6 @@ impl ThreadListService {
                 data = made_up;
             }
         }
-        // Loaded once the listing is in hand, before anything hears of it (`session-host.ts:807` precedes `sessionCatalog()`).
-        self.loaded.store(true, std::sync::atomic::Ordering::SeqCst);
-        self.published(&data.iter().map(|row| row.id.as_str()).collect::<Vec<_>>());
         Ok(ThreadListResponse { data, next_cursor, backwards_cursor: None })
     }
 }
@@ -393,13 +413,12 @@ impl RoomSummaries {
         drop(self.publish_listing().await);
     }
 
-    /// The background pass: the whole listing, then the room rows it holds; one pass in the chain, so a call that the listing made
-    /// loaded publishes after it.
+    /// The background pass: the whole listing, every row of it published, as Node's `publishCatalogs` publishes the catalog its
+    /// listing returned (`session-host-catalog.ts:231-238`); one pass in the chain, so a call that the listing made loaded publishes
+    /// after it.
     async fn publish_listing(&self) -> Result<(), CoreError> {
         let _pass = self.pass.acquire().await;
-        let listed = self.list.whole_listing().await?;
-        let rooms = self.list.rooms.room_threads().await.map_err(|error| failed(DOMAIN, error))?;
-        for thread in listed.data.into_iter().filter(|row| rooms.contains(&row.id)) {
+        for thread in self.list.whole_listing().await? {
             self.app.notify(SUMMARY_UPDATED, &ThreadSummaryUpdatedParams { thread });
         }
         Ok(())

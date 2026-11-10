@@ -41,18 +41,25 @@ const load = (path) => import(pathToFileURL(join(tree, path)).href);
 // ── the scenarios ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
 // `loaded`: a listing first (a window's first list), then every room call; `not-loaded`: a room call before any listing, then the next
 // call (Node's own background listing has loaded the catalog by then); `not-loaded-failing`: the listing fails, so the catalog stays
-// unloaded through both calls and the failures are dropped; `loaded-failing`: loaded first, then the listing fails and the calls go on.
+// unloaded through both calls and the failures are dropped; `loaded-failing`: loaded first, then the listing fails and the calls go on;
+// `not-loaded-large`: more rooms than one page of the core's listing (`DEFAULT_PAGE_LIMIT`, 50) are made while the listing fails, so
+// the catalog stays unloaded; then an update of the rounds alone (it renames nothing, so no listing of its own runs before it answers:
+// `agent-rooms.ts:311-312`) starts the background listing, which answers and publishes them all after the call.
+// `failing(step)`: whether the daemon's `session.list` fails while that step runs (`list` for the first listing, else the call's index);
+// each step records it as `listingFails`, which the replay sets.
 const ROOM_CALLS = ['create', 'update', 'reset', 'forget-member', 'remove'];
+const LARGE = 51;
 const SCENARIOS = {
-  loaded: { listFirst: true, failListingAfter: null, calls: ROOM_CALLS },
+  loaded: { listFirst: true, failing: () => false, calls: ROOM_CALLS },
   // The flag's lifetime: loaded, then the daemon connection is lost (`onFatal` → `handleSessionTransportLoss`, `session-host.ts:421`)
   // and a renderer that reloaded subscribes again; the next room call shows whether the host still counts its catalog loaded.
-  'loaded-reconnect': { listFirst: true, reconnect: true, failListingAfter: null, calls: ['create'] },
-  'not-loaded': { listFirst: false, failListingAfter: null, calls: ['create', 'update'] },
-  'not-loaded-failing': { listFirst: false, failListingAfter: 0, calls: ['create', 'update'] },
+  'loaded-reconnect': { listFirst: true, reconnect: true, failing: () => false, calls: ['create'] },
+  'not-loaded': { listFirst: false, failing: () => false, calls: ['create', 'update'] },
+  'not-loaded-failing': { listFirst: false, failing: () => true, calls: ['create', 'update'] },
   // The failing listing also fails the host's session deletions (they read the daemon's list), which the room calls that delete
   // sessions (member removal, remove) then report; those are recorded in the loaded scenario only.
-  'loaded-failing': { listFirst: true, failListingAfter: 1, calls: ['create', 'update', 'reset'] },
+  'loaded-failing': { listFirst: true, failing: (step) => step !== 'list', calls: ['create', 'update', 'reset'] },
+  'not-loaded-large': { listFirst: false, failing: (step) => step < LARGE, calls: [...Array(LARGE).fill('create'), 'update-rounds'] },
 };
 const only = args.get('only');
 if (only && !SCENARIOS[only]) throw new Error(`--only ${only}: unknown scenario; known: ${Object.keys(SCENARIOS).join(', ')}`);
@@ -100,19 +107,15 @@ async function record(name) {
   let finished = false;
   try {
     discovery = await deadline.race(sessionClient.ensureDaemon({ cwd: paths.workspace, attempts: 2, readyTimeoutMs: 60_000 }), 'the Node daemon');
-    // The daemon's answer to the host's listing; a failing scenario makes it fail from its `failListingAfter`-th listing on.
-    let listings = 0;
+    // The daemon's answer to the host's listing; it fails while the running step's `failing` says so.
+    let listingFails = false;
     const runtime = {
       ...createDesktopRuntime({ getLocalSessionBridge: () => null }),
       attachSessionClient: async (options) => {
         const attached = await sessionClient.attachSession({ discovery, cwd: paths.workspace, onFrame: options.onFrame, onFatal: options.onFatal });
         return createSessionProtocolClient({
           call: (method, params, callOptions) => {
-            if (method === 'session.list') {
-              const failing = scenario.failListingAfter !== null && listings >= scenario.failListingAfter;
-              listings += 1;
-              if (failing) return Promise.reject(new Error('the session listing failed'));
-            }
+            if (method === 'session.list' && listingFails) return Promise.reject(new Error('the session listing failed'));
             return attached.call(method, params, callOptions);
           },
           close: (reason) => attached.close(reason),
@@ -130,7 +133,7 @@ async function record(name) {
     host.publication.publishSessions = (sessions) => {
       const stack = new Error().stack ?? '';
       const from = origin.getStore() ?? (stack.includes('republishCatalog') ? 'room-call' : stack.includes('scheduleCatalogRefresh') || stack.includes('Timeout') ? 'store-refresh' : 'listing');
-      events.push({ kind: 'published', origin: from, rooms: plain(sessions.filter((row) => row.agentRoom)) });
+      events.push({ kind: 'published', origin: from, sessions: plain(sessions) });
       return publishSessions(sessions);
     };
     // A room's title goes through the host's rename (`session-host.ts:316`), which awaits a whole listing of its own
@@ -153,8 +156,9 @@ async function record(name) {
     events.splice(0);
     const steps = [];
     if (scenario.listFirst) {
+      listingFails = scenario.failing('list');
       const listed = plain(await deadline.race(host.listSessions(), 'the first listing'));
-      steps.push({ step: 'list', loadedAfter: host.sessionCatalogLoaded, rooms: listed.filter((row) => row.agentRoom), events: events.splice(0) });
+      steps.push({ step: 'list', listingFails, loadedAfter: host.sessionCatalogLoaded, sessions: listed, events: events.splice(0) });
     }
     if (scenario.reconnect) {
       host.publication.handleSessionTransportLoss();
@@ -166,11 +170,13 @@ async function record(name) {
     const CALLS = {
       create: () => host.agentRoomAction('create', [{ name: 'Room One', members: bots }]),
       update: () => host.agentRoomAction('update', [room.roomId, { name: 'Room Renamed' }]),
+      'update-rounds': () => host.agentRoomAction('update', [room.roomId, { maxRounds: 4 }]),
       reset: () => host.agentRoomAction('reset', [room.roomId]),
       'forget-member': () => host.agentRooms.forgetMember(bots[2]),
       remove: () => host.agentRoomAction('remove', [room.roomId]),
     };
-    for (const call of scenario.calls) {
+    for (const [index, call] of scenario.calls.entries()) {
+      listingFails = scenario.failing(index);
       const loadedBefore = host.sessionCatalogLoaded;
       let answer;
       try {
@@ -183,12 +189,13 @@ async function record(name) {
       events.push(answer);
       // The listing the call started in the background, to its end: what it published (or that it published nothing) is the call's.
       await deadline.race(Promise.all(background.splice(0)), `the background listing of ${call}`);
-      steps.push({ step: call, loadedBefore, loadedAfter: host.sessionCatalogLoaded, events: events.splice(0) });
+      steps.push({ step: call, listingFails, loadedBefore, loadedAfter: host.sessionCatalogLoaded, events: events.splice(0) });
     }
     finished = true;
     // The host's task workspace, where a room log is made (`agent-rooms.ts:284`), as the host itself names it.
     const taskWorkspace = await deadline.race(host.taskWorkspace(), 'the task workspace');
-    return { scenario: name, ...scenario, taskWorkspace, bots, room, steps };
+    const { failing: _, ...shape } = scenario;
+    return { scenario: name, ...shape, taskWorkspace, bots, room, steps };
   } finally {
     deadline.clear();
     if (host) await host.dispose().catch(() => {});
