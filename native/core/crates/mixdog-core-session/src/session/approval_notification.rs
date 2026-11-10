@@ -25,7 +25,10 @@ use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
 
+use mixdog_protocol::Origin;
+
 use super::SessionDirectory;
+use super::SessionHandle;
 use super::room_approval::tool_approval;
 
 /// `requiredString(id, 'approval id', 1_024)`.
@@ -114,6 +117,21 @@ pub fn allow_once_decision(approval: &Value) -> Option<Value> {
     Some(json!({ "approved": true }))
 }
 
+/// `answer.approved && answer.response === undefined`.
+fn bare_allow(result: &Value) -> bool {
+    result.get("approved") == Some(&Value::Bool(true)) && result.get("response").is_none_or(Value::is_null)
+}
+
+/// push-notifier.ts `approvalPointerOnly`: the thread shows `id` now, and only a click on its card may allow it.
+fn shows_pointer_only(handle: &SessionHandle, id: &str) -> bool {
+    handle
+        .cell
+        .shown_approval
+        .load_full()
+        .filter(|request| request.id.0.to_string() == id)
+        .is_some_and(|request| record(Some(&tool_approval(&request))).is_some_and(pointer_only))
+}
+
 fn reply(outcome: ApprovalNotificationOutcome) -> Result<Reply, CoreError> {
     Ok(Reply::Value(serde_json::to_value(ThreadApprovalAnswerNotificationResponse { outcome }).expect("protocol types serialize")))
 }
@@ -162,6 +180,9 @@ impl SessionDirectory {
         };
         let accepted = match self.handle(&params.thread_id) {
             None => false,
+            // A phone's bare Allow (`approved` with no `response`) for the approval the thread shows, where only a click on its card may
+            // allow it, is not taken (remote-session-methods.ts:168-183); this PC's window answers through its own path, unchecked.
+            Some(handle) if req.ctx.origin == Origin::Relay && bare_allow(&params.result) && shows_pointer_only(&handle, id) => false,
             Some(handle) => {
                 let device = handle.deps.devices.describe(connection);
                 handle

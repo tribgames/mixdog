@@ -431,6 +431,7 @@ async function notices() {
 const REPLAYED_BY_CORE_TESTS = {
   'approval-answers': 'a_notifications_allow_and_deny_answer_as_nodes',
   'approval-races': 'answers_that_meet_at_the_session_are_arbitrated_as_nodes, a_rooms_answer_that_meets_another_is_arbitrated_as_nodes',
+  'approval-cards': 'a_cards_bare_allow_is_refused_where_nodes_was',
 };
 
 /** Plays every scenario (or `only`), each beside the others; returns the differences per scenario. */
