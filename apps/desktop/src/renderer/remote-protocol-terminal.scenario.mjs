@@ -3,14 +3,13 @@
 // through the adapter and the phone's protocol client, through the world's relay end (a real E2EE handshake), into a freshly started
 // core on a loopback WebSocket. The relay end only carries frames both ways: the core answers for itself.
 // Prints the trace on a marker line; remote-protocol-terminal.slow.test.mjs compares it with the recording.
-import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { assertNoPowerShellProfile, isolatedProfile } from '../../../../benchmarks/rust-core/recorders/lib/shell-isolation.mjs';
 import { mkdirSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import WebSocket from 'ws';
 import { DEADLINE_MS, bounded, openClockSocket } from './remote-protocol-terminal-deadlines.mjs';
-import { endCore } from '../../../../benchmarks/rust-core/recorders/lib/core-stop.mjs';
+import { endCore, spawnCore } from '../../../../benchmarks/rust-core/recorders/lib/core-stop.mjs';
 import { createPhoneWorld, protocolDialect } from '../../../../benchmarks/rust-core/recorders/lib/phone-world.mjs';
 import { immediateScript, play, record, sizeClaimScript, terminalScript } from '../../../../benchmarks/rust-core/recorders/lib/phone-terminal-script.mjs';
 
@@ -44,7 +43,8 @@ async function startCore() {
     MIXDOG_TERMINAL_LEASE_CLOCK_SECRET: CLOCK_SECRET,
   });
   // The working directory is the recording's root: a path without a drive resolves onto its drive, as it did for Node's recorder.
-  const child = spawn(BIN, ['serve'], { cwd: ROOT, env, stdio: 'ignore', windowsHide: true });
+  const { child, job } = await spawnCore(BIN, ['serve'], { cwd: ROOT, env });
+  child.stderr.resume();
   // The core publishes its discovery record when it serves (a debug core first migrates its stores): the wait is on that file's change.
   let record;
   try {
@@ -54,10 +54,10 @@ async function startCore() {
     }, 'the core to publish its serving discovery record (daemon.json)', CORE_START_DEADLINE_MS);
   } catch (error) {
     // The core is running by now: a start that fails ends it before the failure is reported.
-    await endCore({ exe: BIN, child, env, dataDir: join(CORE_ROOT, 'data') }).catch((left) => console.error(left.message));
+    await endCore({ exe: BIN, child, job, env }).catch((left) => console.error(left.message));
     throw error;
   }
-  return { exe: BIN, child, env, dataDir: join(CORE_ROOT, 'data'), url: `ws://127.0.0.1:${record.core.rpc.port}/rpc`, token: record.endpoints.session.token };
+  return { exe: BIN, child, job, env, url: `ws://127.0.0.1:${record.core.rpc.port}/rpc`, token: record.endpoints.session.token };
 }
 
 // A cold debug core measured about 50 s from spawn to its serving record (store migration), and twice passed 60 s in three runs.

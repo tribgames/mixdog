@@ -1,87 +1,69 @@
-// Ends a mixdogd a replay started, with everything it started. The core is asked to stop as the app's own quit does (`ctl stop --when-idle`):
-// its stop sequence stops the PostgreSQL it started (the memory stop step, as Node's shutdown does, daemon.mjs:375-386). A core that does not
-// exit within the deadline is ended with its process tree. `pg_ctl start` leaves the postmaster outside the core's tree (in Node as here,
-// process.mjs:378-385), so a postmaster still running after the core is gone is ended by the pid it recorded in `<data>/pgdata/postmaster.pid`.
-// The core's other children (an `initdb` it cancelled, a terminal's shell) run in the job its process helper holds, which the OS ends once
-// that helper has seen the core go: they are waited for, with one deadline. Resolves once every one of them has exited; a stop that needed
-// force rejects, naming what was forced.
-import { spawn, spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+// Starts a mixdogd a replay talks to, and ends it with everything it started. The core runs in a Windows job of its own (lib/process-job.mjs:
+// no breakaway, so the PostgreSQL `pg_ctl start` leaves outside the core's process tree, an `initdb`, the core's process helper and a
+// terminal's shell are all in it). Its end is asked for as the app's own quit asks (`ctl stop --when-idle`), whose stop sequence stops the
+// PostgreSQL it started (the memory stop step, as Node's shutdown does, daemon.mjs:375-386); what is still in the job then is given the
+// rest of the time to end by itself and is then ended with the job. Only the job's processes are ever ended: never a pid, a pid file's
+// pid, or a process found by its command line.
+import { openJob, spawnInJob } from './process-job.mjs';
 
-const realSetTimeout = globalThis.setTimeout;
-const realClearTimeout = globalThis.clearTimeout;
+/** How long each answer of the job's guard may take. Ending the job takes up to two of them and closing it one: the teardown keeps them
+ *  in reserve so that the whole of it ends within its one deadline. */
+const ANSWER_MS = 5_000;
+const RESERVE_MS = 3 * ANSWER_MS;
 
-const within = (promise, what, ms) => {
-  let timer;
-  const deadline = new Promise((_, reject) => {
-    timer = realSetTimeout(() => reject(new Error(`${what} (not within ${ms} ms)`)), ms);
-  });
-  return Promise.race([promise, deadline]).finally(() => realClearTimeout(timer));
-};
-
-const powershell = (command, ms) =>
-  spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], { encoding: 'utf8', windowsHide: true, timeout: ms + 30_000 });
-
-const killTree = (pid) => {
-  const ended = spawnSync('taskkill', ['/T', '/F', '/PID', String(pid)], { stdio: 'ignore', windowsHide: true, timeout: 30_000 });
-  // 128: the pid no longer exists.
-  if (ended.error || (ended.status !== 0 && ended.status !== 128)) throw new Error(`taskkill could not end pid ${pid}: ${ended.error?.message ?? `status ${ended.status}`}`);
-};
-
-/** The processes whose command line names `root` (the core's own folders): what the core started there. */
-const childrenIn = (root) => {
-  const listed = powershell(
-    `Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine.Contains('${root.replace(/'/g, "''")}') } | ForEach-Object { "$($_.ProcessId) $($_.Name)" }`,
-    30_000
-  );
-  if (listed.error || listed.status !== 0) throw new Error(`could not list the processes in ${root}: ${listed.error?.message ?? listed.stderr}`);
-  return listed.stdout.split(/\r?\n/).filter(Boolean).map((line) => ({ pid: Number(line.split(' ')[0]), name: line.split(' ').slice(1).join(' ') }));
-};
-
-/** Waits until each of `pids` has exited, at most `ms`; returns whether they all did. */
-const exitedWithin = (pids, ms) => {
-  if (!pids.length) return true;
-  const waited = powershell(`Wait-Process -Id ${pids.join(',')} -Timeout ${Math.ceil(ms / 1000)} -ErrorAction SilentlyContinue; if (Get-Process -Id ${pids.join(',')} -ErrorAction SilentlyContinue) { exit 1 }`, ms);
-  return !waited.error && waited.status === 0;
-};
-
-/** `child` is the spawned `mixdogd serve`; `env` the environment it was started with (the stop request finds it through it); `dataDir` its MIXDOG_DATA_DIR. */
-export async function endCore({ exe, child, env, dataDir, ms = 60_000 }) {
-  const forced = [];
-  if (child.exitCode === null && child.signalCode === null) {
-    const exited = new Promise((resolve) => child.once('exit', resolve));
-    const stopped = new Promise((resolve, reject) => {
-      const stop = spawn(exe, ['ctl', 'stop', '--when-idle', '--reason', 'userStop'], { env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
-      let said = '';
-      stop.stdout.on('data', (chunk) => (said += chunk));
-      stop.stderr.on('data', (chunk) => (said += chunk));
-      stop.once('error', reject);
-      stop.once('close', (status) => (status === 0 ? resolve() : reject(new Error(`ctl stop exited ${status}: ${said.trim()}`))));
-    }).then(() => exited);
-    try {
-      await within(stopped, `the core (pid ${child.pid}) to stop when asked`, ms);
-    } catch (error) {
-      forced.push(`the core: ${error.message}`);
-      killTree(child.pid);
-      await within(exited, `the core (pid ${child.pid}) to exit after taskkill`, 30_000);
-    }
-  }
-  let postmaster = null;
+/** Starts `command args` in a job of its own; `child` is the job's gate, whose exit and stderr are the command's. */
+export async function spawnCore(command, args, { cwd, env }) {
+  const job = await openJob(`${command} ${args[0]}`, { answerMs: ANSWER_MS });
   try {
-    postmaster = Number(readFileSync(join(dataDir, 'pgdata', 'postmaster.pid'), 'utf8').split(/\r?\n/)[0]);
-  } catch {}
-  if (postmaster && !exitedWithin([postmaster], 0)) {
-    forced.push(`its PostgreSQL (pid ${postmaster}) outlived it`);
-    killTree(postmaster);
-    if (!exitedWithin([postmaster], 30_000)) throw new Error(`the postmaster (pid ${postmaster}) still runs 30 s after taskkill`);
+    const child = await spawnInJob(job, command, args, { cwd, env });
+    // Nothing reads the core's stdout; it is drained so that a write to it never blocks.
+    child.stdout.resume();
+    return { child, job };
+  } catch (error) {
+    await job.close().catch(() => undefined);
+    throw error;
   }
-  const root = dirname(dataDir);
-  const children = childrenIn(root);
-  if (!exitedWithin(children.map(({ pid }) => pid), 30_000)) {
-    const left = childrenIn(root);
-    forced.push(`still running 30 s after it exited: ${left.map(({ pid, name }) => `${name} (pid ${pid})`).join(', ')}`);
-    for (const { pid } of left) killTree(pid);
+}
+
+const gone = (child) => child.exitCode !== null || child.signalCode !== null;
+
+/** `promise`, or a failure naming `what` once the clock passes `until`. */
+function before(until, promise, what) {
+  let timer;
+  const late = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${what}: not by the teardown's deadline`)), Math.max(0, until - Date.now()));
+  });
+  return Promise.race([promise, late]).finally(() => clearTimeout(timer));
+}
+
+/** Ends the core `spawnCore` started (`child`, `job`) within `ms` in all. The stop request (`stop`: the command and its arguments, by
+ *  default `<exe> ctl stop`) runs in the core's job, so a request that hangs ends with it. Resolves once nothing of the job runs; rejects
+ *  when anything had to be ended, naming what. A core that is gone already stops nothing more: what it left is ended at once. */
+export async function endCore({ exe, child, job, env, ms = 60_000, stop = [exe, ['ctl', 'stop', '--when-idle', '--reason', 'userStop']] }) {
+  const until = Date.now() + ms - RESERVE_MS;
+  const forced = [];
+  let failure = null;
+  try {
+    const ran = !gone(child);
+    if (ran) {
+      const exited = new Promise((resolve) => child.once('exit', resolve));
+      try {
+        const request = await before(until, spawnInJob(job, stop[0], stop[1], { env }), 'the stop request to start');
+        let said = '';
+        request.stdout.on('data', (chunk) => (said += chunk));
+        request.stderr.on('data', (chunk) => (said += chunk));
+        const asked = new Promise((resolve, reject) => request.once('exit', (code) => (code === 0 ? resolve() : reject(new Error(`the stop request exited ${code}: ${said.trim()}`)))));
+        await before(until, asked.then(() => exited), `the core (pid ${child.pid}) to stop when asked`);
+      } catch (error) {
+        forced.push(error.message);
+      }
+    }
+    const left = await job.end(ran && !forced.length ? Math.max(0, until - Date.now()) : 0);
+    if (left > 0) forced.push(`${left} process(es) of its job ended with the job`);
+  } catch (error) {
+    failure = error;
   }
+  await job.close().catch((error) => (failure ??= error));
+  if (failure) throw failure;
   if (forced.length) throw new Error(`the core's stop needed force: ${forced.join('; ')}`);
 }

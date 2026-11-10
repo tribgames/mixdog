@@ -16,8 +16,7 @@
 // grants). Node's `revokeAll` is the relay handle's close (remote-relay.ts:652); the core's is remote access switched off, which ends every
 // phone connection this replay holds, so here the recording's `revokeAll` is played as the unpair of each device of the scenario (the
 // close itself is replayed over the relay by the daemon's `switching_remote_access_off_ends_every_download_of_the_phones`).
-import { spawn } from 'node:child_process';
-import { endCore } from './core-stop.mjs';
+import { endCore, spawnCore } from './core-stop.mjs';
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, truncateSync, watch, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
@@ -71,7 +70,7 @@ async function startCore(exe, root, relayPort, talk) {
   const manifest = join(exe, '..', 'js-runtime.json');
   if (!existsSync(manifest)) writeFileSync(manifest, JSON.stringify({ program: process.execPath, packageRoot: REPO_ROOT }));
   const { parseDiscovery } = await here('apps/desktop/src/main/protocol/discovery.ts');
-  const child = spawn(exe, ['serve'], { env, stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true });
+  const { child, job } = await spawnCore(exe, ['serve'], { env });
   let stderr = '';
   child.stderr.on('data', (chunk) => (stderr += chunk));
   const file = join(root, 'runtime', 'daemon.json');
@@ -79,7 +78,7 @@ async function startCore(exe, root, relayPort, talk) {
     if (child.exitCode !== null) throw new Error(`mixdogd exited ${child.exitCode}:\n${stderr}`);
     if (talk.read('held') === null) return undefined;
     try {
-      return { exe, child, env, endpoint: parseDiscovery(readFileSync(file, 'utf8')), dataDir: join(root, 'data') };
+      return { exe, child, job, env, endpoint: parseDiscovery(readFileSync(file, 'utf8')), dataDir: join(root, 'data') };
     } catch {
       return undefined;
     }
@@ -88,7 +87,7 @@ async function startCore(exe, root, relayPort, talk) {
   try {
     return await talk.waitFor('the core to write its discovery file and the replay controls\' first answer (is mixdogd built with mixdog-workspace/replay-controls?)', up, 120_000, [join(root, 'runtime')]);
   } catch (error) {
-    await endCore({ exe, child, env, dataDir: join(root, 'data') }).catch((left) => console.error(left.message));
+    await endCore({ exe, child, job, env }).catch((left) => console.error(left.message));
     throw error;
   }
 }

@@ -152,6 +152,11 @@ async function startGuard(what, answerMs) {
   }
   return {
     pid: guard.pid,
+    /** The guard no longer keeps this process alive; if this process ends first, its stdin closes and the job ends what is in it. */
+    unref: () => {
+      guard.unref();
+      for (const stream of [guard.stdin, guard.stdout, guard.stderr]) stream.unref();
+    },
     assign: (pid) => ask(`assign ${pid}`, 'assigned', answerMs),
     /** Ends every process in the job once `grace` ms passed without it emptying; resolves with how many it had to end. */
     end: async (grace) => Number((await ask(`end ${grace} ${answerMs}`, 'ended', grace + answerMs * 2)).split(' ')[1]),
@@ -168,6 +173,29 @@ async function startGuard(what, answerMs) {
       }
     },
   };
+}
+
+/** A job for a process that outlives one call (a core a replay talks to): `assign`, `end(grace)` and `close()` as in `withJob`. It does not
+ *  keep this process alive; whoever opens it closes it. */
+export async function openJob(what, { answerMs = GUARD_DEADLINE_MS } = {}) {
+  const guard = await startGuard(what, answerMs);
+  guard.unref();
+  return guard;
+}
+
+/** Starts `command` in `job` through the gate, so it and everything it starts are in the job from their first instruction. Returns the
+ *  gate, whose stdout and stderr are the command's and whose exit is the command's. */
+export async function spawnInJob(job, command, args, { cwd, env } = {}) {
+  const child = spawn(process.execPath, ['-e', GATE, command, ...args], { cwd, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+  const failed = new Promise((_, reject) => child.once('error', (error) => reject(new Error(`the gate for ${command} did not start: ${error.message}`))));
+  try {
+    await Promise.race([job.assign(child.pid), failed]);
+  } catch (error) {
+    child.kill();
+    throw error;
+  }
+  child.stdin.end('go\n');
+  return child;
 }
 
 /** Runs `use(job)` with a job of its own, closed (every process in it ended) however `use` ends. `job.guardPid` is the guard holding the
