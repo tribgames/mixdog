@@ -1968,6 +1968,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 auto_resume: auto_resume.clone(),
             };
             let session_surface = surface_generation.clone();
+            let removed_sessions = removed_sessions.clone();
             let task_workspace: Arc<dyn mixdog_core_session::session::TaskWorkspace> = agents.clone();
             let new_place = late_new_place.clone();
             let gateway_usage = gateway_usage.clone();

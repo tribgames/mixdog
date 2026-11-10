@@ -21,7 +21,7 @@ if (args.get('replay')) {
   const { replayDownloads } = await import('./lib/file-downloads-replay.mjs');
   const { readFileSync } = await import('node:fs');
   const recording = JSON.parse(readFileSync(join(FIXTURES_ROOT, 'file-downloads', 'file-downloads.json'), 'utf8'));
-  process.exit(await replayDownloads({ exe: args.get('replay'), recording, writeRequests: Boolean(args.get('write-requests')) }));
+  process.exit((await replayDownloads({ exe: args.get('replay'), recording })).code);
 }
 const tree = resolveTree(args);
 const identity = exactProductIdentity(tree, args.get('commit') ?? (() => { throw new Error('--commit is required'); })());

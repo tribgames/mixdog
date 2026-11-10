@@ -121,7 +121,9 @@ function downloadId(value: unknown, name: string): string {
 /** Node's `path.isAbsolute` on the PC (a Windows host also takes the POSIX form). */
 const isAbsolutePath = (path: string): boolean => /^([\\/]|[A-Za-z]:[\\/])/.test(path);
 
-type DownloadRequest = { sessionId: string; purpose: FileDownloadPurpose } & ({ kind: 'project'; relPath: string } | { kind: 'session'; path: string });
+const MEDIA_ASSET_ID = /^[A-Za-z0-9_-]{1,128}$/;
+
+type DownloadRequest = { sessionId: string; purpose: FileDownloadPurpose } & ({ kind: 'project'; relPath: string } | { kind: 'session'; path: string } | { kind: 'media'; assetId: string });
 
 function downloadRequest(value: unknown): DownloadRequest {
   const request = plainRecord(value, 'download request');
@@ -135,6 +137,11 @@ function downloadRequest(value: unknown): DownloadRequest {
     return { kind: 'project', sessionId, relPath, purpose };
   }
   if (source.kind === 'session') return { kind: 'session', sessionId, path: requiredText(source.path, 'path', 4_096), purpose };
+  if (source.kind === 'media') {
+    const assetId = requiredText(source.assetId, 'asset id', 128);
+    if (!MEDIA_ASSET_ID.test(assetId)) throw new TypeError('asset id is invalid.');
+    return { kind: 'media', sessionId, assetId, purpose };
+  }
   throw new TypeError('download source is invalid.');
 }
 
@@ -142,7 +149,7 @@ function downloadRequest(value: unknown): DownloadRequest {
  *  conversation it does not list is Node's `unavailable`, whoever asks, so the request names only the conversation and the file. */
 function authorizeDownload(host: PhoneProtocolHost, value: unknown): Promise<unknown> {
   const request = downloadRequest(value);
-  const source = request.kind === 'project' ? { kind: 'file', rel: request.relPath } : { kind: 'sessionFile', path: request.path };
+  const source = request.kind === 'project' ? { kind: 'file', rel: request.relPath } : request.kind === 'media' ? { kind: 'mediaAsset', assetId: request.assetId } : { kind: 'sessionFile', path: request.path };
   return rpc(host, 'transfer/authorizeRead', { sessionId: request.sessionId, source, purpose: request.purpose });
 }
 function downloadRange(transferId: unknown, offset: unknown, length: unknown, version: unknown): Params {
