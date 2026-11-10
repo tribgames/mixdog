@@ -8,7 +8,6 @@ use mixdog_core_api::domain::common::AbsPath;
 use mixdog_core_api::domain::fs::DirEntry;
 use mixdog_core_api::domain::fs::EntryKind;
 use mixdog_core_api::domain::fs::FileStat;
-use mixdog_core_api::domain::fs::FsErrorKind;
 use mixdog_core_api::domain::fs::ReadRange;
 use mixdog_core_api::domain::tool::Tool;
 use mixdog_core_api::domain::tool::ToolContext;
@@ -18,8 +17,9 @@ use mixdog_core_api::domain::tool::ToolSpec;
 use mixdog_protocol::JsonValue;
 
 use super::common::*;
+use super::not_found::list_absent;
+use super::not_found::missing_code;
 use crate::orch::util::spec_from_def;
-use super::read::ReadTool;
 
 const LIST_SPEC: &str = include_str!("specs/list.json");
 const DEFAULT_PAGE: u64 = 100;
@@ -148,8 +148,9 @@ impl Tool for ListTool {
         let abs = resolve_path(&ctx.cwd, raw)?;
         let stat = match guarded(ctx, "list", ctx.files.stat(ctx.io.interactive, abs.clone())).await? {
             Ok(s) => s,
-            Err(e) if e.kind == FsErrorKind::NotFound || e.kind == FsErrorKind::NotADirectory => {
-                return Ok(text_output(ReadTool::not_found(ctx, raw, &abs).await));
+            Err(e) if missing_code(&e.kind).is_some() => {
+                let code = missing_code(&e.kind).unwrap_or("ENOENT");
+                return Ok(text_output(list_absent(ctx, &abs, raw, code).await));
             }
             Err(e) => return Err(fs_failure(&e, raw)),
         };
@@ -389,8 +390,9 @@ async fn glob_path_list(ctx: &ToolContext, raw: &str, hidden: bool, offset: usiz
     let root = resolve_path(&ctx.cwd, &input)?;
     let stat = match guarded(ctx, "list", ctx.files.stat(ctx.io.interactive, root.clone())).await? {
         Ok(s) => s,
-        Err(e) if e.kind == FsErrorKind::NotFound || e.kind == FsErrorKind::NotADirectory => {
-            return Ok(text_output(ReadTool::not_found(ctx, &input, &root).await));
+        Err(e) if missing_code(&e.kind).is_some() => {
+            let code = missing_code(&e.kind).unwrap_or("ENOENT");
+            return Ok(text_output(list_absent(ctx, &root, &input, code).await));
         }
         Err(e) => return Err(fs_failure(&e, &input)),
     };

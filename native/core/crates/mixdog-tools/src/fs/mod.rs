@@ -5,6 +5,7 @@ mod edit;
 mod edit_plan;
 mod hints;
 mod list;
+mod not_found;
 mod patch;
 mod patch_guard;
 mod patch_hunk;
