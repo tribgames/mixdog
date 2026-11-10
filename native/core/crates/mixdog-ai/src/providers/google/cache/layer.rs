@@ -112,6 +112,20 @@ impl ExplicitCache {
         }
     }
 
+    /// The same cache, serving the key a request is sent with: Node reads the key per send (`_getApiKey()`), and
+    /// the cache it makes, finds and drops belongs to that key's fingerprint.
+    pub fn keyed(&self, api_key: &str) -> Self {
+        Self {
+            fingerprint: policy::credential_fingerprint(api_key),
+            api_key: api_key.to_owned(),
+            origin: self.origin.clone(),
+            http: self.http.clone(),
+            runtime: self.runtime.clone(),
+            registry: self.registry.clone(),
+            tuning: self.tuning,
+        }
+    }
+
     /// The key was rejected (401): every cache made under it is unusable
     /// (`_invalidateGeminiCachesForCredentialFingerprint`).
     pub fn forget_credential(&self) {

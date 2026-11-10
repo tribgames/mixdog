@@ -5,7 +5,11 @@
 pub mod antigravity;
 pub mod vertex;
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
+
+use crate::providers::key_source::ApiKeySource;
 use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::ProviderError;
@@ -31,39 +35,50 @@ pub trait RequestAuth: Send + Sync {
 
 /// A static key sent in `x-goog-api-key` (Gemini API, Vertex express mode).
 pub struct ApiKeyAuth {
-    key: String,
-    resend_on_401: bool,
+    source: Arc<dyn ApiKeySource>,
+}
+
+/// A key that never changes: a re-read finds the same key.
+pub struct HeldKey(pub String);
+
+#[async_trait]
+impl ApiKeySource for HeldKey {
+    async fn key(&self) -> Result<String, ProviderError> {
+        Ok(self.0.clone())
+    }
+
+    async fn reload(&self) -> Result<String, ProviderError> {
+        Ok(self.0.clone())
+    }
 }
 
 impl ApiKeyAuth {
     pub fn new(key: impl Into<String>) -> Self {
-        Self { key: key.into(), resend_on_401: false }
+        Self { source: Arc::new(HeldKey(key.into())) }
     }
 
-    /// The Gemini API's key: a typed 401 re-reads the provider's key and sends the request once more with what it
-    /// finds (`gemini.mjs` `send`), which for a key held as given is the same key.
-    pub fn rereading(key: impl Into<String>) -> Self {
-        Self { key: key.into(), resend_on_401: true }
+    /// The key as the provider's source reads it at each request. The 401 recovery of a source that can be re-read
+    /// is the adapter's ([`super::adapter::GoogleAdapter::with_key_reload`]), as a whole request.
+    pub fn from_source(source: Arc<dyn ApiKeySource>) -> Self {
+        Self { source }
     }
 }
 
 #[async_trait]
 impl RequestAuth for ApiKeyAuth {
     async fn authorize(&self) -> Result<Authorization, ProviderError> {
-        if self.key.trim().is_empty() {
+        let key = self.source.key().await?;
+        if key.trim().is_empty() {
             let mut err = ProviderError::new(ErrorKind::Auth, DeliveryState::NotSent);
             err.reauth_required = true;
             err.message = "the API key is not configured".into();
             return Err(err);
         }
-        Ok(Authorization {
-            headers: vec![("x-goog-api-key".into(), self.key.clone())],
-            identity: String::new(),
-        })
+        Ok(Authorization { headers: vec![("x-goog-api-key".into(), key)], identity: String::new() })
     }
 
     async fn rejected(&self, _: &Authorization) -> bool {
-        self.resend_on_401 && !self.key.trim().is_empty()
+        false
     }
 }
 

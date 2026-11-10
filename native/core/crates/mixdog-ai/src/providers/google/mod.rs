@@ -40,6 +40,7 @@ use auth::RequestAuth;
 use auth::antigravity::AntigravityAuth;
 use auth::antigravity::TokenStore;
 use codec::GoogleCodec;
+use crate::providers::key_source::ApiKeySource;
 use crate::transport::HttpSend;
 use traits::ModelTraits;
 
@@ -49,8 +50,18 @@ pub fn gemini(
     http: Arc<dyn HttpSend>,
     traits: Arc<dyn ModelTraits>,
 ) -> GoogleAdapter {
+    gemini_keyed(Arc::new(auth::HeldKey(api_key.into())), http, traits)
+}
+
+/// [`gemini`] with a key read at each request and re-read after a 401 (`resolveProviderApiKey`,
+/// `reloadProviderApiKey`).
+pub fn gemini_keyed(
+    key: Arc<dyn ApiKeySource>,
+    http: Arc<dyn HttpSend>,
+    traits: Arc<dyn ModelTraits>,
+) -> GoogleAdapter {
     gemini_with(
-        api_key,
+        key,
         http,
         traits,
         Arc::new(cache::runtime::RtCacheRuntime),
@@ -62,17 +73,17 @@ pub fn gemini(
 /// [`gemini`] over the given clock/task seam, cache registry and tuning: the one wiring, so a test drives the
 /// production adapter with a virtual clock.
 pub fn gemini_with(
-    api_key: impl Into<String>,
+    key: Arc<dyn ApiKeySource>,
     http: Arc<dyn HttpSend>,
     traits: Arc<dyn ModelTraits>,
     runtime: Arc<dyn cache::layer::CacheRuntime>,
     registry: Arc<cache::registry::Registry>,
     tuning: cache::policy::Tuning,
 ) -> GoogleAdapter {
-    let api_key = api_key.into();
     let clock = runtime.clone();
+    // The cache serves the key of each request (`ExplicitCache::keyed`); this one is only its template.
     let cache = cache::layer::ExplicitCache::new(
-        api_key.clone(),
+        "",
         codec::GEMINI_ORIGIN,
         http.clone(),
         runtime,
@@ -83,9 +94,10 @@ pub fn gemini_with(
         GoogleCodec::gemini(codec::GEMINI_ORIGIN, traits),
         policy::gemini(),
         http,
-        Arc::new(ApiKeyAuth::rereading(api_key)),
+        Arc::new(ApiKeyAuth::from_source(key.clone())),
         String::new(),
     )
+    .with_key_reload(key)
     .with_cache(cache)
     .with_clock(Arc::new(move || clock.now_ms()))
 }

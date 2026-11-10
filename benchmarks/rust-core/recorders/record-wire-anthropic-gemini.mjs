@@ -426,6 +426,35 @@ for (const family of ['pro25', 'flash25', 'lite25']) {
 gemini({ id: 'pro25.prefixed-upper-case', model: 'models/GEMINI-2.5-PRO', start: AFTER_REDIRECT, user: 'Look up the answer.', turns: [finalTurn('Done.')] });
 gemini({ id: 'pro25.second-instance', model: GEMINI_MODELS.pro25, start: AFTER_REDIRECT, user: 'Look up the answer.', turns: [finalTurn('Done.'), { ...finalTurn('Again.'), newProvider: true }] });
 
+// A typed 401 makes `GeminiProvider.send` re-read the provider's key (`reloadProviderApiKey`, gemini.mjs `send`) and
+// send the whole request once more when the re-read finds a key. Which key it finds depends on where the key lives, so
+// each source is a scenario: `config` is the provider's config, `env` the process environment at the start, and a
+// turn's `rotate` the environment change that happens when the server refuses the key (a rotated or removed key).
+// `once` makes only the first generate call of that turn fail.
+const ENV_KEY = 'GEMINI_API_KEY';
+const OTHER = 'rotated-fake-credential';
+const keyScenario = (id, turns, extra = {}) => gemini({ id, model: GEMINI_MODELS.lite25, system: SMALL_SYSTEM, user: 'Look up the answer.', turns, ...extra });
+const ENV_NAMES = [ENV_KEY, 'MIXDOG_AGENT_GEMINI_APIKEY', 'WIRE_GEMINI_KEY'];
+const REFUSED = { status: 401, reason: 'UNAUTHENTICATED', message: 'API key not valid. Please pass a valid API key.' };
+// The first generate call is refused and the resend is answered (`once`); `rejected` refuses every call.
+const answered = (turn, rotate) => ({ ...turn, fail: { ...REFUSED, once: true }, ...(rotate ? { rotate } : {}) });
+const rejected = (rotate) => ({ blocks: [], fail: REFUSED, ...(rotate ? { rotate } : {}) });
+// The key is in the provider's config: the re-read finds the same key and the request is sent again.
+keyScenario('lite25.key-config-recovers', [answered(finalTurn('Done.')), finalTurn('Again.')], { config: { apiKey: FAKE } });
+keyScenario('lite25.key-config-rejected-twice', [rejected(), finalTurn('Done.')], { config: { apiKey: FAKE } });
+// The key is in the environment: a rotated key is what the re-read finds, and the next send uses it too.
+keyScenario('lite25.key-env-rotated', [answered(finalTurn('Done.'), { [ENV_KEY]: OTHER }), finalTurn('Again.')], { config: {}, env: { [ENV_KEY]: FAKE } });
+// A key in config is what the first send uses; the re-read prefers the stored or environment key over it.
+keyScenario('lite25.key-env-beats-config', [answered(finalTurn('Done.')), finalTurn('Again.')], { config: { apiKey: FAKE }, env: { [ENV_KEY]: OTHER } });
+// The config names an environment variable: that variable alone is read, again after the 401.
+keyScenario('lite25.key-named-env-rotated', [answered(finalTurn('Done.'), { WIRE_GEMINI_KEY: OTHER }), finalTurn('Again.')], { config: { apiKeyEnv: 'WIRE_GEMINI_KEY' }, env: { WIRE_GEMINI_KEY: FAKE } });
+// The key is gone when it is re-read: nothing is sent again and the 401 surfaces.
+keyScenario('lite25.key-named-env-removed', [rejected({ WIRE_GEMINI_KEY: null })], { config: { apiKeyEnv: 'WIRE_GEMINI_KEY' }, env: { WIRE_GEMINI_KEY: FAKE } });
+// A refused key also drops the session's saved cache: the resend builds a new one.
+// The cache the first call made belongs to the refused key: the resend makes its own.
+gemini({ id: 'g3pro.key-rejected-after-create', model: GEMINI_MODELS.g3pro, user: 'Read every file.', turns: [answered(toolTurn(1, 'Reading.')), finalTurn('Done.')], config: { apiKey: FAKE } });
+gemini({ id: 'g3pro.key-rejected-with-cache', model: GEMINI_MODELS.g3pro, user: 'Read every file.', turns: [toolTurn(1, 'Reading.'), answered(toolTurn(2, 'Reading more.')), finalTurn('Done.')], config: { apiKey: FAKE } });
+
 async function runGemini(realTool) {
   const { GeminiProvider } = await load(`${P}gemini.mjs`);
   const cache = await load(`${P}gemini-cache.mjs`);
@@ -438,7 +467,11 @@ async function runGemini(realTool) {
     resetRegistry();
     clock.timers.clear();
     clock.now = scenario.start;
-    let provider = new GeminiProvider({ apiKey: FAKE });
+    // The process environment of the scenario: its own variables only.
+    for (const name of ENV_NAMES) delete process.env[name];
+    Object.assign(process.env, scenario.env || {});
+    const config = scenario.config ?? { apiKey: FAKE };
+    let provider = new GeminiProvider({ ...config });
     const tools = scenario.tools.map((t) => realTool(t));
     let providerState;
     let messages = [...scenario.system, ...scenario.history, { role: 'user', content: scenario.user }];
@@ -447,7 +480,8 @@ async function runGemini(realTool) {
     for (const turn of scenario.turns) {
       if (turn.freshProcess) resetRegistry();
       // Another provider instance of the same process (the notice registry and the cache registry are the process's).
-      if (turn.newProvider) provider = new GeminiProvider({ apiKey: FAKE });
+      if (turn.newProvider) provider = new GeminiProvider({ ...config });
+      let refusedOnce = false;
       const reply = geminiReply(turn.blocks);
       responder = (entry) => {
         if (entry.method === 'DELETE') return { status: 200, body: '{}', json: true };
@@ -455,7 +489,14 @@ async function runGemini(realTool) {
           creates += 1;
           return { status: 200, json: true, body: JSON.stringify({ name: `cachedContents/${scenario.id}-${creates}`, usageMetadata: { totalTokenCount: 5000 + creates } }) };
         }
-        if (turn.fail) return { status: turn.fail.status, json: true, body: JSON.stringify({ error: { code: turn.fail.status, message: turn.fail.message, status: turn.fail.reason } }) };
+        if (turn.fail && !(turn.fail.once && refusedOnce)) {
+          refusedOnce = true;
+          for (const [name, value] of Object.entries(turn.rotate || {})) {
+            if (value === null) delete process.env[name];
+            else process.env[name] = value;
+          }
+          return { status: turn.fail.status, json: true, body: JSON.stringify({ error: { code: turn.fail.status, message: turn.fail.message, status: turn.fail.reason } }) };
+        }
         return { status: 200, body: reply };
       };
       captured = [];
@@ -512,7 +553,7 @@ async function runGemini(realTool) {
         ledger: ledgerRows.map(ledgerView),
         requests: captured,
       });
-      if (turn.fail) continue;
+      if (turn.fail && !turn.fail.once) continue;
       const assistant = assistantOf(turn.blocks);
       if (turn.compactTo) {
         messages = [...scenario.system, { role: 'user', content: turn.compactTo }];
@@ -521,7 +562,7 @@ async function runGemini(realTool) {
         if (turn.next) messages.push({ role: 'user', content: turn.next });
       }
     }
-    out.push({ id: scenario.id, model: scenario.model, tools, sends });
+    out.push({ id: scenario.id, model: scenario.model, tools, config: scenario.config ?? { apiKey: FAKE }, env: scenario.env ?? {}, rotations: scenario.turns.map((turn) => turn.rotate ?? null), sends });
   }
   responder = null;
   return out;
