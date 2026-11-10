@@ -1,0 +1,213 @@
+{
+  "command": "MIXDOG_RECORDER_SCRATCH=<scratch parent> node benchmarks/rust-core/recorders/record-tool-failures.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 36551,
+      "path": "golden.json",
+      "sha256": "a72a9279ec6fd0a01cad028462d58ade9a14b5fd8ee68d077fdeb8b70a73dbeb"
+    }
+  ],
+  "node": "v22.20.0",
+  "normalised": [
+    "session_id",
+    "ts",
+    "tool_ms",
+    "workspace",
+    "data folder (with result_bytes_est counted on the masked text)",
+    "leftAtExit: process ids dropped (a parent named by its place in the list), the workspace and the data folder in a command line as in the rows, a console host's server handle value as `<server handle>`, only in a command line that is wholly `\\??\\<drive>:\\WINDOWS\\system32\\conhost.exe` SP `0x` HEXDIGIT+ [ SP `-ForceV1` ] (lib/tool-failure-rows.mjs CONSOLE_HOST; any other argument text is compared as it is). The value is chosen by Windows' console driver, which starts the console host, not by the launcher: one mixdogd build gave `0x4` and `0xffffffff -ForceV1` on two replays of scenario 9"
+  ],
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-tool-failures.mjs",
+  "recorderSha256": "596a295808594d836671e69cf83197762a4f4e802b7280990486821784f33e05",
+  "rows": 20,
+  "rowsLibSha256": "e5748aefeacdd419e2192ec5164c375afc0db5938acea9e6b49d7de0267068ce",
+  "scenariosSha256": "3d996c83ee2148655d7af603ebf6410ae6e0fb01a3f13f757bf7459d5d9e5edc",
+  "set": "tool-failures",
+  "syntheticInputs": {
+    "approvalAnswers": [
+      {
+        "approved": false,
+        "reason": "no thanks",
+        "scenario": "a call whose approval is denied"
+      }
+    ],
+    "heldFlushTimer": "a holdFlushTimer scenario: globalThis.setTimeout holds a timer whose callback is agent-trace-io.mjs _flushToolFailures (never started; every other timer runs); results[i].atStop records the delays asked for and the failures file just before process.exit",
+    "hookDecisions": [
+      {
+        "action": "deny",
+        "reason": "blocked by test hook",
+        "scenario": "a call refused by a hook"
+      },
+      {
+        "action": "ask",
+        "reason": "needs approval",
+        "scenario": "a call whose approval is denied"
+      }
+    ],
+    "leftAtExit": "what each scenario's Node process left running in its job when it exited (lib/job-run.mjs), Node's own helpers set aside (lib/tool-failure-rows.mjs NODE_HELPERS: mixdog-spawn-*, mixdog-patch-* and their console hosts); each as its image name, its parent and its command line (lib/tool-failure-rows.mjs leftAtExit)",
+    "mcpServer": {
+      "file": "fx-mcp.mjs",
+      "sha256": "9e696362b216516f7ddcd1517bb67cb04870e48a98c7f5fc6bb4652fc23baaf9",
+      "tools": [
+        "fail",
+        "boom",
+        "ok",
+        "big"
+      ]
+    },
+    "provider": "a scripted provider (only its send is scripted; model fake-model): the replies of each scenario in lib/tool-failure-scenarios.mjs",
+    "scenarios": [
+      {
+        "abortWhenFile": null,
+        "approval": null,
+        "full": false,
+        "holdFlushTimer": false,
+        "hook": null,
+        "name": "tool errors, refusals and redaction in one batch",
+        "replies": 3
+      },
+      {
+        "abortWhenFile": null,
+        "approval": null,
+        "full": false,
+        "holdFlushTimer": false,
+        "hook": null,
+        "name": "a call whose arguments are not JSON",
+        "replies": 2
+      },
+      {
+        "abortWhenFile": null,
+        "approval": null,
+        "full": false,
+        "holdFlushTimer": false,
+        "hook": null,
+        "name": "a shell command that outlives its timeout",
+        "replies": 2
+      },
+      {
+        "abortWhenFile": null,
+        "approval": null,
+        "full": false,
+        "holdFlushTimer": false,
+        "hook": {
+          "action": "deny",
+          "reason": "blocked by test hook"
+        },
+        "name": "a call refused by a hook",
+        "replies": 2
+      },
+      {
+        "abortWhenFile": null,
+        "approval": {
+          "approved": false,
+          "reason": "no thanks"
+        },
+        "full": false,
+        "holdFlushTimer": false,
+        "hook": {
+          "action": "ask",
+          "reason": "needs approval"
+        },
+        "name": "a call whose approval is denied",
+        "replies": 2
+      },
+      {
+        "abortWhenFile": null,
+        "approval": null,
+        "full": true,
+        "holdFlushTimer": false,
+        "hook": null,
+        "name": "skill, delegated-agent and MCP tool failures",
+        "replies": 2
+      },
+      {
+        "abortWhenFile": null,
+        "approval": null,
+        "full": true,
+        "holdFlushTimer": false,
+        "hook": null,
+        "name": "MCP tool failures",
+        "replies": 2
+      },
+      {
+        "abortWhenFile": "started.flag",
+        "approval": null,
+        "full": false,
+        "holdFlushTimer": false,
+        "hook": null,
+        "name": "a turn ended while its shell command runs",
+        "replies": 2
+      },
+      {
+        "abortWhenFile": "batch.flag",
+        "approval": null,
+        "full": false,
+        "holdFlushTimer": false,
+        "hook": null,
+        "name": "a turn ended while a batch with failed calls runs",
+        "replies": 2
+      },
+      {
+        "abortWhenFile": null,
+        "approval": null,
+        "full": true,
+        "holdFlushTimer": false,
+        "hook": null,
+        "name": "a returned error that is offloaded",
+        "replies": 2
+      },
+      {
+        "abortWhenFile": null,
+        "approval": null,
+        "full": true,
+        "holdFlushTimer": false,
+        "hook": null,
+        "name": "MCP results that carry an image",
+        "replies": 2
+      },
+      {
+        "abortWhenFile": null,
+        "approval": null,
+        "full": false,
+        "holdFlushTimer": true,
+        "hook": null,
+        "name": "a failed call whose row is still queued when the process stops",
+        "replies": 2
+      }
+    ],
+    "sessionBuilderInputs": {
+      "builder": "sessionOptions (src/session-runtime/session-create/session-options.mjs), with the product workflowHelpers.activeWorkflowContext",
+      "featureDisallowedTools": [],
+      "laidOver": "a headless scenario: skipSkills true and workflow { id: headless, delegatesAgents: false }",
+      "rt": {
+        "config": {},
+        "coreMemoryContext": null,
+        "mode": "full",
+        "sessionProfile": null,
+        "toolProfile": "interactive for a full scenario, headless otherwise"
+      }
+    },
+    "workspaceFiles": {
+      "a.txt": "e2150a7049a28067b28de40c77c5e632d37fe6bfa5f858830b3abcdf187d20cc",
+      "fx-mcp.mjs": "9e696362b216516f7ddcd1517bb67cb04870e48a98c7f5fc6bb4652fc23baaf9"
+    }
+  },
+  "totalBytes": 36551
+}

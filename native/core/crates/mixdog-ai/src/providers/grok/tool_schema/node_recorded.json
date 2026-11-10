@@ -1,0 +1,5954 @@
+[
+ {
+  "source": "rust-tools",
+  "name": "find",
+  "input": {
+   "type": "object",
+   "properties": {
+    "query": {
+     "type": "string",
+     "minLength": 1,
+     "pattern": "\\S",
+     "description": "Filename/path fragment; space-separated fragments AND-match within one path."
+    },
+    "path": {
+     "type": "string",
+     "description": "Base directory; omit for the current Project."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Max paths; default 25; 0 unlimited."
+    },
+    "include_noise": {
+     "type": "boolean",
+     "description": "Also search gitignored trees."
+    }
+   },
+   "required": [
+    "query"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "query": {
+     "type": "string",
+     "minLength": 1,
+     "pattern": "\\S",
+     "description": "Filename/path fragment; space-separated fragments AND-match within one path."
+    },
+    "path": {
+     "type": "string",
+     "description": "Base directory; omit for the current Project."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Max paths; default 25; 0 unlimited."
+    },
+    "include_noise": {
+     "type": "boolean",
+     "description": "Also search gitignored trees."
+    }
+   },
+   "required": [
+    "query"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "rust-tools",
+  "name": "glob",
+  "input": {
+   "type": "object",
+   "properties": {
+    "pattern": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       },
+       "maxItems": 10
+      }
+     ],
+     "description": "Union of patterns under one base; separate calls for other bases or per-pattern results."
+    },
+    "path": {
+     "type": "string",
+     "description": "Known existing base directory; omit for the current Project."
+    },
+    "sort": {
+     "type": "string",
+     "enum": [
+      "natural",
+      "mtime"
+     ],
+     "description": "mtime default (newest first); natural = raw walk order, cheaper on huge trees."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Max entries; default 100; 0 unlimited."
+    },
+    "offset": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "include_noise": {
+     "type": "boolean",
+     "description": "Also search gitignored trees."
+    }
+   },
+   "required": [
+    "pattern"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "pattern": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "maxItems": 10,
+     "description": "Union of patterns under one base; separate calls for other bases or per-pattern results. Pass one or more values as an array."
+    },
+    "path": {
+     "type": "string",
+     "description": "Known existing base directory; omit for the current Project."
+    },
+    "sort": {
+     "type": "string",
+     "enum": [
+      "natural",
+      "mtime"
+     ],
+     "description": "mtime default (newest first); natural = raw walk order, cheaper on huge trees."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Max entries; default 100; 0 unlimited."
+    },
+    "offset": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "include_noise": {
+     "type": "boolean",
+     "description": "Also search gitignored trees."
+    }
+   },
+   "required": [
+    "pattern"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "rust-tools",
+  "name": "list",
+  "input": {
+   "type": "object",
+   "properties": {
+    "path": {
+     "type": "string",
+     "description": "Known directory; defaults to the current Project."
+    },
+    "hidden": {
+     "type": "boolean",
+     "description": "Include dotfiles."
+    },
+    "meta": {
+     "type": "boolean",
+     "description": "Per-entry size bytes, UTC mtime, octal mode; text files also get a line count."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 100,
+     "description": "Max entries; default 100; 0 = no page cap (absolute cap still applies)."
+    },
+    "offset": {
+     "type": "integer",
+     "minimum": 0
+    }
+   },
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "path": {
+     "type": "string",
+     "description": "Known directory; defaults to the current Project."
+    },
+    "hidden": {
+     "type": "boolean",
+     "description": "Include dotfiles."
+    },
+    "meta": {
+     "type": "boolean",
+     "description": "Per-entry size bytes, UTC mtime, octal mode; text files also get a line count."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 100,
+     "description": "Max entries; default 100; 0 = no page cap (absolute cap still applies)."
+    },
+    "offset": {
+     "type": "integer",
+     "minimum": 0
+    }
+   },
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "rust-tools",
+  "name": "grep",
+  "input": {
+   "type": "object",
+   "properties": {
+    "pattern": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       },
+       "maxItems": 10
+      }
+     ],
+     "description": "Ripgrep regex(es); escape literal metacharacters."
+    },
+    "path": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "minItems": 1,
+       "maxItems": 10,
+       "items": {
+        "type": "string"
+       }
+      }
+     ],
+     "description": "Plain file/directory scopes; omit for Project root. Every pattern searches every path; pattern/path pairs need separate calls."
+    },
+    "glob": {
+     "type": "string",
+     "description": "Relative glob filter evaluated inside path, e.g. \"*.cs\" or \"src/**/*.ts\"; for exact/absolute paths use path instead."
+    },
+    "mode": {
+     "type": "string",
+     "enum": [
+      "content",
+      "files",
+      "count"
+     ],
+     "description": "content default; files lists matching paths; count totals all patterns together per file."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Requested results; default 250; 0 unlimited. Context output caps at 40 blocks; continue via the returned offset."
+    },
+    "offset": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "context": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 200,
+     "description": "Omit for automatic context; 0 for matches only."
+    },
+    "include_noise": {
+     "type": "boolean",
+     "description": "Also search gitignored trees."
+    },
+    "text": {
+     "type": "boolean",
+     "description": "Search binary data as text (archives/Git objects not decoded)."
+    }
+   },
+   "required": [
+    "pattern"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "pattern": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "maxItems": 10,
+     "description": "Ripgrep regex(es); escape literal metacharacters. Pass one or more values as an array."
+    },
+    "path": {
+     "type": "array",
+     "minItems": 1,
+     "maxItems": 10,
+     "items": {
+      "type": "string"
+     },
+     "description": "Plain file/directory scopes; omit for Project root. Every pattern searches every path; pattern/path pairs need separate calls. Pass one or more values as an array."
+    },
+    "glob": {
+     "type": "string",
+     "description": "Relative glob filter evaluated inside path, e.g. \"*.cs\" or \"src/**/*.ts\"; for exact/absolute paths use path instead."
+    },
+    "mode": {
+     "type": "string",
+     "enum": [
+      "content",
+      "files",
+      "count"
+     ],
+     "description": "content default; files lists matching paths; count totals all patterns together per file."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Requested results; default 250; 0 unlimited. Context output caps at 40 blocks; continue via the returned offset."
+    },
+    "offset": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "context": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 200,
+     "description": "Omit for automatic context; 0 for matches only."
+    },
+    "include_noise": {
+     "type": "boolean",
+     "description": "Also search gitignored trees."
+    },
+    "text": {
+     "type": "boolean",
+     "description": "Search binary data as text (archives/Git objects not decoded)."
+    }
+   },
+   "required": [
+    "pattern"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "rust-tools",
+  "name": "code_graph",
+  "input": {
+   "type": "object",
+   "properties": {
+    "mode": {
+     "type": "string",
+     "enum": [
+      "overview",
+      "imports",
+      "dependents",
+      "related",
+      "impact",
+      "symbols",
+      "find_symbol",
+      "symbol_search",
+      "search",
+      "references",
+      "callers",
+      "callees"
+     ],
+     "description": "File modes (files[]): overview, imports, dependents, related, impact. symbols with files[] gives the file outline; other modes use symbols[]."
+    },
+    "files": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ],
+     "description": "Paths, project-relative or absolute; required for file modes, symbol queries span all files."
+    },
+    "symbols": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ],
+     "description": "Exact identifiers/keywords; required for symbol modes, optional outline filter. Every symbol searches every file; distinct pairs need separate calls."
+    },
+    "body": {
+     "type": "boolean",
+     "description": "true for implementation, false for locations; find_symbol defaults true, references is opt-in."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 500,
+     "description": "Max results; modes may cap lower."
+    },
+    "depth": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 5,
+     "description": "Overview hierarchy or caller traversal depth; default 1."
+    },
+    "cwd": {
+     "type": "string",
+     "description": "Explicit root outside the project; omit for project root."
+    }
+   },
+   "required": [
+    "mode"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "mode": {
+     "type": "string",
+     "enum": [
+      "overview",
+      "imports",
+      "dependents",
+      "related",
+      "impact",
+      "symbols",
+      "find_symbol",
+      "symbol_search",
+      "search",
+      "references",
+      "callers",
+      "callees"
+     ],
+     "description": "File modes (files[]): overview, imports, dependents, related, impact. symbols with files[] gives the file outline; other modes use symbols[]."
+    },
+    "files": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "Paths, project-relative or absolute; required for file modes, symbol queries span all files. Pass one or more values as an array."
+    },
+    "symbols": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "Exact identifiers/keywords; required for symbol modes, optional outline filter. Every symbol searches every file; distinct pairs need separate calls. Pass one or more values as an array."
+    },
+    "body": {
+     "type": "boolean",
+     "description": "true for implementation, false for locations; find_symbol defaults true, references is opt-in."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 500,
+     "description": "Max results; modes may cap lower."
+    },
+    "depth": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 5,
+     "description": "Overview hierarchy or caller traversal depth; default 1."
+    },
+    "cwd": {
+     "type": "string",
+     "description": "Explicit root outside the project; omit for project root."
+    }
+   },
+   "required": [
+    "mode"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "rust-tools",
+  "name": "read",
+  "input": {
+   "type": "object",
+   "properties": {
+    "file_path": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "minItems": 1,
+       "maxItems": 10,
+       "items": {
+        "anyOf": [
+         {
+          "type": "string"
+         },
+         {
+          "type": "object",
+          "properties": {
+           "file_path": {
+            "type": "string"
+           },
+           "offset": {
+            "type": "integer",
+            "minimum": 1
+           },
+           "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100000
+           }
+          },
+          "required": [
+           "file_path"
+          ],
+          "additionalProperties": false
+         }
+        ]
+       }
+      }
+     ],
+     "description": "Overlapping windows of one file merge. A glob fans out to ≤10 newest files."
+    },
+    "offset": {
+     "type": "integer",
+     "minimum": 1,
+     "description": "1-based start line; default 1; batch default."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 100000,
+     "description": "Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages."
+    },
+    "pages": {
+     "type": "string",
+     "description": "PDF page range \"N\" or \"N-M\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count."
+    }
+   },
+   "required": [
+    "file_path"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "file_path": {
+     "type": "array",
+     "minItems": 1,
+     "maxItems": 10,
+     "items": {
+      "type": "string"
+     },
+     "description": "Overlapping windows of one file merge. A glob fans out to ≤10 newest files. Pass one or more values as an array."
+    },
+    "offset": {
+     "type": "integer",
+     "minimum": 1,
+     "description": "1-based start line; default 1; batch default."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 100000,
+     "description": "Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages."
+    },
+    "pages": {
+     "type": "string",
+     "description": "PDF page range \"N\" or \"N-M\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count."
+    }
+   },
+   "required": [
+    "file_path"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "rust-tools",
+  "name": "apply_patch",
+  "input": {
+   "type": "object",
+   "properties": {
+    "patch": {
+     "type": "string",
+     "minLength": 1,
+     "description": "Complete V4A patch text."
+    }
+   },
+   "required": [
+    "patch"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "patch": {
+     "type": "string",
+     "minLength": 1,
+     "description": "Complete V4A patch text."
+    }
+   },
+   "required": [
+    "patch"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "rust-tools",
+  "name": "git",
+  "input": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "type": "string",
+     "enum": [
+      "command",
+      "stage",
+      "worktree"
+     ],
+     "description": "Default command. stage uses diff_id/change_ids instead of command. worktree uses worktree_action and its fields."
+    },
+    "command": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       },
+       "minItems": 1,
+       "maxItems": 10
+      }
+     ],
+     "description": "Full commands starting with git; shell-style quoting, no pipes/redirects/substitution (a && chain runs as the array). Mutations allowed."
+    },
+    "output_limit": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 1000,
+     "description": "Body line cap; staging IDs are not capped. Default 500; git log defaults to 100. A cut ends with [output capped …] naming how to continue."
+    },
+    "include_stage_ids": {
+     "type": "boolean",
+     "description": "Include staging IDs outside the body cap for git diff or git diff -- <paths> only. Default false."
+    },
+    "diff_id": {
+     "type": "string",
+     "description": "stage: exact diff_id from git diff."
+    },
+    "change_ids": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       },
+       "minItems": 1,
+       "maxItems": 50
+      }
+     ],
+     "description": "stage: exact change ID or IDs to stage, including new files."
+    },
+    "worktree_action": {
+     "type": "string",
+     "enum": [
+      "enter",
+      "return",
+      "merge",
+      "remove",
+      "list",
+      "prune"
+     ],
+     "description": "enter: create or re-enter the managed worktree (branch: that branch, create: new); return: back to the project folder, worktree kept; merge: into its merge target; remove; list; prune."
+    },
+    "session_id": {
+     "type": "string",
+     "description": "enter/return/merge/remove: another session (it must be idle); default the caller."
+    },
+    "name": {
+     "type": "string",
+     "description": "enter: the new worktree name (branch <prefix><name>)."
+    },
+    "branch": {
+     "type": "string",
+     "description": "enter: use the worktree of this branch instead. remove: this session's worktree of that branch."
+    },
+    "create": {
+     "type": "boolean",
+     "description": "enter with branch: create that branch."
+    },
+    "carry": {
+     "type": "string",
+     "enum": [
+      "leave",
+      "carry"
+     ],
+     "description": "enter: the user answer to WORKTREE_DIRTY_CHOICE (uncommitted project-folder changes)."
+    },
+    "confirm_large": {
+     "type": "boolean",
+     "description": "enter or git worktree add: the user accepted the WORKTREE_LARGE_REPO_CONFIRM size."
+    },
+    "force": {
+     "type": "boolean",
+     "description": "remove: discard dirty/unmerged work; only on explicit user request."
+    }
+   },
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "type": "string",
+     "enum": [
+      "command",
+      "stage",
+      "worktree"
+     ],
+     "description": "Default command. stage uses diff_id/change_ids instead of command. worktree uses worktree_action and its fields."
+    },
+    "command": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "minItems": 1,
+     "maxItems": 10,
+     "description": "Full commands starting with git; shell-style quoting, no pipes/redirects/substitution (a && chain runs as the array). Mutations allowed. Pass one or more values as an array."
+    },
+    "output_limit": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 1000,
+     "description": "Body line cap; staging IDs are not capped. Default 500; git log defaults to 100. A cut ends with [output capped …] naming how to continue."
+    },
+    "include_stage_ids": {
+     "type": "boolean",
+     "description": "Include staging IDs outside the body cap for git diff or git diff -- <paths> only. Default false."
+    },
+    "diff_id": {
+     "type": "string",
+     "description": "stage: exact diff_id from git diff."
+    },
+    "change_ids": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "minItems": 1,
+     "maxItems": 50,
+     "description": "stage: exact change ID or IDs to stage, including new files. Pass one or more values as an array."
+    },
+    "worktree_action": {
+     "type": "string",
+     "enum": [
+      "enter",
+      "return",
+      "merge",
+      "remove",
+      "list",
+      "prune"
+     ],
+     "description": "enter: create or re-enter the managed worktree (branch: that branch, create: new); return: back to the project folder, worktree kept; merge: into its merge target; remove; list; prune."
+    },
+    "session_id": {
+     "type": "string",
+     "description": "enter/return/merge/remove: another session (it must be idle); default the caller."
+    },
+    "name": {
+     "type": "string",
+     "description": "enter: the new worktree name (branch <prefix><name>)."
+    },
+    "branch": {
+     "type": "string",
+     "description": "enter: use the worktree of this branch instead. remove: this session's worktree of that branch."
+    },
+    "create": {
+     "type": "boolean",
+     "description": "enter with branch: create that branch."
+    },
+    "carry": {
+     "type": "string",
+     "enum": [
+      "leave",
+      "carry"
+     ],
+     "description": "enter: the user answer to WORKTREE_DIRTY_CHOICE (uncommitted project-folder changes)."
+    },
+    "confirm_large": {
+     "type": "boolean",
+     "description": "enter or git worktree add: the user accepted the WORKTREE_LARGE_REPO_CONFIRM size."
+    },
+    "force": {
+     "type": "boolean",
+     "description": "remove: discard dirty/unmerged work; only on explicit user request."
+    }
+   },
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "rust-tools",
+  "name": "shell",
+  "input": {
+   "type": "object",
+   "properties": {
+    "command": {
+     "type": "string",
+     "description": "Command. PowerShell: ; between independent commands, if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } between dependent ones; no Bash heredocs or </dev/null; Select-Object shapes program output, not file reads; multiline python/node via @'…'@ | python - (node -); 2>$null; /c/→C:\\; $PID is reserved."
+    },
+    "cwd": {
+     "type": "string",
+     "description": "Working directory; default the Project. Use it instead of cd/Set-Location."
+    },
+    "timeout_ms": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Hard kill deadline in ms (omit or 0 = none), separate from the 60s hold; set one for throwaway probes so a slow check fails fast."
+    },
+    "wait_ms": {
+     "type": "integer",
+     "minimum": 1000,
+     "maximum": 600000,
+     "description": "Hold in ms before a still-running command moves to the background (default 60000). Usually omit; for a long finite command needed next, set up to 600000."
+    },
+    "background": {
+     "type": "boolean",
+     "description": "Start in the background at once (servers, watchers, `npm run dev`); returns task_id right away."
+    }
+   },
+   "required": [
+    "command"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "command": {
+     "type": "string",
+     "description": "Command. PowerShell: ; between independent commands, if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } between dependent ones; no Bash heredocs or </dev/null; Select-Object shapes program output, not file reads; multiline python/node via @'…'@ | python - (node -); 2>$null; /c/→C:\\; $PID is reserved."
+    },
+    "cwd": {
+     "type": "string",
+     "description": "Working directory; default the Project. Use it instead of cd/Set-Location."
+    },
+    "timeout_ms": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Hard kill deadline in ms (omit or 0 = none), separate from the 60s hold; set one for throwaway probes so a slow check fails fast."
+    },
+    "wait_ms": {
+     "type": "integer",
+     "minimum": 1000,
+     "maximum": 600000,
+     "description": "Hold in ms before a still-running command moves to the background (default 60000). Usually omit; for a long finite command needed next, set up to 600000."
+    },
+    "background": {
+     "type": "boolean",
+     "description": "Start in the background at once (servers, watchers, `npm run dev`); returns task_id right away."
+    }
+   },
+   "required": [
+    "command"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "rust-tools",
+  "name": "task",
+  "input": {
+   "type": "object",
+   "properties": {
+    "task_id": {
+     "type": "string",
+     "description": "Shell task_id; required for read/wait/cancel."
+    },
+    "action": {
+     "type": "string",
+     "enum": [
+      "list",
+      "read",
+      "wait",
+      "cancel"
+     ],
+     "description": "list all; read next output; wait for completion and next output; cancel task."
+    },
+    "timeout_ms": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Wait ceiling in ms; else current output at the ceiling. Default 300000; clamped to 10000-3600000."
+    },
+    "output": {
+     "type": "string",
+     "enum": [
+      "new",
+      "tail"
+     ],
+     "description": "read/wait only. Default new; tail re-reads recent output without advancing the cursor, after an interruption or context loss. Up to 8 KiB per stream while running, 12 KiB on completion or replay; original logs are preserved."
+    }
+   },
+   "required": [
+    "action"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "task_id": {
+     "type": "string",
+     "description": "Shell task_id; required for read/wait/cancel."
+    },
+    "action": {
+     "type": "string",
+     "enum": [
+      "list",
+      "read",
+      "wait",
+      "cancel"
+     ],
+     "description": "list all; read next output; wait for completion and next output; cancel task."
+    },
+    "timeout_ms": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Wait ceiling in ms; else current output at the ceiling. Default 300000; clamped to 10000-3600000."
+    },
+    "output": {
+     "type": "string",
+     "enum": [
+      "new",
+      "tail"
+     ],
+     "description": "read/wait only. Default new; tail re-reads recent output without advancing the cursor, after an interruption or context loss. Up to 8 KiB per stream while running, 12 KiB on completion or replay; original logs are preserved."
+    }
+   },
+   "required": [
+    "action"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "rust-tools",
+  "name": "web_search",
+  "input": {
+   "type": "object",
+   "properties": {
+    "query": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ],
+     "description": "One query, or an array run as a batch."
+    },
+    "site": {
+     "type": "string",
+     "description": "Domain filter."
+    },
+    "maxResults": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 20,
+     "description": "Default 10."
+    },
+    "locale": {
+     "type": "string",
+     "description": "e.g. ko-KR."
+    },
+    "contextSize": {
+     "type": "string",
+     "enum": [
+      "low",
+      "medium",
+      "high"
+     ],
+     "description": "Default low."
+    }
+   },
+   "required": [
+    "query"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "query": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "One query, or an array run as a batch. Pass one or more values as an array."
+    },
+    "site": {
+     "type": "string",
+     "description": "Domain filter."
+    },
+    "maxResults": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 20,
+     "description": "Default 10."
+    },
+    "locale": {
+     "type": "string",
+     "description": "e.g. ko-KR."
+    },
+    "contextSize": {
+     "type": "string",
+     "enum": [
+      "low",
+      "medium",
+      "high"
+     ],
+     "description": "Default low."
+    }
+   },
+   "required": [
+    "query"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "rust-tools",
+  "name": "load_tool",
+  "input": {
+   "type": "object",
+   "properties": {
+    "names": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       },
+       "minItems": 1
+      }
+     ],
+     "description": "Exact name(s)/aliases."
+    }
+   },
+   "required": [
+    "names"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "names": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "minItems": 1,
+     "description": "Exact name(s)/aliases. Pass one or more values as an array."
+    }
+   },
+   "required": [
+    "names"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "rust-tools",
+  "name": "Skill",
+  "input": {
+   "type": "object",
+   "properties": {
+    "name": {
+     "type": "string",
+     "description": "Exact name from available-skills."
+    }
+   },
+   "required": [
+    "name"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "name": {
+     "type": "string",
+     "description": "Exact name from available-skills."
+    }
+   },
+   "required": [
+    "name"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "rust-tools",
+  "name": "ask_user",
+  "input": {
+   "type": "object",
+   "properties": {
+    "questions": {
+     "type": "array",
+     "minItems": 1,
+     "maxItems": 4,
+     "items": {
+      "type": "object",
+      "properties": {
+       "question": {
+        "type": "string",
+        "description": "Full question, without the options."
+       },
+       "header": {
+        "type": "string",
+        "maxLength": 12,
+        "description": "Chip label."
+       },
+       "options": {
+        "type": "array",
+        "minItems": 2,
+        "maxItems": 4,
+        "description": "Distinct; free text is added, never \"Other\".",
+        "items": {
+         "type": "object",
+         "properties": {
+          "label": {
+           "type": "string",
+           "maxLength": 80,
+           "description": "1-5 words."
+          },
+          "description": {
+           "type": "string",
+           "description": "One-sentence tradeoff."
+          }
+         },
+         "required": [
+          "label",
+          "description"
+         ],
+         "additionalProperties": false
+        }
+       },
+       "multi_select": {
+        "type": "boolean"
+       },
+       "recommended": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "Recommended option index."
+       }
+      },
+      "required": [
+       "question",
+       "header",
+       "options"
+      ]
+     }
+    }
+   },
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "questions": {
+     "type": "array",
+     "minItems": 1,
+     "maxItems": 4,
+     "items": {
+      "type": "object",
+      "properties": {
+       "question": {
+        "type": "string",
+        "description": "Full question, without the options."
+       },
+       "header": {
+        "type": "string",
+        "maxLength": 12,
+        "description": "Chip label."
+       },
+       "options": {
+        "type": "array",
+        "minItems": 2,
+        "maxItems": 4,
+        "description": "Distinct; free text is added, never \"Other\".",
+        "items": {
+         "type": "object",
+         "properties": {
+          "label": {
+           "type": "string",
+           "maxLength": 80,
+           "description": "1-5 words."
+          },
+          "description": {
+           "type": "string",
+           "description": "One-sentence tradeoff."
+          }
+         },
+         "required": [
+          "label",
+          "description"
+         ],
+         "additionalProperties": false
+        }
+       },
+       "multi_select": {
+        "type": "boolean"
+       },
+       "recommended": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "Recommended option index."
+       }
+      },
+      "required": [
+       "question",
+       "header",
+       "options"
+      ]
+     }
+    }
+   },
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-openai-oauth",
+  "name": "find",
+  "input": {
+   "type": "object",
+   "properties": {
+    "query": {
+     "type": "string",
+     "minLength": 1,
+     "pattern": "\\S",
+     "description": "Filename/path fragment; space-separated fragments AND-match within one path."
+    },
+    "path": {
+     "type": "string",
+     "description": "Base directory; omit for the current Project."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Max paths; default 25; 0 unlimited."
+    },
+    "include_noise": {
+     "type": "boolean",
+     "description": "Also search gitignored trees."
+    }
+   },
+   "required": [
+    "query"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "query": {
+     "type": "string",
+     "minLength": 1,
+     "pattern": "\\S",
+     "description": "Filename/path fragment; space-separated fragments AND-match within one path."
+    },
+    "path": {
+     "type": "string",
+     "description": "Base directory; omit for the current Project."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Max paths; default 25; 0 unlimited."
+    },
+    "include_noise": {
+     "type": "boolean",
+     "description": "Also search gitignored trees."
+    }
+   },
+   "required": [
+    "query"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-openai-oauth",
+  "name": "glob",
+  "input": {
+   "type": "object",
+   "properties": {
+    "pattern": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       },
+       "maxItems": 10
+      }
+     ],
+     "description": "Union of patterns under one base; separate calls for other bases or per-pattern results."
+    },
+    "path": {
+     "type": "string",
+     "description": "Known existing base directory; omit for the current Project."
+    },
+    "sort": {
+     "type": "string",
+     "enum": [
+      "natural",
+      "mtime"
+     ],
+     "description": "mtime default (newest first); natural = raw walk order, cheaper on huge trees."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Max entries; default 100; 0 unlimited."
+    },
+    "offset": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "include_noise": {
+     "type": "boolean",
+     "description": "Also search gitignored trees."
+    }
+   },
+   "required": [
+    "pattern"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "pattern": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "maxItems": 10,
+     "description": "Union of patterns under one base; separate calls for other bases or per-pattern results. Pass one or more values as an array."
+    },
+    "path": {
+     "type": "string",
+     "description": "Known existing base directory; omit for the current Project."
+    },
+    "sort": {
+     "type": "string",
+     "enum": [
+      "natural",
+      "mtime"
+     ],
+     "description": "mtime default (newest first); natural = raw walk order, cheaper on huge trees."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Max entries; default 100; 0 unlimited."
+    },
+    "offset": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "include_noise": {
+     "type": "boolean",
+     "description": "Also search gitignored trees."
+    }
+   },
+   "required": [
+    "pattern"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-openai-oauth",
+  "name": "list",
+  "input": {
+   "type": "object",
+   "properties": {
+    "path": {
+     "type": "string",
+     "description": "Known directory; defaults to the current Project."
+    },
+    "hidden": {
+     "type": "boolean",
+     "description": "Include dotfiles."
+    },
+    "meta": {
+     "type": "boolean",
+     "description": "Per-entry size bytes, UTC mtime, octal mode; text files also get a line count."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 100,
+     "description": "Max entries; default 100; 0 = no page cap (absolute cap still applies)."
+    },
+    "offset": {
+     "type": "integer",
+     "minimum": 0
+    }
+   },
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "path": {
+     "type": "string",
+     "description": "Known directory; defaults to the current Project."
+    },
+    "hidden": {
+     "type": "boolean",
+     "description": "Include dotfiles."
+    },
+    "meta": {
+     "type": "boolean",
+     "description": "Per-entry size bytes, UTC mtime, octal mode; text files also get a line count."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 100,
+     "description": "Max entries; default 100; 0 = no page cap (absolute cap still applies)."
+    },
+    "offset": {
+     "type": "integer",
+     "minimum": 0
+    }
+   },
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-openai-oauth",
+  "name": "grep",
+  "input": {
+   "type": "object",
+   "properties": {
+    "pattern": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       },
+       "maxItems": 10
+      }
+     ],
+     "description": "Ripgrep regex(es); escape literal metacharacters."
+    },
+    "path": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "minItems": 1,
+       "maxItems": 10,
+       "items": {
+        "type": "string"
+       }
+      }
+     ],
+     "description": "Plain file/directory scopes; omit for Project root. Every pattern searches every path; pattern/path pairs need separate calls."
+    },
+    "glob": {
+     "type": "string",
+     "description": "Relative glob filter evaluated inside path, e.g. \"*.cs\" or \"src/**/*.ts\"; for exact/absolute paths use path instead."
+    },
+    "mode": {
+     "type": "string",
+     "enum": [
+      "content",
+      "files",
+      "count"
+     ],
+     "description": "content default; files lists matching paths; count totals all patterns together per file."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Requested results; default 250; 0 unlimited. Context output caps at 40 blocks; continue via the returned offset."
+    },
+    "offset": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "context": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 200,
+     "description": "Omit for automatic context; 0 for matches only."
+    },
+    "include_noise": {
+     "type": "boolean",
+     "description": "Also search gitignored trees."
+    },
+    "text": {
+     "type": "boolean",
+     "description": "Search binary data as text (archives/Git objects not decoded)."
+    }
+   },
+   "required": [
+    "pattern"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "pattern": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "maxItems": 10,
+     "description": "Ripgrep regex(es); escape literal metacharacters. Pass one or more values as an array."
+    },
+    "path": {
+     "type": "array",
+     "minItems": 1,
+     "maxItems": 10,
+     "items": {
+      "type": "string"
+     },
+     "description": "Plain file/directory scopes; omit for Project root. Every pattern searches every path; pattern/path pairs need separate calls. Pass one or more values as an array."
+    },
+    "glob": {
+     "type": "string",
+     "description": "Relative glob filter evaluated inside path, e.g. \"*.cs\" or \"src/**/*.ts\"; for exact/absolute paths use path instead."
+    },
+    "mode": {
+     "type": "string",
+     "enum": [
+      "content",
+      "files",
+      "count"
+     ],
+     "description": "content default; files lists matching paths; count totals all patterns together per file."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Requested results; default 250; 0 unlimited. Context output caps at 40 blocks; continue via the returned offset."
+    },
+    "offset": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "context": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 200,
+     "description": "Omit for automatic context; 0 for matches only."
+    },
+    "include_noise": {
+     "type": "boolean",
+     "description": "Also search gitignored trees."
+    },
+    "text": {
+     "type": "boolean",
+     "description": "Search binary data as text (archives/Git objects not decoded)."
+    }
+   },
+   "required": [
+    "pattern"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-openai-oauth",
+  "name": "code_graph",
+  "input": {
+   "type": "object",
+   "properties": {
+    "mode": {
+     "type": "string",
+     "enum": [
+      "overview",
+      "imports",
+      "dependents",
+      "related",
+      "impact",
+      "symbols",
+      "find_symbol",
+      "symbol_search",
+      "search",
+      "references",
+      "callers",
+      "callees"
+     ],
+     "description": "File modes (files[]): overview, imports, dependents, related, impact. symbols with files[] gives the file outline; other modes use symbols[]."
+    },
+    "files": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ],
+     "description": "Paths, project-relative or absolute; required for file modes, symbol queries span all files."
+    },
+    "symbols": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ],
+     "description": "Exact identifiers/keywords; required for symbol modes, optional outline filter. Every symbol searches every file; distinct pairs need separate calls."
+    },
+    "body": {
+     "type": "boolean",
+     "description": "true for implementation, false for locations; find_symbol defaults true, references is opt-in."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 500,
+     "description": "Max results; modes may cap lower."
+    },
+    "depth": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 5,
+     "description": "Overview hierarchy or caller traversal depth; default 1."
+    },
+    "cwd": {
+     "type": "string",
+     "description": "Explicit root outside the project; omit for project root."
+    }
+   },
+   "required": [
+    "mode"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "mode": {
+     "type": "string",
+     "enum": [
+      "overview",
+      "imports",
+      "dependents",
+      "related",
+      "impact",
+      "symbols",
+      "find_symbol",
+      "symbol_search",
+      "search",
+      "references",
+      "callers",
+      "callees"
+     ],
+     "description": "File modes (files[]): overview, imports, dependents, related, impact. symbols with files[] gives the file outline; other modes use symbols[]."
+    },
+    "files": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "Paths, project-relative or absolute; required for file modes, symbol queries span all files. Pass one or more values as an array."
+    },
+    "symbols": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "Exact identifiers/keywords; required for symbol modes, optional outline filter. Every symbol searches every file; distinct pairs need separate calls. Pass one or more values as an array."
+    },
+    "body": {
+     "type": "boolean",
+     "description": "true for implementation, false for locations; find_symbol defaults true, references is opt-in."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 500,
+     "description": "Max results; modes may cap lower."
+    },
+    "depth": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 5,
+     "description": "Overview hierarchy or caller traversal depth; default 1."
+    },
+    "cwd": {
+     "type": "string",
+     "description": "Explicit root outside the project; omit for project root."
+    }
+   },
+   "required": [
+    "mode"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-openai-oauth",
+  "name": "read",
+  "input": {
+   "type": "object",
+   "properties": {
+    "file_path": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "minItems": 1,
+       "maxItems": 10,
+       "items": {
+        "anyOf": [
+         {
+          "type": "string"
+         },
+         {
+          "type": "object",
+          "properties": {
+           "file_path": {
+            "type": "string"
+           },
+           "offset": {
+            "type": "integer",
+            "minimum": 1
+           },
+           "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100000
+           }
+          },
+          "required": [
+           "file_path"
+          ],
+          "additionalProperties": false
+         }
+        ]
+       }
+      }
+     ],
+     "description": "Overlapping windows of one file merge. A glob fans out to ≤10 newest files."
+    },
+    "offset": {
+     "type": "integer",
+     "minimum": 1,
+     "description": "1-based start line; default 1; batch default."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 100000,
+     "description": "Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages."
+    },
+    "pages": {
+     "type": "string",
+     "description": "PDF page range \"N\" or \"N-M\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count."
+    }
+   },
+   "required": [
+    "file_path"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "file_path": {
+     "type": "array",
+     "minItems": 1,
+     "maxItems": 10,
+     "items": {
+      "type": "string"
+     },
+     "description": "Overlapping windows of one file merge. A glob fans out to ≤10 newest files. Pass one or more values as an array."
+    },
+    "offset": {
+     "type": "integer",
+     "minimum": 1,
+     "description": "1-based start line; default 1; batch default."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 100000,
+     "description": "Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages."
+    },
+    "pages": {
+     "type": "string",
+     "description": "PDF page range \"N\" or \"N-M\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count."
+    }
+   },
+   "required": [
+    "file_path"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-openai-oauth",
+  "name": "apply_patch",
+  "input": {
+   "type": "object",
+   "properties": {
+    "patch": {
+     "type": "string",
+     "minLength": 1,
+     "description": "Complete V4A patch text."
+    }
+   },
+   "required": [
+    "patch"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "patch": {
+     "type": "string",
+     "minLength": 1,
+     "description": "Complete V4A patch text."
+    }
+   },
+   "required": [
+    "patch"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-openai-oauth",
+  "name": "git",
+  "input": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "type": "string",
+     "enum": [
+      "command",
+      "stage",
+      "worktree"
+     ],
+     "description": "Default command. stage uses diff_id/change_ids instead of command. worktree uses worktree_action and its fields."
+    },
+    "command": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       },
+       "minItems": 1,
+       "maxItems": 10
+      }
+     ],
+     "description": "Full commands starting with git; shell-style quoting, no pipes/redirects/substitution (a && chain runs as the array). Mutations allowed."
+    },
+    "output_limit": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 1000,
+     "description": "Body line cap; staging IDs are not capped. Default 500; git log defaults to 100. A cut ends with [output capped …] naming how to continue."
+    },
+    "include_stage_ids": {
+     "type": "boolean",
+     "description": "Include staging IDs outside the body cap for git diff or git diff -- <paths> only. Default false."
+    },
+    "diff_id": {
+     "type": "string",
+     "description": "stage: exact diff_id from git diff."
+    },
+    "change_ids": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       },
+       "minItems": 1,
+       "maxItems": 50
+      }
+     ],
+     "description": "stage: exact change ID or IDs to stage, including new files."
+    },
+    "worktree_action": {
+     "type": "string",
+     "enum": [
+      "enter",
+      "return",
+      "merge",
+      "remove",
+      "list",
+      "prune"
+     ],
+     "description": "enter: create or re-enter the managed worktree (branch: that branch, create: new); return: back to the project folder, worktree kept; merge: into its merge target; remove; list; prune."
+    },
+    "session_id": {
+     "type": "string",
+     "description": "enter/return/merge/remove: another session (it must be idle); default the caller."
+    },
+    "name": {
+     "type": "string",
+     "description": "enter: the new worktree name (branch <prefix><name>)."
+    },
+    "branch": {
+     "type": "string",
+     "description": "enter: use the worktree of this branch instead. remove: this session's worktree of that branch."
+    },
+    "create": {
+     "type": "boolean",
+     "description": "enter with branch: create that branch."
+    },
+    "carry": {
+     "type": "string",
+     "enum": [
+      "leave",
+      "carry"
+     ],
+     "description": "enter: the user answer to WORKTREE_DIRTY_CHOICE (uncommitted project-folder changes)."
+    },
+    "confirm_large": {
+     "type": "boolean",
+     "description": "enter or git worktree add: the user accepted the WORKTREE_LARGE_REPO_CONFIRM size."
+    },
+    "force": {
+     "type": "boolean",
+     "description": "remove: discard dirty/unmerged work; only on explicit user request."
+    }
+   },
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "type": "string",
+     "enum": [
+      "command",
+      "stage",
+      "worktree"
+     ],
+     "description": "Default command. stage uses diff_id/change_ids instead of command. worktree uses worktree_action and its fields."
+    },
+    "command": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "minItems": 1,
+     "maxItems": 10,
+     "description": "Full commands starting with git; shell-style quoting, no pipes/redirects/substitution (a && chain runs as the array). Mutations allowed. Pass one or more values as an array."
+    },
+    "output_limit": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 1000,
+     "description": "Body line cap; staging IDs are not capped. Default 500; git log defaults to 100. A cut ends with [output capped …] naming how to continue."
+    },
+    "include_stage_ids": {
+     "type": "boolean",
+     "description": "Include staging IDs outside the body cap for git diff or git diff -- <paths> only. Default false."
+    },
+    "diff_id": {
+     "type": "string",
+     "description": "stage: exact diff_id from git diff."
+    },
+    "change_ids": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "minItems": 1,
+     "maxItems": 50,
+     "description": "stage: exact change ID or IDs to stage, including new files. Pass one or more values as an array."
+    },
+    "worktree_action": {
+     "type": "string",
+     "enum": [
+      "enter",
+      "return",
+      "merge",
+      "remove",
+      "list",
+      "prune"
+     ],
+     "description": "enter: create or re-enter the managed worktree (branch: that branch, create: new); return: back to the project folder, worktree kept; merge: into its merge target; remove; list; prune."
+    },
+    "session_id": {
+     "type": "string",
+     "description": "enter/return/merge/remove: another session (it must be idle); default the caller."
+    },
+    "name": {
+     "type": "string",
+     "description": "enter: the new worktree name (branch <prefix><name>)."
+    },
+    "branch": {
+     "type": "string",
+     "description": "enter: use the worktree of this branch instead. remove: this session's worktree of that branch."
+    },
+    "create": {
+     "type": "boolean",
+     "description": "enter with branch: create that branch."
+    },
+    "carry": {
+     "type": "string",
+     "enum": [
+      "leave",
+      "carry"
+     ],
+     "description": "enter: the user answer to WORKTREE_DIRTY_CHOICE (uncommitted project-folder changes)."
+    },
+    "confirm_large": {
+     "type": "boolean",
+     "description": "enter or git worktree add: the user accepted the WORKTREE_LARGE_REPO_CONFIRM size."
+    },
+    "force": {
+     "type": "boolean",
+     "description": "remove: discard dirty/unmerged work; only on explicit user request."
+    }
+   },
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-openai-oauth",
+  "name": "shell",
+  "input": {
+   "type": "object",
+   "properties": {
+    "command": {
+     "type": "string",
+     "description": "Command. Bash: chain dependent commands with &&; multiline input via a quoted heredoc delimiter, not extra quoting/escape layers."
+    },
+    "cwd": {
+     "type": "string",
+     "description": "Working directory; default the Project. Use it instead of cd/Set-Location."
+    },
+    "timeout_ms": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Hard kill deadline in ms (omit or 0 = none), separate from the 60s hold; set one for throwaway probes so a slow check fails fast."
+    },
+    "wait_ms": {
+     "type": "integer",
+     "minimum": 1000,
+     "maximum": 600000,
+     "description": "Hold in ms before a still-running command moves to the background (default 60000). Usually omit; for a long finite command needed next, set up to 600000."
+    },
+    "background": {
+     "type": "boolean",
+     "description": "Start in the background at once (servers, watchers, `npm run dev`); returns task_id right away."
+    }
+   },
+   "required": [
+    "command"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "command": {
+     "type": "string",
+     "description": "Command. Bash: chain dependent commands with &&; multiline input via a quoted heredoc delimiter, not extra quoting/escape layers."
+    },
+    "cwd": {
+     "type": "string",
+     "description": "Working directory; default the Project. Use it instead of cd/Set-Location."
+    },
+    "timeout_ms": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Hard kill deadline in ms (omit or 0 = none), separate from the 60s hold; set one for throwaway probes so a slow check fails fast."
+    },
+    "wait_ms": {
+     "type": "integer",
+     "minimum": 1000,
+     "maximum": 600000,
+     "description": "Hold in ms before a still-running command moves to the background (default 60000). Usually omit; for a long finite command needed next, set up to 600000."
+    },
+    "background": {
+     "type": "boolean",
+     "description": "Start in the background at once (servers, watchers, `npm run dev`); returns task_id right away."
+    }
+   },
+   "required": [
+    "command"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-openai-oauth",
+  "name": "task",
+  "input": {
+   "type": "object",
+   "properties": {
+    "task_id": {
+     "type": "string",
+     "description": "Shell task_id; required for read/wait/cancel."
+    },
+    "action": {
+     "type": "string",
+     "enum": [
+      "list",
+      "read",
+      "wait",
+      "cancel"
+     ],
+     "description": "list all; read next output; wait for completion and next output; cancel task."
+    },
+    "timeout_ms": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Wait ceiling in ms; else current output at the ceiling. Default 300000; clamped to 10000-3600000."
+    },
+    "output": {
+     "type": "string",
+     "enum": [
+      "new",
+      "tail"
+     ],
+     "description": "read/wait only. Default new; tail re-reads recent output without advancing the cursor, after an interruption or context loss. Up to 8 KiB per stream while running, 12 KiB on completion or replay; original logs are preserved."
+    }
+   },
+   "required": [
+    "action"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "task_id": {
+     "type": "string",
+     "description": "Shell task_id; required for read/wait/cancel."
+    },
+    "action": {
+     "type": "string",
+     "enum": [
+      "list",
+      "read",
+      "wait",
+      "cancel"
+     ],
+     "description": "list all; read next output; wait for completion and next output; cancel task."
+    },
+    "timeout_ms": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Wait ceiling in ms; else current output at the ceiling. Default 300000; clamped to 10000-3600000."
+    },
+    "output": {
+     "type": "string",
+     "enum": [
+      "new",
+      "tail"
+     ],
+     "description": "read/wait only. Default new; tail re-reads recent output without advancing the cursor, after an interruption or context loss. Up to 8 KiB per stream while running, 12 KiB on completion or replay; original logs are preserved."
+    }
+   },
+   "required": [
+    "action"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-openai-oauth",
+  "name": "load_tool",
+  "input": {
+   "type": "object",
+   "properties": {
+    "names": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       },
+       "minItems": 1
+      }
+     ],
+     "description": "Exact name(s)/aliases."
+    }
+   },
+   "required": [
+    "names"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "names": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "minItems": 1,
+     "description": "Exact name(s)/aliases. Pass one or more values as an array."
+    }
+   },
+   "required": [
+    "names"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-anthropic-oauth",
+  "name": "find",
+  "input": {
+   "type": "object",
+   "properties": {
+    "query": {
+     "type": "string",
+     "minLength": 1,
+     "pattern": "\\S",
+     "description": "Filename/path fragment; space-separated fragments AND-match within one path."
+    },
+    "path": {
+     "type": "string",
+     "description": "Base directory; omit for the current Project."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Max paths; default 25; 0 unlimited."
+    },
+    "include_noise": {
+     "type": "boolean",
+     "description": "Also search gitignored trees."
+    }
+   },
+   "required": [
+    "query"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "query": {
+     "type": "string",
+     "minLength": 1,
+     "pattern": "\\S",
+     "description": "Filename/path fragment; space-separated fragments AND-match within one path."
+    },
+    "path": {
+     "type": "string",
+     "description": "Base directory; omit for the current Project."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Max paths; default 25; 0 unlimited."
+    },
+    "include_noise": {
+     "type": "boolean",
+     "description": "Also search gitignored trees."
+    }
+   },
+   "required": [
+    "query"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-anthropic-oauth",
+  "name": "glob",
+  "input": {
+   "type": "object",
+   "properties": {
+    "pattern": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       },
+       "maxItems": 10
+      }
+     ],
+     "description": "Union of patterns under one base; separate calls for other bases or per-pattern results."
+    },
+    "path": {
+     "type": "string",
+     "description": "Known existing base directory; omit for the current Project."
+    },
+    "sort": {
+     "type": "string",
+     "enum": [
+      "natural",
+      "mtime"
+     ],
+     "description": "mtime default (newest first); natural = raw walk order, cheaper on huge trees."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Max entries; default 100; 0 unlimited."
+    },
+    "offset": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "include_noise": {
+     "type": "boolean",
+     "description": "Also search gitignored trees."
+    }
+   },
+   "required": [
+    "pattern"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "pattern": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "maxItems": 10,
+     "description": "Union of patterns under one base; separate calls for other bases or per-pattern results. Pass one or more values as an array."
+    },
+    "path": {
+     "type": "string",
+     "description": "Known existing base directory; omit for the current Project."
+    },
+    "sort": {
+     "type": "string",
+     "enum": [
+      "natural",
+      "mtime"
+     ],
+     "description": "mtime default (newest first); natural = raw walk order, cheaper on huge trees."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Max entries; default 100; 0 unlimited."
+    },
+    "offset": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "include_noise": {
+     "type": "boolean",
+     "description": "Also search gitignored trees."
+    }
+   },
+   "required": [
+    "pattern"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-anthropic-oauth",
+  "name": "list",
+  "input": {
+   "type": "object",
+   "properties": {
+    "path": {
+     "type": "string",
+     "description": "Known directory; defaults to the current Project."
+    },
+    "hidden": {
+     "type": "boolean",
+     "description": "Include dotfiles."
+    },
+    "meta": {
+     "type": "boolean",
+     "description": "Per-entry size bytes, UTC mtime, octal mode; text files also get a line count."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 100,
+     "description": "Max entries; default 100; 0 = no page cap (absolute cap still applies)."
+    },
+    "offset": {
+     "type": "integer",
+     "minimum": 0
+    }
+   },
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "path": {
+     "type": "string",
+     "description": "Known directory; defaults to the current Project."
+    },
+    "hidden": {
+     "type": "boolean",
+     "description": "Include dotfiles."
+    },
+    "meta": {
+     "type": "boolean",
+     "description": "Per-entry size bytes, UTC mtime, octal mode; text files also get a line count."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 100,
+     "description": "Max entries; default 100; 0 = no page cap (absolute cap still applies)."
+    },
+    "offset": {
+     "type": "integer",
+     "minimum": 0
+    }
+   },
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-anthropic-oauth",
+  "name": "grep",
+  "input": {
+   "type": "object",
+   "properties": {
+    "pattern": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       },
+       "maxItems": 10
+      }
+     ],
+     "description": "Ripgrep regex(es); escape literal metacharacters."
+    },
+    "path": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "minItems": 1,
+       "maxItems": 10,
+       "items": {
+        "type": "string"
+       }
+      }
+     ],
+     "description": "Plain file/directory scopes; omit for Project root. Every pattern searches every path; pattern/path pairs need separate calls."
+    },
+    "glob": {
+     "type": "string",
+     "description": "Relative glob filter evaluated inside path, e.g. \"*.cs\" or \"src/**/*.ts\"; for exact/absolute paths use path instead."
+    },
+    "mode": {
+     "type": "string",
+     "enum": [
+      "content",
+      "files",
+      "count"
+     ],
+     "description": "content default; files lists matching paths; count totals all patterns together per file."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Requested results; default 250; 0 unlimited. Context output caps at 40 blocks; continue via the returned offset."
+    },
+    "offset": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "context": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 200,
+     "description": "Omit for automatic context; 0 for matches only."
+    },
+    "include_noise": {
+     "type": "boolean",
+     "description": "Also search gitignored trees."
+    },
+    "text": {
+     "type": "boolean",
+     "description": "Search binary data as text (archives/Git objects not decoded)."
+    }
+   },
+   "required": [
+    "pattern"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "pattern": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "maxItems": 10,
+     "description": "Ripgrep regex(es); escape literal metacharacters. Pass one or more values as an array."
+    },
+    "path": {
+     "type": "array",
+     "minItems": 1,
+     "maxItems": 10,
+     "items": {
+      "type": "string"
+     },
+     "description": "Plain file/directory scopes; omit for Project root. Every pattern searches every path; pattern/path pairs need separate calls. Pass one or more values as an array."
+    },
+    "glob": {
+     "type": "string",
+     "description": "Relative glob filter evaluated inside path, e.g. \"*.cs\" or \"src/**/*.ts\"; for exact/absolute paths use path instead."
+    },
+    "mode": {
+     "type": "string",
+     "enum": [
+      "content",
+      "files",
+      "count"
+     ],
+     "description": "content default; files lists matching paths; count totals all patterns together per file."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Requested results; default 250; 0 unlimited. Context output caps at 40 blocks; continue via the returned offset."
+    },
+    "offset": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "context": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 200,
+     "description": "Omit for automatic context; 0 for matches only."
+    },
+    "include_noise": {
+     "type": "boolean",
+     "description": "Also search gitignored trees."
+    },
+    "text": {
+     "type": "boolean",
+     "description": "Search binary data as text (archives/Git objects not decoded)."
+    }
+   },
+   "required": [
+    "pattern"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-anthropic-oauth",
+  "name": "code_graph",
+  "input": {
+   "type": "object",
+   "properties": {
+    "mode": {
+     "type": "string",
+     "enum": [
+      "overview",
+      "imports",
+      "dependents",
+      "related",
+      "impact",
+      "symbols",
+      "find_symbol",
+      "symbol_search",
+      "search",
+      "references",
+      "callers",
+      "callees"
+     ],
+     "description": "File modes (files[]): overview, imports, dependents, related, impact. symbols with files[] gives the file outline; other modes use symbols[]."
+    },
+    "files": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ],
+     "description": "Paths, project-relative or absolute; required for file modes, symbol queries span all files."
+    },
+    "symbols": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ],
+     "description": "Exact identifiers/keywords; required for symbol modes, optional outline filter. Every symbol searches every file; distinct pairs need separate calls."
+    },
+    "body": {
+     "type": "boolean",
+     "description": "true for implementation, false for locations; find_symbol defaults true, references is opt-in."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 500,
+     "description": "Max results; modes may cap lower."
+    },
+    "depth": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 5,
+     "description": "Overview hierarchy or caller traversal depth; default 1."
+    },
+    "cwd": {
+     "type": "string",
+     "description": "Explicit root outside the project; omit for project root."
+    }
+   },
+   "required": [
+    "mode"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "mode": {
+     "type": "string",
+     "enum": [
+      "overview",
+      "imports",
+      "dependents",
+      "related",
+      "impact",
+      "symbols",
+      "find_symbol",
+      "symbol_search",
+      "search",
+      "references",
+      "callers",
+      "callees"
+     ],
+     "description": "File modes (files[]): overview, imports, dependents, related, impact. symbols with files[] gives the file outline; other modes use symbols[]."
+    },
+    "files": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "Paths, project-relative or absolute; required for file modes, symbol queries span all files. Pass one or more values as an array."
+    },
+    "symbols": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "Exact identifiers/keywords; required for symbol modes, optional outline filter. Every symbol searches every file; distinct pairs need separate calls. Pass one or more values as an array."
+    },
+    "body": {
+     "type": "boolean",
+     "description": "true for implementation, false for locations; find_symbol defaults true, references is opt-in."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 500,
+     "description": "Max results; modes may cap lower."
+    },
+    "depth": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 5,
+     "description": "Overview hierarchy or caller traversal depth; default 1."
+    },
+    "cwd": {
+     "type": "string",
+     "description": "Explicit root outside the project; omit for project root."
+    }
+   },
+   "required": [
+    "mode"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-anthropic-oauth",
+  "name": "read",
+  "input": {
+   "type": "object",
+   "properties": {
+    "file_path": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "minItems": 1,
+       "maxItems": 10,
+       "items": {
+        "anyOf": [
+         {
+          "type": "string"
+         },
+         {
+          "type": "object",
+          "properties": {
+           "file_path": {
+            "type": "string"
+           },
+           "offset": {
+            "type": "integer",
+            "minimum": 1
+           },
+           "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100000
+           }
+          },
+          "required": [
+           "file_path"
+          ],
+          "additionalProperties": false
+         }
+        ]
+       }
+      }
+     ],
+     "description": "Overlapping windows of one file merge. A glob fans out to ≤10 newest files."
+    },
+    "offset": {
+     "type": "integer",
+     "minimum": 1,
+     "description": "1-based start line; default 1; batch default."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 100000,
+     "description": "Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages."
+    },
+    "pages": {
+     "type": "string",
+     "description": "PDF page range \"N\" or \"N-M\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count."
+    }
+   },
+   "required": [
+    "file_path"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "file_path": {
+     "type": "array",
+     "minItems": 1,
+     "maxItems": 10,
+     "items": {
+      "type": "string"
+     },
+     "description": "Overlapping windows of one file merge. A glob fans out to ≤10 newest files. Pass one or more values as an array."
+    },
+    "offset": {
+     "type": "integer",
+     "minimum": 1,
+     "description": "1-based start line; default 1; batch default."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 100000,
+     "description": "Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages."
+    },
+    "pages": {
+     "type": "string",
+     "description": "PDF page range \"N\" or \"N-M\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count."
+    }
+   },
+   "required": [
+    "file_path"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-anthropic-oauth",
+  "name": "edit",
+  "input": {
+   "type": "object",
+   "properties": {
+    "file_path": {
+     "type": "string"
+    },
+    "old_string": {
+     "type": "string",
+     "description": "Exact target text. Empty only to create a missing file or fill an empty file; never overwrites non-empty files and is not an absence check."
+    },
+    "new_string": {
+     "type": "string",
+     "description": "Replacement text; may be empty to delete. Must differ from old_string."
+    },
+    "replace_all": {
+     "type": "boolean",
+     "default": false,
+     "description": "Replace all occurrences of old_string."
+    }
+   },
+   "required": [
+    "file_path",
+    "old_string",
+    "new_string"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "file_path": {
+     "type": "string"
+    },
+    "old_string": {
+     "type": "string",
+     "description": "Exact target text. Empty only to create a missing file or fill an empty file; never overwrites non-empty files and is not an absence check."
+    },
+    "new_string": {
+     "type": "string",
+     "description": "Replacement text; may be empty to delete. Must differ from old_string."
+    },
+    "replace_all": {
+     "type": "boolean",
+     "default": false,
+     "description": "Replace all occurrences of old_string."
+    }
+   },
+   "required": [
+    "file_path",
+    "old_string",
+    "new_string"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-anthropic-oauth",
+  "name": "git",
+  "input": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "type": "string",
+     "enum": [
+      "command",
+      "stage",
+      "worktree"
+     ],
+     "description": "Default command. stage uses diff_id/change_ids instead of command. worktree uses worktree_action and its fields."
+    },
+    "command": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       },
+       "minItems": 1,
+       "maxItems": 10
+      }
+     ],
+     "description": "Full commands starting with git; shell-style quoting, no pipes/redirects/substitution (a && chain runs as the array). Mutations allowed."
+    },
+    "output_limit": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 1000,
+     "description": "Body line cap; staging IDs are not capped. Default 500; git log defaults to 100. A cut ends with [output capped …] naming how to continue."
+    },
+    "include_stage_ids": {
+     "type": "boolean",
+     "description": "Include staging IDs outside the body cap for git diff or git diff -- <paths> only. Default false."
+    },
+    "diff_id": {
+     "type": "string",
+     "description": "stage: exact diff_id from git diff."
+    },
+    "change_ids": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       },
+       "minItems": 1,
+       "maxItems": 50
+      }
+     ],
+     "description": "stage: exact change ID or IDs to stage, including new files."
+    },
+    "worktree_action": {
+     "type": "string",
+     "enum": [
+      "enter",
+      "return",
+      "merge",
+      "remove",
+      "list",
+      "prune"
+     ],
+     "description": "enter: create or re-enter the managed worktree (branch: that branch, create: new); return: back to the project folder, worktree kept; merge: into its merge target; remove; list; prune."
+    },
+    "session_id": {
+     "type": "string",
+     "description": "enter/return/merge/remove: another session (it must be idle); default the caller."
+    },
+    "name": {
+     "type": "string",
+     "description": "enter: the new worktree name (branch <prefix><name>)."
+    },
+    "branch": {
+     "type": "string",
+     "description": "enter: use the worktree of this branch instead. remove: this session's worktree of that branch."
+    },
+    "create": {
+     "type": "boolean",
+     "description": "enter with branch: create that branch."
+    },
+    "carry": {
+     "type": "string",
+     "enum": [
+      "leave",
+      "carry"
+     ],
+     "description": "enter: the user answer to WORKTREE_DIRTY_CHOICE (uncommitted project-folder changes)."
+    },
+    "confirm_large": {
+     "type": "boolean",
+     "description": "enter or git worktree add: the user accepted the WORKTREE_LARGE_REPO_CONFIRM size."
+    },
+    "force": {
+     "type": "boolean",
+     "description": "remove: discard dirty/unmerged work; only on explicit user request."
+    }
+   },
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "type": "string",
+     "enum": [
+      "command",
+      "stage",
+      "worktree"
+     ],
+     "description": "Default command. stage uses diff_id/change_ids instead of command. worktree uses worktree_action and its fields."
+    },
+    "command": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "minItems": 1,
+     "maxItems": 10,
+     "description": "Full commands starting with git; shell-style quoting, no pipes/redirects/substitution (a && chain runs as the array). Mutations allowed. Pass one or more values as an array."
+    },
+    "output_limit": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 1000,
+     "description": "Body line cap; staging IDs are not capped. Default 500; git log defaults to 100. A cut ends with [output capped …] naming how to continue."
+    },
+    "include_stage_ids": {
+     "type": "boolean",
+     "description": "Include staging IDs outside the body cap for git diff or git diff -- <paths> only. Default false."
+    },
+    "diff_id": {
+     "type": "string",
+     "description": "stage: exact diff_id from git diff."
+    },
+    "change_ids": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "minItems": 1,
+     "maxItems": 50,
+     "description": "stage: exact change ID or IDs to stage, including new files. Pass one or more values as an array."
+    },
+    "worktree_action": {
+     "type": "string",
+     "enum": [
+      "enter",
+      "return",
+      "merge",
+      "remove",
+      "list",
+      "prune"
+     ],
+     "description": "enter: create or re-enter the managed worktree (branch: that branch, create: new); return: back to the project folder, worktree kept; merge: into its merge target; remove; list; prune."
+    },
+    "session_id": {
+     "type": "string",
+     "description": "enter/return/merge/remove: another session (it must be idle); default the caller."
+    },
+    "name": {
+     "type": "string",
+     "description": "enter: the new worktree name (branch <prefix><name>)."
+    },
+    "branch": {
+     "type": "string",
+     "description": "enter: use the worktree of this branch instead. remove: this session's worktree of that branch."
+    },
+    "create": {
+     "type": "boolean",
+     "description": "enter with branch: create that branch."
+    },
+    "carry": {
+     "type": "string",
+     "enum": [
+      "leave",
+      "carry"
+     ],
+     "description": "enter: the user answer to WORKTREE_DIRTY_CHOICE (uncommitted project-folder changes)."
+    },
+    "confirm_large": {
+     "type": "boolean",
+     "description": "enter or git worktree add: the user accepted the WORKTREE_LARGE_REPO_CONFIRM size."
+    },
+    "force": {
+     "type": "boolean",
+     "description": "remove: discard dirty/unmerged work; only on explicit user request."
+    }
+   },
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-anthropic-oauth",
+  "name": "shell",
+  "input": {
+   "type": "object",
+   "properties": {
+    "command": {
+     "type": "string",
+     "description": "Command. Bash: chain dependent commands with &&; multiline input via a quoted heredoc delimiter, not extra quoting/escape layers."
+    },
+    "cwd": {
+     "type": "string",
+     "description": "Working directory; default the Project. Use it instead of cd/Set-Location."
+    },
+    "timeout_ms": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Hard kill deadline in ms (omit or 0 = none), separate from the 60s hold; set one for throwaway probes so a slow check fails fast."
+    },
+    "wait_ms": {
+     "type": "integer",
+     "minimum": 1000,
+     "maximum": 600000,
+     "description": "Hold in ms before a still-running command moves to the background (default 60000). Usually omit; for a long finite command needed next, set up to 600000."
+    },
+    "background": {
+     "type": "boolean",
+     "description": "Start in the background at once (servers, watchers, `npm run dev`); returns task_id right away."
+    }
+   },
+   "required": [
+    "command"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "command": {
+     "type": "string",
+     "description": "Command. Bash: chain dependent commands with &&; multiline input via a quoted heredoc delimiter, not extra quoting/escape layers."
+    },
+    "cwd": {
+     "type": "string",
+     "description": "Working directory; default the Project. Use it instead of cd/Set-Location."
+    },
+    "timeout_ms": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Hard kill deadline in ms (omit or 0 = none), separate from the 60s hold; set one for throwaway probes so a slow check fails fast."
+    },
+    "wait_ms": {
+     "type": "integer",
+     "minimum": 1000,
+     "maximum": 600000,
+     "description": "Hold in ms before a still-running command moves to the background (default 60000). Usually omit; for a long finite command needed next, set up to 600000."
+    },
+    "background": {
+     "type": "boolean",
+     "description": "Start in the background at once (servers, watchers, `npm run dev`); returns task_id right away."
+    }
+   },
+   "required": [
+    "command"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-anthropic-oauth",
+  "name": "task",
+  "input": {
+   "type": "object",
+   "properties": {
+    "task_id": {
+     "type": "string",
+     "description": "Shell task_id; required for read/wait/cancel."
+    },
+    "action": {
+     "type": "string",
+     "enum": [
+      "list",
+      "read",
+      "wait",
+      "cancel"
+     ],
+     "description": "list all; read next output; wait for completion and next output; cancel task."
+    },
+    "timeout_ms": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Wait ceiling in ms; else current output at the ceiling. Default 300000; clamped to 10000-3600000."
+    },
+    "output": {
+     "type": "string",
+     "enum": [
+      "new",
+      "tail"
+     ],
+     "description": "read/wait only. Default new; tail re-reads recent output without advancing the cursor, after an interruption or context loss. Up to 8 KiB per stream while running, 12 KiB on completion or replay; original logs are preserved."
+    }
+   },
+   "required": [
+    "action"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "task_id": {
+     "type": "string",
+     "description": "Shell task_id; required for read/wait/cancel."
+    },
+    "action": {
+     "type": "string",
+     "enum": [
+      "list",
+      "read",
+      "wait",
+      "cancel"
+     ],
+     "description": "list all; read next output; wait for completion and next output; cancel task."
+    },
+    "timeout_ms": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Wait ceiling in ms; else current output at the ceiling. Default 300000; clamped to 10000-3600000."
+    },
+    "output": {
+     "type": "string",
+     "enum": [
+      "new",
+      "tail"
+     ],
+     "description": "read/wait only. Default new; tail re-reads recent output without advancing the cursor, after an interruption or context loss. Up to 8 KiB per stream while running, 12 KiB on completion or replay; original logs are preserved."
+    }
+   },
+   "required": [
+    "action"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-anthropic-oauth",
+  "name": "load_tool",
+  "input": {
+   "type": "object",
+   "properties": {
+    "names": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       },
+       "minItems": 1
+      }
+     ],
+     "description": "Exact name(s)/aliases."
+    }
+   },
+   "required": [
+    "names"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "names": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "minItems": 1,
+     "description": "Exact name(s)/aliases. Pass one or more values as an array."
+    }
+   },
+   "required": [
+    "names"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-gemini",
+  "name": "find",
+  "input": {
+   "type": "object",
+   "properties": {
+    "query": {
+     "type": "string",
+     "minLength": 1,
+     "pattern": "\\S",
+     "description": "Filename/path fragment; space-separated fragments AND-match within one path."
+    },
+    "path": {
+     "type": "string",
+     "description": "Base directory; omit for the current Project."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Max paths; default 25; 0 unlimited."
+    },
+    "include_noise": {
+     "type": "boolean",
+     "description": "Also search gitignored trees."
+    }
+   },
+   "required": [
+    "query"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "query": {
+     "type": "string",
+     "minLength": 1,
+     "pattern": "\\S",
+     "description": "Filename/path fragment; space-separated fragments AND-match within one path."
+    },
+    "path": {
+     "type": "string",
+     "description": "Base directory; omit for the current Project."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Max paths; default 25; 0 unlimited."
+    },
+    "include_noise": {
+     "type": "boolean",
+     "description": "Also search gitignored trees."
+    }
+   },
+   "required": [
+    "query"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-gemini",
+  "name": "glob",
+  "input": {
+   "type": "object",
+   "properties": {
+    "pattern": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       },
+       "maxItems": 10
+      }
+     ],
+     "description": "Union of patterns under one base; separate calls for other bases or per-pattern results."
+    },
+    "path": {
+     "type": "string",
+     "description": "Known existing base directory; omit for the current Project."
+    },
+    "sort": {
+     "type": "string",
+     "enum": [
+      "natural",
+      "mtime"
+     ],
+     "description": "mtime default (newest first); natural = raw walk order, cheaper on huge trees."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Max entries; default 100; 0 unlimited."
+    },
+    "offset": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "include_noise": {
+     "type": "boolean",
+     "description": "Also search gitignored trees."
+    }
+   },
+   "required": [
+    "pattern"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "pattern": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "maxItems": 10,
+     "description": "Union of patterns under one base; separate calls for other bases or per-pattern results. Pass one or more values as an array."
+    },
+    "path": {
+     "type": "string",
+     "description": "Known existing base directory; omit for the current Project."
+    },
+    "sort": {
+     "type": "string",
+     "enum": [
+      "natural",
+      "mtime"
+     ],
+     "description": "mtime default (newest first); natural = raw walk order, cheaper on huge trees."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Max entries; default 100; 0 unlimited."
+    },
+    "offset": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "include_noise": {
+     "type": "boolean",
+     "description": "Also search gitignored trees."
+    }
+   },
+   "required": [
+    "pattern"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-gemini",
+  "name": "list",
+  "input": {
+   "type": "object",
+   "properties": {
+    "path": {
+     "type": "string",
+     "description": "Known directory; defaults to the current Project."
+    },
+    "hidden": {
+     "type": "boolean",
+     "description": "Include dotfiles."
+    },
+    "meta": {
+     "type": "boolean",
+     "description": "Per-entry size bytes, UTC mtime, octal mode; text files also get a line count."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 100,
+     "description": "Max entries; default 100; 0 = no page cap (absolute cap still applies)."
+    },
+    "offset": {
+     "type": "integer",
+     "minimum": 0
+    }
+   },
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "path": {
+     "type": "string",
+     "description": "Known directory; defaults to the current Project."
+    },
+    "hidden": {
+     "type": "boolean",
+     "description": "Include dotfiles."
+    },
+    "meta": {
+     "type": "boolean",
+     "description": "Per-entry size bytes, UTC mtime, octal mode; text files also get a line count."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 100,
+     "description": "Max entries; default 100; 0 = no page cap (absolute cap still applies)."
+    },
+    "offset": {
+     "type": "integer",
+     "minimum": 0
+    }
+   },
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-gemini",
+  "name": "grep",
+  "input": {
+   "type": "object",
+   "properties": {
+    "pattern": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       },
+       "maxItems": 10
+      }
+     ],
+     "description": "Ripgrep regex(es); escape literal metacharacters."
+    },
+    "path": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "minItems": 1,
+       "maxItems": 10,
+       "items": {
+        "type": "string"
+       }
+      }
+     ],
+     "description": "Plain file/directory scopes; omit for Project root. Every pattern searches every path; pattern/path pairs need separate calls."
+    },
+    "glob": {
+     "type": "string",
+     "description": "Relative glob filter evaluated inside path, e.g. \"*.cs\" or \"src/**/*.ts\"; for exact/absolute paths use path instead."
+    },
+    "mode": {
+     "type": "string",
+     "enum": [
+      "content",
+      "files",
+      "count"
+     ],
+     "description": "content default; files lists matching paths; count totals all patterns together per file."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Requested results; default 250; 0 unlimited. Context output caps at 40 blocks; continue via the returned offset."
+    },
+    "offset": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "context": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 200,
+     "description": "Omit for automatic context; 0 for matches only."
+    },
+    "include_noise": {
+     "type": "boolean",
+     "description": "Also search gitignored trees."
+    },
+    "text": {
+     "type": "boolean",
+     "description": "Search binary data as text (archives/Git objects not decoded)."
+    }
+   },
+   "required": [
+    "pattern"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "pattern": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "maxItems": 10,
+     "description": "Ripgrep regex(es); escape literal metacharacters. Pass one or more values as an array."
+    },
+    "path": {
+     "type": "array",
+     "minItems": 1,
+     "maxItems": 10,
+     "items": {
+      "type": "string"
+     },
+     "description": "Plain file/directory scopes; omit for Project root. Every pattern searches every path; pattern/path pairs need separate calls. Pass one or more values as an array."
+    },
+    "glob": {
+     "type": "string",
+     "description": "Relative glob filter evaluated inside path, e.g. \"*.cs\" or \"src/**/*.ts\"; for exact/absolute paths use path instead."
+    },
+    "mode": {
+     "type": "string",
+     "enum": [
+      "content",
+      "files",
+      "count"
+     ],
+     "description": "content default; files lists matching paths; count totals all patterns together per file."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Requested results; default 250; 0 unlimited. Context output caps at 40 blocks; continue via the returned offset."
+    },
+    "offset": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "context": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 200,
+     "description": "Omit for automatic context; 0 for matches only."
+    },
+    "include_noise": {
+     "type": "boolean",
+     "description": "Also search gitignored trees."
+    },
+    "text": {
+     "type": "boolean",
+     "description": "Search binary data as text (archives/Git objects not decoded)."
+    }
+   },
+   "required": [
+    "pattern"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-gemini",
+  "name": "code_graph",
+  "input": {
+   "type": "object",
+   "properties": {
+    "mode": {
+     "type": "string",
+     "enum": [
+      "overview",
+      "imports",
+      "dependents",
+      "related",
+      "impact",
+      "symbols",
+      "find_symbol",
+      "symbol_search",
+      "search",
+      "references",
+      "callers",
+      "callees"
+     ],
+     "description": "File modes (files[]): overview, imports, dependents, related, impact. symbols with files[] gives the file outline; other modes use symbols[]."
+    },
+    "files": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ],
+     "description": "Paths, project-relative or absolute; required for file modes, symbol queries span all files."
+    },
+    "symbols": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ],
+     "description": "Exact identifiers/keywords; required for symbol modes, optional outline filter. Every symbol searches every file; distinct pairs need separate calls."
+    },
+    "body": {
+     "type": "boolean",
+     "description": "true for implementation, false for locations; find_symbol defaults true, references is opt-in."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 500,
+     "description": "Max results; modes may cap lower."
+    },
+    "depth": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 5,
+     "description": "Overview hierarchy or caller traversal depth; default 1."
+    },
+    "cwd": {
+     "type": "string",
+     "description": "Explicit root outside the project; omit for project root."
+    }
+   },
+   "required": [
+    "mode"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "mode": {
+     "type": "string",
+     "enum": [
+      "overview",
+      "imports",
+      "dependents",
+      "related",
+      "impact",
+      "symbols",
+      "find_symbol",
+      "symbol_search",
+      "search",
+      "references",
+      "callers",
+      "callees"
+     ],
+     "description": "File modes (files[]): overview, imports, dependents, related, impact. symbols with files[] gives the file outline; other modes use symbols[]."
+    },
+    "files": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "Paths, project-relative or absolute; required for file modes, symbol queries span all files. Pass one or more values as an array."
+    },
+    "symbols": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "Exact identifiers/keywords; required for symbol modes, optional outline filter. Every symbol searches every file; distinct pairs need separate calls. Pass one or more values as an array."
+    },
+    "body": {
+     "type": "boolean",
+     "description": "true for implementation, false for locations; find_symbol defaults true, references is opt-in."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 500,
+     "description": "Max results; modes may cap lower."
+    },
+    "depth": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 5,
+     "description": "Overview hierarchy or caller traversal depth; default 1."
+    },
+    "cwd": {
+     "type": "string",
+     "description": "Explicit root outside the project; omit for project root."
+    }
+   },
+   "required": [
+    "mode"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-gemini",
+  "name": "read",
+  "input": {
+   "type": "object",
+   "properties": {
+    "file_path": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "minItems": 1,
+       "maxItems": 10,
+       "items": {
+        "anyOf": [
+         {
+          "type": "string"
+         },
+         {
+          "type": "object",
+          "properties": {
+           "file_path": {
+            "type": "string"
+           },
+           "offset": {
+            "type": "integer",
+            "minimum": 1
+           },
+           "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100000
+           }
+          },
+          "required": [
+           "file_path"
+          ],
+          "additionalProperties": false
+         }
+        ]
+       }
+      }
+     ],
+     "description": "Overlapping windows of one file merge. A glob fans out to ≤10 newest files."
+    },
+    "offset": {
+     "type": "integer",
+     "minimum": 1,
+     "description": "1-based start line; default 1; batch default."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 100000,
+     "description": "Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages."
+    },
+    "pages": {
+     "type": "string",
+     "description": "PDF page range \"N\" or \"N-M\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count."
+    }
+   },
+   "required": [
+    "file_path"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "file_path": {
+     "type": "array",
+     "minItems": 1,
+     "maxItems": 10,
+     "items": {
+      "type": "string"
+     },
+     "description": "Overlapping windows of one file merge. A glob fans out to ≤10 newest files. Pass one or more values as an array."
+    },
+    "offset": {
+     "type": "integer",
+     "minimum": 1,
+     "description": "1-based start line; default 1; batch default."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 100000,
+     "description": "Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages."
+    },
+    "pages": {
+     "type": "string",
+     "description": "PDF page range \"N\" or \"N-M\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count."
+    }
+   },
+   "required": [
+    "file_path"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-gemini",
+  "name": "edit",
+  "input": {
+   "type": "object",
+   "properties": {
+    "file_path": {
+     "type": "string"
+    },
+    "old_string": {
+     "type": "string",
+     "description": "Exact target text. Empty only to create a missing file or fill an empty file; never overwrites non-empty files and is not an absence check."
+    },
+    "new_string": {
+     "type": "string",
+     "description": "Replacement text; may be empty to delete. Must differ from old_string."
+    },
+    "replace_all": {
+     "type": "boolean",
+     "default": false,
+     "description": "Replace all occurrences of old_string."
+    }
+   },
+   "required": [
+    "file_path",
+    "old_string",
+    "new_string"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "file_path": {
+     "type": "string"
+    },
+    "old_string": {
+     "type": "string",
+     "description": "Exact target text. Empty only to create a missing file or fill an empty file; never overwrites non-empty files and is not an absence check."
+    },
+    "new_string": {
+     "type": "string",
+     "description": "Replacement text; may be empty to delete. Must differ from old_string."
+    },
+    "replace_all": {
+     "type": "boolean",
+     "default": false,
+     "description": "Replace all occurrences of old_string."
+    }
+   },
+   "required": [
+    "file_path",
+    "old_string",
+    "new_string"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-gemini",
+  "name": "git",
+  "input": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "type": "string",
+     "enum": [
+      "command",
+      "stage",
+      "worktree"
+     ],
+     "description": "Default command. stage uses diff_id/change_ids instead of command. worktree uses worktree_action and its fields."
+    },
+    "command": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       },
+       "minItems": 1,
+       "maxItems": 10
+      }
+     ],
+     "description": "Full commands starting with git; shell-style quoting, no pipes/redirects/substitution (a && chain runs as the array). Mutations allowed."
+    },
+    "output_limit": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 1000,
+     "description": "Body line cap; staging IDs are not capped. Default 500; git log defaults to 100. A cut ends with [output capped …] naming how to continue."
+    },
+    "include_stage_ids": {
+     "type": "boolean",
+     "description": "Include staging IDs outside the body cap for git diff or git diff -- <paths> only. Default false."
+    },
+    "diff_id": {
+     "type": "string",
+     "description": "stage: exact diff_id from git diff."
+    },
+    "change_ids": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       },
+       "minItems": 1,
+       "maxItems": 50
+      }
+     ],
+     "description": "stage: exact change ID or IDs to stage, including new files."
+    },
+    "worktree_action": {
+     "type": "string",
+     "enum": [
+      "enter",
+      "return",
+      "merge",
+      "remove",
+      "list",
+      "prune"
+     ],
+     "description": "enter: create or re-enter the managed worktree (branch: that branch, create: new); return: back to the project folder, worktree kept; merge: into its merge target; remove; list; prune."
+    },
+    "session_id": {
+     "type": "string",
+     "description": "enter/return/merge/remove: another session (it must be idle); default the caller."
+    },
+    "name": {
+     "type": "string",
+     "description": "enter: the new worktree name (branch <prefix><name>)."
+    },
+    "branch": {
+     "type": "string",
+     "description": "enter: use the worktree of this branch instead. remove: this session's worktree of that branch."
+    },
+    "create": {
+     "type": "boolean",
+     "description": "enter with branch: create that branch."
+    },
+    "carry": {
+     "type": "string",
+     "enum": [
+      "leave",
+      "carry"
+     ],
+     "description": "enter: the user answer to WORKTREE_DIRTY_CHOICE (uncommitted project-folder changes)."
+    },
+    "confirm_large": {
+     "type": "boolean",
+     "description": "enter or git worktree add: the user accepted the WORKTREE_LARGE_REPO_CONFIRM size."
+    },
+    "force": {
+     "type": "boolean",
+     "description": "remove: discard dirty/unmerged work; only on explicit user request."
+    }
+   },
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "type": "string",
+     "enum": [
+      "command",
+      "stage",
+      "worktree"
+     ],
+     "description": "Default command. stage uses diff_id/change_ids instead of command. worktree uses worktree_action and its fields."
+    },
+    "command": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "minItems": 1,
+     "maxItems": 10,
+     "description": "Full commands starting with git; shell-style quoting, no pipes/redirects/substitution (a && chain runs as the array). Mutations allowed. Pass one or more values as an array."
+    },
+    "output_limit": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 1000,
+     "description": "Body line cap; staging IDs are not capped. Default 500; git log defaults to 100. A cut ends with [output capped …] naming how to continue."
+    },
+    "include_stage_ids": {
+     "type": "boolean",
+     "description": "Include staging IDs outside the body cap for git diff or git diff -- <paths> only. Default false."
+    },
+    "diff_id": {
+     "type": "string",
+     "description": "stage: exact diff_id from git diff."
+    },
+    "change_ids": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "minItems": 1,
+     "maxItems": 50,
+     "description": "stage: exact change ID or IDs to stage, including new files. Pass one or more values as an array."
+    },
+    "worktree_action": {
+     "type": "string",
+     "enum": [
+      "enter",
+      "return",
+      "merge",
+      "remove",
+      "list",
+      "prune"
+     ],
+     "description": "enter: create or re-enter the managed worktree (branch: that branch, create: new); return: back to the project folder, worktree kept; merge: into its merge target; remove; list; prune."
+    },
+    "session_id": {
+     "type": "string",
+     "description": "enter/return/merge/remove: another session (it must be idle); default the caller."
+    },
+    "name": {
+     "type": "string",
+     "description": "enter: the new worktree name (branch <prefix><name>)."
+    },
+    "branch": {
+     "type": "string",
+     "description": "enter: use the worktree of this branch instead. remove: this session's worktree of that branch."
+    },
+    "create": {
+     "type": "boolean",
+     "description": "enter with branch: create that branch."
+    },
+    "carry": {
+     "type": "string",
+     "enum": [
+      "leave",
+      "carry"
+     ],
+     "description": "enter: the user answer to WORKTREE_DIRTY_CHOICE (uncommitted project-folder changes)."
+    },
+    "confirm_large": {
+     "type": "boolean",
+     "description": "enter or git worktree add: the user accepted the WORKTREE_LARGE_REPO_CONFIRM size."
+    },
+    "force": {
+     "type": "boolean",
+     "description": "remove: discard dirty/unmerged work; only on explicit user request."
+    }
+   },
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-gemini",
+  "name": "shell",
+  "input": {
+   "type": "object",
+   "properties": {
+    "command": {
+     "type": "string",
+     "description": "Command. Bash: chain dependent commands with &&; multiline input via a quoted heredoc delimiter, not extra quoting/escape layers."
+    },
+    "cwd": {
+     "type": "string",
+     "description": "Working directory; default the Project. Use it instead of cd/Set-Location."
+    },
+    "timeout_ms": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Hard kill deadline in ms (omit or 0 = none), separate from the 60s hold; set one for throwaway probes so a slow check fails fast."
+    },
+    "wait_ms": {
+     "type": "integer",
+     "minimum": 1000,
+     "maximum": 600000,
+     "description": "Hold in ms before a still-running command moves to the background (default 60000). Usually omit; for a long finite command needed next, set up to 600000."
+    },
+    "background": {
+     "type": "boolean",
+     "description": "Start in the background at once (servers, watchers, `npm run dev`); returns task_id right away."
+    }
+   },
+   "required": [
+    "command"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "command": {
+     "type": "string",
+     "description": "Command. Bash: chain dependent commands with &&; multiline input via a quoted heredoc delimiter, not extra quoting/escape layers."
+    },
+    "cwd": {
+     "type": "string",
+     "description": "Working directory; default the Project. Use it instead of cd/Set-Location."
+    },
+    "timeout_ms": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Hard kill deadline in ms (omit or 0 = none), separate from the 60s hold; set one for throwaway probes so a slow check fails fast."
+    },
+    "wait_ms": {
+     "type": "integer",
+     "minimum": 1000,
+     "maximum": 600000,
+     "description": "Hold in ms before a still-running command moves to the background (default 60000). Usually omit; for a long finite command needed next, set up to 600000."
+    },
+    "background": {
+     "type": "boolean",
+     "description": "Start in the background at once (servers, watchers, `npm run dev`); returns task_id right away."
+    }
+   },
+   "required": [
+    "command"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-gemini",
+  "name": "task",
+  "input": {
+   "type": "object",
+   "properties": {
+    "task_id": {
+     "type": "string",
+     "description": "Shell task_id; required for read/wait/cancel."
+    },
+    "action": {
+     "type": "string",
+     "enum": [
+      "list",
+      "read",
+      "wait",
+      "cancel"
+     ],
+     "description": "list all; read next output; wait for completion and next output; cancel task."
+    },
+    "timeout_ms": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Wait ceiling in ms; else current output at the ceiling. Default 300000; clamped to 10000-3600000."
+    },
+    "output": {
+     "type": "string",
+     "enum": [
+      "new",
+      "tail"
+     ],
+     "description": "read/wait only. Default new; tail re-reads recent output without advancing the cursor, after an interruption or context loss. Up to 8 KiB per stream while running, 12 KiB on completion or replay; original logs are preserved."
+    }
+   },
+   "required": [
+    "action"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "task_id": {
+     "type": "string",
+     "description": "Shell task_id; required for read/wait/cancel."
+    },
+    "action": {
+     "type": "string",
+     "enum": [
+      "list",
+      "read",
+      "wait",
+      "cancel"
+     ],
+     "description": "list all; read next output; wait for completion and next output; cancel task."
+    },
+    "timeout_ms": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Wait ceiling in ms; else current output at the ceiling. Default 300000; clamped to 10000-3600000."
+    },
+    "output": {
+     "type": "string",
+     "enum": [
+      "new",
+      "tail"
+     ],
+     "description": "read/wait only. Default new; tail re-reads recent output without advancing the cursor, after an interruption or context loss. Up to 8 KiB per stream while running, 12 KiB on completion or replay; original logs are preserved."
+    }
+   },
+   "required": [
+    "action"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-gemini",
+  "name": "load_tool",
+  "input": {
+   "type": "object",
+   "properties": {
+    "names": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       },
+       "minItems": 1
+      }
+     ],
+     "description": "Exact name(s)/aliases."
+    }
+   },
+   "required": [
+    "names"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "names": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "minItems": 1,
+     "description": "Exact name(s)/aliases. Pass one or more values as an array."
+    }
+   },
+   "required": [
+    "names"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-gemini",
+  "name": "call_tool",
+  "input": {
+   "type": "object",
+   "properties": {
+    "name": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 256,
+     "description": "Exact tool name."
+    },
+    "arguments": {
+     "type": "object",
+     "description": "Arguments for that tool."
+    }
+   },
+   "required": [
+    "name",
+    "arguments"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "name": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 256,
+     "description": "Exact tool name."
+    },
+    "arguments": {
+     "type": "object",
+     "description": "Arguments for that tool."
+    }
+   },
+   "required": [
+    "name",
+    "arguments"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-grok-oauth",
+  "name": "find",
+  "input": {
+   "type": "object",
+   "properties": {
+    "query": {
+     "type": "string",
+     "minLength": 1,
+     "pattern": "\\S",
+     "description": "Filename/path fragment; space-separated fragments AND-match within one path."
+    },
+    "path": {
+     "type": "string",
+     "description": "Base directory; omit for the current Project."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Max paths; default 25; 0 unlimited."
+    },
+    "include_noise": {
+     "type": "boolean",
+     "description": "Also search gitignored trees."
+    }
+   },
+   "required": [
+    "query"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "query": {
+     "type": "string",
+     "minLength": 1,
+     "pattern": "\\S",
+     "description": "Filename/path fragment; space-separated fragments AND-match within one path."
+    },
+    "path": {
+     "type": "string",
+     "description": "Base directory; omit for the current Project."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Max paths; default 25; 0 unlimited."
+    },
+    "include_noise": {
+     "type": "boolean",
+     "description": "Also search gitignored trees."
+    }
+   },
+   "required": [
+    "query"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-grok-oauth",
+  "name": "glob",
+  "input": {
+   "type": "object",
+   "properties": {
+    "pattern": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       },
+       "maxItems": 10
+      }
+     ],
+     "description": "Union of patterns under one base; separate calls for other bases or per-pattern results."
+    },
+    "path": {
+     "type": "string",
+     "description": "Known existing base directory; omit for the current Project."
+    },
+    "sort": {
+     "type": "string",
+     "enum": [
+      "natural",
+      "mtime"
+     ],
+     "description": "mtime default (newest first); natural = raw walk order, cheaper on huge trees."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Max entries; default 100; 0 unlimited."
+    },
+    "offset": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "include_noise": {
+     "type": "boolean",
+     "description": "Also search gitignored trees."
+    }
+   },
+   "required": [
+    "pattern"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "pattern": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "maxItems": 10,
+     "description": "Union of patterns under one base; separate calls for other bases or per-pattern results. Pass one or more values as an array."
+    },
+    "path": {
+     "type": "string",
+     "description": "Known existing base directory; omit for the current Project."
+    },
+    "sort": {
+     "type": "string",
+     "enum": [
+      "natural",
+      "mtime"
+     ],
+     "description": "mtime default (newest first); natural = raw walk order, cheaper on huge trees."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Max entries; default 100; 0 unlimited."
+    },
+    "offset": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "include_noise": {
+     "type": "boolean",
+     "description": "Also search gitignored trees."
+    }
+   },
+   "required": [
+    "pattern"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-grok-oauth",
+  "name": "list",
+  "input": {
+   "type": "object",
+   "properties": {
+    "path": {
+     "type": "string",
+     "description": "Known directory; defaults to the current Project."
+    },
+    "hidden": {
+     "type": "boolean",
+     "description": "Include dotfiles."
+    },
+    "meta": {
+     "type": "boolean",
+     "description": "Per-entry size bytes, UTC mtime, octal mode; text files also get a line count."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 100,
+     "description": "Max entries; default 100; 0 = no page cap (absolute cap still applies)."
+    },
+    "offset": {
+     "type": "integer",
+     "minimum": 0
+    }
+   },
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "path": {
+     "type": "string",
+     "description": "Known directory; defaults to the current Project."
+    },
+    "hidden": {
+     "type": "boolean",
+     "description": "Include dotfiles."
+    },
+    "meta": {
+     "type": "boolean",
+     "description": "Per-entry size bytes, UTC mtime, octal mode; text files also get a line count."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 100,
+     "description": "Max entries; default 100; 0 = no page cap (absolute cap still applies)."
+    },
+    "offset": {
+     "type": "integer",
+     "minimum": 0
+    }
+   },
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-grok-oauth",
+  "name": "grep",
+  "input": {
+   "type": "object",
+   "properties": {
+    "pattern": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       },
+       "maxItems": 10
+      }
+     ],
+     "description": "Ripgrep regex(es); escape literal metacharacters."
+    },
+    "path": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "minItems": 1,
+       "maxItems": 10,
+       "items": {
+        "type": "string"
+       }
+      }
+     ],
+     "description": "Plain file/directory scopes; omit for Project root. Every pattern searches every path; pattern/path pairs need separate calls."
+    },
+    "glob": {
+     "type": "string",
+     "description": "Relative glob filter evaluated inside path, e.g. \"*.cs\" or \"src/**/*.ts\"; for exact/absolute paths use path instead."
+    },
+    "mode": {
+     "type": "string",
+     "enum": [
+      "content",
+      "files",
+      "count"
+     ],
+     "description": "content default; files lists matching paths; count totals all patterns together per file."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Requested results; default 250; 0 unlimited. Context output caps at 40 blocks; continue via the returned offset."
+    },
+    "offset": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "context": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 200,
+     "description": "Omit for automatic context; 0 for matches only."
+    },
+    "include_noise": {
+     "type": "boolean",
+     "description": "Also search gitignored trees."
+    },
+    "text": {
+     "type": "boolean",
+     "description": "Search binary data as text (archives/Git objects not decoded)."
+    }
+   },
+   "required": [
+    "pattern"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "pattern": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "maxItems": 10,
+     "description": "Ripgrep regex(es); escape literal metacharacters. Pass one or more values as an array."
+    },
+    "path": {
+     "type": "array",
+     "minItems": 1,
+     "maxItems": 10,
+     "items": {
+      "type": "string"
+     },
+     "description": "Plain file/directory scopes; omit for Project root. Every pattern searches every path; pattern/path pairs need separate calls. Pass one or more values as an array."
+    },
+    "glob": {
+     "type": "string",
+     "description": "Relative glob filter evaluated inside path, e.g. \"*.cs\" or \"src/**/*.ts\"; for exact/absolute paths use path instead."
+    },
+    "mode": {
+     "type": "string",
+     "enum": [
+      "content",
+      "files",
+      "count"
+     ],
+     "description": "content default; files lists matching paths; count totals all patterns together per file."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Requested results; default 250; 0 unlimited. Context output caps at 40 blocks; continue via the returned offset."
+    },
+    "offset": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "context": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 200,
+     "description": "Omit for automatic context; 0 for matches only."
+    },
+    "include_noise": {
+     "type": "boolean",
+     "description": "Also search gitignored trees."
+    },
+    "text": {
+     "type": "boolean",
+     "description": "Search binary data as text (archives/Git objects not decoded)."
+    }
+   },
+   "required": [
+    "pattern"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-grok-oauth",
+  "name": "code_graph",
+  "input": {
+   "type": "object",
+   "properties": {
+    "mode": {
+     "type": "string",
+     "enum": [
+      "overview",
+      "imports",
+      "dependents",
+      "related",
+      "impact",
+      "symbols",
+      "find_symbol",
+      "symbol_search",
+      "search",
+      "references",
+      "callers",
+      "callees"
+     ],
+     "description": "File modes (files[]): overview, imports, dependents, related, impact. symbols with files[] gives the file outline; other modes use symbols[]."
+    },
+    "files": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ],
+     "description": "Paths, project-relative or absolute; required for file modes, symbol queries span all files."
+    },
+    "symbols": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ],
+     "description": "Exact identifiers/keywords; required for symbol modes, optional outline filter. Every symbol searches every file; distinct pairs need separate calls."
+    },
+    "body": {
+     "type": "boolean",
+     "description": "true for implementation, false for locations; find_symbol defaults true, references is opt-in."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 500,
+     "description": "Max results; modes may cap lower."
+    },
+    "depth": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 5,
+     "description": "Overview hierarchy or caller traversal depth; default 1."
+    },
+    "cwd": {
+     "type": "string",
+     "description": "Explicit root outside the project; omit for project root."
+    }
+   },
+   "required": [
+    "mode"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "mode": {
+     "type": "string",
+     "enum": [
+      "overview",
+      "imports",
+      "dependents",
+      "related",
+      "impact",
+      "symbols",
+      "find_symbol",
+      "symbol_search",
+      "search",
+      "references",
+      "callers",
+      "callees"
+     ],
+     "description": "File modes (files[]): overview, imports, dependents, related, impact. symbols with files[] gives the file outline; other modes use symbols[]."
+    },
+    "files": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "Paths, project-relative or absolute; required for file modes, symbol queries span all files. Pass one or more values as an array."
+    },
+    "symbols": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "Exact identifiers/keywords; required for symbol modes, optional outline filter. Every symbol searches every file; distinct pairs need separate calls. Pass one or more values as an array."
+    },
+    "body": {
+     "type": "boolean",
+     "description": "true for implementation, false for locations; find_symbol defaults true, references is opt-in."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 500,
+     "description": "Max results; modes may cap lower."
+    },
+    "depth": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 5,
+     "description": "Overview hierarchy or caller traversal depth; default 1."
+    },
+    "cwd": {
+     "type": "string",
+     "description": "Explicit root outside the project; omit for project root."
+    }
+   },
+   "required": [
+    "mode"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-grok-oauth",
+  "name": "read",
+  "input": {
+   "type": "object",
+   "properties": {
+    "file_path": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "minItems": 1,
+       "maxItems": 10,
+       "items": {
+        "anyOf": [
+         {
+          "type": "string"
+         },
+         {
+          "type": "object",
+          "properties": {
+           "file_path": {
+            "type": "string"
+           },
+           "offset": {
+            "type": "integer",
+            "minimum": 1
+           },
+           "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100000
+           }
+          },
+          "required": [
+           "file_path"
+          ],
+          "additionalProperties": false
+         }
+        ]
+       }
+      }
+     ],
+     "description": "Overlapping windows of one file merge. A glob fans out to ≤10 newest files."
+    },
+    "offset": {
+     "type": "integer",
+     "minimum": 1,
+     "description": "1-based start line; default 1; batch default."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 100000,
+     "description": "Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages."
+    },
+    "pages": {
+     "type": "string",
+     "description": "PDF page range \"N\" or \"N-M\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count."
+    }
+   },
+   "required": [
+    "file_path"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "file_path": {
+     "type": "array",
+     "minItems": 1,
+     "maxItems": 10,
+     "items": {
+      "type": "string"
+     },
+     "description": "Overlapping windows of one file merge. A glob fans out to ≤10 newest files. Pass one or more values as an array."
+    },
+    "offset": {
+     "type": "integer",
+     "minimum": 1,
+     "description": "1-based start line; default 1; batch default."
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 100000,
+     "description": "Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages."
+    },
+    "pages": {
+     "type": "string",
+     "description": "PDF page range \"N\" or \"N-M\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count."
+    }
+   },
+   "required": [
+    "file_path"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-grok-oauth",
+  "name": "edit",
+  "input": {
+   "type": "object",
+   "properties": {
+    "file_path": {
+     "type": "string"
+    },
+    "old_string": {
+     "type": "string",
+     "description": "Exact target text. Empty only to create a missing file or fill an empty file; never overwrites non-empty files and is not an absence check."
+    },
+    "new_string": {
+     "type": "string",
+     "description": "Replacement text; may be empty to delete. Must differ from old_string."
+    },
+    "replace_all": {
+     "type": "boolean",
+     "default": false,
+     "description": "Replace all occurrences of old_string."
+    }
+   },
+   "required": [
+    "file_path",
+    "old_string",
+    "new_string"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "file_path": {
+     "type": "string"
+    },
+    "old_string": {
+     "type": "string",
+     "description": "Exact target text. Empty only to create a missing file or fill an empty file; never overwrites non-empty files and is not an absence check."
+    },
+    "new_string": {
+     "type": "string",
+     "description": "Replacement text; may be empty to delete. Must differ from old_string."
+    },
+    "replace_all": {
+     "type": "boolean",
+     "default": false,
+     "description": "Replace all occurrences of old_string."
+    }
+   },
+   "required": [
+    "file_path",
+    "old_string",
+    "new_string"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-grok-oauth",
+  "name": "git",
+  "input": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "type": "string",
+     "enum": [
+      "command",
+      "stage",
+      "worktree"
+     ],
+     "description": "Default command. stage uses diff_id/change_ids instead of command. worktree uses worktree_action and its fields."
+    },
+    "command": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       },
+       "minItems": 1,
+       "maxItems": 10
+      }
+     ],
+     "description": "Full commands starting with git; shell-style quoting, no pipes/redirects/substitution (a && chain runs as the array). Mutations allowed."
+    },
+    "output_limit": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 1000,
+     "description": "Body line cap; staging IDs are not capped. Default 500; git log defaults to 100. A cut ends with [output capped …] naming how to continue."
+    },
+    "include_stage_ids": {
+     "type": "boolean",
+     "description": "Include staging IDs outside the body cap for git diff or git diff -- <paths> only. Default false."
+    },
+    "diff_id": {
+     "type": "string",
+     "description": "stage: exact diff_id from git diff."
+    },
+    "change_ids": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       },
+       "minItems": 1,
+       "maxItems": 50
+      }
+     ],
+     "description": "stage: exact change ID or IDs to stage, including new files."
+    },
+    "worktree_action": {
+     "type": "string",
+     "enum": [
+      "enter",
+      "return",
+      "merge",
+      "remove",
+      "list",
+      "prune"
+     ],
+     "description": "enter: create or re-enter the managed worktree (branch: that branch, create: new); return: back to the project folder, worktree kept; merge: into its merge target; remove; list; prune."
+    },
+    "session_id": {
+     "type": "string",
+     "description": "enter/return/merge/remove: another session (it must be idle); default the caller."
+    },
+    "name": {
+     "type": "string",
+     "description": "enter: the new worktree name (branch <prefix><name>)."
+    },
+    "branch": {
+     "type": "string",
+     "description": "enter: use the worktree of this branch instead. remove: this session's worktree of that branch."
+    },
+    "create": {
+     "type": "boolean",
+     "description": "enter with branch: create that branch."
+    },
+    "carry": {
+     "type": "string",
+     "enum": [
+      "leave",
+      "carry"
+     ],
+     "description": "enter: the user answer to WORKTREE_DIRTY_CHOICE (uncommitted project-folder changes)."
+    },
+    "confirm_large": {
+     "type": "boolean",
+     "description": "enter or git worktree add: the user accepted the WORKTREE_LARGE_REPO_CONFIRM size."
+    },
+    "force": {
+     "type": "boolean",
+     "description": "remove: discard dirty/unmerged work; only on explicit user request."
+    }
+   },
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "type": "string",
+     "enum": [
+      "command",
+      "stage",
+      "worktree"
+     ],
+     "description": "Default command. stage uses diff_id/change_ids instead of command. worktree uses worktree_action and its fields."
+    },
+    "command": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "minItems": 1,
+     "maxItems": 10,
+     "description": "Full commands starting with git; shell-style quoting, no pipes/redirects/substitution (a && chain runs as the array). Mutations allowed. Pass one or more values as an array."
+    },
+    "output_limit": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 1000,
+     "description": "Body line cap; staging IDs are not capped. Default 500; git log defaults to 100. A cut ends with [output capped …] naming how to continue."
+    },
+    "include_stage_ids": {
+     "type": "boolean",
+     "description": "Include staging IDs outside the body cap for git diff or git diff -- <paths> only. Default false."
+    },
+    "diff_id": {
+     "type": "string",
+     "description": "stage: exact diff_id from git diff."
+    },
+    "change_ids": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "minItems": 1,
+     "maxItems": 50,
+     "description": "stage: exact change ID or IDs to stage, including new files. Pass one or more values as an array."
+    },
+    "worktree_action": {
+     "type": "string",
+     "enum": [
+      "enter",
+      "return",
+      "merge",
+      "remove",
+      "list",
+      "prune"
+     ],
+     "description": "enter: create or re-enter the managed worktree (branch: that branch, create: new); return: back to the project folder, worktree kept; merge: into its merge target; remove; list; prune."
+    },
+    "session_id": {
+     "type": "string",
+     "description": "enter/return/merge/remove: another session (it must be idle); default the caller."
+    },
+    "name": {
+     "type": "string",
+     "description": "enter: the new worktree name (branch <prefix><name>)."
+    },
+    "branch": {
+     "type": "string",
+     "description": "enter: use the worktree of this branch instead. remove: this session's worktree of that branch."
+    },
+    "create": {
+     "type": "boolean",
+     "description": "enter with branch: create that branch."
+    },
+    "carry": {
+     "type": "string",
+     "enum": [
+      "leave",
+      "carry"
+     ],
+     "description": "enter: the user answer to WORKTREE_DIRTY_CHOICE (uncommitted project-folder changes)."
+    },
+    "confirm_large": {
+     "type": "boolean",
+     "description": "enter or git worktree add: the user accepted the WORKTREE_LARGE_REPO_CONFIRM size."
+    },
+    "force": {
+     "type": "boolean",
+     "description": "remove: discard dirty/unmerged work; only on explicit user request."
+    }
+   },
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-grok-oauth",
+  "name": "shell",
+  "input": {
+   "type": "object",
+   "properties": {
+    "command": {
+     "type": "string",
+     "description": "Command. Bash: chain dependent commands with &&; multiline input via a quoted heredoc delimiter, not extra quoting/escape layers."
+    },
+    "cwd": {
+     "type": "string",
+     "description": "Working directory; default the Project. Use it instead of cd/Set-Location."
+    },
+    "timeout_ms": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Hard kill deadline in ms (omit or 0 = none), separate from the 60s hold; set one for throwaway probes so a slow check fails fast."
+    },
+    "wait_ms": {
+     "type": "integer",
+     "minimum": 1000,
+     "maximum": 600000,
+     "description": "Hold in ms before a still-running command moves to the background (default 60000). Usually omit; for a long finite command needed next, set up to 600000."
+    },
+    "background": {
+     "type": "boolean",
+     "description": "Start in the background at once (servers, watchers, `npm run dev`); returns task_id right away."
+    }
+   },
+   "required": [
+    "command"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "command": {
+     "type": "string",
+     "description": "Command. Bash: chain dependent commands with &&; multiline input via a quoted heredoc delimiter, not extra quoting/escape layers."
+    },
+    "cwd": {
+     "type": "string",
+     "description": "Working directory; default the Project. Use it instead of cd/Set-Location."
+    },
+    "timeout_ms": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Hard kill deadline in ms (omit or 0 = none), separate from the 60s hold; set one for throwaway probes so a slow check fails fast."
+    },
+    "wait_ms": {
+     "type": "integer",
+     "minimum": 1000,
+     "maximum": 600000,
+     "description": "Hold in ms before a still-running command moves to the background (default 60000). Usually omit; for a long finite command needed next, set up to 600000."
+    },
+    "background": {
+     "type": "boolean",
+     "description": "Start in the background at once (servers, watchers, `npm run dev`); returns task_id right away."
+    }
+   },
+   "required": [
+    "command"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-grok-oauth",
+  "name": "task",
+  "input": {
+   "type": "object",
+   "properties": {
+    "task_id": {
+     "type": "string",
+     "description": "Shell task_id; required for read/wait/cancel."
+    },
+    "action": {
+     "type": "string",
+     "enum": [
+      "list",
+      "read",
+      "wait",
+      "cancel"
+     ],
+     "description": "list all; read next output; wait for completion and next output; cancel task."
+    },
+    "timeout_ms": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Wait ceiling in ms; else current output at the ceiling. Default 300000; clamped to 10000-3600000."
+    },
+    "output": {
+     "type": "string",
+     "enum": [
+      "new",
+      "tail"
+     ],
+     "description": "read/wait only. Default new; tail re-reads recent output without advancing the cursor, after an interruption or context loss. Up to 8 KiB per stream while running, 12 KiB on completion or replay; original logs are preserved."
+    }
+   },
+   "required": [
+    "action"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "task_id": {
+     "type": "string",
+     "description": "Shell task_id; required for read/wait/cancel."
+    },
+    "action": {
+     "type": "string",
+     "enum": [
+      "list",
+      "read",
+      "wait",
+      "cancel"
+     ],
+     "description": "list all; read next output; wait for completion and next output; cancel task."
+    },
+    "timeout_ms": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Wait ceiling in ms; else current output at the ceiling. Default 300000; clamped to 10000-3600000."
+    },
+    "output": {
+     "type": "string",
+     "enum": [
+      "new",
+      "tail"
+     ],
+     "description": "read/wait only. Default new; tail re-reads recent output without advancing the cursor, after an interruption or context loss. Up to 8 KiB per stream while running, 12 KiB on completion or replay; original logs are preserved."
+    }
+   },
+   "required": [
+    "action"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-grok-oauth",
+  "name": "load_tool",
+  "input": {
+   "type": "object",
+   "properties": {
+    "names": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       },
+       "minItems": 1
+      }
+     ],
+     "description": "Exact name(s)/aliases."
+    }
+   },
+   "required": [
+    "names"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "names": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "minItems": 1,
+     "description": "Exact name(s)/aliases. Pass one or more values as an array."
+    }
+   },
+   "required": [
+    "names"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "node-active-grok-oauth",
+  "name": "call_tool",
+  "input": {
+   "type": "object",
+   "properties": {
+    "name": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 256,
+     "description": "Exact tool name."
+    },
+    "arguments": {
+     "type": "object",
+     "description": "Arguments for that tool."
+    }
+   },
+   "required": [
+    "name",
+    "arguments"
+   ],
+   "additionalProperties": false
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "name": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 256,
+     "description": "Exact tool name."
+    },
+    "arguments": {
+     "type": "object",
+     "description": "Arguments for that tool."
+    }
+   },
+   "required": [
+    "name",
+    "arguments"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "source": "synthetic",
+  "name": "one_or_many",
+  "input": {
+   "type": "object",
+   "properties": {
+    "p": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     ],
+     "description": "Paths."
+    }
+   }
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "p": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "Paths. Pass one or more values as an array."
+    }
+   }
+  }
+ },
+ {
+  "source": "synthetic",
+  "name": "array_first",
+  "input": {
+   "type": "object",
+   "properties": {
+    "p": {
+     "anyOf": [
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      },
+      {
+       "type": "string"
+      }
+     ]
+    }
+   }
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "p": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "Pass one or more values as an array."
+    }
+   }
+  }
+ },
+ {
+  "source": "synthetic",
+  "name": "array_vs_object",
+  "input": {
+   "type": "object",
+   "properties": {
+    "p": {
+     "oneOf": [
+      {
+       "type": "object",
+       "properties": {
+        "a": {
+         "type": "string"
+        }
+       }
+      },
+      {
+       "type": "array",
+       "items": {}
+      }
+     ],
+     "description": "x"
+    }
+   }
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "p": {
+     "type": "object",
+     "properties": {
+      "a": {
+       "type": "string"
+      }
+     },
+     "description": "x This provider accepts a single value here, not an array."
+    }
+   }
+  }
+ },
+ {
+  "source": "synthetic",
+  "name": "union_root",
+  "input": {
+   "anyOf": [
+    {
+     "type": "object",
+     "properties": {
+      "a": {
+       "type": "string"
+      },
+      "k": {
+       "enum": [
+        "x"
+       ],
+       "type": "string"
+      }
+     },
+     "required": [
+      "a"
+     ]
+    },
+    {
+     "type": "object",
+     "properties": {
+      "b": {
+       "type": "number"
+      },
+      "k": {
+       "enum": [
+        "y"
+       ],
+       "type": "string"
+      }
+     },
+     "required": [
+      "b"
+     ]
+    }
+   ],
+   "description": "root"
+  },
+  "expected": {
+   "type": "object",
+   "description": "root",
+   "properties": {
+    "a": {
+     "type": "string"
+    },
+    "k": {
+     "enum": [
+      "x",
+      "y"
+     ],
+     "type": "string"
+    },
+    "b": {
+     "type": "number"
+    }
+   },
+   "required": [
+    "a"
+   ]
+  }
+ },
+ {
+  "source": "synthetic",
+  "name": "union_clash",
+  "input": {
+   "type": "object",
+   "properties": {
+    "z": {
+     "type": "string"
+    }
+   },
+   "oneOf": [
+    {
+     "properties": {
+      "a": {
+       "type": "object",
+       "properties": {
+        "x": {
+         "type": "string"
+        }
+       },
+       "required": [
+        "x"
+       ]
+      }
+     },
+     "required": [
+      "a"
+     ]
+    },
+    {
+     "properties": {
+      "a": {
+       "type": "object",
+       "properties": {
+        "y": {
+         "type": "string"
+        }
+       },
+       "required": [
+        "x"
+       ]
+      }
+     },
+     "required": [
+      "a"
+     ]
+    }
+   ]
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "a": {
+     "type": "object",
+     "properties": {
+      "x": {
+       "type": "string"
+      },
+      "y": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "x"
+     ]
+    },
+    "z": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "a"
+   ]
+  }
+ },
+ {
+  "source": "synthetic",
+  "name": "non_object_union",
+  "input": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "number"
+    }
+   ],
+   "required": [
+    "q"
+   ]
+  },
+  "expected": {
+   "required": [
+    "q"
+   ],
+   "type": "object",
+   "additionalProperties": true
+  }
+ },
+ {
+  "source": "synthetic",
+  "name": "action_input",
+  "input": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "enum": [
+      "a",
+      "b"
+     ]
+    },
+    "input": {
+     "anyOf": [
+      {
+       "title": "a",
+       "type": "object",
+       "properties": {
+        "n": {
+         "type": "integer",
+         "minimum": 1
+        }
+       },
+       "required": [
+        "n"
+       ]
+      },
+      {
+       "title": "b",
+       "type": "object",
+       "properties": {
+        "n": {
+         "type": "integer",
+         "minimum": 5
+        },
+        "m": {
+         "type": "string"
+        }
+       }
+      }
+     ]
+    }
+   },
+   "oneOf": [
+    {
+     "properties": {
+      "action": {
+       "enum": [
+        "a"
+       ]
+      },
+      "input": {
+       "type": "object",
+       "properties": {
+        "n": {
+         "type": "integer",
+         "minimum": 1
+        }
+       },
+       "required": [
+        "n"
+       ]
+      }
+     }
+    },
+    {
+     "properties": {
+      "action": {
+       "enum": [
+        "b"
+       ]
+      },
+      "input": {
+       "type": "object",
+       "properties": {
+        "n": {
+         "type": "integer",
+         "minimum": 5
+        },
+        "m": {
+         "type": "string"
+        }
+       }
+      }
+     }
+    }
+   ]
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "enum": [
+      "a",
+      "b"
+     ]
+    },
+    "input": {
+     "title": "a",
+     "type": "object",
+     "properties": {
+      "n": {
+       "type": "integer",
+       "minimum": 1
+      }
+     },
+     "required": [
+      "n"
+     ],
+     "description": "Allowed input by action (* required): a(n*>=1); b(n>=5,m)."
+    }
+   }
+  }
+ },
+ {
+  "source": "synthetic",
+  "name": "nested_items",
+  "input": {
+   "type": "object",
+   "properties": {
+    "list": {
+     "type": "array",
+     "items": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "array",
+        "items": {
+         "type": "string"
+        }
+       }
+      ]
+     }
+    }
+   },
+   "additionalProperties": {
+    "oneOf": [
+     {
+      "type": "string"
+     }
+    ]
+   }
+  },
+  "expected": {
+   "type": "object",
+   "properties": {
+    "list": {
+     "type": "array",
+     "items": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "description": "Pass one or more values as an array."
+     }
+    }
+   },
+   "additionalProperties": {
+    "type": "string"
+   }
+  }
+ }
+]

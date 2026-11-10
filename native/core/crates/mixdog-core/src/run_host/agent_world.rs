@@ -112,11 +112,15 @@ pub struct AgentWorld {
     windows: Arc<dyn RouteWindows>,
     env: EnvReader,
     clock: Arc<dyn Clock>,
+    stall_log: StallLog,
 }
 
+/// Where the `stall_abort` rows of a stopped dispatch go (the host's failure log).
+pub type StallLog = Arc<dyn Fn(Map<String, Value>) + Send + Sync>;
+
 impl AgentWorld {
-    pub fn new(config: Config, windows: Arc<dyn RouteWindows>, env: EnvReader, clock: Arc<dyn Clock>) -> Self {
-        Self { config, windows, env, clock }
+    pub fn new(config: Config, windows: Arc<dyn RouteWindows>, env: EnvReader, clock: Arc<dyn Clock>, stall_log: StallLog) -> Self {
+        Self { config, windows, env, clock, stall_log }
     }
 }
 
@@ -151,6 +155,10 @@ impl DispatchWorld for AgentWorld {
 
     fn diagnostic(&self, line: &str) {
         mixdog_rt::node_stderr!("{line}");
+    }
+
+    fn record_stall_abort(&self, ctx: Map<String, Value>) {
+        (self.stall_log)(ctx);
     }
 }
 

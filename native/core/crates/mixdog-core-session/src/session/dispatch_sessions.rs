@@ -161,6 +161,12 @@ impl DispatchThreads {
         self.directory.handle(&ThreadId::from(id))?.cell.progress.borrow().snapshot(now)
     }
 
+    /// `sess.lastIterationIndex` when it is a number: the iteration the session's last model response closed.
+    pub fn last_iteration_index(&self, id: &str) -> Option<Value> {
+        let handle = self.directory.handle(&ThreadId::from(id))?;
+        handle.live_header().header().get("lastIterationIndex").filter(|v| v.is_number()).cloned()
+    }
+
     /// `armTurnTimeout(id)`: a stall is the first thing to stop the session's turn, so the
     /// background shell work the turn started since its ask began is stopped (`reap`). Nothing
     /// when no turn runs, its signal already fired, or the session is closing.

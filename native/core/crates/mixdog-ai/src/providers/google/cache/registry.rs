@@ -88,6 +88,12 @@ impl Registry {
         SHARED.get_or_init(Arc::default).clone()
     }
 
+    /// The process-wide registry as a new process has it: no cache, no create in flight.
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn reset_shared() {
+        *Self::shared().lock() = Inner::default();
+    }
+
     fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
         self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
