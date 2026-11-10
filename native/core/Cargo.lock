@@ -4355,6 +4355,7 @@ dependencies = [
  "mixdog-rt",
  "mixdog-store",
  "mixdog-tools",
+ "mixdog-trace",
  "mixdog-workspace-hack",
  "serde_json",
  "sha2 0.10.9",

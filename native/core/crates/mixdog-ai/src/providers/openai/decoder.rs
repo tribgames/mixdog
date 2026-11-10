@@ -263,7 +263,7 @@ fn parse_call_arguments(text: &str) -> Value {
         json!({
             "__invalidToolArgs": true,
             "__rawArguments": text,
-            "__parseError": err.to_string(),
+            "__parseError": mixdog_js::v8_json_parse_error(text).unwrap_or_else(|| err.to_string()),
         })
     })
 }
@@ -278,7 +278,7 @@ fn parse_search_arguments(value: Option<&Value>) -> Value {
                 Err(err) => json!({
                     "__invalidToolArgs": true,
                     "__rawArguments": text,
-                    "__parseError": err.to_string(),
+                    "__parseError": mixdog_js::v8_json_parse_error(text).unwrap_or_else(|| err.to_string()),
                 }),
             }
         }

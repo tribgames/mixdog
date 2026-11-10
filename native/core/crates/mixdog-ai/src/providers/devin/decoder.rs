@@ -277,7 +277,7 @@ impl DevinDecoder {
                 match serde_json::from_str::<Value>(&call.args) {
                     Ok(v) if v.is_object() => v,
                     Ok(_) => invalid_tool_args_marker(&call.args, "arguments are not an object"),
-                    Err(e) => invalid_tool_args_marker(&call.args, &e.to_string()),
+                    Err(e) => invalid_tool_args_marker(&call.args, &mixdog_js::v8_json_parse_error(&call.args).unwrap_or_else(|| e.to_string())),
                 }
             };
             self.exposure.tool_dispatched = true;

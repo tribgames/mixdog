@@ -261,6 +261,8 @@ pub(crate) fn build_models(tokens: &LaneTokens, data_dir: &Path, ort_library: Or
 /// What Node's process `exit` hooks write before the process ends (`flushGatewayUsageEventsSync` in `route-meta.mjs`, `flushDaemonLogsSync`
 /// in `daemon.mjs`): the last gateway usage batch, then the queued log tail. The release procedure calls it on every path, a stuck step included.
 pub(crate) async fn flush_at_exit(log: &crate::daemon_log::DaemonLog, usage: &mixdog_core_session::session::gateway_usage::GatewayUsage) {
+    // `agent-trace-io.mjs` registers its `exit` hook (`_flushToolFailuresSync`) when it is first imported, ahead of the others.
+    mixdog_core_run::run_host::failure_log::flush_all().await;
     usage.flush_final().await;
     log.flush().await;
 }

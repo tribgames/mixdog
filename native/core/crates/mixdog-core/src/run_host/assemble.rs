@@ -32,6 +32,8 @@ use mixdog_tools::policy::{ConnectorPermissions, ToolPolicy, ToolResolver};
 use serde_json::{json, Value};
 
 use mixdog_core_run::run_host::artifact::ToolResultArtifacts;
+use mixdog_core_run::run_host::failure_log::FailureWriter;
+use mixdog_core_run::run_host::failure_log::RunFailureLog;
 use super::factory::{Assembled, AssembleInput, GateBuilder, GateContext, RunParts, SkillContext, SkillsBuilder};
 use super::hooks::{PostToolDispatch, SessionToolHooks};
 use super::reactions::{LoopReactions, ReactionScope, ReactionTargets};
@@ -559,6 +561,13 @@ impl RunParts for HostRunParts {
             step_judge,
             artifacts: Some(artifacts),
             images: seams.image_compactor(),
+            failures: Some(Arc::new(RunFailureLog::new(
+                FailureWriter::for_data_dir(&seams.data_dir(), s.io, s.clock.clone()),
+                session_id,
+                // Node's `sessionRef.agent` is set for a delegated agent's session only; the Lead's header names "lead".
+                agent.filter(|_| super::compaction_world::is_agent_owner(header)),
+                &cwd.to_string_lossy(),
+            ))),
             blobs: s.blobs.clone(),
             carry: RunCarry::from_saved(header),
         })

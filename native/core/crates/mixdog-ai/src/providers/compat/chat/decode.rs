@@ -76,7 +76,7 @@ fn parse_arguments(raw: &str) -> JsonValue {
         json!({
             "__invalidToolArgs": true,
             "__rawArguments": raw,
-            "__parseError": err.to_string(),
+            "__parseError": mixdog_js::v8_json_parse_error(raw).unwrap_or_else(|| err.to_string()),
         })
     })
 }

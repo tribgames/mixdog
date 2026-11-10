@@ -1,0 +1,412 @@
+{
+  "note": "history/tool-failures.jsonl as the Node tool loop writes it (real askSession turns over a scripted provider), recorded twice at b6f10295a",
+  "workspace": "D:\\mixdog-build\\tmp\\rs-tf\\mixdog-tool-failures-ws",
+  "scenarios": [
+    {
+      "name": "tool errors, refusals and redaction in one batch",
+      "replies": [
+        {
+          "text": "go",
+          "calls": [
+            {
+              "id": "c1",
+              "name": "read",
+              "args": {}
+            },
+            {
+              "id": "c2",
+              "name": "read",
+              "args": {
+                "path": "missing.txt"
+              }
+            },
+            {
+              "id": "c3",
+              "name": "edit",
+              "args": {
+                "file_path": "nofile-token=abc123.txt",
+                "old_string": "a",
+                "new_string": "b"
+              }
+            },
+            {
+              "id": "c4",
+              "name": "edit",
+              "args": {
+                "file_path": "a.txt",
+                "old_string": "nope",
+                "new_string": "x"
+              }
+            },
+            {
+              "id": "c7",
+              "name": "read",
+              "args": {
+                "path": "a.txt",
+                "offset": "x"
+              }
+            },
+            {
+              "id": "c8",
+              "name": "task",
+              "args": {
+                "action": "bogus"
+              }
+            },
+            {
+              "id": "c9",
+              "name": "shell",
+              "args": {
+                "command": "node -e \"process.exit(3)\""
+              }
+            },
+            {
+              "id": "c10",
+              "name": "frobnicate",
+              "args": {}
+            }
+          ]
+        },
+        {
+          "text": "again",
+          "calls": [
+            {
+              "id": "d1",
+              "name": "edit",
+              "args": {
+                "file_path": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé😀xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-token=abc123",
+                "old_string": "a",
+                "new_string": "b"
+              }
+            },
+            {
+              "id": "d2",
+              "name": "edit",
+              "args": {
+                "file_path": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+                "old_string": "a",
+                "new_string": "b"
+              }
+            }
+          ]
+        },
+        {
+          "text": "done",
+          "calls": []
+        }
+      ]
+    },
+    {
+      "name": "a call whose arguments are not JSON",
+      "replies": [
+        {
+          "text": "go",
+          "calls": [
+            {
+              "id": "m1",
+              "name": "read",
+              "raw": "{\"path\":"
+            }
+          ]
+        },
+        {
+          "text": "done",
+          "calls": []
+        }
+      ]
+    },
+    {
+      "name": "a shell command that outlives its timeout",
+      "replies": [
+        {
+          "text": "go",
+          "calls": [
+            {
+              "id": "t1",
+              "name": "shell",
+              "args": {
+                "command": "node -e \"setTimeout(()=>{},20000)\"",
+                "timeout_ms": 1000
+              }
+            }
+          ]
+        },
+        {
+          "text": "done",
+          "calls": []
+        }
+      ]
+    },
+    {
+      "name": "a call refused by a hook",
+      "hook": {
+        "action": "deny",
+        "reason": "blocked by test hook"
+      },
+      "replies": [
+        {
+          "text": "go",
+          "calls": [
+            {
+              "id": "h1",
+              "name": "read",
+              "args": {
+                "path": "a.txt"
+              }
+            }
+          ]
+        },
+        {
+          "text": "done",
+          "calls": []
+        }
+      ]
+    },
+    {
+      "name": "a call whose approval is denied",
+      "hook": {
+        "action": "ask",
+        "reason": "needs approval"
+      },
+      "approval": {
+        "approved": false,
+        "reason": "no thanks"
+      },
+      "replies": [
+        {
+          "text": "go",
+          "calls": [
+            {
+              "id": "p1",
+              "name": "read",
+              "args": {
+                "path": "a.txt"
+              }
+            }
+          ]
+        },
+        {
+          "text": "done",
+          "calls": []
+        }
+      ]
+    },
+    {
+      "name": "a turn ended while its shell command runs",
+      "abortWhenFile": "started.flag",
+      "replies": [
+        {
+          "text": "go",
+          "calls": [
+            {
+              "id": "a1",
+              "name": "shell",
+              "args": {
+                "command": "node -e \"require('fs').writeFileSync('started.flag','1');setTimeout(()=>{},20000)\""
+              }
+            }
+          ]
+        },
+        {
+          "text": "done",
+          "calls": []
+        }
+      ]
+    }
+  ],
+  "files": {
+    "a.txt": "hello\nsecond line\n"
+  },
+  "model": "fake-model",
+  "recordings": [
+    {
+      "file": "{\"ts\":1794281002312,\"session_id\":\"sess_41200_1794281001622_1794281001931_6b544c5daad16d62fc97b36ede46136f\",\"iteration\":1,\"tool_name\":\"read\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\mixdog-tool-failures-ws\",\"tool_ms\":7,\"tool_args\":null,\"error_first_line\":\"Error: read requires \\\"path\\\" (or alias file_path).\",\"error_preview\":\"Error: read requires \\\"path\\\" (or alias file_path).\",\"result_bytes_est\":49,\"result_lines_est\":1}\n{\"ts\":1794281002313,\"session_id\":\"sess_41200_1794281001622_1794281001931_6b544c5daad16d62fc97b36ede46136f\",\"iteration\":1,\"tool_name\":\"edit\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\mixdog-tool-failures-ws\",\"tool_ms\":10,\"tool_args\":{\"file_path\":\"nofile-token=abc123.txt\"},\"error_first_line\":\"Error: cannot read D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\mixdog-tool-failures-ws\\\\nofile-token=[redacted] (target is missing or inaccessible)\",\"error_preview\":\"Error: cannot read D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\mixdog-tool-failures-ws\\\\nofile-token=[redacted] (target is missing or inaccessible)\",\"result_bytes_est\":128,\"result_lines_est\":1}\n{\"ts\":1794281002313,\"session_id\":\"sess_41200_1794281001622_1794281001931_6b544c5daad16d62fc97b36ede46136f\",\"iteration\":1,\"tool_name\":\"edit\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\mixdog-tool-failures-ws\",\"tool_ms\":13,\"tool_args\":{\"file_path\":\"a.txt\"},\"error_first_line\":\"Error: edit failed (old_string not found)\",\"error_preview\":\"Error: edit failed (old_string not found)\\ncurrent file excerpt lines 1-3 (use exact current text for retry):\\nhello\\nsecond line\\n\",\"result_bytes_est\":127,\"result_lines_est\":5}\n{\"ts\":1794281002314,\"session_id\":\"sess_41200_1794281001622_1794281001931_6b544c5daad16d62fc97b36ede46136f\",\"iteration\":1,\"tool_name\":\"read\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"schema/args\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\mixdog-tool-failures-ws\",\"tool_ms\":0,\"tool_args\":{\"path\":\"a.txt\",\"offset\":\"x\"},\"error_first_line\":\"Error: \\\"offset\\\" must be an integer (got string) — e.g. offset:40\",\"error_preview\":\"Error: \\\"offset\\\" must be an integer (got string) — e.g. offset:40\",\"result_bytes_est\":66,\"result_lines_est\":1}\n{\"ts\":1794281002314,\"session_id\":\"sess_41200_1794281001622_1794281001931_6b544c5daad16d62fc97b36ede46136f\",\"iteration\":1,\"tool_name\":\"task\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"schema/args\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\mixdog-tool-failures-ws\",\"tool_ms\":7,\"tool_args\":{\"action\":\"bogus\"},\"error_first_line\":\"Error: task arg \\\"action\\\" must be one of list|read|wait|cancel (got \\\"bogus\\\")\",\"error_preview\":\"Error: task arg \\\"action\\\" must be one of list|read|wait|cancel (got \\\"bogus\\\")\",\"result_bytes_est\":75,\"result_lines_est\":1}\n{\"ts\":1794281002325,\"session_id\":\"sess_41200_1794281001622_1794281001931_6b544c5daad16d62fc97b36ede46136f\",\"iteration\":2,\"tool_name\":\"edit\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\mixdog-tool-failures-ws\",\"tool_ms\":2,\"tool_args\":{\"file_path\":\"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé...\"},\"error_first_line\":\"Error: cannot read D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\mixdog-tool-failures-ws\\\\éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\\ud83d\",\"error_preview\":\"Error: cannot read D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\mixdog-tool-failures-ws\\\\éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé😀xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-token=[redacted] (target is missing or inaccessible)\",\"result_bytes_est\":616,\"result_lines_est\":1}\n{\"ts\":1794281002325,\"session_id\":\"sess_41200_1794281001622_1794281001931_6b544c5daad16d62fc97b36ede46136f\",\"iteration\":2,\"tool_name\":\"edit\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\mixdog-tool-failures-ws\",\"tool_ms\":3,\"tool_args\":{\"file_path\":\"zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz...\"},\"error_first_line\":\"Error: cannot read D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\mixdog-tool-failures-ws\\\\zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz\",\"error_preview\":\"Error: cannot read D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\mixdog-tool-failures-ws\\\\zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz\",\"result_bytes_est\":1605,\"result_lines_est\":1}\n{\"ts\":1794281002524,\"session_id\":\"sess_41200_1794281001623_1794281002335_d3a588f7f7e01cf128ebf79f00a67fa2\",\"iteration\":1,\"tool_name\":\"read\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"schema/args\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\mixdog-tool-failures-ws\",\"tool_ms\":0,\"tool_args\":null,\"error_first_line\":\"The arguments provided to `read` are invalid JSON and could not be parsed: Unexpected end of JSON input. Re-issue this tool call with valid JSON arguments.\",\"error_preview\":\"The arguments provided to `read` are invalid JSON and could not be parsed: Unexpected end of JSON input. Re-issue this tool call with valid JSON arguments.\",\"result_bytes_est\":155,\"result_lines_est\":1}\n{\"ts\":1794281004334,\"session_id\":\"sess_41200_1794281001624_1794281002529_11bb9896856820343d939a5e2c8d754e\",\"iteration\":1,\"tool_name\":\"shell\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"timeout/abort\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\mixdog-tool-failures-ws\",\"tool_ms\":1576,\"tool_args\":{\"command\":\"node -e \\\"setTimeout(()=>{},20000)\\\"\",\"timeout_ms\":1000},\"error_first_line\":\"Error: [shell-run-failed] [timeout: 1000ms signal: SIGKILL cause: timeout] — command killed; partial effects may remain\",\"error_preview\":\"Error: [shell-run-failed] [timeout: 1000ms signal: SIGKILL cause: timeout] — command killed; partial effects may remain\\n\\n(no output)\",\"result_bytes_est\":134,\"result_lines_est\":3}\n{\"ts\":1794281004375,\"session_id\":\"sess_41200_1794281001625_1794281004339_503b37ad8f92493343d614590cb31729\",\"iteration\":1,\"tool_name\":\"read\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"path/permission\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\mixdog-tool-failures-ws\",\"tool_ms\":0,\"tool_args\":{\"path\":\"a.txt\"},\"error_first_line\":\"Error: tool \\\"read\\\" denied by hook: blocked by test hook\",\"error_preview\":\"Error: tool \\\"read\\\" denied by hook: blocked by test hook\",\"result_bytes_est\":55,\"result_lines_est\":1}\n{\"ts\":1794281004421,\"session_id\":\"sess_41200_1794281001626_1794281004379_0e671db1221053f694c9ca7687da8be8\",\"iteration\":1,\"tool_name\":\"read\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\mixdog-tool-failures-ws\",\"tool_ms\":4,\"tool_args\":{\"path\":\"a.txt\"},\"error_first_line\":\"Error: tool \\\"read\\\" was not approved: no thanks. Do not retry it or reach the same result another way; report it.\",\"error_preview\":\"Error: tool \\\"read\\\" was not approved: no thanks. Do not retry it or reach the same result another way; report it.\",\"result_bytes_est\":112,\"result_lines_est\":1}\n",
+      "results": [
+        {
+          "name": "tool errors, refusals and redaction in one batch",
+          "outcome": {
+            "answer": "done"
+          },
+          "sends": 3,
+          "toolMessages": [
+            [
+              "Error: read requires \"path\" (or alias file_path).",
+              "[path absent] ENOENT: no such file or directory, stat 'missing.txt' Nothing same-named elsewhere in the project scan — treat the path as absent (create it if the task requires). (relative paths resolve from D:/mixdog-build/tmp/rs-tf/mixdog-tool-failures-ws)",
+              "Error: cannot read D:\\mixdog-build\\tmp\\rs-tf\\mixdog-tool-failures-ws\\nofile-token=abc123.txt (target is missing or inaccessible)",
+              "Error: edit failed (old_string not found)\ncurrent file excerpt lines 1-3 (use exact current text for retry):\nhello\nsecond line\n",
+              "Error: \"offset\" must be an integer (got string) — e.g. offset:40",
+              "Error: task arg \"action\" must be one of list|read|wait|cancel (got \"bogus\")",
+              "[mutation-dependency-guard] `shell` skipped because earlier mutation call(s) failed: c3, c4; no verification ran.",
+              "Error: tool \"frobnicate\" is not available on this session's schema allowlist."
+            ],
+            [
+              "Error: cannot read D:\\mixdog-build\\tmp\\rs-tf\\mixdog-tool-failures-ws\\éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé😀xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-token=abc123 (target is missing or inaccessible)",
+              "Error: cannot read D:\\mixdog-build\\tmp\\rs-tf\\mixdog-tool-failures-ws\\zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz (target is missing or inaccessible)"
+            ]
+          ]
+        },
+        {
+          "name": "a call whose arguments are not JSON",
+          "outcome": {
+            "answer": "done"
+          },
+          "sends": 2,
+          "toolMessages": [
+            [
+              "The arguments provided to `read` are invalid JSON and could not be parsed: Unexpected end of JSON input. Re-issue this tool call with valid JSON arguments."
+            ]
+          ]
+        },
+        {
+          "name": "a shell command that outlives its timeout",
+          "outcome": {
+            "answer": "done"
+          },
+          "sends": 2,
+          "toolMessages": [
+            [
+              "Error: [shell-run-failed] [timeout: 1000ms signal: SIGKILL cause: timeout] — command killed; partial effects may remain\n\n(no output)"
+            ]
+          ]
+        },
+        {
+          "name": "a call refused by a hook",
+          "outcome": {
+            "answer": "done"
+          },
+          "sends": 2,
+          "toolMessages": [
+            [
+              "Error: tool \"read\" denied by hook: blocked by test hook"
+            ]
+          ]
+        },
+        {
+          "name": "a call whose approval is denied",
+          "outcome": {
+            "answer": "done"
+          },
+          "sends": 2,
+          "toolMessages": [
+            [
+              "Error: tool \"read\" was not approved: no thanks. Do not retry it or reach the same result another way; report it."
+            ]
+          ]
+        },
+        {
+          "name": "a turn ended while its shell command runs",
+          "outcome": {
+            "threw": "Session \"<session>\" closed: abortSessionTurn (reason=turn-abort)"
+          },
+          "sends": 1,
+          "toolMessages": []
+        }
+      ],
+      "sessions": [
+        "sess_41200_1794281001622_1794281001931_6b544c5daad16d62fc97b36ede46136f",
+        "sess_41200_1794281001623_1794281002335_d3a588f7f7e01cf128ebf79f00a67fa2",
+        "sess_41200_1794281001624_1794281002529_11bb9896856820343d939a5e2c8d754e",
+        "sess_41200_1794281001625_1794281004339_503b37ad8f92493343d614590cb31729",
+        "sess_41200_1794281001626_1794281004379_0e671db1221053f694c9ca7687da8be8",
+        "sess_41200_1794281001627_1794281004425_3d9f531c409633763e7199cff0a50a02"
+      ]
+    },
+    {
+      "file": "{\"ts\":1794281005967,\"session_id\":\"sess_26716_1794281004965_1794281005195_efa95c9abacf48d3676e3e4dcda15b85\",\"iteration\":1,\"tool_name\":\"read\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\mixdog-tool-failures-ws\",\"tool_ms\":7,\"tool_args\":null,\"error_first_line\":\"Error: read requires \\\"path\\\" (or alias file_path).\",\"error_preview\":\"Error: read requires \\\"path\\\" (or alias file_path).\",\"result_bytes_est\":49,\"result_lines_est\":1}\n{\"ts\":1794281005968,\"session_id\":\"sess_26716_1794281004965_1794281005195_efa95c9abacf48d3676e3e4dcda15b85\",\"iteration\":1,\"tool_name\":\"edit\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\mixdog-tool-failures-ws\",\"tool_ms\":9,\"tool_args\":{\"file_path\":\"nofile-token=abc123.txt\"},\"error_first_line\":\"Error: cannot read D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\mixdog-tool-failures-ws\\\\nofile-token=[redacted] (target is missing or inaccessible)\",\"error_preview\":\"Error: cannot read D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\mixdog-tool-failures-ws\\\\nofile-token=[redacted] (target is missing or inaccessible)\",\"result_bytes_est\":128,\"result_lines_est\":1}\n{\"ts\":1794281005968,\"session_id\":\"sess_26716_1794281004965_1794281005195_efa95c9abacf48d3676e3e4dcda15b85\",\"iteration\":1,\"tool_name\":\"edit\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\mixdog-tool-failures-ws\",\"tool_ms\":38,\"tool_args\":{\"file_path\":\"a.txt\"},\"error_first_line\":\"Error: edit failed (old_string not found)\",\"error_preview\":\"Error: edit failed (old_string not found)\\ncurrent file excerpt lines 1-3 (use exact current text for retry):\\nhello\\nsecond line\\n\",\"result_bytes_est\":127,\"result_lines_est\":5}\n{\"ts\":1794281005969,\"session_id\":\"sess_26716_1794281004965_1794281005195_efa95c9abacf48d3676e3e4dcda15b85\",\"iteration\":1,\"tool_name\":\"read\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"schema/args\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\mixdog-tool-failures-ws\",\"tool_ms\":1,\"tool_args\":{\"path\":\"a.txt\",\"offset\":\"x\"},\"error_first_line\":\"Error: \\\"offset\\\" must be an integer (got string) — e.g. offset:40\",\"error_preview\":\"Error: \\\"offset\\\" must be an integer (got string) — e.g. offset:40\",\"result_bytes_est\":66,\"result_lines_est\":1}\n{\"ts\":1794281005969,\"session_id\":\"sess_26716_1794281004965_1794281005195_efa95c9abacf48d3676e3e4dcda15b85\",\"iteration\":1,\"tool_name\":\"task\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"schema/args\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\mixdog-tool-failures-ws\",\"tool_ms\":6,\"tool_args\":{\"action\":\"bogus\"},\"error_first_line\":\"Error: task arg \\\"action\\\" must be one of list|read|wait|cancel (got \\\"bogus\\\")\",\"error_preview\":\"Error: task arg \\\"action\\\" must be one of list|read|wait|cancel (got \\\"bogus\\\")\",\"result_bytes_est\":75,\"result_lines_est\":1}\n{\"ts\":1794281006061,\"session_id\":\"sess_26716_1794281004965_1794281005195_efa95c9abacf48d3676e3e4dcda15b85\",\"iteration\":2,\"tool_name\":\"edit\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\mixdog-tool-failures-ws\",\"tool_ms\":85,\"tool_args\":{\"file_path\":\"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé...\"},\"error_first_line\":\"Error: cannot read D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\mixdog-tool-failures-ws\\\\éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\\ud83d\",\"error_preview\":\"Error: cannot read D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\mixdog-tool-failures-ws\\\\éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé😀xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-token=[redacted] (target is missing or inaccessible)\",\"result_bytes_est\":616,\"result_lines_est\":1}\n{\"ts\":1794281006061,\"session_id\":\"sess_26716_1794281004965_1794281005195_efa95c9abacf48d3676e3e4dcda15b85\",\"iteration\":2,\"tool_name\":\"edit\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\mixdog-tool-failures-ws\",\"tool_ms\":84,\"tool_args\":{\"file_path\":\"zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz...\"},\"error_first_line\":\"Error: cannot read D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\mixdog-tool-failures-ws\\\\zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz\",\"error_preview\":\"Error: cannot read D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\mixdog-tool-failures-ws\\\\zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz\",\"result_bytes_est\":1605,\"result_lines_est\":1}\n{\"ts\":1794281006323,\"session_id\":\"sess_26716_1794281004966_1794281006071_0005409eb0820d54f802bbec8c57d4e8\",\"iteration\":1,\"tool_name\":\"read\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"schema/args\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\mixdog-tool-failures-ws\",\"tool_ms\":0,\"tool_args\":null,\"error_first_line\":\"The arguments provided to `read` are invalid JSON and could not be parsed: Unexpected end of JSON input. Re-issue this tool call with valid JSON arguments.\",\"error_preview\":\"The arguments provided to `read` are invalid JSON and could not be parsed: Unexpected end of JSON input. Re-issue this tool call with valid JSON arguments.\",\"result_bytes_est\":155,\"result_lines_est\":1}\n{\"ts\":1794281009928,\"session_id\":\"sess_26716_1794281004967_1794281006327_37817fb52af6e27e1b4aeb603ecc707c\",\"iteration\":1,\"tool_name\":\"shell\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"timeout/abort\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\mixdog-tool-failures-ws\",\"tool_ms\":2814,\"tool_args\":{\"command\":\"node -e \\\"setTimeout(()=>{},20000)\\\"\",\"timeout_ms\":1000},\"error_first_line\":\"Error: [shell-run-failed] [timeout: 1000ms signal: SIGKILL cause: timeout] — command killed; partial effects may remain\",\"error_preview\":\"Error: [shell-run-failed] [timeout: 1000ms signal: SIGKILL cause: timeout] — command killed; partial effects may remain\\n\\n(no output)\",\"result_bytes_est\":134,\"result_lines_est\":3}\n{\"ts\":1794281014770,\"session_id\":\"sess_26716_1794281004968_1794281009933_33e7acecc4188fd1dc84372cd242c740\",\"iteration\":1,\"tool_name\":\"read\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"path/permission\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\mixdog-tool-failures-ws\",\"tool_ms\":0,\"tool_args\":{\"path\":\"a.txt\"},\"error_first_line\":\"Error: tool \\\"read\\\" denied by hook: blocked by test hook\",\"error_preview\":\"Error: tool \\\"read\\\" denied by hook: blocked by test hook\",\"result_bytes_est\":55,\"result_lines_est\":1}\n{\"ts\":1794281015179,\"session_id\":\"sess_26716_1794281004969_1794281014774_cad9b6e0491474d814f18e5a02bc0453\",\"iteration\":1,\"tool_name\":\"read\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\rs-tf\\\\mixdog-tool-failures-ws\",\"tool_ms\":28,\"tool_args\":{\"path\":\"a.txt\"},\"error_first_line\":\"Error: tool \\\"read\\\" was not approved: no thanks. Do not retry it or reach the same result another way; report it.\",\"error_preview\":\"Error: tool \\\"read\\\" was not approved: no thanks. Do not retry it or reach the same result another way; report it.\",\"result_bytes_est\":112,\"result_lines_est\":1}\n",
+      "results": [
+        {
+          "name": "tool errors, refusals and redaction in one batch",
+          "outcome": {
+            "answer": "done"
+          },
+          "sends": 3,
+          "toolMessages": [
+            [
+              "Error: read requires \"path\" (or alias file_path).",
+              "[path absent] ENOENT: no such file or directory, stat 'missing.txt' Nothing same-named elsewhere in the project scan — treat the path as absent (create it if the task requires). (relative paths resolve from D:/mixdog-build/tmp/rs-tf/mixdog-tool-failures-ws)",
+              "Error: cannot read D:\\mixdog-build\\tmp\\rs-tf\\mixdog-tool-failures-ws\\nofile-token=abc123.txt (target is missing or inaccessible)",
+              "Error: edit failed (old_string not found)\ncurrent file excerpt lines 1-3 (use exact current text for retry):\nhello\nsecond line\n",
+              "Error: \"offset\" must be an integer (got string) — e.g. offset:40",
+              "Error: task arg \"action\" must be one of list|read|wait|cancel (got \"bogus\")",
+              "[mutation-dependency-guard] `shell` skipped because earlier mutation call(s) failed: c3, c4; no verification ran.",
+              "Error: tool \"frobnicate\" is not available on this session's schema allowlist."
+            ],
+            [
+              "Error: cannot read D:\\mixdog-build\\tmp\\rs-tf\\mixdog-tool-failures-ws\\éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé😀xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-token=abc123 (target is missing or inaccessible)",
+              "Error: cannot read D:\\mixdog-build\\tmp\\rs-tf\\mixdog-tool-failures-ws\\zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz (target is missing or inaccessible)"
+            ]
+          ]
+        },
+        {
+          "name": "a call whose arguments are not JSON",
+          "outcome": {
+            "answer": "done"
+          },
+          "sends": 2,
+          "toolMessages": [
+            [
+              "The arguments provided to `read` are invalid JSON and could not be parsed: Unexpected end of JSON input. Re-issue this tool call with valid JSON arguments."
+            ]
+          ]
+        },
+        {
+          "name": "a shell command that outlives its timeout",
+          "outcome": {
+            "answer": "done"
+          },
+          "sends": 2,
+          "toolMessages": [
+            [
+              "Error: [shell-run-failed] [timeout: 1000ms signal: SIGKILL cause: timeout] — command killed; partial effects may remain\n\n(no output)"
+            ]
+          ]
+        },
+        {
+          "name": "a call refused by a hook",
+          "outcome": {
+            "answer": "done"
+          },
+          "sends": 2,
+          "toolMessages": [
+            [
+              "Error: tool \"read\" denied by hook: blocked by test hook"
+            ]
+          ]
+        },
+        {
+          "name": "a call whose approval is denied",
+          "outcome": {
+            "answer": "done"
+          },
+          "sends": 2,
+          "toolMessages": [
+            [
+              "Error: tool \"read\" was not approved: no thanks. Do not retry it or reach the same result another way; report it."
+            ]
+          ]
+        },
+        {
+          "name": "a turn ended while its shell command runs",
+          "outcome": {
+            "threw": "Session \"<session>\" closed: abortSessionTurn (reason=turn-abort)"
+          },
+          "sends": 1,
+          "toolMessages": []
+        }
+      ],
+      "sessions": [
+        "sess_26716_1794281004965_1794281005195_efa95c9abacf48d3676e3e4dcda15b85",
+        "sess_26716_1794281004966_1794281006071_0005409eb0820d54f802bbec8c57d4e8",
+        "sess_26716_1794281004967_1794281006327_37817fb52af6e27e1b4aeb603ecc707c",
+        "sess_26716_1794281004968_1794281009933_33e7acecc4188fd1dc84372cd242c740",
+        "sess_26716_1794281004969_1794281014774_cad9b6e0491474d814f18e5a02bc0453",
+        "sess_26716_1794281004970_1794281015184_d2e0daf5eb6e947106330b003e306b23"
+      ]
+    }
+  ],
+  "varying": [
+    "session_id",
+    "tool_ms",
+    "ts"
+  ]
+}
