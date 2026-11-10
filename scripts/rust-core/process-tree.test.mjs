@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -55,7 +55,7 @@ const treeScript = (dir, { out, after }) => `import { spawn } from 'node:child_p
 import { writeFileSync } from 'node:fs';
 import { startTimeOf } from ${JSON.stringify(PROBE)};
 ${leakGuard(dir, LIFE_MS)}
-const gc = spawn(process.execPath, ['-e', ${JSON.stringify(`${leakGuard(dir, LIFE_MS)} setInterval(() => {}, 1000)`)}], { stdio: ['ignore', ${JSON.stringify(out)}, ${JSON.stringify(out)}], detached: ${WINDOWS} });
+const gc = spawn(process.execPath, ['-e', ${JSON.stringify(`${leakGuard(dir, LIFE_MS)} setInterval(() => {}, 1000)`)}], { stdio: ['ignore', ${JSON.stringify(out)}, ${JSON.stringify(out)}], detached: ${WINDOWS}, windowsHide: true });
 const members = [process.pid, gc.pid];
 writeFileSync(${JSON.stringify(join(dir, 'pids.json'))}, JSON.stringify(await Promise.all(members.map(async (pid) => ({ pid, start: await startTimeOf(pid) })))));
 ${after}
@@ -120,7 +120,7 @@ test('a parent that exits at once leaves a grandchild holding stdout: the run st
 test('a process outside the tree is not touched by ending it', () =>
   withTree(async (dir, members, _remember, track) => {
     // Neither started by runTree nor marked: what a pid reused after the parent's exit would be.
-    const stranger = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+    const stranger = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', windowsHide: true });
     try {
       const script = join(dir, 'tree.mjs');
       writeFileSync(script, treeScript(dir, { out: 'ignore', after: 'setInterval(() => {}, 1000);' }));
@@ -152,7 +152,7 @@ console.log(JSON.stringify({ helper: { pid: child.pid, start: await startTimeOf(
 setInterval(() => {}, 1000);
 `,
     );
-    const parent = spawn(process.execPath, [parentScript], { stdio: ['ignore', 'pipe', 'inherit'] });
+    const parent = spawn(process.execPath, [parentScript], { stdio: ['ignore', 'pipe', 'inherit'], windowsHide: true });
     let timer;
     try {
       const report = await new Promise((resolveReport, reject) => {
@@ -195,7 +195,7 @@ test('every exit code of the program arrives unchanged, 125 and 126 and an NTSTA
   for (const code of codes) {
     const done = await runTree(process.execPath, ['-e', `process.exit(${code})`], { label: `exit ${code}`, deadlineMs: 30_000 });
     // What Node itself reports for the same program run directly is the reference.
-    assert.equal(done.status, spawnSync(process.execPath, ['-e', `process.exit(${code})`], { timeout: 30_000 }).status, `exit code ${code}`);
+    assert.equal(done.status, spawnSync(process.execPath, ['-e', `process.exit(${code})`], { timeout: 30_000, windowsHide: true }).status, `exit code ${code}`);
   }
 });
 
@@ -284,13 +284,38 @@ test('a callback that throws after the start ends the started tree and rejects',
 
 test('a finished helpers report is complete: launch null, completion record present', async () => {
   const child = spawnTree(process.execPath, ['-e', '0'], { stdio: 'ignore' });
-  await exitOf(child);
+  await closeOf(child, `the helper ${child.pid} of a program that exits at once`);
   const outcome = child.treeOutcome();
   assert.equal(outcome.complete, true);
   assert.equal(outcome.launch, null);
 });
 
-test('a signal-killed program is reported with its signal, read before the result file is removed', { skip: WINDOWS && 'POSIX signals' }, async () => {
+// The record travels on a pipe, never through a file: a Node parent that dies the moment its helper has finished (after the
+// helper published, before the parent could read or remove anything) leaves nothing in its temporary directory.
+test('a Node parent killed as soon as its helper finished leaves no record in its temporary directory', () =>
+  withTree(async (dir) => {
+    const temp = join(dir, 'temp');
+    mkdirSync(temp);
+    const parentScript = join(dir, 'dies.mjs');
+    writeFileSync(
+      parentScript,
+      `import { spawnTree } from ${JSON.stringify(PROCESS_TREE)};
+const child = spawnTree(process.execPath, ['-e', '0'], { stdio: 'ignore' });
+child.once('exit', () => process.kill(process.pid, 'SIGKILL'));
+`,
+    );
+    const parent = spawn(process.execPath, [parentScript], { stdio: 'ignore', env: { ...process.env, TMP: temp, TEMP: temp, TMPDIR: temp }, windowsHide: true });
+    try {
+      await exitOf(parent);
+    } finally {
+      parent.kill('SIGKILL');
+    }
+    // Killed by itself: SIGKILL on POSIX, TerminateProcess (exit code 1) on Windows.
+    assert.ok(WINDOWS ? parent.exitCode === 1 : parent.signalCode === 'SIGKILL', `the parent ended by its own kill (code ${parent.exitCode}, signal ${parent.signalCode})`);
+    assert.deepEqual(readdirSync(temp), []);
+  }));
+
+test('a signal-killed program is reported with its signal, read from the helper\'s record', { skip: WINDOWS && 'POSIX signals' }, async () => {
   const done = await runTree(process.execPath, ['-e', 'process.kill(process.pid, "SIGKILL")'], { label: 'killed', deadlineMs: 30_000 });
   assert.equal(done.status, null);
   assert.equal(done.signal, 'SIGKILL');
@@ -310,7 +335,7 @@ test('the program and its descendants do not inherit the parent channel', { skip
 });
 
 test('the descriptor check does see an inherited descriptor 3 (the check is not vacuous)', { skip: WINDOWS && 'POSIX descriptors' }, () => {
-  const seen = spawnSync('sh', ['-c', FD3_OPEN_IN_DESCENDANT], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe', 'pipe'], timeout: 30_000 });
+  const seen = spawnSync('sh', ['-c', FD3_OPEN_IN_DESCENDANT], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe', 'pipe'], timeout: 30_000, windowsHide: true });
   assert.equal(seen.stdout.trim(), 'open');
 });
 test('a command that cannot start rejects with its label and the spawn error code; a deadline has no such code', async () => {
@@ -330,7 +355,7 @@ test('a helper that does not exit after it was told to end the tree is its own e
 });
 
 test('a process is identified by its pid together with its start time: the same process answers the same value twice, none answers null', async () => {
-  const sleeper = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+  const sleeper = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', windowsHide: true });
   try {
     // Two processes may share a start time (POSIX lstart has one-second resolution); the pair with the pid is what differs.
     const mine = await startTimeOf(sleeper.pid);
@@ -349,8 +374,8 @@ test('--end-inside ends a process only when it is verified inside the directory'
   const elsewhere = mkdtempSync(join(tmpdir(), 'end-inside-other-'));
   const exe = join(dir, WINDOWS ? 'inside.exe' : 'inside');
   copyFileSync(process.execPath, exe);
-  const inside = spawn(exe, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
-  const endInside = (where) => spawnSync(helperPath(), ['--end-inside', where, String(inside.pid)], { encoding: 'utf8', timeout: 60_000 });
+  const inside = spawn(exe, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', windowsHide: true });
+  const endInside = (where) => spawnSync(helperPath(), ['--end-inside', where, String(inside.pid)], { encoding: 'utf8', timeout: 60_000, windowsHide: true });
   try {
     const refused = endInside(elsewhere);
     // macOS has no verified handle: it answers 4 for every directory and ends nothing.
@@ -378,7 +403,7 @@ for (const name of ['a$(throw 1)', 'b`n`$x']) {
     const dir = mkdtempSync(join(tmpdir(), name));
     const exe = join(dir, WINDOWS ? 'odd.exe' : 'odd');
     copyFileSync(process.execPath, exe);
-    const odd = spawn(exe, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+    const odd = spawn(exe, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', windowsHide: true });
     try {
       assert.ok((await processesInside(dir)).some(({ pid }) => pid === odd.pid), `pid ${odd.pid} is found inside ${dir}`);
       assert.ok((await pidsOfExecutable(exe)).includes(odd.pid), `pid ${odd.pid} is found running ${exe}`);
@@ -394,7 +419,7 @@ test('a run that leaves a process inside its own directory fails naming it, and 
   const dir = mkdtempSync(join(tmpdir(), 'left-inside-'));
   const exe = join(dir, WINDOWS ? 'left.exe' : 'left');
   copyFileSync(process.execPath, exe);
-  const left = spawn(exe, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+  const left = spawn(exe, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', windowsHide: true });
   try {
     await assertNothingInside(join(tmpdir(), 'nothing-runs-in-here-' + process.pid)).then(() => {});
     await assert.rejects(assertNothingInside(dir), new RegExp(`pid ${left.pid} .*(has been ended|was not ended)`));

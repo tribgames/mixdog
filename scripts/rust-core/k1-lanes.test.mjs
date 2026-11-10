@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { test } from 'node:test';
 import { runTree } from './lib/process-tree.mjs';
 import { BACKEND_INSTALLERS, LANES, commandOf, installersIn, runChild, selectedTests, testBinariesOf, testsOfList } from './k1-lanes.mjs';
@@ -38,6 +39,22 @@ test('no lane named runs every lane, and an unknown lane or option fails', async
 test('a lane step that does not finish names its lane and filter, preflight listing included', async () => {
   await assert.rejects(selectedTests('compact', 'compact_fresh', { deadlineMs: 1 }), /lane compact \(filter compact_fresh, preflight listing\) build did not finish within 1ms and was ended/);
   await assert.rejects(runChild('cargo', ['--version'], { label: 'lane compact (filter compact_fresh)', deadlineMs: 1 }), /lane compact \(filter compact_fresh\) did not finish within 1ms and was ended/);
+});
+
+test('MIXDOG_CARGO is the command a lane runs for cargo (the build gate locally), plain cargo without it', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'k1-cargo-'));
+  const fake = join(dir, 'fake-cargo.mjs');
+  writeFileSync(fake, "console.log('via-gate ' + process.argv.slice(2).join(' '));\n");
+  const saved = process.env.MIXDOG_CARGO;
+  process.env.MIXDOG_CARGO = `"${process.execPath}" "${fake}"`;
+  try {
+    const done = await runChild('cargo', ['test', '--no-run'], { deadlineMs: 30_000 });
+    assert.equal(done.stdout.trim(), 'via-gate test --no-run', done.stderr);
+  } finally {
+    if (saved === undefined) delete process.env.MIXDOG_CARGO;
+    else process.env.MIXDOG_CARGO = saved;
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('the cargo children skip the user-data backup guard', async () => {
@@ -81,7 +98,7 @@ test('an installer is recognised by the binary its test is in, not by a name pre
 });
 
 // Recorded from cargo for the mixdog-tools package (`cargo test -p mixdog-tools --no-run --message-format=json`, then the
-// test binary's `--list fs::tests`): the selection logic runs on this without a build. k1-lanes.integration.test.mjs runs
+// test binary's `--list fs::tests`): the selection logic runs on this without a build. k1-lanes.slow.test.mjs runs
 // the same steps for real.
 const recorded = (name) => readFileSync(new URL(`./recorded/${name}`, import.meta.url), 'utf8');
 
@@ -94,13 +111,21 @@ test('the test binaries are the compiler artifacts that are test targets with an
 
 test('only the lines libtest lists as tests are tests, and each carries its binary', () => {
   const { mixdog_tools: listed } = JSON.parse(recorded('lanes_list_fs_tests.json'));
-  const tests = testsOfList(`${listed.list}3 tests, 0 benchmarks\n`, 'src/lib.rs');
+  const tests = testsOfList(`${listed.list}3 tests, 0 benchmarks\n`, '', 'src/lib.rs');
   assert.ok(tests.length > 10);
   assert.ok(tests.every((t) => t.name.startsWith('fs::tests::') && t.srcPath === 'src/lib.rs'));
-  assert.deepEqual(testsOfList('a: test\nb: benchmark\n\n', 'x'), [{ name: 'a', srcPath: 'x' }]);
+  assert.deepEqual(testsOfList('a: test\nb: benchmark\n\n', '', 'x'), [{ name: 'a', srcPath: 'x' }]);
+});
+
+// libtest's `--list` names an `#[ignore]`d test like any other and the run then skips it; `--list --ignored` names only
+// the ignored ones. A lane whose filter matches only ignored tests runs nothing, so it must select nothing.
+test('an ignored test is not a selected one: a filter whose only match is ignored selects nothing', () => {
+  const only = 'verdict::tag_gates::gate_5_live: test\n';
+  assert.deepEqual(testsOfList(`${only}\n1 test, 0 benchmarks\n`, `${only}\n1 test, 0 benchmarks\n`, 'src/lib.rs'), []);
+  assert.deepEqual(testsOfList(`a: test\n${only}`, only, 'src/lib.rs'), [{ name: 'a', srcPath: 'src/lib.rs' }]);
 });
 
 test('no recorded fs::tests test of the patch-bytes lane is a backend installer', () => {
   const { mixdog_tools: listed } = JSON.parse(recorded('lanes_list_fs_tests.json'));
-  assert.deepEqual(installersIn(testsOfList(listed.list, at('native/core/crates/mixdog-tools/src/lib.rs'))), []);
+  assert.deepEqual(installersIn(testsOfList(listed.list, '', at('native/core/crates/mixdog-tools/src/lib.rs'))), []);
 });

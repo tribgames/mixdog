@@ -1,13 +1,14 @@
-//! `treerun <result-file> <run-id> <parent-pid> args|shell <program> [args...]` runs the program as the root of a process
+//! `treerun <parent-pid> args|shell <program> [args...]` runs the program as the root of a process
 //! tree that is ended whole: when the program exits (what it left behind is ended too), when the process that started this
 //! helper asks for it or dies, however it dies, and (POSIX) when the helper itself is told to stop with SIGTERM, SIGINT or
 //! SIGHUP. The helper's exit code is the program's, unchanged (an NTSTATUS such as 0xC0000005 arrives as it is), except 70
 //! when ending the tree failed (the reason is in the record and on stderr) and 128 + the signal when a signal stopped it.
 //!
-//! The record. The result file is written to a temporary file and renamed into place, so a reader sees all of it or none.
-//! Its first member is `run`, the run id of this invocation: a record left at the same path by an earlier run (killed
-//! before it published), or by a helper of an earlier run that is still going, names another run, so it is never read as
-//! this one's. Its last member is `"complete":true`. Between them: `launch` (the program could not be started: ENOENT,
+//! The record. It is written to index 4 of the helper's stdio, a pipe the parent reads to its end (POSIX: descriptor 4;
+//! Windows: C runtime descriptor 4, which the parent passes in the startup information), never to a file: nothing of a run
+//! stays on disk, whatever dies and when. The helper takes the pipe before anything else (close-on-exec, not inheritable),
+//! so only the helper holds it and its end is the helper's exit. A helper started without it publishes nothing. The last
+//! member is `"complete":true`, so a record cut short anywhere is incomplete to the reader. Before it: `launch` (the program could not be started: ENOENT,
 //! EACCES, ELAUNCH, ETIMEDOUT, with `message`), `signal` (the program died of one), `escapes` (`checked`: nothing of the
 //! program's tree outlived the run unnoticed; `undetectable`: macOS, which has no way to adopt a descendant that left the
 //! group, so one that did cannot be found), `escaped_ended` (pids of descendants outside the group that were adopted and
@@ -58,6 +59,7 @@
 //! after the read). macOS has no such handle: it answers 4 and ends nothing. A path or directory that cannot be resolved
 //! is never "inside".
 use std::ffi::OsString;
+use std::io::Write;
 use std::process::{exit, Child, Command, ExitStatus};
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
@@ -96,50 +98,37 @@ impl Tree {
     }
 }
 
-/// The result file's body. `run` is its first member, `"complete":true` its last: a file cut short anywhere does not end
-/// with it.
-fn record(run: &str, launch: Option<(&str, String)>, signal: Option<i32>, tree: &Tree) -> String {
+/// The record's body. `"complete":true` is its last member: a record cut short anywhere does not end with it.
+fn record(launch: Option<(&str, String)>, signal: Option<i32>, tree: &Tree) -> String {
     let launch = launch.map_or("null".to_owned(), |(code, message)| format!("{},\"message\":{}", json_str(code), json_str(&message)));
     let signal = signal.map_or("null".to_owned(), |s| s.to_string());
     let ended = tree.ended.iter().map(u32::to_string).collect::<Vec<_>>().join(",");
     let failure = if tree.failure.is_empty() { "null".to_owned() } else { json_str(&tree.failure.join("; ")) };
     format!(
-        "{{\"run\":{},\"launch\":{launch},\"signal\":{signal},\"escapes\":{},\"escaped_ended\":[{ended}],\"failure\":{failure},\"complete\":true}}",
-        json_str(run),
+        "{{\"launch\":{launch},\"signal\":{signal},\"escapes\":{},\"escaped_ended\":[{ended}],\"failure\":{failure},\"complete\":true}}",
         json_str(tree.escapes)
     )
 }
 
-/// Written beside the destination and renamed into place: a reader finds the whole record or no file.
-fn write_record(path: &OsString, body: &str) -> std::io::Result<()> {
-    let mut temp = path.clone();
-    temp.push(".tmp");
-    let written = std::fs::write(&temp, body).and_then(|()| std::fs::rename(&temp, path));
-    if written.is_err() {
-        let _ = std::fs::remove_file(&temp);
-    }
-    written
-}
-
-/// Publishes the record unless a signal reached the helper first. Arming comes before the check: a signal caught before
-/// the arming is seen by the check, and one that comes after it ends the helper by its default action (both orders are
-/// sequentially consistent, so no signal falls between them). Err is the exit code: 128 + the signal, or 70 when the
-/// record cannot be written.
-fn publish(path: &OsString, body: &str) -> Result<(), i32> {
+/// Sends the record unless a signal reached the helper first. Arming comes before the check: a signal caught before the
+/// arming is seen by the check, and one that comes after it ends the helper by its default action (both orders are
+/// sequentially consistent, so no signal falls between them; one that ends the helper mid-write leaves a record without its
+/// completion member). Err is the exit code: 128 + the signal, or 70 when the record cannot be sent.
+fn publish(channel: Option<impl Write>, body: &str) -> Result<(), i32> {
     sys::arm_signals();
     if let Some(signal) = sys::caught_signal() {
         return Err(128 + signal);
     }
-    write_record(path, body).map_err(|error| {
-        eprintln!("treerun: could not write {}: {error}", path.to_string_lossy());
+    let Some(mut channel) = channel else { return Ok(()) };
+    channel.write_all(body.as_bytes()).and_then(|()| channel.flush()).map_err(|error| {
+        eprintln!("treerun: could not send the record: {error}");
         70
     })
 }
 
-/// Where the record goes and the run id it carries.
+/// Where the record goes: the pipe at index 4 of the helper's stdio, when the parent passed one.
 struct Out {
-    path: OsString,
-    run: String,
+    channel: Option<std::fs::File>,
 }
 
 /// What ended the run.
@@ -171,7 +160,7 @@ impl Stop {
 /// time before the record was in place, or 70 when something could not be ended.
 fn finish(out: &Out, stop: Stop, launch: Option<(&str, String)>, signal: Option<i32>, tree: &Tree, code: i32) -> ! {
     if stop.publishes() {
-        match publish(&out.path, &record(&out.run, launch, signal, tree)) {
+        match publish(out.channel.as_ref(), &record(launch, signal, tree)) {
             Ok(()) => leave(code, tree),
             Err(code) => leave(code, tree),
         }
@@ -256,15 +245,16 @@ fn main() {
         };
         exit(sys::end_inside(&dir.to_string_lossy(), pid));
     }
-    // First thing in run mode, before any thread or spawn exists: descriptor 3 becomes close-on-exec, so no program this
-    // helper starts, and nothing that program starts, can hold the parent channel open.
+    // First thing in run mode, before any thread or spawn exists: descriptors 3 (POSIX) and 4 become close-on-exec / not
+    // inheritable, so no program this helper starts, and nothing that program starts, can hold the parent channel or the
+    // record pipe open.
     let channel = sys::take_parent_channel();
-    if args.len() < 5 {
-        eprintln!("usage: treerun <result-file> <run-id> <parent-pid> args|shell <program> [args...]");
+    let out = Out { channel: sys::take_record_channel() };
+    if args.len() < 3 {
+        eprintln!("usage: treerun <parent-pid> args|shell <program> [args...]");
         exit(64);
     }
-    let out = Out { path: args[0].clone(), run: args[1].to_string_lossy().into_owned() };
-    let parent_pid: u32 = args[2].to_string_lossy().parse().unwrap_or_else(|_| {
+    let parent_pid: u32 = args[0].to_string_lossy().parse().unwrap_or_else(|_| {
         eprintln!("treerun: parent pid is not a number");
         exit(64);
     });
@@ -283,9 +273,9 @@ fn main() {
         Err(message) => launch_failed(&out, format!("could not create the job: {message}")),
     };
 
-    let mut command = if args[3] == "shell" { sys::shell_command(&args[4]) } else { Command::new(&args[4]) };
-    if args[3] != "shell" {
-        command.args(&args[5..]);
+    let mut command = if args[1] == "shell" { sys::shell_command(&args[2]) } else { Command::new(&args[2]) };
+    if args[1] != "shell" {
+        command.args(&args[3..]);
     }
     sys::prepare(&mut command);
     let tx_spawn = tx.clone();
@@ -394,6 +384,39 @@ mod sys {
     /// Windows watches the parent by its process handle; there is no channel descriptor.
     pub fn take_parent_channel() -> Result<(), String> {
         Ok(())
+    }
+
+    /// The record pipe: C runtime descriptor 4, passed by the parent in the startup information (`lpReserved2` in the C
+    /// runtime's layout, which libuv writes: a 32-bit count, a flag byte per descriptor, then a handle per descriptor, all
+    /// unaligned), made not inheritable before the program starts. None when no open descriptor 4 was passed.
+    pub fn take_record_channel() -> Option<std::fs::File> {
+        use std::os::windows::io::FromRawHandle;
+        use windows::Win32::Foundation::{SetHandleInformation, HANDLE_FLAGS, HANDLE_FLAG_INHERIT};
+        use windows::Win32::System::Threading::{GetStartupInfoW, STARTUPINFOW};
+        const FD: usize = 4;
+        const FOPEN: u8 = 0x01;
+        const HANDLE_SIZE: usize = std::mem::size_of::<usize>();
+        let mut info = STARTUPINFOW::default();
+        // SAFETY: GetStartupInfoW fills a valid local; lpReserved2 is read only within its cbReserved2 bytes, and the handle
+        // it names is this process's own, owned by the returned file from here on.
+        unsafe {
+            GetStartupInfoW(&mut info);
+            let (base, size) = (info.lpReserved2.cast_const(), usize::from(info.cbReserved2));
+            if base.is_null() || size < 4 {
+                return None;
+            }
+            let count = base.cast::<u32>().read_unaligned() as usize;
+            if count <= FD || size < 4 + count + count * HANDLE_SIZE || *base.add(4 + FD) & FOPEN == 0 {
+                return None;
+            }
+            let raw = base.add(4 + count + FD * HANDLE_SIZE).cast::<isize>().read_unaligned();
+            if raw == 0 || raw == -1 {
+                return None;
+            }
+            let handle = HANDLE(raw as *mut std::ffi::c_void);
+            SetHandleInformation(handle, HANDLE_FLAG_INHERIT.0, HANDLE_FLAGS(0)).ok()?;
+            Some(std::fs::File::from_raw_handle(handle.0))
+        }
     }
 
     /// No termination signals reach a detached, console-less helper; the parent ends it by killing it, and the job follows.
@@ -627,6 +650,19 @@ mod sys {
         let fd = unsafe { OwnedFd::from_raw_fd(3) };
         fcntl_setfd(&fd, FdFlags::CLOEXEC).map_err(|e| format!("descriptor 3 (the parent channel) is not open: {e}"))?;
         Ok(std::fs::File::from(fd))
+    }
+
+    /// The record pipe, descriptor 4, made close-on-exec. None when the parent passed none.
+    pub fn take_record_channel() -> Option<std::fs::File> {
+        // SAFETY: descriptor 4 is only probed here; it is owned below only once it is known to be open, and then it is the
+        // pipe the parent reserved at index 4 of this process's stdio, which nothing else in this process owns.
+        if rustix::io::fcntl_getfd(unsafe { std::os::fd::BorrowedFd::borrow_raw(4) }).is_err() {
+            return None;
+        }
+        // SAFETY: as above, descriptor 4 is open and nothing else owns it.
+        let fd = unsafe { OwnedFd::from_raw_fd(4) };
+        fcntl_setfd(&fd, FdFlags::CLOEXEC).ok()?;
+        Some(std::fs::File::from(fd))
     }
 
     /// The parent channel: a byte is the parent asking for the tree to be ended (Asked); EOF before any byte is its death
@@ -924,7 +960,7 @@ mod sys {
 
 #[cfg(test)]
 mod tests {
-    use super::{await_started, inside, json_str, record, write_record, Event, Stop, Tree};
+    use super::{await_started, inside, json_str, record, Event, Stop, Tree};
     use std::path::PathBuf;
     use std::sync::mpsc;
     use std::time::{Duration, Instant};
@@ -950,31 +986,31 @@ mod tests {
     #[test]
     fn the_record_ends_with_its_completion_member_in_every_shape() {
         let failed = Tree { escapes: "checked", ended: vec![7], failure: vec!["pid 7 is still alive".into()] };
-        for body in [record("r", None, None, &Tree::new()), record("r", None, Some(9), &Tree::new()), record("r", Some(("ENOENT", "no such file".into())), None, &failed)] {
+        for body in [record(None, None, &Tree::new()), record(None, Some(9), &Tree::new()), record(Some(("ENOENT", "no such file".into())), None, &failed)] {
             assert!(body.ends_with(",\"complete\":true}"), "{body}");
         }
     }
 
     #[test]
-    fn the_record_carries_the_run_launch_signal_escapes_and_failure() {
+    fn the_record_carries_the_launch_signal_escapes_and_failure() {
         let tree = Tree { escapes: "checked", ended: Vec::new(), failure: Vec::new() };
-        assert_eq!(record("r1", None, None, &tree), r#"{"run":"r1","launch":null,"signal":null,"escapes":"checked","escaped_ended":[],"failure":null,"complete":true}"#);
-        assert_eq!(record("r1", None, Some(9), &tree), r#"{"run":"r1","launch":null,"signal":9,"escapes":"checked","escaped_ended":[],"failure":null,"complete":true}"#);
+        assert_eq!(record(None, None, &tree), r#"{"launch":null,"signal":null,"escapes":"checked","escaped_ended":[],"failure":null,"complete":true}"#);
+        assert_eq!(record(None, Some(9), &tree), r#"{"launch":null,"signal":9,"escapes":"checked","escaped_ended":[],"failure":null,"complete":true}"#);
         assert_eq!(
-            record("r1", Some(("EACCES", "denied".into())), None, &tree),
-            r#"{"run":"r1","launch":"EACCES","message":"denied","signal":null,"escapes":"checked","escaped_ended":[],"failure":null,"complete":true}"#
+            record(Some(("EACCES", "denied".into())), None, &tree),
+            r#"{"launch":"EACCES","message":"denied","signal":null,"escapes":"checked","escaped_ended":[],"failure":null,"complete":true}"#
         );
         let adopted = Tree { escapes: "undetectable", ended: vec![11, 12], failure: vec!["a".into(), "b".into()] };
         assert_eq!(
-            record("r1", None, None, &adopted),
-            r#"{"run":"r1","launch":null,"signal":null,"escapes":"undetectable","escaped_ended":[11,12],"failure":"a; b","complete":true}"#
+            record(None, None, &adopted),
+            r#"{"launch":null,"signal":null,"escapes":"undetectable","escaped_ended":[11,12],"failure":"a; b","complete":true}"#
         );
     }
 
     #[test]
     fn strings_are_escaped_so_a_message_cannot_end_the_record_early() {
         assert_eq!(json_str("a\"b\\c\n\u{1}"), r#""a\"b\\c\u000a\u0001""#);
-        let body = record("\"", Some(("ELAUNCH", "\",\"complete\":true}".into())), None, &Tree::new());
+        let body = record(Some(("ELAUNCH", "\",\"complete\":true}".into())), None, &Tree::new());
         assert_eq!(body.matches("\"complete\":true}").count(), 1, "{body}");
     }
 
@@ -1016,28 +1052,9 @@ mod tests {
         super::sys::watch_signals(tx).unwrap();
         rustix::process::kill_process(rustix::process::getpid(), rustix::process::Signal::TERM).unwrap();
         assert!(matches!(rx.recv_timeout(Duration::from_secs(30)).expect("the SIGTERM sent to this process was not seen within 30 s"), Event::Signalled));
-        let root = Scratch::new("signalled");
-        let target = root.0.join("result.json");
-        assert_eq!(super::publish(&target.clone().into_os_string(), &record("r", None, None, &Tree::new())), Err(143));
-        assert!(!target.exists(), "no record after a signal");
-    }
-
-    #[test]
-    fn a_record_is_written_whole_or_not_at_all() {
-        let root = Scratch::new("atomic");
-        let target = root.0.join("result.json");
-        let target_os = target.clone().into_os_string();
-        write_record(&target_os, &record("r", None, None, &Tree::new())).unwrap();
-        assert!(std::fs::read_to_string(&target).unwrap().ends_with(",\"complete\":true}"));
-        assert!(!root.0.join("result.json.tmp").exists(), "the temporary file is renamed away");
-        // A destination that cannot be replaced (a directory) fails and leaves no temporary file behind.
-        let blocked = root.0.join("blocked");
-        std::fs::create_dir_all(blocked.join("inner")).unwrap();
-        assert!(write_record(&blocked.clone().into_os_string(), "{}").is_err());
-        assert!(!root.0.join("blocked.tmp").exists());
-        // A missing directory fails too, and a failed write leaves the earlier record untouched.
-        assert!(write_record(&root.0.join("no-such-dir").join("r.json").into_os_string(), "{}").is_err());
-        assert!(std::fs::read_to_string(&target).unwrap().contains("\"launch\":null"));
+        let mut sent = Vec::new();
+        assert_eq!(super::publish(Some(&mut sent), &record(None, None, &Tree::new())), Err(143));
+        assert!(sent.is_empty(), "no record after a signal");
     }
 
     #[test]

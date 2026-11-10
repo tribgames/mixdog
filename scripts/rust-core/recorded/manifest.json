@@ -14,5 +14,5 @@
     "keeps": "the row Node writes for a failed read call",
     "used by": "smoke-mixdogd.mjs (NODE_ROW)"
   },
-  "regenerate": "node scripts/rust-core/record-lanes-fixtures.mjs; k1-lanes.integration.test.mjs fails when the first two differ from a fresh run"
+  "regenerate": "node scripts/rust-core/record-lanes-fixtures.mjs; k1-lanes.slow.test.mjs fails when the first two differ from a fresh run"
 }

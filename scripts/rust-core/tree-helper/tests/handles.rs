@@ -1,14 +1,16 @@
 //! Windows: the program holds no handle to the helper's job and none to a process (the helper's watch on its parent is one).
 //! `CreateProcessW` is called with bInheritHandles=TRUE by Rust's `Command`, so what keeps a handle from the program is that
 //! the helper never makes it inheritable: `win32job` creates the job with null security attributes and the parent watch calls
-//! `OpenProcess(.., bInheritHandle = false, ..)`. The Node caller hands the helper only the three stdio handles (libuv
-//! duplicates exactly those as inheritable). This test looks from the inside: it re-runs itself as the program under the
+//! `OpenProcess(.., bInheritHandle = false, ..)`. The Node caller hands the helper the three stdio handles and the record
+//! pipe (libuv duplicates exactly those as inheritable); the helper makes the record pipe not inheritable before it starts
+//! anything. This test looks from the inside: it re-runs itself as the program under the
 //! helper, scans every handle value in the program, and counts job and process handles.
 #![cfg(windows)]
 
 use std::ffi::c_void;
 use std::io::Read;
 use std::os::windows::io::AsRawHandle;
+use std::os::windows::process::CommandExt;
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::time::Duration;
@@ -64,10 +66,8 @@ fn the_program_holds_no_job_and_no_process_handle() {
         let _ = CloseHandle(process);
     }
 
-    let result = std::env::temp_dir().join(format!("treerun-handles-{}.json", std::process::id()));
+    // CREATE_NO_WINDOW: a test run without a console (a detached runner) would otherwise give the helper a console window.
     let mut helper = Command::new(env!("CARGO_BIN_EXE_treerun"))
-        .arg(&result)
-        .arg("handles-run")
         .arg(std::process::id().to_string())
         .args(["args"])
         .arg(std::env::current_exe().unwrap())
@@ -75,6 +75,7 @@ fn the_program_holds_no_job_and_no_process_handle() {
         .env("TREERUN_INSPECT", "1")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        .creation_flags(0x0800_0000)
         .spawn()
         .unwrap();
     let stdout = read_to_end(helper.stdout.take().unwrap());
@@ -89,7 +90,6 @@ fn the_program_holds_no_job_and_no_process_handle() {
         panic!("the helper running the inspection did not exit within {HELPER_DEADLINE_MS} ms (kill: {killed:?}; ended within 10 s of the kill: {ended})");
     }
     let status = helper.wait().unwrap();
-    let _ = std::fs::remove_file(&result);
     let pipe = |rx: mpsc::Receiver<Vec<u8>>, name: &str| String::from_utf8_lossy(&rx.recv_timeout(Duration::from_secs(30)).unwrap_or_else(|_| panic!("the helper's {name} did not close within 30 s of its exit"))).into_owned();
     let (stdout, stderr) = (pipe(stdout, "stdout"), pipe(stderr, "stderr"));
     assert!(status.success(), "{stdout}{stderr}");

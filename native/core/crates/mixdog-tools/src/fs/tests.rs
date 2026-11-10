@@ -659,6 +659,12 @@ async fn the_advisory_lock_waits_for_a_live_holder_reclaims_a_dead_one_and_relea
         blocked.message_for_model,
         format!("Error: advisory lock timeout: {} ({}) held by pid {}", target.display(), file.display(), std::process::id())
     );
+    // The blocked waiter left the holder's token alone, and another file is not held by it.
+    let holder_token = std::fs::read_to_string(&file).unwrap();
+    assert!(holder_token.starts_with(&format!("{}.", std::process::id())), "{holder_token}");
+    let independent = root.as_path().join("independent.md");
+    drop(super::advisory::lock_in(&ctx, &locks, &[independent.as_path()], short, poll).await.expect("an independent file is free"));
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), holder_token);
     drop(first);
     assert!(!file.exists());
     let second = super::advisory::lock_in(&ctx, &locks, &[target.as_path()], short, poll).await.unwrap();
@@ -672,6 +678,8 @@ async fn the_advisory_lock_waits_for_a_live_holder_reclaims_a_dead_one_and_relea
     let taken = super::advisory::lock_in(&ctx, &locks, &[target.as_path()], Duration::from_secs(2), poll).await.unwrap();
     assert!(std::fs::read_to_string(&file).unwrap().starts_with(&format!("{}.", std::process::id())));
     drop(taken);
+    let left: Vec<_> = std::fs::read_dir(&locks).unwrap().map(|entry| entry.unwrap().file_name()).collect();
+    assert!(left.is_empty(), "lock files left after the reclaimed lock was released: {left:?}");
     // One real file under two spellings is one lock, taken once.
     let again = root.as_path().join("sub").join("..").join("t.txt");
     let both = super::advisory::lock_in(&ctx, &locks, &[target.as_path(), again.as_path()], short, poll).await;

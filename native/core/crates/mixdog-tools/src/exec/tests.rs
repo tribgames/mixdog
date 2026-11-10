@@ -187,10 +187,10 @@ fn golden_ms() -> u64 {
     chrono::Utc.with_ymd_and_hms(2026, 1, 2, 3, 4, 5).unwrap().timestamp_millis() as u64 + 678
 }
 
-struct Rig {
+pub(super) struct Rig {
     shell: ShellTool,
     task: TaskTool,
-    runtime: Arc<ExecRuntime>,
+    pub(super) runtime: Arc<ExecRuntime>,
     dir: tempfile::TempDir,
     processes: Arc<FakeProcesses>,
     /// What the tool sees: the fake, or the real manager of a test that runs real processes.
@@ -252,7 +252,7 @@ fn rig_full(elevation: Arc<dyn ElevationGate>, notifier: Option<Arc<dyn TaskNoti
     }
 }
 
-fn ctx(rig: &Rig, call: &str) -> ToolContext {
+pub(super) fn ctx(rig: &Rig, call: &str) -> ToolContext {
     let tokens = mixdog_rt::testing::tokens();
     ToolContext {
         call_id: ToolCallId::from(call),
@@ -277,7 +277,7 @@ fn ctx(rig: &Rig, call: &str) -> ToolContext {
     }
 }
 
-fn body(outcome: ToolOutcome) -> String {
+pub(super) fn body(outcome: ToolOutcome) -> String {
     match outcome {
         Ok(out) => match &out.parts[0] {
             ToolPart::Text(t) => t.clone(),
@@ -1260,7 +1260,7 @@ async fn a_bash_command_is_delivered_through_the_environment() {
 
 // ---- real processes through `mixdog_spawn::LocalProcessManager` ----
 
-fn real_rig() -> Rig {
+pub(super) fn real_rig() -> Rig {
     let mut rig = rig();
     let tokens = mixdog_rt::testing::tokens();
     rig.manager = Arc::new(mixdog_spawn::LocalProcessManager::new(
