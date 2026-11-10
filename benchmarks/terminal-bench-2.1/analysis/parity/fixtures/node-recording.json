@@ -14,7 +14,7 @@
   "sessionSha256": "235ec09f8c5ffcb8cb56b81526404e110421de2f3bb251e7c339f190f874daf1",
   "scenariosSha256": "b06e7489770e080fbe4568c6abc48db460c52051799a406d4583cb4b3d1b1b57",
   "harness": {
-   "node-wire-capture.mjs": "61ab1548bc551c3a77300ea7867e321a4554aa7fa86ffa367df9df14af09e605",
+   "node-wire-capture.mjs": "3625c0e26580fc0610f60048662db4df3fc0775e86ac484488b4e55f8df09128",
    "wire-server.mjs": "96edc2e5e92ace6ab88153426164aef06acf8cfd5a8395ba6e0860ad23b33623"
   },
   "replaced": [
@@ -24,7 +24,8 @@
     "value": "<random>",
     "why": "drawn at random per connection (RFC 6455 4.1); wire-random-proof.mjs shows two runs differ in nothing else"
    }
-  ]
+  ],
+  "scenariosRecordedSha256": "8cda458a9fa49272b078865b26d4f977e88da6e54017ec3f9017c678b622043f"
  },
  "scenarios": [
   {

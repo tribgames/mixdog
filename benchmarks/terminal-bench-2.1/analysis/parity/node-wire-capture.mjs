@@ -295,10 +295,11 @@ for (const scenario of selected(doc.scenarios)) {
   results.push(entry);
 }
 server.stop();
-rmSync(dataDir, { recursive: true, force: true });
 // The manifest says what the recording is a function of: the Node commit it was recorded from, the input documents and the
 // harness files, and which observed values were replaced.
 const fileHash = (file) => sha256(readFileSync(resolve(file)));
+// The text `scenarios` has in the written document (one more space of indent per line), hashed into the manifest.
+const recorded = JSON.stringify(results, null, 1).replaceAll('\n', '\n ');
 const manifest = {
   exact: true,
   nodeCommit: arg('--node-commit'),
@@ -309,8 +310,16 @@ const manifest = {
   scenariosSha256: fileHash(arg('--scenarios')),
   harness: Object.fromEntries(['node-wire-capture.mjs', 'wire-server.mjs'].map((name) => [name, fileHash(join(here, name))])),
   replaced: keepRandom ? [] : [{ kind: 'ws-upgrade', header: 'Sec-WebSocket-Key', value: RANDOM, why: 'drawn at random per connection (RFC 6455 4.1); wire-random-proof.mjs shows two runs differ in nothing else' }],
+  scenariosRecordedSha256: sha256(recorded),
   ...(only ? { only } : {}),
 };
-writeFileSync(resolve(arg('--out')), `${JSON.stringify({ manifest, scenarios: results }, null, 1)}\n`);
+const written = `${JSON.stringify({ manifest, scenarios: results }, null, 1)}\n`;
+if (!written.endsWith(`\n "scenarios": ${recorded}\n}\n`)) throw new Error('the written scenarios are not the hashed text');
+writeFileSync(resolve(arg('--out')), written);
 console.log(results.map((r) => `${r.id}: ${r.traffic.length} events, ${r.outcome}`).join('\n'));
+// Written before anything is awaited again, so what a send left running records nothing after the loop. The product's
+// trace spool appends to the data directory asynchronously; drained before the directory is removed.
+const { drainAgentTrace } = await load('src/runtime/agent/orchestrator/agent-trace-io.mjs');
+await within('the drain of the agent trace', drainAgentTrace());
+rmSync(dataDir, { recursive: true, force: true });
 process.exit(0);

@@ -498,6 +498,45 @@ fn verify_manifest(node: &Value, only: Option<&str>) {
     assert_eq!(manifest["replaced"].as_array().unwrap().len(), 1, "only the websocket key is replaced");
     assert_eq!(manifest["replaced"][0]["header"], "Sec-WebSocket-Key");
     assert_eq!(manifest["replaced"][0]["value"], RANDOM);
+    // The recorded payload itself: the text of `scenarios` as the recorder wrote it, hashed before it was written.
+    if only.is_none() {
+        assert_eq!(manifest["scenariosRecordedSha256"], sha256(recorded_scenarios_text(NODE).as_bytes()), "node-recording.json's scenarios changed since the recording (re-record, never hand-edit)");
+    }
+}
+
+/// The text of the recording's `scenarios` member exactly as `node-wire-capture.mjs` wrote it: everything after its key
+/// up to the document's closing brace.
+fn recorded_scenarios_text(recording: &str) -> &str {
+    const KEY: &str = "\n \"scenarios\": ";
+    let start = recording.rfind(KEY).expect("the recording's scenarios member") + KEY.len();
+    recording[start..].strip_suffix("\n}\n").expect("the recording ends with its closing brace")
+}
+
+/// Which test compares each provider's recorded scenarios: every recorded scenario is claimed by exactly one.
+const CLAIMS: [(&str, &str); 4] = [
+    ("every_openai_request_equals_nodes_recording", "openai-oauth"),
+    ("every_grok_request_equals_nodes_recording", "grok-oauth"),
+    ("every_anthropic_request_equals_nodes_recording", "anthropic-oauth"),
+    ("every_gemini_request_equals_nodes_recording", "gemini"),
+];
+
+#[test]
+fn every_recorded_scenario_is_claimed_by_exactly_one_test() {
+    let node: Value = serde_json::from_str(NODE).unwrap();
+    let unclaimed: Vec<String> = node["scenarios"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|s| CLAIMS.iter().filter(|(_, provider)| s["provider"] == *provider).count() != 1)
+        .map(|s| format!("{} ({})", s["id"], s["provider"]))
+        .collect();
+    assert!(unclaimed.is_empty(), "recorded scenarios no test compares, or more than one: {unclaimed:?}");
+}
+
+/// The differences for the provider `test` claims.
+async fn claimed_differences(test: &str) -> Vec<String> {
+    let (_, provider) = CLAIMS.iter().find(|(name, _)| *name == test).unwrap_or_else(|| panic!("{test} claims no provider"));
+    differences(provider).await
 }
 
 /// Every difference between Node's recording and Rust's for the scenarios of `provider`. `MIXDOG_WIRE_ONLY=<scenario>`
@@ -519,13 +558,25 @@ async fn differences(provider: &str) -> Vec<String> {
 
 #[tokio::test]
 async fn every_openai_request_equals_nodes_recording() {
-    let differences = differences("openai-oauth").await;
+    let differences = claimed_differences("every_openai_request_equals_nodes_recording").await;
     assert!(differences.is_empty(), "{} differences from Node's recording:\n{}", differences.len(), differences.join("\n"));
 }
 
 #[tokio::test]
 async fn every_grok_request_equals_nodes_recording() {
-    let differences = differences("grok-oauth").await;
+    let differences = claimed_differences("every_grok_request_equals_nodes_recording").await;
+    assert!(differences.is_empty(), "{} differences from Node's recording:\n{}", differences.len(), differences.join("\n"));
+}
+
+#[tokio::test]
+async fn every_anthropic_request_equals_nodes_recording() {
+    let differences = claimed_differences("every_anthropic_request_equals_nodes_recording").await;
+    assert!(differences.is_empty(), "{} differences from Node's recording:\n{}", differences.len(), differences.join("\n"));
+}
+
+#[tokio::test]
+async fn every_gemini_request_equals_nodes_recording() {
+    let differences = claimed_differences("every_gemini_request_equals_nodes_recording").await;
     assert!(differences.is_empty(), "{} differences from Node's recording:\n{}", differences.len(), differences.join("\n"));
 }
 
