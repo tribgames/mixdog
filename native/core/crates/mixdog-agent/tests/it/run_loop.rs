@@ -3049,6 +3049,45 @@ async fn a_call_waiting_on_refused_earlier_calls_is_decided_again_and_runs() {
     );
 }
 
+/// Answers `Error: …` as a normal return, as the delegated-agent and skill tools do.
+struct ErrorText(ToolSpec);
+#[async_trait]
+impl Tool for ErrorText {
+    fn spec(&self) -> &ToolSpec {
+        &self.0
+    }
+    async fn call(&self, _ctx: &ToolContext, _args: JsonValue) -> ToolOutcome {
+        Ok(ToolOutput { parts: vec![ToolPart::Text("Error: agent: unknown type \"x\"".into())], ..ToolOutput::default() })
+    }
+}
+
+/// The failure log gets the executed calls that ended as an error: a tool that failed, a tool that returned `Error: …`
+/// text; not a call that returned normally, and not a call the surface refused before dispatch.
+#[tokio::test]
+async fn the_failure_log_gets_the_executed_calls_that_ended_as_errors() {
+    let mut h = Harness::new(vec![
+        turn(vec![
+            call("c1", "boom", json!({})),
+            call("c2", "echo", json!({"n": 2})),
+            call("c3", "agent", json!({})),
+            call("c4", "blocked", json!({})),
+            done(StopReason::ToolUse),
+        ]),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    h.gate = Arc::new(BlockedSurface);
+    let log = Arc::new(FailureLog::default());
+    h.failures = Some(log.clone());
+    let mut agent = Echo(Echo::tool().spec().clone());
+    agent.0.name = "agent".into();
+    finish(h.run(config(), vec![Boom::tool(), Echo::tool(), Arc::new(ErrorText(agent.0))], vec![AgentMessage::user("go")])).await;
+    let seen: Vec<(String, String)> = log.0.lock().unwrap().iter().map(|c| (c.tool_name.clone(), c.result_text.clone())).collect();
+    assert_eq!(
+        seen,
+        [("boom".to_owned(), "Error: boom".to_owned()), ("agent".to_owned(), "Error: agent: unknown type \"x\"".to_owned())]
+    );
+}
+
 /// A call whose arguments the provider could not parse is answered with the retry notice and never dispatched.
 #[tokio::test]
 async fn a_call_with_unparseable_arguments_is_answered_with_the_retry_notice_and_not_run() {
