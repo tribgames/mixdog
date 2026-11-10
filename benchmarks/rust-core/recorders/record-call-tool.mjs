@@ -56,7 +56,9 @@ const CLOCK_KEYS = new Set([
   'dispatchStartedAt', 'executionStartedAt', 'executionCompletedAt', 'postprocessStartedAt', 'resultCompletedAt',
   'dispatch_wait_ms', 'execution_ms', 'result_collection_wait_ms', 'postprocess_ms', 'total_ms',
 ]);
-const BATCH_ID_KEYS = new Set(['batch_id']);
+// Ids the run generates: each becomes `<PREFIX-n>`, n by first appearance within the scenario.
+const ID_PREFIX = { batch_id: 'BATCH', messageId: 'MESSAGE' };
+const BATCH_ID_KEYS = new Set(Object.keys(ID_PREFIX));
 const sandboxForms = (sandbox) => [sandbox, sandbox.replaceAll('\\', '/')];
 const withoutSandbox = (text, sandbox) => sandboxForms(sandbox).reduce((out, form) => out.replaceAll(form, SANDBOX_PLACEHOLDER), text);
 function normalised(golden, sandbox) {
@@ -64,7 +66,8 @@ function normalised(golden, sandbox) {
   const walk = (value, key) => {
     if (typeof value === 'string') {
       if (BATCH_ID_KEYS.has(key)) {
-        if (!batchIds.has(value)) batchIds.set(value, `<BATCH-${batchIds.size + 1}>`);
+        const seen = [...batchIds.keys()].filter((id) => batchIds.get(id).startsWith(`<${ID_PREFIX[key]}-`)).length;
+        if (!batchIds.has(value)) batchIds.set(value, `<${ID_PREFIX[key]}-${seen + 1}>`);
         return batchIds.get(value);
       }
       return withoutSandbox(value, sandbox);
@@ -151,7 +154,7 @@ if (!RAW_OUT && !ONLY) {
       normalisations: {
         sandboxPath: `the recorder's sandbox folder (and its forward-slash form), in every string, becomes ${SANDBOX_PLACEHOLDER}`,
         clockValues: `numbers under these keys become 0: ${[...CLOCK_KEYS].join(', ')}`,
-        batchIds: "the batch_id of a trace row (and the batch_id inside a tool row's payload.batch) becomes <BATCH-n>, n by first appearance within the scenario",
+        batchIds: "generated ids: the batch_id of a trace row (and inside a tool row's payload.batch) becomes <BATCH-n>, and a stored row's meta.transcript.messageId becomes <MESSAGE-n>, n by first appearance of each kind within the scenario",
         keptWhole: 'everything else: system messages, stored and requested messages, events, cards, hooks, executed calls, the timeline, the human gate\'s audit records and every trace row of the session',
       },
       // `compareRuns`: the recording was made twice, each run in a sandbox of its own; these are the keys whose values differed between
@@ -281,6 +284,11 @@ const { _withRegisteredProviderForTestAsync } = await imp(`${S}providers/registr
 const { setInternalToolsProvider } = await imp(`${S}internal-tools.mjs`);
 const { _registerMcpServerForTest, disconnectAll } = await imp(`${S}mcp/client.mjs`);
 const { applyDeferredToolSurface, refreshDeferredMcpToolCatalog, renderToolSearch } = await imp(`${S}runtime-core/tool-catalog.mjs`);
+// The product's own `goal` tool, as the session runtime wires it (session-runtime/boot/tools.mjs `wireGoalRuntime`,
+// internal-tool-executor/workspace-tools.mjs:341): the scenarios that a built core can run too (`live`) call it.
+const { createGoalRuntime, GOAL_TOOL_DEFS } = await imp(`${S}runtime-core/goal-runtime.mjs`);
+const goalRuntime = createGoalRuntime({ dataDir: process.env.MIXDOG_DATA_DIR });
+const { pickDoneVerb } = await imp('src/tui/session/labels.mjs');
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 // What a host callback was handed, as JSON (`undefined` kept as null, a function as its name).
@@ -568,6 +576,15 @@ SCENARIOS.push({
   script: [{ ...round(bridged('c1', 'probe_read', { q: 'r' }), bridged('c2', 'no_such_tool', {})), cut: true }, FINAL],
 });
 
+// The product's `goal` tool through the bridge, which a built core runs too (`live`: `replay-call-tool-live.mjs` replays these
+// against mixdogd; the in-process replay has no goal tool).
+const GOAL_STATUS = { action: 'status' };
+SCENARIOS.push(
+  { name: 'live: goal described with load_tool, then run through call_tool', live: true, internal: ['goal'], script: [round(call('c1', 'load_tool', { names: ['goal'] })), round(bridged('c2', 'goal', GOAL_STATUS)), FINAL] },
+  { name: 'live: goal run through call_tool without load_tool', live: true, internal: ['goal'], script: [round(bridged('c1', 'goal', GOAL_STATUS)), FINAL] },
+  { name: 'live: goal described with load_tool, then called directly', live: true, internal: ['goal'], script: [round(call('c1', 'load_tool', { names: ['goal'] })), round(call('c2', 'goal', GOAL_STATUS)), FINAL] }
+);
+
 // The same turns with a provider that streams its tool calls: each call reaches the loop (and starts its eager dispatch) before the response ends.
 const STREAMED = [
   'calls whose arguments were not JSON: a tool, call_tool and a tool of the session',
@@ -660,11 +677,12 @@ async function runScenario(scenario, twin = false) {
   let sessionRef = null;
   const restoreInternal = setInternalToolsProvider({
     scopeId,
-    tools: [{ name: 'load_tool', description: 'Describes tools.', inputSchema: { type: 'object', properties: { names: {} } }, annotations: { readOnlyHint: true } }, ...PROBE_TOOLS, ...(scenario.internal ?? []).map((name) => ({ name, description: `${name} probe`, inputSchema: { type: 'object', properties: {} } }))],
+    tools: [{ name: 'load_tool', description: 'Describes tools.', inputSchema: { type: 'object', properties: { names: {} } }, annotations: { readOnlyHint: true } }, ...PROBE_TOOLS, ...(scenario.internal ?? []).map((name) => (name === 'goal' ? GOAL_TOOL_DEFS[0] : { name, description: `${name} probe`, inputSchema: { type: 'object', properties: {} } }))],
     executor: (name, args) =>
       track(
         (async () => {
           if (name === 'load_tool') return renderToolSearch(args, sessionRef, 'lead', {});
+          if (name === 'goal') return goalRuntime.executeTool(name, args ?? {}, { callerSessionId: sessionRef.id });
           executed.push({ name, args: clone(args) });
           note({ ev: 'ran', name, args: clone(args) });
           await step('tool', name, args);
@@ -774,6 +792,9 @@ async function runScenario(scenario, twin = false) {
       null,
       null,
       {
+        // The verb a client names the finished turn with: the TUI's first turn's (tui/session/turn.mjs:130 `pickDoneVerb(index)`),
+        // which a core picks for its protocol clients (`live_end.rs` `done_verb`).
+        transcriptMeta: { completionVerb: pickDoneVerb(0) },
         // Every other callback the turn raises for its host (ask-turn-loop-options.mjs:113-236), in the order raised, with what it was given.
         ...Object.fromEntries(
           LOOP_CALLBACKS.map((ev) => [
@@ -853,6 +874,7 @@ async function runScenario(scenario, twin = false) {
     session: scenario.session ?? {},
     mcp: scenario.mcp === true,
     nonBridge: scenario.nonBridge === true,
+    live: scenario.live === true,
     stream: scenario.stream === true,
     internal: scenario.internal ?? [],
     workdir,

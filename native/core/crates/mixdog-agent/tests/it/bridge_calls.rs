@@ -1292,7 +1292,7 @@ fn uncompared(event: &RunEvent) -> bool {
 /// | recorded field | why not here | compared in |
 /// |---|---|---|
 /// | `stored[].createdAt`, `requests[][].createdAt`, `onAssistantMessageCommitted.createdAt` | stamped by the host when it stores the row (`run_host/factory.rs`); the loop's message has no clock | nothing yet (the live replay reads the stored transcript through the protocol, whose items carry no `createdAt`) |
-/// | `stored[].meta.transcript.completion` | the host's completion record of the turn (`status`, `verb`, `elapsedMs`) | `status`: `replay-call-tool-live.mjs` (the thread's turn status) |
+/// | `stored[].meta.transcript` (`messageId`, `at`, `completion`) | the host's record of the turn's answer row: its message id, time and completion (`status`, `verb`, `elapsedMs`) | `completion.verb`: `replay-call-tool-live.mjs` (the answer item's `completionVerb`); the rest nothing yet |
 /// | `requests[][].toolKind`, `.toolTiming` | the request holds wire messages; Node hands the provider the stored row | here, through the stored row they must equal (`request_fields_are_the_rows`) |
 /// | `events[toolResult, not early].message` | the committed row of that call | here, through the stored row it must equal (`result_events_are_the_rows`) |
 /// | `trace[]` rows of kind `context`, `tool`, `usage`, and of the `batch` and `partial_tool_recovery` rows every field but those [`batch_view`] and the recovery view compare | written by the host's agent-trace writer from the loop's reports | nothing: the core writes no agent trace (`mixdog_trace::AgentTrace` is built by no product code; owner: the run host's trace wiring) |
@@ -1436,6 +1436,11 @@ async fn differences() -> (usize, Vec<String>) {
     let mut failures = Vec::new();
     let mut compared = 0;
     for scenario in scenarios {
+        // A `live` scenario calls the product's own `goal` tool, which a built core has and this replay does not: it is compared
+        // against mixdogd by `benchmarks/rust-core/recorders/replay-call-tool-live.mjs`.
+        if scenario["live"] == true {
+            continue;
+        }
         compared += 1;
         // A scenario that hangs ends the test with a panic that names what never happened; this names the scenario.
         eprintln!("scenario: {}", scenario["name"]);
@@ -1453,7 +1458,7 @@ async fn differences() -> (usize, Vec<String>) {
 #[tokio::test]
 async fn every_recorded_call_tool_scenario_is_the_same_in_the_core() {
     let golden: Value = serde_json::from_str(GOLDEN).expect("golden parses");
-    let recorded_count = golden["scenarios"].as_array().expect("scenarios").len();
+    let recorded_count = golden["scenarios"].as_array().expect("scenarios").iter().filter(|scenario| scenario["live"] != true).count();
     let (compared, failures) = awaiting_for(Duration::from_secs(300), || "the whole replay".to_owned(), differences()).await;
     assert_eq!(compared, recorded_count, "every recorded scenario is replayed");
     assert!(failures.is_empty(), "{} difference(s):\n{}", failures.len(), failures.join("\n"));
