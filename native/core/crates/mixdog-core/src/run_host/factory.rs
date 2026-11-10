@@ -2363,7 +2363,7 @@ mod tests {
             requests: Mutex::new(Vec::new()),
             fail_first: std::sync::atomic::AtomicBool::new(false),
         });
-        let World { workspace, rig, ledger, asked, store, path, directory, .. } = turn_world(provider.clone()).await;
+        let World { workspace, rig, ledger, asked, store, directory, .. } = turn_world(provider.clone()).await;
         let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": workspace.path() }), "op-start")).await.expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
         let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));

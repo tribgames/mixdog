@@ -14,7 +14,6 @@
 #![allow(clippy::result_large_err, reason = "the frozen provider error type is returned unboxed")]
 
 use crate::transport::deadlines::MODEL_STREAM_FETCH;
-use crate::transport::deadlines::PRECONNECT;
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::fmt;
@@ -90,8 +89,6 @@ const ZSTD_LEVEL: i32 = 3;
 static ZSTD_LATCHED: AtomicBool = AtomicBool::new(false);
 /// `CODEX_BACKEND_ORIGIN` (`openai-codex-endpoints.mjs:10`), the one origin the Codex route warms.
 const CODEX_BACKEND_ORIGIN: &str = "https://chatgpt.com";
-/// `_preconnectedAt` (`shared/llm/http-agent.mjs:482`): when each origin was last warmed, per process.
-static PRECONNECTED_AT: Mutex<Option<HashMap<&'static str, u64>>> = Mutex::new(None);
 
 // ---------------------------------------------------------------------------
 // Credentials
@@ -373,51 +370,12 @@ impl OpenAiAdapter {
         self
     }
 
-    /// `preconnect(CODEX_BACKEND_ORIGIN)` (`shared/llm/http-agent.mjs:496-527`): a fire-and-forget HEAD that lands a
-    /// kept-alive socket, gated by a TTL of `MIXDOG_LLM_KEEPALIVE_MS` (60 s) less 10 s, at least 5 s. Any failure only
-    /// clears the stamp so the next call warms again; nothing is surfaced.
+    /// `preconnect(CODEX_BACKEND_ORIGIN)` (`shared/llm/http-agent.mjs:496-527`), on the session's clock and settings.
     fn preconnect(&self) {
         if self.codec.route() != Route::Codex {
             return;
         }
-        let Ok(runtime) = tokio::runtime::Handle::try_current() else { return };
-        let keepalive = self.context.var("MIXDOG_LLM_KEEPALIVE_MS").and_then(|raw| raw.trim().parse::<u64>().ok()).unwrap_or(60_000);
-        let ttl = keepalive.saturating_sub(10_000).max(5_000);
-        let now = self.context.now_unix_ms();
-        {
-            let mut stamps = PRECONNECTED_AT.lock().unwrap_or_else(PoisonError::into_inner);
-            let stamps = stamps.get_or_insert_with(HashMap::new);
-            if stamps.get(CODEX_BACKEND_ORIGIN).is_some_and(|last| now.saturating_sub(*last) < ttl) {
-                return;
-            }
-            stamps.insert(CODEX_BACKEND_ORIGIN, now);
-        }
-        let http = self.http.clone();
-        let _entered = runtime.enter();
-        let mut warm = Box::pin(async move {
-            let head = WireRequest {
-                transport: TransportKind::Http1,
-                method: "HEAD".into(),
-                url: format!("{CODEX_BACKEND_ORIGIN}/"),
-                headers: Vec::new(),
-                body: Vec::new(),
-            };
-            let warmed = match http.send(head, PRECONNECT).await {
-                Ok(response) => response.read_all().await.is_ok(),
-                Err(_) => false,
-            };
-            if !warmed
-                && let Some(stamps) = PRECONNECTED_AT.lock().unwrap_or_else(PoisonError::into_inner).as_mut()
-            {
-                stamps.remove(CODEX_BACKEND_ORIGIN);
-            }
-        });
-        // Node's `fetch` starts its connection inside the call, before the caller's next line; polling the warm-up
-        // once here does the same, so its connection is the first one the server sees. The task then re-polls it
-        // with its own waker.
-        if warm.as_mut().poll(&mut std::task::Context::from_waker(std::task::Waker::noop())).is_pending() {
-            runtime.spawn(warm);
-        }
+        crate::transport::preconnect::preconnect(self.http.clone(), CODEX_BACKEND_ORIGIN, self.context.now_unix_ms(), self.context.var("MIXDOG_LLM_KEEPALIVE_MS"));
     }
 
     fn authorize(&self, mut wire: WireRequest, credential: &Credential) -> WireRequest {

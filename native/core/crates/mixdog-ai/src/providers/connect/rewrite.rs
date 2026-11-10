@@ -67,6 +67,12 @@ impl<R: Rewriter> WireCodec for RewriteCodec<R> {
 pub trait Credential: Send + Sync {
     async fn header(&self, force_refresh: bool) -> Result<Option<(String, String)>, ProviderError>;
 
+    /// Puts the credential header among the request's headers: after them all, unless the client the wire stands in for
+    /// writes it elsewhere.
+    fn place(&self, headers: &mut Vec<(String, String)>, header: (String, String)) {
+        headers.push(header);
+    }
+
     /// Whether a forced refresh can produce a different credential.
     fn refreshable(&self) -> bool {
         false
@@ -83,35 +89,62 @@ impl Credential for StaticCredential {
     }
 }
 
-/// One attempt of `codec` against `http` with `credential`.
+/// A refusal the provider answers by sending the request once more at once, encoded anew (Grok's client-version gate,
+/// `grok-oauth.mjs` `send`): true when the refused attempt's error is one.
+pub type Resend = Arc<dyn Fn(&ProviderError) -> bool + Send + Sync>;
+
+/// One attempt of `codec` against `http` with `credential`: a rejected credential is refreshed and the request sent
+/// again, or a refusal `resend` names is sent again at once; either once, and never both.
 pub async fn run_attempt(
     codec: &dyn WireCodec,
     http: &dyn HttpSend,
     credential: &dyn Credential,
     request: &ModelRequest,
+    resend: Option<&Resend>,
 ) -> Result<Box<dyn ModelStream>, ProviderError> {
     // The credential first: a rewriter may read identity it loads.
     let mut header = credential.header(false).await?;
-    let wire = codec.encode(request)?;
-    let mut refreshed = false;
+    let mut wire = codec.encode(request)?;
+    let mut again = false;
+    // The read refusal before an immediate resend: Node returns its socket to the pool only after the code that read it
+    // has run on, so the resend does not get it; it is let go once the resend went out.
+    let mut held = None;
     loop {
         let mut sent = wire.clone();
-        sent.headers.extend(header.clone());
-        let head = http.send(sent, MODEL_STREAM).await?;
-        if head.status == 401 && credential.refreshable() && !refreshed {
-            refreshed = true;
+        if let Some(header) = header.clone() {
+            credential.place(&mut sent.headers, header);
+        }
+        let head = http.send(sent, MODEL_STREAM).await;
+        drop(held.take());
+        let head = head?;
+        if head.is_success() {
+            return Ok(Box::new(DecodedStream::new(head.body, codec.decoder(request))));
+        }
+        let status = head.status;
+        let (rejected, body) = head.read_all_held(true).await?;
+        if again {
+            return Err(codec.classify(&rejected));
+        }
+        if status == 401 && credential.refreshable() {
+            // The refresh waits on the network, so the refusal's socket is free again before the resend.
+            drop(body);
+            again = true;
             let next = credential.header(true).await?;
             // The same rejected credential is not sent again.
             if next != header {
                 header = next;
                 continue;
             }
-        }
-        if !head.is_success() {
-            let rejected = head.read_all().await?;
             return Err(codec.classify(&rejected));
         }
-        return Ok(Box::new(DecodedStream::new(head.body, codec.decoder(request))));
+        let error = codec.classify(&rejected);
+        if resend.is_some_and(|resend| resend(&error)) {
+            again = true;
+            held = Some(body);
+            wire = codec.encode(request)?;
+            continue;
+        }
+        return Err(error);
     }
 }
 
@@ -124,6 +157,7 @@ pub struct HttpAdapter {
     policy: RetryPolicy,
     keepalive: KeepaliveSchedule,
     listing: Option<Arc<dyn ModelListing>>,
+    resend: Option<Resend>,
 }
 
 impl HttpAdapter {
@@ -144,7 +178,14 @@ impl HttpAdapter {
             policy,
             keepalive: KeepaliveSchedule::SPEC,
             listing: None,
+            resend: None,
         }
+    }
+
+    /// The refusals the provider sends again at once ([`Resend`]).
+    pub fn with_resend(mut self, resend: Resend) -> Self {
+        self.resend = Some(resend);
+        self
     }
 
     /// The provider's model listing, served through [`ProviderAdapter::models`].
@@ -173,7 +214,7 @@ impl ProviderAdapter for HttpAdapter {
     }
 
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
-        run_attempt(self.codec.as_ref(), self.http.as_ref(), self.credential.as_ref(), &request).await
+        run_attempt(self.codec.as_ref(), self.http.as_ref(), self.credential.as_ref(), &request, self.resend.as_ref()).await
     }
 
     fn models(&self) -> Option<&dyn ModelListing> {

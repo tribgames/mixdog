@@ -2546,6 +2546,1185 @@
       "awaitClose": "first"
     },
     {
+      "id": "grok-oauth-first-turn",
+      "provider": "grok-oauth",
+      "sendOpts": {
+        "iteration": 1
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "parity probe"
+        }
+      ],
+      "http": [
+        [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_grok_1",
+              "model": "grok-4.7",
+              "status": "in_progress"
+            }
+          },
+          {
+            "type": "response.output_text.delta",
+            "item_id": "msg_grok_1",
+            "output_index": 0,
+            "content_index": 0,
+            "delta": "ok"
+          },
+          {
+            "type": "response.completed",
+            "response": {
+              "id": "resp_grok_1",
+              "model": "grok-4.7",
+              "status": "completed",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 2,
+                "total_tokens": 102
+              },
+              "output": [
+                {
+                  "type": "message",
+                  "id": "msg_grok_1",
+                  "role": "assistant",
+                  "status": "completed",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "text": "ok"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "id": "grok-tool-call-turn",
+      "provider": "grok-oauth",
+      "credentials": {
+        "grok-oauth.json": {
+          "access_token": "fake-credential-not-a-secret",
+          "refresh_token": "fake-refresh-not-a-secret",
+          "expires_at": 4102444800000,
+          "token_endpoint": "https://auth.x.ai/oauth2/token",
+          "user_id": "user-fake-1"
+        }
+      },
+      "sendOpts": {
+        "iteration": 1
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "parity probe"
+        }
+      ],
+      "http": [
+        [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_grok_2",
+              "model": "grok-4.7",
+              "status": "in_progress"
+            }
+          },
+          {
+            "type": "response.output_item.added",
+            "output_index": 0,
+            "item": {
+              "type": "function_call",
+              "id": "fc_grok_1",
+              "call_id": "call_grok_1",
+              "name": "read",
+              "arguments": ""
+            }
+          },
+          {
+            "type": "response.function_call_arguments.done",
+            "output_index": 0,
+            "item_id": "fc_grok_1",
+            "arguments": "{\"file_path\":\"parity.txt\"}"
+          },
+          {
+            "type": "response.output_item.done",
+            "output_index": 0,
+            "item": {
+              "type": "function_call",
+              "id": "fc_grok_1",
+              "call_id": "call_grok_1",
+              "name": "read",
+              "arguments": "{\"file_path\":\"parity.txt\"}",
+              "status": "completed"
+            }
+          },
+          {
+            "type": "response.completed",
+            "response": {
+              "id": "resp_grok_2",
+              "model": "grok-4.7",
+              "status": "completed",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 10,
+                "total_tokens": 110
+              },
+              "output": [
+                {
+                  "type": "function_call",
+                  "id": "fc_grok_1",
+                  "call_id": "call_grok_1",
+                  "name": "read",
+                  "arguments": "{\"file_path\":\"parity.txt\"}",
+                  "status": "completed"
+                }
+              ]
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "id": "grok-tool-result-turn",
+      "provider": "grok-oauth",
+      "credentials": {
+        "grok-oauth.json": {
+          "access_token": "fake-credential-not-a-secret",
+          "refresh_token": "fake-refresh-not-a-secret",
+          "expires_at": 4102444800000,
+          "token_endpoint": "https://auth.x.ai/oauth2/token",
+          "user_id": "user-fake-1"
+        }
+      },
+      "sendOpts": {
+        "iteration": 2
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "parity probe"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "call_grok_1",
+              "name": "read",
+              "arguments": {
+                "file_path": "parity.txt"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "call_grok_1",
+          "content": "parity file text"
+        }
+      ],
+      "http": [
+        [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_grok_1",
+              "model": "grok-4.7",
+              "status": "in_progress"
+            }
+          },
+          {
+            "type": "response.output_text.delta",
+            "item_id": "msg_grok_1",
+            "output_index": 0,
+            "content_index": 0,
+            "delta": "ok"
+          },
+          {
+            "type": "response.completed",
+            "response": {
+              "id": "resp_grok_1",
+              "model": "grok-4.7",
+              "status": "completed",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 2,
+                "total_tokens": 102
+              },
+              "output": [
+                {
+                  "type": "message",
+                  "id": "msg_grok_1",
+                  "role": "assistant",
+                  "status": "completed",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "text": "ok"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "id": "grok-second-turn",
+      "provider": "grok-oauth",
+      "credentials": {
+        "grok-oauth.json": {
+          "access_token": "fake-credential-not-a-secret",
+          "refresh_token": "fake-refresh-not-a-secret",
+          "expires_at": 4102444800000,
+          "token_endpoint": "https://auth.x.ai/oauth2/token",
+          "user_id": "user-fake-1"
+        }
+      },
+      "sendOpts": {
+        "iteration": 1
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "parity probe"
+        },
+        {
+          "role": "assistant",
+          "content": "ok"
+        },
+        {
+          "role": "user",
+          "content": "and again"
+        }
+      ],
+      "http": [
+        [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_grok_1",
+              "model": "grok-4.7",
+              "status": "in_progress"
+            }
+          },
+          {
+            "type": "response.output_text.delta",
+            "item_id": "msg_grok_1",
+            "output_index": 0,
+            "content_index": 0,
+            "delta": "ok"
+          },
+          {
+            "type": "response.completed",
+            "response": {
+              "id": "resp_grok_1",
+              "model": "grok-4.7",
+              "status": "completed",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 2,
+                "total_tokens": 102
+              },
+              "output": [
+                {
+                  "type": "message",
+                  "id": "msg_grok_1",
+                  "role": "assistant",
+                  "status": "completed",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "text": "ok"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "id": "grok-image-input",
+      "provider": "grok-oauth",
+      "credentials": {
+        "grok-oauth.json": {
+          "access_token": "fake-credential-not-a-secret",
+          "refresh_token": "fake-refresh-not-a-secret",
+          "expires_at": 4102444800000,
+          "token_endpoint": "https://auth.x.ai/oauth2/token",
+          "user_id": "user-fake-1"
+        }
+      },
+      "sendOpts": {
+        "iteration": 1
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "what is in this image?"
+            },
+            {
+              "type": "image",
+              "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+              "mimeType": "image/png"
+            }
+          ]
+        }
+      ],
+      "http": [
+        [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_grok_1",
+              "model": "grok-4.7",
+              "status": "in_progress"
+            }
+          },
+          {
+            "type": "response.output_text.delta",
+            "item_id": "msg_grok_1",
+            "output_index": 0,
+            "content_index": 0,
+            "delta": "ok"
+          },
+          {
+            "type": "response.completed",
+            "response": {
+              "id": "resp_grok_1",
+              "model": "grok-4.7",
+              "status": "completed",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 2,
+                "total_tokens": 102
+              },
+              "output": [
+                {
+                  "type": "message",
+                  "id": "msg_grok_1",
+                  "role": "assistant",
+                  "status": "completed",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "text": "ok"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "id": "grok-effort-none",
+      "provider": "grok-oauth",
+      "credentials": {
+        "grok-oauth.json": {
+          "access_token": "fake-credential-not-a-secret",
+          "refresh_token": "fake-refresh-not-a-secret",
+          "expires_at": 4102444800000,
+          "token_endpoint": "https://auth.x.ai/oauth2/token",
+          "user_id": "user-fake-1"
+        }
+      },
+      "sendOpts": {
+        "iteration": 1,
+        "effort": "none"
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "parity probe"
+        }
+      ],
+      "http": [
+        [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_grok_1",
+              "model": "grok-4.7",
+              "status": "in_progress"
+            }
+          },
+          {
+            "type": "response.output_text.delta",
+            "item_id": "msg_grok_1",
+            "output_index": 0,
+            "content_index": 0,
+            "delta": "ok"
+          },
+          {
+            "type": "response.completed",
+            "response": {
+              "id": "resp_grok_1",
+              "model": "grok-4.7",
+              "status": "completed",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 2,
+                "total_tokens": 102
+              },
+              "output": [
+                {
+                  "type": "message",
+                  "id": "msg_grok_1",
+                  "role": "assistant",
+                  "status": "completed",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "text": "ok"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "id": "grok-effort-low",
+      "provider": "grok-oauth",
+      "credentials": {
+        "grok-oauth.json": {
+          "access_token": "fake-credential-not-a-secret",
+          "refresh_token": "fake-refresh-not-a-secret",
+          "expires_at": 4102444800000,
+          "token_endpoint": "https://auth.x.ai/oauth2/token",
+          "user_id": "user-fake-1"
+        }
+      },
+      "sendOpts": {
+        "iteration": 1,
+        "effort": "low"
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "parity probe"
+        }
+      ],
+      "http": [
+        [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_grok_1",
+              "model": "grok-4.7",
+              "status": "in_progress"
+            }
+          },
+          {
+            "type": "response.output_text.delta",
+            "item_id": "msg_grok_1",
+            "output_index": 0,
+            "content_index": 0,
+            "delta": "ok"
+          },
+          {
+            "type": "response.completed",
+            "response": {
+              "id": "resp_grok_1",
+              "model": "grok-4.7",
+              "status": "completed",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 2,
+                "total_tokens": 102
+              },
+              "output": [
+                {
+                  "type": "message",
+                  "id": "msg_grok_1",
+                  "role": "assistant",
+                  "status": "completed",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "text": "ok"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "id": "grok-effort-medium",
+      "provider": "grok-oauth",
+      "credentials": {
+        "grok-oauth.json": {
+          "access_token": "fake-credential-not-a-secret",
+          "refresh_token": "fake-refresh-not-a-secret",
+          "expires_at": 4102444800000,
+          "token_endpoint": "https://auth.x.ai/oauth2/token",
+          "user_id": "user-fake-1"
+        }
+      },
+      "sendOpts": {
+        "iteration": 1,
+        "effort": "medium"
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "parity probe"
+        }
+      ],
+      "http": [
+        [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_grok_1",
+              "model": "grok-4.7",
+              "status": "in_progress"
+            }
+          },
+          {
+            "type": "response.output_text.delta",
+            "item_id": "msg_grok_1",
+            "output_index": 0,
+            "content_index": 0,
+            "delta": "ok"
+          },
+          {
+            "type": "response.completed",
+            "response": {
+              "id": "resp_grok_1",
+              "model": "grok-4.7",
+              "status": "completed",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 2,
+                "total_tokens": 102
+              },
+              "output": [
+                {
+                  "type": "message",
+                  "id": "msg_grok_1",
+                  "role": "assistant",
+                  "status": "completed",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "text": "ok"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "id": "grok-effort-high",
+      "provider": "grok-oauth",
+      "credentials": {
+        "grok-oauth.json": {
+          "access_token": "fake-credential-not-a-secret",
+          "refresh_token": "fake-refresh-not-a-secret",
+          "expires_at": 4102444800000,
+          "token_endpoint": "https://auth.x.ai/oauth2/token",
+          "user_id": "user-fake-1"
+        }
+      },
+      "sendOpts": {
+        "iteration": 1,
+        "effort": "high"
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "parity probe"
+        }
+      ],
+      "http": [
+        [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_grok_1",
+              "model": "grok-4.7",
+              "status": "in_progress"
+            }
+          },
+          {
+            "type": "response.output_text.delta",
+            "item_id": "msg_grok_1",
+            "output_index": 0,
+            "content_index": 0,
+            "delta": "ok"
+          },
+          {
+            "type": "response.completed",
+            "response": {
+              "id": "resp_grok_1",
+              "model": "grok-4.7",
+              "status": "completed",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 2,
+                "total_tokens": 102
+              },
+              "output": [
+                {
+                  "type": "message",
+                  "id": "msg_grok_1",
+                  "role": "assistant",
+                  "status": "completed",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "text": "ok"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "id": "grok-effort-xhigh",
+      "provider": "grok-oauth",
+      "credentials": {
+        "grok-oauth.json": {
+          "access_token": "fake-credential-not-a-secret",
+          "refresh_token": "fake-refresh-not-a-secret",
+          "expires_at": 4102444800000,
+          "token_endpoint": "https://auth.x.ai/oauth2/token",
+          "user_id": "user-fake-1"
+        }
+      },
+      "sendOpts": {
+        "iteration": 1,
+        "effort": "xhigh"
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "parity probe"
+        }
+      ],
+      "http": [
+        [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_grok_1",
+              "model": "grok-4.7",
+              "status": "in_progress"
+            }
+          },
+          {
+            "type": "response.output_text.delta",
+            "item_id": "msg_grok_1",
+            "output_index": 0,
+            "content_index": 0,
+            "delta": "ok"
+          },
+          {
+            "type": "response.completed",
+            "response": {
+              "id": "resp_grok_1",
+              "model": "grok-4.7",
+              "status": "completed",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 2,
+                "total_tokens": 102
+              },
+              "output": [
+                {
+                  "type": "message",
+                  "id": "msg_grok_1",
+                  "role": "assistant",
+                  "status": "completed",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "text": "ok"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "id": "grok-effort-max",
+      "provider": "grok-oauth",
+      "credentials": {
+        "grok-oauth.json": {
+          "access_token": "fake-credential-not-a-secret",
+          "refresh_token": "fake-refresh-not-a-secret",
+          "expires_at": 4102444800000,
+          "token_endpoint": "https://auth.x.ai/oauth2/token",
+          "user_id": "user-fake-1"
+        }
+      },
+      "sendOpts": {
+        "iteration": 1,
+        "effort": "max"
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "parity probe"
+        }
+      ],
+      "http": [
+        [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_grok_1",
+              "model": "grok-4.7",
+              "status": "in_progress"
+            }
+          },
+          {
+            "type": "response.output_text.delta",
+            "item_id": "msg_grok_1",
+            "output_index": 0,
+            "content_index": 0,
+            "delta": "ok"
+          },
+          {
+            "type": "response.completed",
+            "response": {
+              "id": "resp_grok_1",
+              "model": "grok-4.7",
+              "status": "completed",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 2,
+                "total_tokens": 102
+              },
+              "output": [
+                {
+                  "type": "message",
+                  "id": "msg_grok_1",
+                  "role": "assistant",
+                  "status": "completed",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "text": "ok"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "id": "grok-effort-on-a-model-without-effort",
+      "provider": "grok-oauth",
+      "model": "grok-build-0.1",
+      "credentials": {
+        "grok-oauth.json": {
+          "access_token": "fake-credential-not-a-secret",
+          "refresh_token": "fake-refresh-not-a-secret",
+          "expires_at": 4102444800000,
+          "token_endpoint": "https://auth.x.ai/oauth2/token",
+          "user_id": "user-fake-1"
+        }
+      },
+      "sendOpts": {
+        "iteration": 1,
+        "effort": "high"
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "parity probe"
+        }
+      ],
+      "http": [
+        [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_grok_1",
+              "model": "grok-4.7",
+              "status": "in_progress"
+            }
+          },
+          {
+            "type": "response.output_text.delta",
+            "item_id": "msg_grok_1",
+            "output_index": 0,
+            "content_index": 0,
+            "delta": "ok"
+          },
+          {
+            "type": "response.completed",
+            "response": {
+              "id": "resp_grok_1",
+              "model": "grok-4.7",
+              "status": "completed",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 2,
+                "total_tokens": 102
+              },
+              "output": [
+                {
+                  "type": "message",
+                  "id": "msg_grok_1",
+                  "role": "assistant",
+                  "status": "completed",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "text": "ok"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "id": "grok-refresh-after-401",
+      "provider": "grok-oauth",
+      "credentials": {
+        "grok-oauth.json": {
+          "access_token": "fake-credential-not-a-secret",
+          "refresh_token": "fake-refresh-not-a-secret",
+          "expires_at": 4102444800000,
+          "token_endpoint": "https://auth.x.ai/oauth2/token",
+          "user_id": "user-fake-1"
+        }
+      },
+      "sendOpts": {
+        "iteration": 1
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "parity probe"
+        }
+      ],
+      "http": [
+        {
+          "status": 401,
+          "headers": {
+            "content-type": "application/json"
+          },
+          "body": "{\"error\":{\"message\":\"Your authentication token has expired.\",\"code\":\"token_expired\"}}"
+        },
+        {
+          "headers": {
+            "content-type": "application/json"
+          },
+          "body": "{\"access_token\":\"fresh-access-not-a-secret\",\"refresh_token\":\"fresh-refresh-not-a-secret\",\"expires_in\":3600,\"token_type\":\"Bearer\"}"
+        },
+        [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_grok_1",
+              "model": "grok-4.7",
+              "status": "in_progress"
+            }
+          },
+          {
+            "type": "response.output_text.delta",
+            "item_id": "msg_grok_1",
+            "output_index": 0,
+            "content_index": 0,
+            "delta": "ok"
+          },
+          {
+            "type": "response.completed",
+            "response": {
+              "id": "resp_grok_1",
+              "model": "grok-4.7",
+              "status": "completed",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 2,
+                "total_tokens": 102
+              },
+              "output": [
+                {
+                  "type": "message",
+                  "id": "msg_grok_1",
+                  "role": "assistant",
+                  "status": "completed",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "text": "ok"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "id": "grok-refresh-before-expiry",
+      "provider": "grok-oauth",
+      "credentials": {
+        "grok-oauth.json": {
+          "access_token": "fake-credential-not-a-secret",
+          "refresh_token": "fake-refresh-not-a-secret",
+          "expires_at": 1794254110000,
+          "token_endpoint": "https://auth.x.ai/oauth2/token",
+          "user_id": "user-fake-1"
+        }
+      },
+      "sendOpts": {
+        "iteration": 1
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "parity probe"
+        }
+      ],
+      "http": [
+        {
+          "headers": {
+            "content-type": "application/json"
+          },
+          "body": "{\"access_token\":\"fresh-access-not-a-secret\",\"refresh_token\":\"fresh-refresh-not-a-secret\",\"expires_in\":3600,\"token_type\":\"Bearer\"}"
+        },
+        [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_grok_1",
+              "model": "grok-4.7",
+              "status": "in_progress"
+            }
+          },
+          {
+            "type": "response.output_text.delta",
+            "item_id": "msg_grok_1",
+            "output_index": 0,
+            "content_index": 0,
+            "delta": "ok"
+          },
+          {
+            "type": "response.completed",
+            "response": {
+              "id": "resp_grok_1",
+              "model": "grok-4.7",
+              "status": "completed",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 2,
+                "total_tokens": 102
+              },
+              "output": [
+                {
+                  "type": "message",
+                  "id": "msg_grok_1",
+                  "role": "assistant",
+                  "status": "completed",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "text": "ok"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "id": "grok-refresh-asks-discovery",
+      "provider": "grok-oauth",
+      "credentials": {
+        "grok-oauth.json": {
+          "access_token": "fake-credential-not-a-secret",
+          "refresh_token": "fake-refresh-not-a-secret",
+          "expires_at": 1794254110000,
+          "token_endpoint": null,
+          "user_id": "user-fake-1"
+        }
+      },
+      "sendOpts": {
+        "iteration": 1
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "parity probe"
+        }
+      ],
+      "http": [
+        {
+          "headers": {
+            "content-type": "application/json"
+          },
+          "body": "{\"authorization_endpoint\":\"https://auth.x.ai/oauth2/auth\",\"token_endpoint\":\"https://auth.x.ai/oauth2/token\"}"
+        },
+        {
+          "headers": {
+            "content-type": "application/json"
+          },
+          "body": "{\"access_token\":\"fresh-access-not-a-secret\",\"refresh_token\":\"fresh-refresh-not-a-secret\",\"expires_in\":3600,\"token_type\":\"Bearer\"}"
+        },
+        [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_grok_1",
+              "model": "grok-4.7",
+              "status": "in_progress"
+            }
+          },
+          {
+            "type": "response.output_text.delta",
+            "item_id": "msg_grok_1",
+            "output_index": 0,
+            "content_index": 0,
+            "delta": "ok"
+          },
+          {
+            "type": "response.completed",
+            "response": {
+              "id": "resp_grok_1",
+              "model": "grok-4.7",
+              "status": "completed",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 2,
+                "total_tokens": 102
+              },
+              "output": [
+                {
+                  "type": "message",
+                  "id": "msg_grok_1",
+                  "role": "assistant",
+                  "status": "completed",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "text": "ok"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "id": "grok-client-version-gate",
+      "provider": "grok-oauth",
+      "credentials": {
+        "grok-oauth.json": {
+          "access_token": "fake-credential-not-a-secret",
+          "refresh_token": "fake-refresh-not-a-secret",
+          "expires_at": 4102444800000,
+          "token_endpoint": "https://auth.x.ai/oauth2/token",
+          "user_id": "user-fake-1"
+        }
+      },
+      "sendOpts": {
+        "iteration": 1
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "parity probe"
+        }
+      ],
+      "http": [
+        {
+          "status": 426,
+          "headers": {
+            "content-type": "application/json"
+          },
+          "body": "{\"error\":{\"message\":\"Upgrade required: minimum client version 1.0.95\"}}"
+        },
+        [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_grok_1",
+              "model": "grok-4.7",
+              "status": "in_progress"
+            }
+          },
+          {
+            "type": "response.output_text.delta",
+            "item_id": "msg_grok_1",
+            "output_index": 0,
+            "content_index": 0,
+            "delta": "ok"
+          },
+          {
+            "type": "response.completed",
+            "response": {
+              "id": "resp_grok_1",
+              "model": "grok-4.7",
+              "status": "completed",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 2,
+                "total_tokens": 102
+              },
+              "output": [
+                {
+                  "type": "message",
+                  "id": "msg_grok_1",
+                  "role": "assistant",
+                  "status": "completed",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "text": "ok"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      ]
+    },
+    {
       "id": "anthropic-oauth-first-turn",
       "provider": "anthropic-oauth",
       "expectError": true,
@@ -2559,17 +3738,6 @@
     {
       "id": "gemini-first-turn",
       "provider": "gemini",
-      "expectError": true,
-      "messages": [
-        {
-          "role": "user",
-          "content": "parity probe"
-        }
-      ]
-    },
-    {
-      "id": "grok-oauth-first-turn",
-      "provider": "grok-oauth",
       "expectError": true,
       "messages": [
         {

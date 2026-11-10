@@ -1026,6 +1026,7 @@ impl DefaultProviderBuilder {
                     self.env.grok_client_version.clone(),
                     retry,
                     self.env.listing.clone(),
+                    self.env.client_versions.clone(),
                 )))
             }
             "cursor-oauth" | "cursor-api" => self.build_cursor(name, cfg).await,

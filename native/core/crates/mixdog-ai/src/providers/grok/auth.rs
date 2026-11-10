@@ -5,10 +5,6 @@
 
 use crate::transport::deadlines::GROK_DISCOVERY;
 use crate::transport::deadlines::TOKEN_GROK;
-use crate::transport::link::Exchange;
-use crate::transport::link::Redirect;
-use crate::transport::link::Surface;
-use mixdog_rt::Liveness;
 use std::sync::Arc;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
@@ -42,6 +38,8 @@ use crate::oauth::scrub::oauth_body_summary;
 use crate::providers::connect::ConnectFailure;
 use crate::providers::connect::provider_error;
 use crate::providers::connect::rewrite::Credential;
+use crate::registry::keys::Environment;
+use crate::registry::keys::ProcessEnv;
 use crate::retry::advice;
 use crate::transport::http::HttpSend;
 
@@ -51,11 +49,6 @@ pub const DISCOVERY_URL: &str = "https://auth.x.ai/.well-known/openid-configurat
 pub const REFRESH_SKEW_MS: u64 = 5 * 60_000;
 pub const REAUTH_GUIDANCE: &str = "open /providers in mixdog to sign in again";
 const OPERATION: &str = "[grok-oauth] token exchange";
-/// The warm-up HEAD: `undici.request(origin, { method: 'HEAD', signal: AbortSignal.timeout(10_000) })`, which follows no
-/// redirect and whose failure is swallowed (`shared/llm/http-agent.mjs:496-527`).
-const PRECONNECT: Exchange = Exchange::new(Liveness::unary(std::time::Duration::from_secs(10)), Redirect::Manual, Surface::FetchSignal);
-/// `MIXDOG_LLM_KEEPALIVE_MS` (60 s) less 10 s: how long a warmed origin is not warmed again (`_preconnectTtlMs`).
-const PRECONNECT_TTL_MS: u64 = 50_000;
 
 /// `grok-oauth.json`.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -163,10 +156,16 @@ pub async fn refresh(http: &dyn HttpSend, tokens: &StoredTokens) -> Result<Store
         error.message = format!("[grok-oauth] refresh token not available: {REAUTH_GUIDANCE}");
         return Err(error);
     }
-    let endpoint = if tokens.token_endpoint.is_empty() {
-        discover_token_endpoint(http).await?
+    // The discovery answer's connection is held until the exchange went out: Node returns its socket only after the code
+    // that read it has run on, and the exchange follows at once, so it does not get it.
+    let cached = DISCOVERED.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+    let (endpoint, discovered) = if !tokens.token_endpoint.is_empty() {
+        (trusted_xai_endpoint(&tokens.token_endpoint)?.to_string(), None)
+    } else if let Some(endpoint) = cached {
+        (endpoint, None)
     } else {
-        trusted_xai_endpoint(&tokens.token_endpoint)?.to_string()
+        let (endpoint, held) = discover_token_endpoint(http).await?;
+        (endpoint, Some(held))
     };
     let head = http
         .send(
@@ -174,15 +173,15 @@ pub async fn refresh(http: &dyn HttpSend, tokens: &StoredTokens) -> Result<Store
                 transport: TransportKind::Http1,
                 method: "POST".to_owned(),
                 url: endpoint.clone(),
-                headers: vec![(
-                    "content-type".to_owned(),
-                    "application/x-www-form-urlencoded".to_owned(),
-                )],
+                // The letter case Node's call writes (`grok-oauth-tokens.mjs` `refreshTokens`).
+                headers: vec![("Content-Type".to_owned(), "application/x-www-form-urlencoded".to_owned())],
                 body: refresh_form(tokens).into_bytes(),
             },
             TOKEN_GROK,
         )
-        .await?;
+        .await;
+    drop(discovered);
+    let head = head?;
     let success = head.is_success();
     let response = head.read_all().await?;
     if !success {
@@ -217,24 +216,33 @@ pub async fn refresh(http: &dyn HttpSend, tokens: &StoredTokens) -> Result<Store
     })
 }
 
-async fn discover_token_endpoint(http: &dyn HttpSend) -> Result<String, ProviderError> {
+/// `_discoveryCache` (`grok-oauth-tokens.mjs:112`): the token endpoint a successful discovery named, for the process.
+static DISCOVERED: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// The token endpoint the discovery document names, and the read answer whose connection is held until it is dropped.
+async fn discover_token_endpoint(http: &dyn HttpSend) -> Result<(String, Box<dyn crate::transport::BodyStream>), ProviderError> {
     let head = http
         .send(
             WireRequest {
                 transport: TransportKind::Http1,
                 method: "GET".to_owned(),
                 url: DISCOVERY_URL.to_owned(),
-                headers: vec![("accept".to_owned(), "application/json".to_owned())],
+                // The letter case Node's call writes (`grok-oauth-tokens.mjs` discovery).
+                headers: vec![("Accept".to_owned(), "application/json".to_owned())],
                 body: Vec::new(),
             },
             GROK_DISCOVERY,
         )
         .await?;
     let success = head.is_success();
-    let response = head.read_all().await?;
+    let (response, held) = head.read_all_held(true).await?;
     let json: Value = serde_json::from_slice(&response.body).unwrap_or(Value::Null);
     match json.get("token_endpoint").and_then(Value::as_str) {
-        Some(endpoint) if success => Ok(trusted_xai_endpoint(endpoint)?.to_string()),
+        Some(endpoint) if success => {
+            let endpoint = trusted_xai_endpoint(endpoint)?.to_string();
+            *DISCOVERED.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(endpoint.clone());
+            Ok((endpoint, held))
+        }
         _ => {
             let mut error = ProviderError::new(ErrorKind::Transient, DeliveryState::Accepted);
             error.status = response.status;
@@ -250,8 +258,6 @@ pub struct GrokCredential {
     http: Arc<dyn HttpSend>,
     file: CredentialFile,
     current: ArcSwapOption<StoredTokens>,
-    /// When the proxy origin was last warmed (`_preconnectedAt`); cleared when the warm-up fails.
-    warmed_at: Arc<std::sync::Mutex<Option<u64>>>,
 }
 
 fn storage_error(message: &str) -> ProviderError {
@@ -273,39 +279,13 @@ impl GrokCredential {
             http,
             file,
             current: ArcSwapOption::empty(),
-            warmed_at: Arc::default(),
         }
     }
 
-    /// `preconnect(PROXY_BASE_URL)` (`grok-oauth.mjs:243-249`, `:383-387`): before a turn, a fire-and-forget HEAD lands a
-    /// kept-alive socket, once per [`PRECONNECT_TTL_MS`]. Any failure only clears the stamp.
+    /// `preconnect(PROXY_BASE_URL)` (`grok-oauth.mjs:328-335`, `:425-428`): before a turn, the proxy origin is warmed,
+    /// once per keep-alive window for the process.
     fn preconnect(&self) {
-        let Ok(runtime) = tokio::runtime::Handle::try_current() else { return };
-        let now = now_ms();
-        {
-            let mut warmed = self.warmed_at.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            if warmed.is_some_and(|last| now.saturating_sub(last) < PRECONNECT_TTL_MS) {
-                return;
-            }
-            *warmed = Some(now);
-        }
-        let (http, warmed_at) = (self.http.clone(), self.warmed_at.clone());
-        runtime.spawn(async move {
-            let head = WireRequest {
-                transport: TransportKind::Http1,
-                method: "HEAD".to_owned(),
-                url: format!("{}/", super::PROXY_ORIGIN),
-                headers: Vec::new(),
-                body: Vec::new(),
-            };
-            let warmed = match http.send(head, PRECONNECT).await {
-                Ok(response) => response.read_all().await.is_ok(),
-                Err(_) => false,
-            };
-            if !warmed {
-                *warmed_at.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
-            }
-        });
+        crate::transport::preconnect::preconnect(self.http.clone(), super::PROXY_ORIGIN, now_ms(), ProcessEnv.var("MIXDOG_LLM_KEEPALIVE_MS"));
     }
 
     /// The identity header value for the signed-in user, once a turn loaded it.
@@ -373,6 +353,13 @@ impl Credential for GrokCredential {
         }
         self.current.store(Some(Arc::new(tokens.clone())));
         Ok(Some(("authorization".to_owned(), format!("Bearer {}", tokens.access_token))))
+    }
+
+    /// Node's OpenAI client writes its auth header right after its platform headers, before the provider's own
+    /// (`openai/client.js` `buildHeaders`).
+    fn place(&self, headers: &mut Vec<(String, String)>, header: (String, String)) {
+        let at = headers.iter().rposition(|(name, _)| name.starts_with("x-stainless-")).map_or(headers.len(), |last| last + 1);
+        headers.insert(at, header);
     }
 
     fn refreshable(&self) -> bool {
