@@ -23,6 +23,9 @@ mod fixture_fs;
 mod process_tests;
 #[cfg(test)]
 mod process_services_tests;
+#[cfg(test)]
+#[cfg(test)]
+mod wire_parity_tests;
 pub mod tool_exposure;
 pub mod tool_surface;
 pub mod mcp_fold;
@@ -113,6 +116,9 @@ pub mod title_completion;
 pub mod thread_todos;
 pub mod directory_sessions;
 pub mod room_list;
+pub mod room_publication;
+#[cfg(test)]
+mod roster_rows_tests;
 pub mod room_approvals;
 pub mod next_request_source;
 pub mod warm_ports;

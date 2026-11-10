@@ -31,6 +31,8 @@ pub mod lspcaps;
 pub mod lspwire;
 pub mod rank;
 pub mod readwindow;
+#[cfg(feature = "replay-controls")]
+pub mod replay_controls;
 pub mod release;
 pub mod recovery;
 pub mod text;

@@ -39,6 +39,10 @@ pub const MODEL_STREAM: Exchange = Exchange::new(Liveness::stream(secs(600)), Re
 /// (`gemini.mjs:798,824` `this._fetch`). Same head bound as [`MODEL_STREAM`]; text `fetch failed`.
 pub const MODEL_STREAM_FETCH: Exchange = Exchange::new(Liveness::stream(secs(600)), Redirect::Follow, Surface::Fetch);
 
+/// The connection warm-up: `shared/llm/http-agent.mjs:504-515` `undici.request(origin, { method: 'HEAD', signal:
+/// AbortSignal.timeout(10_000) })`, which does not follow redirects; its failure is swallowed.
+pub const PRECONNECT: Exchange = Exchange::new(Liveness::unary(secs(10)), Redirect::Manual, Surface::FetchSignal).raw();
+
 /// A unary request that Node gives no timeout of its own: its fetch still rides
 /// the LLM dispatcher (`shared/llm/http-agent.mjs:413-414`, headers and body 600_000). Raw `fetch`
 /// (`anthropic.mjs:464` model list, `shared/llm/model-catalog.mjs:268` models.dev, the CLI client versions).
