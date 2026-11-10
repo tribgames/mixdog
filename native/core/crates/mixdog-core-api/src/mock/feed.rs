@@ -144,6 +144,7 @@ impl FeedSource for MockFeed {
             mode: AttachMode::Snapshot,
             epoch: shared.epoch.clone(),
             start_seq: seq + 1,
+            live_seq: seq + 1,
         };
         let (lane, window, reservation) = match req.start {
             AttachStart::Open {

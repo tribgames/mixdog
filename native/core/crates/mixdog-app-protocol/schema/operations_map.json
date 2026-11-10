@@ -1776,8 +1776,8 @@
       "list": "services",
       "name": "resolveToolApprovalForSession",
       "target": {
-        "kind": "serverRequestResponse",
-        "target": "item/tool/requestApproval"
+        "kind": "method",
+        "target": "thread/approval/answer"
       }
     },
     {
@@ -2242,8 +2242,8 @@
       "list": "remote",
       "name": "resolveToolApprovalForSession",
       "target": {
-        "kind": "serverRequestResponse",
-        "target": "item/tool/requestApproval"
+        "kind": "method",
+        "target": "thread/approval/answer"
       }
     },
     {

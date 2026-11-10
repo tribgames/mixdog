@@ -2348,21 +2348,29 @@ impl SessionActor {
                     }
                 }
             }
-            Ctl::Decide(decision) => {
+            Ctl::Decide(decision, arbitrated) => {
                 let device = self.deps.devices.describe(decision.connection);
                 let at = self.deps.clock.now_ms();
-                match self
+                let outcome = match self
                     .book
                     .validate(&decision.request, &decision.result, device, at)
                 {
                     Ok(Some(accepted)) => {
-                        self.resolve(accepted.aid, &accepted.rid, accepted.resolution)
+                        self.resolve(accepted.aid, &accepted.rid, accepted.resolution);
+                        Ok(true)
                     }
-                    Ok(None) => {}
-                    Err(error) => self
+                    Ok(None) => Ok(false),
+                    Err(error) => Err(error),
+                };
+                match (arbitrated, outcome) {
+                    (Some(arbitrated), outcome) => {
+                        let _ = arbitrated.send(outcome);
+                    }
+                    (None, Err(error)) => self
                         .deps
                         .server_requests
                         .response_rejected(decision.connection, error),
+                    (None, Ok(_)) => {}
                 }
             }
             Ctl::RunEnded { turn, outcome } => self.run_ended(turn, outcome),

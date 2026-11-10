@@ -36,18 +36,21 @@ import {
 import {
   APPROVAL_CASES,
   APPROVAL_DEVICE,
+  APPROVAL_RACES,
   FIXED_NOW_MS,
   NATIVE_STEPS,
+  NOTICE_RECONNECT_STEPS,
   NOTICE_STEPS,
   PHONES,
   PINS_STEPS,
+  RACE_DEVICES,
   RELAY_NATIVE,
   RELAY_PLAIN,
   STALE_APPROVAL_ID,
 } from './lib/phone-pushes-script.mjs';
 
 const REF = 'b6f10295a2f698afc85332467192de28500bd146';
-const SCENARIOS = ['flags-native', 'flags-plain', 'pins', 'native-push', 'notices', 'approval-answers'];
+const SCENARIOS = ['flags-native', 'flags-plain', 'pins', 'native-push', 'notices', 'notice-reconnect', 'approval-answers', 'approval-races'];
 const FIXTURES = join(REPO_ROOT, 'apps', 'mobile', 'fixtures', 'phone-pushes');
 const WORK = join('D:\\mixdog-build\\tmp', `${REPO_ROOT.split(/[\\/]/).pop()}-phone-pushes`);
 const args = parseArgs();
@@ -222,6 +225,51 @@ async function notices() {
   return { shown, raised, frames, timers: clock.pending() };
 }
 
+/** A notice raised while a phone is away (NOTICE_RECONNECT_STEPS): the same host, sink and lanes as `notices`; the relay's client leaves
+ *  the registry when its socket closes (remote-relay-clients.ts `remove`) and comes back with the join frames (`joinFrames`) on the same
+ *  page; the keychain's failure raises its notice through the host registry exactly as keychain-cjs.cjs:56-58 does. */
+async function noticeReconnect() {
+  const clock = virtualClock();
+  browserGlobals();
+  const host = await importFrom(tree, 'src/runtime/shared/desktop-notice-host.mjs');
+  const { desktopNoticeSink } = await importFrom(tree, `${main}desktop-service.ts`);
+  const { createRelayPushLanes } = await importFrom(tree, `${main}remote-relay-push-lanes.ts`);
+  const { createRelayClientRegistry } = await importFrom(tree, `${main}remote-relay-clients.ts`);
+  const registry = createRelayClientRegistry({ host: {}, sendEnvelope() {}, onClientCountChanged() {}, onEmpty() {} });
+  const pages = new Map();
+  const frames = [];
+  const listeners = new Set();
+  const emit = () => true;
+  const publish = (name, value) => {
+    const delivered = emit({ kind: 'desktop-event', name, value }) !== false;
+    for (const listener of listeners) listener({ name, value });
+    return delivered;
+  };
+  const lanes = createRelayPushLanes({ clients: registry.clients, subscribeDesktopEvents: (l) => (listeners.add(l), () => listeners.delete(l)), broadcastEncrypted: broadcaster(registry, pages) });
+  const unregister = host.registerDesktopNoticeSink(desktopNoticeSink(emit, publish));
+  const shown = [];
+  let step = -1;
+  const attach = (name) => {
+    registry.open(name, {}, PHONES[name]).channel = {};
+    for (const frame of lanes.joinFrames()) pages.get(name).deliver(frame);
+  };
+  for (const name of ['a', 'b']) {
+    const page = await nodePage(async () => undefined, frames, name);
+    page.api.subscribeDesktopNotices((notice) => shown.push({ step, phone: name, notice }));
+    pages.set(name, page);
+    attach(name);
+  }
+  for (step = 0; step < NOTICE_RECONNECT_STEPS.length; step += 1) {
+    const { op, phone } = NOTICE_RECONNECT_STEPS[step];
+    if (op === 'drop') registry.remove(phone);
+    else if (op === 'reconnect') attach(phone);
+    else globalThis[Symbol.for('mixdog.desktopNoticeHost.v1')]?.raise?.('secret-storage', 'secret-storage-failed');
+  }
+  unregister();
+  lanes.dispose();
+  return { shown, frames, timers: clock.pending() };
+}
+
 /** A notification's Allow / Deny: Node's own push notifier (push-notifier.ts: the approval each session shows, from its state) and
  *  remote methods (remote-session-methods.ts `answerApprovalNotification`), called by the page's own native push host
  *  (native-push-bridge.ts `answerApproval`). The session host is scripted as the runtime answers (`finishToolApproval`: true once for the
@@ -264,6 +312,83 @@ async function approvalAnswers() {
       answers.push({ action, stale: stale === true, outcome: answered, decided: handed });
     }
     cases.push({ name, call: 'answerApprovalNotification', input, toolApproval, answers });
+  }
+  return { cases, frames, timers: clock.pending() };
+}
+
+/** Two answers to one approval reaching the session together (APPROVAL_RACES): the phones answer as in `approvalAnswers`, the PC's card
+ *  through the session host's own path. The host serializes answers per session with its own lock (session-host-lifecycle.ts:1086-1102,
+ *  session-lifecycle-locks.ts) and the runtime takes the first for the approval it waits on (`finishToolApproval`: true once, then the
+ *  session shows none). The first answer is held inside the lock until the second waits behind it (the lock's own `contended`), so the
+ *  two meet at the session as they would in the race; what each phone was shown and the decision the session took are recorded. */
+async function approvalRaces() {
+  const clock = virtualClock();
+  browserGlobals();
+  const { normalizeToolApprovalRequest } = await importFrom(tree, 'src/tui/session/tool-approval-request.mjs');
+  const { createPushNotifier } = await importFrom(tree, `${main}push-notifier.ts`);
+  const { createRemoteMethods, executeRemoteFrame } = await importFrom(tree, `${main}remote-methods.ts`);
+  const { SessionLifecycleLocks } = await importFrom(tree, `${main}session-lifecycle-locks.ts`);
+  const { createNativePushHost } = await importFrom(tree, `${renderer}native-push-bridge.ts`);
+  const notifier = createPushNotifier({ store: {}, isEnabled: () => false, readFinalAnswer: async () => null, isClientForeground: () => false });
+  const locks = new SessionLifecycleLocks();
+  const waiting = new Map();
+  let took = [];
+  let held = Promise.resolve();
+  let reached = () => {};
+  const host = {
+    invokeDesktopOperation: async () => undefined,
+    resolveToolApprovalForSession: (sessionId, id, decision) => {
+      const answer = locks.run(sessionId, async () => {
+        await held;
+        if (waiting.get(sessionId) !== id) return false;
+        waiting.delete(sessionId);
+        notifier.onSessionState({ sessionId, snapshot: { toolApproval: null } });
+        took.push(decision);
+        return true;
+      });
+      reached();
+      return answer;
+    },
+  };
+  const frames = [];
+  const phones = {};
+  const pages = {};
+  for (const name of ['a', 'b']) {
+    const methods = createRemoteMethods({ host, approvalNotifications: notifier }, { credentialId: () => PHONES[name], deviceName: async () => RACE_DEVICES[name] });
+    pages[name] = await nodePage((raw) => executeRemoteFrame(methods, raw), frames, name);
+    phones[name] = createNativePushHost(pages[name].ctx);
+  }
+  const input = APPROVAL_CASES[0].input;
+  const cases = [];
+  for (const [index, { name, race, then = [] }] of APPROVAL_RACES.entries()) {
+    const sessionId = `sess_race_${index}`;
+    const id = String(index + 1);
+    waiting.set(sessionId, id);
+    notifier.onSessionState({ sessionId, snapshot: { toolApproval: normalizeToolApprovalRequest({ ...input, sessionId }, id, null) } });
+    took = [];
+    const answer = ({ by, action, card }) => {
+      if (by === 'desktop') return host.resolveToolApprovalForSession(sessionId, id, { approved: true, device: RACE_DEVICES.desktop });
+      if (card) return outcome(pages[by].api.resolveToolApprovalForSession(sessionId, id, card));
+      return outcome(phones[by].answerApproval(sessionId, id, action));
+    };
+    // The first answer is held at the session until every other one has reached the host and waits behind it.
+    let release;
+    held = race.length > 1 ? new Promise((resolve) => (release = resolve)) : Promise.resolve();
+    const answers = [];
+    for (const step of race) {
+      const arrived = new Promise((resolve) => (reached = resolve));
+      answers.push(answer(step));
+      await arrived;
+    }
+    if (race.length > 1) {
+      if (!locks.contended(sessionId)) throw new Error(`${name}: the answers do not meet at the session`);
+      release();
+    }
+    const results = await Promise.all(answers);
+    held = Promise.resolve();
+    const shown = race.map((step, at) => ({ ...step, ...(step.by === 'desktop' ? {} : { outcome: results[at] }) }));
+    for (const step of then) shown.push({ ...step, outcome: await answer(step) });
+    cases.push({ name, raced: race.length, shown, took });
   }
   return { cases, frames, timers: clock.pending() };
 }
@@ -324,7 +449,9 @@ if (args.has('scenario')) {
     pins: () => pins(dir),
     'native-push': () => nativePush(dir),
     notices: () => notices(),
+    'notice-reconnect': () => noticeReconnect(),
     'approval-answers': () => approvalAnswers(),
+    'approval-races': () => approvalRaces(),
   }[name];
   const trace = await run();
   process.stdout.write(`\n@@TRACE@@${JSON.stringify(trace)}\n`);

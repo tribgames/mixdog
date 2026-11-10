@@ -38,8 +38,6 @@ export interface PhoneEnv {
   readonly random?: () => number;
   /** The PC runs another version than this page; the page must be reloaded from the relay after the update. */
   updateRequired(): void;
-  /** An adapter of this page answers the Node call `method`: a capability opens only calls the page can make (phone-capabilities.ts). */
-  claims?(method: string): boolean;
 }
 
 export interface PhoneBoot {
@@ -205,7 +203,7 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
       },
     });
     phone = connected;
-    const applyFlags = (): void => void Object.assign(ctx, peerFlagsOf(connected.client.server.capabilities, (method) => env.claims?.(method) === true));
+    const applyFlags = (): void => void Object.assign(ctx, peerFlagsOf(connected.client.server.capabilities));
     applyFlags();
     connected.client.on((event) => {
       if (event.type === 'status' && event.status.state === 'ready') applyFlags();

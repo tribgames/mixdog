@@ -163,11 +163,14 @@ async fn a_room_reads_and_answers_the_members_approval() {
     assert_eq!(snapshot["toolApproval"], shown);
 
     let id = shown["id"].as_str().unwrap().to_owned();
-    let answer = |approval: &str| {
-        directory.answer_member_approval(&handle.id, approval, ConnectionId(1), "desktop".into(), ConnectionKind::Desktop, json!({ "approved": true }))
+    let answer = |approval: String| {
+        let (directory, thread) = (&directory, &handle.id);
+        async move {
+            directory.answer_member_approval(thread, &approval, ConnectionId(1), "desktop".into(), ConnectionKind::Desktop, json!({ "approved": true })).await
+        }
     };
-    assert!(!answer("999").expect("refused"), "not the approval the member shows");
-    assert!(answer(&id).expect("answered"));
+    assert!(!answer("999".into()).await.expect("refused"), "not the approval the member shows");
+    assert!(answer(id.clone()).await.expect("answered"));
     let resolution = eventually_on!(&[&handle.cell.stepped], || resolved.lock().unwrap().clone()).await;
     assert!(matches!(resolution, ApprovalResolution::Decided { .. }), "{resolution:?}");
     eventually_on!(&[&handle.cell.stepped], || directory.member_approval(&handle.id).is_none().then_some(())).await;

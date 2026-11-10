@@ -23,7 +23,7 @@
    "turn/interrupt(v2::thread::TurnInterruptParams) -> v2::thread::TurnInterruptResponse"
   ],
   "rust_sites": [
-   "mixdog-app-server/src/server.rs:613"
+   "mixdog-app-server/src/server.rs:615"
   ],
   "rust_composed": [
    "app-server built-in (Server::dispatch)"
@@ -4603,7 +4603,7 @@
    "thread/read(v2::thread::ThreadReadParams) -> v2::thread::ThreadReadResponse"
   ],
   "rust_sites": [
-   "mixdog-core-session/src/session/handle.rs:800"
+   "mixdog-core-session/src/session/handle.rs:810"
   ],
   "rust_composed": [
    "core path (session actor / app-server built-in)"
@@ -5650,7 +5650,7 @@
    "thread/name/set(v2::thread::ThreadNameSetParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-core-session/src/session/actor.rs:4108"
+   "mixdog-core-session/src/session/actor.rs:4116"
   ],
   "rust_composed": [
    "core path (session actor / app-server built-in)"
@@ -5852,20 +5852,23 @@
    "apps/desktop/src/main/remote-session-methods.ts:168"
   ],
   "inventory": "remote",
-  "rust_kind": "serverRequestResponse",
+  "rust_kind": "method",
   "rust_targets": [
-   "item/tool/requestApproval"
+   "thread/approval/answer"
   ],
-  "rust_shape": [],
+  "rust_shape": [
+   "thread/approval/answer(v2::approval::ThreadApprovalAnswerParams) -> v2::approval::ThreadApprovalAnswerResponse"
+  ],
   "rust_sites": [
-   "mixdog-core-api/src/domain/approval.rs:45"
+   "mixdog-core-session/src/session/directory.rs:1675"
   ],
-  "rust_composed": [],
+  "rust_composed": [
+   "core path (session actor / app-server built-in)"
+  ],
   "problems": [],
   "proof": "test",
   "proof_evidence": [
-   "mixdog-app-server/src/late.rs:119",
-   "mixdog-app-server/src/tests/actor.rs:92"
+   "mixdog-core-session/src/session/approval_notification_tests.rs:73"
   ],
   "phone_o1": "unchanged",
   "server": "served",
@@ -6438,7 +6441,7 @@
   ],
   "rust_shape": [],
   "rust_sites": [
-   "mixdog-app-server/src/server.rs:587"
+   "mixdog-app-server/src/server.rs:589"
   ],
   "rust_composed": [],
   "problems": [],
@@ -6649,8 +6652,8 @@
    "thread/unsubscribe(v2::thread::ThreadIdParams) -> v2::feed::EmptyResult"
   ],
   "rust_sites": [
-   "mixdog-core-session/src/session/handle.rs:799",
-   "mixdog-app-server/src/server.rs:609"
+   "mixdog-core-session/src/session/handle.rs:809",
+   "mixdog-app-server/src/server.rs:611"
   ],
   "rust_composed": [
    "core path (session actor / app-server built-in)",
@@ -6974,7 +6977,7 @@
   ],
   "rust_shape": [],
   "rust_sites": [
-   "mixdog-app-server/src/server.rs:609"
+   "mixdog-app-server/src/server.rs:611"
   ],
   "rust_composed": [],
   "problems": [],
@@ -7138,7 +7141,7 @@
    "turn/start(v2::thread::TurnStartParams) -> v2::thread::TurnStartResponse"
   ],
   "rust_sites": [
-   "mixdog-core-session/src/session/actor.rs:4104"
+   "mixdog-core-session/src/session/actor.rs:4112"
   ],
   "rust_composed": [
    "core path (session actor / app-server built-in)"
@@ -7179,7 +7182,7 @@
   ],
   "rust_shape": [],
   "rust_sites": [
-   "mixdog-app-server/src/server.rs:573"
+   "mixdog-app-server/src/server.rs:575"
   ],
   "rust_composed": [],
   "problems": [],
@@ -8237,7 +8240,7 @@
    "turn/completed <- mixdog-cli/src/exec/feed.rs:190",
    "item/started <- mixdog-cli/src/exec/feed.rs:182",
    "item/completed <- mixdog-cli/src/exec/feed.rs:186",
-   "item/agentMessage/delta <- mixdog-core-session/src/session/actor.rs:3274"
+   "item/agentMessage/delta <- mixdog-core-session/src/session/actor.rs:3282"
   ],
   "rust_composed": [],
   "problems": [],

@@ -30,10 +30,11 @@ export async function startRelay({ repoRoot, clients, capabilities }) {
     });
   });
 
-  /** One phone behind the relay: client-open, challenge, hello, ready; then a `Connector` over the sealed channel. */
+  /** One phone behind the relay: client-open, challenge, hello, ready; then a `Connector` over the sealed channel. Each later `open` of the
+   *  connector (the client's reconnect) is a new client-open with a new handshake, as the phone's socket coming back is. */
   async function openPhone(clientId, credential, pairing) {
-    const inbox = [];
-    const waiting = [];
+    let inbox = [];
+    let waiting = [];
     const phone = {
       arrived(frame) {
         const next = waiting.shift();
@@ -43,15 +44,28 @@ export async function startRelay({ repoRoot, clients, capabilities }) {
     };
     const take = () => (inbox.length ? Promise.resolve(inbox.shift()) : new Promise((resolve) => waiting.push(resolve)));
     state.phones.set(clientId, phone);
-    state.socket.send(JSON.stringify({ type: 'client-open', clientId, browserClientId: credential }));
-    const challenge = JSON.parse((await take()).data);
-    const { hello, channel } = await E2EE.createRelayE2EEClientHandshake(pairing, challenge);
-    state.socket.send(JSON.stringify({ type: 'frame', clientId, data: JSON.stringify(hello) }));
-    const ready = await channel.decryptJson((await take()).data);
-    if (ready?.type !== 'e2ee-ready') throw new Error(`the PC did not answer the hello with e2ee-ready: ${JSON.stringify(ready)}`);
-    let sending = Promise.resolve();
+    const handshake = async () => {
+      state.socket.send(JSON.stringify({ type: 'client-open', clientId, browserClientId: credential }));
+      // What the PC sent the connection before it read a drop's `client-close` arrives ahead of the new challenge (one leg, in order):
+      // those boxes belong to the old channel and are passed over.
+      let challenge;
+      do {
+        const frame = await take();
+        challenge = frame.type === 'frame' && typeof frame.data === 'string' && frame.data.startsWith('{') ? JSON.parse(frame.data) : null;
+      } while (challenge?.type !== 'e2ee-challenge');
+      const { hello, channel } = await E2EE.createRelayE2EEClientHandshake(pairing, challenge);
+      state.socket.send(JSON.stringify({ type: 'frame', clientId, data: JSON.stringify(hello) }));
+      const ready = await channel.decryptJson((await take()).data);
+      if (ready?.type !== 'e2ee-ready') throw new Error(`the PC did not answer the hello with e2ee-ready: ${JSON.stringify(ready)}`);
+      return channel;
+    };
+    let ready = await handshake();
+    let current = null;
     const connector = {
       async open(_target, sink) {
+        const channel = ready ?? (await handshake());
+        ready = null;
+        let sending = Promise.resolve();
         // Frames are sealed and opened in order, one at a time: the channel's sequence numbers are the order.
         let receiving = Promise.resolve();
         const pump = async () => {
@@ -61,6 +75,7 @@ export async function startRelay({ repoRoot, clients, capabilities }) {
             receiving = receiving.then(async () => sink.frame(JSON.stringify(await channel.decryptJson(frame.data))));
           }
         };
+        current = { sink };
         void pump();
         return {
           send(text) {
@@ -72,6 +87,15 @@ export async function startRelay({ repoRoot, clients, capabilities }) {
           close() {},
         };
       },
+    };
+    /** The phone's socket goes away: the relay tells the PC (`client-close`) and the phone's connection ends. Frames the PC had already
+     *  sent this connection are dropped with it, and the pump left waiting on the old inbox is let go. */
+    phone.drop = () => {
+      state.socket.send(JSON.stringify({ type: 'client-close', clientId }));
+      inbox = [];
+      waiting = [];
+      current?.sink.closed(1006, 'the phone went away');
+      current = null;
     };
     return connector;
   }
@@ -93,6 +117,8 @@ export async function startRelay({ repoRoot, clients, capabilities }) {
     /** The relay sends the PC a frame of its own (a webpush-subscriptions set, for one). */
     send: (frame) => state.socket.send(JSON.stringify(frame)),
     openPhone,
+    /** Phone `clientId`'s socket goes away (see `openPhone`). */
+    dropPhone: (clientId) => state.phones.get(clientId).drop(),
     close: () => server.close(),
   };
 }

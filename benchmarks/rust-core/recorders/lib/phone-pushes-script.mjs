@@ -97,10 +97,34 @@ export const APPROVAL_CASES = [
   { name: 'no-kind', input: { name: 'shell', args: { command: 'ls' }, reason: 'list' }, steps: [{ action: 'allow' }] },
   { name: 'question', input: { name: 'ask_user', kind: 'question', args: { questions: [{ question: 'Which one?' }] }, reason: '', timeoutMs: null }, steps: [{ action: 'allow' }, { action: 'deny' }] },
 ];
+/** Two answers to one approval (the `shell` case's request) that reach the session together: `race` lists them in the order they reach
+ *  it (the first is held at the session until the second waits behind it), `then` answers one at a time after. `desktop` is the PC's own
+ *  card answering `{approved: true}`; a phone answers a notification's button (`action`) or its own card (`card`: the decision it sends,
+ *  `resolveToolApprovalForSession`). The answering devices are each connection's own. */
+export const APPROVAL_RACES = [
+  { name: 'phone a, then phone b', race: [{ by: 'a', action: 'allow' }, { by: 'b', action: 'allow' }] },
+  { name: 'phone b, then phone a', race: [{ by: 'b', action: 'deny' }, { by: 'a', action: 'allow' }] },
+  { name: 'phone, then the desktop', race: [{ by: 'a', action: 'allow' }, { by: 'desktop' }] },
+  { name: 'the desktop, then a phone', race: [{ by: 'desktop' }, { by: 'a', action: 'deny' }] },
+  { name: "phone a's card, then phone b", race: [{ by: 'a', card: { approved: false, reason: 'no' } }, { by: 'b', action: 'allow' }] },
+  { name: "the desktop, then phone a's card", race: [{ by: 'desktop' }, { by: 'a', card: { approved: true } }] },
+  {
+    name: 'after the desktop answered',
+    race: [{ by: 'desktop' }],
+    then: [{ by: 'a', action: 'deny' }, { by: 'b', action: 'allow' }, { by: 'b', card: { approved: true } }],
+  },
+];
+/** Each answering connection's device: phone a, phone b and the PC's window (the core's test devices name a connection by its id). */
+export const RACE_DEVICES = { a: 'desktop-7', b: 'desktop-8', desktop: 'desktop-1' };
+
 /** The id a stale step names: no session shows it. */
 export const STALE_APPROVAL_ID = '999999';
 /** The answering phone's device name (Node's `client.deviceName()`; the core's connection names it). */
 export const APPROVAL_DEVICE = 'desktop-7';
+
+/** A desktop notice raised while a phone is away: phones a and b connected; a's connection drops, the keychain fails (its notice,
+ *  keychain-cjs.cjs `_noticeSecretStoreFailure`: `raise('secret-storage', 'secret-storage-failed')`), a comes back. */
+export const NOTICE_RECONNECT_STEPS = [{ op: 'drop', phone: 'a' }, { op: 'keychain-fails' }, { op: 'reconnect', phone: 'a' }];
 
 /** Desktop notices: phone a connected from the start, b joins after a notice was raised. */
 export const NOTICE_STEPS = [

@@ -10,9 +10,11 @@ import { replayPushes } from '../../../../benchmarks/rust-core/recorders/lib/pho
 const golden = JSON.parse(readFileSync(new URL('../../../mobile/fixtures/phone-pushes/golden.json', import.meta.url), 'utf8'));
 const exe = process.env.MIXDOGD_BIN || 'C:\\mixdog-build\\pool\\w11-target\\debug\\mixdogd.exe';
 
-test('the phone page on the core is given what Node gave it', async () => {
+test('the phone page on the core is given what Node gave it', async (t) => {
   const results = await replayPushes({ exe, golden, only: process.env.PHONE_PUSHES_ONLY });
-  for (const [name, { node, core, paths }] of Object.entries(results)) {
+  for (const [name, { node, core, paths, waiting }] of Object.entries(results)) {
+    // A flag the core holds off though Node offered it: Node's value and each call (with its owner) it waits for.
+    for (const [flag, { node: offered, missing }] of Object.entries(waiting ?? {})) t.diagnostic(`${name} ${flag} off (Node: ${offered}); waits for ${missing.join('; ')}`);
     assert.deepEqual(paths, [], `${name} differs at ${paths.join(', ')}\nnode: ${JSON.stringify(node)}\ncore: ${JSON.stringify(core)}`);
   }
 });

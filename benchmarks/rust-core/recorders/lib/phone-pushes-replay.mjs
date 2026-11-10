@@ -9,7 +9,7 @@
 //     (mixdog-core-domains notify/desktop_notice.rs: a raise publishes the `notice` entry of its key once until a clear removes it; a
 //     connection's snapshot holds the entries standing) in the core's frame shape (mixdog-core-base state/mod.rs `update_json`).
 // Each scenario has its own core, data dir and relay port; all run side by side.
-import { readdirSync, readFileSync, rmSync } from 'node:fs';
+import { readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { pathToFileURL } from 'node:url';
@@ -17,7 +17,7 @@ import { wholeOutcome } from '../../../../apps/desktop/src/renderer/test-support
 import { REPO_ROOT, within } from './common.mjs';
 import { killTree, startCore } from './phone-files-replay.mjs';
 import { startRelay } from './phone-relay-core.mjs';
-import { FIXED_NOW_MS, NATIVE_STEPS, NOTICE_STEPS, PHONES, PINS_STEPS, RELAY_NATIVE, RELAY_PLAIN } from './phone-pushes-script.mjs';
+import { FIXED_NOW_MS, NATIVE_STEPS, NOTICE_RECONNECT_STEPS, NOTICE_STEPS, PHONES, PINS_STEPS, RELAY_NATIVE, RELAY_PLAIN } from './phone-pushes-script.mjs';
 
 const WORLDS = join('D:\\mixdog-build\\tmp', `${basename(REPO_ROOT)}-phone-pushes-replay`);
 const here = (path) => import(pathToFileURL(join(REPO_ROOT, path)).href);
@@ -26,22 +26,20 @@ const VERSION = JSON.parse(readFileSync(join(REPO_ROOT, 'apps', 'desktop', 'pack
 /** The adapters the phone bundle holds (remote-shim-adapters.ts: every `remote-protocol-<group>.ts` that exports one). */
 const BUNDLE = ['files', 'notifications', 'settings', 'terminal'];
 
-/** Flags the page reads as off on this core though Node offered them, each with what it waits for: the core does not serve the feature
- *  yet, or no adapter of the bundle answers a call the flag opens (apps/mobile/src/phone-capabilities.ts FLAG_CALLS). */
-export const OFF_UNTIL_SERVED = {
-  peerRemoteParity: 'the updater, pull-request, browser-page and chat adapters (PH-2 Settings, Source control, Browser, Chat: phone-chat-live)',
-  peerBrowserDrive: 'the remote browser live view (RS-2; browser/frame: missing-services)',
-  peerBrowserSessionTabs: 'the remote browser live view (RS-2; browser/frame: missing-services)',
-  peerUsageRequests: 'the chat adapter that answers readCapabilities (phone-chat-live)',
-  peerProjectRecovery: 'an adapter for projectRecovery (PH-2 Settings group)',
-  peerRouteAutoEffort: 'the chat adapter (submitNewTask, setModelRoute, inheritSession: phone-chat-live)',
-  peerVisualize: 'the visualize adapter (PH-2 Visualize group)',
-  peerSecretInput: 'the chat adapter that answers provideSecretInput (phone-chat-live)',
-  peerBrowserWebrtc: 'the WebRTC live view (RS-2)',
-  peerBrowserFit: 'the remote browser live view (RS-2)',
-  peerMediaE2ee: 'the encrypted media lane (RS-1)',
-};
-/** Node's view-sync flag: the protocol's thread feeds replace it by design, so the page has no such flag. */
+/** What the core offers a phone is the table's (native/core/crates/mixdog-app-protocol/src/remote_flags.json): a flag whose calls are
+ *  not all served for a phone, or that waits on more, is off, and the table names each missing call and who brings it. */
+const FLAG_TABLE = JSON.parse(readFileSync(join(REPO_ROOT, 'native', 'core', 'crates', 'mixdog-app-protocol', 'src', 'remote_flags.json'), 'utf8')).flags;
+const peerKey = (flag) => `peer${flag[0].toUpperCase()}${flag.slice(1)}`;
+/** Per page flag the table holds off: its calls still waiting, with their owners, and what else waits. */
+const WAITING = Object.fromEntries(
+  Object.entries(FLAG_TABLE).flatMap(([flag, { calls, unserved }]) => {
+    const missing = Object.entries(calls).filter(([, how]) => !how.method).map(([call, how]) => `${call}: ${how.owner}`);
+    if (unserved) missing.push(unserved);
+    return missing.length ? [[peerKey(flag), missing]] : [];
+  })
+);
+/** Node's view-sync flag (the browser's own hello, remote-relay-client-lifecycle.ts:256, not a challenge flag): the protocol's thread
+ *  feeds replace it by design, so the page has no such flag. */
 const NODE_ONLY_FLAGS = ['peerViewSync'];
 
 function differences(a, b, path = '') {
@@ -149,10 +147,10 @@ async function withCore(exe, name, caps, run) {
     const world = {
       core,
       relay,
-      /** A paired phone behind the relay, with its page. */
-      phone: async (key) => {
+      /** A paired phone behind the relay, with its page; `options` replace the client's (its clock, for one that comes back). */
+      phone: async (key, options = {}) => {
         const connector = await relay.openPhone(`client-${key}`, PHONES[key], pairing);
-        const client = await attached(connect, { ...base, connector });
+        const client = await attached(connect, { ...base, connector, ...options });
         clients.push(client);
         return { client, ...(await phonePage(client)) };
       },
@@ -190,15 +188,20 @@ async function flagsOn(exe, name, caps) {
   const { peerFlagsOf } = await here('apps/mobile/src/phone-capabilities.ts');
   return withCore(exe, name, caps, async (world) => {
     const phone = await world.phone('a');
-    return peerFlagsOf(phone.client.server.capabilities, phone.router.claims);
+    return peerFlagsOf(phone.client.server.capabilities);
   });
 }
 
-/** Node's flags as the page on this core must read them: the same, but for the flags waiting on a feature (OFF_UNTIL_SERVED). */
-function expectedFlags(node) {
+/** The page's flags on the core against Node's: every flag the table serves is Node's; a flag it holds off is off on the core, Node's value
+ *  and what it waits for named beside it. Any other difference, a flag on that the table holds off included, is a difference. */
+function compareFlags(node, core) {
   const expected = Object.fromEntries(Object.entries(node.peer).filter(([key]) => !NODE_ONLY_FLAGS.includes(key)));
-  for (const key of Object.keys(OFF_UNTIL_SERVED)) expected[key] = key === 'peerBrowserWebrtc' ? 0 : false;
-  return expected;
+  const waiting = {};
+  for (const [key, missing] of Object.entries(WAITING)) {
+    waiting[key] = { node: expected[key], missing };
+    expected[key] = key === 'peerBrowserWebrtc' ? 0 : false;
+  }
+  return { node: expected, core, waiting };
 }
 
 async function pins(exe) {
@@ -259,6 +262,67 @@ async function nativePush(exe) {
   });
 }
 
+/** A notice raised while a phone is away (NOTICE_RECONNECT_STEPS) on the built core: phone a's socket drops at the relay, the keychain
+ *  fails while it is away (the store's `secrets` folder is a file, so the OAuth client secret of an `mcp/addMcpServer` from the PC's
+ *  window cannot be written to the keychain: the tracked store raises `secret-storage`, mixdog-secrets status.rs `note_failure`, before
+ *  anything connects), and a comes back on the same client, which
+ *  resumes its app subscription from its cursor. After each step the window flips a desktop flag; a phone whose store shows the flip has
+ *  folded everything the step published before it (the app feed is ordered). */
+async function noticeReconnect(exe) {
+  return withCore(exe, 'notice-reconnect', RELAY_PLAIN, async (world) => {
+    const desktop = await world.desktop();
+    // Phone a's way back: its reconnect ladder waits here until the script lets it come back.
+    let comeBack;
+    const away = new Promise((resolve) => (comeBack = resolve));
+    const pages = { a: await world.phone('a', { clock: { sleep: () => away } }), b: await world.phone('b') };
+    const shown = [];
+    let step = -1;
+    for (const key of ['a', 'b']) pages[key].api.subscribeDesktopNotices((notice) => shown.push({ step, phone: key, notice }));
+    const connected = new Set(['a', 'b']);
+    let marker = false;
+    const barrier = async () => {
+      marker = !marker;
+      await desktop.call('config/value/write', { path: 'desktop.usageRailShortLong', value: marker });
+      for (const key of connected) {
+        const { client } = pages[key];
+        await until(client, () => (client.store.section('config', 'desktop')?.value?.usageRailShortLong ?? false) === marker, `phone ${key} hears the step ${step} barrier`);
+      }
+    };
+    for (step = 0; step < NOTICE_RECONNECT_STEPS.length; step += 1) {
+      const { op, phone } = NOTICE_RECONNECT_STEPS[step];
+      if (op === 'drop') {
+        connected.delete(phone);
+        world.relay.dropPhone(`client-${phone}`);
+      } else if (op === 'reconnect') {
+        const { client } = pages[phone];
+        const back = new Promise((resolve) => {
+          const off = client.on((event) => {
+            if (event.type !== 'status' || event.status.state !== 'ready') return;
+            off();
+            resolve();
+          });
+        });
+        comeBack();
+        await within(`phone ${phone} comes back`, back);
+        connected.add(phone);
+      } else {
+        writeFileSync(join(world.core.dataDir, 'secrets'), '');
+        // An op id is a UUIDv7 (mixdog-app-protocol OpId).
+        const opId = `018f0000-0000-7000-8000-${step.toString(16).padStart(12, '0')}`;
+        const input = { name: `notice-${step}`, url: 'http://127.0.0.1:9/mcp', oauthClientId: 'client', oauthClientSecret: 'secret' };
+        await desktop.call('mcp/addMcpServer', { opId, input }).then(
+          () => {
+            throw new Error('the keychain write went through: the step has no failure to raise');
+          },
+          () => {}
+        );
+      }
+      await barrier();
+    }
+    return { shown };
+  });
+}
+
 /** The core's `notice` section as the script plays it, served to each phone over a scripted connector. */
 function noticeCore() {
   const entries = new Map();
@@ -292,6 +356,8 @@ function noticeCore() {
         const own = {
           push: (method, params) => sink.frame(JSON.stringify({ method, params, feed: { id: 'app', epoch: 'e', seq: (sent[index] += 1) } })),
         };
+        // The core's attach (mixdog-core-base feed `attach`): the snapshot stands at S, live events start at S + 1 (`startSeq`, `liveSeq`).
+        const at = (sent[index] += 1);
         return {
           send(text) {
             const frame = JSON.parse(text);
@@ -299,9 +365,9 @@ function noticeCore() {
             const reply = (result) => queueMicrotask(() => sink.frame(JSON.stringify({ id: frame.id, result })));
             if (frame.method === 'initialize') return reply(initializeResult);
             if (frame.method === 'app/subscribe') {
-              reply({ subscription: { id: 's', mode: 'snapshot', epoch: 'e', startSeq: 1 } });
+              reply({ subscription: { id: 's', mode: 'snapshot', epoch: 'e', startSeq: at + 1, liveSeq: at + 1 } });
               queueMicrotask(() => {
-                own.push('app/snapshot', { sections: [...entries.values()] });
+                sink.frame(JSON.stringify({ method: 'app/snapshot', params: { sections: [...entries.values()] }, feed: { id: 'app', epoch: 'e', seq: at } }));
                 sinks.add(own);
               });
               return;
@@ -364,8 +430,8 @@ export async function replayPushes({ exe, golden, only }) {
   rmSync(WORLDS, { recursive: true, force: true });
   const node = golden.scenarios;
   const cases = {
-    'flags-native': async () => ({ node: expectedFlags(node['flags-native']), core: await flagsOn(exe, 'flags-native', RELAY_NATIVE) }),
-    'flags-plain': async () => ({ node: expectedFlags(node['flags-plain']), core: await flagsOn(exe, 'flags-plain', RELAY_PLAIN) }),
+    'flags-native': async () => compareFlags(node['flags-native'], await flagsOn(exe, 'flags-native', RELAY_NATIVE)),
+    'flags-plain': async () => compareFlags(node['flags-plain'], await flagsOn(exe, 'flags-plain', RELAY_PLAIN)),
     pins: async () => {
       const { answers, heard, persisted } = node.pins;
       const core = await pins(exe);
@@ -379,6 +445,7 @@ export async function replayPushes({ exe, golden, only }) {
       const { shown, raised } = node.notices;
       return { node: { shown, raised }, core: await notices() };
     },
+    'notice-reconnect': async () => ({ node: { shown: node['notice-reconnect'].shown }, core: await noticeReconnect(exe) }),
   };
   const names = only ? [only] : Object.keys(cases);
   try {

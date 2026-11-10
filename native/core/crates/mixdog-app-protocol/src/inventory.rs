@@ -1152,7 +1152,7 @@ pub static INVENTORY: &[(InventoryList, &str, Target)] = &[
     (
         InventoryList::Services,
         "resolveToolApprovalForSession",
-        Target::ServerRequestResponse("item/tool/requestApproval"),
+        Target::Method("thread/approval/answer"),
     ),
     (
         InventoryList::Services,
@@ -1446,7 +1446,7 @@ pub static INVENTORY: &[(InventoryList, &str, Target)] = &[
     (
         InventoryList::Remote,
         "resolveToolApprovalForSession",
-        Target::ServerRequestResponse("item/tool/requestApproval"),
+        Target::Method("thread/approval/answer"),
     ),
     (
         InventoryList::Remote,

@@ -13357,6 +13357,13 @@
         "id": {
           "type": "string"
         },
+        "liveSeq": {
+          "default": 0,
+          "description": "The first seq published after this attach. A replay's frames are below it: they were published while the client was away (Node's relay sent a phone only what happened while it was connected). Absent from a core that predates it.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
         "mode": {
           "$ref": "#/definitions/SubscriptionMode"
         },
@@ -13558,6 +13565,36 @@
       },
       "required": [
         "outcome"
+      ],
+      "type": "object"
+    },
+    "ThreadApprovalAnswerParams": {
+      "description": "`thread/approval/answer`: a card's decision on the approval request `approval_id` (the server request's id) of the thread it waits in, the `result` a server-request response would carry.",
+      "properties": {
+        "approvalId": {
+          "type": "string"
+        },
+        "result": true,
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "approvalId",
+        "result",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    "ThreadApprovalAnswerResponse": {
+      "description": "`accepted`: this decision resolved the request; `false` when it was resolved or resolving already (Node's `resolveToolApprovalForSession` result).",
+      "properties": {
+        "accepted": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "accepted"
       ],
       "type": "object"
     },
@@ -20789,6 +20826,14 @@
         "$ref": "#/definitions/ThreadAgentControlParams"
       },
       "result": true
+    },
+    "thread/approval/answer": {
+      "params": {
+        "$ref": "#/definitions/ThreadApprovalAnswerParams"
+      },
+      "result": {
+        "$ref": "#/definitions/ThreadApprovalAnswerResponse"
+      }
     },
     "thread/approval/answerNotification": {
       "params": {

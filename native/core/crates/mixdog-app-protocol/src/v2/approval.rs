@@ -153,6 +153,26 @@ pub struct ThreadApprovalAnswerNotificationResponse {
     pub outcome: ApprovalNotificationOutcome,
 }
 
+/// `thread/approval/answer`: a card's decision on the approval request `approval_id` (the server request's id) of the thread it
+/// waits in, the `result` a server-request response would carry.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadApprovalAnswerParams {
+    pub thread_id: ThreadId,
+    pub approval_id: String,
+    pub result: JsonValue,
+}
+
+/// `accepted`: this decision resolved the request; `false` when it was resolved or resolving already (Node's
+/// `resolveToolApprovalForSession` result).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadApprovalAnswerResponse {
+    pub accepted: bool,
+}
+
 /// Secret answer of a human-gate `provide-secret` request (today's `provideSecretInput`);
 /// never part of a decision or a log record.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
