@@ -585,13 +585,13 @@
       "type": "string"
     },
     "HostBrowserViewFramesParams": {
-      "description": "First viewer → `on`, last viewer gone → `off` (SPEC §4.7.3).",
+      "description": "A subscriber change → `on` with the largest options of the session's subscribers, last subscriber gone → `off` (SPEC §4.7.3; Node's `browserRemote('stream', [sessionId, options | null])`).",
       "properties": {
         "on": {
           "type": "boolean"
         },
         "request": {
-          "description": "Phone stream request (fit, quality) as today's take-over request."
+          "description": "The largest `{maxWidth, maxHeight, fit?}` of the session's subscribers (Node's `largest`, `remote-browser-streams.ts`); `null` with `on: false`."
         },
         "streamId": {
           "description": "The X17 `streamId` the host stamps on this tab's frames.",
@@ -6359,6 +6359,23 @@
         "params": {
           "$ref": "#/definitions/BrowserWebrtcSignalParams"
         }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A JPEG-view frame of a browser session the phone streams (Node's `browserRemoteFrame` push): one in flight until `browser/streamAck`.",
+      "properties": {
+        "method": {
+          "enum": [
+            "browser/frame"
+          ],
+          "type": "string"
+        },
+        "params": true
       },
       "required": [
         "method",
