@@ -176,6 +176,8 @@ struct Entry {
     text: bool,
     started: AtomicBool,
     finished: AtomicBool,
+    /// Queued for eviction already (see `ProcessFeeds::retire`).
+    retired: AtomicBool,
     /// While true the pump publishes nothing more: a disposal holds its tab's feed until its answer is on its way (see [`FeedHold`]).
     hold: tokio::sync::watch::Sender<bool>,
 }
@@ -264,6 +266,7 @@ impl ProcessFeeds {
             text,
             started: AtomicBool::new(false),
             finished: AtomicBool::new(false),
+            retired: AtomicBool::new(false),
             hold: tokio::sync::watch::Sender::new(false),
         });
         entries.insert(handle.to_owned(), Arc::clone(&entry));
@@ -308,7 +311,8 @@ impl ProcessFeeds {
         let evicted = {
             let mut finished = self.finished.lock().unwrap_or_else(|e| e.into_inner());
             let mut current = self.entries.lock().unwrap_or_else(|e| e.into_inner());
-            finished.extend(entries);
+            // An entry is queued once: a finished feed that is then closed (or closed while its pump ends) takes one slot.
+            finished.extend(entries.into_iter().filter(|entry| !entry.retired.swap(true, Ordering::AcqRel)));
             let mut evicted = Vec::new();
             while finished.len() > RETAINED_FEEDS {
                 let Some(old) = finished.pop_front() else { break };
@@ -419,6 +423,19 @@ mod tests {
         let queued: Vec<Arc<Entry>> = feeds.finished.lock().unwrap().iter().cloned().collect();
         assert!(queued.iter().all(|queued| !Arc::ptr_eq(queued, &replacement)), "the old pump queued the new tab's live feed for eviction");
         assert_eq!(queued.len(), 1, "the retired feed is queued once");
+    }
+
+    /// A feed whose pump finished and which a dispose then closes is queued for eviction once: it takes one slot of the retained feeds.
+    #[tokio::test]
+    async fn a_finished_then_closed_feed_is_queued_once() {
+        let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, crate::manager::ProcessConfig::default());
+        let feeds = ProcessFeeds::new(manager, Arc::new(mixdog_core_api::mock::MockScopedFeeds::new(mixdog_core_api::mock::MockLimits::default())));
+        let _ = feeds.feed("term_twice", true);
+        let entry = feeds.entries.lock().unwrap().get("term_twice").cloned().unwrap();
+        // No process under the handle: the pump ends at once and queues its (current) feed.
+        feeds.pump(&entry).await;
+        feeds.close("term_twice");
+        assert_eq!(feeds.finished.lock().unwrap().len(), 1, "the feed is queued once");
     }
 
     /// A disposal's hold keeps the pump from publishing (the killed shell's last output and its exit come after the dispose's answer,

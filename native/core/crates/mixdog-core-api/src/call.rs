@@ -40,6 +40,34 @@ pub struct CallContext {
     /// Cancelled when the caller's connection closes (RL §4.4): queued lane jobs of the request
     /// are dropped at dequeue; admitted mutations still complete (they carry an op id).
     pub cancel: CancellationToken,
+    /// What the service keeps alive until its answer is in the caller's outgoing queue (see [`AfterAnswer`]).
+    pub after_answer: AfterAnswer,
+}
+
+/// Guards a service hands the server to keep until the request's answer has been handed to the connection's outgoing queue (written,
+/// or the connection gone, or the request dropped): what the call holds back must not overtake its answer. The server releases them right
+/// after it queues the answer; every clone shares them, so they also end when the last clone of the request goes.
+#[derive(Clone, Default)]
+pub struct AfterAnswer(Arc<std::sync::Mutex<Vec<Box<dyn Send>>>>);
+
+impl AfterAnswer {
+    /// Keeps `guard` until the answer is queued.
+    pub fn keep(&self, guard: impl Send + 'static) {
+        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(Box::new(guard));
+    }
+
+    /// Drops what was kept: the server calls it once the answer is in the outgoing queue.
+    pub fn release(&self) {
+        let kept = std::mem::take(&mut *self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+        drop(kept);
+    }
+}
+
+impl std::fmt::Debug for AfterAnswer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let kept = self.0.lock().map_or(0, |kept| kept.len());
+        f.debug_tuple("AfterAnswer").field(&kept).finish()
+    }
 }
 
 impl CallContext {
@@ -48,6 +76,7 @@ impl CallContext {
             caller: Caller::Connection(id),
             origin,
             cancel,
+            after_answer: AfterAnswer::default(),
         }
     }
 
@@ -58,6 +87,7 @@ impl CallContext {
             caller: Caller::Internal(name),
             origin: Origin::Local,
             cancel: CancellationToken::new(),
+            after_answer: AfterAnswer::default(),
         }
     }
 }

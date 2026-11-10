@@ -110,6 +110,38 @@
         }
       },
       "info": null
+    },
+    {
+      "op": "info",
+      "home": "blocked",
+      "answer": {
+        "available": false,
+        "path": "{blockedTrash}"
+      }
+    },
+    {
+      "op": "trash",
+      "home": "blocked",
+      "rel": "kept.txt",
+      "at": 1720062307000,
+      "answer": {
+        "error": {
+          "message": "The server has no trash on this disk; delete permanently instead.",
+          "code": "TRASH_UNAVAILABLE"
+        }
+      },
+      "info": null
+    },
+    {
+      "op": "delete",
+      "held": "locked/child.txt",
+      "rel": "locked",
+      "answer": {
+        "error": {
+          "message": "EBUSY: resource busy or locked, unlink '{root}\\locked\\child.txt'",
+          "code": "EBUSY"
+        }
+      }
     }
   ]
 }

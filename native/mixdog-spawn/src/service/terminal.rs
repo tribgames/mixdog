@@ -265,13 +265,19 @@ fn resume_of(value: Option<Value>) -> Result<Option<ResumeFrom>, CoreError> {
     }))
 }
 
+/// How long a reply waits for the events its call caused to be published (see `TerminalService::published`).
+const PUBLISH_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
+
 impl TerminalService {
     /// Resolves once every change queued before it is published: a reply that must not overtake the events its call caused. A publish
     /// reaches the connection's queue at once, so the reply that follows is received after those events.
+    ///
+    /// Bounded by [`PUBLISH_DEADLINE`]: a section worker that has not reached the barrier by then (a publisher stuck downstream) does
+    /// not hold the call; the reply is sent and the events follow it when the worker moves. The worker ending (shutdown) ends the wait.
     async fn published(&self) {
         let (published, done) = tokio::sync::oneshot::channel();
         if self.changes.send(Change::Barrier(published)).is_ok() {
-            let _ = done.await;
+            let _ = tokio::time::timeout(PUBLISH_DEADLINE, done).await;
         }
     }
 }
@@ -361,7 +367,9 @@ impl DomainService for TerminalService {
                 // Node's disposal forwards the tab's end (state: null) before it answers the request (terminal-manager.ts:541,
                 // remote-relay-push-lanes.ts:150, remote-methods.ts:1284).
                 self.published().await;
-                drop(held);
+                // The hold ends once the answer is in the connection's outgoing queue (or the request or the connection is gone), so
+                // nothing the pump publishes after it can be queued ahead of the answer.
+                req.ctx.after_answer.keep(held);
                 Ok(Reply::Value(json!({})))
             }
             other => Err(invalid_params("method", format!("a method of terminal, not {other}"))),

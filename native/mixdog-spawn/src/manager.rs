@@ -931,19 +931,24 @@ impl LocalProcessManager {
 
     /// Queues `bytes` for the process, waiting for room when its input queue is full: the
     /// `process/input` notification is never dropped, and the connection reader that sent it
-    /// stays paused for as long as this waits. Fails only when the process cannot take input.
+    /// stays paused for as long as this waits. Fails only when the process cannot take input. Input larger than the queue goes in
+    /// pieces of at most its capacity, in order (Node's `pty.write` takes any length), so no input is refused for its size.
     pub async fn write_input_wait(&self, handle: &ProcessHandle, bytes: Vec<u8>) -> Result<(), ProcessError> {
         let proc = self.inner.lookup(handle)?;
         let input = proc.input.as_ref().ok_or(ProcessError::StdinClosed)?;
-        loop {
-            let mut room = std::pin::pin!(input.room.notified());
-            // Registered before the push is tried, so room made in between is not missed.
-            room.as_mut().enable();
-            match input.push(bytes.clone()) {
-                Err(ProcessError::Overloaded { queue: ProcessQueue::Input }) => room.await,
-                other => return other,
+        for piece in bytes.chunks(input.cap.max(1)) {
+            loop {
+                let mut room = std::pin::pin!(input.room.notified());
+                // Registered before the push is tried, so room made in between is not missed.
+                room.as_mut().enable();
+                match input.push(piece.to_vec()) {
+                    Err(ProcessError::Overloaded { queue: ProcessQueue::Input }) => room.await,
+                    Err(other) => return Err(other),
+                    Ok(()) => break,
+                }
             }
         }
+        Ok(())
     }
 
     /// Resolves with the output bytes pushed once the process's reader is parked at its feed's gate: held back by a consumer that trails by
