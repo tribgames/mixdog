@@ -1,16 +1,13 @@
 #!/usr/bin/env node
 // Local pre-push check. Mirrors the test legs of .github/workflows/release-gate.yml
-// (jobs: runtime, runtime-slow, desktop, desktop-tests fast/slow, shipped-history).
+// (jobs: runtime, runtime-slow, desktop, desktop-tests fast/slow).
 // It MUST be updated together with that workflow whenever those commands change.
 // Up front it runs the released-section changelog check the desktop fast lane
 // asserts (changelog-locales.test.mjs; Deploy's plan adds the Unreleased
 // section) and stops if it fails. Everything else runs from one shared pool of
 // workers (scripts/lib/gate-scheduler.mjs): every test lane is cut into shards
 // of its own files (each run with the lane's own npm script command), and the
-// desktop build + daemon end-to-end test, the patch smoke and the gate's
-// shipped-history job (build-shipped-history.mjs --check; needs a full clone, a
-// shallow one keeps the committed file) are units of the same pool. A failed
-// shipped-history check stops new starts, so the gate still ends early on it.
+// desktop build + daemon end-to-end test is a unit of the same pool.
 // The whole run is at below-normal priority so the desktop stays responsive.
 // Not covered locally: runtime-macos, computer-backend (cargo + Linux X11),
 // desktop-tests `computer` lane (windows-latest, src/main/computer/ only),

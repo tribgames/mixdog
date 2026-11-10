@@ -27,7 +27,7 @@ async function stubbedCheckout(t) {
     'test-failure-summary.mjs',
   ])
     await copyFile(join(here, 'lib', name), join(root, 'scripts', 'lib', name));
-  for (const name of ['build-shipped-history', 'check-changelog-locales', 'check-model-recommendations'])
+  for (const name of ['check-changelog-locales','check-model-recommendations'])
     await writeFile(join(root, 'scripts', `${name}.mjs`), '');
   // Stand-in for scripts/test.mjs: `--list` prints one file of the selected
   // lane in the real runner's `<lane> <file>` form, so every lane gets a
@@ -114,11 +114,11 @@ test('concurrent gate runs keep separate log dirs, and a start sweeps only stale
   assert.notEqual(logDirs[0], logDirs[1]);
   for (const [index, run] of runs.entries()) {
     // Every summary line names a log inside this run's own directory, and it
-    // exists: one per lane (four test lanes, shipped-history, desktop).
+    // exists: one per lane (four test lanes, desktop).
     const printed = [...run.stdout.matchAll(/^PASS {2}\S+ {2}\S+ \(.+?\) {2}(.+)$/gm)].map((match) => match[1]);
-    assert.equal(printed.length, 6, run.stdout);
+    assert.equal(printed.length, 5, run.stdout);
     const names = await readdir(logDirs[index]);
-    assert.equal(names.length, 6);
+    assert.equal(names.length, 5);
     for (const path of printed)
       assert.ok(path.startsWith(logDirs[index]) && names.includes(path.split(/[\\/]/).at(-1)));
   }
