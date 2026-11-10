@@ -3,69 +3,87 @@
 import { spawn } from 'node:child_process';
 
 const WINDOWS = process.platform === 'win32';
-// taskkill and the process listing are processes of their own and can hang like any other: their answers have a deadline too.
+// Ending a process and waiting for its exit are processes' work too: they have a deadline.
 const KILL_DEADLINE_MS = 30_000;
 
-/** `spawn`, but on POSIX the child leads its own process group so the group can be ended with it. */
+// Windows has no process group. The only identity that holds every descendant and nothing else is a job object, and
+// Node cannot make one without a native addon. So a Windows child runs under a small PowerShell launcher that puts
+// itself in a job (kill-on-close) before it starts the program: every process the program starts, whatever exits first,
+// is in the job, and closing the job's last handle (the launcher's exit, however it comes) ends them all. No pid, no
+// creation time, no parent walk: a pid reused by a stranger is not in the job. The program is the launcher's child with
+// the launcher's own stdio; its exit code is the launcher's. 125: the program was not found, 126: it could not start.
+const LAUNCHER = `
+$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public static class TreeJob {
+  [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr CreateJobObject(IntPtr attributes, string name);
+  [DllImport("kernel32.dll", SetLastError = true)] static extern bool SetInformationJobObject(IntPtr job, int infoClass, IntPtr info, int length);
+  [DllImport("kernel32.dll", SetLastError = true)] static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+  [DllImport("kernel32.dll")] static extern IntPtr GetCurrentProcess();
+  static IntPtr held;
+  public static void JoinKillOnClose() {
+    held = CreateJobObject(IntPtr.Zero, null);
+    if (held == IntPtr.Zero) throw new System.ComponentModel.Win32Exception();
+    int length = IntPtr.Size == 8 ? 144 : 112;
+    IntPtr info = Marshal.AllocHGlobal(length);
+    for (int i = 0; i < length; i++) Marshal.WriteByte(info, i, 0);
+    Marshal.WriteInt32(info, 16, 0x2000);
+    if (!SetInformationJobObject(held, 9, info, length)) throw new System.ComponentModel.Win32Exception();
+    if (!AssignProcessToJobObject(held, GetCurrentProcess())) throw new System.ComponentModel.Win32Exception();
+  }
+}
+"@
+try { [TreeJob]::JoinKillOnClose() } catch { [Console]::Error.WriteLine("job launcher: could not create the job: $($_.Exception.Message)"); exit 126 }
+$info = New-Object System.Diagnostics.ProcessStartInfo
+$info.FileName = $env:MIXDOG_TREE_PROGRAM
+$info.Arguments = $env:MIXDOG_TREE_ARGS
+$info.UseShellExecute = $false
+$info.EnvironmentVariables.Remove('MIXDOG_TREE_PROGRAM')
+$info.EnvironmentVariables.Remove('MIXDOG_TREE_ARGS')
+try { $child = [System.Diagnostics.Process]::Start($info) } catch {
+  [Console]::Error.WriteLine("job launcher: could not start $($info.FileName): $($_.Exception.Message)")
+  if ($_.Exception.InnerException -is [System.ComponentModel.Win32Exception] -and @(2, 3) -contains $_.Exception.InnerException.NativeErrorCode) { exit 125 }
+  exit 126
+}
+$child.WaitForExit()
+exit $child.ExitCode
+`;
+const LAUNCHER_ENCODED = Buffer.from(LAUNCHER, 'utf16le').toString('base64');
+
+// The Windows command line of `program args` under the MSVCRT rules every program parses with.
+const quote = (arg) => (arg !== '' && !/[\s"]/.test(arg) ? arg : `"${arg.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, '$1$1')}"`);
+
+/**
+ * `spawn`, but the child's whole tree can be ended later by `endTree`: on POSIX the child leads its own process group;
+ * on Windows it runs under the job launcher above, and the returned child is the launcher (its pid is the launcher's,
+ * not the program's). A program that is not found emits 'error' with code ENOENT, as `spawn` does.
+ */
 export function spawnTree(program, args, options = {}) {
-  const child = spawn(program, args, { ...options, detached: !WINDOWS });
-  // Taken before the spawn returns; a process created before this instant cannot be the child's descendant.
-  child.treeStartedAt = Date.now() - 2000;
+  if (!WINDOWS) return spawn(program, args, { ...options, detached: true });
+  const { shell, env, ...rest } = options;
+  const line = shell ? `/d /s /c "${[program, ...args].join(' ')}"` : args.map(quote).join(' ');
+  const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', LAUNCHER_ENCODED], {
+    ...rest,
+    env: { ...(env ?? process.env), MIXDOG_TREE_PROGRAM: shell ? 'cmd.exe' : program, MIXDOG_TREE_ARGS: line },
+    windowsHide: true,
+  });
+  child.once('exit', (code) => {
+    if (code === 125) child.emit('error', Object.assign(new Error(`spawn ${program} ENOENT`), { code: 'ENOENT', syscall: `spawn ${program}`, path: program }));
+    else if (code === 126) child.emit('error', Object.assign(new Error(`the job launcher could not start ${program} (exit 126; its stderr says why)`), { code: 'ELAUNCH' }));
+  });
   return child;
 }
 
 const gone = (child) => child.exitCode !== null || child.signalCode !== null;
 
-/** One program under a deadline, its stdout captured: `{ code, stdout, stderr }`; rejects on a deadline or a start failure. */
-function capture(program, args, deadlineMs, what) {
-  return new Promise((resolveRun, reject) => {
-    const proc = spawn(program, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
-    let stdout = '';
-    let stderr = '';
-    proc.stdout.on('data', (chunk) => (stdout += chunk));
-    proc.stderr.on('data', (chunk) => (stderr += chunk));
-    const timer = setTimeout(() => {
-      proc.kill();
-      reject(new Error(`${what} did not answer within ${deadlineMs}ms`));
-    }, deadlineMs);
-    proc.once('error', (error) => {
-      clearTimeout(timer);
-      reject(new Error(`could not run ${what}: ${error.message}`));
-    });
-    proc.once('close', (code) => {
-      clearTimeout(timer);
-      resolveRun({ code, stdout, stderr });
-    });
-  });
-}
-
 /**
- * Windows keeps a process's parent id after the parent has exited, so the descendants of a dead child are still found by
- * walking parent ids from its pid. A pid reused later has a creation time after the child's start; those are not ours.
- */
-async function windowsDescendants(rootPid, startedAt, deadlineMs) {
-  const script = 'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId) $(([DateTimeOffset]$_.CreationDate).ToUnixTimeMilliseconds())" }';
-  const listing = await capture('powershell', ['-NoProfile', '-NonInteractive', '-Command', script], deadlineMs, 'the process listing');
-  if (listing.code !== 0) throw new Error(`the process listing exited ${listing.code}: ${listing.stderr.trim().slice(0, 300)}`);
-  const rows = listing.stdout.split(/\r?\n/).map((line) => line.trim().split(' ').map(Number)).filter((r) => r.length === 3 && r.every(Number.isFinite));
-  const found = [];
-  const queue = [rootPid];
-  while (queue.length) {
-    const parent = queue.shift();
-    for (const [pid, ppid, created] of rows) {
-      if (ppid === parent && pid !== parent && created >= startedAt && !found.includes(pid)) {
-        found.push(pid);
-        queue.push(pid);
-      }
-    }
-  }
-  return found;
-}
-
-/**
- * Ends `child` and every process it started, whether or not the child itself is still alive, and answers
- * `{ killed }`: the pids ended on Windows, the process group id (negative) on POSIX. A child that never started has
- * nothing to end. Rejects when the kill itself fails or does not answer in time: an unended tree is its own error.
+ * Ends `child` and every process it started, whether or not the child itself is still alive, and answers `{ killed }`:
+ * the launcher's pid on Windows (its end closes the job, which ends every member), the process group id (negative) on
+ * POSIX; empty when nothing was left to end. Rejects when the kill itself fails or the launcher does not exit in time.
+ * The members of a Windows job are ended by the system as the launcher goes; prove one gone by waiting for its exit.
  * @param {import('node:child_process').ChildProcess} child started by `spawnTree`
  */
 export async function endTree(child, { deadlineMs = KILL_DEADLINE_MS } = {}) {
@@ -80,14 +98,17 @@ export async function endTree(child, { deadlineMs = KILL_DEADLINE_MS } = {}) {
     }
     return { killed: [-child.pid] };
   }
-  const targets = await windowsDescendants(child.pid, child.treeStartedAt ?? 0, deadlineMs);
-  if (!gone(child)) targets.unshift(child.pid);
-  if (!targets.length) return { killed: [] };
-  const answer = await capture('taskkill', [...targets.flatMap((pid) => ['/PID', String(pid)]), '/T', '/F'], deadlineMs, `taskkill of the process tree of pid ${child.pid}`);
-  // 128: no such process, a tree member that ended by itself between the listing and the kill.
-  if (answer.code === 0 || (answer.code === 128 && gone(child))) return { killed: targets };
-  throw new Error(`taskkill of the process tree of pid ${child.pid} exited ${answer.code}: ${answer.stderr.trim().slice(0, 300)}`);
+  if (gone(child)) return { killed: [] };
+  let timer;
+  const exited = new Promise((resolveExit, reject) => {
+    child.once('exit', resolveExit);
+    timer = setTimeout(() => reject(new Error(`the job launcher of pid ${child.pid} did not exit within ${deadlineMs}ms after it was killed`)), deadlineMs);
+  }).finally(() => clearTimeout(timer));
+  if (!child.kill()) throw new Error(`could not kill the job launcher of pid ${child.pid}`);
+  await exited;
+  return { killed: [child.pid] };
 }
+
 /**
  * One command to its exit under a deadline: answers `{ status, stdout, stderr }`. At the deadline, or when the child
  * cannot start, the tree is ended and the run rejects with `label` in the message; a failed kill is appended as its
@@ -102,24 +123,32 @@ export function runTree(program, args, { label, cwd, env, deadlineMs, inherit = 
     child.stderr?.on('data', (chunk) => (stderr += chunk));
     // Once the tree is being ended, the child's own close is the kill working, not an answer.
     let ending = false;
-    const fail = async (message) => {
+    // `code` is the spawn error's own (ENOENT for a program that is not there), so a caller can tell that from a deadline.
+    const fail = async (message, code) => {
       ending = true;
       try {
         const { killed } = await endTree(child);
-        reject(new Error(`${message} (ended: ${killed.length ? killed.join(', ') : 'nothing was left running'})`));
+        reject(Object.assign(new Error(`${message} (ended: ${killed.length ? killed.join(', ') : 'nothing was left running'})`), { code }));
       } catch (error) {
-        reject(new Error(`${message}; ${error.message}`));
+        reject(Object.assign(new Error(`${message}; ${error.message}`), { code }));
       }
     };
     const deadline = setTimeout(() => fail(`${label} did not finish within ${deadlineMs}ms and was ended\n${stderr.slice(-600)}`), deadlineMs);
     child.once('error', (error) => {
       clearTimeout(deadline);
-      fail(`${label} could not run: ${error.message}`);
+      fail(`${label} could not run: ${error.message}`, error.code);
     });
-    child.once('close', (status) => {
+    // Whatever a command left behind is ended when it exits, success included: a run owns its whole tree.
+    let endedOnExit = Promise.resolve();
+    child.once('exit', () => {
+      if (!ending) endedOnExit = endTree(child).then(() => null, (error) => error);
+    });
+    child.once('close', async (status) => {
       if (ending) return;
+      const endError = await endedOnExit;
       clearTimeout(deadline);
-      resolveRun({ status, stdout, stderr });
+      if (endError) reject(new Error(`${label} finished but its process tree could not be ended: ${endError.message}`));
+      else resolveRun({ status, stdout, stderr });
     });
   });
 }

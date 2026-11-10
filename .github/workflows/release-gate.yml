@@ -894,6 +894,7 @@ jobs:
           cargo build --release --locked --manifest-path native/core/Cargo.toml -p mixdog-cli --bin mixdogd
           node scripts/rust-core/smoke-mixdogd.mjs --mixdogd native/core/target/release/mixdogd
       - name: Check that a stop past its deadline ends the core it started, and the smoke's verdicts
+        # The two files fail, not skip, when MIXDOGD_BIN is unset (MIXDOG_TESTS_WITHOUT_CORE=1 is the only skip, and no lane sets it).
         env:
           MIXDOGD_BIN: native/core/target/release/mixdogd
         run: node --test scripts/rust-core/core-session.test.mjs scripts/rust-core/smoke-mixdogd.test.mjs

@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { endAndWait, waitGone } from '../../scripts/rust-core/lib/process-probe.mjs';
 import { runTree } from '../../scripts/rust-core/lib/process-tree.mjs';
 import { LANGS, MODELS, execInputTokens, inputTokensOfFirstRequest, measureModel, renderTable, usageLogInput } from './measure-exec.mjs';
 
@@ -147,16 +148,18 @@ test('at the deadline the exec and everything it started are gone, on a real pro
     const preload = join(dir, 'hang.cjs').replaceAll('\\', '/');
     writeFileSync(
       preload,
-      `delete process.env.NODE_OPTIONS;\nconst gc = require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });\nrequire('node:fs').writeFileSync(${JSON.stringify(join(dir, 'pids.json').replaceAll('\\', '/'))}, JSON.stringify([process.pid, gc.pid]));\nAtomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);\n`,
+      `delete process.env.NODE_OPTIONS;\nconst gc = require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', detached: process.platform === 'win32' });\nrequire('node:fs').writeFileSync(${JSON.stringify(join(dir, 'pids.json').replaceAll('\\', '/'))}, JSON.stringify([process.pid, gc.pid]));\nAtomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);\n`,
     );
     process.env.NODE_OPTIONS = `--require "${preload}"`;
     await assert.rejects(execInputTokens({ bin: process.execPath, provider: 'x', model: 'm', text: 't', cwd: dir, deadlineMs: 5000 }), /did not finish within 5000ms and was ended/);
     const pids = JSON.parse(readFileSync(join(dir, 'pids.json'), 'utf8'));
     assert.equal(pids.length, 2);
-    for (const pid of pids) assert.throws(() => process.kill(pid, 0), `pid ${pid} is still running`);
+    for (const pid of pids) await waitGone(pid);
   } finally {
     if (previous === undefined) delete process.env.NODE_OPTIONS;
     else process.env.NODE_OPTIONS = previous;
+    // What the test started is ended and awaited on every path, a failed assertion included.
+    if (existsSync(join(dir, 'pids.json'))) for (const pid of JSON.parse(readFileSync(join(dir, 'pids.json'), 'utf8'))) await endAndWait(pid);
     rmSync(dir, { recursive: true, force: true });
   }
 });
