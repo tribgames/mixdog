@@ -35,7 +35,7 @@
     {
       "bytes": 3710,
       "path": "install/MANIFEST.json",
-      "sha256": "28831727b3ffabde1211e257af5db649201c5c4df703867e122728d61407be6f"
+      "sha256": "ddb7e80d4f3f4a67b82679b19e690670083a65d4447576542e4f1d7e95933a9f"
     },
     {
       "bytes": 96861,
@@ -45,7 +45,7 @@
     {
       "bytes": 3156,
       "path": "lease/MANIFEST.json",
-      "sha256": "e972e52b411e834c5827774713ebb9f0b74d74e09331a5366e38a2ef3eb41ea1"
+      "sha256": "11f20252ca786232911aa7d95c9304778ac5f9b5dd113db4e242c54ebbe456cf"
     },
     {
       "bytes": 67456,
@@ -55,7 +55,7 @@
     {
       "bytes": 4217,
       "path": "router/MANIFEST.json",
-      "sha256": "29f014144163d6285bb1a597cab864bb822f452d99adb63e19007cdadc5465c7"
+      "sha256": "ee93770310f19f751f6cc841398a3f74f38df3984bc26067615a71d2cda54219"
     },
     {
       "bytes": 143546,
@@ -75,7 +75,7 @@
     {
       "bytes": 1988,
       "path": "switch/MANIFEST.json",
-      "sha256": "115d7c5ae356423a2dd5ce1e8d15b7a23851ad3d2073975168d8b849e2dd92db"
+      "sha256": "f710a7075940b3661b06207fb8a580128bed796efff3c95c94fa537039261d52"
     },
     {
       "bytes": 31781,
@@ -95,7 +95,7 @@
     {
       "bytes": 2965,
       "path": "video/MANIFEST.json",
-      "sha256": "2e7df5d52b69bde27d71da4bf4fc4d198f58b05558b29ccdc67b2e5f77f7c130"
+      "sha256": "eb2b9d31ee785fc92b5cdfa5d8f0cd0a5cffc0c46143b79ceb23a1a2126a43a0"
     },
     {
       "bytes": 47023,
