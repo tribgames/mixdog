@@ -274,7 +274,7 @@ impl DevinDecoder {
             let arguments = if call.args.trim().is_empty() {
                 json!({})
             } else {
-                match serde_json::from_str::<Value>(&call.args) {
+                match mixdog_js::json_parse(&call.args) {
                     Ok(v) if v.is_object() => v,
                     Ok(_) => invalid_tool_args_marker(&call.args, "arguments are not an object"),
                     Err(e) => invalid_tool_args_marker(&call.args, &mixdog_js::v8_json_parse_error(&call.args).unwrap_or_else(|| e.to_string())),
@@ -439,4 +439,15 @@ mod progress_tests {
             assert_eq!(rust_names(&events), node_names(&step["kinds"]), "{}", step["wire"]);
         }
     }
-}
+
+    /// A call whose argument text is not JSON rides as data carrying V8's parse text (`JSON.parse('{"k')` on Node v22.20.0).
+    #[test]
+    fn malformed_arguments_carry_v8s_parse_text() {
+        let mut decoder = DevinDecoder::new(ProviderId::from("devin"), "m", Vec::new());
+        let mut events = Vec::new();
+        decoder.apply(message(&serde_json::json!({"deltaToolCalls": [{"id": "c1", "name": "read", "argumentsJson": "{\"k"}]})), &mut events);
+        let done = decoder.terminal().expect("terminal");
+        let call = done.iter().find_map(|e| if let StreamEvent::ToolCallDone(c) = e { Some(c) } else { None }).expect("a call");
+        assert_eq!(call.arguments["__invalidToolArgs"], true);
+        assert_eq!(call.arguments["__parseError"], "Unterminated string in JSON at position 3 (line 1 column 4)");
+    }}

@@ -26,75 +26,38 @@ pub enum ResultKind {
     ZeroMatch,
 }
 
-/// JavaScript's `\s` (and `trimStart`): Unicode space separators, line terminators, U+FEFF; not U+0085.
-fn js_space(c: char) -> bool {
-    c == '\u{feff}' || (c.is_whitespace() && c != '\u{85}')
-}
+use regex::Regex;
+use std::sync::LazyLock;
 
-fn word(b: u8) -> bool {
-    b.is_ascii_alphanumeric() || b == b'_'
-}
+// The expressions are Node's, flag for flag: `i` without `u` folds ASCII only (`(?i-u:…)`), `\b` is the ASCII word boundary
+// (`(?-u:\b)`), and `\s` is JavaScript's (Unicode space separators, line terminators and U+FEFF, not U+0085).
+const JS_SPACE: &str = r"[\p{White_Space}\x{FEFF}--\x{85}]";
 
-/// `\bneedle\b`-style match of an ASCII needle in lower-cased ASCII-folded `hay`: the edges that touch a word
-/// character of the needle must not touch one of the text.
-fn has_word(hay: &str, needle: &str) -> bool {
-    let h = hay.as_bytes();
-    hay.match_indices(needle).any(|(at, _)| {
-        let before = at == 0 || !word(h[at - 1]);
-        let after = h.get(at + needle.len()).is_none_or(|b| !word(*b));
-        before && after
-    })
-}
+/// `NAVIGATION_MISS_RE`.
+static NAVIGATION_MISS: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r#"(?i-u:(?-u:\b)(?:enoent|enotdir)(?-u:\b)|path does not exist|directory does not exist|no such (?:file|path)|not found at this path|file not found(?-u:\b))|(?i-u:symbol ")[^"\n]*(?i-u:" not found in )"#,
+    )
+    .unwrap()
+});
 
-/// `NAVIGATION_MISS_RE` and the permission exclusion of `isReadOnlyNavigationMiss`, case-insensitive for ASCII only
-/// (a non-ASCII character never folds onto an ASCII one in a non-`u` regex).
+/// The permission exclusion of `isReadOnlyNavigationMiss`.
+static PERMISSION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i-u:(?-u:\b)(?:eacces|eperm)(?-u:\b)|access is denied|permission denied|operation not permitted)").unwrap()
+});
+
+/// `/^error(?:\s+\[code\b|\s*:)/i`.
+static ERROR_PREFIX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(&format!(r"^(?i-u:error)(?:{JS_SPACE}+(?i-u:\[code)(?-u:\b)|{JS_SPACE}*:)")).unwrap());
+
+/// `/^\[error/i`.
+static BRACKET_ERROR: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(?i-u:\[error)").unwrap());
+
+static LEADING_SPACE: LazyLock<Regex> = LazyLock::new(|| Regex::new(&format!(r"^{JS_SPACE}+")).unwrap());
+
+/// `isReadOnlyNavigationMiss(toolName, result)`.
 fn is_read_only_navigation_miss(tool: &str, text: &str) -> bool {
-    if !READ_ONLY_NAVIGATION_TOOLS.contains(&tool.to_lowercase().as_str()) {
-        return false;
-    }
-    let t = text.to_ascii_lowercase();
-    if has_word(&t, "eacces")
-        || has_word(&t, "eperm")
-        || t.contains("access is denied")
-        || t.contains("permission denied")
-        || t.contains("operation not permitted")
-    {
-        return false;
-    }
-    has_word(&t, "enoent")
-        || has_word(&t, "enotdir")
-        || ["path does not exist", "directory does not exist", "no such file", "no such path", "not found at this path"]
-            .iter()
-            .any(|p| t.contains(p))
-        || has_word(&t, "file not found")
-        || symbol_not_found(&t)
-}
-
-/// `symbol "[^"\n]*" not found in `.
-fn symbol_not_found(t: &str) -> bool {
-    t.match_indices("symbol \"").any(|(at, m)| {
-        let rest = &t[at + m.len()..];
-        rest.find(['"', '\n']).is_some_and(|end| rest[end..].starts_with('"') && rest[end + 1..].starts_with(" not found in "))
-    })
-}
-
-/// `/^error(?:\s+\[code\b|\s*:)/i` or `/^\[error/i`, on the text with its leading whitespace removed.
-fn is_error_text(trimmed: &str) -> bool {
-    let b = trimmed.as_bytes();
-    if b.first() == Some(&b'[') {
-        return b.len() >= 6 && b[1..6].eq_ignore_ascii_case(b"error");
-    }
-    if b.len() < 5 || !b[..5].eq_ignore_ascii_case(b"error") {
-        return false;
-    }
-    let rest = &trimmed[5..];
-    let after_space = rest.trim_start_matches(js_space);
-    if after_space.starts_with(':') {
-        return true;
-    }
-    after_space.len() < rest.len()
-        && after_space.starts_with("[code")
-        && after_space.as_bytes().get(5).is_none_or(|b| !word(*b))
+    READ_ONLY_NAVIGATION_TOOLS.contains(&tool.to_lowercase().as_str()) && !PERMISSION.is_match(text) && NAVIGATION_MISS.is_match(text)
 }
 
 /// `classifyResultKind(text, false, tool)`.
@@ -102,8 +65,8 @@ pub fn classify_result_kind(text: &str, tool: &str) -> ResultKind {
     if is_read_only_navigation_miss(tool, text) {
         return ResultKind::ZeroMatch;
     }
-    let trimmed = text.trim_start_matches(js_space);
-    if is_error_text(trimmed) {
+    let trimmed = LEADING_SPACE.find(text).map_or(text, |m| &text[m.end()..]);
+    if ERROR_PREFIX.is_match(trimmed) || BRACKET_ERROR.is_match(trimmed) {
         return ResultKind::Error;
     }
     if ZERO_MATCH_PREFIXES.iter().any(|p| trimmed.starts_with(p)) {

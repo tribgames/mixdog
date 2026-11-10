@@ -259,7 +259,7 @@ fn parse_call_arguments(text: &str) -> Value {
     if text.trim().is_empty() {
         return json!({});
     }
-    serde_json::from_str(text).unwrap_or_else(|err| {
+    mixdog_js::json_parse(text).unwrap_or_else(|err| {
         json!({
             "__invalidToolArgs": true,
             "__rawArguments": text,
@@ -272,7 +272,7 @@ fn parse_search_arguments(value: Option<&Value>) -> Value {
     match value {
         Some(Value::Object(map)) => Value::Object(map.clone()),
         Some(Value::String(text)) if !text.trim().is_empty() => {
-            match serde_json::from_str::<Value>(text) {
+            match mixdog_js::json_parse(text) {
                 Ok(Value::Object(map)) => Value::Object(map),
                 Ok(_) => json!({}),
                 Err(err) => json!({
@@ -1267,6 +1267,49 @@ mod reasoning_tests {
     }
 }
 
+#[cfg(test)]
+mod arguments_tests {
+    use super::*;
+
+    /// Node's `JSON.parse` over the recorded corpora (`mixdog-js/testdata`), through this decoder's real parse path: an input V8 rejects
+    /// is an invalid call carrying V8's text, an input V8 accepts is a call with its arguments. The two lists are the inputs where the
+    /// decoder's parser (serde) and V8 disagree about which of the two it is.
+    #[test]
+    fn the_real_parse_path_answers_the_recorded_corpus_as_v8_does() {
+        let errors: Vec<(String, Option<String>)> = serde_json::from_str::<Vec<Value>>(include_str!("../../../../mixdog-js/testdata/json_error.json"))
+            .unwrap()
+            .into_iter()
+            .skip(1)
+            .map(|row| (row[0].as_str().unwrap().to_owned(), row[1].as_str().map(str::to_owned)))
+            .collect();
+        let mut wrong_text = Vec::new();
+        for (input, message) in &errors {
+            if input.trim().is_empty() {
+                continue;
+            }
+            let args = parse_call_arguments(input);
+            let invalid = args.get("__invalidToolArgs").is_some();
+            match message {
+                Some(message) if invalid && args["__parseError"] != *message => wrong_text.push(format!("{input:?}: {} vs {message}", args["__parseError"])),
+                Some(_) if !invalid => wrong_text.push(format!("{input:?}: accepted, V8 rejects")),
+                _ => {}
+            }
+        }
+        assert!(wrong_text.is_empty(), "inputs answered with other text than V8's:\n{}", wrong_text.join("\n"));
+
+        let parses: Vec<Value> = serde_json::from_str(include_str!("../../../../mixdog-js/testdata/json_parse.json")).unwrap();
+        let mut disagree = Vec::new();
+        for row in parses {
+            let (input, expected) = (row[0].as_str().unwrap(), &row[1]);
+            let v8_accepts = expected.get("ok").is_some();
+            let invalid = parse_call_arguments(input).get("__invalidToolArgs").is_some();
+            if !input.trim().is_empty() && v8_accepts == invalid {
+                disagree.push(format!("{input:?}: V8 {}, decoder {}", if v8_accepts { "accepts" } else { "rejects" }, if invalid { "rejects" } else { "accepts" }));
+            }
+        }
+        assert!(disagree.is_empty(), "inputs the decoder and V8 treat differently:\n{}", disagree.join("\n"));
+    }
+}
 #[cfg(test)]
 mod progress_tests {
     use super::*;

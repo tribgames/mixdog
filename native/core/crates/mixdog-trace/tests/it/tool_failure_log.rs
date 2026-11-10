@@ -74,7 +74,7 @@ fn rows_wait_for_the_fiftieth_line_or_a_second_and_are_lost_unflushed() {
 }
 
 #[test]
-fn the_log_rotates_above_ten_megabytes_and_keeps_the_generations() {
+fn the_live_file_moves_to_dot_one_only_above_ten_mebibytes() {
     let dir = tempfile::tempdir().unwrap();
     let trace = trace_in(dir.path(), &[("MIXDOG_AGENT_TRACE_ROTATE_CHECK_MS", "1")]);
     let live = file(dir.path());
@@ -107,4 +107,47 @@ fn a_failed_write_warns_with_its_key_and_drops_the_chunk() {
     trace.tool_failure(&failure(1), 4);
     assert!(trace.flush(5).is_empty());
     assert_eq!(fs::read_to_string(file(dir.path())).unwrap().lines().count(), 1, "only the later row exists");
+}
+
+/// Node keeps `.1 → .2 → .3` (`MIXDOG_AGENT_TRACE_ROTATE_KEEP` defaults to 3): the fourth rotation overwrites the oldest generation.
+#[test]
+fn successive_rotations_keep_three_generations_and_overwrite_the_oldest() {
+    let dir = tempfile::tempdir().unwrap();
+    let trace = trace_in(dir.path(), &[("MIXDOG_AGENT_TRACE_ROTATE_CHECK_MS", "1")]);
+    let live = file(dir.path());
+    fs::create_dir_all(live.parent().unwrap()).unwrap();
+    let generation = |n: usize| dir.path().join("history").join(format!("tool-failures.jsonl.{n}"));
+    for round in 1..=4u8 {
+        let mut over = vec![b'a' + round; 10 * 1024 * 1024 + 1];
+        over.push(b'\n');
+        fs::write(&live, over).unwrap();
+        trace.tool_failure(&failure(usize::from(round)), i64::from(round) * 100);
+        assert!(trace.flush(i64::from(round) * 100).is_empty());
+        assert_eq!(fs::read_to_string(&live).unwrap().lines().count(), 1, "round {round}: the live file starts again");
+    }
+    let first_byte = |n: usize| fs::read(generation(n)).unwrap()[0];
+    assert_eq!([first_byte(1), first_byte(2), first_byte(3)], [b'a' + 4, b'a' + 3, b'a' + 2], "newest first; round 1's file was overwritten");
+    assert!(!generation(4).exists(), "no fourth generation");
+}
+
+/// A rename that fails is warned once under the trace's key, for this file too (`_rotateLocalTraceIfNeeded` has the one handler).
+#[test]
+fn a_failed_rotation_warns_under_the_traces_rotate_key() {
+    let dir = tempfile::tempdir().unwrap();
+    let trace = trace_in(dir.path(), &[("MIXDOG_AGENT_TRACE_ROTATE_CHECK_MS", "1")]);
+    let live = file(dir.path());
+    fs::create_dir_all(live.parent().unwrap()).unwrap();
+    fs::write(&live, vec![b'x'; 10 * 1024 * 1024 + 1]).unwrap();
+    // `.2` is renamed onto `.3`, a non-empty directory, which no platform allows.
+    let history = dir.path().join("history");
+    for generation in [2, 3] {
+        let folder = history.join(format!("tool-failures.jsonl.{generation}"));
+        fs::create_dir_all(&folder).unwrap();
+        fs::write(folder.join("keep"), "x").unwrap();
+    }
+    trace.tool_failure(&failure(0), 10);
+    let warnings = trace.flush(10);
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert_eq!(warnings[0].key, "agent-trace:local-rotate");
+    assert!(warnings[0].message.starts_with("[agent-trace] local rotate failed ("), "{}", warnings[0].message);
 }
