@@ -18,12 +18,12 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, truncateSync, watch, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { REPO_ROOT } from './common.mjs';
+import { coreRequests } from './file-download-requests.mjs';
 
-const WORLDS = 'D:\\mixdog-build\\tmp\\w25-downloads-replay';
-const REQUESTS_FILE = join(REPO_ROOT, 'native', 'core', 'fixtures', 'file-download-requests', 'core-requests.json');
 const here = (path) => import(pathToFileURL(join(REPO_ROOT, path)).href);
 const RELAY_CAPABILITIES = { textFrames: 1, maxFrameBytes: 1048576 };
 const SWEEP_INTERVAL = 15_000;
@@ -227,14 +227,12 @@ class Tokens {
 let opCount = 0;
 const opId = () => `018f0000-0000-7000-8000-${(++opCount).toString(16).padStart(12, '0')}`;
 
-/** @returns {Promise<number>} the exit code: 0 when every step is as Node's. `writeRequests`: record the requests the adapter makes of
- *  the core as the golden the workspace crate's replay sends (otherwise they are compared with it). */
-export async function replayDownloads({ exe, recording, writeRequests = false }) {
-  rmSync(WORLDS, { recursive: true, force: true });
-  mkdirSync(WORLDS, { recursive: true });
+/** @returns {Promise<{ code: number, notRun: string[] }>} code 0 when every step is as Node's; and the scenarios recorded for another system, not run. */
+export async function replayDownloads({ exe, recording }) {
+  // A folder of this run's own, removed once at the end, after the processes that use it have ended.
+  const WORLDS = realpathSync.native(mkdtempSync(join(tmpdir(), 'downloads-replay-')));
   const talk = talkFolder(join(WORLDS, 'talk'));
   talk.write('clock', recording.clockStart);
-  const golden = writeRequests ? { domain: 'file-download-requests', scenarios: [] } : JSON.parse(readFileSync(REQUESTS_FILE, 'utf8'));
   const credentials = [];
   const credential = (n, who) => {
     const id = `${who === 'phone' ? 'a' : who === 'tablet' ? 'b' : 'c'}${n.toString(16).padStart(7, '0')}`;
@@ -250,7 +248,9 @@ export async function replayDownloads({ exe, recording, writeRequests = false })
   let core = null;
   const clients = [];
   const problems = [];
-  const accounted = { calls: 0, held: 0, handles: 0, skipped: 0 };
+  const accounted = { calls: 0, held: 0, handles: 0 };
+  /** The scenarios recorded for another system: not run here, and said so. */
+  const notRun = [];
   // Every recorded call carries the id of its request: one counter, one id per call sent, in the recording's order, none skipped.
   let expectedId = null;
   try {
@@ -283,10 +283,10 @@ export async function replayDownloads({ exe, recording, writeRequests = false })
       const steps = scenario.steps;
       const callsOf = steps.filter((step) => step.op === 'call' || step.op === 'send').length;
       if (scenario.platform && scenario.platform !== process.platform) {
-        // A recording of this host's own path rules is not a statement about another host's: counted, not replayed.
-        accounted.skipped += callsOf;
+        // A recording of this host's own path rules is not a statement about another host's: named as not run (the caller asserts the list).
+        notRun.push(label);
         if (expectedId !== null) expectedId += callsOf;
-        console.log(`file-downloads ${label}: recorded on ${scenario.platform}, not applicable on ${process.platform} (${callsOf} calls)`);
+        console.log(`file-downloads ${label}: recorded on ${scenario.platform}, not run on ${process.platform} (${callsOf} calls)`);
         continue;
       }
       const world = realpathSync.native(mkdtempSync(join(WORLDS, 'w-')));
@@ -322,7 +322,8 @@ export async function replayDownloads({ exe, recording, writeRequests = false })
         if (typeof node !== 'string') return node;
         const session = Object.entries(conversations).find(([, id]) => id === node);
         if (session) return session[0];
-        return tokens.tokenOf(node) ?? forward(node).replaceAll(forward(world), '<dir>');
+        const slashed = forward(node);
+        return tokens.tokenOf(node) ?? (slashed.includes(forward(world)) ? slashed.replaceAll(forward(world), '<dir>') : node);
       };
       const routers = new Map();
       const requested = [];
@@ -345,7 +346,6 @@ export async function replayDownloads({ exe, recording, writeRequests = false })
       }
       const unexpected = [...gaps];
       const swapDir = (node) => (typeof node === 'string' ? node.replaceAll('<dir>', forward(world)) : Array.isArray(node) ? node.map(swapDir) : node && typeof node === 'object' ? Object.fromEntries(Object.entries(node).map(([k, v]) => [k, swapDir(v)])) : node);
-      const goldenSteps = [];
       const sendFrame = (device, method, params) => {
         const sent = within(routers.get(device).call(method, sessionOf(swapDir(tokens.resolve(params)))), `the answer to ${method}`);
         return sent.then(
@@ -360,13 +360,11 @@ export async function replayDownloads({ exe, recording, writeRequests = false })
         expectedId += 1;
         return requested.length;
       };
-      const settleRequests = (from, at) => {
+      /** The requests the adapter made since `from` are those derived from the service calls Node's table made for this call. */
+      const settleRequests = (from, step, at) => {
         const made = requested.slice(from);
-        goldenSteps[at] = made;
-        if (!writeRequests) {
-          const wanted = golden.scenarios.find((entry) => entry.name === label)?.steps[at];
-          if (JSON.stringify(wanted) !== JSON.stringify(made)) unexpected.push(`#${at + 1} the adapter's requests: recorded ${JSON.stringify(wanted)}, made ${JSON.stringify(made)}`);
-        }
+        const wanted = coreRequests(step.service ?? []);
+        if (JSON.stringify(wanted) !== JSON.stringify(made)) unexpected.push(`#${at + 1} the adapter's requests: Node's service calls give ${JSON.stringify(wanted)}, the adapter made ${JSON.stringify(made)}`);
       };
       const compare = (step, recorded, got, at) => {
         const { id: _id, ...node } = recorded;
@@ -386,7 +384,8 @@ export async function replayDownloads({ exe, recording, writeRequests = false })
       const unpair = (device) => ask('remoteAccess/revokeClient', { opId: opId(), clientId: plan[n].devices[device] }).catch(() => undefined);
       /** Files and folders: the same operations the recorder made. */
       const fileOp = (step) => {
-        const at = (name) => join(world, name);
+        // The media store is the core's own, in its data dir; every other file is in the scenario's world.
+        const at = (name) => (name.startsWith('media/') ? join(core.dataDir, name) : join(world, name));
         if (step.op === 'write') (mkdirSync(join(at(step.file), '..'), { recursive: true }), writeFileSync(at(step.file), step.text));
         else if (step.op === 'append') appendFileSync(at(step.file), step.text);
         else if (step.op === 'size') truncateSync(at(step.file), step.bytes);
@@ -416,26 +415,33 @@ export async function replayDownloads({ exe, recording, writeRequests = false })
           await talk.waitFor(`the core's sweeper to sweep at ${tick}`, () => (talk.read('swept') === String(tick) ? true : undefined));
         }
       };
-      let retiring = false;
-      const held = async (expected) => {
-        // The core ends a deleted conversation's downloads on a task it spawns when the catalog is published, so right after a
-        // publication its count is awaited (a count that never arrives is reported as the count it stays at); every other count is
-        // read as it stands.
-        if (retiring) await talk.waitFor(`the core to hold ${expected} files after the catalog was published`, () => (Number(talk.read('held')) === expected ? true : undefined), 5_000).catch(() => undefined);
-        retiring = false;
-        return Number(talk.read('held'));
-      };
+      // A deleted conversation's downloads end in the step the deletion lands, so the count is read as it stands.
+      const held = async () => Number(talk.read('held'));
+      /** The host's media store: the core's own store, in its data dir, gets the asset's file and its index entry. */
+      const store = join(core.dataDir, 'media');
+      const writeIndex = (entries) => (mkdirSync(store, { recursive: true }), writeFileSync(join(store, 'index.json'), JSON.stringify({ version: 2, assets: entries })));
+      const assetsHeld = [];
+      rmSync(store, { recursive: true, force: true });
       let index = 0;
       try {
         for (let at = 0; at < steps.length; at += 1) {
           const step = steps[at];
           index = at + 1;
-          if (fileOp(step)) {
-            goldenSteps[at] = null;
-            continue;
-          }
-          goldenSteps[at] = null;
+          if (fileOp(step)) continue;
           switch (step.op) {
+            case 'media': {
+              const file = join(store, 'assets', step.name);
+              mkdirSync(dirname(file), { recursive: true });
+              writeFileSync(file, step.text);
+              assetsHeld.push({ id: step.id, kind: 'image', mime: step.mime, file: step.name, bytes: step.text.length, createdAt: 1 });
+              writeIndex(assetsHeld);
+              break;
+            }
+            case 'unmedia': {
+              const at = assetsHeld.findIndex((entry) => entry.id === step.id);
+              rmSync(join(store, 'assets', assetsHeld[at].file));
+              break;
+            }
             case 'advance':
               await advance(step.ms);
               break;
@@ -447,10 +453,9 @@ export async function replayDownloads({ exe, recording, writeRequests = false })
               break;
             case 'sessions':
               await publish(step.ids);
-              retiring = true;
               break;
             case 'handles': {
-              const open = await held(step.open);
+              const open = await held();
               accounted.handles += 1;
               if (open !== step.open) unexpected.push(`#${index} handles: Node held ${step.open} files open, the core holds ${open}`);
               break;
@@ -462,7 +467,7 @@ export async function replayDownloads({ exe, recording, writeRequests = false })
               }
               const from = issue(step, step.frame.id);
               compare(step, step.frame, await sendFrame(step.device, step.method, step.params), at);
-              settleRequests(from, at);
+              settleRequests(from, step, at);
               break;
             }
             case 'hold': {
@@ -475,13 +480,12 @@ export async function replayDownloads({ exe, recording, writeRequests = false })
               const from = issue(sent, answered.frame.id);
               const pending = sendFrame(sent.device, sent.method, sent.params);
               await talk.waitFor(`a call to reach ${point} in the core`, () => (talk.read(`reached-${point}`) !== null ? true : undefined));
-              settleRequests(from, at + 1);
+              settleRequests(from, sent, at + 1);
               if (event.op === 'revokeDevice') await unpair(event.device);
-              else if (event.op === 'sessions') (await publish(event.ids), (retiring = true));
+              else if (event.op === 'sessions') await publish(event.ids);
               else if (!fileOp(event)) throw new Error(`${label} #${index}: a held call's event ${event.op}`);
               talk.remove(`hold-${point}`);
               compare(sent, answered.frame, await pending, at + 4);
-              for (let i = 2; i <= 4; i += 1) goldenSteps[at + i] = null;
               at += 4;
               break;
             }
@@ -499,20 +503,14 @@ export async function replayDownloads({ exe, recording, writeRequests = false })
       // A relay connection without a credential cannot be unpaired (Node's `downloadRequester`): what it holds ends by its lease, so the
       // clock moves past the transfer lease's absolute lifetime (30 minutes), tick by tick.
       if (Number(talk.read('held')) > 0) await advance(31 * 60_000).catch((error) => unexpected.push(`the replay stopped: ${error.message}`));
-      await ask('thread/list', {}); // the core ends a deleted conversation's downloads when the catalog is published
       await ask('project/delete', { path: join(world, 'project'), opId: opId() });
       for (const client of clients.splice(1)) client.close?.();
       await talk
         .waitFor('the core to hold nothing and stop its sweeper', () => (talk.read('held') === '0' && talk.read('anchor') === 'none' ? true : undefined), 15_000)
         .catch(() => unexpected.push(`the scenario left the core holding ${talk.read('held')} files (sweeper ${talk.read('anchor')})`));
-      if (writeRequests) golden.scenarios.push({ name: label, steps: goldenSteps });
       console.log(`file-downloads ${label}: ${steps.length} steps, ${unexpected.length} unexpected`);
       for (const line of unexpected) console.log(`  DIFF ${line}`);
       problems.push(...unexpected.map((line) => `${label} ${line}`));
-    }
-    if (writeRequests) {
-      mkdirSync(join(REQUESTS_FILE, '..'), { recursive: true });
-      writeFileSync(REQUESTS_FILE, `${JSON.stringify(golden, null, 2)}\n`);
     }
   } finally {
     // The core is ended first and its exit awaited, then the relay closed, then the work folder removed once: a failure of any is an error.
@@ -535,6 +533,6 @@ export async function replayDownloads({ exe, recording, writeRequests = false })
     }
     if (failures.length) throw new AggregateError(failures, `cleanup of the replay failed: ${failures.map((error) => error.message).join('; ')}`);
   }
-  console.log(`file-downloads replay over ${exe}: ${accounted.calls} calls compared, ${accounted.held} held calls, ${accounted.handles} handle counts, ${accounted.skipped} calls recorded on another platform, ${problems.length} unexpected`);
-  return problems.length ? 1 : 0;
+  console.log(`file-downloads replay over ${exe}: ${accounted.calls} calls compared, ${accounted.held} held calls, ${accounted.handles} handle counts, ${problems.length} unexpected, not run on this system: ${JSON.stringify(notRun)}`);
+  return { code: problems.length ? 1 : 0, notRun };
 }

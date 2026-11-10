@@ -3304,6 +3304,25 @@
             "path"
           ],
           "type": "object"
+        },
+        {
+          "description": "A media asset of the host's media store, by its id; the conversation must still be in the catalog.",
+          "properties": {
+            "assetId": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "mediaAsset"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "assetId",
+            "kind"
+          ],
+          "type": "object"
         }
       ]
     },
