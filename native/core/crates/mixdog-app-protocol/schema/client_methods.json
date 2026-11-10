@@ -2957,6 +2957,17 @@
     },
     "ConfigValueWriteParams": {
       "properties": {
+        "announce": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SettingsScope"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The scope the writer announces once the write is saved (Node's `notifySettingsChanged(scope)` after `updateSetting`, remote-methods.ts:1098): `ui/settings/changed` is published even when the write changed nothing, before the `agent` change the write itself makes."
+        },
         "mode": {
           "anyOf": [
             {
@@ -12952,6 +12963,17 @@
       ],
       "type": "string"
     },
+    "SettingsScope": {
+      "description": "Node's `SettingsChange.scope` (shared/settings-changed.ts `SETTINGS_SCOPES`).",
+      "enum": [
+        "desktop",
+        "git",
+        "permissions",
+        "notifications",
+        "agent"
+      ],
+      "type": "string"
+    },
     "SetupUiRequest": {
       "description": "The setup tool's desktop request waiting for a window to claim it (Node's session store `setupUiRequest`): its id, and when the thread took it.",
       "properties": {
@@ -17321,6 +17343,30 @@
       ],
       "type": "object"
     },
+    "UiProviderModelsChangedParams": {
+      "description": "`ui/providerModels/changed` (app feed) and `ui/providerModels/announce`: Node's `provider-models-changed` desktop event `{origin}` (ipc-state-bridge.ts:113, remote-relay-push-lanes.ts:53).",
+      "properties": {
+        "origin": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "origin"
+      ],
+      "type": "object"
+    },
+    "UiSettingsChangedParams": {
+      "description": "`ui/settings/changed` (app feed) and `ui/settings/announce`: Node's `settings-changed` desktop event, which reached the windows and every paired device (ipc-state-bridge.ts:114, remote-relay-push-lanes.ts:54).",
+      "properties": {
+        "scope": {
+          "$ref": "#/definitions/SettingsScope"
+        }
+      },
+      "required": [
+        "scope"
+      ],
+      "type": "object"
+    },
     "UpdateCheckForUpdateParams": {
       "description": "Params of `update/checkForUpdate`.",
       "properties": {
@@ -21189,6 +21235,22 @@
       },
       "result": {
         "$ref": "#/definitions/TurnSteerResponse"
+      }
+    },
+    "ui/providerModels/announce": {
+      "params": {
+        "$ref": "#/definitions/UiProviderModelsChangedParams"
+      },
+      "result": {
+        "$ref": "#/definitions/EmptyResult"
+      }
+    },
+    "ui/settings/announce": {
+      "params": {
+        "$ref": "#/definitions/UiSettingsChangedParams"
+      },
+      "result": {
+        "$ref": "#/definitions/EmptyResult"
       }
     },
     "update/checkForUpdate": {

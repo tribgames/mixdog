@@ -4,7 +4,8 @@
 // remote-methods.ts) with the real settings store over the real config module (`createDesktopOperations`, config.mjs), the real
 // notification store and center (notification-preferences.ts, notification-center.ts) and the real relay push filter
 // (`createRelayPushLanes`, remote-relay-push-lanes.ts). Per call the recording holds the params the phone sent, the frame the relay
-// sent back, what the PC's window was asked to do, the events every paired phone received (the agent-settings and orchestration
+// sent back, what the PC's window was asked to do, what each of three recipients received (the calling phone and a second paired
+// phone: their relay frames; the desktop's window: what Node's DesktopStateBridge sent it) (the agent-settings and orchestration
 // watches run on the forced change pass Node's in-process write starts, config.mjs notifyConfigChanged), the feedback the relay's
 // endpoint received, and the whole state after it: `mixdog-config.json` and `notification-preferences.json`.
 //
@@ -13,7 +14,9 @@
 //
 // With `--replay <mixdogd.exe>` the same cases run through the phone's router and adapter (renderer/remote-protocol-settings.ts) on a
 // phone paired behind a scripted relay with a built `mixdogd`, a stand-in PC window claiming the host role, and everything is compared
-// with the recording, case by case: the frame, the window's requests, the events the phone's page heard, the feedback posts and the
+// with the recording, case by case: the frame, the window's requests, what the calling phone's page, a second phone's page (each
+// under its own router and adapter) and the desktop's windows (its protocol connection, `watchAnnouncements` and the
+// DesktopStateBridge) received, the feedback posts and the
 // whole state (the core keeps the notification document as its config's `notifications` subtree, Node's file without `version`).
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -68,23 +71,50 @@ const WINDOW = {
   notificationTest: { ok: true },
 };
 const FEEDBACK = { id: '0F1E2D3C-4B5A-4978-8695-a4b3c2d1e0f9', kind: 'bug', message: '  The toggle did not stick.  ', replyTo: ' user@example.com ' };
-/** The relay's `/feedback` answers, in order: accepted (the receipt names the posted id), then too many requests. */
-const FEEDBACK_REPLIES = [(posted) => [202, { id: posted.id, status: 'accepted' }], () => [429, { error: 'rate limited' }]];
+/** A PNG feedback attachment: the 8-byte signature and an IHDR start, 16 bytes in all (contract-feedback.ts requires 12). */
+const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]).toString('base64');
+const ATTACHMENT = { name: 'screen.png', mimeType: 'image/png', data: PNG };
+/** The relay's `/feedback` answer to each posted (lowercased) id; any other id is accepted with a receipt naming it. The branches
+ *  of feedback-client.ts:18-40 after the post: 429, another status, a body that is not JSON, a receipt for another id or of
+ *  another status, and a connection the relay drops (the fetch fails). */
+const FEEDBACK_REPLIES = {
+  '11111111-2222-4333-8444-555555555555': () => [429, { error: 'rate limited' }],
+  '22222222-2222-4222-8222-222222222222': () => [500, { error: 'down' }],
+  '33333333-3333-4333-8333-333333333333': () => [202, 'accepted, not JSON'],
+  '44444444-4444-4444-8444-444444444444': () => [202, { id: '0f1e2d3c-4b5a-4978-8695-a4b3c2d1e0f9', status: 'accepted' }],
+  '55555555-5555-4555-8555-555555555555': (posted) => [202, { id: posted.id, status: 'queued' }],
+  '66666666-6666-4666-8666-666666666666': () => null,
+};
+const feedbackWith = (id, fields = {}) => ({ ...FEEDBACK, id, ...fields });
+const LONG = (count, char = 'a') => char.repeat(count);
 
 const FAR = Date.UTC(2100, 0, 1);
+// Each refusal names the branch it takes (b6f10295a): ipc-validation.ts `requiredDesktopSettingKey` :2195-2217,
+// `requiredNotificationDeviceId` :2245-2250, `requiredNotificationPreferencesPatch` :2252-2298 with `plainRecord` :743-746,
+// `onlyKeys` :2233-2237 and `optionalBoolean` :2239-2243, `requiredNotificationTarget` :2300-2310,
+// `requiredConversationNotificationSetting` :2312-2325, `requiredString` :656-661; remote-methods.ts `updateSetting` :1093-1094;
+// contract-feedback.ts `normalizeDesktopFeedback` :38-66 and feedback-attachments.mjs `normalizeFeedbackAttachments` :56-87.
 const GROUPS = {
   settings: [
     ['readSettings', []],
     ['updateSetting', ['keepAwake', true]],
+    // Unchanged: Node announced `desktop` after every successful write (remote-methods.ts:1098).
+    ['updateSetting', ['keepAwake', true]],
     ['updateSetting', ['usagePinned', false]],
+    ['updateSetting', ['autoClear', false]],
+    // Unchanged in the agent section: `desktop` only, the agent-settings watch sees no change.
     ['updateSetting', ['autoClear', false]],
     ['updateSetting', ['autoCompact', false]],
     ['updateSetting', ['computerControl', false]],
-    // Keys of the desktop settings the app knows that Node's relay refused to write.
+    // requiredDesktopSettingKey :2216, the keys of the desktop settings the app names that Node's relay refused to write.
     ['updateSetting', ['notificationVolume', true]],
     ['updateSetting', ['browserPermissions', true]],
     ['updateSetting', ['sessionAutoDeleteDays', true]],
     ['updateSetting', ['zoom', true]],
+    // remote-methods.ts:1094, `enabled` not a boolean, checked before the key; null is the value the page left out.
+    ['updateSetting', ['keepAwake', 'yes']],
+    ['updateSetting', ['keepAwake', null]],
+    ['updateSetting', ['zoom', 1]],
     ['readSettings', []],
   ],
   window: [
@@ -93,24 +123,120 @@ const GROUPS = {
     ['checkForDesktopUpdate', []],
     ['showDesktopUpdate', [false]],
     ['showDesktopUpdate', [true]],
+    ['showDesktopUpdate', [null]],
+    // feedback-client.ts after the post: accepted, 429, another status, a body not JSON, another id, another status, no answer.
     ['submitFeedback', [FEEDBACK]],
-    ['submitFeedback', [{ ...FEEDBACK, id: '11111111-2222-4333-8444-555555555555' }]],
+    ['submitFeedback', [feedbackWith('11111111-2222-4333-8444-555555555555')]],
+    ['submitFeedback', [feedbackWith('22222222-2222-4222-8222-222222222222')]],
+    ['submitFeedback', [feedbackWith('33333333-3333-4333-8333-333333333333')]],
+    ['submitFeedback', [feedbackWith('44444444-4444-4444-8444-444444444444')]],
+    ['submitFeedback', [feedbackWith('55555555-5555-4555-8555-555555555555')]],
+    ['submitFeedback', [feedbackWith('66666666-6666-4666-8666-666666666666')]],
+    ['submitFeedback', [feedbackWith('77777777-7777-4777-8777-777777777777', { attachments: [ATTACHMENT] })]],
+    // normalizeDesktopFeedback :39-41 not an object; :43-52 id, kind, message; :53-55 replyTo not a string; :57-59 replyTo.
+    ['submitFeedback', [null]],
+    ['submitFeedback', [[FEEDBACK]]],
+    ['submitFeedback', ['feedback']],
+    ['submitFeedback', [feedbackWith(7)]],
+    ['submitFeedback', [feedbackWith('not-a-uuid')]],
+    ['submitFeedback', [feedbackWith(FEEDBACK.id, { kind: 'praise' })]],
+    ['submitFeedback', [feedbackWith(FEEDBACK.id, { message: 5 })]],
+    ['submitFeedback', [feedbackWith(FEEDBACK.id, { message: '   ' })]],
+    ['submitFeedback', [feedbackWith(FEEDBACK.id, { message: ` ${LONG(8_001)} ` })]],
+    ['submitFeedback', [feedbackWith(FEEDBACK.id, { replyTo: null })]],
+    ['submitFeedback', [feedbackWith(FEEDBACK.id, { replyTo: '   ' })]],
+    ['submitFeedback', [feedbackWith(FEEDBACK.id, { replyTo: `${LONG(250)}@a.io` })]],
+    ['submitFeedback', [feedbackWith(FEEDBACK.id, { replyTo: 'user at example.com' })]],
+    // normalizeFeedbackAttachments :58 not an array, :59 more than three, :63 an entry not an object, :65 a field not a string,
+    // :66 a type not allowed, :67-75 the name (empty, over 100, untrimmed, leading or trailing dot, unsafe character), :76 not
+    // canonical base64, :79 under 12 bytes, :82 no image signature.
+    ['submitFeedback', [feedbackWith(FEEDBACK.id, { attachments: ATTACHMENT })]],
+    ['submitFeedback', [feedbackWith(FEEDBACK.id, { attachments: [ATTACHMENT, ATTACHMENT, ATTACHMENT, ATTACHMENT] })]],
+    ['submitFeedback', [feedbackWith(FEEDBACK.id, { attachments: [null] })]],
+    ['submitFeedback', [feedbackWith(FEEDBACK.id, { attachments: [{ ...ATTACHMENT, data: 5 }] })]],
+    ['submitFeedback', [feedbackWith(FEEDBACK.id, { attachments: [{ ...ATTACHMENT, mimeType: 'image/gif' }] })]],
+    ['submitFeedback', [feedbackWith(FEEDBACK.id, { attachments: [{ ...ATTACHMENT, name: '' }] })]],
+    ['submitFeedback', [feedbackWith(FEEDBACK.id, { attachments: [{ ...ATTACHMENT, name: `${LONG(97)}.png` }] })]],
+    ['submitFeedback', [feedbackWith(FEEDBACK.id, { attachments: [{ ...ATTACHMENT, name: ' screen.png' }] })]],
+    ['submitFeedback', [feedbackWith(FEEDBACK.id, { attachments: [{ ...ATTACHMENT, name: '.screen.png' }] })]],
+    ['submitFeedback', [feedbackWith(FEEDBACK.id, { attachments: [{ ...ATTACHMENT, name: 'screen.' }] })]],
+    ['submitFeedback', [feedbackWith(FEEDBACK.id, { attachments: [{ ...ATTACHMENT, name: 'a/b.png' }] })]],
+    ['submitFeedback', [feedbackWith(FEEDBACK.id, { attachments: [{ ...ATTACHMENT, data: `${PNG}=` }] })]],
+    ['submitFeedback', [feedbackWith(FEEDBACK.id, { attachments: [{ ...ATTACHMENT, data: PNG.slice(0, 12) }] })]],
+    ['submitFeedback', [feedbackWith(FEEDBACK.id, { attachments: [{ ...ATTACHMENT, mimeType: 'image/jpeg' }] })]],
+    // requiredString :657 not a string, :659 blank and over 128 after the trim; 128 exactly is taken.
     ['notifyProviderModelsChanged', [' 7c9e6679-7425-40de-944b-e07fc1f90ae7 ']],
+    ['notifyProviderModelsChanged', [` ${LONG(128, 'o')} `]],
+    ['notifyProviderModelsChanged', [null]],
+    ['notifyProviderModelsChanged', [42]],
+    ['notifyProviderModelsChanged', ['   ']],
+    ['notifyProviderModelsChanged', [LONG(129, 'o')]],
   ],
   notifications: [
     ['getNotificationPreferences', []],
     ['setNotificationPreferences', [PHONE_ID, { scope: 'all' }]],
+    // Unchanged: Node's store wrote it and announced `notifications` (notification-preferences.ts:236-242).
+    ['setNotificationPreferences', [PHONE_ID, { scope: 'all' }]],
     ['setNotificationPreferences', ['pc', { quietHours: { enabled: true, start: '22:30' } }]],
     ['setNotificationPreferences', [OTHER_ID, { events: { finished: false }, taskbarFlash: true }]],
+    // notification-center.ts setPreferences: the device is not paired.
     ['setNotificationPreferences', ['someone-else', { scope: 'off' }]],
+    // requiredNotificationDeviceId :2246: not a string, outside the pattern, over 80; checked before the patch.
+    ['setNotificationPreferences', [5, { scope: 'off' }]],
+    ['setNotificationPreferences', ['a b', { scope: 'off' }]],
+    ['setNotificationPreferences', [LONG(81), null]],
+    // requiredNotificationPreferencesPatch: :2253 not an object; :2254 an unsupported field; :2257 scope; :2262 events not an
+    // object, :2263 an unsupported event, :2266 an event not a boolean; :2271 quiet hours not an object, :2272 an unsupported
+    // field, :2275 enabled and allowWaiting not booleans, :2280 start and end not HH:MM, :2286 days; :2291 the other booleans.
+    ['setNotificationPreferences', [PHONE_ID, null]],
+    ['setNotificationPreferences', [PHONE_ID, ['scope']]],
+    ['setNotificationPreferences', [PHONE_ID, 'off']],
+    ['setNotificationPreferences', [PHONE_ID, { volume: 3 }]],
+    ['setNotificationPreferences', [PHONE_ID, { scope: 'some' }]],
+    ['setNotificationPreferences', [PHONE_ID, { events: true }]],
+    ['setNotificationPreferences', [PHONE_ID, { events: { finished: true, typing: true } }]],
+    ['setNotificationPreferences', [PHONE_ID, { events: { error: 'yes' } }]],
+    ['setNotificationPreferences', [PHONE_ID, { quietHours: [] }]],
+    ['setNotificationPreferences', [PHONE_ID, { quietHours: { timezone: 'UTC' } }]],
+    ['setNotificationPreferences', [PHONE_ID, { quietHours: { enabled: 1 } }]],
+    ['setNotificationPreferences', [PHONE_ID, { quietHours: { allowWaiting: 'no' } }]],
+    ['setNotificationPreferences', [PHONE_ID, { quietHours: { start: '24:00' } }]],
+    ['setNotificationPreferences', [PHONE_ID, { quietHours: { end: 700 } }]],
+    ['setNotificationPreferences', [PHONE_ID, { quietHours: { end: '7:00' } }]],
+    ['setNotificationPreferences', [PHONE_ID, { quietHours: { days: 'mondays' } }]],
+    ['setNotificationPreferences', [PHONE_ID, { automaticRuns: 'on' }]],
+    ['setNotificationPreferences', [PHONE_ID, { holdWhileDesktopActive: null }]],
+    ['setNotificationPreferences', [PHONE_ID, { taskbarFlash: 0 }]],
     ['listConversationNotifications', []],
     ['setConversationNotification', [{ kind: 'session', id: 's1' }, { mode: 'muted', until: FAR }]],
     ['setConversationNotification', [{ kind: 'agent', id: 'a1' }, { mode: 'always' }]],
     ['setConversationNotification', [{ kind: 'room', id: 'r1' }, { mode: 'muted', until: null }]],
     ['setConversationNotification', [{ kind: 'session', id: 's1' }, { mode: 'inherit' }]],
+    // Unchanged: `inherit` for a conversation with no override still wrote and announced (notification-preferences.ts:318-329).
+    ['setConversationNotification', [{ kind: 'session', id: 'never-set' }, { mode: 'inherit' }]],
+    // requiredNotificationTarget :2301 not an object, :2302 an unsupported field, :2304 kind, :2307 id (not a string, outside
+    // the pattern, over 200).
+    ['setConversationNotification', [null, { mode: 'always' }]],
+    ['setConversationNotification', [{ kind: 'session', id: 's1', name: 'x' }, { mode: 'always' }]],
+    ['setConversationNotification', [{ kind: 'thread', id: 's1' }, { mode: 'always' }]],
+    ['setConversationNotification', [{ kind: 'session', id: 7 }, { mode: 'always' }]],
+    ['setConversationNotification', [{ kind: 'session', id: 's 1' }, { mode: 'always' }]],
+    ['setConversationNotification', [{ kind: 'session', id: LONG(201) }, { mode: 'always' }]],
+    // requiredConversationNotificationSetting :2313 not an object, :2315 inherit/always with another field, :2318 mode,
+    // :2319 muted with another field, :2321 until missing, zero, fractional, a string.
+    ['setConversationNotification', [{ kind: 'session', id: 's1' }, 'always']],
+    ['setConversationNotification', [{ kind: 'session', id: 's1' }, { mode: 'always', until: null }]],
+    ['setConversationNotification', [{ kind: 'session', id: 's1' }, { mode: 'loud' }]],
+    ['setConversationNotification', [{ kind: 'session', id: 's1' }, { mode: 'muted', until: FAR, reason: 'x' }]],
+    ['setConversationNotification', [{ kind: 'session', id: 's1' }, { mode: 'muted' }]],
+    ['setConversationNotification', [{ kind: 'session', id: 's1' }, { mode: 'muted', until: 0 }]],
+    ['setConversationNotification', [{ kind: 'session', id: 's1' }, { mode: 'muted', until: 1.5 }]],
+    ['setConversationNotification', [{ kind: 'session', id: 's1' }, { mode: 'muted', until: 'tomorrow' }]],
     ['listConversationNotifications', []],
     ['sendTestNotification', ['pc']],
     ['sendTestNotification', ['someone-else']],
+    ['sendTestNotification', [null]],
+    ['sendTestNotification', ['a b']],
     ['getNotificationPreferences', []],
   ],
 };
@@ -120,7 +246,6 @@ const groups = ONLY ? [ONLY] : Object.keys(GROUPS);
 /** The relay's feedback endpoint: what it received, in order, and the scripted answers. */
 function feedbackEndpoint() {
   const posts = [];
-  let next = 0;
   const handle = (req, res) => {
     let body = '';
     req.setEncoding('utf8');
@@ -128,13 +253,30 @@ function feedbackEndpoint() {
     req.on('end', () => {
       const posted = JSON.parse(body);
       posts.push({ method: req.method, path: req.url, contentType: req.headers['content-type'] ?? null, body: posted });
-      const [status, reply] = FEEDBACK_REPLIES[next++ % FEEDBACK_REPLIES.length](posted);
-      res.writeHead(status, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(reply));
+      const reply = (FEEDBACK_REPLIES[posted.id] ?? ((value) => [202, { id: value.id, status: 'accepted' }]))(posted);
+      if (!reply) return req.socket.destroy();
+      res.writeHead(reply[0], { 'Content-Type': 'application/json' });
+      res.end(typeof reply[1] === 'string' ? reply[1] : JSON.stringify(reply[1]));
     });
   };
   return { posts, handle };
 }
+
+/** The desktop's window as Node's `DesktopStateBridge` (ipc-state-bridge.ts) fed it: what its webContents was sent, in order. The
+ *  host's desktop events come from `subscribe`; nothing else of the host is used by the cases. */
+function bridgedWindow(DesktopStateBridge, subscribe) {
+  const sent = [];
+  const bridge = new DesktopStateBridge({
+    window: { isDestroyed: () => false, webContents: { isDestroyed: () => false, send: (channel, value) => sent.push([channel, clone(value)]) } },
+    host: { getSnapshot: () => null, subscribe: () => () => {}, subscribeSessionStates: () => () => {}, subscribeDesktopEvents: subscribe },
+    ipcMain: { on() {}, removeListener() {} },
+    handle: () => {},
+  });
+  return { sent, dispose: () => bridge.dispose?.() };
+}
+
+/** What each of the three received: the caller (phone A), the other paired phone (B) and the desktop's window. */
+const RECIPIENTS = ['caller', 'otherPhone', 'desktop'];
 
 const readJson = (path) => (existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : null);
 
@@ -196,15 +338,26 @@ const busListeners = new Set();
 const publish = (name, value) => {
   for (const listener of busListeners) listener({ name, value });
 };
-const phoneFrames = [];
+const subscribeBus = (listener) => {
+  busListeners.add(listener);
+  return () => busListeners.delete(listener);
+};
+// Two paired phones with their channels up: the caller and another one. Node's broadcast sends a frame to every client with a
+// channel that `include` admits (remote-relay-delivery.ts:177-187).
+const relayClients = new Map([
+  ['caller', { channel: true, lanes: new Set() }],
+  ['otherPhone', { channel: true, lanes: new Set() }],
+]);
+const phoneFrames = { caller: [], otherPhone: [] };
 const lanes = createRelayPushLanes({
-  clients: new Map([['phone', { lanes: new Set() }]]),
-  broadcastEncrypted: (payload) => phoneFrames.push(clone(payload)),
-  subscribeDesktopEvents: (listener) => {
-    busListeners.add(listener);
-    return () => busListeners.delete(listener);
+  clients: relayClients,
+  broadcastEncrypted: (payload, _droppable, include) => {
+    for (const [id, state] of relayClients) if (state.channel && (!include || include(state))) phoneFrames[id].push(clone(payload));
   },
+  subscribeDesktopEvents: subscribeBus,
 });
+const { DesktopStateBridge } = await main('ipc-state-bridge');
+const desktopWindow = bridgedWindow(DesktopStateBridge, subscribeBus);
 watchAgentSettings(configModule, publish);
 watchConfiguredOrchestrationMode(configModule, publish);
 const operations = createDesktopOperations({
@@ -270,7 +423,9 @@ let frameId = 0;
 for (const group of groups) {
   for (const [name, params] of GROUPS[group]) {
     hostCalls.length = 0;
-    phoneFrames.length = 0;
+    phoneFrames.caller.length = 0;
+    phoneFrames.otherPhone.length = 0;
+    desktopWindow.sent.length = 0;
     endpoint.posts.length = 0;
     const writes = configWrites;
     const { id: _id, ...frame } = clone(await executeRemoteFrame(methods, JSON.stringify({ id: ++frameId, method: name, params })));
@@ -281,13 +436,14 @@ for (const group of groups) {
       params: clone(params),
       frame,
       hostCalls: clone(hostCalls),
-      events: clone(phoneFrames),
+      received: { caller: clone(phoneFrames.caller), otherPhone: clone(phoneFrames.otherPhone), desktop: clone(desktopWindow.sent) },
       feedback: clone(endpoint.posts),
       state: { config: readJson(join(DATA, 'mixdog-config.json')), notifications: readJson(NOTIFICATION_FILE) },
     });
   }
 }
 lanes.dispose();
+desktopWindow.dispose();
 await operations.dispose?.();
 server.close();
 
@@ -298,7 +454,7 @@ if (ONLY) {
 }
 const stage = stageSet(FIXTURES);
 writeJson(join(stage, 'golden.json'), {
-  note: 'Node host (b6f10295a) answers to a paired phone for the settings, updater, notification and feedback calls: per call the relay frame, what the PC window was asked to do, the frames every paired phone received, the posts the relay feedback endpoint received, and mixdog-config.json and notification-preferences.json after it.',
+  note: 'Node host (b6f10295a) answers to a paired phone for the settings, updater, notification and feedback calls: per call the relay frame, what the PC window was asked to do, what each recipient received (the calling phone and another paired phone: their relay frames; the desktop window: what DesktopStateBridge sent its webContents), the posts the relay feedback endpoint received, and mixdog-config.json and notification-preferences.json after it.',
   world: { phone: PHONE_ID, paired: PAIRED, pcName: PC_NAME, seedConfig: SEED_CONFIG, seedNotifications: SEED_NOTIFICATIONS, window: { ...WINDOW, install: [WINDOW.install(false), WINDOW.install(true)] } },
   cases,
 });
@@ -318,7 +474,14 @@ writeSetManifest(stage, {
     },
     syntheticInput: {
       window: 'Electron answers (updater, theme, OS notifications), the same script answers the core replay through host requests',
-      feedback: 'the relay /feedback endpoint answers 202 with a receipt naming the posted id, then 429',
+      feedback: 'the relay /feedback endpoint answers by posted id (FEEDBACK_REPLIES: 429, 500, a body not JSON, a receipt for another id or status, a dropped connection); any other id is accepted with a receipt naming it',
+      recipients: 'caller and otherPhone are two relay clients with their channels up behind createRelayPushLanes (Node broadcast to every channel include admits, remote-relay-delivery.ts:177-187); desktop is b6f10295a DesktopStateBridge over the same desktop event bus, its webContents.send recorded',
+    },
+    notRecorded: {
+      coreRelayWriteRefusal:
+        "A phone's config write outside Node's relay methods (remote.enabled, browser site permissions, cookie auto-import, retention, volume, initializeIfMissing, and an `announce` other than `desktop` after an updateSetting key) cannot be made through Node's relay: requiredDesktopSettingKey refuses every key outside its list before anything is written, and those cases are recorded above. The core's own refusal of such a write from a relay connection is the core test mixdog-core-config config::service::tests::a_relay_write_outside_nodes_relay_methods_changes_nothing.",
+      notProducible:
+        'feedback attachments over 2 MiB or 6 MiB in all, and a sparse attachment array, cannot reach the PC: the relay frame limit (maxFrameBytes 1 MiB) and JSON (no holes) stop them first; Feedback service is unavailable. (no relay URL) cannot happen to a phone that reached the PC through the relay',
     },
   },
 });
@@ -413,72 +576,99 @@ async function replay(exe) {
     window.notify('host/update/report', { state: WINDOW.updaterState });
     await window.call('remoteAccess/setName', { name: PC_NAME });
 
+    // The desktop: this process's protocol connection over the window's client, the core's announcements turned into its desktop
+    // events (desktop-connection.ts wires `watchAnnouncements` the same way) and its windows fed by the DesktopStateBridge.
+    const { createProtocolConnection } = await here('apps/desktop/src/main/protocol/connection.ts');
+    const { watchAnnouncements } = await here('apps/desktop/src/main/protocol/desktop-operation-route.ts');
+    const { DesktopStateBridge } = await here('apps/desktop/src/main/ipc-state-bridge.ts');
+    const desktopProtocol = createProtocolConnection({ open: async () => window });
+    const desktopEvents = new Set();
+    watchAnnouncements(desktopProtocol, (name, value) => {
+      for (const listener of [...desktopEvents]) listener({ name, value });
+    });
+    const desktopWindow = bridgedWindow(DesktopStateBridge, (listener) => (desktopEvents.add(listener), () => desktopEvents.delete(listener)));
+    await desktopProtocol.start();
+
     await relay.leg();
     const { relayE2EEPairingMaterial } = await here('apps/desktop/src/shared/remote-e2ee.ts');
     const pairing = relayE2EEPairingMaterial(JSON.parse(readFileSync(join(coreRoot, 'data', 'relay-e2ee.json'), 'utf8')));
-    const phone = await connect({ ...base, connector: await relay.openPhone('client-settings', PHONE_ID, pairing) });
-    clients.push(phone);
-    // The page holds the app feed's sections (the phone shim subscribes on start); the snapshot is folded before the adapter wires,
-    // so only changes after it are events.
-    const snapshot = new Promise((resolve) => {
-      const off = phone.store.subscribe((change) => {
-        if (change.type !== 'appSnapshot') return;
-        off();
-        resolve();
-      });
-    });
-    await phone.subscribeApp();
-    await snapshot;
-    // The page's listeners: what it heard, as the relay frames Node sent it.
-    const heard = [];
-    const listening = (event) => new Set([(payload) => heard.push(clone({ event, payload }))]);
-    const ctx = {
-      browserId: PHONE_ID,
-      fanOut: (listeners, value) => {
-        for (const listener of listeners) listener(value);
-      },
-      settingsChangedListeners: listening('settings-changed'),
-      updaterListeners: listening('updater-state-changed'),
-      providerModelsListeners: listening('provider-models-changed'),
-      phone: { start: async () => phone },
-    };
     globalThis.window = { setTimeout: () => 0, clearTimeout() {} };
     const { adapter } = await here('apps/desktop/src/renderer/remote-protocol-settings.ts');
     const { createProtocolRouter } = await here('apps/desktop/src/renderer/remote-shim-protocol.ts');
-    const host = { ctx, client: () => phone, declareLane() {}, onClient: (listener) => (listener(phone), () => undefined) };
-    const router = createProtocolRouter([adapter], { host, started: async () => {}, synced: async () => {}, probe() {}, silentSince: () => false });
-    router.install();
+    /** A paired phone's page: its client over the relay, the settings adapter under the router, and what its listeners heard (as
+     *  the relay frames Node sent it). */
+    const openPage = async (clientId, credential) => {
+      const phone = await connect({ ...base, connector: await relay.openPhone(clientId, credential, pairing) });
+      clients.push(phone);
+      // The page holds the app feed's sections (the phone shim subscribes on start); the snapshot is folded before the adapter
+      // wires, so only changes after it are events.
+      const snapshot = new Promise((resolve) => {
+        const off = phone.store.subscribe((change) => {
+          if (change.type !== 'appSnapshot') return;
+          off();
+          resolve();
+        });
+      });
+      await phone.subscribeApp();
+      await snapshot;
+      const heard = [];
+      const listening = (event) => new Set([(payload) => heard.push(clone({ event, payload }))]);
+      const ctx = {
+        browserId: credential,
+        fanOut: (listeners, value) => {
+          for (const listener of listeners) listener(value);
+        },
+        settingsChangedListeners: listening('settings-changed'),
+        updaterListeners: listening('updater-state-changed'),
+        providerModelsListeners: listening('provider-models-changed'),
+        phone: { start: async () => phone },
+      };
+      const host = { ctx, client: () => phone, declareLane() {}, onClient: (listener) => (listener(phone), () => undefined) };
+      const router = createProtocolRouter([adapter], { host, started: async () => {}, synced: async () => {}, probe() {}, silentSince: () => false });
+      router.install();
+      return { phone, heard, router };
+    };
+    const caller = await openPage('client-settings', PHONE_ID);
+    const otherPhone = await openPage('client-other', OTHER_ID);
+    const router = caller.router;
     // The state the core settled on: its config file, with the notification document as Node's file held it.
     const configFile = join(coreRoot, 'data', 'mixdog-config.json');
     const coreState = () => {
       const { notifications, ...rest } = readJson(configFile) ?? {};
       return { config: rest, notifications: notifications === undefined ? null : { version: 1, ...notifications } };
     };
-    // The phone has heard every change of the case when what it holds of each published subtree is what the file holds.
-    const settled = () => {
-      const file = readJson(configFile) ?? {};
-      return ['desktop', 'agent', 'notifications'].every((key) => isDeepStrictEqual(phone.store.section('config', key)?.value, file[key]));
-    };
-    const untilSettled = (label) =>
+    // The end of a case at each recipient: the window publishes a mark into `hostState` after the call answered; the app feed is
+    // one ordered stream, so a client holding the mark has been given everything the core published for the case before it. The
+    // mark is no event of any recipient (neither adapter nor the desktop turns `hostState.browserTabs` into one).
+    let marks = 0;
+    const holdsMark = (client, mark) => isDeepStrictEqual(client.store.section('hostState', 'browserTabs')?.value, { replayMark: mark });
+    const untilMarked = (client, mark, label) =>
       new Promise((resolve, reject) => {
-        if (settled()) return resolve();
+        if (holdsMark(client, mark)) return resolve();
         const timer = setTimeout(() => {
           off();
-          reject(new Error(`${label}: the phone did not hear the config change within 30 s`));
+          reject(new Error(`${label}: the end-of-case mark ${mark} did not reach the client within 30 s`));
         }, 30_000);
-        const off = phone.store.subscribe(() => {
-          if (!settled()) return;
+        const off = client.store.subscribe(() => {
+          if (!holdsMark(client, mark)) return;
           clearTimeout(timer);
           off();
           resolve();
         });
       });
+    const caseEnd = async (label) => {
+      const mark = ++marks;
+      await window.call('host/state/set', { key: 'browserTabs', value: { replayMark: mark } });
+      await Promise.all([caller.phone, otherPhone.phone, window].map((client) => untilMarked(client, mark, label)));
+    };
 
     const wanted = golden.cases.filter((entry) => groups.includes(entry.group));
     const differences = [];
     for (const [index, expected] of wanted.entries()) {
       hostCalls.length = 0;
-      heard.length = 0;
+      caller.heard.length = 0;
+      otherPhone.heard.length = 0;
+      desktopWindow.sent.length = 0;
       endpoint.posts.length = 0;
       let frame;
       try {
@@ -487,9 +677,14 @@ async function replay(exe) {
         frame = { ok: false, error: error.message, ...(typeof error.code === 'string' && error.code ? { errorCode: error.code } : {}) };
       }
       const label = `#${index} ${expected.name} ${JSON.stringify(expected.params).slice(0, 80)}`;
-      await untilSettled(label);
-      const got = { frame, hostCalls: clone(hostCalls), events: clone(heard), feedback: clone(endpoint.posts), state: coreState() };
-      const node = { frame: expected.frame, hostCalls: expected.hostCalls, events: expected.events.map((entry) => ({ event: entry.event, payload: entry.payload })), feedback: expected.feedback, state: expected.state };
+      await caseEnd(label);
+      const received = { caller: clone(caller.heard), otherPhone: clone(otherPhone.heard), desktop: clone(desktopWindow.sent) };
+      const got = { frame, hostCalls: clone(hostCalls), feedback: clone(endpoint.posts), state: coreState() };
+      const node = { frame: expected.frame, hostCalls: expected.hostCalls, feedback: expected.feedback, state: expected.state };
+      for (const recipient of RECIPIENTS) {
+        got[`received.${recipient}`] = received[recipient];
+        node[`received.${recipient}`] = expected.received[recipient];
+      }
       for (const field of Object.keys(node)) {
         if (!isDeepStrictEqual(node[field], got[field])) differences.push({ label, field, node: node[field], core: got[field] });
       }

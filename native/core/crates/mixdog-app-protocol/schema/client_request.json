@@ -2688,6 +2688,17 @@
     },
     "ConfigValueWriteParams": {
       "properties": {
+        "announce": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SettingsScope"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The scope the writer announces once the write is saved (Node's `notifySettingsChanged(scope)` after `updateSetting`, remote-methods.ts:1098): `ui/settings/changed` is published even when the write changed nothing, before the `agent` change the write itself makes."
+        },
         "mode": {
           "anyOf": [
             {
@@ -9028,6 +9039,17 @@
       ],
       "type": "string"
     },
+    "SettingsScope": {
+      "description": "Node's `SettingsChange.scope` (shared/settings-changed.ts `SETTINGS_SCOPES`).",
+      "enum": [
+        "desktop",
+        "git",
+        "permissions",
+        "notifications",
+        "agent"
+      ],
+      "type": "string"
+    },
     "SkillsAddSkillParams": {
       "description": "Params of `skills/addSkill`.",
       "properties": {
@@ -11358,6 +11380,30 @@
       "required": [
         "queuedId",
         "threadId"
+      ],
+      "type": "object"
+    },
+    "UiProviderModelsChangedParams": {
+      "description": "`ui/providerModels/changed` (app feed) and `ui/providerModels/announce`: Node's `provider-models-changed` desktop event `{origin}` (ipc-state-bridge.ts:113, remote-relay-push-lanes.ts:53).",
+      "properties": {
+        "origin": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "origin"
+      ],
+      "type": "object"
+    },
+    "UiSettingsChangedParams": {
+      "description": "`ui/settings/changed` (app feed) and `ui/settings/announce`: Node's `settings-changed` desktop event, which reached the windows and every paired device (ipc-state-bridge.ts:114, remote-relay-push-lanes.ts:54).",
+      "properties": {
+        "scope": {
+          "$ref": "#/definitions/SettingsScope"
+        }
+      },
+      "required": [
+        "scope"
       ],
       "type": "object"
     },
@@ -22906,6 +22952,52 @@
         },
         "params": {
           "$ref": "#/definitions/NotifyStateParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Node's `notifySettingsChanged(scope)` (desktop-operations.ts:459-464): open settings pages on every client re-read. Published to every client as `ui/settings/changed`. The desktop's alone: Node's relay methods had no such call (a phone's own setting write announces through `config/value/write`'s `announce`).",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "ui/settings/announce"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/UiSettingsChangedParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Node's `notifyProviderModelsChanged(origin)` (desktop-operations.ts:455-458, relay remote-methods.ts:916-917): every client drops its provider model lists. Published to every client, the caller included, as `ui/providerModels/changed`. The only input rule is Node's `requiredString(origin, 'origin', 128)`.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "ui/providerModels/announce"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/UiProviderModelsChangedParams"
         }
       },
       "required": [

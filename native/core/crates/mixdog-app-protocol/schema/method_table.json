@@ -10394,6 +10394,45 @@
     },
     {
       "class": "C2",
+      "method": "ui/settings/announce",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local",
+        "ssh"
+      ],
+      "params": "v2::config::UiSettingsChangedParams",
+      "result": "v2::feed::EmptyResult",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "ui/providerModels/announce",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local",
+        "ssh",
+        "relay"
+      ],
+      "params": "v2::config::UiProviderModelsChangedParams",
+      "result": "v2::feed::EmptyResult",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
       "method": "host/claim",
       "mutation": {
         "kind": "none"
@@ -10868,6 +10907,16 @@
       "delivery": "app",
       "method": "ui/openRequested",
       "params": "UiOpenRequestedParams"
+    },
+    {
+      "delivery": "app",
+      "method": "ui/settings/changed",
+      "params": "UiSettingsChangedParams"
+    },
+    {
+      "delivery": "app",
+      "method": "ui/providerModels/changed",
+      "params": "UiProviderModelsChangedParams"
     },
     {
       "delivery": "app",

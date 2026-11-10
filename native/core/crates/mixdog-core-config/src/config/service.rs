@@ -73,7 +73,39 @@ const METHODS: &[&str] = &[
     "config/setBotOrder",
     "config/getOutputStyle",
     "config/listOutputStyles",
+    "ui/settings/announce",
+    "ui/providerModels/announce",
 ];
+
+/// Node's settings scopes (shared/settings-changed.ts `SETTINGS_SCOPES`).
+const SETTINGS_SCOPES: &[&str] = &["desktop", "git", "permissions", "notifications", "agent"];
+
+/// `params.<key>` as one of Node's settings scopes.
+fn scope_of(params: &Value, key: &str) -> Result<Option<&'static str>, CoreError> {
+    match params.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(value) => SETTINGS_SCOPES
+            .iter()
+            .copied()
+            .find(|scope| value.as_str() == Some(*scope))
+            .map(Some)
+            .ok_or_else(|| invalid(&format!("params.{key}"), "desktop | git | permissions | notifications | agent")),
+    }
+}
+
+/// `ui/providerModels/announce`: Node's `requiredString(origin, 'origin', 128)` (ipc-validation.ts:656-661) is the only
+/// rule; every client, the caller included, is told the trimmed origin (desktop-operations.ts:455-458).
+fn announce_provider_models(config: &Config, params: &Value) -> Result<Value, CoreError> {
+    let Some(origin) = params.get("origin").and_then(Value::as_str) else {
+        return Err(failed("config", "origin must be a string."));
+    };
+    let origin = mixdog_js::js_trim(origin);
+    if origin.is_empty() || origin.encode_utf16().count() > 128 {
+        return Err(failed("config", "origin is invalid."));
+    }
+    config.announce("ui/providerModels/changed", json!({ "origin": origin }));
+    Ok(json!({}))
+}
 
 pub struct ConfigService {
     config: Config,
@@ -102,8 +134,14 @@ impl ConfigService {
                     .iter()
                     .map(edit_of)
                     .collect::<Result<Vec<_>, _>>()?;
-                write(&self.config, edits).await
+                write(&self.config, edits, None).await
             }
+            "ui/settings/announce" => {
+                let scope = scope_of(params, "scope")?.ok_or_else(|| invalid("params.scope", "a settings scope"))?;
+                self.config.announce(super::SETTINGS_CHANGED, json!({ "scope": scope }));
+                Ok(json!({}))
+            }
+            "ui/providerModels/announce" => announce_provider_models(&self.config, params),
             "config/getToolModuleSettings" => Ok(self.tool_modules.settings().await),
             "config/setWebSearchEnabled" => {
                 let enabled = flag(params, "enabled")?;
@@ -179,7 +217,10 @@ impl ConfigService {
 /// anything else is refused before the edit is applied, so nothing changes.
 async fn value_write(config: &Config, params: &Value, relay: bool) -> Result<Value, CoreError> {
     let edit = edit_of(params)?;
-    if relay && !relay_may_write(&edit) {
+    let announce = scope_of(params, "announce")?;
+    // A phone announced only what Node's relay `updateSetting` announced: `desktop`, after one of its keys.
+    let announce_allowed = announce.is_none_or(|scope| scope == "desktop" && RELAY_SETTING_PATHS.contains(&edit.path.as_str()));
+    if relay && !(relay_may_write(&edit) && announce_allowed) {
         return Err(CoreError::DomainError {
             domain: "config".into(),
             code: Some("REMOTE_DESKTOP_ONLY".into()),
@@ -187,7 +228,7 @@ async fn value_write(config: &Config, params: &Value, relay: bool) -> Result<Val
             detail: None,
         });
     }
-    write(config, vec![edit]).await
+    write(config, vec![edit], announce).await
 }
 
 /// The `desktop` flags Node's relay `updateSetting` wrote (b6f10295a remote-methods.ts:1093-1101): the
@@ -236,8 +277,9 @@ fn relay_may_write(edit: &ConfigEdit) -> bool {
 
 /// The write, answering the stored value of each edit and the `agent` and `desktop` subtrees of the saved config (Node's
 /// `updateConfigAsync` result).
-async fn write(config: &Config, edits: Vec<ConfigEdit>) -> Result<Value, CoreError> {
-    let (_, saved) = config.batch_write_saved(&edits, SAVED_SUBTREES).await.map_err(core_error)?;
+/// `announce`: the scope the writer announces once it is saved ([`Config::batch_write_saved`]).
+async fn write(config: &Config, edits: Vec<ConfigEdit>, announce: Option<&'static str>) -> Result<Value, CoreError> {
+    let (_, saved) = config.batch_write_saved(&edits, SAVED_SUBTREES, announce).await.map_err(core_error)?;
     let values: Vec<Value> = edits.iter().map(|edit| config.get(&edit.path).unwrap_or(Value::Null)).collect();
     Ok(json!({ "revision": config.revision(), "values": values, "config": saved }))
 }

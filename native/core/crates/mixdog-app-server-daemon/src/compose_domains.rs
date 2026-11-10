@@ -318,6 +318,10 @@ pub struct PreDomains {
 pub async fn compose_domains_pre(inputs: &DomainInputs) -> Result<PreDomains, ComposeDomainsError> {
     let mut services: Vec<Arc<dyn DomainService>> = Vec::new();
     let (state, config) = (inputs.state.clone(), inputs.config.clone());
+    // Node's `settings-changed` and `provider-models-changed` desktop events: app-feed notifications, in order with the
+    // sections they follow.
+    let app = state.app.clone();
+    config.announce_to(Arc::new(move |method, params| app.notify(method, &params)));
     let watcher = ConfigWatcher::start(config.clone()).map_err(ComposeDomainsError::Watch)?;
     let local = local::build(inputs, &config).await?;
     let tool_modules = ToolModules::new(config.clone(), local.tool_modules_host.clone(), state.publisher.clone(), inputs.cancel.clone());

@@ -4235,6 +4235,28 @@ crate::client_request_definitions! {
         mutation: none,
         origins: [Local, Ssh, Relay],
     },
+    /// Node's `notifySettingsChanged(scope)` (desktop-operations.ts:459-464): open settings pages on every client re-read.
+    /// Published to every client as `ui/settings/changed`. The desktop's alone: Node's relay methods had no such call (a
+    /// phone's own setting write announces through `config/value/write`'s `announce`).
+    UiSettingsAnnounce => "ui/settings/announce" {
+        params: v2::config::UiSettingsChangedParams,
+        result: v2::feed::EmptyResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local, Ssh],
+    },
+    /// Node's `notifyProviderModelsChanged(origin)` (desktop-operations.ts:455-458, relay remote-methods.ts:916-917): every
+    /// client drops its provider model lists. Published to every client, the caller included, as `ui/providerModels/changed`.
+    /// The only input rule is Node's `requiredString(origin, 'origin', 128)`.
+    UiProviderModelsAnnounce => "ui/providerModels/announce" {
+        params: v2::config::UiProviderModelsChangedParams,
+        result: v2::feed::EmptyResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local, Ssh, Relay],
+    },
     /// Claim the desktop host role.
     HostClaim => "host/claim" {
         params: v2::host::HostClaimParams,
