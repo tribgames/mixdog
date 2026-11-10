@@ -1,0 +1,79 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-call-tool.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 9906330,
+      "path": "golden.json",
+      "sha256": "c8720e64473fc973122e1372644c21618864ea8e16ffa8883e4e54cac3abab44"
+    }
+  ],
+  "nodeRuntime": "v22.20.0",
+  "normalisations": {
+    "batchIds": "generated ids: the batch_id of a trace row (and inside a tool row's payload.batch) becomes <BATCH-n>, and a stored row's meta.transcript.messageId becomes <MESSAGE-n>, n by first appearance of each kind within the scenario",
+    "classes": {
+      "batchIds": "what the run generated: ids a run draws fresh",
+      "clockValues": "when the run happened: wall-clock instants and measured durations, in ms",
+      "sandboxPath": "where the run lives: the per-run sandbox folder"
+    },
+    "clockKeys": [
+      "createdAt",
+      "ts",
+      "at",
+      "elapsedMs",
+      "duration",
+      "tool_ms",
+      "started_at_ms",
+      "completed_at_ms",
+      "requestMs",
+      "dispatchStartedAt",
+      "executionStartedAt",
+      "executionCompletedAt",
+      "postprocessStartedAt",
+      "resultCompletedAt",
+      "dispatch_wait_ms",
+      "execution_ms",
+      "result_collection_wait_ms",
+      "postprocess_ms",
+      "total_ms"
+    ],
+    "clockValues": "numbers under these keys become 0: createdAt, ts, at, elapsedMs, duration, tool_ms, started_at_ms, completed_at_ms, requestMs, dispatchStartedAt, executionStartedAt, executionCompletedAt, postprocessStartedAt, resultCompletedAt, dispatch_wait_ms, execution_ms, result_collection_wait_ms, postprocess_ms, total_ms",
+    "keptWhole": "everything else: system messages, stored and requested messages, events, cards, hooks, executed calls, the timeline, the human gate's audit records and every trace row of the session",
+    "sandboxPath": "the recorder's sandbox folder (and its forward-slash form), in every string, becomes <SANDBOX>"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-call-tool.mjs",
+  "recorderSha256": "bffbd5d4f21fbb7e496d1f9e461f51f4a08e88099cc5baa6cd9cdb51ee3db121",
+  "scenarios": 65,
+  "set": "call-tool",
+  "syntheticInputs": [
+    "the provider: a scripted `send` that returns each scenario's replies in order; for a streamed scenario it hands every call to `onToolCall` one macrotask apart and ends the response once the calls the twin run saw settle early (`settles`)",
+    "the session's tools: internal tools registered with `setInternalToolsProvider` (load_tool, the probe_* tools, and edit / apply_patch / shell / computer when a scenario names them) whose executors only record their arguments and answer `ran <name> <args>`, or fail when `fail` is set",
+    "the connected MCP server: `_registerMcpServerForTest` with one listed tool (`send`) whose callTool answers `ran <tool> <args>`; the catalog entries `gone` and `nope` are never listed or never live",
+    "the approvals: `onToolApproval` answers each card from the scenario's `answers`, in order, as the device `Pixel`",
+    "the hooks: `beforeToolHook` asks / denies / rewrites per the scenario (`ask`, `hookDeny`, `hookRewrite`), `afterToolHook` only records",
+    "the gates (`gates`): a step of one call (`pre`, `tool`, `post`, `card`, `grants`, `audit`) held until an entry of the timeline appears; each step also takes one macrotask",
+    "the cancellation (`abortWhen`): once every listed timeline entry has happened the recorder calls `abortSessionTurn(<session>, 'cancelled by the scenario')` and notes `aborted`; the turn's rejection is recorded as `turnError`, and the recorder then waits until each call of `settled` has told the host it settled and every script step still in progress has ended",
+    "the cut stream (`cut` on a reply): after handing its calls to `onToolCall` and waiting for their settlement, the streaming provider throws `{ code: TRUNCATED_STREAM, truncatedStream: true, partialToolCalls: <the calls>, pendingToolUse: true }` and notes `cut`",
+    "synchronous file work: `fs/promises` readFile / appendFile / mkdir of the human gate's grants.json and audit.jsonl are replaced by the same operation done synchronously after one macrotask (the recorder's `fileStep`), so the order of two concurrent approvals is the scenario's",
+    "the session: createSession with the sandbox profile (MIXDOG_DATA_DIR and the home variables under the sandbox), a fixed id per scenario, a work directory holding x.txt"
+  ],
+  "totalBytes": 9906330,
+  "twoRunCheck": "the recording was made twice, each run in a process and a sandbox of its own; nothing differed between the two but values the rules above replace, every rule replaced a difference, and the two normalised runs were the same bytes"
+}

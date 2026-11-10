@@ -340,9 +340,8 @@ async fn call_tool_hands_the_projected_target_to_the_dispatcher_and_refuses_the_
                 assert_eq!(*dispatched.0.lock().expect("dispatched"), [(target.to_owned(), case["arguments"].clone())], "{name}");
             }
             (None, Some(error)) => {
-                // Node answers `Error: CODE: text`; a tool's error text is its wording without the lead-in.
-                let error = error.strip_prefix("Error: ").expect("lead-in");
-                if error.starts_with("TOOL_") || error.starts_with("USE_DIRECT_TOOL") {
+                // Node answers `Error: CODE: text`, and so does the tool.
+                if error.starts_with("Error: TOOL_") || error.starts_with("Error: USE_DIRECT_TOOL") {
                     // The catalog's cases: asserted with the catalog.
                     continue;
                 }

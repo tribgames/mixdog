@@ -2922,7 +2922,7 @@
       "name": "fileDownloadAuthorize",
       "target": {
         "kind": "method",
-        "target": "transfer/beginRead"
+        "target": "transfer/authorizeRead"
       }
     },
     {
@@ -2930,7 +2930,7 @@
       "name": "fileDownloadBegin",
       "target": {
         "kind": "method",
-        "target": "transfer/beginRead"
+        "target": "transfer/redeemGrant"
       }
     },
     {
@@ -2946,7 +2946,7 @@
       "name": "fileDownloadFinish",
       "target": {
         "kind": "method",
-        "target": "transfer/endRead"
+        "target": "transfer/finishRead"
       }
     },
     {

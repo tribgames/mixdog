@@ -1,103 +1,133 @@
 {
   "command": "(cwd <tree>/apps/desktop) node --import ./scripts/test-env.mjs --import ./scripts/test-tsx.mjs <repo>/benchmarks/rust-core/recorders/record-roster-rows.mjs --tree <tree>",
-  "fileCount": 19,
+  "fileCount": 24,
   "files": [
     {
-      "bytes": 51218,
-      "path": ".mixdog/data/sessions/sess_42320_1794259728000_1794259728000_183bafe8839eaac62adf7e743b403805.log.jsonl",
-      "sha256": "581fcc3319c1723edd0f5e270b4a178598f4180d81c7aeefbb2d29a3f9207616"
+      "bytes": 51212,
+      "path": ".mixdog/data/sessions/sess_4242_1700000000000_1700000001000_2b94d07a22339d69c88f1e7d29672eb6.log.jsonl",
+      "sha256": "3e417239ae2dcbae3e5a5360b69649b191bff1422a348d308661baeff5358608"
     },
     {
-      "bytes": 51200,
-      "path": ".mixdog/data/sessions/sess_42320_1794259728001_1794259729000_1a733864c7a8ae1f050a926330d340f0.log.jsonl",
-      "sha256": "11c74ed9c2070e67b8e8ee23100b4b1a89bb9597456e0c1ab62c72fd6787a8f5"
+      "bytes": 51250,
+      "path": ".mixdog/data/sessions/sess_4242_1700000000001_1700000003000_15564abbf59b4dd1ed3fda0fab4c34a5.log.jsonl",
+      "sha256": "a393b23b875a47270f8d74c053e6ed4b5dffcd805599d50e42dc60484389bd5b"
     },
     {
-      "bytes": 47476,
-      "path": ".mixdog/data/sessions/sess_42320_1794259728002_1794259729000_2702dfa10b87e4fa19d71694143d6c1c.log.jsonl",
-      "sha256": "23b9460b67638c61933730fd0fe36b20cc52fcf53c11a621e1041914a125fd13"
+      "bytes": 47473,
+      "path": ".mixdog/data/sessions/sess_4242_1700000000002_1700000005000_fa5cef1426129f0019f23db6aef1519f.log.jsonl",
+      "sha256": "5b55f15aa5ee67331197df482ce06984508b05fc35592d4739c78b1ba5298592"
     },
     {
-      "bytes": 161874,
-      "path": ".mixdog/data/sessions/sess_42320_1794259728003_1794259729000_50a1d3566570d80c1608039d1161a37a.log.jsonl",
-      "sha256": "d825fede7b833e2f5a1bd66c6f262d60be9e581479ecc6b74697ea090b342b2c"
+      "bytes": 164081,
+      "path": ".mixdog/data/sessions/sess_4242_1700000000003_1700000006000_b8cb844dd64432481fd40efeb9210bbd.log.jsonl",
+      "sha256": "293af694f1abec00becc5099a6bbb5462cfa4106cce441798a0f3d9423967fc2"
     },
     {
-      "bytes": 51046,
-      "path": ".mixdog/data/sessions/sess_42320_1794259728004_1794259730000_d1f7114e0571686bb15e314603c0d869.log.jsonl",
-      "sha256": "04a52c6c953b4e58c0e40b17a3272203ea08b32e2e028b34307952b7e9468913"
+      "bytes": 51096,
+      "path": ".mixdog/data/sessions/sess_4242_1700000000004_1700000019000_4f24bae00a511f0890344c79530e140f.log.jsonl",
+      "sha256": "86a1bcb1f8b72049b2b3cdce0e9745bd4d52d1b299bd24e64e72f29133891054"
     },
     {
-      "bytes": 51171,
-      "path": ".mixdog/data/sessions/sess_42320_1794259728005_1794259730000_1e7a172a8ad578dc15aba3f941bae83f.log.jsonl",
-      "sha256": "267109c2d3151af28a370cc0d4879df9b21a23c17229b05374441753fef0e598"
+      "bytes": 51221,
+      "path": ".mixdog/data/sessions/sess_4242_1700000000005_1700000021000_d04fb1bb0c27a1e963bdecaf8465d744.log.jsonl",
+      "sha256": "45698d9a751bbf9cab45931cc0c8c0d1c0c6e181cec45f259f22a1877343be0c"
     },
     {
-      "bytes": 51177,
-      "path": ".mixdog/data/sessions/sess_42320_1794259728006_1794259730000_b0bc1a31cc5149c9e3d4af0a5d93e287.log.jsonl",
-      "sha256": "4724c1f9264598db1ad52da451c97424787e09bf65f09809cfff2a988582b11e"
+      "bytes": 51227,
+      "path": ".mixdog/data/sessions/sess_4242_1700000000006_1700000023000_169270d6ab6489d0cbf2f2a3a88e55ae.log.jsonl",
+      "sha256": "786743ac4a4ac081c884311d49fb8dd2fc87cb1b5f20c7e2670120b4ce26ba60"
     },
     {
-      "bytes": 51159,
-      "path": ".mixdog/data/sessions/sess_42320_1794259728007_1794259730000_0c8685eb78aef067f58fd974c08f9903.log.jsonl",
-      "sha256": "6cd73546f06f1e9b3e25e53cea2da683f0bee45bbd4ffcd1ba732c949ca53776"
+      "bytes": 51209,
+      "path": ".mixdog/data/sessions/sess_4242_1700000000007_1700000025000_723a9bf4be8bbc57c37df6646c7b6f87.log.jsonl",
+      "sha256": "53e8245832c7d4dedd22f8a7881eee0d7e0efef91ca7d8945e1701eff20064d6"
     },
     {
-      "bytes": 50397,
-      "path": ".mixdog/data/sessions/sess_42320_1794259728008_1794259730000_753891e0e048b02817069c4a83781893.json",
-      "sha256": "17df832cd7877c428da04ebd8f69b90719de56486d80cc6011a1b4b65c78ee57"
+      "bytes": 58366,
+      "path": ".mixdog/data/sessions/sess_4242_1700000000008_1700000027000_30e79a81dad8db6ca8206547703a9dc0.log.jsonl",
+      "sha256": "80da4bf9585c4cc0b01652a39180ebc486fe4c72be5f8283d3e82026cddea975"
     },
     {
-      "bytes": 58319,
-      "path": ".mixdog/data/sessions/sess_42320_1794259728009_1794259730000_5c99fa072e7f71e28539ab7cf839679c.log.jsonl",
-      "sha256": "6600db6e08d97e50bf8d211560b2eda27df53cd406b5ac232611e19029cf1866"
+      "bytes": 51206,
+      "path": ".mixdog/data/sessions/sess_4242_1700000000009_1700000029000_75c35f8d53abceed34912923b0a8bfbe.log.jsonl",
+      "sha256": "9a65461ece6bd8c785e68e12cf5057a795600b9b284983d228be3dd79ab57869"
     },
     {
-      "bytes": 51156,
-      "path": ".mixdog/data/sessions/sess_42320_1794259728010_1794259730000_1a044f5ae2e91716106227caebbcc2a0.log.jsonl",
-      "sha256": "7a30fc907075d142d671e76740855f136873dc6d5470d81d1490982b63329fa1"
+      "bytes": 51591,
+      "path": ".mixdog/data/sessions/sess_4242_1700000000010_1700000031000_9665f0084f0d10d73db876eda77a5074.log.jsonl",
+      "sha256": "a2c5879d08899809b467414c076a39f831e34c5eba0a8da4ea0b851e2e221549"
     },
     {
-      "bytes": 51541,
-      "path": ".mixdog/data/sessions/sess_42320_1794259728011_1794259730000_993c470d0f393f8a6aaab9be7ab30b8c.log.jsonl",
-      "sha256": "fa62941ae075c7f63cf9d84b4553810ff0fa35fd98d99385616da34fb76038ce"
+      "bytes": 48150,
+      "path": ".mixdog/data/sessions/sess_4242_1700000000011_1700000093000_b37119ba36ad55010d9db39ec9fe2080.log.jsonl",
+      "sha256": "7fdf4a925d7ea4b82b737e4245524a9e07adc03917e383411d12a3aa83c64984"
+    },
+    {
+      "bytes": 48078,
+      "path": ".mixdog/data/sessions/sess_4242_1700000000012_1700000154000_33372a417438b61ae98f1cba4ad2ac19.log.jsonl",
+      "sha256": "cf554f956d40138a4f20c33ff26431288f2016ab14fd4cabbc90dd8079b88331"
+    },
+    {
+      "bytes": 48087,
+      "path": ".mixdog/data/sessions/sess_4242_1700000000013_1700000215000_90f42cc9c062a57269e3c7f35fe771f2.log.jsonl",
+      "sha256": "7de7346fbb1b1c283da9ada6b8eae6ca6ce729fca982a920ad2b690987fe3937"
+    },
+    {
+      "bytes": 48168,
+      "path": ".mixdog/data/sessions/sess_4242_1700000000014_1700000276000_41bb24799b5d44229c6c8f61124d95ef.log.jsonl",
+      "sha256": "5ed26f7a67e7ba8967252bfebcdcf01314a73995b6a61f4c5bedcb56af83e838"
     },
     {
       "bytes": 48159,
-      "path": ".mixdog/data/sessions/sess_42320_1794259728012_1794259790000_abbe36bb89ffe99ee24012efd9093cd8.log.jsonl",
-      "sha256": "ebb5f912ad75cda8b4e8078257de11ade07ebb6a87bfed2ccd2830f6d1f394ed"
+      "path": ".mixdog/data/sessions/sess_4242_1700000000015_1700000337000_4fe8df51fbfd22119772021cd3716fbb.log.jsonl",
+      "sha256": "6465eaa42de336d6c55cd6e52e6f0c5b44f9a1f2df0b8a8c93b42403e497ec36"
     },
     {
-      "bytes": 48090,
-      "path": ".mixdog/data/sessions/sess_42320_1794259728013_1794259850000_3eb92f5560d633eec063600065f03522.log.jsonl",
-      "sha256": "4c0dbfdab80188b3dfe6f5ef9969999371e1e3697e68ff63c89cb512ba5e6308"
+      "bytes": 48189,
+      "path": ".mixdog/data/sessions/sess_4242_1700000000016_1700000398000_df10d8211c9e498a8cca0614e121d0a9.log.jsonl",
+      "sha256": "d5d0f80e82184981fd624a5cefe9b154c5cd044925f9f7b0319915b7676e4a19"
     },
     {
-      "bytes": 48093,
-      "path": ".mixdog/data/sessions/sess_42320_1794259728014_1794259910000_5b09d5f2a9324efde08b04630648143d.log.jsonl",
-      "sha256": "b1f46ac7f66772a9831d35f87f260ee4f38861ba09ef67c2506a2c40d3c5cdc6"
+      "bytes": 49658,
+      "path": ".mixdog/data/sessions/sess_4243_1700000027000_1700000027000_2b94d07a22339d69c88f1e7d29672eb6.json",
+      "sha256": "65dac9f3c7f8f25268b6c11e419098d8e6ac8c23ef1a9dd9dd50a916d659a39a"
     },
     {
-      "bytes": 48174,
-      "path": ".mixdog/data/sessions/sess_42320_1794259728015_1794259970000_6a3b6989e8b662f10e4c80c72774bf53.log.jsonl",
-      "sha256": "dde5f92b9c72f3eb100f069a7e78121ee5b7593a39d047637441549dcf6d4920"
-    },
-    {
-      "bytes": 55993,
+      "bytes": 55992,
       "path": ".mixdog/data/sessions/sess_home_kestrel.log.jsonl",
-      "sha256": "25b403f0196156b0fd14b95c143fbaff80c863bd4e1f15e64bb6905055b868ca"
+      "sha256": "08d97370c895c5efa7f9f13e941138c631ad36c99b779bfbc37f534224ddc784"
     },
     {
-      "bytes": 446383,
+      "bytes": 47423,
+      "path": ".mixdog/data/sessions/sess_room_loywcexka9cf1847.log.jsonl",
+      "sha256": "001c9d2b6f6456ec31557fb75afb4ea2c1e643e99cf92b3ba38dd1e26c651525"
+    },
+    {
+      "bytes": 663880,
       "path": "answers.json",
-      "sha256": "d2502db5336ef0225acc25af82e47749bc44b26423943b0858fe04249465883c"
+      "sha256": "bfceab22999b954262b746060f13acbeb2da79828f6fac58a579e6e713528945"
     },
     {
-      "bytes": 981,
+      "bytes": 622,
+      "path": "profile/agent-rooms.json",
+      "sha256": "b95aa28ea053d8952b4baf62b719a3bd86b668fe1b45419641bf015b8930a74f"
+    },
+    {
+      "bytes": 322,
+      "path": "profile/agent-rooms.json.bak",
+      "sha256": "02c9b08728db5ad362a0f77cf47134b3d69c46af4532c5ded210985c01b8adf2"
+    },
+    {
+      "bytes": 879,
       "path": "profile/desktop-session-metadata.json",
-      "sha256": "e1f5cfccccfb19d6b9df9bc7683966f1a563529c656c55adc6049bf0680ad20f"
+      "sha256": "3e4c65976c503de2085ff85c54459e7959a7510224f33e86712877c522f95071"
     }
   ],
+  "legacyWriter": {
+    "tag": "v1.4.5",
+    "tagCommit": "69fe41b056d3407d7fc7da10ed71e3960b497166",
+    "writer": "benchmarks/rust-core/recorders/lib/write-v145-session.mjs: the tag manager.createSession + askSession, saved by the tag store.mjs saveSession"
+  },
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -117,5 +147,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-roster-rows.mjs",
   "set": "roster-rows",
-  "totalBytes": 1423607
+  "totalBytes": 1787539
 }

@@ -7,6 +7,9 @@ import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, r
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+// A git call that has not answered in this long has hung (execFileSync kills it and throws).
+export const GIT_TIMEOUT_MS = 120_000;
+
 export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 export const FIXTURES_ROOT = join(REPO_ROOT, 'native', 'core', 'fixtures');
 export const RESULTS_ROOT = join(REPO_ROOT, 'benchmarks', 'rust-core', 'results');
@@ -75,7 +78,7 @@ const gitBlobSha1 = (data) => createHash('sha1').update(`blob ${data.length}\0`)
  */
 export function productIdentity(tree = loadedTree, ref = 'HEAD') {
   if (!tree) throw new Error('productIdentity: no tree resolved yet (call resolveTree first)');
-  const git = (...a) => execFileSync('git', a, { cwd: REPO_ROOT, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+  const git = (...a) => execFileSync('git', a, { cwd: REPO_ROOT, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, timeout: GIT_TIMEOUT_MS });
   const perRoot = {};
   const blobs = new Map();
   const lfBlobs = new Map();
@@ -141,7 +144,7 @@ export function productIdentity(tree = loadedTree, ref = 'HEAD') {
  */
 export function tagCheckoutIdentity(tree, tag) {
   if (!existsSync(join(tree, '.git'))) throw new Error(`tree ${tree} is not a git checkout (no .git): record from a clone at ${tag}`);
-  const git = (...a) => execFileSync('git', ['-C', tree, ...a], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 }).trim();
+  const git = (...a) => execFileSync('git', ['-C', tree, ...a], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, timeout: GIT_TIMEOUT_MS }).trim();
   const commit = git('rev-parse', 'HEAD');
   const tagged = git('rev-parse', `refs/tags/${tag}^{commit}`);
   if (commit !== tagged) throw new Error(`tree ${tree} is at ${commit}, not at ${tag} (${tagged})`);
@@ -181,7 +184,7 @@ export function exactProductIdentity(tree, commit) {
 export function commitCheckoutIdentity(tree, commit) {
   if (!/^[0-9a-f]{40}$/.test(commit)) throw new Error(`commit must be a full id, got ${commit}`);
   if (!existsSync(join(tree, '.git'))) throw new Error(`tree ${tree} is not a git checkout (no .git): record from a clone at ${commit}`);
-  const git = (...a) => execFileSync('git', ['-C', tree, ...a], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 }).trim();
+  const git = (...a) => execFileSync('git', ['-C', tree, ...a], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, timeout: GIT_TIMEOUT_MS }).trim();
   const head = git('rev-parse', 'HEAD');
   if (head !== commit) throw new Error(`tree ${tree} is at ${head}, not at ${commit}`);
   const changed = git('status', '--porcelain', '--untracked-files=all');
@@ -356,3 +359,20 @@ export function refreshSetManifest(setDir, tree, ref = 'HEAD') {
 }
 
 export const fileSize =(p) => statSync(p).size;
+
+/** How long one product operation of a recorder may take before the recorder calls it hung (a failure bound, not a wait the
+ *  recording relies on). */
+export const OPERATION_TIMEOUT_MS = 120_000;
+
+/** `promise`, or a rejection naming `label` when it has not settled within `ms`. */
+export async function within(label, promise, ms = OPERATION_TIMEOUT_MS) {
+  let timer;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label}: no answer within ${ms} ms`)), ms);
+  });
+  try {
+    return await Promise.race([promise, deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
