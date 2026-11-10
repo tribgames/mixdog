@@ -1,0 +1,115 @@
+{
+  "note": "Node's server trash with XDG_DATA_HOME set and TZ=America/New_York: `{root}` is the project folder, `{trash}` the trash, `{rootUri}` the root as encodeURI writes it; `at` is the instant (ms) `now` gave.",
+  "zone": "America/New_York",
+  "steps": [
+    {
+      "op": "info",
+      "answer": {
+        "available": true,
+        "path": "{trash}"
+      }
+    },
+    {
+      "op": "trash",
+      "rel": "plain.txt",
+      "at": 1705322096000,
+      "answer": {
+        "result": {
+          "mode": "trash",
+          "trashPath": "{trash}\\files\\plain.txt"
+        }
+      },
+      "info": "[Trash Info]\nPath={rootUri}%5Cplain.txt\nDeletionDate=2024-01-15T07:34:56\n"
+    },
+    {
+      "op": "trash",
+      "rel": "with space.txt",
+      "at": 1720062307000,
+      "answer": {
+        "result": {
+          "mode": "trash",
+          "trashPath": "{trash}\\files\\with space.txt"
+        }
+      },
+      "info": "[Trash Info]\nPath={rootUri}%5Cwith%20space.txt\nDeletionDate=2024-07-03T23:05:07\n"
+    },
+    {
+      "op": "trash",
+      "rel": "per%cent#hash.txt",
+      "at": 1705322096000,
+      "answer": {
+        "result": {
+          "mode": "trash",
+          "trashPath": "{trash}\\files\\per%cent#hash.txt"
+        }
+      },
+      "info": "[Trash Info]\nPath={rootUri}%5Cper%25cent#hash.txt\nDeletionDate=2024-01-15T07:34:56\n"
+    },
+    {
+      "op": "trash",
+      "rel": "é 한글 😀.txt",
+      "at": 1720062307000,
+      "answer": {
+        "result": {
+          "mode": "trash",
+          "trashPath": "{trash}\\files\\é 한글 😀.txt"
+        }
+      },
+      "info": "[Trash Info]\nPath={rootUri}%5C%C3%A9%20%ED%95%9C%EA%B8%80%20%F0%9F%98%80.txt\nDeletionDate=2024-07-03T23:05:07\n"
+    },
+    {
+      "op": "trash",
+      "rel": "sym;,@&=+$-_.!~'()[].txt",
+      "at": 1705322096000,
+      "answer": {
+        "result": {
+          "mode": "trash",
+          "trashPath": "{trash}\\files\\sym;,@&=+$-_.!~'()[].txt"
+        }
+      },
+      "info": "[Trash Info]\nPath={rootUri}%5Csym;,@&=+$-_.!~'()%5B%5D.txt\nDeletionDate=2024-01-15T07:34:56\n"
+    },
+    {
+      "op": "trash",
+      "rel": "plain.txt",
+      "at": 1720062307000,
+      "answer": {
+        "result": {
+          "mode": "trash",
+          "trashPath": "{trash}\\files\\plain.txt.2"
+        }
+      },
+      "info": "[Trash Info]\nPath={rootUri}%5Cplain.txt\nDeletionDate=2024-07-03T23:05:07\n"
+    },
+    {
+      "op": "delete",
+      "rel": "sub",
+      "answer": {
+        "result": {
+          "mode": "deleted"
+        }
+      }
+    },
+    {
+      "op": "delete",
+      "rel": "",
+      "answer": {
+        "error": {
+          "message": "The project folder itself cannot be deleted here."
+        }
+      }
+    },
+    {
+      "op": "trash",
+      "rel": "missing.txt",
+      "at": 1720062307000,
+      "answer": {
+        "error": {
+          "message": "ENOENT: no such file or directory, stat '{root}\\missing.txt'",
+          "code": "ENOENT"
+        }
+      },
+      "info": null
+    }
+  ]
+}
