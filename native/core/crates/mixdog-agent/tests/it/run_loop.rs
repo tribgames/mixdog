@@ -325,11 +325,24 @@ struct Compactor100 {
     fail: bool,
     /// The clock this pass moves, and by how much.
     takes: Option<(Arc<FixedClock>, i64)>,
+    /// The attachment preflight rewrites a user message reading "attached" to "referenced".
+    preflight: bool,
 }
 #[async_trait]
 impl Compactor for Compactor100 {
     fn estimate_tokens(&self, messages: &[AgentMessage]) -> u64 {
         messages.len() as u64 * 100
+    }
+    async fn preflight_attachments(&self, messages: &[AgentMessage]) -> Option<mixdog_agent::compact::fresh::Preflight> {
+        let attached = Content::Text("attached".into());
+        if !self.preflight || !messages.iter().any(|m| m.message.content == attached) {
+            return None;
+        }
+        let next = messages
+            .iter()
+            .map(|m| if m.message.content == attached { AgentMessage::user("referenced") } else { m.clone() })
+            .collect();
+        Some(mixdog_agent::compact::fresh::Preflight { messages: next, referenced_messages: 1, inline_tokens_before: 1, budget_tokens: 0 })
     }
     async fn reduces(&self, request: &CompactRequest<'_>) -> bool {
         request.messages.len() > 2
@@ -2358,6 +2371,25 @@ async fn an_oversized_result_is_stored_and_replaced_by_a_pointer_in_the_transcri
     assert!(result.starts_with("[tool output offloaded: grep → /art/r.txt (29 KB, 1 lines)]"), "{}", &result[..80]);
     assert_eq!(artifacts.0.lock().unwrap()[0].len(), 30_000);
 }
+/// `preflightAttachments` runs before every send whether or not automatic compaction is on, and
+/// its rewrite is the transcript a retried turn starts from (issue #150).
+#[tokio::test]
+async fn the_attachment_preflight_rewrites_the_transcript_with_compaction_off() {
+    let mut h = Harness::new(vec![turn(vec![text("ok"), done(StopReason::EndTurn)])]);
+    h.compactor = Some(Arc::new(Compactor100 { preflight: true, ..Default::default() }));
+    let mut cfg = config();
+    cfg.compact = None;
+    let output = finish(h.run(cfg, vec![], vec![AgentMessage::user("attached")])).await;
+    let request = &h.provider.requests()[0];
+    assert!(request.messages.iter().any(|m| m.content == Content::Text("referenced".into())));
+    assert!(!request.messages.iter().any(|m| m.content == Content::Text("attached".into())));
+    assert_eq!(output.transcript[0].message.content, Content::Text("referenced".into()));
+    let replaced = h.sink.replaced.lock().unwrap();
+    assert_eq!(replaced.len(), 1, "the rewrite is persisted once");
+    assert_eq!(replaced[0].0[0].message.content, Content::Text("referenced".into()));
+    assert_eq!(replaced[0].1, Rewrite::default());
+}
+
 /// Far below the pressure trigger, an expired cache tail compacts with its own trigger kind.
 #[tokio::test]
 async fn an_expired_cache_tail_arms_a_cache_expired_compaction() {

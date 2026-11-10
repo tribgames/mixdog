@@ -526,6 +526,14 @@ pub trait Compactor: Send + Sync {
         false
     }
 
+    /// `preflightAttachments`: the transcript with the attachments that would crowd the model
+    /// window carried by reference from this send on; `None` when nothing must be. Asked before
+    /// every send, whether or not automatic compaction is on.
+    async fn preflight_attachments(&self, messages: &[AgentMessage]) -> Option<crate::compact::fresh::Preflight> {
+        let _ = messages;
+        None
+    }
+
     /// Whether tool-result media alone would make the next request too large.
     fn request_media(&self, messages: &[AgentMessage]) -> bool {
         let _ = messages;
