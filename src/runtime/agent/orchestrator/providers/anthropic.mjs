@@ -1,0 +1,494 @@
+import { reloadProviderApiKey, resolveProviderApiKey } from '../../../shared/provider-api-key.mjs';
+import { sanitizeToolPairs } from '../session/context-utils.mjs';
+import { AnthropicFallbackTriggeredError } from './retry-classifier.mjs';
+import {
+  createAnthropicOverloadTracker,
+  isTerminalOverloadModel,
+  takeAnthropicModelFallback,
+} from './anthropic-overload-fallback.mjs';
+import { removeAbortListener } from './anthropic-oauth-request/abort-wiring.mjs';
+import { readStreamOutcome } from './lib/stream-outcome.mjs';
+import { createPassthroughSignal } from '../stall-policy.mjs';
+import { createAbortController } from '../../../shared/abort-controller.mjs';
+import { ANTHROPIC_MAX_MIDSTREAM_RETRIES, parseSSEStream } from './anthropic-sse.mjs';
+import { buildAnthropicBetaHeaders } from './anthropic-betas.mjs';
+import { buildAnthropicApiRequest } from './anthropic-api-request.mjs';
+import { isCustomProviderName } from './custom-reasoning.mjs';
+import { createAnthropicApiKeyFetch } from './anthropic-api-key-fetch.mjs';
+import { ANTHROPIC_EFFORT_LEVELS, withEffortRejectionFallback } from './effort-rejection.mjs';
+import { armFirstByteWatchdog, createAnthropicApiTransport } from './anthropic-api-transport.mjs';
+import { createAnthropicApiRecovery } from './anthropic-api-recovery.mjs';
+import { buildAnthropicTurnResult } from './anthropic-turn-result.mjs';
+import { sendAnthropicCacheWarm } from './anthropic-cache-warm.mjs';
+import {
+  assertAnthropicStreamNotEmpty,
+  createAnthropicMidState,
+  createAnthropicMidstreamRecovery,
+} from './anthropic-midstream-recovery.mjs';
+import { enrichModels } from './model-catalog.mjs';
+import { sanitizeModelList } from './model-list-sanitize.mjs';
+import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
+import { THREAD_MESSAGE_STOP_WAIT_MS, planAnthropicThread, threadAccountKey } from './anthropic-message-threads.mjs';
+
+import {
+  loadAnthropic,
+  resolveEscalatedMaxTokens,
+  _normalizeAnthropicModel,
+  _setApiKeyCatalogMirror,
+} from './anthropic-messages.mjs';
+import { ANTHROPIC_VERSION, MODELS } from './lib/anthropic-models.mjs';
+import { streamCallbacks } from './lib/send-callbacks.mjs';
+import { preparePdfTextForProvider } from './media-normalization.mjs';
+export { _test, _toAnthropicMessagesForTest } from './anthropic-messages.mjs';
+
+// The beta names a request actually sends: its anthropic-beta header (which a
+// caller's requestHeaders may have replaced), else the selected names.
+function sentBetas(requestHeaders, betas) {
+  const header = requestHeaders?.['anthropic-beta'];
+  return typeof header === 'string' ? header.split(',').filter(Boolean) : betas || [];
+}
+
+// One stream attempt's controller, aborted with the caller's reason when the
+// send's signal aborts. An already-aborted send fails before the attempt.
+function linkAttemptAbort(totalSignal) {
+  const streamController = createAbortController();
+  let cancelHandler = null;
+
+  if (totalSignal) {
+    if (totalSignal.aborted) {
+      const reason = totalSignal.reason;
+      throw reason instanceof Error ? reason : new Error('Anthropic request aborted');
+    }
+    cancelHandler = () => {
+      try {
+        streamController.abort(totalSignal.reason);
+      } catch {
+        // best-effort propagation of caller cancellation
+      }
+    };
+    totalSignal.addEventListener('abort', cancelHandler, { once: true });
+  }
+  return { streamController, cancelHandler };
+}
+
+export class AnthropicProvider {
+  // Takes a PDF as a native document block (decided by this adapter's wire protocol).
+  nativePdf = true;
+  // Anthropic reports usage.input_tokens EXCLUDING cache_read/cache_creation
+  // (those are separate fields), so the live context-window footprint must
+  // add cache_read back. See providerInputExcludesCache() in registry.mjs.
+  static inputExcludesCache = true;
+  name = 'anthropic';
+  client;
+  config;
+  apiKey;
+  fastModeBetaHeaderLatched = false;
+  constructor(config) {
+    this.config = config || {};
+    this.name = this.config.name || 'anthropic';
+    this.apiKey = resolveProviderApiKey(this.name, this.config) || null;
+    this.client = this._createClient(this.apiKey);
+  }
+  // Client for the currently resolved key; rebuilt when the key changed since
+  // it was built (e.g. a keyless-constructed instance).
+  _currentClient() {
+    const key = resolveProviderApiKey(this.name, this.config) || null;
+    if (key && key !== this.apiKey) {
+      this.apiKey = key;
+      this.client = this._createClient(key);
+    }
+    return this.client;
+  }
+  // Tool-search is a request capability, not an account capability. Keep it
+  // off the client defaults and add it only on turns that actually serialize
+  // defer_loading tools.
+  _createClient(apiKey) {
+    // A custom gateway gets no first-party default betas and only its own
+    // credential: never the SDK's env/credential-file fallbacks, and none at
+    // all when keyless (config.keyless).
+    const custom = isCustomProviderName(this.name);
+    const keyless = custom && this.config.keyless === true;
+    const betaHeaders = this.config.disableBetaHeaders || custom ? null : buildAnthropicBetaHeaders();
+    let credentials = { apiKey };
+    if (custom) credentials = { apiKey: keyless ? '' : apiKey || '', authToken: null };
+    return new (loadAnthropic())({
+      ...credentials,
+      ...(this.config.baseURL ? { baseURL: this.config.baseURL } : {}),
+      // Gzip only toward the official origin (decided per request URL); a
+      // custom-* gateway keeps the SDK's plain fetch.
+      ...(custom ? {} : { fetch: createAnthropicApiKeyFetch() }),
+      defaultHeaders: {
+        ...(betaHeaders ? { 'anthropic-beta': betaHeaders } : {}),
+        ...(keyless ? { 'x-api-key': null, authorization: null } : {}),
+        ...(this.config.extraHeaders || {}),
+      },
+      maxRetries: 0,
+    });
+  }
+  // The model id capability lookups (output cap, thinking/effort shape) read;
+  // a gateway engine maps its routing slug to the Claude id it stands for.
+  _capabilityModel(model) {
+    return model;
+  }
+  // The larger max_tokens the loop may retry a max_tokens-truncated turn with
+  // (one-shot, via opts.maxOutputTokensOverride), or null when the model has
+  // nothing above the normal request.
+  escalatedMaxTokens(model, opts = {}) {
+    return resolveEscalatedMaxTokens(this._capabilityModel(model), {
+      modelMaxOutputTokens: opts.modelMaxOutputTokens ?? null,
+    });
+  }
+  reloadApiKey() {
+    try {
+      const newKey = reloadProviderApiKey(this.name, this.config);
+      if (newKey) {
+        this.config = { ...(this.config || {}), apiKey: newKey };
+        this.apiKey = newKey;
+        this.client = this._createClient(newKey);
+      }
+    } catch {
+      /* best effort */
+    }
+  }
+  async send(messages, model, tools, sendOpts) {
+    // Defense-in-depth: enforce tool_use / tool_result pairing before
+    // the Anthropic API call. Mirror of the OAuth path; loop.mjs only
+    // runs sanitizeToolPairs when budget is exceeded, so an under-budget
+    // dispatch with an aborted-mid-flight tool_use would otherwise hit
+    // the provider as a hard 400 (`tool_use ids ... without tool_result`).
+    messages = sanitizeToolPairs(messages);
+    // The flag alone decides: an instance that takes no native PDF (a custom
+    // gateway, OpenCode Go's Anthropic route) gets the PDF as text.
+    messages = await preparePdfTextForProvider(messages, this);
+    try {
+      return await this._doSend(messages, model, tools, sendOpts);
+    } catch (err) {
+      const status = Number(err?.status || err?.httpStatus || err?.response?.status || 0);
+      // Auth recovery re-issues the whole turn, so it is a REPLAY: a
+      // typed 401 is re-sent once after reloading the key, unless the
+      // failure already exposed output or dispatched a tool call.
+      const replayPermitted = readStreamOutcome(err).replaySafe === true;
+      if (status === 401 && replayPermitted) {
+        process.stderr.write(`[provider] Auth error, re-reading provider authentication...\n`);
+        this.reloadApiKey();
+        return await this._doSend(messages, model, tools, sendOpts);
+      }
+      throw err;
+    }
+  }
+  /**
+   * Cache-warm mode (anthropic-cache-warm.mjs): the request `send` would
+   * build for these arguments, sent once on the retry-free client — no
+   * key reload, fallback model or re-send — and cut at the first content
+   * block. `onUsage` receives the reported usage as it arrives.
+   */
+  async sendCacheWarm(messages, model, tools, opts = {}, { onUsage, accountId = '' } = {}) {
+    const prepared = await preparePdfTextForProvider(sanitizeToolPairs(messages), this);
+    const { params, requestHeaders } = await buildAnthropicApiRequest({
+      name: this.name,
+      config: this.config,
+      messages: prepared,
+      useModel: model,
+      tools,
+      opts,
+      fastModeLatched: this.fastModeBetaHeaderLatched,
+      modelInfo: isCustomProviderName(this.name) ? this.getCachedModelInfo?.(model) || null : null,
+      capabilityModel: this._capabilityModel(model),
+      customConfig: this.customConfig ?? null,
+    });
+    return sendAnthropicCacheWarm({
+      providerName: this.name,
+      instance: this,
+      accountId,
+      model,
+      opts,
+      onUsage,
+      post: (signal) =>
+        this._currentClient()
+          .messages.create(params, { signal, ...(requestHeaders ? { headers: requestHeaders } : {}) })
+          .asResponse(),
+    });
+  }
+  // The `anthropic` API-key provider and every custom `anthropic`-protocol
+  // provider (a subclass of this one) share this send path.
+  async _doSend(messages, model, tools, sendOpts) {
+    return withEffortRejectionFallback(
+      this.name,
+      model,
+      sendOpts || {},
+      this.config?.reasoningEffort,
+      (opts) => this._sendOnce(messages, model, tools, opts),
+      { levels: ANTHROPIC_EFFORT_LEVELS }
+    );
+  }
+  async _sendOnce(messages, model, tools, opts) {
+    if (!model) throw new Error(`[${this.name}] model is required — pass it from the caller preset`);
+    const useModel = model;
+    // Wire request (system/cache layout, tools, effort, fast mode, images)
+    // and the per-request beta headers derived from that final body —
+    // anthropic-api-request.mjs. Fast mode latches on the provider instance.
+    const built = await buildAnthropicApiRequest({
+      name: this.name,
+      config: this.config,
+      messages,
+      useModel,
+      tools,
+      opts,
+      fastModeLatched: this.fastModeBetaHeaderLatched,
+      // Custom providers carry per-model reasoning settings on their own rows.
+      modelInfo: isCustomProviderName(this.name) ? this.getCachedModelInfo?.(useModel) || null : null,
+      capabilityModel: this._capabilityModel(useModel),
+      customConfig: this.customConfig ?? null,
+    });
+    const { knownToolNames, fastModeLatched } = built;
+    this.fastModeBetaHeaderLatched = fastModeLatched;
+    // Message thread (anthropic-message-threads.mjs): the same request as a
+    // create, a delta continue, or unchanged. The thread belongs to this key.
+    this._currentClient();
+    const thread = planAnthropicThread({
+      provider: this.name,
+      config: this.config,
+      opts,
+      body: built.params,
+      betas: sentBetas(built.requestHeaders, built.betas),
+      account: threadAccountKey(this.name, this.config?.baseURL || '', this.apiKey),
+      requestMessages: messages,
+    });
+    const params = thread.body;
+    const requestHeaders =
+      thread.mode === 'none'
+        ? built.requestHeaders
+        : { ...(built.requestHeaders || {}), 'anthropic-beta': thread.betas.join(',') };
+
+    const { onStageChange, onStreamDelta, onToolCall, onTextDelta, onTextReset, onStreamItemStart } =
+      streamCallbacks(opts);
+
+    // No absolute wall-clock cap on streaming generation: a stream still
+    // emitting SSE deltas must not be killed by a fixed total-lifetime timer.
+    // Mirrors the OAuth provider (Option A). Bounded instead by the
+    // per-attempt first-byte/HTTP-response timeout, the SSE idle watchdog,
+    // the agent stall watchdog, and externalSignal (client disconnect /
+    // replaced-by-newer-request). totalSignal is a pure pass-through.
+    const externalSignal = opts.signal || null;
+    const totalTimeout = createPassthroughSignal(externalSignal);
+    const totalSignal = totalTimeout.signal;
+
+    const { transport, buildTurnResult, recovery, midstream } = this._createSendRecovery({
+      opts,
+      useModel,
+      params,
+      requestHeaders,
+      totalSignal,
+      onStageChange,
+      onTextReset,
+    });
+
+    let streamingFallbackTried = false;
+    try {
+      for (let attemptIndex = 0; attemptIndex <= ANTHROPIC_MAX_MIDSTREAM_RETRIES; attemptIndex++) {
+        // A dropped continue is resent once as-is; after that it replays.
+        if (attemptIndex >= 2) thread.toCreate();
+        const { streamController, cancelHandler } = linkAttemptAbort(totalSignal);
+
+        const midState = createAnthropicMidState(attemptIndex);
+
+        let firstByte = null;
+        let response = null;
+
+        try {
+          try {
+            onStageChange?.('requesting');
+          } catch {
+            // the stage observer is advisory
+          }
+
+          response = await transport.requestStreamingResponse();
+
+          try {
+            onStageChange?.('streaming');
+          } catch {
+            // the stage observer is advisory
+          }
+
+          firstByte = armFirstByteWatchdog(streamController, midState);
+
+          const parseResult = await parseSSEStream(
+            response,
+            streamController.signal,
+            (reason) => streamController.abort(reason),
+            onStreamDelta,
+            onToolCall,
+            midState,
+            onTextDelta,
+            knownToolNames,
+            {
+              relayProgressUpdates: params.thinking?.display === 'updates',
+              labels: { display: 'Anthropic', tag: this.name },
+              onStreamItemStart,
+              awaitMessageStopMs: thread.mode === 'none' ? 0 : THREAD_MESSAGE_STOP_WAIT_MS,
+              releaseSignal: externalSignal,
+            }
+          );
+          thread.commit(parseResult);
+          const finishStream = () => {
+            try {
+              streamController.abort?.('Anthropic SSE complete');
+            } catch {
+              // the stream is complete; the controller may already be aborted
+            }
+          };
+          // A thread's message_stop may still be read in the background: the
+          // body stays open until that read settles.
+          const receiptTail = parseResult.threadReceipt?.pending;
+          if (receiptTail) void receiptTail.then(finishStream);
+          else finishStream();
+
+          firstByte.cleanup();
+          assertAnthropicStreamNotEmpty(midState, parseResult, 'Anthropic');
+
+          return buildTurnResult(parseResult);
+        } catch (err) {
+          // The fallback trigger is handled around the whole send below.
+          if (err instanceof AnthropicFallbackTriggeredError) throw err;
+          // A refused thread request (nothing ran): replay as a create or
+          // send unthreaded, per the thread error.
+          const threadDirective =
+            err?.initialResponseError === true
+              ? thread.classify(err.status, err.responseBody ?? err.error ?? err.message)
+              : null;
+          if (threadDirective) {
+            thread.settle();
+            return await this._sendOnce(messages, model, tools, { ...opts, _anthropicThread: threadDirective });
+          }
+          // Gateways that 404 the streaming endpoint but serve non-streaming:
+          // one non-streaming replay (nothing was streamed yet).
+          if (err?.initialResponseError === true && Number(err.status) === 404 && !streamingFallbackTried) {
+            streamingFallbackTried = true;
+            return await recovery.issueNonStreamingFallback(streamController, err);
+          }
+          // Ordered recovery ladder: canonical outcome stamp, acknowledged
+          // non-streaming replay for exposed output, bounded streaming
+          // retries, silent-stall fallback, classifier-driven retries.
+          const decision = await midstream.onStreamError({
+            err,
+            midState,
+            controller: streamController,
+            response,
+            attemptIndex,
+          });
+          if (decision.retry) continue;
+          return decision.value;
+        } finally {
+          firstByte?.cleanup();
+          removeAbortListener(totalSignal, cancelHandler);
+        }
+      }
+      throw midstream.exhaustedError();
+    } catch (err) {
+      thread.settle();
+      const fallbackOpts = takeAnthropicModelFallback(err, { tag: this.name, model: useModel, opts, onStageChange });
+      return await this._doSend(messages, err.fallbackModel, tools, fallbackOpts);
+    } finally {
+      thread.settle();
+      totalTimeout.cleanup();
+    }
+  }
+  // The recovery pipeline of one send over its fixed request: the shared
+  // overload counter, the transport, the turn-result projection, the
+  // non-streaming recovery and the bounded mid-stream retries.
+  _createSendRecovery({ opts, useModel, params, requestHeaders, totalSignal, onStageChange, onTextReset }) {
+    // Request-loop 529s and SSE overload events share one counter; at the
+    // limit the configured fallback model takes over the whole send.
+    const overload = createAnthropicOverloadTracker({
+      model: useModel,
+      fallbackModel: opts._fallbackTriggered ? undefined : opts.fallbackModel,
+      terminalAtLimit: !isCustomProviderName(this.name) && isTerminalOverloadModel(useModel),
+    });
+    // The SDK calls and their initial-response retry policy
+    // (anthropic-api-transport.mjs).
+    const transport = createAnthropicApiTransport({
+      client: this._currentClient(),
+      label: this.name,
+      opts,
+      useModel,
+      params,
+      requestHeaders,
+      totalSignal,
+      overload,
+    });
+    // Usage accounting + caller-visible projection, shared by the streaming
+    // success path and the non-streaming fallback (anthropic-turn-result.mjs).
+    const buildTurnResult = (parseResult) =>
+      buildAnthropicTurnResult(parseResult, { provider: this.name, useModel, opts });
+    // Non-streaming re-issue of a dead stream, behind the transport-recovery
+    // budget and the exposed-output retraction handshake
+    // (anthropic-api-recovery.mjs).
+    const recovery = createAnthropicApiRecovery({
+      label: this.name,
+      opts,
+      useModel,
+      params,
+      totalSignal,
+      transport,
+      buildTurnResult,
+      onStageChange,
+      onTextReset,
+    });
+    // Bounded mid-stream retries for transient stream loss; jittered backoff
+    // between attempts (anthropic-midstream-recovery.mjs, shared with
+    // anthropic-oauth).
+    const midstream = createAnthropicMidstreamRecovery({
+      label: this.name,
+      displayName: 'Anthropic',
+      outcomeProvider: 'anthropic',
+      midstreamOwner: `${this.name}-midstream`,
+      unreachableMessage: 'Anthropic mid-stream retry: unreachable',
+      // The transport's withRetry already exhausted the full request-level
+      // budget for a non-OK initial response, so it must not earn an
+      // additional SSE retry budget here.
+      initialResponseErrorTerminal: true,
+      maxRetries: ANTHROPIC_MAX_MIDSTREAM_RETRIES,
+      totalSignal,
+      recovery,
+      onStageChange,
+      retry529: opts.retry529 !== false,
+      overload,
+    });
+    return { transport, buildTurnResult, recovery, midstream };
+  }
+  async listModels() {
+    const apiKey = resolveProviderApiKey(this.name, this.config);
+    if (!apiKey) return MODELS;
+    try {
+      const base = String(this.config?.baseURL || 'https://api.anthropic.com').replace(/\/+$/, '');
+      const res = await fetch(`${base}/v1/models`, {
+        signal: AbortSignal.timeout(10_000),
+        method: 'GET',
+        headers: {
+          'x-api-key': apiKey,
+          'anthropic-version': ANTHROPIC_VERSION,
+          ...(this.config?.extraHeaders || {}),
+        },
+        dispatcher: getLlmDispatcher(),
+      });
+      if (!res.ok) throw new Error(`list_models ${res.status}`);
+      const data = await res.json();
+      const items = Array.isArray(data?.data) ? data.data : [];
+      const normalized = items.map((m) => _normalizeAnthropicModel(m, this.name)).filter(Boolean);
+      const enriched = sanitizeModelList(await enrichModels(normalized), { provider: this.name });
+      // Feed the resolver-visible mirror so API-key-only installs get
+      // catalog outputTokens without depending on the OAuth disk cache.
+      if (enriched.length) _setApiKeyCatalogMirror(enriched.slice());
+      return enriched.length ? enriched : MODELS;
+    } catch (err) {
+      if (!process.env.MIXDOG_QUIET_PROVIDER_LOG)
+        process.stderr.write(`[${this.name}] listModels fetch failed (${err.message})\n`);
+      return MODELS;
+    }
+  }
+  async isAvailable() {
+    // Availability probes must not spend tokens or depend on a live
+    // network. Dispatch owns authentication validation and 401 reload.
+    return !!resolveProviderApiKey(this.name, this.config);
+  }
+}

@@ -1,0 +1,155 @@
+import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import test from 'node:test';
+
+test('isolated PostgreSQL covers fresh schema, legacy CORE conflicts, aliases and real retrieval SQL', async (t) => {
+  // Both PGDATA and discovery/stop metadata are private to this test process.
+  // Never attach to or stop the user's memory service.
+  const directory = mkdtempSync(join(tmpdir(), 'mixdog-memory-postgres-'));
+  process.env.MIXDOG_RUNTIME_ROOT = join(directory, 'runtime');
+  process.env.MIXDOG_DATA_DIR = directory;
+  const { openDatabase, closeDatabase, ensureCurrentSchemaExtensions, embeddingToSql } = await import('./memory.mjs');
+  const { stopPgForShutdown } = await import('./pg/supervisor.mjs');
+  // A passing run removes its ~100 MB PGDATA; a failing one keeps it for
+  // inspection and says where.
+  let passed = false;
+  t.after(async () => {
+    await closeDatabase(directory);
+    await stopPgForShutdown();
+    if (passed) rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    else t.diagnostic(`Retained isolated PostgreSQL artifacts: ${directory}`);
+  });
+  const identity = { model: 'isolated-sql-test', dimensions: 384 };
+  let db = await openDatabase(directory, 384, identity);
+  const actualData = (await db.query('SHOW data_directory')).rows[0].data_directory;
+  assert.equal(resolve(actualData).toLowerCase(), resolve(directory, 'pgdata').toLowerCase());
+  const { ensureCoreKeyIndex } = await import('./core-memory-uniqueness.mjs');
+  const { searchRelevantHybrid } = await import('./memory-recall-store.mjs');
+  const { retrieveEntries } = await import('./memory-retrievers.mjs');
+  const { makeChunkQuality, assessChunkQuality } = await import('./memory-chunk-quality.mjs');
+  const { createMemoryActionHandlers } = await import('./memory-action-handlers.mjs');
+
+  // Destructive maintenance against a fresh store. All work stays in this
+  // empty test cluster.
+  const { handleMemoryAction } = createMemoryActionHandlers({
+    getDb: () => db,
+    readMainConfig: () => ({}),
+    getSchedulerCycle1InFlight: () => null,
+    startCycle1Run: async () => ({ chunks: 0, processed: 0 }),
+  });
+  const rebuilt = await handleMemoryAction({ action: 'rebuild', confirm: 'REBUILD MEMORY' });
+  assert.notEqual(rebuilt.isError, true);
+  assert.match(rebuilt.text, /embeddings=0/);
+
+  // This index belongs to the freshly allocated test cluster, never a live DB.
+  // Agent memory isolation: the pool key replaced the project key, and an
+  // agent pool may hold an element common memory also holds.
+  assert.equal((await db.query(`SELECT to_regclass('core_entries_unique_proj_elem') AS idx`)).rows[0].idx, null);
+  const { addCore, deleteCore } = await import('./core-memory-store.mjs');
+  const common = await addCore(directory, { summary: 'Shared element', category: 'preference' }, null);
+  const own = await addCore(directory, { summary: 'Shared element', category: 'preference' }, null, {
+    agentId: 'reviewer',
+    caller: { kind: 'headless', agentId: 'reviewer' },
+  });
+  assert.equal(own.agent_id, 'reviewer');
+  await deleteCore(directory, own.id);
+  await deleteCore(directory, common.id);
+  // A store from before agent pools: no agent_id column (dropping it drops
+  // the pool key index too).
+  await db.exec('ALTER TABLE core_entries DROP COLUMN agent_id');
+  await db.query(`INSERT INTO core_entries(element,summary,category,project_id,created_at,updated_at)
+    VALUES ('legacy-key','First approved preference','preference',NULL,1,1),
+           ('legacy-key','Second approved preference','preference',NULL,2,2)`);
+  const beforeCore = (await db.query('SELECT id,summary FROM core_entries ORDER BY id')).rows;
+  await ensureCurrentSchemaExtensions(db, 384, identity);
+  assert.deepEqual((await db.query('SELECT id,summary FROM core_entries ORDER BY id')).rows, beforeCore);
+  assert.deepEqual(
+    (await db.query('SELECT agent_id FROM core_entries ORDER BY id')).rows.map((row) => row.agent_id),
+    [null, null]
+  );
+  assert.equal(await ensureCoreKeyIndex(db), false);
+
+  const vector = [1, ...Array(383).fill(0)];
+  const roots = [];
+  for (let i = 1; i <= 3; i++) {
+    const row = (
+      await db.query(
+        `
+      INSERT INTO entries(ts,role,content,source_ref,session_id,project_id,is_root,element,summary,category,status,last_seen_at,embedding)
+      VALUES ($1,'user',$2,$3,$4,'project',1,$5,$6,'fact','pending',$1,$7::halfvec) RETURNING *
+    `,
+        [
+          i * 1000,
+          `audit original source ${i} `.repeat(30),
+          `audit:${i}`,
+          `session:${i}`,
+          `audit-${i}`,
+          `audit summary ${i}`,
+          embeddingToSql(vector),
+        ]
+      )
+    ).rows[0];
+    const quality = makeChunkQuality(row.summary, [row]);
+    await db.query('UPDATE entries SET chunk_root=id, chunk_quality=$2::jsonb WHERE id=$1', [
+      row.id,
+      JSON.stringify(quality),
+    ]);
+    roots.push({ ...row, chunk_root: row.id, chunk_quality: quality });
+  }
+  const [older, current, independent] = roots;
+  // Seed stored relationships; recall keeps using these aliases.
+  await db.query('UPDATE entries SET duplicate_of=$1 WHERE id=$2', [current.id, older.id]);
+  await db.query('UPDATE entries SET concept_id=$1, supersedes_id=$1 WHERE id=$2', [older.id, current.id]);
+  await db.query('INSERT INTO entry_concepts(entry_id,concept_id,supersedes_id,created_at) VALUES ($1,$2,$2,999)', [
+    current.id,
+    older.id,
+  ]);
+  for (const original of roots) {
+    const stored = (await db.query('SELECT * FROM entries WHERE id=$1', [original.id])).rows[0];
+    assert.equal(stored.content, original.content);
+    assert.equal(stored.chunk_root, original.chunk_root);
+    assert.equal(assessChunkQuality(stored, [stored]).usable, true);
+  }
+  const recalled = await searchRelevantHybrid(db, 'audit', { projectScope: 'project', limit: 2, queryVector: vector });
+  assert.deepEqual(
+    new Set(recalled.map((row) => Number(row.id))),
+    new Set([Number(current.id), Number(independent.id)])
+  );
+  const pages = [];
+  for (let offset = 0; offset < 3; offset++) {
+    pages.push(
+      (await retrieveEntries(db, { projectScope: 'project', sort: 'date', limit: 1, offset })).map((row) =>
+        Number(row.id)
+      )
+    );
+  }
+  assert.deepEqual(pages, [[Number(independent.id)], [Number(current.id)], []]);
+  assert.deepEqual(
+    (await retrieveEntries(db, { projectScope: 'project', ts_to: 1500 })).map((row) => Number(row.id)),
+    [Number(older.id)]
+  );
+
+  await closeDatabase(directory);
+  db = await openDatabase(directory, 384, identity);
+  assert.deepEqual((await db.query('SELECT id,summary FROM core_entries ORDER BY id')).rows, beforeCore);
+  assert.equal(Number((await db.query('SELECT COUNT(*) AS count FROM entries')).rows[0].count), 3);
+  assert.equal(
+    Number((await db.query('SELECT duplicate_of FROM entries WHERE id=$1', [older.id])).rows[0].duplicate_of),
+    Number(current.id)
+  );
+  assert.equal(
+    Number(
+      (await db.query('SELECT supersedes_id FROM entry_concepts WHERE entry_id=$1', [current.id])).rows[0].supersedes_id
+    ),
+    Number(older.id)
+  );
+
+  // Explicitly resolve the test fixture's conflict; migration may now install
+  // the index without deleting either curated record.
+  await db.query(`UPDATE core_entries SET element='resolved-key' WHERE id=$1`, [beforeCore[1].id]);
+  assert.equal(await ensureCoreKeyIndex(db), true);
+  assert.deepEqual((await db.query('SELECT id,summary FROM core_entries ORDER BY id')).rows, beforeCore);
+  passed = true;
+});

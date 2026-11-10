@@ -1,0 +1,53 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import { resetEmbeddingColumnsForModel } from './memory.mjs';
+
+function mockDb({ entriesDims = 384, identityMatches = true } = {}) {
+  const execs = [];
+  const queries = [];
+  return {
+    execs,
+    queries,
+    async exec(sql) {
+      execs.push(sql);
+    },
+    async query(sql, params = []) {
+      queries.push({ sql, params });
+      if (sql.includes('FROM pg_attribute')) {
+        assert.equal(params[0], 'entries');
+        return { rows: [{ atttypmod: entriesDims }] };
+      }
+      if (sql.includes('SELECT value = $2::jsonb')) {
+        return { rows: identityMatches ? [{ matches: true }] : [] };
+      }
+      return { rows: [] };
+    },
+  };
+}
+
+const identity = { model: 'Xenova/multilingual-e5-small', dtype: 'q8' };
+
+test('matching embedding dimensions and identity keep stored vectors', async () => {
+  const db = mockDb();
+  assert.equal(await resetEmbeddingColumnsForModel(db, 384, identity), false);
+  assert.deepEqual(db.execs, []);
+});
+
+test('a model identity change invalidates vectors even at the same dimensions', async () => {
+  const db = mockDb({ identityMatches: false });
+  assert.equal(await resetEmbeddingColumnsForModel(db, 384, identity), true);
+  assert.ok(db.execs.some((sql) => sql.includes('UPDATE entries SET embedding = NULL')));
+  assert.equal(
+    db.execs.some((sql) => sql.includes('core_entries')),
+    false
+  );
+  assert.ok(db.execs.some((sql) => sql.includes('DROP TABLE IF EXISTS memory.embedding_cache')));
+  assert.ok(db.queries.some(({ params }) => params[0] === 'embedding.current_model'));
+});
+
+test('a dimension change rebuilds the entries halfvec column', async () => {
+  const db = mockDb({ entriesDims: 640 });
+  assert.equal(await resetEmbeddingColumnsForModel(db, 384, identity), true);
+  assert.ok(db.execs.some((sql) => sql.includes('ALTER TABLE entries ALTER COLUMN embedding TYPE halfvec(384)')));
+});

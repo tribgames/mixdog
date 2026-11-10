@@ -1,0 +1,329 @@
+import { hasOwn } from '../shared/object.mjs';
+import { schemaStringLength } from '../shared/schema-value-error.mjs';
+import { MAX_COMPUTER_FOREGROUND_TEXT_CHARS } from './limits.mjs';
+
+export const COMPUTER_DEFAULT_DELIVERY = 'background';
+
+const COMPUTER_CORE_ACTION_TYPES = Object.freeze([
+  'click',
+  'double_click',
+  'triple_click',
+  'mouse_down',
+  'mouse_up',
+  'move',
+  'drag',
+  'scroll',
+  'type',
+  'set_value',
+  'key',
+  'key_down',
+  'key_up',
+  'wait',
+]);
+
+export const COMPUTER_CORE_ACTION_SCHEMA = {
+  type: 'object',
+  description: 'One action; act.actions defines ordering and target reuse.',
+  properties: {
+    type: { type: 'string', enum: COMPUTER_CORE_ACTION_TYPES },
+    ref: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 4_096,
+      description: 'Fresh semantic ref from capture.',
+    },
+    element: { type: 'integer', minimum: 1, description: 'Fresh SOM/OCR mark from capture.' },
+    x: { type: 'integer', description: 'Frame-relative X; act.input.frame_id owns the frame.' },
+    y: { type: 'integer', description: 'Frame-relative Y; act.input.frame_id owns the frame.' },
+    to: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 4_096,
+      description: 'Drag destination semantic ref.',
+    },
+    to_element: { type: 'integer', minimum: 1 },
+    to_x: { type: 'integer' },
+    to_y: { type: 'integer' },
+    waypoints: {
+      type: 'array',
+      minItems: 2,
+      maxItems: 32,
+      items: {
+        type: 'object',
+        properties: {
+          x: { type: 'integer' },
+          y: { type: 'integer' },
+        },
+        required: ['x', 'y'],
+        additionalProperties: false,
+      },
+      description:
+        'Drag points in act.input.frame_id for a gesture that is not a straight line; replaces x/y and to_x/to_y.',
+    },
+    button: { type: 'string', enum: ['left', 'right', 'middle'] },
+    modifiers: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 32,
+      pattern: '^(?:ctrl|shift|alt)(?:\\+(?:ctrl|shift|alt))*$',
+      description:
+        'Optional pointer modifiers joined by +. Background supports ctrl/shift; alt requires foreground delivery.',
+    },
+    direction: { type: 'string', enum: ['up', 'down', 'left', 'right'] },
+    amount: { type: 'integer', minimum: 1, maximum: 100 },
+    text: {
+      type: 'string',
+      maxLength: 30_000,
+      description: `Literal text; foreground cap ${MAX_COMPUTER_FOREGROUND_TEXT_CHARS} UTF-16 code units per action. Never a password, or a code from SMS, an authenticator app or a passkey, even one shown on screen: saved_login or handoff_user. The one exception is a one-time code e-mailed for a sign-up or sign-in you started, read from a connected mailbox: type it yourself, never echo it.`,
+    },
+    value: {
+      type: 'string',
+      maxLength: 30_000,
+      description:
+        'set_value replacement for an element that advertises set_value; writes the control directly, without focus or keystrokes. Never a password or a code; an e-mailed code is typed with text and delivery foreground (set_value fills only one box of a segmented code input).',
+    },
+    keys: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 512,
+      description:
+        'Key name or chord. Keyboard chords with ctrl/shift/alt require explicit foreground delivery; background supports plain keys.',
+      pattern: '^[^\\u0000-\\u001F\\u007F-\\u009F]+$',
+    },
+    duration: {
+      type: 'number',
+      minimum: 0,
+      maximum: 5,
+      description:
+        'wait: cap in seconds. act already settles after every action; use wait only for a known async delay.',
+    },
+    quiet: {
+      type: 'boolean',
+      description:
+        'wait: opt-in (default false, a fixed pause). true ends before duration once the window set, foreground, focused window, title and bounds stop changing (3 equal samples 200 ms apart); use it when waiting for a window or dialog to open, close or move. Content changes inside a window (canvas, text) are not seen: use verify for those.',
+    },
+  },
+  required: ['type'],
+  additionalProperties: false,
+};
+
+const ALLOWED_FIELDS = new Set(Object.keys(COMPUTER_CORE_ACTION_SCHEMA.properties));
+const TARGET_FIELDS = ['ref', 'element', 'x', 'y'];
+const FIELDS_BY_TYPE = {
+  click: new Set(['type', ...TARGET_FIELDS, 'button', 'modifiers']),
+  double_click: new Set(['type', ...TARGET_FIELDS, 'modifiers']),
+  triple_click: new Set(['type', ...TARGET_FIELDS, 'modifiers']),
+  mouse_down: new Set(['type', ...TARGET_FIELDS, 'modifiers']),
+  mouse_up: new Set(['type', ...TARGET_FIELDS, 'modifiers']),
+  move: new Set(['type', ...TARGET_FIELDS, 'modifiers']),
+  drag: new Set(['type', ...TARGET_FIELDS, 'to', 'to_element', 'to_x', 'to_y', 'waypoints', 'modifiers']),
+  scroll: new Set(['type', ...TARGET_FIELDS, 'direction', 'amount', 'modifiers']),
+  type: new Set(['type', ...TARGET_FIELDS, 'text']),
+  // A value is written through the element itself, so it needs a semantic
+  // target: a coordinate names a pixel, not a control that holds a value.
+  set_value: new Set(['type', 'ref', 'element', 'value']),
+  key: new Set(['type', 'ref', 'keys']),
+  key_down: new Set(['type', 'ref', 'keys']),
+  key_up: new Set(['type', 'ref', 'keys']),
+  wait: new Set(['type', 'duration', 'quiet']),
+};
+
+function targetFormError(action, { required = true, frameId = '' } = {}) {
+  const semantic = ['ref', 'element'].filter((field) => hasOwn(action, field));
+  const point = ['x', 'y'].filter((field) => hasOwn(action, field));
+  if (semantic.length > 1) return 'accepts only one of ref or element';
+  if (point.length && point.length !== 2) return 'coordinate target requires x and y';
+  if (point.length === 2 && !frameId) return 'coordinate target requires act.input.frame_id';
+  const forms = semantic.length + (point.length === 2 ? 1 : 0);
+  if (forms > 1) return 'accepts only one semantic or coordinate target';
+  if (required && forms === 0) return 'requires ref, element, or x/y';
+  return null;
+}
+
+function fieldValueError(field, value, label) {
+  const schema = COMPUTER_CORE_ACTION_SCHEMA.properties[field];
+  if (schema.enum && !schema.enum.includes(value)) {
+    return `${label}.${field} must be one of: ${schema.enum.join(', ')}`;
+  }
+  if (schema.type === 'string') {
+    if (typeof value !== 'string') return `${label}.${field} must be a string`;
+    const length = schemaStringLength(value);
+    if (schema.minLength !== undefined && length < schema.minLength) {
+      return `${label}.${field} requires at least ${schema.minLength} characters`;
+    }
+    if (schema.maxLength !== undefined && length > schema.maxLength) {
+      return `${label}.${field} accepts at most ${schema.maxLength} characters`;
+    }
+    if (schema.pattern !== undefined && !new RegExp(schema.pattern).test(value)) {
+      return `${label}.${field} must match the required format`;
+    }
+  }
+  if (schema.type === 'integer' && !Number.isInteger(value)) {
+    return `${label}.${field} must be an integer`;
+  }
+  if (schema.type === 'number' && (typeof value !== 'number' || !Number.isFinite(value))) {
+    return `${label}.${field} must be a finite number`;
+  }
+  if (schema.type === 'boolean' && typeof value !== 'boolean') {
+    return `${label}.${field} must be a boolean`;
+  }
+  if (typeof value === 'number') {
+    if (schema.minimum !== undefined && value < schema.minimum) {
+      return `${label}.${field} must be at least ${schema.minimum}`;
+    }
+    if (schema.maximum !== undefined && value > schema.maximum) {
+      return `${label}.${field} must be at most ${schema.maximum}`;
+    }
+  }
+  return null;
+}
+
+const POINTER_ACTION_TYPES = ['click', 'double_click', 'triple_click', 'mouse_down', 'mouse_up', 'move'];
+const CONTINUATION_ACTION_TYPES = ['type', 'key', 'key_down', 'key_up', 'wait'];
+// A later action may address another element of the same observation, by ref
+// only: marks and coordinates belong to a frame the first action invalidated.
+const CONTINUATION_REF_ACTION_TYPES = ['click', 'double_click', 'triple_click', 'scroll', 'set_value'];
+const CONTINUATION_FRAME_FIELDS = ['element', 'x', 'y', 'to', 'to_element', 'to_x', 'to_y', 'waypoints'];
+
+// Shape checks every action shares: known type, allowed fields, field values.
+function actionShapeError(action, type, label) {
+  if (!COMPUTER_CORE_ACTION_TYPES.includes(type)) return `${label} has unknown type: ${type || '(empty)'}`;
+  const extras = Object.keys(action).filter((field) => !ALLOWED_FIELDS.has(field));
+  if (extras.length) return `${label} does not accept field(s): ${extras.join(', ')}`;
+  const typeExtras = Object.keys(action).filter((field) => !FIELDS_BY_TYPE[type].has(field));
+  if (typeExtras.length) return `${label} type="${type}" does not accept field(s): ${typeExtras.join(', ')}`;
+  for (const [field, value] of Object.entries(action)) {
+    const valueError = fieldValueError(field, value, label);
+    if (valueError) return valueError;
+  }
+  for (const field of ['ref', 'to']) {
+    if (hasOwn(action, field) && !action[field].trim()) return `${label}.${field} must not be empty`;
+  }
+  return null;
+}
+
+function deliveryError(action, type, label, delivery) {
+  if (
+    type === 'type' &&
+    delivery === 'foreground' &&
+    typeof action.text === 'string' &&
+    action.text.length > MAX_COMPUTER_FOREGROUND_TEXT_CHARS
+  ) {
+    return `${label} foreground text exceeds ${MAX_COMPUTER_FOREGROUND_TEXT_CHARS} UTF-16 code units`;
+  }
+  if (typeof action.modifiers !== 'string') return null;
+  const modifierParts = action.modifiers.split('+');
+  if (new Set(modifierParts).size !== modifierParts.length) return `${label}.modifiers must not repeat a modifier`;
+  if (modifierParts.includes('alt') && delivery !== 'foreground') {
+    return `${label}.modifiers alt requires act.input.delivery="foreground"`;
+  }
+  return null;
+}
+
+// Actions after the first reuse the focus the first one established, or name
+// another element of the same observation by its ref.
+function sequenceError(action, type, index) {
+  if (index === 0) return type === 'wait' ? 'Computer Use act must start with an input action' : null;
+  if (CONTINUATION_REF_ACTION_TYPES.includes(type)) {
+    if (!hasOwn(action, 'ref')) {
+      return `Computer Use act action ${index + 1} type="${type}" after the first action requires a ref from the same observation`;
+    }
+  } else if (!CONTINUATION_ACTION_TYPES.includes(type)) {
+    return 'Computer Use act actions after the first must be type, key, key_down, key_up, wait, or a ref-addressed click, double_click, triple_click, scroll, or set_value';
+  }
+  if (CONTINUATION_FRAME_FIELDS.some((field) => hasOwn(action, field))) {
+    return 'Computer Use act actions after the first address elements by ref only; marks and coordinates belong to the first action';
+  }
+  return null;
+}
+
+function dragTargetError(action, label, frameId) {
+  const sourceSemantic = ['ref', 'element'].filter((field) => hasOwn(action, field));
+  const destinationSemantic = ['to', 'to_element'].filter((field) => hasOwn(action, field));
+  const sourcePoint = ['x', 'y'].filter((field) => hasOwn(action, field));
+  const destinationPoint = ['to_x', 'to_y'].filter((field) => hasOwn(action, field));
+  const semantic = sourceSemantic.length === 1 && destinationSemantic.length === 1;
+  const coordinate = sourcePoint.length === 2 && destinationPoint.length === 2;
+  if (hasOwn(action, 'waypoints')) {
+    // Waypoints already name every point of the gesture, so a second source or
+    // destination could only contradict them.
+    if (sourceSemantic.length || destinationSemantic.length || sourcePoint.length || destinationPoint.length) {
+      return `${label} waypoints carry the whole gesture and cannot be combined with another target`;
+    }
+    if (!frameId) return `${label} waypoints require act.input.frame_id`;
+    return null;
+  }
+  if (
+    sourceSemantic.length > 1 ||
+    destinationSemantic.length > 1 ||
+    (semantic && coordinate) ||
+    (!semantic && !coordinate)
+  ) {
+    return `${label} requires one matching semantic or coordinate source/destination pair`;
+  }
+  if (coordinate && !frameId) return `${label} coordinate target requires act.input.frame_id`;
+  return null;
+}
+
+// Per-type argument rules: targets, direction, text, keys, duration.
+function actionArgumentsError(action, type, label, frameId) {
+  if (POINTER_ACTION_TYPES.includes(type)) {
+    const error = targetFormError(action, { frameId });
+    return error ? `${label} ${error}` : null;
+  }
+  if (type === 'drag') return dragTargetError(action, label, frameId);
+  if (type === 'scroll') {
+    const error = targetFormError(action, { required: false, frameId });
+    if (error) return `${label} ${error}`;
+    if (!['up', 'down', 'left', 'right'].includes(action.direction)) {
+      return `${label} direction must be up, down, left, or right`;
+    }
+    return null;
+  }
+  if (type === 'type') {
+    const error = targetFormError(action, { required: false, frameId });
+    if (error) return `${label} ${error}`;
+    return typeof action.text === 'string' ? null : `${label} requires text`;
+  }
+  if (type === 'set_value') {
+    if (!hasOwn(action, 'ref') && !hasOwn(action, 'element')) return `${label} requires ref or element`;
+    if (hasOwn(action, 'ref') && hasOwn(action, 'element')) return `${label} accepts only one of ref or element`;
+    return typeof action.value === 'string' ? null : `${label} requires value`;
+  }
+  if (type === 'key' || type === 'key_down' || type === 'key_up')
+    return typeof action.keys === 'string' ? null : `${label} requires keys`;
+  if (type === 'wait') {
+    const { duration } = action;
+    const valid = typeof duration === 'number' && Number.isFinite(duration) && duration >= 0 && duration <= 5;
+    return valid ? null : `${label} duration must be 0..5 seconds`;
+  }
+  return null;
+}
+
+export function validateComputerCoreActions(actions, { frameId = '', delivery = COMPUTER_DEFAULT_DELIVERY } = {}) {
+  if (!Array.isArray(actions) || actions.length < 1 || actions.length > 6) {
+    return 'Computer Use act actions must contain 1..6 items';
+  }
+  for (let index = 0; index < actions.length; index += 1) {
+    const action = actions[index];
+    const label = `Computer Use act action ${index + 1}`;
+    if (!action || typeof action !== 'object' || Array.isArray(action)) {
+      return `${label} must be an object`;
+    }
+    const type = String(action.type || '');
+    const error =
+      actionShapeError(action, type, label) ||
+      deliveryError(action, type, label, delivery) ||
+      sequenceError(action, type, index) ||
+      actionArgumentsError(action, type, label, frameId);
+    if (error) return error;
+  }
+  const totalWaitSeconds = actions.reduce(
+    (total, action) => total + (action?.type === 'wait' ? Number(action.duration) || 0 : 0),
+    0
+  );
+  if (totalWaitSeconds > 10) {
+    return 'Computer Use act wait actions accept at most 10 total seconds; use verify for longer conditions';
+  }
+  return null;
+}

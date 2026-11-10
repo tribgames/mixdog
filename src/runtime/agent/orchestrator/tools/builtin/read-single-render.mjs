@@ -1,0 +1,215 @@
+/**
+ * read-single-render.mjs — the buffered Read: decode the raw body with its
+ * detected encoding, render the requested line window with line numbers,
+ * apply the smart-elide / byte caps and footers, and describe exactly which
+ * lines the model saw (the snapshot meta Edit later validates against).
+ */
+import * as fsPromises from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
+import { sameFileVersion } from './file-version.mjs';
+import { canCacheReadFile, READ_PREFIX_HASH_BYTES } from './read-cache-policy.mjs';
+import { decodeUtf16Body, isUtf16Encoding } from './snapshot-helpers.mjs';
+import { capMarker, windowMarker } from './tool-output-limit.mjs';
+
+/**
+ * Encoding-aware decode (fresh read AND raw-content cache hit both flow
+ * through here). For a BOM-flagged UTF-16LE file, strip the 2-byte FF FE BOM
+ * and decode as utf16le so it reverses the write tool's preservation; utf-8
+ * stays byte-identical (the leading U+FEFF of a utf8-BOM file is stripped
+ * later at the line[0] check for display). A UTF-16BE file reverses the same
+ * way a LE file does (decodeUtf16Body).
+ */
+export function decodeReadBuffer(rawBuf, enc) {
+  if (isUtf16Encoding(enc)) return decodeUtf16Body(rawBuf, enc);
+  return rawBuf.toString('utf-8');
+}
+
+// Output byte cap protects against many-line slices that individually pass
+// the file-size check but explode after line-number prefixing. `lo` is a
+// UTF-16 code-unit index: cutting between a high and low surrogate emits a
+// lone surrogate (replacement glyph) and breaks the byte count the cap just
+// computed, so step back off the pair.
+function byteCapSlice(rendered, maxBytes) {
+  let lo = 0;
+  let hi = rendered.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (Buffer.byteLength(rendered.slice(0, mid), 'utf8') <= maxBytes) lo = mid;
+    else hi = mid - 1;
+  }
+  if (lo > 0) {
+    const cu = rendered.charCodeAt(lo - 1);
+    if (cu >= 0xd800 && cu <= 0xdbff) lo -= 1;
+  }
+  return rendered.slice(0, lo);
+}
+
+function rangeFooter(ctx, render, rendered) {
+  const { offset, readMaxOutputBytes, readOffsetBase, widenNote } = ctx;
+  const { lineCount, renderedLineCount, byteCapTruncated, sliced } = render;
+  if (sliced.length === 0 && offset >= lineCount)
+    return { replace: `(no lines in range; file has ${lineCount} lines)` };
+  const emittedStart = offset + 1;
+  if (byteCapTruncated) {
+    const emittedEnd = offset + renderedLineCount;
+    return {
+      footer: windowMarker({
+        from: emittedStart,
+        to: emittedEnd,
+        total: lineCount,
+        capBytes: readMaxOutputBytes,
+        nextOffset: emittedEnd < lineCount ? emittedEnd + readOffsetBase : null,
+      }),
+    };
+  }
+  if (Buffer.byteLength(rendered, 'utf8') > readMaxOutputBytes) return {};
+  const emittedEnd = offset + sliced.length;
+  // Continuation uses the originating caller's coordinate base. Remaining
+  // content is not automatically required evidence; when it is, it fits one
+  // wider read, not a walk window by window.
+  const footer = windowMarker({
+    from: emittedStart,
+    to: emittedEnd,
+    total: lineCount,
+    nextOffset: emittedEnd < lineCount ? emittedEnd + readOffsetBase : null,
+  });
+  return { footer: widenNote ? `${footer}\n${widenNote}` : footer };
+}
+
+/**
+ * Render the requested window of `content`.
+ * @returns {{ out: string, lineCount: number, renderedLineCount: number,
+ *   smartTruncated: boolean, smartVisibleRanges: Array|null, byteCapTruncated: boolean }}
+ *   renderedLineCount / the truncation flags say which lines the model
+ *   actually saw (W1 H): smart-middle elision and byte-cap truncation both
+ *   drop lines, and the snapshot must not claim coverage of them.
+ */
+function renderReadWindow(content, ctx, helpers) {
+  const { filePath, st, offset, limit, hasRangeArgs, wantFull, readMaxOutputBytes } = ctx;
+  const { renderReadLine, smartReadTruncate, normalizeOutputPath } = helpers;
+  const lines = content.split(/\r?\n/);
+  if (lines.length > 0 && lines[0].charCodeAt(0) === 0xfeff) lines[0] = lines[0].slice(1);
+  // wc-l compatible line count: a trailing newline ends a line, it does not
+  // start a new empty one. Display count must match the count emitted by
+  // mode:"count" so footer and count agree.
+  const lineCount = lines.length > 0 && lines[lines.length - 1] === '' ? lines.length - 1 : lines.length;
+  const renderEnd = !hasRangeArgs && !wantFull ? lineCount : Math.min(offset + limit, lineCount);
+  const sliced = lines.slice(offset, renderEnd);
+  const rendered = sliced
+    .map((line, i) => renderReadLine(offset + i + 1, line, { truncateLongLine: !wantFull }))
+    .join('\n');
+  // Smart cap only engages for the default read (no offset/limit, full:false)
+  // over the line/byte threshold; explicit ranges always see byte-exact output.
+  const smart =
+    !hasRangeArgs && !wantFull && typeof smartReadTruncate === 'function'
+      ? smartReadTruncate(rendered, lineCount, st.size)
+      : null;
+  const smartTruncated = !!smart?.truncated;
+  const render = {
+    lineCount,
+    sliced,
+    renderedLineCount: sliced.length,
+    smartTruncated,
+    smartVisibleRanges: smartTruncated && Array.isArray(smart.ranges) ? smart.ranges : null,
+    byteCapTruncated: false,
+  };
+  let out;
+  if (smartTruncated) {
+    out = smart.text;
+    render.renderedLineCount = 0;
+  } else if (Buffer.byteLength(rendered, 'utf8') > readMaxOutputBytes) {
+    const slice = byteCapSlice(rendered, readMaxOutputBytes);
+    render.renderedLineCount = Math.max(0, slice.split('\n').length - 1);
+    render.byteCapTruncated = true;
+    const ofFile = st?.size > 0 ? `${Math.max(1, Math.round(st.size / 1024))} KB file` : '';
+    // A windowed read's footer already carries the cap and continuation.
+    out = hasRangeArgs
+      ? slice
+      : `${slice}\n\n${capMarker({
+          limit: readMaxOutputBytes,
+          shown: ofFile ? `${render.renderedLineCount} of ${lineCount} lines shown (${ofFile})` : '',
+          nextOffset: offset + render.renderedLineCount + ctx.readOffsetBase,
+        })}`;
+  } else {
+    out = rendered;
+  }
+  if (hasRangeArgs) {
+    const { replace, footer } = rangeFooter(ctx, render, rendered);
+    if (replace !== undefined) out = replace;
+    else if (footer !== undefined) out += `${out ? '\n' : ''}${footer}`;
+  }
+  // An empty file gets a system-reminder instead of a bare `1│` line so the
+  // agent doesn't assume content was elided. W1 M: the filename can contain
+  // `<` or `</system-reminder>` sequences; XML-escape before interpolation so
+  // a hostile path can't terminate the envelope and inject markup.
+  if (content.length === 0) {
+    const safePath = normalizeOutputPath(filePath).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    out = `<system-reminder>File exists but has empty contents: ${safePath}</system-reminder>`;
+  }
+  return { ...render, out };
+}
+
+/**
+ * Describe exactly which lines the model saw. A full-file view pins the
+ * whole decoded body with one contentHash; anything
+ * narrower records rangeHashes over the visible window so
+ * snapshotCoversFullFile never green-lights an overwrite against bytes the
+ * read never returned.
+ */
+function bufferedReadSnapshotMeta(content, rawBuf, render, ctx, helpers) {
+  const { offset, limit } = ctx;
+  const { _hashText, _rangeHashesForReadRanges } = helpers;
+  const { lineCount, renderedLineCount, smartTruncated, smartVisibleRanges, byteCapTruncated } = render;
+  const isFullFileView = offset === 0 && offset + limit >= lineCount && !smartTruncated && !byteCapTruncated;
+  let visibleRanges = [];
+  if (smartTruncated && smartVisibleRanges) visibleRanges = smartVisibleRanges;
+  else if (renderedLineCount > 0) {
+    visibleRanges = [{ startLine: offset + 1, endLine: Math.min(lineCount, offset + renderedLineCount) }];
+  }
+  const rangeHashes = !isFullFileView ? _rangeHashesForReadRanges(content, visibleRanges) : [];
+  const fullContentHash = isFullFileView ? _hashText(content) : '';
+  const snapshotMeta = {
+    source: 'read',
+    fileLineCount: lineCount,
+    ranges: isFullFileView ? [{ startLine: 1, endLine: Infinity }] : visibleRanges,
+    ...(isFullFileView ? { contentHash: fullContentHash } : {}),
+    ...(rangeHashes.length > 0 ? { rangeHashes } : {}),
+  };
+  // Cache validation hashes on-disk bytes, unlike the decoded snapshot.
+  // Use a byte boundary for every encoding, matching the streaming path.
+  const contentPrefixHash = canCacheReadFile(ctx.st) ? _hashText(rawBuf.subarray(0, READ_PREFIX_HASH_BYTES)) : '';
+  return { snapshotMeta, contentPrefixHash };
+}
+
+/**
+ * The buffered read: body (prefetched or read now) → decode → re-stat →
+ * render → cache + raw cache + snapshot.
+ */
+export async function bufferedReadResult(ctx, { prefetched, readEnc }, helpers) {
+  const { fullPath, cacheKey, readStateScope } = ctx;
+  const { _cacheSet, _rawContentCacheSet, _recordReadSnapshot } = helpers;
+  const rawBuf = prefetched.buf || (await readFile(fullPath));
+  const content = decodeReadBuffer(rawBuf, readEnc);
+  // A cache hit was checked against this exact version. Fresh IO must
+  // also agree after reading, including ctime and replacement identity.
+  // Never relabel observed bytes with a later stat or certify a failed stat.
+  const st = ctx.st;
+  let readStable = sameFileVersion(st, st) && rawBuf.length === st.size;
+  if (!prefetched.fromCache) {
+    try {
+      readStable = readStable && sameFileVersion(st, await fsPromises.stat(fullPath));
+    } catch {
+      readStable = false;
+    }
+  }
+  const render = renderReadWindow(content, ctx, helpers);
+  if (readStable) {
+    const { snapshotMeta, contentPrefixHash } = bufferedReadSnapshotMeta(content, rawBuf, render, ctx, helpers);
+    if (canCacheReadFile(st)) {
+      _cacheSet(cacheKey, render.out, { paths: [fullPath], readSnapshotMeta: snapshotMeta, contentPrefixHash });
+      _rawContentCacheSet(fullPath, st, rawBuf);
+    }
+    _recordReadSnapshot(fullPath, st, readStateScope, snapshotMeta);
+  }
+  return render.out;
+}

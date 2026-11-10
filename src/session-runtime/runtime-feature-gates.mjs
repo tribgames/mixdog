@@ -1,0 +1,31 @@
+// Model-facing feature activation for one session runtime. Every gate reads the
+// LIVE config (a settings toggle must take effect without rebuilding the tool
+// surface), so the factory takes getters rather than values.
+//
+// Key names mirror the dependency names of settings-api.mjs / the session-build
+// deps, so the runtime can hand them straight through.
+import {
+  builtinFeatureActive,
+  localGitToolsActive,
+} from '../runtime/agent/orchestrator/runtime-core/builtin-features.mjs';
+import { recapEnabled } from '../runtime/agent/orchestrator/runtime-core/config-helpers.mjs';
+import { liveFeatureDisallowedTools } from '../runtime/agent/orchestrator/runtime-core/tool-availability.mjs';
+
+export function createRuntimeFeatureGates({ getConfig, getToolProfile }) {
+  return {
+    // Memory ingest is always-on. `recap` gates only the background cycles;
+    // `memoryTools` gates the model-facing memory/recall tool surface. Headless
+    // runs override any toggle per process via MIXDOG_FEATURE_* env values.
+    recapEnabledFn: () => recapEnabled(getConfig(), true),
+    memoryToolsEnabledFn: () => builtinFeatureActive(getConfig(), 'memory'),
+    webSearchEnabled: () => builtinFeatureActive(getConfig(), 'webSearch'),
+    gitToolsEnabledFn: () => localGitToolsActive(getConfig()),
+    officeToolsEnabledFn: () => builtinFeatureActive(getConfig(), 'office'),
+    localProviderEnabledFn: () => builtinFeatureActive(getConfig(), 'localProvider'),
+    mediaToolEnabledFn: () => builtinFeatureActive(getConfig(), 'media'),
+    tidyToolEnabledFn: () => builtinFeatureActive(getConfig(), 'tidy'),
+    // Browser/Computer activate on live desktop-bridge presence, so the probe
+    // runs per call instead of being captured at boot.
+    featureDisallowedTools: () => liveFeatureDisallowedTools(getConfig(), { toolProfile: getToolProfile() }),
+  };
+}

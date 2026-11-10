@@ -1,0 +1,254 @@
+import { resolveProviderApiKey } from '../../../shared/provider-api-key.mjs';
+import { markProviderRecoveryExhausted, withRetry } from './retry-classifier.mjs';
+import { compatRetryOptions, withCompatRetryProfile } from './openai-compat-retry-profile.mjs';
+import { consumeCompatResponsesStream } from './openai-compat-stream.mjs';
+import { PROVIDER_FIRST_BYTE_TIMEOUT_MS, createPassthroughSignal } from '../stall-policy.mjs';
+import {
+  nativeResponsesTools,
+  resolveCompatMaxOutputTokens,
+  toOpenAIMessages,
+  toResponsesTools,
+  toXaiResponsesInput,
+  xaiSystemInstructions,
+  knownToolNamesFromResponsesTools,
+  parseResponsesToolCalls,
+  responseOutputText,
+} from './openai-compat-wire.mjs';
+import { preparePdfTextForProvider } from './media-normalization.mjs';
+import {
+  normalizeXaiReasoningEffort,
+  xaiModelSupportsReasoningEffort,
+  xaiResponsesCacheRouting,
+  XAI_CACHE_LANE_META,
+} from './openai-compat-xai.mjs';
+import { normalizeXaiResponsesHttp, normalizeXaiResponsesWebSocket } from './openai-compat-response-normalization.mjs';
+import { sendViaWebSocket } from './openai-oauth-ws.mjs';
+import { applyCompatToolChoice, compatStreamRetryReporter } from './compat-request-policy.mjs';
+import { envFlag as _envFlag } from '../../../shared/env.mjs';
+import { resolveResponsesTransportPolicy, RESPONSES_TRANSPORT_CAPABILITIES } from './openai-transport-policy.mjs';
+
+// Server-side tool search is strictly opt-in, from the provider's own config
+// (`xaiServerToolSearch`, shared by grok-oauth's inner xai provider) or the
+// request opts. Unset, every xAI request body is unchanged: deferred tools go
+// out as plain function tools and the client `load_tool` stays a function.
+// Server-executed search items replay through the owner-tagged providerReplay
+// envelope in either mode and are never dispatched locally.
+function xaiServerToolSearchEnabled(provider, opts) {
+  return (opts.xaiServerToolSearch ?? provider.config?.xaiServerToolSearch) === true;
+}
+
+// Tool list, parallel tool calls, tool choice and reasoning effort shared by
+// the HTTP/SSE and WebSocket Responses bodies.
+function applyXaiResponsesToolsAndEffort(params, { provider, tools, opts, useModel }) {
+  const nativeTools = nativeResponsesTools(opts);
+  if (tools?.length || nativeTools.length) {
+    const toolOptions = xaiServerToolSearchEnabled(provider, opts)
+      ? { provider: 'xai', serverToolSearch: true, onToolExcluded: opts.onToolExcluded }
+      : { provider: 'xai', onToolExcluded: opts.onToolExcluded };
+    params.tools = [...nativeTools, ...toResponsesTools(tools || [], toolOptions)];
+  }
+  // Explicit parallel tool calls, matching the OpenAI Responses
+  // reference shape. Probe-verified accepted by api.x.ai (HTTP 200,
+  // 2026-08-16); absent, the service default decides per turn. An explicit
+  // caller `parallelToolCalls:false` is honored (docs.x.ai function-calling).
+  if (params.tools?.length) params.parallel_tool_calls = opts.parallelToolCalls !== false;
+  // Caller output cap (docs.x.ai text best-practices): max_output_tokens.
+  const maxOutputTokens = resolveCompatMaxOutputTokens(opts);
+  if (maxOutputTokens) params.max_output_tokens = maxOutputTokens;
+  applyCompatToolChoice(params, opts);
+  const reasoningEffort = normalizeXaiReasoningEffort(
+    opts.xaiReasoningEffort ??
+      opts.effort ??
+      provider.config?.reasoningEffort ??
+      process.env.MIXDOG_XAI_REASONING_EFFORT
+  );
+  if (reasoningEffort && xaiModelSupportsReasoningEffort(useModel)) {
+    params.reasoning = { effort: reasoningEffort };
+  }
+}
+
+export async function sendXaiResponses(provider, messages, useModel, tools, opts) {
+  const signal = opts.signal || null;
+  if (signal?.aborted) {
+    const reason = signal.reason;
+    throw reason instanceof Error ? reason : new Error('xAI Responses request aborted by session close');
+  }
+  messages = await preparePdfTextForProvider(messages, provider);
+  const chatMessagesForTrace = toOpenAIMessages(messages, provider.name, { nativePdf: provider.nativePdf });
+  const cacheRouting = xaiResponsesCacheRouting(opts, { messages: chatMessagesForTrace }, tools || [], useModel);
+  const { input, previousResponseId, startIndex, continuationResetReason } = toXaiResponsesInput(
+    messages,
+    opts.providerState,
+    { model: useModel, providerName: provider.name, nativePdf: provider.nativePdf }
+  );
+  const params = {
+    model: useModel,
+    input,
+    // xAI's reference sampler is ZDR-safe by default and asks the
+    // service to return opaque reasoning state for continuation.
+    // This method is xAI-only; other compat providers retain their
+    // existing request bodies.
+    store: false,
+    include: ['reasoning.encrypted_content'],
+  };
+  // A null routing key means "omit the field" (cache scope 'none'):
+  // xAI's own client sends no prompt_cache_key and relies on the
+  // service's automatic prefix caching.
+  if (cacheRouting.key) params.prompt_cache_key = cacheRouting.key;
+  if (previousResponseId) params.previous_response_id = previousResponseId;
+  applyXaiResponsesToolsAndEffort(params, { provider, tools, opts, useModel });
+  // SSE transport: report 'requesting' until the stream opens, then
+  // per-chunk onStreamDelta feeds the agent stall watchdog.
+  try {
+    opts.onStageChange?.('requesting');
+  } catch {
+    /* heartbeat best-effort */
+  }
+  params.stream = true;
+  const cacheLane = XAI_CACHE_LANE_META;
+  const totalSignal = createPassthroughSignal(signal);
+  let streamed;
+  try {
+    streamed = await withRetry(
+      withCompatRetryProfile(provider.name, async ({ signal: attemptSignal }) => {
+        const stream = await withRetry(
+          ({ signal: openSignal }) => provider.client.responses.create(params, { signal: openSignal }),
+          {
+            signal: attemptSignal,
+            // Single attempt: first-byte timeout only; retry
+            // is owned by the outer withRetry (see chat path).
+            maxAttempts: 1,
+            perAttemptTimeoutMs: PROVIDER_FIRST_BYTE_TIMEOUT_MS,
+            perAttemptLabel: 'xai responses first byte',
+          }
+        );
+        try {
+          opts.onStageChange?.('streaming');
+        } catch {
+          /* heartbeat best-effort */
+        }
+        try {
+          return await consumeCompatResponsesStream(stream, {
+            signal: attemptSignal,
+            label: 'xai:responses',
+            sessionId: opts.sessionId,
+            onStreamDelta: opts.onStreamDelta,
+            onToolCall: opts.onToolCall,
+            onTextDelta: opts.onTextDelta,
+            onStreamItemStart: opts.onStreamItemStart,
+            parseResponsesToolCalls,
+            responseOutputText,
+            knownToolNames: knownToolNamesFromResponsesTools(params.tools),
+          });
+        } catch (error) {
+          if (error?.streamStalled === true) {
+            throw markProviderRecoveryExhausted(error, {
+              owner: 'xai-content-idle-policy',
+            });
+          }
+          throw error;
+        }
+      }),
+      {
+        signal: totalSignal.signal,
+        onRetry: compatStreamRetryReporter('xai:responses', opts),
+        retry529: opts.retry529,
+        ...compatRetryOptions(provider.name),
+      }
+    );
+  } finally {
+    totalSignal.cleanup();
+  }
+  return normalizeXaiResponsesHttp({
+    messages,
+    useModel,
+    tools,
+    opts,
+    params,
+    response: streamed.response,
+    streamed,
+    cacheRouting,
+    previousResponseId,
+    startIndex,
+    continuationResetReason,
+    cacheLane,
+  });
+}
+
+export async function sendXaiResponsesWebSocket(provider, messages, useModel, tools, opts) {
+  const signal = opts.signal || null;
+  if (signal?.aborted) {
+    const reason = signal.reason;
+    throw reason instanceof Error ? reason : new Error('xAI Responses WebSocket request aborted by session close');
+  }
+  const apiKey = resolveProviderApiKey('xai', provider.config);
+  if (!apiKey) throw new Error('xAI API key not configured');
+  messages = await preparePdfTextForProvider(messages, provider);
+  const chatMessagesForTrace = toOpenAIMessages(messages, provider.name, { nativePdf: provider.nativePdf });
+  const cacheRouting = xaiResponsesCacheRouting(opts, { messages: chatMessagesForTrace }, tools || [], useModel);
+  const { input, previousResponseId, startIndex, continuationResetReason } = toXaiResponsesInput(
+    messages,
+    opts.providerState,
+    { includeSystem: false, model: useModel, providerName: provider.name, nativePdf: provider.nativePdf }
+  );
+  const params = {
+    model: useModel,
+    input,
+    store: false,
+    include: ['reasoning.encrypted_content'],
+  };
+  if (cacheRouting.key) params.prompt_cache_key = cacheRouting.key;
+  const instructions = xaiSystemInstructions(messages);
+  if (previousResponseId) params.previous_response_id = previousResponseId;
+  // xAI rejects instructions together with previous_response_id; the
+  // first response already anchors instructions for the continuation.
+  else if (instructions) params.instructions = instructions;
+  applyXaiResponsesToolsAndEffort(params, { provider, tools, opts, useModel });
+  const iteration = Number.isFinite(Number(opts.iteration)) ? Number(opts.iteration) : null;
+  const cacheLane = XAI_CACHE_LANE_META;
+  // Fast-fallback only shortens the WS handshake retry budget when the
+  // HTTP/SSE fallback is actually enabled for this call. With no-fallback
+  // (allowHttpFallback=false) the WS path must keep its FULL retry budget,
+  // mirroring openai-oauth's httpFallbackEnabled gate.
+  const xaiTransportPolicy = resolveResponsesTransportPolicy(process.env, RESPONSES_TRANSPORT_CAPABILITIES.xai);
+  const httpFallbackEnabled = xaiTransportPolicy.allowHttpFallback && _envFlag('MIXDOG_XAI_WS_HTTP_FALLBACK', true);
+  const result = await sendViaWebSocket({
+    auth: { type: 'xai', apiKey },
+    body: params,
+    sendOpts: opts,
+    onStreamDelta: typeof opts.onStreamDelta === 'function' ? opts.onStreamDelta : null,
+    onToolCall: typeof opts.onToolCall === 'function' ? opts.onToolCall : null,
+    onTextDelta: typeof opts.onTextDelta === 'function' ? opts.onTextDelta : null,
+    onStageChange: typeof opts.onStageChange === 'function' ? opts.onStageChange : null,
+    externalSignal: signal,
+    // A forked request runs in its own transport scope (transport-scope.mjs).
+    poolKey: opts.transportScope || opts.sessionId || opts.session?.id || null,
+    cacheKey: cacheRouting.key,
+    iteration,
+    useModel,
+    displayModel: (id) => id,
+    includeResponseId: true,
+    traceProvider: 'xai',
+    logSuppressedReasoningDeltas: false,
+    // Mirror openai-oauth fast fallback: when the HTTP fallback is
+    // enabled (outer catch → _shouldFallbackXaiWsToHttp), a first
+    // acquire/first-byte failure should skip remaining WS
+    // handshake retries instead of burning the retry budget
+    // before HTTP starts. Gated on httpFallbackEnabled so a
+    // no-fallback config keeps the full WS retry budget.
+    fastFallback: httpFallbackEnabled,
+  });
+  return normalizeXaiResponsesWebSocket({
+    messages,
+    useModel,
+    tools,
+    opts,
+    result,
+    params,
+    cacheRouting,
+    previousResponseId,
+    startIndex,
+    continuationResetReason,
+    cacheLane,
+  });
+}

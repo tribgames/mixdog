@@ -1,0 +1,68 @@
+// Standing memory is exclusively user-curated. Generated history is accessed
+// through recall, not through a second instruction-management namespace.
+import { indexedCoreRecord, syncCoreMemoryIndexes } from './core-memory-index.mjs';
+import { resolveProjectScope } from './project-id-resolver.mjs';
+import { corePoolLabel } from './core-memory-access.mjs';
+
+export async function listManagedMemories(db, scope, options = {}) {
+  const includeInactive = options.include_inactive ?? false;
+  if (typeof includeInactive !== 'boolean') throw new Error('include_inactive must be a boolean');
+  // The project editor reads the catalog once, rather than synchronizing the
+  // same index for every row. Resolve its paths here, using the store's scope
+  // resolver instead of guessing project IDs from display names or folders.
+  if (
+    options.project_paths !== undefined &&
+    (scope !== '*' ||
+      !Array.isArray(options.project_paths) ||
+      options.project_paths.some((path) => typeof path !== 'string' || !path.trim()))
+  ) {
+    throw new Error('project_paths requires an all-project list and non-empty paths');
+  }
+  const projectScopes = options.project_paths?.map((path) => ({ path, projectId: resolveProjectScope(path) }));
+  const limit = Math.min(100, Math.max(1, Math.trunc(Number(options.limit) || 50)));
+  const offset = Math.max(0, Math.trunc(Number(options.offset) || 0));
+  const directory = await syncCoreMemoryIndexes(db);
+  // Order before pagination by the persisted scoped address, not the hidden
+  // database key: moving an old record into a scope appends it there.
+  const indexCases = [...directory.values()].flatMap((state) =>
+    state.recordIds.map((id, index) => `WHEN ${Number(id)} THEN ${index + 1}`)
+  );
+  const publicOrder = indexCases.length ? `CASE id ${indexCases.join(' ')} ELSE id END` : 'id';
+  // `agent_id` lists that agent's own pool alone; otherwise agent pools are
+  // never part of a common/project listing.
+  const agentId = typeof options.agent_id === 'string' && options.agent_id ? options.agent_id : null;
+  const result = await db.query(
+    `
+    SELECT * FROM (
+      SELECT 'curated'::text AS source, c.id, c.project_id, c.agent_id, c.element, c.summary,
+             COALESCE(c.status, 'active')::text AS status,
+             (c.status IS NULL OR c.status = 'active') AS injection_enabled
+      FROM core_entries c
+    ) memories
+    WHERE (agent_id = $6::text OR ($6::text IS NULL AND agent_id IS NULL
+        AND ($1::text = '*' OR project_id = $1 OR (project_id IS NULL AND (NOT $5::boolean OR $1::text IS NULL)))))
+      AND ($4::boolean OR injection_enabled)
+    ORDER BY project_id NULLS FIRST, ${publicOrder} ASC, id ASC
+    LIMIT $2 OFFSET $3
+  `,
+    [scope, limit + 1, offset, includeInactive, options.scope_only === true, agentId]
+  );
+  const hasMore = result.rows.length > limit;
+  const entries = result.rows.slice(0, limit).map((row) => indexedCoreRecord(row, directory));
+  if (entries.some((row) => row.injection_enabled && !row.id)) {
+    throw new Error('memory indices changed during listing; list memories again');
+  }
+  return { entries, nextOffset: hasMore ? offset + limit : null, ...(projectScopes ? { projectScopes } : {}) };
+}
+
+export function formatManagedMemories(page) {
+  const lines = page.entries.map((row) => {
+    const id = row.id ? `id=${row.id}` : `archived_id=${row.record_id}`;
+    const version = row.index_revision ? ` index_revision=${row.index_revision}` : '';
+    const pool = corePoolLabel({ projectId: row.project_id, agentId: row.agent_id });
+    return `${id} source=curated ${pool} status=${row.status} injection=${row.injection_enabled ? 'enabled' : 'disabled'}${version} ${row.element ?? ''} — ${row.summary ?? ''}`;
+  });
+  if (page.nextOffset !== null)
+    lines.push(`More memories: call list with offset=${page.nextOffset} and the same project scope/include_inactive.`);
+  return lines.join('\n') || 'memory: empty';
+}

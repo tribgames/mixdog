@@ -1,0 +1,505 @@
+import { existsSync, mkdirSync, appendFileSync, statSync, renameSync } from 'node:fs';
+import { appendFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { getPluginData } from './config.mjs';
+import { readServicePort, markServiceUnreachable, isConnRefuseError } from '../../shared/service-discovery.mjs';
+import { isDiagnosticIOEnabled } from '../../../lib/mixdog-debug.cjs';
+
+const WARNED_KEYS = new Set();
+
+// ---------------------------------------------------------------------------
+// In-memory buffer. Product sessions flush directly into the daemon-hosted
+// memory module; the standalone path can still use its local HTTP service.
+// ---------------------------------------------------------------------------
+const _buffer = [];
+const _BUFFER_MAX = 2000;
+const _FLUSH_INTERVAL_MS = 5000;
+const _FLUSH_BATCH_SIZE = 500;
+let _flushTimer = null;
+let _serviceUrl = null;
+// Port of the discovery advert `_serviceUrl` was resolved from (null when it
+// came from legacy active-instance.json). Lets a flush connect-failure distrust
+// a recycled-pid corpse advert so the next resolve falls back to legacy/buffer.
+let _serviceAdvertPort = null;
+let _flushPromise = null;
+let _flushImmediate = null;
+let _localTracePath = null;
+let _localTraceIsExplicit = false;
+let _localTraceBuffer = [];
+let _localTraceTimer = null;
+let _localTraceFlushInFlight = false;
+let _localTraceFlushPromise = null;
+let _toolFailurePath = null;
+let _toolFailureBuffer = [];
+let _toolFailureTimer = null;
+let _toolFailureFlushInFlight = false;
+const _LOCAL_TRACE_FLUSH_LINES = 100;
+const _LOCAL_TRACE_FLUSH_MS = 1000;
+const _LOCAL_TRACE_MAX_BYTES = 10 * 1024 * 1024; // 10 MB — rotate to .1/.2/.3 above this.
+// Rotation generations kept on disk (.1 newest … .N oldest). A single .1
+// generation proved too short a window — bench rounds (session-bench /
+// task-bench re-scoring) were losing their raw turn rows to a second rotation
+// within hours. 3 generations ≈ 40 MB worst case per log. Env-overridable via
+// MIXDOG_AGENT_TRACE_ROTATE_KEEP (positive integer).
+const _LOCAL_TRACE_ROTATE_KEEP = (() => {
+  const v = parseInt(process.env.MIXDOG_AGENT_TRACE_ROTATE_KEEP, 10);
+  return Number.isFinite(v) && v > 0 ? v : 3;
+})();
+const _TOOL_FAILURE_FLUSH_LINES = 50;
+const _TOOL_FAILURE_FLUSH_MS = 1000;
+// Throttle interval for local rotation stat checks. statSync on every flush
+// is unnecessary — rotation is a best-effort size guard. First flush always
+// checks; subsequent checks wait at least this many ms. Tune via env
+// MIXDOG_AGENT_TRACE_ROTATE_CHECK_MS (default 60000 ms, positive integer).
+const MIXDOG_AGENT_TRACE_ROTATE_CHECK_MS = (() => {
+  const v = parseInt(process.env.MIXDOG_AGENT_TRACE_ROTATE_CHECK_MS, 10);
+  return Number.isFinite(v) && v > 0 ? v : 60000;
+})();
+let _lastRotateCheckMs = 0;
+let _lastToolFailureRotateCheckMs = 0;
+
+function warnAgentOnce(key, message) {
+  if (!key || WARNED_KEYS.has(key)) return;
+  WARNED_KEYS.add(key);
+  try {
+    process.stderr.write(`${message}\n`);
+  } catch {
+    // Ignore logging failures.
+  }
+}
+
+function normalizeSessionId(sessionId) {
+  return sessionId ? String(sessionId) : 'no-session';
+}
+
+function _rotateLocalTraceIfNeeded(path) {
+  try {
+    const stat = statSync(path);
+    if (stat && stat.size > _LOCAL_TRACE_MAX_BYTES) {
+      try {
+        // Shift generations oldest-first: .2 → .3, .1 → .2, live → .1.
+        // The oldest (.KEEP) is overwritten by the rename below it.
+        for (let gen = _LOCAL_TRACE_ROTATE_KEEP - 1; gen >= 1; gen -= 1) {
+          const src = `${path}.${gen}`;
+          if (existsSync(src)) renameSync(src, `${path}.${gen + 1}`);
+        }
+        renameSync(path, `${path}.1`);
+      } catch (err) {
+        warnAgentOnce('agent-trace:local-rotate', `[agent-trace] local rotate failed (${err?.message})`);
+      }
+    }
+  } catch {
+    // File missing or unstattable — nothing to rotate.
+  }
+}
+
+function _ensureLocalTraceDirectory(path) {
+  // The path may outlive an ephemeral runtime directory. Recreate its parent
+  // at flush time rather than relying on the one-time path resolution.
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+}
+
+function _resolveLocalTracePath() {
+  if (process.env.MIXDOG_AGENT_TRACE_LOCAL_DISABLE === '1') return null;
+  if (_localTracePath) return _localTracePath;
+  const explicit = process.env.MIXDOG_AGENT_TRACE_PATH;
+  // Node test workers intentionally exercise failure paths. Keep those rows
+  // out of the user's implicit trace, while explicit per-test paths still work.
+  if (!explicit && process.env.NODE_TEST_CONTEXT) return null;
+  // Ship-mode default: skip diagnostic local trace file IO unless dev/debug,
+  // MIXDOG_DIAGNOSTICS, or an explicit trace path opts back in. In-memory
+  // buffer + memory-service flush (session metrics) are unaffected.
+  if (!explicit && !isDiagnosticIOEnabled()) return null;
+  try {
+    _localTracePath = explicit || join(getPluginData(), 'history', 'agent-trace.jsonl');
+    _localTraceIsExplicit = Boolean(explicit);
+    // R4 data-at-rest: trace rows may carry tool payloads / prompts;
+    // clamp dir to owner-only on POSIX (advisory on Windows).
+    _ensureLocalTraceDirectory(_localTracePath);
+    return _localTracePath;
+  } catch {
+    return null;
+  }
+}
+
+function _appendLocalTrace(row) {
+  if (!_resolveLocalTracePath()) return;
+  try {
+    _localTraceBuffer.push(`${JSON.stringify(row)}\n`);
+    if (_localTraceBuffer.length >= _LOCAL_TRACE_FLUSH_LINES) {
+      _flushLocalTrace();
+    } else if (!_localTraceTimer) {
+      _localTraceTimer = setTimeout(_flushLocalTrace, _LOCAL_TRACE_FLUSH_MS);
+      _localTraceTimer.unref?.();
+    }
+  } catch (err) {
+    warnAgentOnce('agent-trace:local-spool', `[agent-trace] local spool failed (${err?.message})`);
+  }
+}
+
+// Throttle rotation stat checks to avoid unnecessary statSync calls
+// on every flush. First flush (_lastRotateCheckMs === 0) always checks.
+// Explicit sinks can have many short-lived headless writers. Keep that
+// shared file append-only so no writer can rename it out from under a
+// peer or from session-bench while scoring.
+function _maybeRotateLocalTrace(path) {
+  if (_localTraceIsExplicit) return;
+  const now = Date.now();
+  if (_lastRotateCheckMs !== 0 && now - _lastRotateCheckMs < MIXDOG_AGENT_TRACE_ROTATE_CHECK_MS) return;
+  _rotateLocalTraceIfNeeded(path);
+  _lastRotateCheckMs = now;
+}
+
+function _flushLocalTrace() {
+  if (_localTraceTimer) {
+    clearTimeout(_localTraceTimer);
+    _localTraceTimer = null;
+  }
+  if (_localTraceFlushInFlight) {
+    return _localTraceFlushPromise;
+  }
+  if (_localTraceBuffer.length === 0) return null;
+  const path = _resolveLocalTracePath();
+  if (!path) return;
+  const chunk = _localTraceBuffer.join('');
+  _localTraceBuffer = [];
+  try {
+    _ensureLocalTraceDirectory(path);
+    _maybeRotateLocalTrace(path);
+  } catch (err) {
+    warnAgentOnce('agent-trace:local-spool', `[agent-trace] local spool failed (${err?.message})`);
+    return;
+  }
+  // mode only applies on file creation; existing files keep their mode.
+  // Windows ignores POSIX bits — ACL governs there.
+  _localTraceFlushInFlight = true;
+  const pending = appendFile(path, chunk, { encoding: 'utf8', mode: 0o600 })
+    .catch((err) => {
+      warnAgentOnce('agent-trace:local-spool', `[agent-trace] local spool failed (${err?.message})`);
+    })
+    .finally(() => {
+      _localTraceFlushInFlight = false;
+      _localTraceFlushPromise = null;
+      if (_localTraceBuffer.length > 0) {
+        // An append during the write may already have armed a timer.
+        if (_localTraceTimer) clearTimeout(_localTraceTimer);
+        _localTraceTimer = setTimeout(_flushLocalTrace, 0);
+        _localTraceTimer.unref?.();
+      }
+    });
+  _localTraceFlushPromise = pending;
+  return pending;
+}
+
+function _flushLocalTraceSync() {
+  if (_localTraceTimer) {
+    clearTimeout(_localTraceTimer);
+    _localTraceTimer = null;
+  }
+  if (_localTraceBuffer.length === 0) return;
+  const path = _resolveLocalTracePath();
+  if (!path) return;
+  const chunk = _localTraceBuffer.join('');
+  _localTraceBuffer = [];
+  try {
+    _ensureLocalTraceDirectory(path);
+    _maybeRotateLocalTrace(path);
+    appendFileSync(path, chunk, { encoding: 'utf8', mode: 0o600 });
+  } catch (err) {
+    warnAgentOnce('agent-trace:local-spool', `[agent-trace] local spool failed (${err?.message})`);
+  }
+}
+
+try {
+  process.on('beforeExit', () => {
+    _flushLocalTraceSync();
+    _flushToolFailuresSync();
+  });
+  process.on('exit', () => {
+    _flushLocalTraceSync();
+    _flushToolFailuresSync();
+  });
+} catch {
+  // Ignore lifecycle hook failures in embedded runtimes.
+}
+
+const _deps = { readServicePort };
+
+function _resolveServiceUrl() {
+  if (_serviceUrl) return _serviceUrl;
+  try {
+    // Standalone memory HTTP uses its pid-validated discovery advert.
+    const advertPort = _deps.readServicePort('memory', { requirePid: false });
+    if (advertPort) {
+      _serviceAdvertPort = advertPort;
+      _serviceUrl = `http://127.0.0.1:${advertPort}`;
+      return _serviceUrl;
+    }
+    _serviceAdvertPort = null;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// Single entry point for every flush trigger (timer, immediate, drain). While a
+// flush is in flight, callers share its promise; its completion schedules the
+// continuation for whatever remains.
+function _flush() {
+  if (_flushTimer) {
+    clearTimeout(_flushTimer);
+    _flushTimer = null;
+  }
+  // This flush takes over any queued immediate; its completion reschedules.
+  if (_flushImmediate) {
+    clearImmediate(_flushImmediate);
+    _flushImmediate = null;
+  }
+  if (_flushPromise) return _flushPromise;
+  if (_buffer.length === 0) return Promise.resolve();
+  _flushPromise = _flushOnce().finally(() => {
+    _flushPromise = null;
+    _scheduleContinuation();
+  });
+  return _flushPromise;
+}
+
+async function _flushOnce() {
+  // Discovery runs here only (timer / drain / full-batch continuation), never per append.
+  const url = _resolveServiceUrl();
+  if (!url) return;
+  const batch = _buffer.splice(0, _FLUSH_BATCH_SIZE);
+  try {
+    const resp = await fetch(`${url}/admin/trace-record`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ events: batch }),
+      signal: AbortSignal.timeout(5000),
+    });
+    // Always drain the body. An undrained response body keeps the
+    // underlying keep-alive socket referenced, which can hold the event
+    // loop open and make a short-lived process (smoke scripts / one-shot
+    // agent tasks) appear to hang for seconds after its work is done.
+    try {
+      await resp.arrayBuffer();
+    } catch {
+      /* body already gone */
+    }
+    if (!resp.ok) {
+      warnAgentOnce(
+        'agent-trace:flush-error',
+        `[agent-trace] /admin/trace-record returned ${resp.status} — dropping batch`
+      );
+    }
+  } catch (err) {
+    _serviceUrl = null;
+    // Discovery-first consumer with no health probe: a connect failure
+    // means the pid-validated advert points at a dead (recycled-pid)
+    // port. Distrust it (connection-level errors ONLY — a timeout is a
+    // slow-but-alive daemon, not a corpse) so the next resolve falls back
+    // to legacy/buffer instead of re-trusting the same advert.
+    if (_serviceAdvertPort && isConnRefuseError(err)) markServiceUnreachable('memory', _serviceAdvertPort);
+    _serviceAdvertPort = null;
+    warnAgentOnce('agent-trace:flush-fetch', `[agent-trace] flush fetch failed (${err?.message}) — dropping batch`);
+  }
+}
+
+// Full batch pending and the service is usable → one immediate; everything else
+// → the single non-resetting retry timer.
+function _scheduleContinuation() {
+  if (_buffer.length === 0) return;
+  if (_serviceUrl && _buffer.length >= _FLUSH_BATCH_SIZE) {
+    if (_flushTimer) {
+      clearTimeout(_flushTimer);
+      _flushTimer = null;
+    }
+    if (!_flushImmediate) _flushImmediate = setImmediate(_flush);
+  } else if (!_flushTimer) {
+    _flushTimer = setTimeout(_flush, _FLUSH_INTERVAL_MS);
+    // Never let the periodic trace flush keep the event loop alive: a
+    // ref'd 5s timer prevented short-lived processes (smoke scripts, agent
+    // tasks) from exiting naturally after their work was done — they hung
+    // until an external timeout/kill. The synchronous exit/beforeExit drain
+    // still flushes the local spool; explicit shutdown awaits remote drain.
+    _flushTimer.unref?.();
+  }
+}
+
+async function _drainLocalTrace() {
+  if (!_resolveLocalTracePath()) return;
+  if (_localTraceTimer) {
+    clearTimeout(_localTraceTimer);
+    _localTraceTimer = null;
+  }
+  while (_localTraceBuffer.length > 0 || _localTraceFlushInFlight) {
+    const pending = _flushLocalTrace();
+    if (pending) await pending;
+  }
+}
+
+async function drainAgentTrace() {
+  await _drainLocalTrace();
+  if (!_resolveServiceUrl()) return;
+  // Each iteration either awaits the in-flight flush or delivers a batch, so
+  // this terminates; it stops early only when the service is unresolvable.
+  while (_buffer.length > 0 || _flushPromise) {
+    if (!_flushPromise && !_resolveServiceUrl()) break;
+    await _flush();
+  }
+}
+
+function appendAgentTrace(record = {}) {
+  // Test isolation — when run-all-tests.mjs sets this env, skip entirely.
+  if (process.env.MIXDOG_AGENT_TRACE_DISABLE === '1') return;
+  if (process.env.NODE_TEST_CONTEXT && !process.env.MIXDOG_AGENT_TRACE_PATH) return;
+  try {
+    // Coerce ts to epoch ms integer at enqueue time
+    let ts = record.ts || Date.now();
+    if (typeof ts === 'string') ts = Date.parse(ts);
+    ts = Number(ts);
+    if (!Number.isFinite(ts)) ts = Date.now();
+
+    const row = {
+      ...record,
+      ts,
+      session_id: record.session_id ?? normalizeSessionId(record.sessionId),
+      payload: record.payload ?? {},
+    };
+    // Drop actor-facing alias to keep schema tidy
+    delete row.sessionId;
+
+    if (_buffer.length >= _BUFFER_MAX) {
+      _buffer.shift(); // drop oldest
+      warnAgentOnce('agent-trace:buffer-full', '[agent-trace] buffer full (2000) — dropping oldest event');
+    }
+    _appendLocalTrace(row);
+    _buffer.push(row);
+    // An in-flight flush schedules its own continuation on completion.
+    if (!_flushPromise) _scheduleContinuation();
+  } catch {
+    // Never break agent execution for telemetry
+  }
+}
+
+function _resolveToolFailurePath() {
+  if (process.env.MIXDOG_TOOL_FAILURE_LOG_DISABLE === '1') return null;
+  if (_toolFailurePath) return _toolFailurePath;
+  const explicit = process.env.MIXDOG_TOOL_FAILURE_LOG_PATH;
+  // The repo's own `node --test` suites drive intentional tool failures
+  // (patch ordering, arg guards, ...). Without an explicit path those rows
+  // land in the user's real failure log and read as production incidents.
+  if (!explicit && process.env.NODE_TEST_CONTEXT) return null;
+  // Keep the compact failure-only log in ship mode. The full local trace
+  // remains diagnostic-only, but failures must stay queryable in production.
+  try {
+    _toolFailurePath = explicit || join(getPluginData(), 'history', 'tool-failures.jsonl');
+    mkdirSync(dirname(_toolFailurePath), { recursive: true, mode: 0o700 });
+    return _toolFailurePath;
+  } catch {
+    return null;
+  }
+}
+
+function _scheduleToolFailureFlush(delayMs = _TOOL_FAILURE_FLUSH_MS) {
+  if (_toolFailureTimer) return;
+  _toolFailureTimer = setTimeout(_flushToolFailures, delayMs);
+  _toolFailureTimer.unref?.();
+}
+
+function _maybeRotateToolFailureLog(path) {
+  const now = Date.now();
+  if (_lastToolFailureRotateCheckMs !== 0 && now - _lastToolFailureRotateCheckMs < MIXDOG_AGENT_TRACE_ROTATE_CHECK_MS)
+    return;
+  _rotateLocalTraceIfNeeded(path);
+  _lastToolFailureRotateCheckMs = now;
+}
+
+function _appendToolFailureRow(row) {
+  if (!_resolveToolFailurePath()) return;
+  try {
+    _toolFailureBuffer.push(`${JSON.stringify(row)}\n`);
+    if (_toolFailureBuffer.length >= _TOOL_FAILURE_FLUSH_LINES) {
+      _flushToolFailures();
+    } else {
+      _scheduleToolFailureFlush();
+    }
+  } catch (err) {
+    warnAgentOnce('tool-failure-log:append', `[tool-failure-log] append failed (${err?.message})`);
+  }
+}
+
+function _flushToolFailures() {
+  if (_toolFailureTimer) {
+    clearTimeout(_toolFailureTimer);
+    _toolFailureTimer = null;
+  }
+  if (_toolFailureBuffer.length === 0) return;
+  if (_toolFailureFlushInFlight) {
+    _scheduleToolFailureFlush(25);
+    return;
+  }
+  const path = _resolveToolFailurePath();
+  if (!path) return;
+  const chunk = _toolFailureBuffer.join('');
+  _toolFailureBuffer = [];
+  try {
+    _maybeRotateToolFailureLog(path);
+  } catch (err) {
+    warnAgentOnce('tool-failure-log:rotate', `[tool-failure-log] rotate check failed (${err?.message})`);
+  }
+  _toolFailureFlushInFlight = true;
+  appendFile(path, chunk, { encoding: 'utf8', mode: 0o600 })
+    .catch((err) => {
+      warnAgentOnce('tool-failure-log:append', `[tool-failure-log] append failed (${err?.message})`);
+    })
+    .finally(() => {
+      _toolFailureFlushInFlight = false;
+      if (_toolFailureBuffer.length > 0) _scheduleToolFailureFlush(0);
+    });
+}
+
+function _flushToolFailuresSync() {
+  if (_toolFailureTimer) {
+    clearTimeout(_toolFailureTimer);
+    _toolFailureTimer = null;
+  }
+  if (_toolFailureBuffer.length === 0) return;
+  const path = _resolveToolFailurePath();
+  if (!path) return;
+  const chunk = _toolFailureBuffer.join('');
+  _toolFailureBuffer = [];
+  try {
+    _maybeRotateToolFailureLog(path);
+    appendFileSync(path, chunk, { encoding: 'utf8', mode: 0o600 });
+  } catch (err) {
+    warnAgentOnce('tool-failure-log:append', `[tool-failure-log] append failed (${err?.message})`);
+  }
+}
+
+// Test-only seams: inject discovery and reset module state between cases.
+const _traceIoTest = {
+  setReadServicePort(fn) {
+    _deps.readServicePort = fn;
+  },
+  // Resolves once the in-flight local spool write and its completion handler have run.
+  localWrite: () => _localTraceFlushPromise,
+  reset() {
+    _deps.readServicePort = readServicePort;
+    _buffer.length = 0;
+    _flushTimer = null;
+    _flushImmediate = null;
+    _flushPromise = null;
+    _serviceUrl = null;
+    _serviceAdvertPort = null;
+  },
+};
+
+export {
+  _traceIoTest,
+  appendAgentTrace,
+  drainAgentTrace,
+  normalizeSessionId,
+  warnAgentOnce,
+  _resolveToolFailurePath,
+  _appendToolFailureRow,
+};

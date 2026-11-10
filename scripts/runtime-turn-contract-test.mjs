@@ -1,0 +1,641 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { runAbortable } from '../src/runtime/shared/abort-race.mjs';
+import { SessionClosedError } from '../src/runtime/agent/orchestrator/session/manager/session-errors.mjs';
+import { acquireSessionLock } from '../src/runtime/agent/orchestrator/session/manager/session-lock.mjs';
+import { settleAskCleanup } from '../src/runtime/agent/orchestrator/session/manager/ask-session.mjs';
+import { renderBackgroundTask } from '../src/runtime/shared/background-tasks.mjs';
+import { parseTaskNotification } from '../src/runtime/shared/task-notification-envelope.mjs';
+import { deriveToolCardModel } from '../src/runtime/shared/tool-card-model.mjs';
+import {
+  buildExecutionResponseToolItem,
+  parseBackgroundTaskEnvelope,
+  parseModelVisibleCompletionWrapper,
+} from '../src/tui/session/agent-envelope.mjs';
+import { resolveTuiRuntimeNotificationDelivery } from '../src/tui/session/notification-plan.mjs';
+import { shouldRecreateEmptySessionForRouteChange } from '../src/session-runtime/model-route-api.mjs';
+import { createSessionTurnApi } from '../src/session-runtime/session-turn-api.mjs';
+import { createTagRegistry } from '../src/standalone/agent-tool/tag-registry.mjs';
+import { WORKER_INDEX_FILE } from '../src/standalone/agent-tool/tool-def.mjs';
+import { presentErrorText, retryStatusLine, isCancelLikeError } from '../src/runtime/shared/err-text.mjs';
+import { finalizeTurnInterruptionSnapshot } from '../src/runtime/agent/orchestrator/session/manager/turn-interruption.mjs';
+import { toolErrorDisplay as frameToolError } from '../src/tui/session/tool-result-text.mjs';
+import { createContextState } from '../src/tui/session/context-state.mjs';
+import { isTranscriptCancelledStatusText } from '../src/runtime/shared/tool-execution-contract.mjs';
+import { resolveToolCompletionSessionId } from '../src/runtime/agent/orchestrator/session/loop/tool-exec.mjs';
+
+const advisoryTest = (name, fn) =>
+  test(
+    name,
+    {
+      skip: process.env.MIXDOG_TEST_ADVISORY !== '1' && 'requires MIXDOG_TEST_ADVISORY=1 (npm run test:spec-advisory)',
+    },
+    fn
+  );
+
+const failAfter = (ms, message) =>
+  new Promise((_, reject) => {
+    setTimeout(() => reject(new Error(message)), ms);
+  });
+
+test('background tool completion stays with the invoking agent session', () => {
+  assert.equal(
+    resolveToolCompletionSessionId({
+      callerSessionId: 'sess_agent',
+      ownerSessionId: 'sess_lead',
+      requestedNotificationSessionId: 'sess_lead',
+    }),
+    'sess_agent'
+  );
+});
+
+test('provider failures expose concise capacity, session-state, and retry reasons', () => {
+  assert.equal(
+    presentErrorText(new Error('The model is currently at capacity due to high demand. https://example.invalid')),
+    'Provider is busy at capacity.'
+  );
+  assert.equal(
+    presentErrorText(
+      Object.assign(new Error('provider message prefix changed outside compaction'), {
+        name: 'ProviderPrefixMutationError',
+        code: 'PROVIDER_PREFIX_MUTATION',
+      })
+    ),
+    'Session state changed unexpectedly.'
+  );
+  assert.equal(
+    presentErrorText(new Error('Anthropic OAuth API 429 quota/rate limit retryAfter=214641s')),
+    'Anthropic quota/rate limit hit; retry after 2d 11h 37m.'
+  );
+  assert.equal(
+    retryStatusLine({
+      reason: 'Connection interrupted',
+      attempt: 3,
+      maxAttempts: 5,
+      delayMs: 2_000,
+    }),
+    'Connection interrupted · retry 3/5 in 2s'
+  );
+});
+
+test('canonical runtime context snapshot wins over stale published stats', () => {
+  let state = {
+    sessionId: 'context-session',
+    provider: 'test-provider',
+    model: 'test-model',
+    busy: true,
+    spinner: { mode: 'compacting' },
+    thinking: null,
+    stats: {
+      inputTokens: 90_000,
+      latestInputTokens: 90_000,
+      currentContextTokens: 90_000,
+      currentEstimatedContextTokens: 0,
+      currentContextSource: 'last_api_request',
+    },
+  };
+  const runtime = {
+    id: 'context-session',
+    provider: 'test-provider',
+    model: 'test-model',
+    contextStatus: () => ({
+      usedSource: 'estimated',
+      usedTokens: 12_000,
+      currentEstimatedTokens: 12_000,
+      lastApiRequestTokens: 0,
+      messages: { count: 3 },
+      compaction: {},
+    }),
+  };
+  const context = createContextState({
+    runtime,
+    getState: () => state,
+    updateState: (patch) => {
+      state = { ...state, ...patch };
+    },
+    getPendingSessionReset: () => false,
+  });
+
+  context.syncContextStats({
+    allowEstimated: true,
+    invalidateExact: true,
+  });
+
+  // The display lane shows only the last measured prompt: with the exact
+  // reading invalidated by the compaction, the local estimate does not stand
+  // in for it — the gauge reads "awaiting measurement" until the next reply.
+  assert.equal(state.stats.currentContextTokens, null);
+  assert.equal(state.stats.currentEstimatedContextTokens, 0);
+  assert.equal(state.stats.currentContextSource, 'pending');
+});
+
+test('Lead pool rows never enter the agent-tool closeAll registry', () => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-lead-pool-'));
+  const lead = {
+    id: 'sess_lead',
+    agentTag: 'lead:sess_lead',
+    agent: 'lead',
+    status: 'idle',
+    closed: false,
+  };
+  const worker = {
+    id: 'sess_worker',
+    agentTag: 'worker1',
+    agent: 'worker',
+    status: 'idle',
+    closed: false,
+  };
+  try {
+    writeFileSync(
+      join(dataDir, WORKER_INDEX_FILE),
+      JSON.stringify({
+        version: 2,
+        workers: {
+          [lead.id]: {
+            tag: lead.agentTag,
+            sessionId: lead.id,
+            ownerSessionId: lead.id,
+            agent: lead.agent,
+            status: lead.status,
+          },
+          [worker.id]: {
+            tag: worker.agentTag,
+            sessionId: worker.id,
+            ownerSessionId: lead.id,
+            agent: worker.agent,
+            status: worker.status,
+          },
+        },
+      })
+    );
+    const sessions = new Map([
+      [lead.id, lead],
+      [worker.id, worker],
+    ]);
+    const registry = createTagRegistry({
+      dataDir,
+      cfgMod: { loadConfig: () => ({}) },
+      mgr: {
+        getSession: (sessionId) => sessions.get(sessionId) || null,
+        listSessions: () => [...sessions.values()],
+      },
+      emitSubagentEvent: () => {},
+    });
+
+    registry.refreshTagsFromSessions();
+
+    assert.equal(registry.tags.has(lead.agentTag), false);
+    assert.equal(registry.tags.get(worker.agentTag), worker.id);
+    assert.deepEqual(
+      registry.agentSessionEntries().map(({ session }) => session.id),
+      [worker.id]
+    );
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+advisoryTest('an explicitly addressed route change preserves an empty session id', () => {
+  const empty = { id: 'reserved-session', messages: [], liveTurnMessages: [] };
+  assert.equal(shouldRecreateEmptySessionForRouteChange(empty, true), false);
+  assert.equal(shouldRecreateEmptySessionForRouteChange(empty, false), true);
+  assert.equal(
+    shouldRecreateEmptySessionForRouteChange(
+      {
+        ...empty,
+        messages: [{ role: 'user', content: 'already started' }],
+      },
+      false
+    ),
+    false
+  );
+});
+
+function makeTurnHarness({
+  sessionId = 'turn-contract',
+  awaitRoutePreparation = async () => {},
+  hookDispatch = async () => ({}),
+  beginTurnSnapshotForTurn = async () => {},
+  turnCleanupSettleMs = 20,
+  askSession = async () => ({ content: '' }),
+  transcriptWriter = null,
+  ensureSessionTranscriptWriter = () => {},
+} = {}) {
+  const session = {
+    id: sessionId,
+    deferredInitialRefreshPending: false,
+    messages: [],
+  };
+  let activeTurnCount = 0;
+  let activeController = null;
+  let unregistered = false;
+  const api = createSessionTurnApi({
+    getSession: () => session,
+    setSession: () => {},
+    getCurrentCwd: () => process.cwd(),
+    getMode: () => 'full',
+    setMode: () => {},
+    getActiveTurnCount: () => activeTurnCount,
+    setActiveTurnCount: (value) => {
+      activeTurnCount = value;
+    },
+    isFirstTurnCompleted: () => true,
+    setFirstTurnCompleted: () => {},
+    getCodeGraphFirstTurnPrewarmDone: () => true,
+    getRemoteEnabled: () => false,
+    getTranscriptWriter: () => transcriptWriter,
+    getTwKey: () => '',
+    getLastAppendedAssistant: () => '',
+    setLastAppendedAssistant: () => {},
+    ensureSessionTranscriptWriter,
+    ensureRemoteTranscriptWriter: () => {},
+    getCloseRequested: () => false,
+    getReservedSessionId: () => null,
+    registerActiveTurnController: (controller) => {
+      activeController = controller;
+      return () => {
+        unregistered = true;
+      };
+    },
+    awaitRoutePreparation,
+    refreshSessionForCwdIfNeeded: async () => session,
+    beginTurnSnapshotForTurn,
+    completeTurnSnapshotForTurn: async () => {},
+    turnCleanupSettleMs,
+    hooks: { emit: () => {}, dispatch: hookDispatch },
+    hookCommonPayload: (payload) => payload,
+    mgr: {
+      askSession,
+      getSession: () => session,
+    },
+    notifyFnForSession: () => undefined,
+    scheduleProviderWarmup: () => {},
+    scheduleProviderModelWarmup: () => {},
+    refreshStatuslineUsageAfterTurn: () => {},
+    bootProfile: () => {},
+  });
+  return {
+    api,
+    getActiveController: () => activeController,
+    getActiveTurnCount: () => activeTurnCount,
+    wasUnregistered: () => unregistered,
+  };
+}
+
+test('runtime ask preserves the provenance of automatic Goal input for the session transcript', async () => {
+  const sources = [];
+  const harness = makeTurnHarness({
+    askSession: async (_id, _prompt, _context, _onToolCall, _cwd, _prefetch, options) => {
+      sources.push(options.promptSource);
+      return { content: 'done' };
+    },
+  });
+  await harness.api.ask('Runtime-owned closeout.', { promptSource: 'goal-closeout' });
+  await harness.api.ask('Actual user follow-up.');
+  assert.deepEqual(sources, ['goal-closeout', undefined]);
+});
+
+test('abort-aware waits settle even when the underlying operation never does', async () => {
+  const controller = new AbortController();
+  const waiting = runAbortable(controller.signal, () => new Promise(() => {}));
+  await Promise.resolve();
+  controller.abort(new SessionClosedError('abort-race', 'test abort', 'user-cancel'));
+  await Promise.race([
+    assert.rejects(waiting, (error) => error?.name === 'SessionClosedError'),
+    failAfter(200, 'abort-aware wait remained pending'),
+  ]);
+});
+
+test('abort-aware waits never start work cancelled before its first microtask', async () => {
+  for (const alreadyAborted of [false, true]) {
+    const controller = new AbortController();
+    const reason = new SessionClosedError('abort-before-start', 'test abort', 'user-cancel');
+    let calls = 0;
+    if (alreadyAborted) controller.abort(reason);
+    const waiting = runAbortable(controller.signal, () => {
+      calls += 1;
+    });
+    if (!alreadyAborted) controller.abort(reason);
+    await assert.rejects(waiting, (error) => error === reason);
+    assert.equal(calls, 0);
+  }
+});
+
+test('an aborted mutex waiter settles immediately without opening the lock', async () => {
+  const firstUnlock = await acquireSessionLock('abortable-lock');
+  const controller = new AbortController();
+  const cancelled = acquireSessionLock('abortable-lock', controller.signal);
+  let thirdAcquired = false;
+  const third = acquireSessionLock('abortable-lock').then((unlock) => {
+    thirdAcquired = true;
+    return unlock;
+  });
+
+  controller.abort(new SessionClosedError('abortable-lock', 'cancel queued ask', 'user-cancel'));
+  await Promise.race([
+    assert.rejects(cancelled, (error) => error?.name === 'SessionClosedError'),
+    failAfter(200, 'cancelled lock waiter remained pending'),
+  ]);
+  assert.equal(thirdAcquired, false, 'later waiter must remain behind the live owner');
+
+  firstUnlock();
+  const thirdUnlock = await Promise.race([third, failAfter(200, 'lock chain did not skip cancelled slot')]);
+  assert.equal(thirdAcquired, true);
+  thirdUnlock();
+});
+
+test('turn cleanup has a finite settlement contract', async () => {
+  // A broken deadline never returns, which the test timeout reports.
+  const result = await settleAskCleanup(new Promise(() => {}), { timeoutMs: 20 });
+  assert.deepEqual(result, { settled: false, value: undefined });
+});
+
+test('runtime ask aborts while route preparation is permanently pending', async () => {
+  let snapshotBegun = false;
+  const harness = makeTurnHarness({
+    sessionId: 'route-hang',
+    awaitRoutePreparation: () => new Promise(() => {}),
+    beginTurnSnapshotForTurn: async () => {
+      snapshotBegun = true;
+    },
+  });
+
+  const asking = harness.api.ask('blocked by route preparation');
+  await new Promise((resolve) => setImmediate(resolve));
+  const activeController = harness.getActiveController();
+  assert.ok(activeController, 'ask must register outer abort ownership before route wait');
+  activeController.abort(new SessionClosedError('route-hang', 'route wait aborted', 'user-cancel'));
+
+  await Promise.race([
+    assert.rejects(asking, (error) => error?.name === 'SessionClosedError'),
+    failAfter(200, 'runtime ask remained pinned by route preparation'),
+  ]);
+  assert.equal(harness.getActiveTurnCount(), 0);
+  assert.equal(harness.wasUnregistered(), true);
+  // The review baseline begins only once the turn's workspace is final (after
+  // route preparation and any worktree provisioning): an abort before that
+  // leaves no review to seal.
+  assert.equal(snapshotBegun, false);
+});
+
+test('runtime ask aborts while a prompt hook ignores cancellation', async () => {
+  let enterHook;
+  const hookEntered = new Promise((resolve) => {
+    enterHook = resolve;
+  });
+  const harness = makeTurnHarness({
+    sessionId: 'hook-hang',
+    hookDispatch: async (name) => {
+      if (name !== 'UserPromptSubmit') return {};
+      enterHook();
+      return await new Promise(() => {});
+    },
+  });
+
+  const asking = harness.api.ask('blocked by prompt hook');
+  await hookEntered;
+  harness.getActiveController().abort(new SessionClosedError('hook-hang', 'prompt hook aborted', 'user-cancel'));
+  await Promise.race([
+    assert.rejects(asking, (error) => error?.name === 'SessionClosedError'),
+    failAfter(200, 'runtime ask remained pinned by prompt hook'),
+  ]);
+});
+
+test('optional turn snapshot cleanup cannot pin a successful ask', async () => {
+  const harness = makeTurnHarness({
+    sessionId: 'snapshot-hang',
+    beginTurnSnapshotForTurn: () => new Promise(() => {}),
+    askSession: async () => ({ content: 'done' }),
+  });
+
+  const result = await Promise.race([
+    harness.api.ask('finish despite snapshot cleanup'),
+    failAfter(200, 'runtime ask remained pinned by turn snapshot cleanup'),
+  ]);
+  assert.equal(result.result.content, 'done');
+  assert.equal(harness.getActiveTurnCount(), 0);
+  assert.equal(harness.wasUnregistered(), true);
+});
+
+test('local main turns persist user and assistant conversation without Remote', async () => {
+  const rows = [];
+  let ensured = 0;
+  const writer = {
+    appendUser: (text) => rows.push(['user', text]),
+    appendAssistant: (text) => rows.push(['assistant', text]),
+  };
+  const harness = makeTurnHarness({
+    transcriptWriter: writer,
+    ensureSessionTranscriptWriter: () => {
+      ensured += 1;
+    },
+    askSession: async (...args) => {
+      args[7]?.onAssistantText?.('local reply');
+      return { content: 'local reply' };
+    },
+  });
+  await harness.api.ask('local prompt');
+  assert.equal(ensured, 1);
+  assert.deepEqual(rows, [
+    ['user', 'local prompt'],
+    ['assistant', 'local reply'],
+  ]);
+});
+
+test('running shell output is progress until the terminal completion arrives', () => {
+  const runningText = [
+    'background task',
+    'task_id: shell-1',
+    'surface: shell',
+    'status: running',
+    '',
+    '[stdout preview]',
+    'building...',
+  ].join('\n');
+  const running = parseBackgroundTaskEnvelope(runningText);
+  assert.equal(running.args.type, 'progress');
+  const runningCard = deriveToolCardModel({
+    name: running.name,
+    args: running.args,
+    result: running.result,
+    count: 1,
+    completedCount: 1,
+  });
+  assert.equal(runningCard.labelText, 'Shell progress');
+  assert.equal(runningCard.isBackgroundResponse, false);
+  const runningDelivery = resolveTuiRuntimeNotificationDelivery(
+    {
+      content: runningText,
+      meta: {
+        execution_id: 'shell-1',
+        execution_surface: 'shell',
+        status: 'running',
+      },
+    },
+    runningText
+  );
+  assert.equal(runningDelivery.action, 'execution-ui');
+  assert.equal(runningDelivery.modelContent, '');
+  assert.deepEqual(runningDelivery.executionMeta, {
+    executionSurface: 'shell',
+    executionStatus: 'running',
+  });
+
+  const completedText = runningText.replace('status: running', 'status: completed');
+  const completed = parseBackgroundTaskEnvelope(completedText);
+  assert.equal(completed.args.type, 'result');
+  const completedCard = deriveToolCardModel({
+    name: completed.name,
+    args: completed.args,
+    result: completed.result,
+    count: 1,
+    completedCount: 1,
+  });
+  assert.equal(completedCard.labelText, 'Shell output');
+  assert.equal(completedCard.isBackgroundResponse, true);
+  const completedDelivery = resolveTuiRuntimeNotificationDelivery(
+    {
+      content: completedText,
+      meta: {
+        execution_id: 'shell-1',
+        execution_surface: 'shell',
+        status: 'completed',
+      },
+    },
+    completedText
+  );
+  const completion = parseTaskNotification(completedDelivery.modelContent);
+  assert.ok(completion, 'terminal shell completion must use the canonical task-notification envelope');
+  assert.equal(completion.taskId, 'shell-1');
+  assert.equal(completion.surface, 'shell');
+  assert.equal(completion.status, 'completed');
+  assert.equal(completion.result, '[stdout preview]\nbuilding...');
+});
+
+test('fallback shell completion wrapper remains renderable as one UI card', () => {
+  const background = [
+    'background task',
+    'task_id: shell-fallback-1',
+    'surface: shell',
+    'status: completed',
+    '',
+    '[exit code: 0]',
+    'done',
+  ].join('\n');
+  const wrapper = [
+    'Async shell task shell-fallback-1 (completed, exit 0) finished.',
+    '',
+    'Result:',
+    ...background.split('\n').map((line) => `> ${line}`),
+  ].join('\n');
+  const parsed = parseModelVisibleCompletionWrapper(wrapper);
+  assert.equal(parsed.name, 'shell');
+  assert.equal(parsed.args.task_id, 'shell-fallback-1');
+  assert.equal(parsed.args.type, 'result');
+  assert.equal(parsed.rawResult, background);
+  const card = deriveToolCardModel({
+    name: parsed.name,
+    args: parsed.args,
+    result: parsed.result,
+    count: 1,
+    completedCount: 1,
+  });
+  assert.equal(card.labelText, 'Shell output');
+  assert.equal(card.isBackgroundResponse, true);
+});
+
+test('execution metadata classifies incomplete completion envelopes', () => {
+  const shell = buildExecutionResponseToolItem('completed without a canonical shell envelope', {
+    id: 'shell-meta-card',
+    responseKey: 'shell-meta-1',
+    executionSurface: 'shell',
+    executionStatus: 'completed',
+  });
+  const shellCard = deriveToolCardModel(shell);
+  assert.equal(shell.name, 'shell');
+  assert.equal(shell.args.surface, 'shell');
+  assert.equal(shellCard.labelText, 'Shell output');
+
+  const agent = buildExecutionResponseToolItem('failed before agent identity was available', {
+    id: 'agent-meta-card',
+    responseKey: 'agent-meta-1',
+    executionSurface: 'agent',
+    executionStatus: 'failed',
+  });
+  const agentCard = deriveToolCardModel(agent);
+  assert.equal(agent.name, 'agent');
+  assert.equal(agent.args.surface, 'agent');
+  assert.equal(agentCard.labelText, 'Response Agent');
+});
+
+test('rendered background task envelopes carry canonical surface and operation', () => {
+  const text = renderBackgroundTask({
+    taskId: 'surface-contract-1',
+    surface: 'shell',
+    operation: 'command',
+    status: 'running',
+    startedAt: '2026-01-01T00:00:00.000Z',
+    finishedAt: null,
+    error: null,
+    meta: { surface: 'ignored-duplicate', operation: 'ignored-duplicate' },
+  });
+  assert.match(text, /^background task\ntask_id: surface-contract-1\nsurface: shell\noperation: command\n/);
+  assert.equal((text.match(/^surface:/gm) || []).length, 1);
+  assert.equal((text.match(/^operation:/gm) || []).length, 1);
+});
+
+test('interrupt display: stall/timeout/abort copy and non-user markers', () => {
+  const stall = Object.assign(new Error('OpenAI OAuth WS stream timed out after 120000ms of inactivity'), {
+    name: 'StreamStalledError',
+    code: 'ESTREAMSTALL',
+  });
+  assert.equal(presentErrorText(stall, { surface: 'turn' }), 'No progress 2m.');
+  assert.equal(frameToolError(stall, 'turn'), 'No progress 2m.');
+
+  const firstByte = Object.assign(new Error('Gemini REST first byte timed out after 60000ms'), {
+    name: 'ProviderTimeoutError',
+    code: 'EPROVIDERTIMEOUT',
+  });
+  assert.equal(presentErrorText(firstByte, { surface: 'turn' }), 'No first response 1m.');
+  assert.equal(frameToolError(firstByte, 'turn'), 'No first response 1m.');
+
+  const abort = new Error('OpenAI OAuth WS aborted by session close');
+  assert.equal(isCancelLikeError(abort), true);
+  assert.equal(presentErrorText(abort, { surface: 'turn' }), 'Cancelled');
+  assert.equal(frameToolError(abort, 'turn'), 'Cancelled');
+
+  const closed = new SessionClosedError('sess_x', 'user-cancel', 'user-cancel');
+  assert.equal(isCancelLikeError(closed), true);
+
+  const snapshot = {
+    responseStarted: true,
+    partialAssistantContent: 'half',
+    phase: 'streaming',
+  };
+  const user = finalizeTurnInterruptionSnapshot({
+    turnOutgoing: [{ role: 'user', content: 'hi' }],
+    currentUserContent: 'hi',
+    snapshot,
+    abortReason: 'user-cancel',
+  });
+  assert.equal(user.messages.at(-1)?.content, '[Request interrupted by user]');
+
+  const idle = finalizeTurnInterruptionSnapshot({
+    turnOutgoing: [{ role: 'user', content: 'hi' }],
+    currentUserContent: 'hi',
+    snapshot,
+    abortReason: 'idle-sweep',
+  });
+  assert.equal(idle.messages.at(-1)?.content, '[Request interrupted]');
+});
+
+test('transcript interruption markers are classified without hiding user prose', () => {
+  assert.equal(isTranscriptCancelledStatusText('[Request interrupted by process restart]'), true);
+  assert.equal(isTranscriptCancelledStatusText('[Request interrupted]'), true);
+  assert.equal(isTranscriptCancelledStatusText('[Request interrupted by user]'), false);
+  assert.equal(isTranscriptCancelledStatusText('Please explain [Request interrupted]'), false);
+});

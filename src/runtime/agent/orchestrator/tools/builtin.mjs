@@ -1,0 +1,600 @@
+import { createIoTrace } from './io-trace.mjs';
+import { classifyResultKind } from '../session/result-classification.mjs';
+import {
+  coerceShapeFlex,
+  normalizeInputPath,
+  normalizeOutputPath,
+  resolveAgainstCwd,
+  splitJoinedPathScopes,
+} from './builtin/path-utils.mjs';
+import {
+  SMART_BASH_HEAD_LINES,
+  SMART_BASH_MAX_BYTES,
+  SMART_BASH_MAX_LINES,
+  SMART_BASH_TAIL_LINES,
+  smartMiddleTruncate,
+} from './builtin/shell-output.mjs';
+import { executeBashTool, executeTaskTool, formatShellToolFailure } from './builtin/bash-tool.mjs';
+import { executeGitTool } from './builtin/git-command-tool.mjs';
+import { executeGithubTool } from '../../../github/tool.mjs';
+import { executeFindFilesTool, executeFuzzyFindTool, executeListTool, executeTreeTool } from './builtin/list-tool.mjs';
+import {
+  executeHeadTool,
+  executeSummaryTool,
+  executeHexTool,
+  executeTailTool,
+  executeWcTool,
+} from './builtin/read-mode-tool.mjs';
+import { executeReadTool } from './builtin/read-tool.mjs';
+import { executeGlobTool, executeGrepTool } from './builtin/search-tool.mjs';
+import { configureReadRangeIndexTelemetry, flushReadRangeIndexesSync } from './builtin/read-range-index.mjs';
+import { extractIpynbText, extractPdfText } from './builtin/read-special-files.mjs';
+import { tryExecuteExternalToolAdapter, isExternalAdapterTool } from './builtin/external-tool-adapters.mjs';
+import { formatToolStartProgress } from './progress-message.mjs';
+import { BUILTIN_TOOLS } from './builtin/builtin-tools.mjs';
+import { prepareGrepArgs, validateBuiltinArgs } from './builtin/arg-guard.mjs';
+import {
+  parseLineLimitArg,
+  parseOffsetArg,
+  renderReadLine,
+  SMART_READ_HEAD_LINES,
+  SMART_READ_MAX_BYTES,
+  SMART_READ_MAX_LINES,
+  SMART_READ_TAIL_LINES,
+  smartReadTruncate,
+} from './builtin/read-formatting.mjs';
+import { readRowsForModel } from '../../../shared/read-row-numbers.mjs';
+import { findSimilarFile, normalizeErrorMessage } from './builtin/path-diagnostics.mjs';
+import { isBinaryFile } from './builtin/binary-file.mjs';
+import { normaliseReadLineWindowArgs } from './builtin/read-args.mjs';
+import {
+  READ_MAX_OUTPUT_BYTES,
+  READ_MAX_SIZE_BYTES,
+  READ_WHOLE_FILE_MAX_BYTES,
+  READ_SMART_STREAM_MIN_BYTES,
+  READ_STREAM_RANGE_MIN_BYTES,
+} from './builtin/read-constants.mjs';
+import {
+  GREP_OUTPUT_MAX_BYTES,
+  LOCATOR_OUTPUT_MAX_BYTES,
+  capLineOrientedToolOutput,
+  capMarker,
+} from './builtin/tool-output-limit.mjs';
+import {
+  isBlockedDevicePath,
+  isUncPath,
+  isWindowsDevicePath,
+  hasUnsafeWin32Component,
+  isSpecialFileStat,
+} from './builtin/device-paths.mjs';
+import { mergeReadRanges as _mergeReadRanges } from './builtin/read-ranges.mjs';
+import { hashText as _hashText } from './builtin/hash-utils.mjs';
+import {
+  rangeHashesForReadRanges as _rangeHashesForReadRanges,
+  rangeHashesFromRenderedReadText as _rangeHashesFromRenderedReadText,
+} from './builtin/snapshot-helpers.mjs';
+import {
+  cacheGetEntry as _cacheGetEntry,
+  cacheSet as _cacheSet,
+  invalidateBuiltinResultCache,
+  rawContentCacheGet as _rawContentCacheGet,
+  rawContentCacheSet as _rawContentCacheSet,
+  runRawContentInFlight as _runRawContentInFlight,
+} from './builtin/cache-layers.mjs';
+import { deleteReadSnapshotPathEverywhere as _deleteReadSnapshotPathEverywhere } from './builtin/snapshot-store.mjs';
+import { recordReadSnapshot as _recordReadSnapshot } from './builtin/read-snapshot-runtime.mjs';
+import {
+  coalesceObjectReadEntries,
+  isFullModeReadEntry as _isFullModeReadEntry,
+  readEntryLineWindow as _readEntryLineWindow,
+  sliceReadBodyByLines,
+} from './builtin/read-batch.mjs';
+import {
+  countLogicalLinesBytesSync as _countLogicalLinesBytesSyncImpl,
+  renderTailWindowSync as _renderTailWindowSyncImpl,
+  streamHeadWindow as _streamHeadWindowImpl,
+  streamReadRange as _streamReadRangeImpl,
+  streamSmartReadSummary as _streamSmartReadSummaryImpl,
+} from './builtin/read-streaming.mjs';
+export {
+  normalizeInputPath,
+  normalizeOutputPath,
+  resolveAgainstCwd,
+} from './builtin/path-utils.mjs';
+export { withBuiltinPathLocks } from './builtin/path-locks.mjs';
+export { invalidateBuiltinResultCache } from './builtin/cache-layers.mjs';
+// User-cwd persistence hook: writes user-cwd.txt on SessionStart so
+// the MCP server (spawned from cache dir) resolves the correct sandbox root.
+// Helper extracted to src/shared/user-cwd.mjs so server-main.mjs can import
+// the same primitive without circular-import risk.
+import { pwd } from '../../../shared/user-cwd.mjs';
+
+// Unlike envFlag, this matcher does not trim whitespace around the value.
+const {
+  start: ioTraceStart,
+  trace: ioTrace,
+  done: ioTraceDone,
+} = createIoTrace(() => /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_IO_TRACE || '')));
+
+const _readStreamingHooks = {
+  ioTraceStart,
+  ioTraceDone,
+  recordReadSnapshot: (...args) => _recordReadSnapshot(...args),
+};
+
+function streamReadRange(fullPath, offset, limit, stHint = null, hooks = {}) {
+  return _streamReadRangeImpl(fullPath, offset, limit, stHint, { ..._readStreamingHooks, ...hooks });
+}
+
+function renderTailWindowSync(fullPath, st, n, readStateScope, options = {}) {
+  return _renderTailWindowSyncImpl(fullPath, st, n, readStateScope, options, _readStreamingHooks);
+}
+
+function countLogicalLinesBytesSync(fullPath, size, stHint = null) {
+  return _countLogicalLinesBytesSyncImpl(fullPath, size, stHint, _readStreamingHooks);
+}
+
+function streamHeadWindow(fullPath, st, n, readStateScope, source = 'read_head_stream') {
+  return _streamHeadWindowImpl(fullPath, st, n, readStateScope, source, _readStreamingHooks);
+}
+
+function streamSmartReadSummary(fullPath, st, source = 'read_smart_stream') {
+  return _streamSmartReadSummaryImpl(fullPath, st, source, _readStreamingHooks);
+}
+
+const _readModeHelpers = {
+  streamHeadWindow,
+  renderTailWindowSync,
+  countLogicalLinesBytesSync,
+  recordReadSnapshot: (...args) => _recordReadSnapshot(...args),
+};
+
+const _readToolHelpers = {
+  classifyResultKind,
+  coalesceObjectReadEntries,
+  coerceShapeFlex,
+  extractIpynbText,
+  extractPdfText,
+  findSimilarFile,
+  isBinaryFile,
+  isBlockedDevicePath,
+  isUncPath,
+  isWindowsDevicePath,
+  hasUnsafeWin32Component,
+  isSpecialFileStat,
+  normalizeErrorMessage,
+  normalizeInputPath,
+  normalizeOutputPath,
+  normaliseReadLineWindowArgs,
+  parseLineLimitArg,
+  parseOffsetArg,
+  renderReadLine,
+  resolveAgainstCwd,
+  smartReadTruncate,
+  streamReadRange,
+  streamSmartReadSummary,
+  sliceReadBodyByLines,
+  READ_MAX_OUTPUT_BYTES,
+  READ_MAX_SIZE_BYTES,
+  READ_WHOLE_FILE_MAX_BYTES,
+  READ_SMART_STREAM_MIN_BYTES,
+  READ_STREAM_RANGE_MIN_BYTES,
+  _cacheGetEntry,
+  _cacheSet,
+  _hashText,
+  _isFullModeReadEntry,
+  _mergeReadRanges,
+  _rangeHashesForReadRanges,
+  _rangeHashesFromRenderedReadText,
+  _rawContentCacheGet,
+  _rawContentCacheSet,
+  _runRawContentInFlight,
+  _readEntryLineWindow,
+  _recordReadSnapshot,
+};
+
+// Tool definitions live in ./builtin/builtin-tools.mjs; keep builtin.mjs focused on execution.
+
+const BUILTIN_TOOL_ALIASES = new Map([
+  ['grop', 'grep'],
+  ['grpe', 'grep'],
+  ['greap', 'grep'],
+  ['gerp', 'grep'],
+  ['glbo', 'glob'],
+  ['gloob', 'glob'],
+  ['golb', 'glob'],
+]);
+
+// Case-insensitive lookup of canonical builtin names, built once from the
+// declarative BUILTIN_TOOLS registry. Models trained on other coding-agent
+// CLIs frequently emit PascalCase tool names ("Read", "Shell", "Grep",
+// "List") for tools mixdog exposes in lowercase. Those calls used to fall
+// through to formatUnknownBuiltinToolMessage and, because the error did not
+// resolve the case mismatch, the model re-issued the SAME capitalised call
+// every iteration until the loop cap. A lowercase→canonical map makes the
+// dispatcher accept the case variant directly.
+const _BUILTIN_LOWER_TO_CANONICAL = new Map(
+  BUILTIN_TOOLS.map((t) => [String(t.name || '').toLowerCase(), t.name]).filter(([k]) => k)
+);
+
+// Well-known tool names from OTHER agent CLIs that have no mixdog builtin.
+// They cannot be silently remapped (their argument shapes differ — e.g.
+// Write{path,contents} vs apply_patch{patch}) so the unknown-tool error
+// surfaces a concrete redirect instead of a bare "unknown tool", which is
+// what kept models looping on a non-existent tool.
+const EXTERNAL_TOOL_REDIRECTS = new Map([
+  ['write', 'use `apply_patch` with an `*** Add File:` V4A section to create a file'],
+  ['edit', 'use `apply_patch` with a `*** Update File:` V4A section'],
+  ['multiedit', 'use a single `apply_patch` call with multiple `*** Update File:` sections'],
+  ['strreplace', 'use `apply_patch` with a `*** Update File:` V4A section'],
+  ['str_replace', 'use `apply_patch` with a `*** Update File:` V4A section'],
+  ['str_replace_editor', 'use `apply_patch` with a `*** Update File:` V4A section'],
+  ['search_replace', 'use `apply_patch` with a `*** Update File:` V4A section'],
+  ['applypatch', 'call the `apply_patch` tool (snake_case) with a V4A patch'],
+  ['createfile', 'use `apply_patch` with an `*** Add File:` V4A section'],
+  ['create_file', 'use `apply_patch` with an `*** Add File:` V4A section'],
+  ['deletefile', 'use `apply_patch` with a `*** Delete File:` V4A section'],
+  ['delete_file', 'use `apply_patch` with a `*** Delete File:` V4A section'],
+  ['bash', 'use the `shell` tool'],
+  ['run', 'use the `shell` tool'],
+  ['runcommand', 'use the `shell` tool'],
+  ['terminal', 'use the `shell` tool'],
+  ['view', 'use the `read` tool'],
+  ['cat', 'use the `read` tool'],
+  ['read_file', 'use the `read` tool'],
+  ['ls', 'use the `list` tool'],
+  ['list_dir', 'use the `list` tool'],
+  ['searchfiles', 'use the `grep` tool'],
+  ['file_search', 'use the `find` or `glob` tool'],
+  ['grep_search', 'use the `grep` tool'],
+  ['codebase_search', 'use the `grep` or `code_graph` tool'],
+  ['semanticsearch', 'use the `grep` or `code_graph` tool'],
+  ['semantic_search', 'use the `grep` or `code_graph` tool'],
+]);
+
+export function canonicalizeBuiltinToolName(name) {
+  if (typeof name !== 'string') return name;
+  const aliased = BUILTIN_TOOL_ALIASES.get(name);
+  if (aliased) return aliased;
+  // Exact match wins (cheapest, most common path).
+  if (_BUILTIN_LOWER_TO_CANONICAL.get(name) === name) return name;
+  // Case-insensitive fall-through: "Read"/"SHELL"/"Grep" → canonical.
+  const lowerCanonical = _BUILTIN_LOWER_TO_CANONICAL.get(name.toLowerCase());
+  return lowerCanonical || name;
+}
+
+function editDistance(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return Infinity;
+  const aa = a.toLowerCase();
+  const bb = b.toLowerCase();
+  if (aa === bb) return 0;
+  const prev = Array.from({ length: bb.length + 1 }, (_, i) => i);
+  const curr = new Array(bb.length + 1);
+  for (let i = 1; i <= aa.length; i += 1) {
+    curr[0] = i;
+    for (let j = 1; j <= bb.length; j += 1) {
+      const cost = aa[i - 1] === bb[j - 1] ? 0 : 1;
+      curr[j] = Math.min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost);
+    }
+    for (let j = 0; j <= bb.length; j += 1) prev[j] = curr[j];
+  }
+  return prev[bb.length];
+}
+
+function suggestBuiltinToolName(name) {
+  if (typeof name !== 'string' || !name) return null;
+  const canonical = canonicalizeBuiltinToolName(name);
+  if (canonical !== name) return canonical;
+  let best = null;
+  for (const tool of BUILTIN_TOOLS) {
+    const d = editDistance(name, tool.name);
+    if (d <= 2 && (!best || d < best.distance || (d === best.distance && tool.name < best.name))) {
+      best = { name: tool.name, distance: d };
+    }
+  }
+  return best?.name || null;
+}
+
+export function formatUnknownBuiltinToolMessage(name, _args = {}, noun = 'builtin tool') {
+  // Concrete redirect for a well-known tool from another agent CLI whose
+  // argument shape differs from any mixdog builtin (so it cannot be
+  // case-normalised into one). Without this, the model re-issues the same
+  // non-existent tool every iteration until the loop cap.
+  const redirect = typeof name === 'string' ? EXTERNAL_TOOL_REDIRECTS.get(name.toLowerCase()) : null;
+  if (redirect) return `Error: unknown ${noun} "${name}" — ${redirect}.`;
+  const suggestion = suggestBuiltinToolName(name);
+  if (!suggestion) return `Error: unknown ${noun} "${name}"`;
+  return `Error: unknown ${noun} "${name}". Did you mean "${suggestion}"?`;
+}
+
+process.on('exit', flushReadRangeIndexesSync);
+// SIGINT/SIGTERM go through the same path — Node's exit event fires
+// after the default handler in those cases too, so a single hook is
+// enough for both graceful and abrupt shutdowns of the mcp child.
+
+configureReadRangeIndexTelemetry({ trace: ioTrace, hashText: _hashText });
+
+const _LOCATOR_BUDGET_TOOLS = new Set(['find', 'glob', 'list']);
+
+function _locatorTargets(toolName, args) {
+  const raw = toolName === 'find' ? args?.query : args?.path;
+  const values = (Array.isArray(raw) ? raw : [raw]).map((value) => String(value ?? '').trim()).filter(Boolean);
+  if (values.length) return values;
+  return [toolName === 'find' ? '' : '.'];
+}
+
+const _GREP_MATCH_ROW_RE = /^(?:\d+|.+?:\d+):/;
+
+// Match rows the byte cap left visible, in the units grep's `offset` counts.
+function _grepShownEntries(keptLines, mode) {
+  // A context block counts only when its header and every source line survived.
+  let blocks = 0;
+  let sawHeader = false;
+  keptLines.forEach((line, index) => {
+    const header = /^# .+:\d+ \[lines (\d+)-(\d+)\]$/.exec(line);
+    if (!header) return;
+    sawHeader = true;
+    if (index + Number(header[2]) - Number(header[1]) + 1 < keptLines.length) blocks += 1;
+  });
+  if (sawHeader) return blocks;
+  const rows = keptLines.filter((line) => line && !/^(?:#|--$|\[|\.\.\.|…|\()/.test(line));
+  return mode === 'content' ? rows.filter((line) => _GREP_MATCH_ROW_RE.test(line)).length : rows.length;
+}
+
+// Byte-cap marker for grep: the continuation is the offset of the first match
+// row not shown. A pattern/path fan-out has per-target offsets, so it gets
+// narrowing advice instead of a misleading global offset.
+function _grepBudgetFooter(args, keptLines, capBytes) {
+  const fanout = keptLines.some((line) => line.startsWith('# grep '));
+  const baseOffset =
+    Number.isFinite(Number(args?.offset)) && Number(args.offset) > 0 ? Math.floor(Number(args.offset)) : 0;
+  const shown = _grepShownEntries(keptLines, args?.mode);
+  // Every mode orders the whole result set before `offset` slices it (files
+  // and count pages are sorted first, then cut), so the rows kept here are a
+  // prefix of the offset order and offset resumes right after them.
+  let narrow = '';
+  if (fanout) narrow = 'run one pattern/path per call, or add path/glob/type to cut the match set';
+  else if (shown === 0) narrow = 'one match row exceeds the cap; read that file window or use a tighter pattern';
+  return capMarker({
+    limit: capBytes,
+    shown: `${shown} match row(s) shown`,
+    nextOffset: fanout || shown === 0 ? null : baseOffset + shown,
+    narrow,
+  });
+}
+
+function _locatorBudgetFooter(toolName, args, keptLines, capBytes) {
+  const targets = _locatorTargets(toolName, args);
+  const header = new RegExp(`^# ${toolName} (.+)$`);
+  let targetIndex = 0;
+  let visibleEntries = 0;
+  for (const line of keptLines) {
+    const section = header.exec(line);
+    if (section) {
+      const matched = targets.indexOf(section[1]);
+      targetIndex = matched >= 0 ? matched : Math.min(targetIndex + 1, targets.length - 1);
+      visibleEntries = 0;
+      continue;
+    }
+    if (!line || /^(?:#|\.\.\.|\[|\()/.test(line)) continue;
+    visibleEntries += 1;
+  }
+  const target = targets[targetIndex] || targets[0] || '';
+  const remaining = targets.length - targetIndex - 1;
+  const limit = Number(capBytes) > 0 ? Number(capBytes) : LOCATOR_OUTPUT_MAX_BYTES;
+  const nextTarget =
+    remaining > 0 ? `; ${remaining} target(s) not shown, next=${JSON.stringify(targets[targetIndex + 1])}` : '';
+  if (toolName === 'find') {
+    // find has no offset: the rest of the ranked matches needs a tighter query.
+    return capMarker({
+      limit,
+      shown: `matches for query=${JSON.stringify(target)} cut${nextTarget}`,
+      narrow: 'use a more specific query or add path',
+    });
+  }
+  const baseOffset =
+    Number.isFinite(Number(args?.offset)) && Number(args.offset) > 0 ? Math.floor(Number(args.offset)) : 0;
+  return capMarker({
+    limit,
+    shown: `${visibleEntries} complete row(s) shown for path=${JSON.stringify(target)}${nextTarget}`,
+    nextOffset: baseOffset + visibleEntries,
+  });
+}
+
+export async function executeBuiltinTool(name, args, cwd, options = {}) {
+  // Argument guards and executors normalize in place. Their working state
+  // must not rewrite the caller's transcript or provider correlation data.
+  args = structuredClone(args);
+  if (args && typeof args === 'object' && !Array.isArray(args) && '_clampNotices' in args) {
+    // Reserved harness notice channel (arg-guard pushClampNotice). Drop
+    // caller-supplied values so a model cannot inject fake [arg-guard]
+    // notices into its own tool results.
+    delete args._clampNotices;
+  }
+  if (options.abortSignal && !options.signal) {
+    options = { ...options, signal: options.abortSignal };
+  }
+  const toolName = canonicalizeBuiltinToolName(name);
+  if (toolName === 'read') {
+    // Capture the caller's coordinates before public inputs become legacy
+    // executor windows. Child reads inherit the originating batch's base.
+    options = {
+      ...options,
+      readOffsetBase: args && Object.hasOwn(args, 'file_path') ? 1 : (options.readOffsetBase ?? 0),
+    };
+  }
+  let argError = splitJoinedPathScopes(toolName, args, cwd);
+  if (argError) return argError;
+  if (toolName === 'grep') {
+    const prepared = prepareGrepArgs(args);
+    argError = prepared.error;
+    if (!argError) args = prepared.args;
+  } else {
+    argError = validateBuiltinArgs(toolName, args);
+  }
+  if (argError) return toolName === 'shell' ? formatShellToolFailure(argError) : argError;
+  // Fallback live-progress emit for direct callers (in-process toolExecutor
+  // path). The MCP dispatch path already fired the central start message and
+  // sets progressStarted:true, so guard against a double-emit there. No-op
+  // when onProgress is absent (no progressToken) — stays byte-identical.
+  if (typeof options.onProgress === 'function' && options.progressStarted !== true) {
+    try {
+      options.onProgress(formatToolStartProgress(toolName, args));
+    } catch {
+      /* best-effort */
+    }
+    // Mark progress as started so child-builtin recursions (read batch→read,
+    // read mode head/tail/count/summary/hex→child, grep glob-only→glob) that
+    // spread these options below don't re-emit a second start message.
+    options = { ...options, progressStarted: true };
+  }
+  const workDir = cwd || pwd();
+  const readStateScope = options?.readStateScope ?? options?.sessionId ?? null;
+  // Children return internal (fully numbered) text to the parent executor,
+  // which may re-slice it; only the outermost result is shaped for the model.
+  const executeChildBuiltinTool = (childName, childArgs, childCwd = workDir, childOptions = null) =>
+    executeBuiltinTool(childName, childArgs, childCwd, { ...options, ...childOptions, builtinChild: true });
+  // Path policy: host settings.json permissions (mcp__* allow) are the
+  // sole arbiter for workspace-boundary decisions.
+  const _toolResult = await (async () => {
+    switch (toolName) {
+      case 'shell':
+        return executeBashTool(args, workDir, options);
+      case 'git':
+        return executeGitTool(args, workDir, options);
+      case 'github':
+        return executeGithubTool(args, workDir, options);
+      case 'task':
+        return executeTaskTool(args, options);
+      case 'read':
+        return executeReadTool(args, workDir, readStateScope, executeChildBuiltinTool, options, _readToolHelpers);
+      case 'grep':
+        return executeGrepTool(args, workDir, executeChildBuiltinTool, readStateScope, options);
+      case 'glob':
+        return executeGlobTool(args, workDir, options);
+      case 'find':
+        return executeFuzzyFindTool(args, workDir, options);
+      case 'list':
+        return executeListTool(args, workDir, options);
+      case 'tree':
+        return executeTreeTool(args, workDir, options);
+      case 'find_files':
+        return executeFindFilesTool(args, workDir, options);
+      case 'head':
+        return executeHeadTool(args, workDir, readStateScope, _readModeHelpers);
+      case 'tail':
+        return executeTailTool(args, workDir, readStateScope, _readModeHelpers);
+      case 'wc':
+        return executeWcTool(args, workDir, _readModeHelpers);
+      case 'summary':
+        return executeSummaryTool(args, workDir, readStateScope, _readModeHelpers);
+      case 'hex':
+        return executeHexTool(args, workDir, readStateScope, _readModeHelpers);
+      default:
+        {
+          const adapted = await tryExecuteExternalToolAdapter(name, args, workDir, options);
+          if (adapted !== null) return adapted;
+        }
+        return formatUnknownBuiltinToolMessage(name, args);
+    }
+  })();
+  // Any provider-facing reduction happens later, after the complete result
+  // has been durably persisted by tool-result-offload.
+  const _finalResult = _budgetBuiltinOutput(toolName, args, _appendClampNotices(args, _toolResult), options);
+  if (
+    toolName === 'shell' &&
+    options?.resultTelemetry &&
+    typeof options.resultTelemetry === 'object' &&
+    Number.isFinite(options.resultTelemetry.commandOutputBytes) &&
+    typeof _toolResult === 'string' &&
+    typeof _finalResult === 'string'
+  ) {
+    options.resultTelemetry.shellResultBytes = Buffer.byteLength(_toolResult, 'utf8');
+    options.resultTelemetry.toolResultBytes = Buffer.byteLength(_finalResult, 'utf8');
+  }
+  return toolName === 'read' && options.builtinChild !== true ? readRowsForModel(_finalResult) : _finalResult;
+}
+
+function _budgetBuiltinOutput(toolName, args, result, options) {
+  const explicitCap = Number(options?.toolOutputMaxBytes) > 0 ? Math.trunc(Number(options.toolOutputMaxBytes)) : null;
+  if (toolName === 'grep') {
+    const grepCap = explicitCap ? Math.min(explicitCap, GREP_OUTPUT_MAX_BYTES) : GREP_OUTPUT_MAX_BYTES;
+    return capLineOrientedToolOutput(result, grepCap, (kept) => _grepBudgetFooter(args, kept, grepCap));
+  }
+  if (_LOCATOR_BUDGET_TOOLS.has(toolName)) {
+    const locatorCap = explicitCap ? Math.min(explicitCap, LOCATOR_OUTPUT_MAX_BYTES) : LOCATOR_OUTPUT_MAX_BYTES;
+    return capLineOrientedToolOutput(result, locatorCap, (kept) =>
+      _locatorBudgetFooter(toolName, args, kept, locatorCap)
+    );
+  }
+  return result;
+}
+
+// Surface arg-guard clamp notices (args._clampNotices, see pushClampNotice in
+// arg-guard.mjs) on the result text so the caller learns its request was
+// capped. Grep's match-block cap is already reflected in its paging line.
+// Delete to consume: prevents double-append when a child-builtin
+// result is embedded in the parent's, and leaves no `_clampNotices` residue
+// on the recorded tool-call args in the transcript.
+function _appendClampNotices(args, result) {
+  let notices = null;
+  if (args && Array.isArray(args._clampNotices)) {
+    notices = args._clampNotices.filter(
+      (notice) => !/^notice: grep limit clamped to \d+ match blocks \(context mode\)$/.test(notice)
+    );
+    delete args._clampNotices;
+  }
+  if (!notices || notices.length === 0 || typeof result !== 'string') return result;
+  return `${result}\n\n${notices.map((n) => `[arg-guard] ${n}`).join('\n')}`;
+}
+/**
+ * Check if a tool name is a builtin tool.
+ */
+export function isBuiltinTool(name) {
+  const toolName = canonicalizeBuiltinToolName(name);
+  return BUILTIN_TOOLS.some((t) => t.name === toolName);
+}
+
+// Re-export so the session loop can route foreign-CLI tool names
+// (StrReplace/Write/bash variants) into executeBuiltinTool — whose default:
+// case runs the native adapter — instead of short-circuiting to the
+// unknown-tool redirect message at the dispatch layer.
+export { isExternalAdapterTool };
+
+// Test-only exports for smart truncation helpers. Runtime callers inside this
+// module use the local bindings unchanged; these named exports just make the
+// same functions + constants reachable from the test harness.
+export {
+  smartMiddleTruncate,
+  smartReadTruncate,
+  SMART_READ_MAX_BYTES,
+  SMART_READ_MAX_LINES,
+  SMART_READ_HEAD_LINES,
+  SMART_READ_TAIL_LINES,
+  SMART_BASH_MAX_LINES,
+  SMART_BASH_MAX_BYTES,
+  SMART_BASH_HEAD_LINES,
+  SMART_BASH_TAIL_LINES,
+};
+
+// Public path-keyed wrappers around the read-snapshot machinery. patch.mjs
+// uses these after a multi-file diff lands so subsequent reads see the new
+// content instead of the pre-edit cached body. Both are best-effort: the
+// failure mode is a stale snapshot, not a corrupt write.
+export function recordReadSnapshotForPath(fullPath, scope, meta = {}) {
+  try {
+    const { stat, st, ...snapshotMeta } = meta || {};
+    _recordReadSnapshot(fullPath, st || stat, scope || null, snapshotMeta);
+  } catch {}
+}
+export function clearReadSnapshotForPath(fullPath, _scope) {
+  // Drop the cached result entries that may carry stale snapshot meta for
+  // this path. The internal map is keyed on opaque hashes, so a targeted
+  // delete is not possible — full invalidate-by-path is the contract.
+  try {
+    invalidateBuiltinResultCache([fullPath]);
+  } catch {}
+  try {
+    _deleteReadSnapshotPathEverywhere(fullPath);
+  } catch {}
+}

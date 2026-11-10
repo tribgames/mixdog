@@ -1,0 +1,60 @@
+import { configuredAgentRouteCandidates, isAgentDisabled } from '../../../shared/agent-route-config.mjs';
+import { normalizeContextTokens } from '../../../shared/llm/default-context-window.mjs';
+import { getConfigSnapshot } from '../config.mjs';
+import { getHiddenAgent } from '../internal-agents.mjs';
+
+// The settings agent whose route a hidden role runs on.
+const ROLE_BY_MAINT_KEY = Object.freeze({ memory: 'maintainer', explore: 'explore' });
+
+function normalizeMaintenanceCandidate(candidate) {
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return candidate || null;
+  const provider = String(candidate.provider || '').trim();
+  const model = String(candidate.model || '').trim();
+  if (!provider || !model) return null;
+  return {
+    provider,
+    model,
+    effort: String(candidate.effort || '').trim() || undefined,
+    fast: candidate.fast === true,
+    ...(candidate.autoEffort === false ? { autoEffort: false } : {}),
+    ...(candidate.modelParameters && typeof candidate.modelParameters === 'object'
+      ? { modelParameters: { ...candidate.modelParameters } }
+      : {}),
+    ...(Number(candidate.contextPercent) > 0 ? { contextPercent: Number(candidate.contextPercent) } : {}),
+    ...(normalizeContextTokens(candidate.contextTokens)
+      ? { contextTokens: normalizeContextTokens(candidate.contextTokens) }
+      : {}),
+  };
+}
+
+/**
+ * Resolve the maintenance route for a hidden role without creating an agent
+ * session. Session-backed dispatch and tiny one-shot completions share this
+ * model-selection boundary.
+ */
+export function resolveMaintenanceRoute({ preset, optsPreset, agent, config: cfgIn = null, includeDefault = true }) {
+  if (preset) return preset;
+  if (optsPreset) return optsPreset;
+  if (!agent) return null;
+  const hidden = getHiddenAgent(agent);
+  if (hidden) {
+    try {
+      const config = cfgIn || getConfigSnapshot({ secrets: false });
+      const key = hidden.maintKey || hidden.slot;
+      const role = ROLE_BY_MAINT_KEY[key] || '';
+      if (!role) return config?.maintenance?.[key] ?? null;
+      // A disabled agent must not silently fall back to the Main model:
+      // "off" means the maintenance role does not run at all.
+      if (isAgentDisabled(config, role)) return null;
+      const candidates = [...configuredAgentRouteCandidates(config, role), includeDefault ? config?.default : null];
+      for (const candidate of candidates) {
+        const route = normalizeMaintenanceCandidate(candidate);
+        if (route) return route;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}

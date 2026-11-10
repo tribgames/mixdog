@@ -1,0 +1,120 @@
+import { USAGE_PATH, readJson } from './config.mjs';
+import { createDebouncedJsonWriter } from './debounced-json-writer.mjs';
+
+function now() {
+  return new Date().toISOString();
+}
+
+function defaultState() {
+  return {
+    providers: {},
+  };
+}
+
+// Every web-search/crawl/batch path mutates usage at least once
+// (lastUsedAt/percentUsed/cooldownUntil), so writes are coalesced.
+const usageWriter = createDebouncedJsonWriter({ path: USAGE_PATH, label: 'web-search-state' });
+const scheduleUsageFlush = usageWriter.schedule;
+const flushUsageState = usageWriter.flush;
+
+export { flushUsageState };
+
+let _instance = null;
+
+export function loadUsageState() {
+  if (_instance) return _instance;
+  const raw = readJson(USAGE_PATH, null);
+  const def = defaultState();
+  let state = def;
+  if (raw && typeof raw === 'object') {
+    // Drop the legacy `routingCache` (rawBySite/scrapeByHost) instead of
+    // carrying it forward: it has no consumers, and a plain `...raw` kept
+    // rewriting it back to disk on every flush.
+    const { routingCache: legacyRoutingCache, ...rest } = raw;
+    state = { ...def, ...rest, providers: { ...(raw.providers || {}) } };
+    if (legacyRoutingCache !== undefined) scheduleUsageFlush(state);
+  }
+  _instance = state;
+  usageWriter.track(state);
+  return state;
+}
+
+export function updateProviderState(state, provider, patch) {
+  const normalizedPatch = { ...patch };
+  const remaining = typeof normalizedPatch.remaining === 'number' ? normalizedPatch.remaining : null;
+  const limit = typeof normalizedPatch.limit === 'number' ? normalizedPatch.limit : null;
+
+  if (limit && limit > 0 && remaining !== null && typeof normalizedPatch.percentUsed !== 'number') {
+    normalizedPatch.percentUsed = Number((((limit - remaining) / limit) * 100).toFixed(2));
+  }
+
+  state.providers[provider] = {
+    ...(state.providers[provider] || {}),
+    ...normalizedPatch,
+    updatedAt: normalizedPatch.updatedAt || now(),
+  };
+  scheduleUsageFlush(state);
+}
+
+export function noteProviderSuccess(state, provider, extra = {}) {
+  updateProviderState(state, provider, {
+    ...extra,
+    error: null,
+    lastUsedAt: now(),
+    lastSuccessAt: now(),
+    cooldownUntil: null,
+  });
+}
+
+const PROVIDER_ERROR_KIND = {
+  AUTH: 'auth',
+  QUOTA: 'quota',
+  PAYMENT: 'payment',
+  RATE_LIMIT: 'rate_limit',
+  SERVER: 'server',
+  NETWORK: 'network',
+  UNKNOWN: 'unknown',
+};
+
+export function classifyProviderError(error) {
+  let status = error?.status;
+  if (status == null && error?.message) {
+    const m = String(error.message).match(/\bHTTP\s+(\d{3})\b/);
+    if (m) status = Number(m[1]);
+  }
+  const name = error?.name;
+  if (status === 429) return PROVIDER_ERROR_KIND.RATE_LIMIT;
+  if (status === 400 || status === 401 || status === 403) return PROVIDER_ERROR_KIND.AUTH;
+  if (status === 402) return PROVIDER_ERROR_KIND.PAYMENT;
+  if (status >= 500 && status < 600) return PROVIDER_ERROR_KIND.SERVER;
+  if (!status && (name === 'AbortError' || name === 'TimeoutError')) return PROVIDER_ERROR_KIND.NETWORK;
+  if (!status) return PROVIDER_ERROR_KIND.NETWORK;
+  return PROVIDER_ERROR_KIND.UNKNOWN;
+}
+
+const PROVIDER_DISABLE_TTL_MS = {
+  auth: 24 * 3600 * 1000,
+  quota: 24 * 3600 * 1000,
+  payment: 24 * 3600 * 1000,
+  rate_limit: 24 * 3600 * 1000,
+  server: 0,
+  network: 0,
+  unknown: 0,
+};
+
+// `siteScoped` marks a failure that the FETCHED SITE produced (its 400/401/403/
+// 429), not a fault of the provider/extractor itself. Those statuses say
+// nothing about provider health, so they must never install the provider-wide
+// cooldown that would disable the extractor for every other host for 24h.
+export function noteProviderFailure(state, provider, errorMessage, errorKind, { siteScoped = false } = {}) {
+  const payload = {
+    error: errorMessage,
+    lastUsedAt: now(),
+    lastFailureAt: now(),
+  };
+  const ttl = siteScoped ? 0 : (PROVIDER_DISABLE_TTL_MS[errorKind] ?? 0);
+  if (ttl > 0) {
+    payload.cooldownUntil = new Date(Date.now() + ttl).toISOString();
+  }
+  updateProviderState(state, provider, payload);
+}

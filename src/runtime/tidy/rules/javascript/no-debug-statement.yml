@@ -1,0 +1,10 @@
+id: no-debug-statement
+language: JavaScript
+severity: info
+message: console.log/debug/trace call.
+note: Often debug output left behind after an investigation. Keep intentional CLI output and structured logging; delete leftovers. This rule has no autofix.
+rule:
+  any:
+    - pattern: console.log($$$)
+    - pattern: console.debug($$$)
+    - pattern: console.trace($$$)

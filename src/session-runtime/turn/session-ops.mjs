@@ -1,0 +1,160 @@
+/**
+ * src/session-runtime/turn/session-ops.mjs - between-turn session commands:
+ * clear, rewind, manual compact, tool mode, cwd, and live transcript reads.
+ */
+import { normalizeToolMode } from '../../runtime/agent/orchestrator/runtime-core/effort.mjs';
+import { interruptTaskWaitForSession } from '../../runtime/agent/orchestrator/session/task-wait-control.mjs';
+import { markPendingGoalReminder } from '../../runtime/agent/orchestrator/runtime-core/goal-reminder.mjs';
+import { rearmLateDeferredTools } from '../../runtime/agent/orchestrator/runtime-core/tool-catalog.mjs';
+import { rearmPromptSettingsNotice } from '../../runtime/agent/orchestrator/session/manager/prompt-settings.mjs';
+
+export function createSessionOps(deps) {
+  const {
+    getSession,
+    setSession,
+    setMode,
+    getActiveTurnCount,
+    mgr,
+    invalidateContextStatusCache,
+    agentTool,
+    invalidatePreSessionToolSurface,
+    refreshEmptySessionToolPolicy,
+    switchProject,
+    resolveCwdPath,
+    agentStatusState,
+    getReservedSessionId,
+  } = deps;
+
+  function recoverAgentWorkers() {
+    try {
+      agentTool.recoverWorkers?.({ clientHostPid: getSession()?.clientHostPid || process.pid });
+    } catch {}
+  }
+
+  // `rebuildPrompt` (an agent chat's "대화 초기화"): refused while a turn
+  // runs, and the emptied session's prompt and tool surface are then rebuilt
+  // from the current rules, as a new session's are (refreshEmptySessionToolPolicy).
+  async function clear(options = {}) {
+    const session = getSession();
+    if (!session?.id) return false;
+    const rebuild = options.rebuildPrompt === true;
+    if (rebuild && getActiveTurnCount() > 0) throw new Error('The session is running a turn; wait for it to finish.');
+    const cleared = await mgr.clearSessionMessages(session.id, options);
+    if (!cleared) return false;
+    setSession(typeof cleared === 'object' ? cleared : mgr.getSession(session.id) || session);
+    if (options.recoverAgent === true) recoverAgentWorkers();
+    let promptRebuilt = false;
+    if (rebuild) promptRebuilt = (await refreshEmptySessionToolPolicy?.())?.appliedToCurrentSession === true;
+    invalidateContextStatusCache();
+    return rebuild ? { promptRebuilt } : true;
+  }
+
+  // Message-selector rewind: drop the chosen user prompt and everything
+  // after it from the model history. Unlike clear() the session object is
+  // kept (same id, same provider/model/cwd) — only the tail is undone.
+  async function rewindMessages(options = {}) {
+    const session = getSession();
+    if (!session?.id) return null;
+    const result = await mgr.rewindSessionMessagesTo?.(session.id, options);
+    if (!result) return null;
+    if (options.dryRun === true) return result;
+    setSession(mgr.getSession(session.id) || session);
+    invalidateContextStatusCache();
+    return result;
+  }
+
+  async function compact(options = {}) {
+    const session = getSession();
+    if (!session?.id) return null;
+    if (getActiveTurnCount() > 0) {
+      return { changed: false, reason: 'compact skipped: turn in progress' };
+    }
+    // Dispatch PreCompact only after the manager's savings gate. A skipped
+    // auto-clear must not run hooks, invalidate context or schedule reminders.
+    const trigger = options.requireReduction === true ? 'auto_clear' : 'manual';
+    const result = await mgr.compactSessionMessages(session.id, {
+      requireReduction: options.requireReduction === true,
+      onStageChange: async () => {
+        try {
+          await session.preCompactHook?.({ trigger });
+        } catch {
+          /* best-effort: PreCompact hook must never break compact */
+        }
+      },
+    });
+    if (result?.skipped) return result;
+    try {
+      await session.postCompactHook?.({ trigger });
+    } catch {
+      /* best-effort: PostCompact hook must never break manual compact */
+    }
+    // The awaited compaction may outlive its session (user resumed/started
+    // another one). Only touch the active session if it is still this id.
+    if (getSession()?.id !== session.id) return result;
+    setSession(mgr.getSession(session.id) || session);
+    // Manual /compact drops the Goal's tool results exactly like the
+    // automatic path, so it marks the same one-shot state reminder.
+    try {
+      markPendingGoalReminder(getSession(), 'compaction');
+    } catch {
+      /* best-effort: a Goal reminder must never break manual compact */
+    }
+    // The same compaction strips late MCP tool announcements from older turns.
+    try {
+      rearmLateDeferredTools(getSession());
+      rearmPromptSettingsNotice(getSession());
+    } catch {
+      /* best-effort: a tool reminder must never break manual compact */
+    }
+    if (options.recoverAgent === true) recoverAgentWorkers();
+    invalidateContextStatusCache();
+    return result;
+  }
+
+  async function setToolMode(nextMode) {
+    const mode = normalizeToolMode(nextMode);
+    setMode(mode);
+    if (typeof refreshEmptySessionToolPolicy === 'function') {
+      await refreshEmptySessionToolPolicy();
+    } else {
+      invalidatePreSessionToolSurface();
+    }
+    return mode;
+  }
+
+  function interruptTaskWait(reason = 'user-message', detail = null) {
+    const sessionId = getSession()?.id || getReservedSessionId?.() || '';
+    return interruptTaskWaitForSession(sessionId, reason, detail);
+  }
+
+  // Raw model-message read for LIVE transcript consumers (remote agent
+  // handoff, daemon session.read). Answers from the in-memory session so a
+  // just-committed final turn is readable immediately — the debounced disk
+  // save can lag a finished turn past any remote waiter's window.
+  function readModelMessages(messageStart = 0) {
+    const messages = getSession()?.messages;
+    const list = Array.isArray(messages) ? messages : [];
+    const start = Math.max(0, Number(messageStart) || 0);
+    return { messageCount: list.length, messages: list.slice(start) };
+  }
+
+  // The desktop/remote Project switch: refused while a turn runs or the
+  // session works in a managed worktree (switchProject); resolves once the
+  // prompt refresh landed. Its target is a registered Project or the task
+  // workspace, classified by desktop membership.
+  async function setCwd(path) {
+    return switchProject(resolveCwdPath(path), { classifyByMembership: true });
+  }
+
+  return {
+    clear,
+    rewindMessages,
+    compact,
+    setToolMode,
+    agentStatus: () => agentStatusState(),
+    interruptTaskWait,
+    readModelMessages,
+    onAgentStatusChange: (listener) => agentTool.onStatusChange?.(listener) || (() => {}),
+    setCwd,
+  };
+}

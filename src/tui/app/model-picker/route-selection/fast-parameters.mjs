@@ -1,0 +1,127 @@
+// model-picker/route-selection/fast-parameters.mjs
+// Fast and the thinking-style model parameters of one model row. They are one
+// module because they decide each other: availability of Fast is read off the
+// selected parameters (and the selected effort), and cycling `thinking` can
+// invalidate a Fast selection that the new parameter combination rules out.
+import { modelKey } from './model-key.mjs';
+import { DAYBREAK_PARAMETER_ID } from '../../../../runtime/shared/llm/openai-daybreak.mjs';
+import { OPENROUTER_SORT_PARAMETER } from '../../../../runtime/agent/orchestrator/providers/openrouter-provider-routing.mjs';
+
+const TOGGLE_PARAMETER_IDS = new Set(['thinking', DAYBREAK_PARAMETER_ID]);
+
+export function createFastParameterSelection({ state, currentRoute, isCurrentRoute, isStateRoute, getSelectedEffort }) {
+  const selectedFast = new Map();
+  const selectedModelParameters = new Map();
+
+  const modelParametersFor = (model) => {
+    const key = modelKey(model);
+    if (selectedModelParameters.has(key)) return selectedModelParameters.get(key);
+    const current = isCurrentRoute(model) ? currentRoute.modelParameters : null;
+    const saved = model.savedModelParameters || {};
+    const defaults = { ...(model.defaultModelParameters || {}), ...saved, ...(current || {}) };
+    const values = Object.fromEntries(
+      (model.modelParameterOptions || []).flatMap((parameter) => {
+        const selected = parameter.options?.some((option) => option.value === defaults[parameter.id])
+          ? defaults[parameter.id]
+          : parameter.options?.[0]?.value;
+        return selected ? [[parameter.id, selected]] : [];
+      })
+    );
+    selectedModelParameters.set(key, values);
+    return values;
+  };
+
+  const fastAvailableFor = (model, effort = getSelectedEffort(model)) => {
+    if (!model?.fastCapable) return false;
+    if (Array.isArray(model.parameterVariants) && model.parameterVariants.length) {
+      const parameters = modelParametersFor(model);
+      return model.parameterVariants.some(
+        (variant) =>
+          variant.fast === 'true' &&
+          (!effort || !variant.effort || variant.effort === effort) &&
+          Object.entries(parameters).every(([key, value]) => !variant[key] || variant[key] === value)
+      );
+    }
+    const fastEfforts = Array.isArray(model.fastEfforts) ? model.fastEfforts : [];
+    return fastEfforts.length === 0 || fastEfforts.includes(effort || '');
+  };
+  const modelDefaultFast = (model) => {
+    if (!fastAvailableFor(model)) return false;
+    if (isCurrentRoute(model) && typeof currentRoute.fast === 'boolean') return currentRoute.fast;
+    if (isStateRoute(model) && typeof state.fast === 'boolean') return state.fast;
+    if (typeof model.savedFast === 'boolean') return model.savedFast;
+    return model.fastPreferred === true;
+  };
+  const getSelectedFast = (model) => {
+    if (!model || !fastAvailableFor(model)) return false;
+    const key = modelKey(model);
+    if (selectedFast.has(key)) return selectedFast.get(key) === true;
+    const fast = modelDefaultFast(model);
+    selectedFast.set(key, fast);
+    return fast;
+  };
+  /** Flips Fast; false when the model cannot run Fast at the selected effort. */
+  const ultrafastOffered = (model) =>
+    (model?.modelParameterOptions || []).some(
+      (parameter) => parameter.id === 'serviceTier' && parameter.options?.some((o) => o.value === 'ultrafast')
+    );
+  const isUltrafast = (model) =>
+    ultrafastOffered(model) && getSelectedFast(model) && modelParametersFor(model).serviceTier === 'ultrafast';
+  const setSpeed = (model, fast, tier) => {
+    selectedFast.set(modelKey(model), fast);
+    selectedModelParameters.set(modelKey(model), { ...modelParametersFor(model), serviceTier: tier });
+  };
+  /** Cycles Standard → Fast → Ultrafast → Standard when the model offers
+   *  Ultrafast, else flips Fast; false when the model cannot run Fast at the
+   *  selected effort. */
+  const toggleFast = (model) => {
+    if (!fastAvailableFor(model)) return false;
+    if (!ultrafastOffered(model)) {
+      selectedFast.set(modelKey(model), !getSelectedFast(model));
+      return true;
+    }
+    if (!getSelectedFast(model)) setSpeed(model, true, 'priority');
+    else if (!isUltrafast(model)) setSpeed(model, true, 'ultrafast');
+    else setSpeed(model, false, 'priority');
+    return true;
+  };
+
+  /** Cycles the model's toggle parameter ('thinking', or Daybreak Blue's
+   *  on/off) to its next option; false when the model has none. Fast is
+   *  dropped when the new parameters rule it out. */
+  const cycleParameter = (model, definition) => {
+    if (!definition?.options?.length) return false;
+    const wanted = definition.id;
+    const parameters = modelParametersFor(model);
+    const current = Math.max(
+      0,
+      definition.options.findIndex((option) => option.value === parameters[wanted])
+    );
+    parameters[wanted] = definition.options[(current + 1) % definition.options.length].value;
+    selectedModelParameters.set(modelKey(model), { ...parameters });
+    if (!fastAvailableFor(model)) selectedFast.set(modelKey(model), false);
+    return true;
+  };
+
+  const cycleThinking = (model) =>
+    cycleParameter(
+      model,
+      (model.modelParameterOptions || []).find((parameter) => TOGGLE_PARAMETER_IDS.has(parameter.id))
+    );
+  /** Cycles OpenRouter's Routing (Auto → Price → Speed → Latency); false on other rows. */
+  const cycleRouting = (model) =>
+    cycleParameter(
+      model,
+      (model.modelParameterOptions || []).find((parameter) => parameter.id === OPENROUTER_SORT_PARAMETER)
+    );
+
+  return {
+    modelParametersFor,
+    fastAvailableFor,
+    getSelectedFast,
+    isUltrafast,
+    toggleFast,
+    cycleThinking,
+    cycleRouting,
+  };
+}

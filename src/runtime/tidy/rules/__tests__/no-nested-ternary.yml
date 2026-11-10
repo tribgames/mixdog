@@ -1,0 +1,15 @@
+id: no-nested-ternary
+valid:
+  - |
+    x = a ? b : c;
+    y = b if a else c
+  - |
+    if (a) { x = b ? c : d; } else { x = e; }
+    x = (b if a else c) + 1
+invalid:
+  - |
+    x = a ? b : c ? d : e;
+    y = b if a else d if c else e
+  - |
+    x = a ? (b ? c : d) : e;
+    y = (b if a else c) if d else e

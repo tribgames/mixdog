@@ -1,0 +1,732 @@
+// Graph build orchestration: worker-thread async build (buildCodeGraphAsync),
+// synchronous _buildCodeGraph (imported by the prewarm worker), and the
+// prewarm entry points. Owns the in-flight single-flight map.
+//
+// SELF-REFERENTIAL DYNAMIC IMPORT: buildCodeGraphAsync spawns the prewarm
+// worker via `new URL('../code-graph-prewarm-worker.mjs', import.meta.url)`.
+// That worker in turn does `import { _buildCodeGraph } from '../code-graph.mjs'`
+// (the facade), which re-exports _buildCodeGraph from THIS module. The worker
+// path is unchanged relative to the facade, so it keeps importing the facade —
+// no module imports its own path. The URL below is resolved against THIS
+// module's dir (tools/code-graph/), so it walks one level up to reach the
+// worker at tools/.
+import { isAbsolute, relative as pathRelative, resolve as pathResolve, win32 as pathWin32 } from 'node:path';
+import { Worker } from 'node:worker_threads';
+import {
+  acquire as acquireChildSpawnSlot,
+  hasSpareCapacity as childSpawnHasSpareCapacity,
+} from '../../../../shared/child-spawn-gate.mjs';
+import {
+  canonicalGraphCwd as _canonicalGraphCwd,
+  codeGraphCache as _codeGraphCache,
+  consumeCodeGraphDirtyPaths as _consumeCodeGraphDirtyPaths,
+  getCodeGraphGen as _getCodeGraphGen,
+} from '../code-graph-state.mjs';
+import {
+  CODE_GRAPH_TTL_MS,
+  CODE_GRAPH_MAX_FILES,
+  CODE_GRAPH_FAST_PATH_MAX_BYTES,
+  CODE_GRAPH_WORKER_TIMEOUT_MS,
+  SYMBOL_SCHEMA_VERSION,
+} from './constants.mjs';
+import {
+  _computeGraphSignature,
+  _deserializeGraph,
+  _attachGraphRuntimeCaches,
+  _estimateGraphBaseBytes,
+  _seedGraphBaseBytes,
+} from './graph-model.mjs';
+import { _touchCodeGraphCache, _setCodeGraphCache } from './memory-cache.mjs';
+import {
+  ensureDiskCodeGraphLoaded,
+  drainCodeGraphCacheStrict,
+  getDiskCodeGraphEntry,
+  probeDiskCodeGraphEntry,
+  _setDiskCodeGraphEntry,
+} from './disk-cache.mjs';
+import { _runGraphManifest, callsWireSignatureToken, awaitCallsWireProbe } from './graph-binary.mjs';
+import { assembleGraphNodes, linkGraphImports, resolveGraphFileInfos } from './build-file-infos.mjs';
+import { _ensureTokenIndex, _lookupCandidateNodes } from './symbol-index.mjs';
+import { _findDirProjectRoot } from './project-root.mjs';
+import { raceAbort } from './dispatch/abort-race.mjs';
+
+// In-flight async builds keyed by canonical graphCwd. Same-cwd parallel
+// callers (prewarm + cache-miss + multiple find_symbol) share one Worker
+// spawn instead of fanning out. Entry removed on settle so the next caller
+// after a failure can retry.
+const _inflightAsyncBuilds = new Map();
+
+function _usesWindowsPathSemantics(value) {
+  return /^[A-Za-z]:[\\/]/.test(value) || /^\\\\[^\\]+\\[^\\]+/.test(value);
+}
+
+function _normalizedExcludedPrefixes(cwd, excludedProjectRoots) {
+  const windows = _usesWindowsPathSemantics(cwd);
+  const relative = windows ? pathWin32.relative : pathRelative;
+  const resolve = windows ? pathWin32.resolve : pathResolve;
+  return [
+    ...new Set(
+      (excludedProjectRoots || [])
+        .map((root) => {
+          let rel = relative(cwd, resolve(root)).replace(/\\/g, '/').replace(/\/+$/, '');
+          if (windows) rel = rel.toLowerCase();
+          const absolute = windows ? pathWin32.isAbsolute(rel) : isAbsolute(rel);
+          return rel && !rel.startsWith('../') && !absolute ? rel : null;
+        })
+        .filter(Boolean)
+    ),
+  ].sort();
+}
+
+function _scopeCodeGraphManifest(manifest, cwd, { excludedProjectRoots = [], maxFiles = CODE_GRAPH_MAX_FILES } = {}) {
+  const prefixes = _normalizedExcludedPrefixes(cwd, excludedProjectRoots);
+  const windows = _usesWindowsPathSemantics(cwd);
+  const excluded = (rel) => {
+    const normalized = rel.replace(/\\/g, '/');
+    const comparable = windows ? normalized.toLowerCase() : normalized;
+    return prefixes.some((prefix) => comparable === prefix || comparable.startsWith(`${prefix}/`));
+  };
+  const scoped = (Array.isArray(manifest) ? manifest : []).filter(
+    (meta) => meta && typeof meta.rel === 'string' && !excluded(meta.rel)
+  );
+  const cap = Math.max(1, Math.floor(Number(maxFiles) || CODE_GRAPH_MAX_FILES));
+  return {
+    manifest: scoped,
+    indexed: scoped.length > cap ? scoped.slice(0, cap) : scoped,
+    truncated: scoped.length > cap,
+    prefixes,
+  };
+}
+
+function _isCompatibleDiskCodeGraphEntry(entry, maxFiles = CODE_GRAPH_MAX_FILES) {
+  return Number.isFinite(entry?.maxFiles) && entry.maxFiles === maxFiles;
+}
+
+function _throwIfAborted(signal) {
+  if (signal?.aborted) throw new Error('aborted');
+}
+
+// `graph` is the build that finished anyway: the tree as of its own manifest,
+// never cached as current. The last retry answers from it instead of failing.
+function codeGraphBuildInvalidatedError(graph = null) {
+  const error = new Error('code-graph build invalidated during prewarm');
+  error.code = 'ERR_CODE_GRAPH_BUILD_INVALIDATED';
+  if (graph) error.graph = graph;
+  return error;
+}
+
+function isCodeGraphBuildInvalidatedError(error) {
+  return error?.code === 'ERR_CODE_GRAPH_BUILD_INVALIDATED';
+}
+
+export async function _retryCodeGraphBuildAfterInvalidation(run, { signal = null } = {}) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      return await run(attempt);
+    } catch (error) {
+      if (signal?.aborted || !isCodeGraphBuildInvalidatedError(error)) throw error;
+      // Files kept changing through the retry too (another session editing
+      // the same tree). The finished graph is a consistent snapshot a few
+      // seconds old; answer this query from it rather than fail it.
+      if (attempt === 1) {
+        if (error.graph) return error.graph;
+        throw error;
+      }
+    }
+  }
+}
+
+// The cached graph must be invalidated when the BINARY's call-site capability
+// changes, not only when files change: an entry indexed without the v2 wire has
+// no call sites at all, and call analysis has no text fallback to fall back on.
+// Always computed AFTER the manifest run, which settles the capability probe.
+function _graphSignatureForCapability(fileMetas) {
+  return `${_computeGraphSignature(fileMetas)}${callsWireSignatureToken()}`;
+}
+
+// The capability suffix a persisted/cached graph was indexed under, read back
+// from its own signature — no extra field to migrate.
+function _capabilityTokenOfSignature(signature) {
+  const value = String(signature || '');
+  const marker = value.indexOf('#');
+  return marker < 0 ? '' : value.slice(marker);
+}
+
+// Validate an already-loaded disk entry before paying Worker startup. The
+// manifest process is async; its child-spawn slot is held by the caller until
+// either this returns a hit or the Worker takes over the same slot on a miss.
+async function _validateDiskCodeGraphHit({
+  graphCwd,
+  diskEntry,
+  genAtStart,
+  now = Date.now(),
+  runManifest = _runGraphManifest,
+  computeSignature = _graphSignatureForCapability,
+  deserializeGraph = _deserializeGraph,
+  getGeneration = _getCodeGraphGen,
+  setMemoryCache = _setCodeGraphCache,
+  signal = null,
+}) {
+  if (!_isCompatibleDiskCodeGraphEntry(diskEntry)) return { incompatible: true };
+  const manifest = await runManifest(graphCwd, signal);
+  const signature = computeSignature(manifest);
+  if (diskEntry.signature !== signature) return { graph: null, manifest, signature };
+  const graph = deserializeGraph(graphCwd, diskEntry);
+  if (!graph) return { graph: null, manifest, signature };
+  if (getGeneration(graphCwd) !== genAtStart) return { invalidated: true, graph };
+  setMemoryCache(graphCwd, { ts: now, signature, graph });
+  return { graph, manifest, signature };
+}
+
+// A resident graph past its TTL is revalidated with the same manifest
+// signature check a disk entry gets, instead of being rebuilt in a Worker and
+// structured-cloned back onto the main thread (hundreds of MB for a large
+// root). A mismatch hands the manifest to the Worker so it is not re-run.
+export async function _revalidateResidentCodeGraph({
+  graphCwd,
+  entry,
+  genAtStart,
+  signal = null,
+  acquireSlot = (signal) => acquireChildSpawnSlot(signal, 'code-graph-query'),
+  runManifest = _runGraphManifest,
+  computeSignature = _graphSignatureForCapability,
+  getGeneration = _getCodeGraphGen,
+  setMemoryCache = _setCodeGraphCache,
+}) {
+  const release = await acquireSlot(signal || null);
+  let manifest;
+  try {
+    _throwIfAborted(signal);
+    manifest = await runManifest(graphCwd, signal);
+  } finally {
+    release();
+  }
+  _throwIfAborted(signal);
+  const signature = computeSignature(manifest);
+  if (entry.signature !== signature) return { graph: null, manifest, signature };
+  if (getGeneration(graphCwd) !== genAtStart) throw codeGraphBuildInvalidatedError(entry.graph);
+  setMemoryCache(graphCwd, { ...entry, ts: Date.now() });
+  return { graph: entry.graph, manifest, signature };
+}
+
+// Validates the disk graph under a read-only query slot; a miss releases it
+// and spawnWorker queues for a build slot, so queries never wait behind
+// builds. Keeping this seam dependency-injectable makes slot/abort behavior
+// testable without spawning native processes or Worker threads.
+export async function _runDiskCodeGraphFastPath({
+  graphCwd,
+  diskProbe,
+  genAtStart,
+  signal = null,
+  loadDiskEntry,
+  consumeDirty = () => {},
+  acquireSlot = (signal) => acquireChildSpawnSlot(signal, 'code-graph-query'),
+  validateDiskHit = _validateDiskCodeGraphHit,
+  spawnWorker,
+  maxFiles = CODE_GRAPH_MAX_FILES,
+}) {
+  if (!diskProbe?.isFastPathEligible || diskProbe.maxFiles !== maxFiles) {
+    return spawnWorker(null, null);
+  }
+  const diskEntry = loadDiskEntry();
+  if (!_isCompatibleDiskCodeGraphEntry(diskEntry, maxFiles)) {
+    return spawnWorker(null, null);
+  }
+  consumeDirty();
+  const release = await acquireSlot(signal || null);
+  let hit;
+  try {
+    _throwIfAborted(signal);
+    hit = await validateDiskHit({ graphCwd, diskEntry, genAtStart, signal });
+  } finally {
+    release();
+  }
+  _throwIfAborted(signal);
+  if (hit?.invalidated) throw codeGraphBuildInvalidatedError(hit.graph);
+  if (hit?.graph) return hit.graph;
+  return spawnWorker(hit?.manifest || null, hit?.signature || null);
+}
+
+function _prepareDiskCodeGraphFastPath({
+  graphCwd,
+  ensureDiskLoaded = ensureDiskCodeGraphLoaded,
+  probeDiskEntry = probeDiskCodeGraphEntry,
+  runFastPath,
+}) {
+  ensureDiskLoaded();
+  return runFastPath(probeDiskEntry(graphCwd, CODE_GRAPH_FAST_PATH_MAX_BYTES));
+}
+
+// Worker disk writes are debounced with an unref'd timer. Drain before sending
+// success so every loaded cwd persists before this Worker can
+// exit; a drain failure is intentionally thrown to the worker's failure path.
+//
+// The graph goes out in pieces: a header carrying the graph with every Map
+// emptied, then each Map's entries in bounded chunks, then `done`. A single
+// message holding the whole graph is deserialized on the receiving main thread
+// in one uninterruptible structured-clone read (150-450 ms for a large root);
+// chunks are each a short read. `nextChunk` (the worker awaits the receiver's
+// ack) paces them one per main-thread event-loop turn — a port delivers every
+// message already queued in one go, so unpaced chunks would be read back to
+// back. Map order is preserved, so node iteration order — which answers depend
+// on — is too.
+const GRAPH_CHUNK_WEIGHT = 50_000;
+
+function _graphChunkWeight(value) {
+  if (value instanceof Set) return value.size + 1;
+  if (typeof value?.text === 'string') return (value.text.length >> 6) + 1;
+  const calls = Array.isArray(value?.calls) ? value.calls.length : 0;
+  const tokens = Array.isArray(value?.tokenSymbols) ? value.tokenSymbols.length : 0;
+  const symbols = Array.isArray(value?.symbols) ? value.symbols.length : 0;
+  return 16 + calls * 8 + tokens + symbols * 8;
+}
+
+export async function _postCodeGraphWorkerSuccess(
+  graph,
+  postMessage,
+  drainCache = drainCodeGraphCacheStrict,
+  { cache = true, nextChunk = null } = {}
+) {
+  if (cache) drainCache();
+  const baseBytes = _estimateGraphBaseBytes(graph);
+  const shell = {};
+  const maps = [];
+  for (const [key, value] of Object.entries(graph)) {
+    if (value instanceof Map) {
+      shell[key] = new Map();
+      maps.push([key, value]);
+    } else {
+      shell[key] = value;
+    }
+  }
+  postMessage({ ok: true, signature: graph.signature, shell, baseBytes });
+  const post = async (message) => {
+    await nextChunk?.();
+    postMessage(message);
+  };
+  for (const [key, map] of maps) {
+    let entries = [];
+    let weight = 0;
+    for (const entry of map) {
+      entries.push(entry);
+      weight += _graphChunkWeight(entry[1]);
+      if (weight >= GRAPH_CHUNK_WEIGHT) {
+        await post({ key, entries });
+        entries = [];
+        weight = 0;
+      }
+    }
+    if (entries.length) await post({ key, entries });
+  }
+  await post({ done: true });
+}
+
+// The receiver's ack that lets a paced sender post its next chunk.
+export const CODE_GRAPH_CHUNK_ACK = 'code-graph-chunk-ack';
+
+// Main-thread side of the chunked protocol: feed every worker message in
+// order; returns null until the result is complete, then the result message
+// ({ ok, signature, graph, baseBytes }) — or a failure message as is.
+export function _codeGraphWorkerReceiver() {
+  let header = null;
+  return (message) => {
+    if (!header) {
+      if (!message?.ok || !message.shell) return message;
+      header = message;
+      return null;
+    }
+    if (typeof message?.key === 'string') {
+      const map = header.shell[message.key];
+      for (const [key, value] of message.entries) map.set(key, value);
+      return null;
+    }
+    if (!message?.done) return null;
+    return { ok: true, signature: header.signature, graph: header.shell, baseBytes: header.baseBytes };
+  };
+}
+
+// Structured keys avoid both separator collisions inside roots/prefixes and
+// collisions between scoped and ordinary builds.
+function _codeGraphInflightKey(graphCwd, { scoped = false, maxFiles = CODE_GRAPH_MAX_FILES, prefixes = [] } = {}) {
+  return scoped ? JSON.stringify(['scope', graphCwd, maxFiles, prefixes]) : JSON.stringify(['root', graphCwd]);
+}
+
+function _codeGraphWorkerFailure(message) {
+  const error = typeof message?.error === 'string' ? message.error.trim() : '';
+  return new Error(error || 'code-graph prewarm worker failed');
+}
+
+export function prewarmCodeGraph(cwd) {
+  if (!cwd) return;
+  // Reuse the buildCodeGraphAsync single-flight path. Fire-and-forget, and
+  // best-effort: skip a fresh worker spawn when the child-spawn gate is busy
+  // so this warm never queues ahead of real code_graph/find queries.
+  buildCodeGraphAsync(cwd, null, { bestEffort: true }).catch(() => {
+    /* best-effort */
+  });
+}
+
+export function prewarmCodeGraphSymbols(cwd, symbols, { language = null } = {}) {
+  if (!cwd) return;
+  const wanted = (Array.isArray(symbols) ? symbols : [symbols]).map((s) => String(s || '').trim()).filter(Boolean);
+  buildCodeGraphAsync(cwd, null, { bestEffort: true })
+    .then(async (graph) => {
+      if (!graph) return;
+      await _ensureTokenIndex(graph);
+      for (const symbol of wanted) {
+        try {
+          _lookupCandidateNodes(graph, symbol, language);
+        } catch {
+          /* best-effort */
+        }
+      }
+    })
+    .catch(() => {
+      /* best-effort */
+    });
+}
+
+export function prewarmCodeGraphIfProject(cwd) {
+  if (!cwd) return false;
+  // Implicit walk (nobody asked for this build): never adopt a home/temp
+  // sentinel and prewarm the entire user profile in the background.
+  const root = _findDirProjectRoot(cwd, { stopAtUserBoundary: true });
+  if (!root) return false;
+  prewarmCodeGraph(root);
+  return true;
+}
+
+export async function buildCodeGraphAsync(
+  cwd,
+  signal = null,
+  { bestEffort = false, excludedProjectRoots = [], maxFiles = CODE_GRAPH_MAX_FILES } = {}
+) {
+  if (signal?.aborted) throw new Error('aborted');
+  const graphCwd = _canonicalGraphCwd(cwd);
+  const prefixes = _normalizedExcludedPrefixes(graphCwd, excludedProjectRoots);
+  const scoped = prefixes.length > 0 || maxFiles !== CODE_GRAPH_MAX_FILES;
+  const scopeOptions = scoped ? { excludedProjectRoots, maxFiles, cache: false } : null;
+  const inflightKey = _codeGraphInflightKey(graphCwd, { scoped, maxFiles, prefixes });
+  const cached = _codeGraphCache.get(graphCwd);
+  if (!scoped && cached?.graph && Date.now() - cached.ts < CODE_GRAPH_TTL_MS) {
+    _touchCodeGraphCache(graphCwd);
+    return cached.graph;
+  }
+  const existing = _inflightAsyncBuilds.get(inflightKey);
+  if (existing) return raceAbort(existing, signal);
+  // Non-competing prewarm: the signature-validation manifest also needs a
+  // query slot and a miss a build slot, so warmers skip before either queues.
+  if (bestEffort && !(childSpawnHasSpareCapacity('code-graph-query') && childSpawnHasSpareCapacity('code-graph'))) {
+    return null;
+  }
+  const promise = _retryCodeGraphBuildAfterInvalidation(
+    async () => {
+      const genAtStart = _getCodeGraphGen(graphCwd);
+      // Loading the compact disk manifest/one candidate entry is synchronous but
+      // bounded I/O. Do not run a manifest at all when no disk candidate exists:
+      // cold/dirty misses remain entirely on the existing Worker path.
+      if (scoped) {
+        return _spawnCodeGraphWorker(cwd, graphCwd, genAtStart, signal, null, null, {
+          buildOptions: scopeOptions,
+          cacheResult: false,
+        });
+      }
+      const resident = _codeGraphCache.get(graphCwd);
+      if (resident?.graph) {
+        const hit = await _revalidateResidentCodeGraph({ graphCwd, entry: resident, genAtStart, signal });
+        if (hit.graph) return hit.graph;
+        return _spawnCodeGraphWorker(cwd, graphCwd, genAtStart, signal, hit.manifest, hit.signature);
+      }
+      return _prepareDiskCodeGraphFastPath({
+        graphCwd,
+        runFastPath: (diskProbe) =>
+          _runDiskCodeGraphFastPath({
+            graphCwd,
+            diskProbe,
+            genAtStart,
+            signal,
+            loadDiskEntry: () => getDiskCodeGraphEntry(graphCwd),
+            consumeDirty: () => _consumeCodeGraphDirtyPaths(graphCwd),
+            spawnWorker: (manifest, signature) =>
+              _spawnCodeGraphWorker(cwd, graphCwd, genAtStart, signal, manifest, signature),
+          }),
+      });
+    },
+    { signal }
+  );
+  _inflightAsyncBuilds.set(inflightKey, promise);
+  try {
+    return await promise;
+  } finally {
+    _inflightAsyncBuilds.delete(inflightKey);
+  }
+}
+
+export function _spawnCodeGraphWorker(
+  cwd,
+  graphCwd,
+  genAtStart,
+  signal,
+  manifest = null,
+  signature = null,
+  {
+    // stdout/stderr captured: worker threads otherwise copy straight into the
+    // real fds, bypassing the TUI stderr guard (terminal frame corruption).
+    createWorker = (url, options) => new Worker(url, { ...options, stdout: true, stderr: true }),
+    getGeneration = _getCodeGraphGen,
+    setMemoryCache = _setCodeGraphCache,
+    setDiskCache = _setDiskCodeGraphEntry,
+    buildOptions = null,
+    cacheResult = true,
+  } = {}
+) {
+  let _worker = null;
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let timeout = null;
+    let _onSignalAbort = null;
+    let _releaseSlot = null;
+    const settle = (val) => {
+      if (settled) return;
+      settled = true;
+      if (timeout) {
+        clearTimeout(timeout);
+        timeout = null;
+      }
+      if (_onSignalAbort && signal) {
+        try {
+          signal.removeEventListener('abort', _onSignalAbort);
+        } catch {}
+        _onSignalAbort = null;
+      }
+      if (_releaseSlot) {
+        try {
+          _releaseSlot();
+        } catch {}
+        _releaseSlot = null;
+      }
+      // The graph has already arrived, so the worker has nothing left to run.
+      // It cannot exit on its own either: reading its piped stdout/stderr
+      // below keeps the underlying MessagePort ref'd for the worker's whole
+      // lifetime. Measured on a desktop session worker: 10 builds left 26
+      // live threads and ~450 MB resident with no build in flight. The timeout and abort paths already
+      // terminate; this is the success path they were missing.
+      if (_worker) {
+        const finished = _worker;
+        _worker = null;
+        try {
+          void finished.terminate();
+        } catch {
+          /* already down */
+        }
+      }
+      if (val instanceof Error) reject(val);
+      else resolve(val);
+    };
+    const settleError = (e) => settle(e instanceof Error ? e : new Error(String(e)));
+    const forwardToStderr = (chunk) => {
+      try {
+        process.stderr.write(chunk);
+      } catch {
+        /* best-effort */
+      }
+    };
+    acquireChildSpawnSlot(signal || null, 'code-graph').then((release) => {
+      _releaseSlot = release;
+      if (settled) {
+        release();
+        _releaseSlot = null;
+        return;
+      }
+      if (signal?.aborted) {
+        settle(new Error('aborted'));
+        return;
+      }
+      const workerUrl = new URL('../code-graph-prewarm-worker.mjs', import.meta.url);
+      try {
+        _worker = createWorker(workerUrl, {
+          workerData: { cwd, manifest, signature, buildOptions },
+          execArgv: [],
+        });
+        _worker.stdout?.on?.('data', forwardToStderr);
+        _worker.stderr?.on?.('data', forwardToStderr);
+      } catch (e) {
+        settleError(e);
+        return;
+      }
+      const w = _worker;
+      timeout = setTimeout(() => {
+        try {
+          _worker?.terminate();
+        } catch {}
+        settle(new Error(`code-graph worker timed out after ${CODE_GRAPH_WORKER_TIMEOUT_MS}ms for cwd=${graphCwd}`));
+      }, CODE_GRAPH_WORKER_TIMEOUT_MS);
+      timeout.unref?.();
+      if (signal) {
+        _onSignalAbort = () => {
+          try {
+            _worker?.terminate();
+          } catch {}
+          settle(new Error('aborted'));
+        };
+        signal.addEventListener('abort', _onSignalAbort, { once: true });
+      }
+      const receive = _codeGraphWorkerReceiver();
+      w.on('message', (part) => {
+        if (settled) return;
+        try {
+          const msg = receive(part);
+          if (!msg) {
+            // Next chunk on a later turn, so other work runs between reads.
+            setImmediate(() => {
+              if (!settled) w.postMessage?.(CODE_GRAPH_CHUNK_ACK);
+            });
+            return;
+          }
+          if (msg?.ok && msg.graph && typeof msg.signature === 'string') {
+            const genStillCurrent = getGeneration(graphCwd) === genAtStart;
+            if (genStillCurrent && cacheResult) {
+              _seedGraphBaseBytes(msg.graph, msg.baseBytes);
+              setMemoryCache(graphCwd, { ts: Date.now(), signature: msg.signature, graph: msg.graph });
+              // The Worker strictly persisted this graph before posting
+              // success. Adopt it in the main process without scheduling a
+              // redundant flush that can race the next Worker on the same
+              // manifest lock.
+              setDiskCache(graphCwd, msg.graph, { persist: false });
+            }
+            settle(genStillCurrent ? msg.graph : codeGraphBuildInvalidatedError(msg.graph));
+          } else {
+            settle(_codeGraphWorkerFailure(msg));
+          }
+        } catch (e) {
+          settleError(e);
+        }
+      });
+      w.once('error', settleError);
+    }, settleError);
+  });
+}
+
+/**
+ * Internal — exported (via the facade) solely for code-graph-prewarm-worker.mjs
+ * to import. NOT part of the public API. External callers should use
+ * buildCodeGraphAsync (worker-thread isolated) or the code_graph / find_symbol
+ * tools, never this synchronous form on the main event loop.
+ */
+export async function _buildCodeGraph(
+  cwd,
+  {
+    manifest: suppliedManifest = null,
+    signature: suppliedSignature = null,
+    excludedProjectRoots = [],
+    maxFiles = CODE_GRAPH_MAX_FILES,
+    cache = true,
+  } = {}
+) {
+  const now = Date.now();
+  let _tp = performance.now();
+  const _trace = (label) => {
+    if (process.env.MIXDOG_GRAPH_TRACE) {
+      const n = performance.now();
+      process.stderr.write(`[cg-trace] ${label}=${(n - _tp).toFixed(0)}ms\n`);
+      _tp = n;
+    }
+  };
+  const graphCwd = _canonicalGraphCwd(cwd);
+  const absRoot = graphCwd;
+  const _genAtStart = _getCodeGraphGen(graphCwd);
+  const cached = cache ? _codeGraphCache.get(graphCwd) : null;
+  let previousGraph = cached?.graph || null;
+  if (cache) _consumeCodeGraphDirtyPaths(graphCwd);
+
+  // 1. Change-detect via Rust --manifest (fp/rel/size only, no parse). A
+  // main-thread disk-cache validation may hand its just-computed manifest to
+  // this Worker after a miss, avoiding a duplicate native process.
+  const unscopedManifest = Array.isArray(suppliedManifest) ? suppliedManifest : await _runGraphManifest(absRoot);
+  // A Worker build receives the manifest (and signature) from the main thread,
+  // so it never ran a manifest itself and the capability probe has not settled
+  // here. Both the signature suffix and the node-reuse guard below depend on
+  // it; the probe is memoized per binary, so this is free after the first call.
+  await awaitCallsWireProbe(absRoot);
+  const scoped = _scopeCodeGraphManifest(unscopedManifest, absRoot, { excludedProjectRoots, maxFiles });
+  const manifest = scoped.manifest;
+  const signature = typeof suppliedSignature === 'string' ? suppliedSignature : _graphSignatureForCapability(manifest);
+  if (!Array.isArray(suppliedManifest)) _trace('manifest+sig');
+  const { truncated, indexed } = scoped;
+
+  // 2. Memory cache hit.
+  if (cached && cached.signature === signature && now - cached.ts < CODE_GRAPH_TTL_MS) {
+    _touchCodeGraphCache(graphCwd);
+    return cached.graph;
+  }
+
+  // 3. Disk cache hit.
+  if (cache) ensureDiskCodeGraphLoaded(now);
+  const diskEntry = cache ? getDiskCodeGraphEntry(graphCwd) : null;
+  if (_isCompatibleDiskCodeGraphEntry(diskEntry) && diskEntry.signature === signature) {
+    const graph = _deserializeGraph(graphCwd, diskEntry);
+    if (graph) {
+      if (_getCodeGraphGen(graphCwd) === _genAtStart) {
+        _setCodeGraphCache(graphCwd, { ts: now, signature, graph });
+      }
+      return graph;
+    }
+  }
+  if (!previousGraph && _isCompatibleDiskCodeGraphEntry(diskEntry)) {
+    previousGraph = _deserializeGraph(graphCwd, diskEntry);
+  }
+  if (previousGraph && previousGraph.schemaVersion !== SYMBOL_SCHEMA_VERSION) {
+    previousGraph = null;
+  }
+  // A graph indexed under a DIFFERENT call-site capability must not seed reuse:
+  // its nodes are unchanged by fingerprint, so every file would be carried
+  // forward and the "re-index" after a binary upgrade would produce a graph
+  // without a single call site (and no sidecar to hydrate from). Dropping the
+  // seed re-parses the tree once, which is exactly what the upgrade needs.
+  if (previousGraph && _capabilityTokenOfSignature(previousGraph.signature) !== callsWireSignatureToken()) {
+    previousGraph = null;
+  }
+
+  // 4. Build fileInfos. Reuse unchanged nodes by fp; parse the rest in Rust.
+  const { fileInfos, reusedWithoutCalls } = await resolveGraphFileInfos({
+    absRoot,
+    indexed,
+    previousGraph,
+    prefixes: scoped.prefixes,
+    maxFiles,
+  });
+  // 5. Import closure, restricted to the indexed scope.
+  linkGraphImports({ fileInfos, indexed });
+  _trace('walk+parse');
+  // 6. Node map + reverse-import index.
+  const { nodes, reverse } = assembleGraphNodes({ fileInfos, absRoot });
+  _trace('assemble');
+  const graph = _attachGraphRuntimeCaches({
+    cwd: graphCwd,
+    nodes,
+    reverse,
+    schemaVersion: SYMBOL_SCHEMA_VERSION,
+    builtAt: now,
+    signature,
+  });
+  graph.truncated = Boolean(truncated);
+  for (const info of fileInfos) {
+    if (typeof info.sourceText === 'string') {
+      graph._sourceTextCache.set(info.rel, {
+        fingerprint: info.fingerprint || '',
+        text: info.sourceText,
+      });
+    }
+  }
+  graph._symbolTokenIndexDirty = true;
+  // Same marker _deserializeGraph sets: the first callers/callees/references
+  // query fills the reused nodes from the sidecar. A build that parsed every
+  // file itself needs nothing and stays unmarked, so no mode pays that read.
+  if (reusedWithoutCalls) graph._callsHydration = 'pending';
+  if (cache && _getCodeGraphGen(graphCwd) === _genAtStart) {
+    _setCodeGraphCache(graphCwd, { ts: now, signature, graph });
+    _setDiskCodeGraphEntry(graphCwd, graph);
+    _trace('cache+disk');
+  }
+  return graph;
+}

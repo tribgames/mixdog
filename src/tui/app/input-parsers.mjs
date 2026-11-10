@@ -1,0 +1,127 @@
+/**
+ * input-parsers.mjs — pure text-to-structure parsers for slash-command inputs
+ * (MCP servers, skills, memory commands + memory row tables).
+ * No hooks, no App state, no closures.
+ */
+const splitPipeFields = (text) =>
+  String(text || '')
+    .split('|')
+    .map((part) => part.trim());
+
+export function parseMcpServerInput(text) {
+  const parts = splitPipeFields(text);
+  const [name, commandOrUrl, argsText = '', cwd = ''] = parts;
+  if (!name || !commandOrUrl) return { error: 'usage: name | command-or-url | args(optional) | cwd(optional)' };
+  if (/^(?:https?|wss?):\/\//i.test(commandOrUrl)) return { server: { name, url: commandOrUrl } };
+  return {
+    server: {
+      name,
+      command: commandOrUrl,
+      args: argsText.split(/\s+/).filter(Boolean),
+      cwd,
+    },
+  };
+}
+
+export function parseSkillInput(text) {
+  const parts = splitPipeFields(text);
+  const [name, description = 'Project skill.', whenToUse = ''] = parts;
+  if (!name) return { error: 'usage: name | description(optional) | trigger(optional)' };
+  return { skill: { name, description, ...(whenToUse ? { whenToUse } : {}) } };
+}
+
+export function parseMemoryCommand(text) {
+  const parts = String(text || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  const action = parts[0] || 'status';
+  const out = { action };
+  for (const part of parts.slice(1)) {
+    const [key, ...rest] = part.split('=');
+    if (!key || rest.length === 0) continue;
+    const raw = rest.join('=');
+    const num = Number(raw);
+    out[key] = Number.isFinite(num) && raw.trim() !== '' ? num : raw;
+  }
+  return out;
+}
+
+export function parseMemoryCoreRows(text) {
+  let currentProjectId = null;
+  return String(text || '')
+    .split('\n')
+    .filter((line) => line.trim())
+    .map((line, index) => {
+      const raw = line.trim();
+      if (raw.endsWith(':') && !raw.includes('id=')) {
+        const label = raw.slice(0, -1);
+        currentProjectId = label === 'COMMON' ? null : label;
+        // Group headers (COMMON / project slug) are scope markers, not
+        // selectable rows — drop them and carry the scope on each entry's
+        // meta column instead (blank for common).
+        return null;
+      }
+      const metadata = raw.match(
+        /^id=\d+\s+source=curated project=(\S+) status=\S+ injection=\S+(?: index_revision=(\S+))?\s+/
+      );
+      if (metadata) currentProjectId = metadata[1] === 'COMMON' ? null : metadata[1];
+      const normalized = metadata
+        ? raw.replace(/\s+source=curated project=\S+ status=\S+ injection=\S+(?: index_revision=\S+)?/, '')
+        : raw;
+      const match = normalized.match(/^id=(\d+)\s+(.+?)(?:\s+—\s+(.+))?$/);
+      if (match) {
+        const [, id, element, summary = ''] = match;
+        return {
+          value: `core-${encodeURIComponent(currentProjectId ?? 'common')}-${id}`,
+          // Display is summary-first: session injection only ever uses the
+          // summary sentence (buildSessionCoreMemoryPayload), so id/element
+          // are UI noise. The element stays in the hidden fields for
+          // edit/delete plumbing.
+          label: `#${id}`,
+          meta: currentProjectId || '',
+          description: summary || element,
+          _line: raw,
+          _action: 'core-entry',
+          _id: Number(id),
+          _indexRevision: metadata?.[2],
+          _element: element,
+          _summary: summary || element,
+          _projectId: currentProjectId,
+          // Raw pre-edit values, distinct from the (possibly later-mutated)
+          // _element/_summary above -- beginEditCoreMemory reads these to
+          // decide whether the row's element duplicated its summary (single-
+          // sentence entry) before deciding whether to touch element on edit.
+          _origElement: element,
+          _origSummary: summary,
+        };
+      }
+      return {
+        value: `core-${index}`,
+        label: raw,
+        description: '',
+        _line: raw,
+      };
+    })
+    .filter(Boolean);
+}
+
+// Service "core" operation errors are flattened to plain text by store.memoryControl
+// (isError is dropped -- see engine.mjs memoryControl / toolResponseText in
+// mixdog-session-runtime.mjs). Success text always uses a past-tense verb
+// ("core added/edited/deleted...");
+// every declared failure in index.mjs's core-op handling uses the op word
+// followed by either ":" (validation message) or " failed" (caught
+// exception) -- e.g. "core add: project_id required...", "core edit failed:
+// no entry with id=5". That shape is used here to recover the error signal
+// since store.memoryControl resolves instead of rejecting on isError.
+export function memoryCoreResultErrorText(text) {
+  const value = String(text || '').trim();
+  if (/^core (add|edit|delete)(:| failed)/i.test(value)) return value;
+  // Broader catch-all for other flattened "core" failures that don't name an
+  // op word right after "core" (e.g. "core: memory data dir is not
+  // initialized", "core requires op: ..."), plus any bare error/failed lead-in.
+  if (/^core:.*(not initialized|failed|error)/i.test(value)) return value;
+  if (/^(error|failed)\b/i.test(value)) return value;
+  return null;
+}

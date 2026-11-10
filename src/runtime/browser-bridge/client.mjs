@@ -1,0 +1,555 @@
+/**
+ * Loopback client for the desktop app's agent browser bridge.
+ *
+ * The Mixdog desktop app (apps/desktop/src/main/browser-host.ts) serves
+ * browser commands on 127.0.0.1 and advertises { port, token } through a
+ * heartbeated discovery file in the Mixdog data directory. This client is the
+ * runtime half: a sync availability probe that gates the `browser` tool
+ * surface, and the async executor behind actual tool calls.
+ */
+import { BROWSER_OBSERVATION_ACTIONS, validateBrowserToolArgs } from './action-schema.mjs';
+import {
+  bridgeDiscoveryChanged,
+  readBridgeDiscovery,
+  readBridgeDiscoveryDetail,
+  readBridgeDiscoveryFresh,
+} from '../bridge-discovery.mjs';
+import { mailLinkFor } from './mail-links.mjs';
+import { sessionLifeMark } from '../agent/orchestrator/session/human-gate/session-life.mjs';
+import { traceBrowserTiming } from './timing.mjs';
+import { base64ByteLength, inlineFileKind } from '../shared/inline-file-kind.mjs';
+import { MAX_IMAGE_BYTES, SUPPORTED_IMAGE_MIME_TYPES } from '../attachments/limits.mjs';
+
+const DISCOVERY_FILE = 'browser-bridge.json';
+/** How long a request may go without a single byte from the bridge. Above the
+ *  bridge's own per-action timeouts (navigation settle, surface auto-open), so
+ *  the bridge's specific error wins over a bare abort. It is a silence limit,
+ *  not a total: a command that waits on the person (an approval card, which has
+ *  no limit) is kept alive by the bridge with a space every few seconds
+ *  (apps/desktop/src/main/browser/bridge-server.ts), and each byte restarts it. */
+const REQUEST_TIMEOUT_MS = 45_000;
+const MAX_REQUEST_BYTES = 256 * 1024;
+const MAX_RESPONSE_BYTES = 150 * 1024 * 1024;
+const MAX_TEXT_CHARS = 250_000;
+const MAX_IMAGE_BASE64_CHARS = Math.ceil((MAX_IMAGE_BYTES * 4) / 3) + 4;
+const MAX_FILE_BASE64_CHARS = Math.ceil((8 * 1024 * 1024 * 4) / 3) + 4;
+const RETRYABLE_ACTIONS = new Set(BROWSER_OBSERVATION_ACTIONS);
+/** sessionId -> Map(turnId -> turn). `bridge` is the bridge the turn's start
+ *  or a command of it last went to (null until one did), which its end goes
+ *  to; `reads` the fresh discovery reads of those still out; `finishing` is
+ *  set once its end began (nothing of the turn is asked for after that) and
+ *  `done` once that end settled. A done turn is dropped at the session's next
+ *  turn start. */
+const browserTurns = new Map();
+const BROWSER_TURN_FINISHED = 'browser turn already finished; the command was not sent';
+/** Sessions that have issued a browser command; only they have turn
+ *  boundaries worth telling the desktop. */
+const browserSessions = new Set();
+
+/** A turn's start, sent before it reasons or runs any tool: the desktop keeps
+ *  the session's pages out of reclaim while a turn is live, even one that never
+ *  issues a browser command. Remembers the bridge so the turn's end reaches it.
+ *  A session that never used the browser has nothing to tell the desktop (its
+ *  first command marks it live there). */
+export async function beginBrowserTurn(sessionId, turnId) {
+  dropDoneBrowserTurns(sessionId);
+  if (!browserSessions.has(sessionId) || !(turnId > 0) || browserTurnFinishing(sessionId, turnId)) return;
+  const read = readBridgeDiscoveryFresh(DISCOVERY_FILE);
+  const turn = openBrowserTurnRead(sessionId, turnId, read);
+  const discovery = await read;
+  if (!settleBrowserTurnRead(sessionId, turnId, turn, read, discovery)) return;
+  const result = await requestBridgeWithin(
+    discovery,
+    JSON.stringify({ action: 'begin_turn', session_id: sessionId, turn_id: turnId }),
+    undefined,
+    { sessionId, turnId, action: 'begin_turn' }
+  );
+  if (result.status !== 200 || result.body?.ok === false || result.body?.error) {
+    throw new Error(
+      `Browser turn start failed (HTTP ${result.status}): ${result.body?.error || 'bridge rejected start'}`
+    );
+  }
+}
+
+/** The session is gone for good (deleted): it no longer has turn boundaries to
+ *  tell the desktop, and no turn of it will finish. */
+export function forgetBrowserSession(sessionId) {
+  browserSessions.delete(sessionId);
+  browserTurns.delete(sessionId);
+}
+
+/** Terminal lifecycle cleanup uses the exact bridge that owned this turn.
+ * It is never retried after dispatch and never inherits the cancelled tool signal. */
+export async function finishBrowserTurn(sessionId, turnId, { aborted = false } = {}) {
+  const turn = browserTurns.get(sessionId)?.get(turnId);
+  if (!turn || turn.finishing) return;
+  turn.finishing = true;
+  // Every read still out is a command (or the start) of this turn, asked for
+  // before its end: those go first, within one bounded wait.
+  const readWait = bridgeDeadline(undefined, REQUEST_TIMEOUT_MS);
+  let readsTimedOut = null;
+  try {
+    await settledWithin(Promise.allSettled([...turn.reads]), readWait.signal);
+  } catch (error) {
+    readsTimedOut = error;
+  } finally {
+    readWait.stop();
+  }
+  // From here no read of the turn that answers late sends anything.
+  turn.done = true;
+  if (!readsTimedOut) {
+    await sendFinishTurn(sessionId, turnId, turn.bridge, aborted);
+    return;
+  }
+  // A read that never answered does not cost the known bridge its cleanup;
+  // the caller still learns the wait timed out, and what became of the end.
+  let cleanup = 'none';
+  let cause = readsTimedOut;
+  if (turn.bridge) {
+    try {
+      await sendFinishTurn(sessionId, turnId, turn.bridge, aborted);
+      cleanup = 'sent';
+    } catch (error) {
+      cleanup = 'failed';
+      cause = error;
+    }
+  }
+  throw Object.assign(
+    new Error(
+      `Browser task cleanup: the turn's discovery reads did not answer within ${REQUEST_TIMEOUT_MS}ms; ` +
+        (cleanup === 'sent'
+          ? 'finish_turn was sent to the bridge the turn reached'
+          : cleanup === 'failed'
+            ? `finish_turn failed: ${cause?.message || cause}`
+            : 'no bridge was reached, nothing was sent'),
+      { cause }
+    ),
+    { name: 'TimeoutError', cleanup }
+  );
+}
+
+/** `finish_turn` to `bridge` under its own deadline; none (null) sends nothing. */
+async function sendFinishTurn(sessionId, turnId, bridge, aborted) {
+  if (!bridge) return;
+  const deadline = bridgeDeadline(undefined, REQUEST_TIMEOUT_MS);
+  let result;
+  try {
+    result = await requestBridge(
+      bridge,
+      JSON.stringify({
+        action: 'finish_turn',
+        session_id: sessionId,
+        turn_id: turnId,
+        // A turn that ended well may still be continued by the next message,
+        // so its pages stay; only an aborted run reclaims them.
+        aborted: aborted === true,
+      }),
+      deadline.signal,
+      { sessionId, turnId, action: 'finish_turn' },
+      deadline.touch
+    );
+  } finally {
+    deadline.stop();
+  }
+  if (result.status !== 200 || result.body?.ok === false || result.body?.error) {
+    throw new Error(
+      `Browser task cleanup failed (HTTP ${result.status}): ${result.body?.error || 'bridge rejected cleanup'}`
+    );
+  }
+}
+
+const SECRET_FILL_OUTCOMES = new Set(['entered', 'no_field', 'page_changed', 'blocked', 'expired']);
+
+/** Runtime-only: fill the secret the user handed the desktop for `requestId`
+ *  into the field of the page it was bound to (browserHandoffPage), through
+ *  the host's isolated-world fill. The value never passes through here; the
+ *  host answers only the outcome ('entered', 'no_field', 'page_changed',
+ *  'blocked', 'expired'); no desktop or an unknown answer is 'blocked'. */
+export async function browserSecretInput(sessionId, requestId, { signal } = {}) {
+  const discovery = await readBridgeDiscoveryFresh(DISCOVERY_FILE);
+  if (!discovery || !sessionId || !requestId) return 'blocked';
+  try {
+    const result = await requestBridgeWithin(
+      discovery,
+      JSON.stringify({ action: 'secret_input', session_id: String(sessionId), request_id: String(requestId) }),
+      signal,
+      { sessionId, action: 'secret_input' }
+    );
+    const text = result.status === 200 && result.body?.ok !== false ? result.body?.value?.text : '';
+    return SECRET_FILL_OUTCOMES.has(text) ? text : 'blocked';
+  } catch {
+    return 'blocked';
+  }
+}
+
+/** Runtime-only facts about a session's page for an ask_user handoff, with no
+ *  value in either direction: `secret_bind` binds `request_id` to the page
+ *  (`tab`, else the agent's page) and says its origin and field kind;
+ *  `login_accounts` lists the masked saved logins of `url`'s origin;
+ *  `page_url` says where the page is now. null when the desktop is absent or
+ *  refuses. */
+export async function browserHandoffPage(sessionId, action, fields = {}, { signal } = {}) {
+  const discovery = await readBridgeDiscoveryFresh(DISCOVERY_FILE);
+  if (!discovery || !sessionId) return null;
+  try {
+    const result = await requestBridgeWithin(
+      discovery,
+      JSON.stringify({ ...fields, action, session_id: String(sessionId) }),
+      signal,
+      { sessionId, action }
+    );
+    const value = result.status === 200 && result.body?.ok !== false ? result.body?.value : null;
+    return value && typeof value === 'object' ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+const BRIDGE_UNAVAILABLE_MESSAGE = 'browser use is unavailable; open the Mixdog desktop app and enable Browser Use';
+
+/** Sync gate for the session tool surface (featureDisallowedTools). */
+export function browserBridgeAvailableSync() {
+  return readBridgeDiscovery(DISCOVERY_FILE) !== null;
+}
+
+function browserTurnFinishing(sessionId, turnId) {
+  return browserTurns.get(sessionId)?.get(turnId)?.finishing === true;
+}
+
+/** Registers `read`, a fresh discovery read for the turn's start or a command
+ *  of it, when it is asked for: a turn ended or a session forgotten while it
+ *  is out still sees it. No turn (0): null. */
+function openBrowserTurnRead(sessionId, turnId, read) {
+  if (!turnId) return null;
+  const turns = browserTurns.get(sessionId) ?? new Map();
+  let turn = turns.get(turnId);
+  if (!turn) {
+    turn = { bridge: null, reads: new Set(), finishing: false, done: false };
+    turns.set(turnId, turn);
+  }
+  turn.reads.add(read);
+  browserTurns.set(sessionId, turns);
+  return turn;
+}
+
+/** `read` answered `discovery`. True when the request may go out: there is a
+ *  bridge and the turn's end has not settled meanwhile (an end still waiting
+ *  on this read lets it go first). The turn keeps the bridge it last went to;
+ *  one no request of it ever reached is not the desktop's to end. */
+function settleBrowserTurnRead(sessionId, turnId, turn, read, discovery) {
+  if (!turn) return Boolean(discovery);
+  turn.reads.delete(read);
+  if (turn.done) return false;
+  if (discovery) {
+    turn.bridge = discovery;
+    return true;
+  }
+  if (!turn.bridge && !turn.reads.size && !turn.finishing) {
+    const turns = browserTurns.get(sessionId);
+    if (turns?.get(turnId) === turn) {
+      turns.delete(turnId);
+      if (!turns.size) browserTurns.delete(sessionId);
+    }
+  }
+  return false;
+}
+
+function dropDoneBrowserTurns(sessionId) {
+  const turns = browserTurns.get(sessionId);
+  if (!turns) return;
+  for (const [turnId, turn] of turns) if (turn.done) turns.delete(turnId);
+  if (!turns.size) browserTurns.delete(sessionId);
+}
+
+/** `promise`, or `signal`'s reason once it aborts first. */
+function settledWithin(promise, signal) {
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(signal.reason);
+    if (signal.aborted) return onAbort();
+    signal.addEventListener('abort', onAbort, { once: true });
+    promise.then((value) => {
+      signal.removeEventListener('abort', onAbort);
+      resolve(value);
+    }, reject);
+  });
+}
+
+function browserToolError(message) {
+  return {
+    content: [{ type: 'text', text: `Error: ${message}` }],
+    isError: true,
+  };
+}
+
+function attachBrowserMedia(content, value) {
+  if (value.image?.data && value.image?.mimeType) {
+    const mimeType = String(value.image.mimeType);
+    const data = String(value.image.data);
+    if (!['image/jpeg', 'image/png'].includes(mimeType) || data.length > MAX_IMAGE_BASE64_CHARS) {
+      return browserToolError('browser bridge returned an invalid image');
+    }
+    content.push({
+      type: 'image',
+      source: { type: 'base64', media_type: mimeType, data },
+    });
+  }
+  if (value.file?.data && value.file?.mimeType) {
+    const mimeType = String(value.file.mimeType);
+    const data = String(value.file.data);
+    const filename = String(value.file.name || 'download');
+    if (
+      !/^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i.test(mimeType) ||
+      filename.length > 255 ||
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: rejects control characters in a bridge-supplied file name
+      /[\u0000-\u001f/\\]/.test(filename) ||
+      data.length > MAX_FILE_BASE64_CHARS
+    ) {
+      return browserToolError('browser bridge returned an invalid file');
+    }
+    if (SUPPORTED_IMAGE_MIME_TYPES.has(mimeType.toLowerCase())) {
+      content.push({
+        type: 'image',
+        source: { type: 'base64', media_type: mimeType, data },
+      });
+    } else if (inlineFileKind(mimeType, data) === 'binary') {
+      // No provider accepts an archive or a spreadsheet as an inline block, and
+      // the listing above already names the file on disk. Point at it instead
+      // of carrying megabytes of base64 through the conversation.
+      content.push({
+        type: 'text',
+        text: `Download ${filename} (${mimeType}, ${base64ByteLength(data)} bytes) is binary and stays on disk; open it from the path listed above with read.`,
+      });
+    } else {
+      content.push({ type: 'file', data, mimeType, filename });
+    }
+  }
+  return null;
+}
+
+/** Why the bridge is unavailable right now, so a stale file names its dead
+ *  writer instead of asking the user to enable a setting that is already on. */
+function unavailableMessage() {
+  const { reason } = readBridgeDiscoveryDetail(DISCOVERY_FILE);
+  return reason && reason !== 'missing'
+    ? `${BRIDGE_UNAVAILABLE_MESSAGE} (discovery ${reason})`
+    : BRIDGE_UNAVAILABLE_MESSAGE;
+}
+
+class BrowserBridgeResponseError extends Error {}
+
+// Read the body incrementally so a chunked response (no content-length) still
+// honours MAX_RESPONSE_BYTES. `onChunk` hears every chunk read (the bridge's
+// keep-alive spaces included).
+export async function readCappedJson(response, maximum = MAX_RESPONSE_BYTES, onChunk = undefined) {
+  if (!response.body) throw new Error('empty response');
+  const reader = response.body.getReader();
+  const chunks = [];
+  let bytes = 0;
+  try {
+    for (;;) {
+      const result = await reader.read();
+      if (result.done) break;
+      onChunk?.();
+      bytes += result.value.byteLength;
+      if (bytes > maximum) {
+        await reader.cancel().catch(() => {});
+        throw new BrowserBridgeResponseError(`browser bridge response exceeds ${maximum} bytes`);
+      }
+      chunks.push(result.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return JSON.parse(Buffer.concat(chunks, bytes).toString('utf8'));
+}
+
+/** One bridge request's clock: it times out after `timeoutMs` without a byte
+ *  from the bridge (`touch` restarts it), with the same TimeoutError an
+ *  AbortSignal.timeout gives, and ends with `callerSignal` (the caller's own
+ *  reason). `stop` leaves no timer behind. */
+export function bridgeDeadline(callerSignal, timeoutMs = REQUEST_TIMEOUT_MS) {
+  const controller = new AbortController();
+  let timer = null;
+  const stop = () => {
+    if (timer) clearTimeout(timer);
+    timer = null;
+  };
+  const touch = () => {
+    stop();
+    timer = setTimeout(
+      () => controller.abort(new DOMException('The operation was aborted due to timeout', 'TimeoutError')),
+      timeoutMs
+    );
+    timer.unref?.();
+  };
+  touch();
+  return {
+    signal: callerSignal ? AbortSignal.any([controller.signal, callerSignal]) : controller.signal,
+    touch,
+    stop,
+  };
+}
+
+/** `requestBridge` under the silence limit of `bridgeDeadline`. */
+export async function requestBridgeWithin(
+  discovery,
+  encodedPayload,
+  callerSignal,
+  timingContext,
+  timeoutMs = REQUEST_TIMEOUT_MS
+) {
+  const deadline = bridgeDeadline(callerSignal, timeoutMs);
+  try {
+    return await requestBridge(discovery, encodedPayload, deadline.signal, timingContext, deadline.touch);
+  } finally {
+    deadline.stop();
+  }
+}
+
+async function requestBridge(discovery, encodedPayload, signal, timingContext, onActivity = undefined) {
+  const started = performance.now();
+  let body;
+  let status;
+  try {
+    const response = await fetch(`http://127.0.0.1:${discovery.port}/command`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${discovery.token}`,
+      },
+      body: encodedPayload,
+      signal,
+    });
+    onActivity?.();
+    status = response.status;
+    const contentLength = Number(response.headers.get('content-length'));
+    if (Number.isFinite(contentLength) && contentLength > MAX_RESPONSE_BYTES) {
+      await response.body?.cancel().catch(() => {});
+      throw new BrowserBridgeResponseError(`browser bridge response exceeds ${MAX_RESPONSE_BYTES} bytes`);
+    }
+    try {
+      body = await readCappedJson(response, MAX_RESPONSE_BYTES, onActivity);
+      return { body, status: response.status };
+    } catch (error) {
+      if (error instanceof BrowserBridgeResponseError) throw error;
+      // Silence past the clock, or the caller stopping, is not a bad response.
+      if (signal?.aborted) throw signal.reason ?? error;
+      throw new BrowserBridgeResponseError(`browser bridge returned an invalid response (HTTP ${response.status})`);
+    }
+  } finally {
+    traceBrowserTiming(timingContext, performance.now() - started, body, status);
+  }
+}
+
+function uncertainMutation(message) {
+  return browserToolError(`${message}; the action may have executed and was not replayed`);
+}
+
+/** Execute one `browser` tool call. Returns MCP-shaped content so the
+ *  internal-tools normalizer forwards text and screenshot images as-is. */
+export async function executeBrowserTool(args, options = {}) {
+  const validated = validateBrowserToolArgs(args, { tool: options.tool });
+  if (!validated.ok) return browserToolError(validated.error);
+  const sessionId = String(options.sessionId || '').trim();
+  if (!sessionId) return browserToolError('browser session context is unavailable');
+  const mailLink = validated.action === 'navigate' ? mailLinkFor(sessionId, validated.input.url) : null;
+  const payload = {
+    action: validated.action,
+    ...validated.input,
+    session_id: sessionId,
+    // Runtime-set, never from the model's arguments: this exact URL is a link
+    // of a mail the runtime read for this session (mail-links.mjs), which the
+    // desktop may open although it carries a token.
+    ...(mailLink ? { mail_link: mailLink } : {}),
+    // Set by the runtime from the session, never from the model's arguments: a
+    // schedule/webhook run (or work it started) whose saved routine is the
+    // user's grant for submits, posts and uploads (human-gate/run-policy.mjs).
+    ...(options.unattendedRun === true
+      ? { unattended_run: true, unattended_agent: String(options.unattendedAgent || '') }
+      : {}),
+    // Runtime-set: the life this session is in (cleared or replaced sessions
+    // change it), which a browser "allow for this session" is bound to.
+    ...(sessionLifeMark(sessionId) ? { session_life: sessionLifeMark(sessionId) } : {}),
+    ...(Number.isFinite(Number(options.turnId)) && Number(options.turnId) > 0
+      ? { turn_id: Math.trunc(Number(options.turnId)) }
+      : {}),
+  };
+  const encodedPayload = JSON.stringify(payload);
+  if (Buffer.byteLength(encodedPayload) > MAX_REQUEST_BYTES) {
+    return browserToolError(`browser command exceeds ${MAX_REQUEST_BYTES} bytes`);
+  }
+  if (browserTurnFinishing(sessionId, payload.turn_id)) return browserToolError(BROWSER_TURN_FINISHED);
+  // Registered before the read answers, as when it was synchronous: a turn
+  // finished or a session forgotten while it is out still sees this command.
+  const read = readBridgeDiscoveryFresh(DISCOVERY_FILE);
+  const knownSession = browserSessions.has(sessionId);
+  browserSessions.add(sessionId);
+  const turn = openBrowserTurnRead(sessionId, payload.turn_id, read);
+  let discovery = await read;
+  if (!settleBrowserTurnRead(sessionId, payload.turn_id, turn, read, discovery)) {
+    if (discovery) return browserToolError(BROWSER_TURN_FINISHED);
+    if (!knownSession) browserSessions.delete(sessionId);
+    return browserToolError(unavailableMessage());
+  }
+  // An observation can be reported as a plain failure; a state-changing action
+  // that may already have run must say so instead.
+  const settleFailure = (message) =>
+    RETRYABLE_ACTIONS.has(validated.action) ? browserToolError(message) : uncertainMutation(message);
+  let bridgeResult;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      bridgeResult = await requestBridgeWithin(discovery, encodedPayload, options.signal, {
+        sessionId,
+        turnId: payload.turn_id,
+        action: validated.action,
+      });
+      break;
+    } catch (error) {
+      if (error?.name === 'TimeoutError') {
+        return settleFailure('browser bridge timed out and cancelled the active command');
+      }
+      if (options.signal?.aborted) return settleFailure('browser command cancelled');
+      const replacement = await readBridgeDiscoveryFresh(DISCOVERY_FILE);
+      if (attempt === 0 && bridgeDiscoveryChanged(discovery, replacement)) {
+        if (!RETRYABLE_ACTIONS.has(validated.action)) {
+          return uncertainMutation('browser bridge was replaced after command dispatch');
+        }
+        // The turn's end may already be on its way: nothing of it goes after.
+        if (turn?.finishing) return browserToolError(BROWSER_TURN_FINISHED);
+        discovery = replacement;
+        if (turn) turn.bridge = discovery;
+        continue;
+      }
+      if (!RETRYABLE_ACTIONS.has(validated.action)) {
+        const message =
+          error instanceof BrowserBridgeResponseError
+            ? error.message
+            : 'browser bridge connection failed after command dispatch';
+        return uncertainMutation(message);
+      }
+      if (error instanceof BrowserBridgeResponseError) return browserToolError(error.message);
+      return browserToolError(unavailableMessage());
+    }
+  }
+  if (!bridgeResult) return browserToolError(unavailableMessage());
+  const { body, status } = bridgeResult;
+  if (!body?.ok) {
+    const message = String(body?.error || `browser bridge request failed (HTTP ${status})`);
+    return {
+      content: [{ type: 'text', text: message.startsWith('Error:') ? message : `Error: ${message}` }],
+      isError: true,
+    };
+  }
+  const value = body.value && typeof body.value === 'object' && !Array.isArray(body.value) ? body.value : {};
+  const text = String(value.text || 'OK');
+  if (text.length > MAX_TEXT_CHARS) return browserToolError('browser bridge returned oversized text');
+  const content = [{ type: 'text', text }];
+  const mediaError = attachBrowserMedia(content, value);
+  if (mediaError) return mediaError;
+  // An inconclusive outcome (a postcondition that already held) is a warning
+  // in the reply text, not a failure: the action itself executed once.
+  return {
+    content,
+    ...(value.outcome === 'blocked' ? { isError: true } : {}),
+  };
+}

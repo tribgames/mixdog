@@ -1,0 +1,340 @@
+// manager/ask-turn-execute.mjs
+// Running one turn against the provider: assemble the user turn and
+// pre-commit it to the live session (prepareAskTurn), then drive agentLoop
+// under the abort-aware wrapper with the caller's approval hook installed
+// (runAskAgentLoop). Provider-not-available and trim failures throw here so
+// the caller marks the session errored instead of leaving stage='connecting'.
+import { getProvider } from '../../providers/registry.mjs';
+import { pinSessionWireRoute } from '../../providers/wire-route.mjs';
+import { notifySkillsApplied, prepareExplicitSkills, recordAppliedSkills } from '../explicit-skills.mjs';
+import { appendSkillUpdateNotices } from '../skill-update-notice.mjs';
+import { prepareTurnEffortConfiguration } from '../../providers/effort-configuration.mjs';
+import { resolveTurnAutoEffort, turnStepAutoEffort } from './ask-turn-auto-effort.mjs';
+import { saveSessionAsync } from '../store.mjs';
+import { warmCatalogFromDisk } from '../../providers/model-catalog.mjs';
+import { hasUserConversationMessage, refreshSessionBp3Environment } from './prompt-utils.mjs';
+import { filterModelVisibleSessionMessages } from './message-sanitize.mjs';
+import { _getAgentLoop } from './runtime-loaders.mjs';
+import { runAbortable, throwIfAborted } from '../../../../shared/abort-race.mjs';
+import { applyTurnContextMeta, buildUserTurn, startProviderPrewarm, traceTurnContext } from './ask-turn-prepare.mjs';
+import { withAgentListingNotice } from './agent-listing-notice.mjs';
+import { retainedFailedTurnInput, rewindUnansweredPrompt } from './failed-turn-rewind.mjs';
+import { buildAgentLoopOptions, trackedToolCallHook } from './ask-turn-loop-options.mjs';
+import { _api_call_with_interrupt } from './ask-call-interrupt.mjs';
+import { backfillFallbackSessionTitle } from './session-fallback-title.mjs';
+import { stampTurnHop } from '../../../../shared/bot-hops.mjs';
+
+function turnPromptSourceFor(input) {
+  if (!(input.promptOrigin || input.retryProvenance)) return input.promptSource;
+  return {
+    ...(input.promptSource || {}),
+    ...(input.promptOrigin ? { origin: input.promptOrigin } : {}),
+    ...(input.retryProvenance ? { provenance: input.retryProvenance } : {}),
+  };
+}
+
+// A retried failed turn resubmits its retained user message over the history
+// before it: the message keeps its input and records the failed completion.
+function retainedUserTurn(session, retained, transcriptMeta, currentAgents) {
+  const historyMessages = filterModelVisibleSessionMessages(session.messages.slice(0, retained.index));
+  const { completion, ...previousTranscript } = retained.message.meta.transcript;
+  // The retained message keeps its input; agents enabled or switched
+  // off since it was built ride its runtime context.
+  const userTurnMessage = withAgentListingNotice(
+    session,
+    retained.index,
+    {
+      ...retained.message,
+      meta: {
+        ...retained.message.meta,
+        transcript: {
+          ...previousTranscript,
+          ...transcriptMeta,
+          messageId: previousTranscript.messageId,
+          previousCompletions: [
+            ...(previousTranscript.previousCompletions || []),
+            { ...completion, at: completion.at ?? previousTranscript.at },
+          ],
+        },
+      },
+    },
+    currentAgents
+  );
+  const noticeRevision = retained.message.meta?.promptSettingsNoticeRevision;
+  return {
+    historyMessages,
+    userTurnMessage,
+    outgoing: [...historyMessages, userTurnMessage],
+    promptSettingsNotice: noticeRevision ? { revision: noticeRevision } : null,
+  };
+}
+
+// The turn's user message: the retained one of a retried failed turn, or a
+// newly built one (a promise).
+function pendingUserTurn({ session, input, retained, turnSignal, transcriptMeta, currentAgents }) {
+  if (retained) return retainedUserTurn(session, retained, transcriptMeta, currentAgents);
+  return buildUserTurn({
+    session,
+    prompt: input.prompt,
+    context: input.context,
+    explicitPrefetch: input.explicitPrefetch,
+    turnSignal,
+    transcriptMeta,
+    // The stored message keeps an inbound channel's provenance and, for
+    // a rebuilt retry (the resubmitted prompt or a continuation prompt),
+    // the failed turn's, which a later retry reads back
+    // (cache-warm.mjs failedTurnProvenance).
+    turnPromptSource: turnPromptSourceFor(input),
+    effortConfiguration: null,
+    currentAgents,
+  });
+}
+
+// Stamp the turn's effort on the user message (same meta order as when it
+// was built with it: before the runtime-context provenance).
+function stampTurnEffort(userTurnMessage, effortConfiguration) {
+  const { runtimeUserContext, ...meta } = userTurnMessage.meta || {};
+  userTurnMessage.meta = {
+    ...meta,
+    effortConfiguration,
+    ...(runtimeUserContext ? { runtimeUserContext } : {}),
+  };
+}
+
+// Expose the in-flight working transcript so contextStatus() can
+// estimate the LIVE context footprint mid-turn. agentLoop mutates
+// `outgoing` in place (user turn + tool calls/results + compaction),
+// so the statusline context gauge climbs as the turn accumulates
+// tool output instead of freezing at the pre-turn snapshot. Cleared
+// on turn commit and in the ask finally.
+//
+// Also commit the user turn to the live session BEFORE the provider
+// call. Previously the prompt only reached session.messages after
+// agentLoop returned. If a worker/lead session was closed or aborted
+// before first response, closeSession() wrote a tombstone from the
+// still-system-only session and the handoff brief vanished forever
+// (agent row showed messages=2). Pre-committing makes cancellation,
+// close, and post-mortem files retain the exact user task; completion
+// overwrites this provisional transcript with the fully mutated
+// outgoing history and appends the assistant result, so no duplicate
+// user turn is introduced.
+function precommitUserTurn(session, outgoing, historyMessages, input) {
+  session.messages = filterModelVisibleSessionMessages(outgoing);
+  session.liveTurnMessages = outgoing;
+  // Name a titleless session from its first human prompt before the first
+  // save, so the title outlives any later compaction of the transcript. The
+  // earliest human turn already in the history wins; this turn's prompt is the
+  // fallback (runtime-injected turns carrying a promptSource never name it).
+  backfillFallbackSessionTitle(session, [
+    ...historyMessages,
+    ...(input.promptSource ? [] : [{ role: 'user', content: input.prompt }]),
+  ]);
+}
+
+// Mark the turn active and persist the pre-committed session before the
+// provider runs.
+async function persistTurnPreflight(session, { turnToken, startedAt, checkpoint, askGeneration }) {
+  session.activeTurnCheckpoint = {
+    version: 1,
+    turnToken,
+    startedAt,
+  };
+  // The checkpoint header lands, off the event loop, before provider
+  // execution and before the preflight save that records its epoch. Even if
+  // that save has not reached its worker when the process is killed,
+  // recovery still has the prompt.
+  checkpoint.schedule(true);
+  await checkpoint.landed();
+  saveSessionAsync(session, { expectedGeneration: askGeneration }).catch((err) => {
+    try {
+      process.stderr.write(`[session] preflight user-turn save failed: ${err?.message || err}\n`);
+    } catch {
+      // stderr may be closed; the save failure is only reported
+    }
+  });
+}
+
+/** Resolves the provider, builds the user turn and pre-commits it; returns
+ *  what the loop and the commit need from this preparation. */
+export async function prepareAskTurn({
+  sessionId,
+  opened,
+  input,
+  cwdOverride,
+  transcriptMeta,
+  currentAgents,
+  agentConfig = null,
+}) {
+  const { turn, runtime, turnSignal, askGeneration, checkpoint, turnToken, startedAt, codexTurnId } = opened;
+  const session = turn.session;
+  // Where the turn sits in a bot-to-bot chain (session-runtime/bot-hops.mjs).
+  stampTurnHop(session, transcriptMeta);
+  const retained = input.retryTurnId
+    ? retainedFailedTurnInput(session.messages, input.retryTurnId, input.retryAttemptId)
+    : null;
+  const provider = getProvider(session.provider);
+  // Register the live session object for synchronous close snapshots.
+  runtime.session = session;
+  if (!provider) throw new Error(`Provider "${session.provider}" not available`);
+  // The session's wire is pinned before its first request (an existing
+  // session keeps the wire it started on); read from the history as the turn
+  // found it, awaited with the user turn below.
+  const wireRoutePending = pinSessionWireRoute(session, provider);
+  // The turn's context limits come from the catalog: let its disk warm settle
+  // (asynchronously) so a first turn never sizes itself from an empty table.
+  await warmCatalogFromDisk();
+  // The turn-level judgment runs while the rest of the turn is prepared; it
+  // reads the session as the turn found it (synchronously, on this call).
+  // The first request still carries its decision: it is awaited below,
+  // together with the user turn, before the effort configuration is stamped.
+  const autoEffortPending = resolveTurnAutoEffort({ sessionId, session, provider, input, config: agentConfig });
+  autoEffortPending.catch(() => {});
+  applyTurnContextMeta(session, provider);
+  const effectiveCwd = cwdOverride || session.cwd;
+  // A failed-turn retry resubmits the prompt the failure left unanswered;
+  // rewind that copy so the model sees the prompt once (an answered tail is
+  // kept and the retry continues from it).
+  if (input.retryFailedTurn === true && !input.retryTurnId) rewindUnansweredPrompt(session, input.prompt);
+  if (session.sessionStartMetaInjected !== true && !hasUserConversationMessage(session.messages)) {
+    refreshSessionBp3Environment(session, effectiveCwd);
+  }
+  // The prewarm only opens the transport (effort never shapes the socket), so
+  // it starts now instead of after the judgment.
+  const startupProviderPrewarm = startProviderPrewarm({
+    sessionId,
+    session,
+    provider,
+    turnEffort: session.effort || null,
+    effortConfiguration: null,
+    codexTurnId,
+    startedAtMs: startedAt,
+  });
+  const [autoEffort, userTurn] = await Promise.all([
+    autoEffortPending,
+    pendingUserTurn({ session, input, retained, turnSignal, transcriptMeta, currentAgents }),
+    wireRoutePending,
+  ]);
+  const turnEffort = autoEffort?.applied ? autoEffort.effort : session.effort || null;
+  const effortConfiguration = prepareTurnEffortConfiguration(
+    session,
+    provider,
+    autoEffort?.applied ? autoEffort.effort : undefined
+  );
+  // Auto effort also judges every tool-result step of the turn when the
+  // installed judge was trained on steps (session/loop/step-auto-effort.mjs).
+  const stepAutoEffort = turnStepAutoEffort(autoEffort, effortConfiguration);
+  if (effortConfiguration) stampTurnEffort(userTurn.userTurnMessage, effortConfiguration);
+  const { historyMessages, outgoing } = userTurn;
+  turn.userTurnContent = userTurn.userTurnMessage.content;
+  // The turn opens right after the history it was built on: its checkpoint
+  // boundary, never looked up again by the prompt's text.
+  turn.boundary = historyMessages.length;
+  turn.outgoing = outgoing;
+  precommitUserTurn(session, outgoing, historyMessages, input);
+  await persistTurnPreflight(session, { turnToken, startedAt, checkpoint, askGeneration });
+  traceTurnContext({
+    sessionId,
+    session,
+    context: input.context,
+    explicitPrefetchResult: userTurn.explicitPrefetchResult,
+    prompt: input.prompt,
+    userTurnContent: turn.userTurnContent,
+    historyMessages,
+  });
+  if (startupProviderPrewarm) {
+    try {
+      await runAbortable(turnSignal, () => startupProviderPrewarm);
+    } catch {
+      throwIfAborted(turnSignal);
+    }
+  }
+  return {
+    provider,
+    effectiveCwd,
+    turnEffort,
+    effortConfiguration,
+    stepAutoEffort,
+    outgoing,
+    beforeCount: historyMessages.length + 1,
+    deferredToolDelta: userTurn.deferredToolDelta,
+    goalReminder: userTurn.goalReminder,
+    workflowNotice: userTurn.workflowNotice,
+    promptSettingsNotice: userTurn.promptSettingsNotice,
+    orchestrationModeNotice: userTurn.orchestrationModeNotice,
+    workspaceNotice: userTurn.workspaceNotice,
+    setupNotice: userTurn.setupNotice,
+  };
+}
+
+/** Runs agentLoop for the prepared turn and returns its result; the caller's
+ *  tool-approval hook is installed for the call and restored afterwards. */
+export async function runAskAgentLoop({
+  sessionId,
+  opened,
+  prepared,
+  input,
+  askOpts,
+  onToolCall,
+  takeAssistantTranscriptMetadata,
+}) {
+  const { turn, turnSignal, interruption, checkpoint, codexTurnId, startedAt } = opened;
+  const { provider, effectiveCwd, turnEffort, effortConfiguration, stepAutoEffort, outgoing } = prepared;
+  const session = turn.session;
+  const agentLoop = await runAbortable(turnSignal, () => _getAgentLoop());
+  const priorToolApprovalHook = session.toolApprovalHook;
+  if (typeof askOpts?.onToolApproval === 'function') {
+    session.toolApprovalHook = askOpts.onToolApproval;
+  }
+  try {
+    if (!input.promptSource && !input.retryTurnId) {
+      const applied = await prepareExplicitSkills(input.prompt, outgoing, session, {
+        cwd: effectiveCwd,
+        signal: turnSignal,
+        selection: input.skillSelection,
+      });
+      // The user turn message sits right after the history it was built on.
+      const userMessage = recordAppliedSkills(outgoing, outgoing[prepared.beforeCount - 1], applied);
+      session.messages = filterModelVisibleSessionMessages(outgoing);
+      checkpoint.schedule(true);
+      notifySkillsApplied(askOpts?.onSkillsApplied, applied, userMessage);
+    }
+    // Every turn (any session, any prompt source): a loaded skill that changed
+    // since it was loaded is announced once, after the history.
+    if (appendSkillUpdateNotices(outgoing, effectiveCwd).length) {
+      session.messages = filterModelVisibleSessionMessages(outgoing);
+      checkpoint.schedule(true);
+    }
+    return await _api_call_with_interrupt(sessionId, (signal) =>
+      agentLoop(
+        provider,
+        outgoing,
+        session.model,
+        session.tools,
+        trackedToolCallHook({ onToolCall, interruption, checkpoint }),
+        effectiveCwd,
+        buildAgentLoopOptions({
+          sessionId,
+          session,
+          outgoing,
+          turn,
+          askOpts,
+          interruption,
+          checkpoint,
+          turnEffort,
+          effortConfiguration,
+          stepAutoEffort,
+          codexTurnId,
+          startedAtMs: startedAt,
+          signal,
+          takeAssistantTranscriptMetadata,
+        })
+      )
+    );
+  } finally {
+    if (priorToolApprovalHook === undefined) {
+      delete session.toolApprovalHook;
+    } else {
+      session.toolApprovalHook = priorToolApprovalHook;
+    }
+  }
+}

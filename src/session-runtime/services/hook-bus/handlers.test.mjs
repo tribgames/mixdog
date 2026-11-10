@@ -1,0 +1,151 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import dns from 'node:dns';
+
+import { MAX_HTTP_HOOK_RESPONSE_BYTES, runHttpHandler, runMcpToolHandler, runPromptHandler } from './handlers.mjs';
+
+test('a public hostname that merely starts with fc/fd is not treated as an IPv6 unique-local address', async () => {
+  let publicCalls = 0;
+  const result = await runHttpHandler({ type: 'http', url: 'https://fdic.gov/hook' }, {}, 'Stop', {
+    publicFetch: async () => {
+      publicCalls += 1;
+      return new Response('ok');
+    },
+    privateFetch: async () => assert.fail('wrong lane'),
+  });
+  assert.equal(result.exitCode, 0);
+  assert.equal(publicCalls, 1);
+  const literal = await runHttpHandler({ type: 'http', url: 'http://[fd00::1]/hook' }, {}, 'Stop', {});
+  assert.equal(literal.exitCode, -1);
+  assert.match(literal.stderr, /private/);
+});
+
+test('public HTTP hooks use the DNS-pinned fetch lane', async () => {
+  let publicCalls = 0;
+  let privateCalls = 0;
+  const result = await runHttpHandler({ type: 'http', url: 'https://example.com/hook' }, { ok: true }, 'Stop', {
+    publicFetch: async (_url, options) => {
+      publicCalls += 1;
+      assert.equal(options.redirect, 'error');
+      return new Response('ok');
+    },
+    privateFetch: async () => {
+      privateCalls += 1;
+      return new Response('wrong lane');
+    },
+  });
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.stdout, 'ok');
+  assert.equal(publicCalls, 1);
+  assert.equal(privateCalls, 0);
+});
+
+test('explicit private HTTP hooks preserve their opt-in fetch lane', async () => {
+  let publicCalls = 0;
+  let privateCalls = 0;
+  const result = await runHttpHandler(
+    { type: 'http', url: 'http://127.0.0.1/hook', allowPrivateHosts: true },
+    { ok: true },
+    'Stop',
+    {
+      publicFetch: async () => {
+        publicCalls += 1;
+        return new Response('wrong lane');
+      },
+      privateFetch: async () => {
+        privateCalls += 1;
+        return new Response('local');
+      },
+    }
+  );
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.stdout, 'local');
+  assert.equal(publicCalls, 0);
+  assert.equal(privateCalls, 1);
+});
+
+test('public HTTP hooks reject private DNS answers before connecting', async () => {
+  const originalLookup = dns.promises.lookup;
+  dns.promises.lookup = async () => [{ address: '127.0.0.1', family: 4 }];
+  try {
+    const result = await runHttpHandler({ type: 'http', url: 'https://rebinding.example/hook' }, { ok: true }, 'Stop');
+    assert.equal(result.exitCode, -1);
+    assert.match(result.stderr, /private address/);
+  } finally {
+    dns.promises.lookup = originalLookup;
+  }
+});
+
+test('HTTP hook responses enforce the shared memory cap', async () => {
+  const result = await runHttpHandler({ type: 'http', url: 'https://example.com/hook' }, { ok: true }, 'Stop', {
+    publicFetch: async () =>
+      new Response('x', {
+        headers: { 'content-length': String(MAX_HTTP_HOOK_RESPONSE_BYTES + 1) },
+      }),
+  });
+  assert.equal(result.exitCode, -1);
+  assert.match(result.stderr, /byte limit/);
+});
+
+test('HTTP policy requests receive parent cancellation without reporting their own timeout', async () => {
+  const controller = new AbortController();
+  const reason = Object.assign(new Error('fixture caller cancellation'), { name: 'AbortError' });
+  const entered = Promise.withResolvers();
+  let requestSignal;
+  const pending = runHttpHandler(
+    { type: 'http', url: 'http://127.0.0.1/hook', allowPrivateHosts: true, timeout: 2 },
+    {},
+    'PreToolUse',
+    {
+      signal: controller.signal,
+      privateFetch: (_url, options) => {
+        requestSignal = options.signal;
+        entered.resolve();
+        return new Promise((_, reject) => {
+          requestSignal.addEventListener('abort', () => reject(requestSignal.reason), { once: true });
+        });
+      },
+    }
+  );
+  await entered.promise;
+  controller.abort(reason);
+  const result = await pending;
+  assert.equal(requestSignal.aborted, true);
+  assert.equal(result.exitCode, -1);
+  assert.equal(result.timedOut, false);
+  assert.equal(result.spawnError, reason);
+});
+
+for (const [name, run] of [
+  [
+    'MCP',
+    (runner, signal) =>
+      runMcpToolHandler({ type: 'mcp_tool', tool: 'fixture', timeout: 2 }, {}, 'PreToolUse', runner, { signal }),
+  ],
+  [
+    'prompt',
+    (runner, signal) =>
+      runPromptHandler({ type: 'prompt', prompt: 'fixture', timeout: 2 }, {}, 'PreToolUse', runner, { signal }),
+  ],
+]) {
+  test(`${name} policy cancellation aborts the runner and observes a late rejection`, async () => {
+    const controller = new AbortController();
+    const entered = Promise.withResolvers();
+    const runnerResult = Promise.withResolvers();
+    let requestSignal;
+    const pending = run(({ signal }) => {
+      requestSignal = signal;
+      entered.resolve();
+      return runnerResult.promise;
+    }, controller.signal);
+    await entered.promise;
+    controller.abort(new Error('outer request timed out'));
+    const result = await pending;
+    assert.equal(requestSignal.aborted, true);
+    assert.equal(result.exitCode, -1);
+    assert.equal(result.timedOut, false);
+    assert.match(result.stderr, /outer request timed out/);
+    runnerResult.reject(new Error('late fixture rejection'));
+    await new Promise(setImmediate);
+  });
+}

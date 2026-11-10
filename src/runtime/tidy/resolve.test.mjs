@@ -1,0 +1,536 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs, { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { syncBuiltinESMExports } from 'node:module';
+import { tmpdir } from 'node:os';
+import { delimiter, join } from 'node:path';
+
+import { ENGINE_DIGEST_FILE, platformAssetKey } from './install.mjs';
+import {
+  DEFAULT_DOWNLOAD_POLICY,
+  projectConfigFileFor,
+  readTidyConfig,
+  resolveDownloadPolicy,
+  resolveEngines,
+  runnableEngines,
+} from './resolve.mjs';
+import { ENGINE_CATALOG } from './engines.mjs';
+
+function workspace(t) {
+  const root = mkdtempSync(join(tmpdir(), 'tidy-resolve-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  return root;
+}
+
+function touch(path) {
+  mkdirSync(join(path, '..'), { recursive: true });
+  writeFileSync(path, '');
+  return path;
+}
+
+function fakeBin(dir, name) {
+  mkdirSync(dir, { recursive: true });
+  const target = join(dir, name);
+  writeFileSync(target, 'fake engine');
+  return target;
+}
+
+/** A managed install records the binary's sha256 beside it; resolution re-checks it on reuse. */
+function recordEngineDigest(dir, body) {
+  writeFileSync(join(dir, ENGINE_DIGEST_FILE), createHash('sha256').update(body).digest('hex'));
+}
+
+function managedFakeBin(dir, name, body = 'fake engine') {
+  const target = fakeBin(dir, name);
+  writeFileSync(target, body);
+  recordEngineDigest(dir, body);
+  return target;
+}
+
+const noPathEnv = { PATH: '', Path: '' };
+
+// The desktop's Code Tidy status resolves the whole catalog synchronously on
+// the daemon loop at startup (the 1.5–1.8 s `getTidyEngineStatus` stalls):
+// one stat per PATH dir × PATHEXT extension × engine name is far too many.
+test('resolving the catalog reads each PATH dir once instead of stat-probing every candidate', async (t) => {
+  const root = workspace(t);
+  const dirs = Array.from({ length: 30 }, (_, index) => {
+    const dir = join(root, `path-${index}`);
+    mkdirSync(dir);
+    return dir;
+  });
+  const biome = fakeBin(dirs[17], process.platform === 'win32' ? 'biome.exe' : 'biome');
+  const env = { PATH: dirs.join(delimiter), Path: dirs.join(delimiter) };
+  const statSync = fs.statSync;
+  let stats = 0;
+  fs.statSync = (...args) => {
+    stats += 1;
+    return statSync(...args);
+  };
+  syncBuiltinESMExports();
+  let engines;
+  try {
+    ({ engines } = await resolveEngines({
+      cwd: root,
+      engineIds: Object.keys(ENGINE_CATALOG),
+      env,
+      probeVersions: false,
+    }));
+  } finally {
+    fs.statSync = statSync;
+    syncBuiltinESMExports();
+  }
+  const found = engines.find((engine) => engine.id === 'biome');
+  assert.equal(found.source, 'path');
+  assert.equal(found.path, biome);
+  assert.ok(stats <= dirs.length, `PATH probes made ${stats} stat calls`);
+});
+
+test('project config beats every other source', async (t) => {
+  const root = workspace(t);
+  mkdirSync(join(root, '.mixdog'), { recursive: true });
+  writeFileSync(
+    join(root, '.mixdog', 'tidy.json'),
+    JSON.stringify({
+      engines: { ruff: { command: '/opt/ruff', args: ['--config', 'x.toml'] } },
+      policy: { downloads: 'never' },
+    })
+  );
+  fakeBin(join(root, '.venv', process.platform === 'win32' ? 'Scripts' : 'bin'), 'ruff');
+
+  const { engines, policy } = await resolveEngines({
+    cwd: root,
+    engineIds: ['ruff'],
+    probeVersions: false,
+    env: noPathEnv,
+  });
+  assert.equal(engines[0].source, 'project-config');
+  assert.equal(engines[0].command, '/opt/ruff');
+  assert.deepEqual(engines[0].args, ['--config', 'x.toml']);
+  assert.equal(policy.downloads, 'never');
+  assert.equal(policy.source, 'project-config');
+});
+
+test('project-local beats PATH, and PATH beats a managed install', async (t) => {
+  const root = workspace(t);
+  const pathDir = join(root, 'fake-path');
+  fakeBin(pathDir, 'ruff');
+  fakeBin(join(root, '.venv', process.platform === 'win32' ? 'Scripts' : 'bin'), 'ruff');
+  const local = await resolveEngines({
+    cwd: root,
+    engineIds: ['ruff'],
+    probeVersions: false,
+    env: { PATH: pathDir },
+  });
+  assert.equal(local.engines[0].source, 'project-local');
+
+  rmSync(join(root, '.venv'), { recursive: true, force: true });
+  const onPath = await resolveEngines({
+    cwd: root,
+    engineIds: ['ruff'],
+    probeVersions: false,
+    env: { PATH: pathDir },
+  });
+  assert.equal(onPath.engines[0].source, 'path');
+});
+
+test('a managed install resolves under <pluginData>/tools/<engine>/<version>', async (t) => {
+  const root = workspace(t);
+  const pluginData = join(root, 'data');
+  const binName = process.platform === 'win32' ? 'stylua.exe' : 'stylua';
+  const managedDir = join(pluginData, 'tools', 'stylua', '0.20.0');
+  const managedBin = managedFakeBin(managedDir, binName);
+  const manifest = {
+    version: 1,
+    engines: {
+      stylua: {
+        version: '0.20.0',
+        license: 'MPL-2.0',
+        kind: ['format'],
+        languages: ['lua'],
+        source: 'upstream',
+        assets: {
+          [platformAssetKey()]: {
+            url: 'https://example.invalid/stylua.zip',
+            sha256: 'a'.repeat(64),
+            archive: 'zip',
+            binPath: binName,
+          },
+        },
+      },
+    },
+  };
+  const { engines } = await resolveEngines({
+    cwd: root,
+    engineIds: ['stylua'],
+    pluginData,
+    manifest,
+    probeVersions: false,
+    env: noPathEnv,
+  });
+  assert.equal(engines[0].source, 'managed');
+  assert.equal(engines[0].version, '0.20.0');
+  // A binary a crash left NUL-filled is not an install.
+  writeFileSync(managedBin, Buffer.alloc(32));
+  const damaged = await resolveEngines({
+    cwd: root,
+    engineIds: ['stylua'],
+    pluginData,
+    manifest,
+    probeVersions: false,
+    env: noPathEnv,
+  });
+  assert.notEqual(damaged.engines[0].source, 'managed');
+  // Replacing it with a good binary is picked up again; nothing is cached stale.
+  writeFileSync(managedBin, 'fake engine again');
+  recordEngineDigest(managedDir, 'fake engine again');
+  const restored = await resolveEngines({
+    cwd: root,
+    engineIds: ['stylua'],
+    pluginData,
+    manifest,
+    probeVersions: false,
+    env: noPathEnv,
+  });
+  assert.equal(restored.engines[0].source, 'managed');
+});
+
+test('a slow managed-binary verification does not block the event loop', async (t) => {
+  const root = workspace(t);
+  const pluginData = join(root, 'data');
+  const binName = process.platform === 'win32' ? 'stylua.exe' : 'stylua';
+  // An install with no digest record: the content probe (the open below) is the
+  // only check it gets; a recorded install is verified by a streamed hash.
+  fakeBin(join(pluginData, 'tools', 'stylua', '0.20.0'), binName);
+  const manifest = {
+    version: 1,
+    engines: {
+      stylua: {
+        version: '0.20.0',
+        license: 'MPL-2.0',
+        kind: ['format'],
+        languages: ['lua'],
+        source: 'upstream',
+        assets: {
+          [platformAssetKey()]: {
+            url: 'https://example.invalid/s.zip',
+            sha256: 'a'.repeat(64),
+            archive: 'zip',
+            binPath: binName,
+          },
+        },
+      },
+    },
+  };
+  // Child process with slow opens of the engine binary (as under an antivirus
+  // scan): a synchronous open busy-waits, an async open completes later via a
+  // timer. The default probe is exercised; a heartbeat counts loop turns.
+  const script = join(root, 'slow-open-child.mjs');
+  const resolveUrl = new URL('./resolve.mjs', import.meta.url).href;
+  writeFileSync(
+    script,
+    `import fs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
+const slow = (p) => String(p).includes('stylua');
+let ticks = 0;
+let syncOpens = 0;
+let heldOpens = 0;
+const timer = setInterval(() => { ticks += 1; }, 5);
+const openSync = fs.openSync;
+fs.openSync = (p, ...rest) => {
+  if (slow(p)) syncOpens += 1;
+  return openSync(p, ...rest);
+};
+// The slow async open is held from the moment it is reached, and released only after the loop
+// has turned several times since then. Ticks from module import or earlier work do not count
+// (the counter restarts here), and a verification that never reaches the async open leaves
+// heldOpens at 0.
+const open = fs.promises.open;
+fs.promises.open = (p, ...rest) => {
+  if (!slow(p)) return open(p, ...rest);
+  heldOpens += 1;
+  ticks = 0;
+  return new Promise((resolve) => {
+    const wait = setInterval(() => { if (ticks >= 5) { clearInterval(wait); resolve(); } }, 5);
+  }).then(() => open(p, ...rest));
+};
+syncBuiltinESMExports();
+const { resolveEngines } = await import(${JSON.stringify(resolveUrl)});
+const { engines } = await resolveEngines({
+  cwd: process.env.CHILD_ROOT,
+  engineIds: ['stylua'],
+  pluginData: process.env.CHILD_PLUGIN_DATA,
+  manifest: JSON.parse(process.env.CHILD_MANIFEST),
+  probeVersions: false,
+  env: { PATH: '', Path: '' },
+});
+clearInterval(timer);
+console.log(JSON.stringify({ ticks, syncOpens, heldOpens, source: engines[0].source, version: engines[0].version }));
+`
+  );
+  const out = spawnSync(process.execPath, [script], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      CHILD_ROOT: root,
+      CHILD_PLUGIN_DATA: pluginData,
+      CHILD_MANIFEST: JSON.stringify(manifest),
+    },
+  });
+  assert.equal(out.status, 0, out.stderr);
+  const result = JSON.parse(out.stdout.trim().split('\n').pop());
+  assert.equal(result.source, 'managed');
+  assert.equal(result.version, '0.20.0');
+  assert.equal(result.syncOpens, 0, 'the engine binary is verified through the async open');
+  assert.ok(result.heldOpens >= 1, 'verification reached the intercepted async open');
+  assert.ok(result.ticks >= 5, `loop turned while the open was held (ticks since it started=${result.ticks})`);
+});
+
+test('an unresolved engine reports its install hint and whether tidy can fetch it', async (t) => {
+  const root = workspace(t);
+  const manifest = {
+    version: 1,
+    engines: {
+      shfmt: {
+        version: '3.8.0',
+        license: 'BSD-3-Clause',
+        kind: ['format'],
+        languages: ['bash'],
+        source: 'mirror',
+        assets: {
+          [platformAssetKey()]: {
+            url: 'https://example.invalid/shfmt',
+            sha256: 'b'.repeat(64),
+            archive: 'none',
+            binPath: 'shfmt',
+          },
+        },
+      },
+    },
+  };
+  const { engines } = await resolveEngines({
+    cwd: root,
+    engineIds: ['shfmt', 'rustfmt'],
+    pluginData: join(root, 'data'),
+    manifest,
+    probeVersions: false,
+    env: noPathEnv,
+  });
+  const shfmt = engines.find((engine) => engine.id === 'shfmt');
+  const rustfmt = engines.find((engine) => engine.id === 'rustfmt');
+  assert.equal(shfmt.source, 'missing');
+  assert.equal(shfmt.installable, true);
+  assert.equal(shfmt.installHint, ENGINE_CATALOG.shfmt.installHint);
+  // Toolchain engines are never downloadable, only hinted.
+  assert.equal(rustfmt.source, 'missing');
+  assert.equal(rustfmt.installable, undefined);
+  assert.equal(rustfmt.toolchain, true);
+  assert.deepEqual(runnableEngines(engines), []);
+});
+
+test('an engine the manifest cannot serve on this platform is not advertised as installable', async (t) => {
+  const root = workspace(t);
+  // clang-format ships no linux-arm64 build: the engine is in the manifest, but
+  // there is no asset for this platform, so only the hint is honest.
+  const manifest = {
+    version: 1,
+    engines: {
+      'clang-format': {
+        version: '20.0.0',
+        license: 'Apache-2.0 WITH LLVM-exception',
+        kind: ['format'],
+        languages: ['c', 'cpp'],
+        source: 'upstream',
+        assets: {
+          'someother-arch': {
+            url: 'https://example.invalid/clang-format',
+            sha256: 'e'.repeat(64),
+            archive: 'none',
+            binPath: 'clang-format',
+          },
+        },
+      },
+    },
+  };
+  const { engines } = await resolveEngines({
+    cwd: root,
+    engineIds: ['clang-format'],
+    pluginData: join(root, 'data'),
+    manifest,
+    probeVersions: false,
+    env: noPathEnv,
+  });
+  assert.equal(engines[0].source, 'missing');
+  assert.equal(engines[0].installable, undefined);
+  assert.equal(engines[0].installHint, ENGINE_CATALOG['clang-format'].installHint);
+});
+
+test('a project on Prettier/ESLint keeps them and stands Biome down', async (t) => {
+  const root = workspace(t);
+  const binDir = join(root, 'node_modules', '.bin');
+  fakeBin(binDir, 'prettier');
+  fakeBin(binDir, 'biome');
+  writeFileSync(join(root, '.prettierrc'), '{}');
+  const { engines } = await resolveEngines({
+    cwd: root,
+    engineIds: ['biome', 'prettier'],
+    probeVersions: false,
+    env: noPathEnv,
+  });
+  const biome = engines.find((engine) => engine.id === 'biome');
+  const prettier = engines.find((engine) => engine.id === 'prettier');
+  assert.equal(prettier.source, 'project-local');
+  assert.equal(prettier.configFile, '.prettierrc');
+  assert.equal(biome.source, 'project-local');
+  assert.deepEqual(biome.suppressedBy, ['prettier']);
+  assert.match(biome.skipped, /project uses prettier/);
+  assert.deepEqual(
+    runnableEngines(engines).map((engine) => engine.id),
+    ['prettier']
+  );
+});
+
+test('ESLint stays project-local only: a PATH copy is not adopted', async (t) => {
+  const root = workspace(t);
+  const pathDir = join(root, 'fake-path');
+  fakeBin(pathDir, 'eslint');
+  const { engines } = await resolveEngines({
+    cwd: root,
+    engineIds: ['eslint'],
+    probeVersions: false,
+    env: { PATH: pathDir },
+  });
+  assert.equal(engines[0].source, 'missing');
+});
+
+test('dprint without a project config is resolved but not run', async (t) => {
+  const root = workspace(t);
+  const pathDir = join(root, 'fake-path');
+  fakeBin(pathDir, 'dprint');
+  const withoutConfig = await resolveEngines({
+    cwd: root,
+    engineIds: ['dprint'],
+    probeVersions: false,
+    env: { PATH: pathDir },
+  });
+  assert.equal(withoutConfig.engines[0].source, 'path');
+  assert.match(withoutConfig.engines[0].skipped, /no project config/);
+
+  writeFileSync(join(root, 'dprint.json'), '{}');
+  const withConfig = await resolveEngines({
+    cwd: root,
+    engineIds: ['dprint'],
+    probeVersions: false,
+    env: { PATH: pathDir },
+  });
+  assert.equal(withConfig.engines[0].skipped, undefined);
+  assert.equal(withConfig.engines[0].configFile, 'dprint.json');
+});
+
+test('nothing detected means nothing resolved, not the whole catalog', async (t) => {
+  const root = workspace(t);
+  const { engines, policy } = await resolveEngines({ cwd: root, probeVersions: false, env: noPathEnv });
+  assert.deepEqual(engines, []);
+  assert.equal(policy.downloads, 'auto');
+});
+
+test('download policy defaults to auto and rejects unknown values', () => {
+  assert.equal(resolveDownloadPolicy({ policy: {} }, {}).downloads, DEFAULT_DOWNLOAD_POLICY);
+  assert.equal(DEFAULT_DOWNLOAD_POLICY, 'auto');
+  assert.equal(resolveDownloadPolicy({ policy: { downloads: 'ask' } }, {}).downloads, 'ask');
+  assert.equal(resolveDownloadPolicy({ policy: { downloads: 'auto' } }, {}).downloads, 'auto');
+  assert.equal(resolveDownloadPolicy({ policy: {} }, { MIXDOG_TIDY_DOWNLOADS: 'never' }).downloads, 'never');
+  // Project config wins over the environment.
+  assert.equal(
+    resolveDownloadPolicy({ policy: { downloads: 'never' } }, { MIXDOG_TIDY_DOWNLOADS: 'auto' }).downloads,
+    'never'
+  );
+  const bad = resolveDownloadPolicy({ policy: { downloads: 'sometimes' } }, {});
+  assert.equal(bad.downloads, DEFAULT_DOWNLOAD_POLICY);
+  assert.match(bad.warning, /not one of/);
+});
+
+test('a malformed tidy.json is reported instead of thrown', async (t) => {
+  const root = workspace(t);
+  mkdirSync(join(root, '.mixdog'), { recursive: true });
+  writeFileSync(join(root, '.mixdog', 'tidy.json'), '{ broken');
+  const config = readTidyConfig(root);
+  assert.match(config.error, /cannot read \.mixdog\/tidy\.json/);
+  const { config: reported } = await resolveEngines({
+    cwd: root,
+    engineIds: ['ruff'],
+    probeVersions: false,
+    env: noPathEnv,
+  });
+  assert.match(reported.error, /cannot read/);
+});
+
+test('PSScriptAnalyzer without a host is missing and not downloadable', async (t) => {
+  const root = workspace(t);
+  const { engines } = await resolveEngines({
+    cwd: root,
+    engineIds: ['psscriptanalyzer'],
+    probeVersions: false,
+    env: noPathEnv,
+    hostModuleProbe: async () => '',
+  });
+  assert.equal(engines[0].source, 'missing');
+  assert.equal(engines[0].installable, undefined);
+  assert.match(engines[0].installHint, /PowerShell/);
+});
+
+test('PSScriptAnalyzer prefers a host module then a managed nupkg', async (t) => {
+  const root = workspace(t);
+  const pathDir = join(root, 'fake-path');
+  fakeBin(pathDir, process.platform === 'win32' ? 'pwsh.exe' : 'pwsh');
+  const pluginData = join(root, 'data');
+  const managedDir = join(pluginData, 'tools', 'psscriptanalyzer', '1.25.0');
+  mkdirSync(managedDir, { recursive: true });
+  writeFileSync(join(managedDir, 'PSScriptAnalyzer.psd1'), '@{ ModuleVersion = "1.25.0" }\n');
+  recordEngineDigest(managedDir, '@{ ModuleVersion = "1.25.0" }\n');
+  const env = { PATH: pathDir };
+
+  const host = await resolveEngines({
+    cwd: root,
+    engineIds: ['psscriptanalyzer'],
+    pluginData,
+    probeVersions: false,
+    env,
+    hostModuleProbe: async () => '1.24.0',
+  });
+  assert.equal(host.engines[0].source, 'path');
+  assert.equal(host.engines[0].version, '1.24.0');
+  assert.equal(host.engines[0].modulePath, undefined);
+
+  const managed = await resolveEngines({
+    cwd: root,
+    engineIds: ['psscriptanalyzer'],
+    pluginData,
+    probeVersions: false,
+    env,
+    hostModuleProbe: async () => '',
+  });
+  assert.equal(managed.engines[0].source, 'managed');
+  assert.equal(managed.engines[0].version, '1.25.0');
+  assert.match(managed.engines[0].modulePath.replaceAll('\\', '/'), /PSScriptAnalyzer\.psd1$/);
+
+  const missingModule = await resolveEngines({
+    cwd: root,
+    engineIds: ['psscriptanalyzer'],
+    pluginData: join(root, 'empty-data'),
+    probeVersions: false,
+    env,
+    hostModuleProbe: async () => '',
+  });
+  assert.equal(missingModule.engines[0].source, 'missing');
+  assert.equal(missingModule.engines[0].installable, true);
+});
+
+test('pyproject [tool.ruff] counts as a project config marker', (t) => {
+  const root = workspace(t);
+  touch(join(root, 'pyproject.toml'));
+  writeFileSync(join(root, 'pyproject.toml'), '[tool.ruff]\nline-length = 100\n');
+  assert.equal(projectConfigFileFor(root, ENGINE_CATALOG.ruff), 'pyproject.toml');
+});

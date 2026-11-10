@@ -1,0 +1,715 @@
+import './usage-test-support.mjs';
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { mkdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { Worker } from 'node:worker_threads';
+import { UsageLedger, makeUsageRecord, getUsageLedger, closeUsageLedgers } from './usage-ledger.mjs';
+import { priceUsage } from './cost.mjs';
+import { readSessionUsage, rollupUsage } from './usage-ledger-rollup.mjs';
+import { accountProviderSend } from './usage-accounting.mjs';
+import { importUsageHistory, importTraceRow } from './usage-ledger-import.mjs';
+import { sessionUsageSnapshot, usageStatsSnapshot } from '../../../session-runtime/services/usage-stats-model.mjs';
+import { createUsageStatsApi } from '../../../session-runtime/usage-stats-api.mjs';
+import { makeTempDirSync, removeTempDirSync } from '../../../../scripts/lib/scoped-temp.mjs';
+import { warmCatalogForTest } from './catalog-warm.fixture.mjs';
+import * as modelCatalog from './model-catalog.mjs';
+await warmCatalogForTest(modelCatalog);
+
+const now = new Date(2026, 8, 12, 12).getTime();
+const row = (extra = {}) =>
+  makeUsageRecord({
+    ts: now,
+    provider: 'anthropic-oauth',
+    model: 'claude-opus-4-8',
+    sessionId: 'session',
+    sourceType: 'lead',
+    inputTokens: 1000,
+    outputTokens: 200,
+    cacheReadTokens: 5000,
+    cacheWriteTokens: 300,
+    responseId: 'response',
+    ...extra,
+  });
+function store(t) {
+  const ledger = new UsageLedger(':memory:');
+  t.after(() => ledger.close());
+  return ledger;
+}
+
+test('tokens, list value, price snapshot and day totals commit exactly once', (t) => {
+  const ledger = store(t);
+  const event = row();
+  assert.equal(event.costUsd, 0.014375); // .005 + .005 + .0025 + .001875
+  assert.equal(event.costSource, 'subscription');
+  assert.equal(event.rates.inputCostPerM, 5);
+  assert.equal(ledger.record([event, { ...event }]), 1);
+  const stats = usageStatsSnapshot({ rollup: ledger.rollup(), now, source: 'all' });
+  assert.equal(stats.totals.tokens, 6500);
+  assert.equal(stats.totals.cacheTokens, 5300);
+  assert.equal(stats.totals.costUsd, 0.014375);
+  assert.equal(stats.totals.costBilled, 0);
+  assert.equal(stats.totals.costCoverage, 1);
+  assert.equal(stats.totals.cacheHitRate, 0.7937);
+  assert.equal(stats.totals.sessions, 1);
+  assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM events').get().n, 1);
+});
+
+test('output speed counts only timed requests with output, per model and per session', (t) => {
+  const ledger = store(t);
+  ledger.record([
+    row({ responseId: 'a', outputTokens: 300, durationMs: 2000 }),
+    row({ responseId: 'b', outputTokens: 100, durationMs: 2000 }),
+    // Untimed (imported) output must not dilute the figure.
+    row({ responseId: 'c', outputTokens: 900 }),
+    row({ responseId: 'd', model: 'claude-sonnet-4-6', outputTokens: 50, durationMs: 1000 }),
+  ]);
+  const stats = usageStatsSnapshot({ rollup: ledger.rollup(), now, source: 'all' });
+  const models = Object.fromEntries(stats.providers[0].models.map((model) => [model.model, model]));
+  assert.equal(models['claude-opus-4-8'].outputTokensPerSecond, 100);
+  assert.equal(models['claude-sonnet-4-6'].outputTokensPerSecond, 50);
+  assert.equal(stats.providers[0].outputTokensPerSecond, 90);
+  const hourly = usageStatsSnapshot({
+    rollup: ledger.rollup({ fromMs: now - 1000, toMs: now + 1000 }),
+    now,
+    source: 'all',
+  });
+  assert.equal(hourly.providers[0].outputTokensPerSecond, 90);
+  const session = sessionUsageSnapshot(readSessionUsage(ledger.db, ['session']));
+  assert.equal(session.outputTokensPerSecond, 90);
+});
+
+test('a model used in Fast mode is a row of its own beside its normal row, each with its own figures', (t) => {
+  const ledger = store(t);
+  ledger.record([
+    row({ responseId: 'n1', outputTokens: 300, durationMs: 2000 }),
+    // Fast, no tier returned by the response: still Fast.
+    row({ responseId: 'f1', outputTokens: 600, durationMs: 2000, requestServiceTier: 'fast' }),
+    // Used only in Fast mode: only its Fast row.
+    row({
+      responseId: 'f2',
+      model: 'claude-sonnet-4-6',
+      outputTokens: 100,
+      durationMs: 1000,
+      requestServiceTier: 'fast',
+    }),
+    // Used only normally: one row, as before.
+    row({ responseId: 'n2', model: 'claude-fable-5-1', outputTokens: 50, durationMs: 1000 }),
+    // OpenAI API: a Priority request served as Standard ran normal; a served or unreported tier ran Fast.
+    ...[
+      ['p1', 100, { serviceTier: 'default' }],
+      ['p2', 300, { serviceTier: 'priority' }],
+      ['p3', 500, {}],
+    ].map(([responseId, outputTokens, tier]) =>
+      row({
+        responseId,
+        provider: 'openai',
+        model: 'gpt-5.5',
+        outputTokens,
+        durationMs: 1000,
+        requestServiceTier: 'priority',
+        ...tier,
+      })
+    ),
+  ]);
+  const shape = (rollup) => {
+    const stats = usageStatsSnapshot({ rollup, now, source: 'all' });
+    const rows = Object.fromEntries(
+      stats.providers.flatMap((provider) =>
+        provider.models.map((model) => [`${model.model}${model.fast ? ' · Fast' : ''}`, model])
+      )
+    );
+    return {
+      stats,
+      rows,
+      order: stats.providers
+        .find((p) => p.provider === 'anthropic-oauth')
+        .models.map((m) => m.model + (m.fast ? '+' : '')),
+    };
+  };
+  for (const rollup of [ledger.rollup(), ledger.rollup({ fromMs: now - 1000, toMs: now + 1000 })]) {
+    const { stats, rows, order } = shape(rollup);
+    assert.deepEqual(Object.keys(rows).sort(), [
+      'claude-fable-5-1',
+      'claude-opus-4-8',
+      'claude-opus-4-8 · Fast',
+      'claude-sonnet-4-6 · Fast',
+      'gpt-5.5',
+      'gpt-5.5 · Fast',
+    ]);
+    const figures = (name) => [rows[name].turns, rows[name].output, rows[name].outputTokensPerSecond];
+    assert.deepEqual(figures('claude-opus-4-8'), [1, 300, 150]);
+    assert.deepEqual(figures('claude-opus-4-8 · Fast'), [1, 600, 300]);
+    assert.deepEqual(figures('claude-sonnet-4-6 · Fast'), [1, 100, 100]);
+    assert.deepEqual(figures('claude-fable-5-1'), [1, 50, 50]);
+    assert.deepEqual(figures('gpt-5.5'), [1, 100, 100]);
+    assert.deepEqual(figures('gpt-5.5 · Fast'), [2, 800, 400]);
+    assert.equal('fast' in rows['claude-opus-4-8'], false);
+    assert.equal(rows['claude-opus-4-8 · Fast'].tokens, 1000 + 600 + 5000 + 300);
+    assert.equal(order.indexOf('claude-opus-4-8+'), order.indexOf('claude-opus-4-8') + 1);
+    // Providers and totals are the whole of both modes.
+    assert.equal(stats.totals.turns, 7);
+    const anthropic = stats.providers.find((p) => p.provider === 'anthropic-oauth');
+    assert.equal(anthropic.turns, 4);
+    assert.equal(anthropic.output, 1050);
+    assert.equal(anthropic.outputTokensPerSecond, 175);
+  }
+});
+
+test('zero provider price is known, missing price is unknown, subscriptions never become bills', () => {
+  assert.equal(row({ provider: 'openai', model: 'unpriced-test', costUsd: 0 }).costSource, 'provider');
+  assert.equal(row({ provider: 'openai', model: 'unpriced-test' }).costUsd, null);
+  assert.equal(row({ costUsd: 999 }).costUsd, 0.014375);
+  assert.equal(row({ provider: 'mixdog-local', model: 'local-test' }).costUsd, 0);
+});
+
+test('inclusive input is normalized once, including a relay route', () => {
+  const event = row({ provider: 'cursor-oauth', inputTokens: 6300, inputTokensInclusive: true });
+  assert.equal(event.input, 1000);
+  assert.equal(event.costUsd, 0.014375);
+});
+
+test('official context and UTC time tiers are priced at request granularity', () => {
+  const grok = { provider: 'grok-oauth', model: 'grok-4.20', outputTokens: 1000 };
+  assert.equal(priceUsage({ ...grok, inputTokens: 200000 }).costUsd, 0.2525);
+  assert.equal(priceUsage({ ...grok, inputTokens: 200001 }).costUsd, 0.505003);
+  const deepseek = { provider: 'deepseek', model: 'deepseek-v4-flash', inputTokens: 1_000_000 };
+  assert.equal(priceUsage({ ...deepseek, ts: Date.parse('2026-09-11T06:00:00Z') }).costUsd, 0.3);
+  assert.equal(priceUsage({ ...deepseek, ts: Date.parse('2026-09-11T10:00:00Z') }).costUsd, 0.15);
+  assert.equal(priceUsage({ ...deepseek, ts: Date.parse('2026-09-12T06:00:00Z') }).costUsd, 0.15);
+  assert.equal(priceUsage({ ...deepseek, ts: now, historical: true }).costUsd, 0.3);
+  assert.equal(row({ requestServiceTier: 'fast' }).costUsd, 0.02875);
+  // The route's fast toggle alone never prices a request that was sent standard.
+  assert.equal(row({ fast: true }).costUsd, 0.014375);
+});
+
+test('years of history survive reopen with no TTL or session deletion dependency', () => {
+  const dir = makeTempDirSync('usage-retention');
+  const path = join(dir, 'ledger.sqlite');
+  const first = new UsageLedger(path);
+  first.record([row({ ts: new Date(2022, 0, 1).getTime() })]);
+  first.close();
+  const reopened = new UsageLedger(path);
+  try {
+    const stats = usageStatsSnapshot({ rollup: reopened.rollup(), now });
+    assert.equal(stats.totals.tokens, 6500);
+    assert.equal(stats.totals.costUsd, 0.014375);
+    assert.equal(stats.range.firstDay, '2022-01-01');
+  } finally {
+    reopened.close();
+  }
+});
+
+test('an invalid batch rolls back both originals and daily totals', (t) => {
+  const ledger = store(t);
+  assert.throws(() => ledger.record([row(), { ...row({ responseId: 'bad' }), model: undefined }]));
+  assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM events').get().n, 0);
+  assert.deepEqual(ledger.rollup(), { days: {} });
+});
+
+test('a usage_events row with no daily index row contributes nothing instead of throwing', (t) => {
+  const kept = row({ responseId: 'kept' });
+  const orphan = row({ model: 'orphan-model', sessionId: 'orphan-session', responseId: 'orphan' });
+  const reference = store(t);
+  reference.record([kept]);
+  const ledger = store(t);
+  ledger.record([kept, orphan]);
+  // `daily` is a derived index: dropping the orphan route's row leaves its
+  // retained usage_events row without a matching day/route bucket. The
+  // rollup must skip that row and report the remaining route's arithmetic
+  // unchanged, rather than failing on the missing bucket.
+  ledger.db.exec("DELETE FROM daily WHERE model='orphan-model'");
+  assert.deepEqual(ledger.rollup(), reference.rollup());
+  assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM usage_events').get().n, 2);
+});
+
+test('concurrent processes share one idempotent ledger without lost totals', async () => {
+  const path = join(makeTempDirSync('usage-concurrent'), 'ledger.sqlite');
+  new UsageLedger(path).close();
+  const moduleUrl = new URL('./usage-ledger.mjs', import.meta.url).href;
+  const run = () =>
+    new Promise((resolve, reject) => {
+      const worker = new Worker(
+        `
+            (async () => {
+                const { UsageLedger, makeUsageRecord } = await import(${JSON.stringify(moduleUrl)});
+                const ledger = new UsageLedger(${JSON.stringify(path)});
+                for (let i=0;i<20;i++) ledger.record([makeUsageRecord({
+                    provider:'mixdog-local',model:'test',ts:${now},inputTokens:10,
+                    outputTokens:2,responseId:'same-'+i
+                })]);
+                ledger.close();
+            })().catch(e=>{ console.error(e); process.exitCode=1; });
+        `,
+        { eval: true }
+      );
+      worker.on('error', reject);
+      worker.on('exit', (code) => (code === 0 ? resolve() : reject(new Error(`worker exit ${code}`))));
+    });
+  await Promise.all([run(), run()]);
+  const ledger = new UsageLedger(path);
+  try {
+    const stats = usageStatsSnapshot({ rollup: ledger.rollup(), now });
+    assert.equal(stats.totals.turns, 20);
+    assert.equal(stats.totals.tokens, 240);
+  } finally {
+    ledger.close();
+  }
+});
+
+test('closeUsageLedgers releases the file so its directory can be removed, and later access reopens', (t) => {
+  const dir = makeTempDirSync('usage-close');
+  const priorPath = process.env.MIXDOG_USAGE_LEDGER_PATH;
+  process.env.MIXDOG_USAGE_LEDGER_PATH = join(dir, 'ledger.sqlite');
+  t.after(() => {
+    closeUsageLedgers();
+    if (priorPath === undefined) delete process.env.MIXDOG_USAGE_LEDGER_PATH;
+    else process.env.MIXDOG_USAGE_LEDGER_PATH = priorPath;
+  });
+  const first = getUsageLedger();
+  first.set('marker', 'open');
+  assert.equal(getUsageLedger(), first, 'the store is shared while open');
+
+  closeUsageLedgers();
+  assert.throws(() => first.get('marker'), /closed|not open/i, 'the handle is really closed');
+  // No retries: an open SQLite handle would make this EBUSY on Windows.
+  rmSync(dir, { recursive: true, force: true, maxRetries: 0 });
+
+  const reopened = getUsageLedger();
+  assert.notEqual(reopened, first, 'access after close reopens a fresh store');
+  assert.equal(reopened.get('marker'), null);
+});
+
+test('live provider accounting works with diagnostics disabled and retains cancellation', async (t) => {
+  const captureDir = makeTempDirSync('usage-capture');
+  const path = join(captureDir, 'ledger.sqlite');
+  const priorPath = process.env.MIXDOG_USAGE_LEDGER_PATH;
+  const priorTrace = process.env.MIXDOG_AGENT_TRACE_DISABLE;
+  process.env.MIXDOG_USAGE_LEDGER_PATH = path;
+  process.env.MIXDOG_AGENT_TRACE_DISABLE = '1';
+  t.after(() => {
+    if (priorPath === undefined) delete process.env.MIXDOG_USAGE_LEDGER_PATH;
+    else process.env.MIXDOG_USAGE_LEDGER_PATH = priorPath;
+    if (priorTrace === undefined) delete process.env.MIXDOG_AGENT_TRACE_DISABLE;
+    else process.env.MIXDOG_AGENT_TRACE_DISABLE = priorTrace;
+    closeUsageLedgers();
+    removeTempDirSync(captureDir);
+  });
+  const result = { model: 'claude-opus-4-8', responseId: 'live', usage: { inputTokens: 1000, outputTokens: 200 } };
+  const instance = { constructor: { inputExcludesCache: true } };
+  assert.equal(
+    await accountProviderSend(
+      'anthropic-oauth',
+      instance,
+      async () => {
+        assert.ok(getUsageLedger().get('liveSince'), 'cutover must precede the request and its diagnostic copy');
+        return result;
+      },
+      result.model,
+      { sessionId: 'live-session', session: { sourceType: 'lead' } }
+    ),
+    result
+  );
+  const cancel = new Error('cancelled');
+  const cancelled = new AbortController();
+  cancelled.abort(cancel);
+  await assert.rejects(
+    accountProviderSend(
+      'anthropic-oauth',
+      instance,
+      async () => {
+        throw cancel;
+      },
+      result.model,
+      { signal: cancelled.signal }
+    ),
+    (error) => error === cancel
+  );
+  const ledger = new UsageLedger(path);
+  try {
+    assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM events').get().n, 1);
+    assert.equal(ledger.db.prepare('SELECT cost_source FROM events').get().cost_source, 'subscription');
+  } finally {
+    ledger.close();
+  }
+  // An unavailable accounting destination must neither replay the provider
+  // request nor erase the successful response.
+  process.env.MIXDOG_USAGE_LEDGER_PATH = makeTempDirSync('usage-unwritable');
+  const messages = [];
+  t.mock.method(process.stderr, 'write', (text) => {
+    messages.push(String(text));
+    return true;
+  });
+  let calls = 0;
+  const unsaved = { ...result };
+  assert.equal(
+    await accountProviderSend(
+      'anthropic-oauth',
+      instance,
+      async () => {
+        calls++;
+        return unsaved;
+      },
+      result.model
+    ),
+    unsaved
+  );
+  assert.equal(calls, 1);
+  assert.equal(typeof unsaved.usageAccountingError, 'string');
+  assert.equal(
+    messages.some((line) => line.includes('RECORD NOT SAVED')),
+    true
+  );
+});
+
+test('a corrupt legacy gateway file is skipped with a warning, not an import failure, and retried after repair', async (t) => {
+  const ledger = store(t);
+  const dir = makeTempDirSync('usage-corrupt');
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const warnings = [];
+  t.mock.method(process.stderr, 'write', (chunk) => {
+    warnings.push(String(chunk));
+    return true;
+  });
+  const file = join(dir, 'gateway-usage.local.json');
+  for (const damaged of ['{broken', '\0'.repeat(32), '']) {
+    writeFileSync(file, damaged);
+    await importUsageHistory(ledger, dir, { now, readTrace: async () => [] });
+    assert.equal(ledger.get('importedThrough'), null, 'left unset so a repair is retried');
+  }
+  assert.equal(readFileSync(file, 'utf8'), '', 'the original is never rewritten');
+  assert.ok(warnings.some((line) => line.includes('gateway-usage.local.json')));
+  writeFileSync(file, JSON.stringify({ events: [] }));
+  await importUsageHistory(ledger, dir, { now, readTrace: async () => [] });
+  assert.equal(ledger.get('importedThrough'), String(now));
+});
+
+function legacyRollup(turns) {
+  return JSON.stringify({
+    days: {
+      '2026-09-12': {
+        models: {
+          'other/legacy': {
+            provider: 'other',
+            model: 'legacy',
+            turns,
+            input: 20,
+            output: 2,
+            cacheRead: 0,
+            cacheWrite: 0,
+            costUsd: 3,
+          },
+        },
+      },
+    },
+  });
+}
+
+function legacyStatsApi(t, dir, readTrace = async () => []) {
+  const ledger = store(t);
+  const warnings = [];
+  t.mock.method(process.stderr, 'write', (chunk) => {
+    warnings.push(String(chunk));
+    return true;
+  });
+  const api = createUsageStatsApi({
+    ledger: () => ledger,
+    importHistory: (opened) => importUsageHistory(opened, dir, { now, readTrace }),
+  });
+  return { ledger, warnings, api };
+}
+
+async function assertUnreadableLegacyRollup(t, contents) {
+  const dir = makeTempDirSync('usage-legacy-bad');
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  writeFileSync(join(dir, 'usage-rollup.local.json'), contents);
+  const { ledger, warnings, api } = legacyStatsApi(t, dir);
+  const stats = await api.getUsageStats({ days: null });
+  assert.equal(stats.coverage.ledger, true);
+  assert.equal(stats.totals.turns, 0);
+  assert.equal(ledger.get('importedThrough'), null);
+  assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM legacy_days').get().n, 0);
+  assert.equal(
+    warnings.some((line) => line.includes('warning') && line.includes('usage-rollup.local.json')),
+    true
+  );
+  return { ledger, dir, api };
+}
+
+test('a corrupt legacy rollup keeps other usage available and retries after repair without double counting', async (t) => {
+  const dir = makeTempDirSync('usage-legacy-repair');
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const legacyPath = join(dir, 'usage-rollup.local.json');
+  writeFileSync(legacyPath, '{broken');
+  const trace = {
+    kind: 'usage_raw',
+    ts: now - 2000,
+    model: 'claude-opus-4-8',
+    session_id: 'trace',
+    input_tokens: 1000,
+    output_tokens: 200,
+    payload: { provider: 'anthropic-oauth', response_id: 'trace' },
+  };
+  mkdirSync(join(dir, 'history'));
+  const tracePath = join(dir, 'history', 'agent-trace.jsonl');
+  const traceOriginal = `${JSON.stringify(trace)}\n`;
+  writeFileSync(tracePath, traceOriginal);
+  const gateway = {
+    ts: now - 1000,
+    provider: 'openai',
+    model: 'gpt-4.1',
+    sessionId: 'gateway',
+    responseId: 'gateway',
+    inputTokens: 40,
+    outputTokens: 4,
+  };
+  const gatewayPath = join(dir, 'gateway-usage.local.jsonl');
+  const gatewayOriginal = `${[gateway, gateway].map((event) => JSON.stringify(event)).join('\n')}\n`;
+  writeFileSync(gatewayPath, gatewayOriginal);
+  // The database and diagnostic file can contain the same historical send.
+  const { ledger, warnings, api } = legacyStatsApi(t, dir, async () => [trace]);
+  ledger.set('liveSince', now);
+  ledger.record([row({ sessionId: 'live', responseId: 'live' })]);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const stats = await api.getUsageStats({ days: null });
+    assert.equal(stats.coverage.ledger, true);
+    assert.equal(stats.totals.turns, 3);
+    assert.equal(stats.totals.tokens, 7744);
+    assert.equal(ledger.get('importedThrough'), null);
+    assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM events').get().n, 3);
+    assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM legacy_days').get().n, 0);
+  }
+  assert.equal(
+    warnings.some((line) => line.includes('warning') && line.includes(legacyPath)),
+    true
+  );
+  assert.equal(readFileSync(legacyPath, 'utf8'), '{broken');
+  writeFileSync(legacyPath, legacyRollup(2));
+  const repaired = await api.getUsageStats({ days: null });
+  assert.equal(repaired.totals.turns, 5);
+  assert.equal(repaired.totals.tokens, 7766);
+  assert.equal(ledger.get('importedThrough'), String(now));
+  assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM events').get().n, 3);
+  assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM legacy_days').get().n, 1);
+  assert.equal((await api.getUsageStats({ days: null })).totals.turns, 5);
+  assert.equal(readFileSync(tracePath, 'utf8'), traceOriginal);
+  assert.equal(readFileSync(gatewayPath, 'utf8'), gatewayOriginal);
+});
+
+test('an empty legacy rollup warns and still returns stats without marking the import', async (t) => {
+  await assertUnreadableLegacyRollup(t, '');
+});
+
+test('a torn or NUL trace line in a legacy trace file is skipped, never a failed import', async (t) => {
+  const dir = makeTempDirSync('usage-torn-trace');
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const trace = (id) =>
+    JSON.stringify({
+      kind: 'usage_raw',
+      ts: now - 2000,
+      model: 'claude-opus-4-8',
+      session_id: id,
+      input_tokens: 1000,
+      output_tokens: 200,
+      payload: { provider: 'anthropic-oauth', response_id: id },
+    });
+  mkdirSync(join(dir, 'history'));
+  const path = join(dir, 'history', 'agent-trace.jsonl');
+  // Intact rows, a cut-short append, a NUL block, and a NUL-torn tail.
+  const original = `${trace('one')}\n${trace('two').slice(0, 40)}\n\0\0\0\0\0\0\0\0\n${trace('three')}\n\0\0\0\0`;
+  writeFileSync(path, original);
+  const { ledger, warnings, api } = legacyStatsApi(t, dir);
+  const stats = await api.getUsageStats({ days: null });
+  assert.equal(stats.totals.turns, 2, 'the intact rows are imported');
+  assert.equal(ledger.get('importedThrough'), String(now));
+  assert.equal(JSON.parse(ledger.get('importReceipt')).tornTraceLines, 3);
+  assert.equal(
+    warnings.some((line) => line.includes('torn trace line')),
+    true
+  );
+  assert.equal(readFileSync(path, 'utf8'), original, 'the original is never rewritten');
+});
+
+test('wrong-shaped legacy rollup JSON warns and does not mark the import', async (t) => {
+  for (const contents of ['null', '[]', '{}', '{"days": null}', '{"days": "x"}']) {
+    await assertUnreadableLegacyRollup(t, contents);
+  }
+});
+
+test('a valid legacy rollup is imported once and is not counted twice', async (t) => {
+  const dir = makeTempDirSync('usage-legacy-valid');
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const path = join(dir, 'usage-rollup.local.json');
+  writeFileSync(path, legacyRollup(2));
+  const { ledger, warnings, api } = legacyStatsApi(t, dir);
+  assert.equal((await api.getUsageStats({ days: null })).totals.turns, 2);
+  assert.equal(ledger.get('importedThrough'), String(now));
+  writeFileSync(path, legacyRollup(9));
+  assert.deepEqual(await importUsageHistory(ledger, dir, { now, readTrace: async () => [] }), { skipped: true });
+  assert.equal((await api.getUsageStats({ days: null })).totals.turns, 2);
+  assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM legacy_days').get().n, 1);
+  const stored = JSON.parse(ledger.db.prepare('SELECT document FROM legacy_days').get().document);
+  assert.equal(stored.models['other/legacy'].turns, 2);
+  assert.equal(
+    warnings.some((line) => line.includes('usage-rollup.local.json')),
+    false
+  );
+});
+
+test('missing and valid empty legacy rollups complete the import without a warning', async (t) => {
+  for (const [name, contents] of [
+    ['missing file', null],
+    ['empty day map', '{"days": {}}'],
+    ['empty day array', '{"days": []}'],
+  ]) {
+    await t.test(name, async (t) => {
+      const dir = makeTempDirSync('usage-legacy-empty');
+      t.after(() => rmSync(dir, { recursive: true, force: true }));
+      if (contents !== null) writeFileSync(join(dir, 'usage-rollup.local.json'), contents);
+      const { ledger, warnings, api } = legacyStatsApi(t, dir);
+      assert.equal((await api.getUsageStats({ days: null })).totals.turns, 0);
+      assert.equal(ledger.get('importedThrough'), String(now));
+      assert.equal(
+        warnings.some((line) => line.includes('usage-rollup.local.json')),
+        false
+      );
+      assert.deepEqual(await importUsageHistory(ledger, dir, { now, readTrace: async () => [] }), { skipped: true });
+    });
+  }
+});
+
+test('legacy storage errors are not mistaken for an unreadable rollup', async (t) => {
+  const dir = makeTempDirSync('usage-legacy-storage');
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  writeFileSync(join(dir, 'usage-rollup.local.json'), legacyRollup(2));
+  const { ledger, warnings, api } = legacyStatsApi(t, dir);
+  const failure = new SyntaxError('storage failed');
+  t.mock.method(ledger, 'preserveLegacyDays', () => {
+    throw failure;
+  });
+  await assert.rejects(api.getUsageStats({ days: null }), (error) => error === failure);
+  assert.equal(ledger.get('importedThrough'), null);
+  assert.equal(
+    warnings.some((line) => line.includes('usage-rollup.local.json')),
+    false
+  );
+});
+
+test('import skips blank PG usage fields, deduplicates raw copies, preserves originals and source precedence', async (t) => {
+  const ledger = store(t);
+  const dir = makeTempDirSync('usage-import');
+  const original = JSON.stringify({
+    events: [
+      {
+        ts: now - 11000,
+        provider: 'anthropic-oauth',
+        model: 'claude-opus-4-8',
+        sessionId: 's',
+        inputTokens: 10000,
+        outputTokens: 100,
+        costUsd: 99,
+      },
+    ],
+  });
+  const path = join(dir, 'gateway-usage.local.json');
+  writeFileSync(path, original);
+  const raw = {
+    kind: 'usage_raw',
+    ts: now - 12000,
+    model: 'claude-opus-4-8',
+    session_id: 's',
+    input_tokens: 1000,
+    output_tokens: 200,
+    cached_tokens: 0,
+    cache_write_tokens: 0,
+    payload: { provider: 'anthropic-oauth', response_id: 'original', uncached_input_tokens: 1000 },
+  };
+  assert.equal(importTraceRow({ kind: 'usage', model: raw.model, input_tokens: null, payload: {} }), null);
+  const first = await importUsageHistory(ledger, dir, { now, readTrace: async () => [raw, raw] });
+  assert.equal(first.inserted, 2); // one raw request and one separate, overlapping terminal summary
+  assert.equal(readFileSync(path, 'utf8'), original);
+  assert.deepEqual(
+    await importUsageHistory(ledger, dir, {
+      now,
+      readTrace: async () => {
+        throw new Error('must not read');
+      },
+    }),
+    { skipped: true }
+  );
+  const stats = usageStatsSnapshot({ rollup: ledger.rollup(), now });
+  assert.equal(stats.totals.tokens, 1200); // not 11,300; the terminal summary is not added again
+  assert.equal(stats.coverage.partialDays, 1);
+});
+
+test('API uses the ledger and reports a failed historical import instead of zero usage', async (t) => {
+  const ledger = store(t);
+  ledger.record([row()]);
+  let imports = 0;
+  const api = createUsageStatsApi({
+    ledger: () => ledger,
+    importHistory: async () => {
+      imports++;
+      ledger.set('importedThrough', Number.MAX_SAFE_INTEGER);
+    },
+  });
+  assert.equal((await api.getUsageStats()).totals.tokens, 6500);
+  assert.equal((await api.getUsageStats()).coverage.ledger, true);
+  assert.equal(imports, 1);
+  const failure = createUsageStatsApi({
+    ledger: () => ledger,
+    importHistory: async () => {
+      throw new Error('offline');
+    },
+  });
+  await assert.rejects(failure.getUsageStats(), /offline/);
+});
+
+test('a repeated rollup is served unchanged until this or another connection appends', (t) => {
+  const dir = makeTempDirSync('usage-rollup-cache');
+  const path = join(dir, 'ledger.sqlite');
+  const ledger = new UsageLedger(path);
+  t.after(() => {
+    ledger.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+  const day = new Date(now);
+  day.setHours(0, 0, 0, 0);
+  const queries = [
+    {},
+    { fromDay: '2026-09-11', toDay: '2026-09-12' },
+    { hourlyDay: '2026-09-12', fromDay: '2026-09-11', toDay: '2026-09-12', fromMs: now - 86_400_000, toMs: now },
+  ];
+  const expectFresh = () => {
+    for (const query of queries) assert.deepEqual(ledger.rollup(query), rollupUsage(ledger.db, query));
+  };
+  ledger.record([row({ responseId: 'a' }), row({ responseId: 'b', ts: day.getTime() - 1, sessionId: 'other' })]);
+  expectFresh();
+  const cached = ledger.rollup();
+  assert.equal(ledger.rollup(), cached);
+
+  ledger.record([row({ responseId: 'c', ts: now - 1000, sourceType: 'worker' })]);
+  assert.notEqual(ledger.rollup(), cached);
+  expectFresh();
+
+  const other = new UsageLedger(path);
+  other.record([row({ responseId: 'd', ts: now - 2000, model: 'claude-sonnet-4-5', sessionId: 'third' })]);
+  other.close();
+  expectFresh();
+  assert.equal(ledger.rollup().days['2026-09-12'].turns, 3);
+});
+
+test('seven calendar days and the previous window have no overlap or wrong divisor', (t) => {
+  const ledger = store(t);
+  for (let i = 0; i < 15; i++) {
+    const date = new Date(now);
+    date.setDate(date.getDate() - i);
+    ledger.record([row({ ts: date.getTime(), responseId: `day-${i}` })]);
+  }
+  const stats = usageStatsSnapshot({ rollup: ledger.rollup(), now, days: 7 });
+  assert.equal(stats.daily.length, 7);
+  assert.equal(stats.totals.turns, 7);
+  assert.equal(stats.previous.turns, 7);
+  assert.equal(stats.totals.costPerDay, 0.014375);
+  assert.equal(usageStatsSnapshot({ rollup: ledger.rollup(), now, days: 0 }).previous, null);
+});

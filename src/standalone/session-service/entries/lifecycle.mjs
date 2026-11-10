@@ -1,0 +1,108 @@
+// Creation of one daemon-owned execution entry around an injected runtime;
+// disposal lives in ./disposal.mjs. Entries are never addressed by clients;
+// sessionId is the only identity outside the service.
+import { syncEntryWorkspace } from '../projection/workspace.mjs';
+import { createEntryDisposal } from './disposal.mjs';
+
+export function createEntryLifecycle({
+  createRuntime,
+  revisionEpoch,
+  sessions,
+  sessionsById,
+  pendingDisposals,
+  desktopServices,
+  onFrame,
+  log,
+  isClosed,
+  indexSessionEntry,
+  schedulePublish,
+  subscriberToken,
+  addSubscriber,
+  updateEntryBusy,
+  releaseProjection,
+  idleStateChanged,
+}) {
+  const { destroy, release, settleTeardown } = createEntryDisposal({
+    sessions,
+    sessionsById,
+    pendingDisposals,
+    desktopServices,
+    onFrame,
+    log,
+    releaseProjection,
+    idleStateChanged,
+  });
+
+  function assertAvailable(entry) {
+    if (isClosed()) throw new Error('session service is closed');
+    if (entry?.disposed) throw new Error('session runtime is disposed');
+  }
+
+  async function createEntry(params = {}, ctx = null) {
+    assertAvailable();
+    // Reopening an address whose previous runtime is still closing joins that
+    // teardown: two runtimes must never write one session at once.
+    await settleTeardown(params.sessionId);
+    assertAvailable();
+    const runtime = await createRuntime({
+      sessionId: params.sessionId,
+      cwd: params.cwd || process.cwd(),
+      provider: params.provider,
+      model: params.model,
+      effort: params.effort,
+      fast: params.fast,
+      autoEffort: params.autoEffort,
+      modelParameters: params.modelParameters,
+      contextPercent: params.contextPercent,
+      contextTokens: params.contextTokens,
+      selectedContextWindow: params.selectedContextWindow,
+      toolMode: params.toolMode || 'full',
+      remote: params.remote === true,
+      desktopSession: params.desktopSession ?? null,
+      sessionProfile: params.sessionProfile ?? null,
+      worktree: params.worktree ?? null,
+    });
+    const entry = {
+      runtime,
+      cwd: params.cwd || process.cwd(),
+      workspaceRevision: null,
+      timer: null,
+      disposed: false,
+      unsubscribe: null,
+      subscribers: new Set(),
+      reservedOnly: false,
+      lastPublishedAt: 0,
+      indexedSessionId: '',
+      addressedSessionId: '',
+      busy: null,
+      headless: !subscriberToken(ctx),
+      retainedAt: null,
+      revision: revisionEpoch,
+    };
+    try {
+      assertAvailable(entry);
+      sessions.add(entry);
+      let initialState;
+      try {
+        initialState = runtime.getState?.() || {};
+      } catch {
+        initialState = { busy: true };
+      }
+      syncEntryWorkspace(entry, initialState);
+      indexSessionEntry(entry, initialState.sessionId);
+      updateEntryBusy(entry, initialState);
+      addSubscriber(entry, ctx);
+      try {
+        entry.unsubscribe = runtime.subscribe?.(() => schedulePublish(entry)) ?? null;
+      } catch (err) {
+        log(`session subscribe failed: ${err?.message || err}`);
+      }
+      return entry;
+    } catch (error) {
+      await destroy(entry, 'session creation failed', { keepBackgroundWork: !isClosed(), announce: false });
+      throw error;
+    }
+  }
+
+  return { assertAvailable, createEntry, destroy, release, settleTeardown };
+}

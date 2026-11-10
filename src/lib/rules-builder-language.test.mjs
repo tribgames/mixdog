@@ -1,0 +1,101 @@
+import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import test from 'node:test';
+import {
+  _buildLeadLanguageContext,
+  _buildLeadMetaContext,
+  _buildLeadRules,
+  _buildSharedRules,
+} from '../runtime/agent/orchestrator/session/manager/rules-cache.mjs';
+import { treeWatchDropped } from '../runtime/shared/tree-watch-memo.mjs';
+
+function renderLeadPrompt(language) {
+  const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-language-rules-'));
+  const previousDataDir = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = dataDir;
+  try {
+    writeFileSync(
+      join(dataDir, 'mixdog-config.json'),
+      JSON.stringify({
+        agent: {
+          profile: { language },
+        },
+      })
+    );
+    // Production composes these split layers. The language block stays last,
+    // after shared policy, meta, and the Lead role.
+    return [_buildSharedRules(), _buildLeadMetaContext(), _buildLeadRules(), _buildLeadLanguageContext()]
+      .filter(Boolean)
+      .join('\n\n');
+  } finally {
+    if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previousDataDir;
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+}
+
+test('Lead prompt keeps the configured response language authoritative', () => {
+  const korean = renderLeadPrompt('ko');
+  assert.match(korean, /Always respond in Korean, including pre-tool preambles/);
+  assert.match(korean, /progress updates, questions, reports, and notices/);
+  assert.match(korean, /do not change this language, even when the immediately preceding text is English/);
+  assert.match(korean, /the user's latest explicit language request takes precedence/);
+  // The language block trails every rule block: no persona/general English
+  // rule may follow it, and it is absent from the meta (BP2) layer.
+  assert.ok(korean.indexOf('# Language') > korean.indexOf('# Lead'));
+  assert.equal(korean.indexOf('# Language'), korean.lastIndexOf('# Language'));
+
+  const japanese = renderLeadPrompt('ja');
+  assert.match(japanese, /Always respond in Japanese \(日本語\),/);
+});
+
+test('unknown language ids use system language, not inherited object properties', () => {
+  const languageBlock = (language) => renderLeadPrompt(language).match(/# Language[\s\S]*$/)?.[0] || '';
+  const expected = languageBlock('system');
+  for (const language of ['unknown-language', '__proto__', 'constructor', 'toString']) {
+    assert.equal(languageBlock(language), expected);
+  }
+});
+
+test('the literal-preservation sentence is dropped only while the shared output format carries it', async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-language-rules-'));
+  const previousDataDir = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = dataDir;
+  try {
+    const config = (outputStyle) =>
+      writeFileSync(
+        join(dataDir, 'mixdog-config.json'),
+        JSON.stringify({ outputStyle, agent: { profile: { language: 'ko' } } })
+      );
+    const sentence = /Preserve identifiers, paths, commands, API names, and exact errors\./;
+    config('simple');
+    assert.doesNotMatch(_buildLeadLanguageContext(), sentence);
+    assert.match(_buildLeadLanguageContext(), /Keep technical terms in their established form/);
+    assert.match(_buildLeadLanguageContext({ includeOutputStyle: false }), sentence);
+    mkdirSync(join(dataDir, 'output-styles'));
+    writeFileSync(
+      join(dataDir, 'output-styles', 'bare.md'),
+      '---\nname: bare\ntitle: Bare\nkeep-shared-format: false\n---\n\nBe brief.\n'
+    );
+    config('bare');
+    assert.match(_buildLeadLanguageContext(), sentence);
+    // An overridden shared partial may not carry the guidance, so it keeps the guard;
+    // a byte-identical copy of the shipped partial does not count as an override.
+    config('simple');
+    const shipped = readFileSync(join(process.cwd(), 'src', 'output-styles', 'common.md'), 'utf8');
+    // Edits made outside the app reach the watched styles folder with its watch event.
+    const common = join(dataDir, 'output-styles', 'common.md');
+    writeFileSync(common, shipped);
+    await treeWatchDropped(common);
+    assert.doesNotMatch(_buildLeadLanguageContext(), sentence);
+    writeFileSync(common, `${shipped}\nCustom line.\n`);
+    await treeWatchDropped(common);
+    assert.match(_buildLeadLanguageContext(), sentence);
+  } finally {
+    if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previousDataDir;
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});

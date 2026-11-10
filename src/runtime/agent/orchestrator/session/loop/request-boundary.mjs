@@ -1,0 +1,162 @@
+// Provider request boundary for one agent-loop iteration: normalize the
+// transcript, freeze exactly one tool snapshot for the whole request (pressure,
+// send, recovery, telemetry), and run the pre-send compact pass until the
+// transcript stops changing.
+import { repairTranscriptBeforeProviderSend } from './transcript-repair.mjs';
+import { messagesArrayChanged } from './tool-helpers.mjs';
+import { runPreSendCompactPass } from '../pre-send-compact.mjs';
+import { refreshDeferredMcpToolCatalog, snapshotProviderRequestTools } from '../../runtime-core/tool-catalog.mjs';
+import {
+  finalizeProviderRequestTools,
+  providerNativeToolPrefixCount,
+  runWithProviderRequestToolsScope,
+} from '../../runtime-core/provider-request-tools.mjs';
+import { TOOL_SURFACE_MIGRATION_INTENT } from '../../runtime-core/tool-exposure.mjs';
+import { migrateToolExposureAtBoundary } from './tool-exposure-migration.mjs';
+import { fixedRequestOverhead, fixedRequestOverheadInputs, resolveWorkerCompactPolicy } from './compact-policy.mjs';
+import { toolSurfaceExceedsContextError } from './context-overflow.mjs';
+
+const isDynamicTool = (tool) =>
+  tool.deferLoading === true || tool.defer_loading === true || String(tool.name || '').startsWith('mcp__');
+const dynamicTools = (list) => list.slice(providerNativeToolPrefixCount(list)).filter(isDynamicTool);
+
+// Preserve the eager prefix of the frozen surface, but adopt additions, schema
+// updates and removals of deferred/MCP definitions between model requests.
+function adoptDynamicToolChanges(fixedSurface, candidateSendTools) {
+  if (!fixedSurface) return candidateSendTools;
+  const candidates = dynamicTools(candidateSendTools);
+  if (JSON.stringify(candidates) === JSON.stringify(dynamicTools(fixedSurface))) return fixedSurface;
+  const replacements = new Map(candidates.map((tool) => [tool.name, tool]));
+  const nativePrefixCount = providerNativeToolPrefixCount(fixedSurface);
+  const merged = fixedSurface.flatMap((tool, index) => {
+    if (index < nativePrefixCount || !isDynamicTool(tool)) return [tool];
+    const replacement = replacements.get(tool.name);
+    replacements.delete(tool.name);
+    return replacement ? [replacement] : [];
+  });
+  merged.push(...replacements.values());
+  return finalizeProviderRequestTools(merged, nativePrefixCount);
+}
+
+export async function prepareProviderRequest(state) {
+  const {
+    provider,
+    messages,
+    model,
+    baseSendTools,
+    sessionRef,
+    sessionId,
+    cwd,
+    opts,
+    signal,
+    crossTurnCalls,
+    loopUsageMetricsTurnId,
+    loopUsageMetricsEpoch,
+  } = state;
+  let { iterations, lastUsage, firstTurnUsage, providerState, reactiveOverflowRetryPending, fixedProviderToolSurface } =
+    state;
+  let providerStateCleared = false;
+  // A soft compact target may remain above an explicit trigger: never
+  // compact the same input twice before a provider attempt.
+  let compactAttempted = false;
+  let compactChanged;
+  let sendTools;
+  let requestToolScope;
+  // Fixed inputs of the last passing overhead verdict in this boundary.
+  let passedOverheadInputs;
+  // A session persisted with another tool exposure migrates here, once, at a
+  // boundary with no pending calls: new surface and fixed guidance, a fresh
+  // tool snapshot and provider state, and a tagged cache break.
+  if (migrateToolExposureAtBoundary(sessionRef, messages)) {
+    fixedProviderToolSurface = null;
+    providerState = undefined;
+    providerStateCleared = true;
+    delete sessionRef.pendingCacheBreakIntent;
+    opts.cacheBreakIntent = TOOL_SURFACE_MIGRATION_INTENT;
+  }
+  refreshDeferredMcpToolCatalog(sessionRef);
+  do {
+    // Provider-history normalization is part of the request boundary:
+    // repair first, then take exactly one immutable tool snapshot.
+    const messagesBeforeTranscriptRepair = messages.slice();
+    repairTranscriptBeforeProviderSend(messages, sessionId);
+    if (messagesArrayChanged(messagesBeforeTranscriptRepair, messages)) {
+      // Repair can drop a delivered result or replace it with a missing-body
+      // stub without compacting. Receipts belong to the old transcript;
+      // clear the shared map, not the still-valid cached result bodies.
+      crossTurnCalls?.clear();
+      if (!opts.cacheBreakIntent) opts.cacheBreakIntent = 'transcript_rebuild';
+    }
+    const candidateSendTools = snapshotProviderRequestTools({
+      provider: sessionRef?.provider || provider?.name,
+      tools: baseSendTools,
+      nativeTools: opts.nativeTools,
+      messages,
+      session: sessionRef,
+    });
+    fixedProviderToolSurface = adoptDynamicToolChanges(fixedProviderToolSurface, candidateSendTools);
+    sendTools = fixedProviderToolSurface;
+    requestToolScope = {
+      session: sessionRef,
+      provider: sessionRef?.provider || provider?.name,
+      messages,
+      requestTools: sendTools,
+      nativePrefixCount: providerNativeToolPrefixCount(sendTools),
+    };
+    // A request whose fixed overhead alone leaves no room for history fails
+    // here with an actionable error: no compaction could make it fit. A
+    // passing verdict holds while its fixed inputs (tool schemas, protected
+    // system context, headroom, boundary) are unchanged — a later pass whose
+    // compaction only removed history (and the provider reading with it) is
+    // not re-judged — but adopted MCP schema changes or a re-rooted system
+    // prompt are.
+    const overheadPolicy = resolveWorkerCompactPolicy(sessionRef, sendTools);
+    const overheadInputs = fixedRequestOverheadInputs(overheadPolicy, messages);
+    if (overheadInputs === null || overheadInputs !== passedOverheadInputs) {
+      const overhead = fixedRequestOverhead(overheadPolicy, messages, sendTools, sessionRef);
+      if (overhead) throw toolSurfaceExceedsContextError({ sessionId, sessionRef, model, overhead });
+      passedOverheadInputs = overheadInputs;
+    }
+    const pass = await runWithProviderRequestToolsScope(requestToolScope, () =>
+      runPreSendCompactPass({
+        provider,
+        messages,
+        model,
+        requestTools: sendTools,
+        sessionRef,
+        sessionId,
+        cwd,
+        opts,
+        signal,
+        iterations,
+        lastUsage,
+        firstTurnUsage,
+        providerState,
+        reactiveOverflowRetryPending,
+        crossTurnCalls,
+        loopUsageMetricsTurnId,
+        loopUsageMetricsEpoch,
+        skipProactiveCompact: compactAttempted,
+      })
+    );
+    ({ iterations, lastUsage, firstTurnUsage, providerState, reactiveOverflowRetryPending, compactChanged } = pass);
+    compactAttempted ||= compactChanged;
+    // Sticky: a pass that dropped providerState still invalidates it even
+    // when a later pass in the same boundary leaves it untouched.
+    if (pass.providerStateCleared) providerStateCleared = true;
+    // A changed transcript ends this request attempt. Repair the new
+    // history and establish one fresh post-compaction snapshot before
+    // sending.
+  } while (compactChanged);
+  return {
+    iterations,
+    lastUsage,
+    firstTurnUsage,
+    providerState,
+    providerStateCleared,
+    reactiveOverflowRetryPending,
+    fixedProviderToolSurface,
+    sendTools,
+    requestToolScope,
+  };
+}

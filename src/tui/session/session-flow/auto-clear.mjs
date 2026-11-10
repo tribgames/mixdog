@@ -1,0 +1,180 @@
+/**
+ * src/tui/session/session-flow/auto-clear.mjs - idle auto-clear: eligibility
+ * gate, time-bounded compaction, and the late-fulfillment sync that applies a
+ * cleared-session UI once the active turn settles.
+ */
+import { presentErrorText } from '../../../runtime/shared/err-text.mjs';
+import { idleAutoClearDue, sessionActivityTimestamp } from '../../../runtime/shared/idle-auto-clear-gate.mjs';
+import { archiveItemsForCompaction, compactionArchivedRows } from '../compaction-view.mjs';
+
+// Upper bound on the awaited idle compaction. Without a bound a stalled
+// compaction wedges autoClearRunning/commandBusy and suppresses input drain.
+// NOTE: this bounds how long the INPUT stays blocked (commandBusy), not the
+// compaction itself — a size-scaled summary call may exceed it, and the
+// abandoned promise keeps running and the late-fulfillment path
+// (autoClearInFlight / pendingClearedSessionUi) syncs the compacted session
+// when it settles. Do NOT raise this to cover compaction worst cases.
+const AUTO_CLEAR_COMPACT_TIMEOUT_MS = 60_000;
+const LATE_COMPLETION_NOTICE = 'auto-clear completed late; compacted conversation retained';
+
+export function createAutoClearOps(bag, { reset, kickDrain }) {
+  const {
+    runtime,
+    nextId,
+    flags,
+    pending,
+    getState,
+    set,
+    pushItem,
+    pushNotice,
+    autoClearState,
+    routeState,
+    syncContextStats,
+    replaceItems,
+  } = bag;
+
+  // Only an actual compaction resets the visible activity; an unchanged
+  // success keeps it. The compacted rows stay in view, archived above the
+  // divider. The model transcript always belongs to runtime.compact.
+  function applyAutoClearUi(result) {
+    if (result.changed === false) return false;
+    const kept = getState().items;
+    reset.resetStats();
+    reset.clearUiActivityBeforeContextSync({ keepTranscript: true });
+    syncContextStats({ allowEstimated: true, invalidateExact: true });
+    const { items } = archiveItemsForCompaction(kept, { id: nextId() }, null, {
+      archived: compactionArchivedRows(result),
+    });
+    set({
+      items: replaceItems(items, { preserveSpill: true }),
+      ...routeState(),
+      stats: { ...getState().stats },
+    });
+    return true;
+  }
+
+  // Flush a deferred cleared-session UI sync once the active turn has settled.
+  // Never forces busy=false mid-turn: bails while a turn is in flight.
+  function flushDeferredClearedSessionUi() {
+    if (!flags.pendingClearedSessionUi || getState().busy) return;
+    const { result, sessionId } = flags.pendingClearedSessionUi;
+    flags.pendingClearedSessionUi = null;
+    flags.autoClearInFlight = false;
+    if (runtime.session?.id !== sessionId) return;
+    if (applyAutoClearUi(result)) pushNotice(LATE_COMPLETION_NOTICE, 'info');
+  }
+
+  function onLateCompact(lateResult, sessionId) {
+    // The active session changed while the abandoned compaction ran: its
+    // result belongs to a session that is no longer shown.
+    if (runtime.session?.id !== sessionId) return;
+    if (getState().busy) {
+      // Do not wipe items/queued or force busy=false mid-turn.
+      flags.pendingClearedSessionUi = { result: lateResult, sessionId };
+    } else {
+      if (applyAutoClearUi(lateResult)) pushNotice(LATE_COMPLETION_NOTICE, 'info');
+    }
+  }
+
+  // Validate both rejected calls and error results before either normal or
+  // late completion can reset the UI. Never follow compact with clear:
+  // that would discard conversation/execution records the compactor kept.
+  async function compactWithinTimeout(compactTimeoutMs, sessionId) {
+    const compactPromise = runtime.compact({ requireReduction: true }).then((result) => {
+      if (!result) throw new Error('no active session');
+      if (result.error) throw new Error(result.error);
+      return result;
+    });
+    let timer = null;
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`compaction timed out after ${compactTimeoutMs}ms; auto-clear deferred to next idle`)),
+        compactTimeoutMs
+      );
+    });
+    try {
+      return await Promise.race([compactPromise, timeout]);
+    } catch (raceError) {
+      flags.autoClearInFlight = true;
+      compactPromise
+        .then(
+          (lateResult) => onLateCompact(lateResult, sessionId),
+          () => {}
+        )
+        .finally(() => {
+          if (!flags.pendingClearedSessionUi) flags.autoClearInFlight = false;
+        });
+      throw raceError;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  // `ignorePending`: a completion-wake drain has already dequeued its own
+  // batch, so other queued entries must not veto the idle check.
+  async function autoClearBeforeSubmit({ ignorePending = false } = {}) {
+    flushDeferredClearedSessionUi();
+    const cfg = autoClearState();
+    const now = Date.now();
+    const activityAt = sessionActivityTimestamp(runtime.session, flags.lastUserActivityAt);
+    const blocked =
+      getState().busy || (!ignorePending && pending.length > 0) || flags.autoClearRunning || flags.autoClearInFlight;
+    if (blocked || !idleAutoClearDue({ cfg, activityAt, at: now, runtime })) {
+      if (!activityAt) flags.lastUserActivityAt = now;
+      return false;
+    }
+    return performAutoClear();
+  }
+
+  // Idle cleanup retains the compactor's complete result, including rules-only
+  // results without a summary. Plain /clear remains a separate explicit wipe.
+  async function performAutoClear({ compactTimeoutMs = AUTO_CLEAR_COMPACT_TIMEOUT_MS } = {}) {
+    flags.autoClearRunning = true;
+    const sessionId = runtime.session?.id;
+    const startedAt = Date.now();
+    // commandBusy blocks concurrent session commands (resume/newSession/
+    // setModel) AND new submits for the duration of the async clear — the
+    // compact swaps the live session object, so racing commands could act on
+    // the wrong session.
+    set({
+      commandBusy: true,
+      commandStatus: { active: true, verb: 'Auto-clearing idle conversation', startedAt, mode: 'auto-clear' },
+    });
+    try {
+      // Give Ink one event-loop turn to paint the auto-clear status before the
+      // compact path starts doing synchronous session/transcript work.
+      // Without this, long idle clears can look like a frozen prompt followed by
+      // an already-complete status row.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      return applyAutoClearUi(await compactWithinTimeout(compactTimeoutMs, sessionId));
+    } catch (error) {
+      const message = presentErrorText(error, { surface: 'compact' });
+      pushItem({
+        kind: 'statusdone',
+        id: nextId(),
+        label: 'Auto-clear skipped',
+        detail: `conversation kept · ${message}`,
+      });
+      pushNotice(`auto-clear skipped: ${message}`, 'error');
+      return false;
+    } finally {
+      flags.lastUserActivityAt = Date.now();
+      flags.autoClearRunning = false;
+      set({ commandBusy: false, commandStatus: null });
+      kickDrain();
+    }
+  }
+
+  // Same eligibility as a user submit, run before a completion wake turn so a
+  // cold cache after a long idle is compacted first. Never throws: a skipped or
+  // failed auto-clear must still let the wake run.
+  async function autoClearBeforeWake() {
+    try {
+      return await autoClearBeforeSubmit({ ignorePending: true });
+    } catch {
+      return false;
+    }
+  }
+
+  return { autoClearBeforeSubmit, autoClearBeforeWake, performAutoClear, flushDeferredClearedSessionUi };
+}

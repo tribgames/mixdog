@@ -1,0 +1,22 @@
+// Lightweight preset table shared by config/registry without importing the
+// OpenAI SDK or compat runtime implementation.
+export const OPENAI_COMPAT_PRESETS = {
+  deepseek: {
+    baseURL: 'https://api.deepseek.com',
+    defaultModel: 'deepseek-v4-pro',
+  },
+  xai: {
+    baseURL: 'https://api.x.ai/v1',
+    defaultModel: 'grok-4.5',
+  },
+  openrouter: {
+    baseURL: 'https://openrouter.ai/api/v1',
+    defaultModel: 'openrouter/auto',
+    // OpenRouter documents cache_control on Chat content blocks.
+    chatCacheControl: true,
+    extraHeaders: {
+      'HTTP-Referer': 'https://github.com/tribgames/mixdog',
+      'X-OpenRouter-Title': 'mixdog',
+    },
+  },
+};

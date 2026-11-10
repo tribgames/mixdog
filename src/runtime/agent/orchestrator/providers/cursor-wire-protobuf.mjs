@@ -1,0 +1,708 @@
+import {
+  concatBytes,
+  createProtobufCodec,
+  protobufFields as fields,
+  mapOf as map,
+  repeated,
+} from './wire-protobuf-codec.mjs';
+
+// Only the fields read or written by the provider are described here.
+const SCHEMAS = {
+  ConversationStateStructure: fields([
+    ['rootPromptMessagesJson', 1, 'bytes', repeated],
+    ['tokenDetails', 5, 'ConversationTokenDetails'],
+    ['turns', 8, 'bytes', repeated],
+  ]),
+  ConversationTokenDetails: fields([
+    ['usedTokens', 1, 'uint'],
+    ['maxTokens', 2, 'uint'],
+  ]),
+  UserMessage: fields([
+    ['text', 1, 'string'],
+    ['messageId', 2, 'string'],
+    ['selectedContext', 3, 'SelectedContext'],
+  ]),
+  SelectedContext: fields([['selectedImages', 1, 'SelectedImage', repeated]]),
+  SelectedImage: fields([
+    ['uuid', 2, 'string'],
+    ['mimeType', 7, 'string'],
+    ['data', 8, 'bytes'],
+  ]),
+  UserMessageAction: fields([
+    ['userMessage', 1, 'UserMessage'],
+    ['requestContext', 2, 'RequestContext'],
+  ]),
+  ResumeAction: fields([['requestContext', 2, 'RequestContext']]),
+  ConversationAction: fields([
+    ['userMessageAction', 1, 'UserMessageAction'],
+    ['resumeAction', 2, 'ResumeAction'],
+  ]),
+  ThinkingDetails: fields([]),
+  ModelDetails: fields([
+    ['modelId', 1, 'string'],
+    ['thinkingDetails', 2, 'ThinkingDetails'],
+    ['displayModelId', 3, 'string'],
+    ['displayName', 4, 'string'],
+    ['displayNameShort', 5, 'string'],
+    ['aliases', 6, 'string', repeated],
+    ['maxMode', 7, 'bool'],
+  ]),
+  RequestedModel: fields([
+    ['modelId', 1, 'string'],
+    ['maxMode', 2, 'bool'],
+    ['parameters', 3, 'RequestedModelParameterValue', repeated],
+  ]),
+  RequestedModelParameterValue: fields([
+    ['id', 1, 'string'],
+    ['value', 2, 'string'],
+  ]),
+  McpToolDefinition: fields([
+    ['name', 1, 'string'],
+    ['description', 2, 'string'],
+    ['inputSchema', 3, 'bytes'],
+    ['providerIdentifier', 4, 'string'],
+    ['toolName', 5, 'string'],
+    ['inputSchemaJson', 6, 'string'],
+  ]),
+  McpTools: fields([['mcpTools', 1, 'McpToolDefinition', repeated]]),
+  McpInstructions: fields([
+    ['serverName', 1, 'string'],
+    ['instructions', 2, 'string'],
+  ]),
+  AgentRunRequest: fields([
+    ['conversationState', 1, 'raw'],
+    ['action', 2, 'ConversationAction'],
+    ['modelDetails', 3, 'ModelDetails'],
+    ['mcpTools', 4, 'McpTools'],
+    ['conversationId', 5, 'string'],
+    ['customSystemPrompt', 8, 'string'],
+    ['requestedModel', 9, 'RequestedModel'],
+  ]),
+  ClientHeartbeat: fields([]),
+  AgentClientMessage: fields([
+    ['runRequest', 1, 'AgentRunRequest'],
+    ['execClientMessage', 2, 'ExecClientMessage'],
+    ['kvClientMessage', 3, 'KvClientMessage'],
+    ['execClientControlMessage', 5, 'ExecClientControlMessage'],
+    ['interactionResponse', 6, 'InteractionResponse'],
+    ['clientHeartbeat', 7, 'ClientHeartbeat'],
+  ]),
+  TextDeltaUpdate: fields([['text', 1, 'string']]),
+  ToolCall: fields([
+    ['editToolCall', 12, 'NativeEditToolCall'],
+    ['mcpToolCall', 15, 'McpToolCall'],
+  ]),
+  NativeEditToolCall: fields([['result', 2, 'NativeEditResult']]),
+  NativeEditResult: fields([
+    ['success', 1, 'raw'],
+    ['fileNotFound', 2, 'raw'],
+    ['readPermissionDenied', 3, 'raw'],
+    ['writePermissionDenied', 4, 'raw'],
+    ['rejected', 6, 'raw'],
+    ['error', 7, 'raw'],
+  ]),
+  McpToolCall: fields([
+    ['args', 1, 'McpArgs'],
+    ['result', 2, 'McpResult'],
+    ['description', 3, 'string'],
+  ]),
+  ToolCallStartedUpdate: fields([
+    ['callId', 1, 'string'],
+    ['toolCall', 2, 'ToolCall'],
+    ['modelCallId', 3, 'string'],
+  ]),
+  ToolCallCompletedUpdate: fields([
+    ['callId', 1, 'string'],
+    ['toolCall', 2, 'ToolCall'],
+    ['modelCallId', 3, 'string'],
+  ]),
+  ToolCallDeltaUpdate: fields([
+    ['callId', 1, 'string'],
+    ['toolCallDelta', 2, 'raw'],
+    ['modelCallId', 3, 'string'],
+  ]),
+  PartialToolCallUpdate: fields([
+    ['callId', 1, 'string'],
+    ['toolCall', 2, 'ToolCall'],
+    ['argsTextDelta', 3, 'string'],
+    ['modelCallId', 4, 'string'],
+  ]),
+  ThinkingDeltaUpdate: fields([['text', 1, 'string']]),
+  ThinkingCompletedUpdate: fields([['thinkingDurationMs', 1, 'uint']]),
+  TokenDeltaUpdate: fields([['tokens', 1, 'int']]),
+  SummaryUpdate: fields([['summary', 1, 'string']]),
+  SummaryStartedUpdate: fields([]),
+  SummaryCompletedUpdate: fields([]),
+  ShellOutputDeltaUpdate: fields([['data', 1, 'string']]),
+  HeartbeatUpdate: fields([]),
+  TurnEndedUpdate: fields([]),
+  StepStartedUpdate: fields([]),
+  StepCompletedUpdate: fields([]),
+  InteractionUpdate: fields([
+    ['textDelta', 1, 'TextDeltaUpdate'],
+    ['toolCallStarted', 2, 'ToolCallStartedUpdate'],
+    ['toolCallCompleted', 3, 'ToolCallCompletedUpdate'],
+    ['thinkingDelta', 4, 'ThinkingDeltaUpdate'],
+    ['thinkingCompleted', 5, 'ThinkingCompletedUpdate'],
+    ['partialToolCall', 7, 'PartialToolCallUpdate'],
+    ['tokenDelta', 8, 'TokenDeltaUpdate'],
+    ['summary', 9, 'SummaryUpdate'],
+    ['summaryStarted', 10, 'SummaryStartedUpdate'],
+    ['summaryCompleted', 11, 'SummaryCompletedUpdate'],
+    ['shellOutputDelta', 12, 'ShellOutputDeltaUpdate'],
+    ['heartbeat', 13, 'HeartbeatUpdate'],
+    ['turnEnded', 14, 'TurnEndedUpdate'],
+    ['toolCallDelta', 15, 'ToolCallDeltaUpdate'],
+    ['stepStarted', 16, 'StepStartedUpdate'],
+    ['stepCompleted', 17, 'StepCompletedUpdate'],
+  ]),
+  InteractionQuery: fields([
+    ['id', 1, 'uint'],
+    ['webSearchRequestQuery', 2, 'raw'],
+    ['askQuestionInteractionQuery', 3, 'raw'],
+    ['switchModeRequestQuery', 4, 'raw'],
+    ['exaSearchRequestQuery', 5, 'raw'],
+    ['exaFetchRequestQuery', 6, 'raw'],
+    ['createPlanRequestQuery', 7, 'raw'],
+    ['setupVmEnvironmentArgs', 8, 'raw'],
+  ]),
+  InteractionRejected: fields([['reason', 1, 'string']]),
+  InteractionApproved: fields([]),
+  ApprovalInteractionResponse: fields([
+    ['approved', 1, 'InteractionApproved'],
+    ['rejected', 2, 'InteractionRejected'],
+  ]),
+  AskQuestionResult: fields([['rejected', 3, 'InteractionRejected']]),
+  AskQuestionInteractionResponse: fields([['result', 1, 'AskQuestionResult']]),
+  CreatePlanError: fields([['error', 1, 'string']]),
+  CreatePlanResult: fields([['error', 2, 'CreatePlanError']]),
+  CreatePlanRequestResponse: fields([['result', 1, 'CreatePlanResult']]),
+  SetupVmEnvironmentSuccess: fields([]),
+  SetupVmEnvironmentResult: fields([['success', 1, 'SetupVmEnvironmentSuccess']]),
+  InteractionResponse: fields([
+    ['id', 1, 'uint'],
+    ['webSearchRequestResponse', 2, 'ApprovalInteractionResponse'],
+    ['askQuestionInteractionResponse', 3, 'AskQuestionInteractionResponse'],
+    ['switchModeRequestResponse', 4, 'ApprovalInteractionResponse'],
+    ['exaSearchRequestResponse', 5, 'ApprovalInteractionResponse'],
+    ['exaFetchRequestResponse', 6, 'ApprovalInteractionResponse'],
+    ['createPlanRequestResponse', 7, 'CreatePlanRequestResponse'],
+    ['setupVmEnvironmentResult', 8, 'SetupVmEnvironmentResult'],
+    ['webFetchRequestResponse', 9, 'ApprovalInteractionResponse'],
+  ]),
+  ExecServerAbort: fields([['id', 1, 'uint']]),
+  ExecServerControlMessage: fields([['abort', 1, 'ExecServerAbort']]),
+  AgentServerMessage: fields([
+    ['interactionUpdate', 1, 'InteractionUpdate'],
+    ['execServerMessage', 2, 'ExecServerMessage'],
+    ['conversationCheckpointUpdate', 3, 'raw'],
+    ['kvServerMessage', 4, 'KvServerMessage'],
+    ['execServerControlMessage', 5, 'ExecServerControlMessage'],
+    ['interactionQuery', 7, 'InteractionQuery'],
+  ]),
+  GetUsableModelsResponse: fields([['models', 1, 'ModelDetails', repeated]]),
+  AvailableModelsRequest: fields([
+    ['includeLongContextModels', 2, 'bool'],
+    ['useModelParameters', 5, 'bool'],
+    ['includeHiddenModels', 6, 'bool'],
+    ['doNotUseMarkdown', 7, 'bool'],
+    ['variantsWillBeShownInExplodedList', 8, 'bool'],
+  ]),
+  AvailableModelsResponse: fields([
+    ['models', 2, 'AvailableModel', repeated],
+    ['useModelParameters', 11, 'bool'],
+  ]),
+  AvailableModel: fields([
+    ['name', 1, 'string'],
+    ['defaultOn', 2, 'bool'],
+    ['supportsAgent', 5, 'bool'],
+    ['tooltipData', 8, 'AvailableModelTooltip'],
+    ['supportsThinking', 9, 'bool'],
+    ['supportsImages', 10, 'bool'],
+    ['autoContextMaxTokens', 12, 'int'],
+    ['autoContextExtendedMaxTokens', 13, 'int'],
+    ['supportsMaxMode', 14, 'bool'],
+    ['contextTokenLimit', 15, 'int'],
+    ['contextTokenLimitForMaxMode', 16, 'int'],
+    ['clientDisplayName', 17, 'string'],
+    ['serverModelName', 18, 'string'],
+    ['supportsNonMaxMode', 19, 'bool'],
+    ['inputboxShortModelName', 24, 'string'],
+    ['parameterDefinitions', 29, 'ModelParameterDefinition', repeated],
+    ['variants', 30, 'ModelVariantConfig', repeated],
+    ['isHidden', 35, 'bool'],
+    ['legacySlugs', 36, 'string', repeated],
+    ['idAliases', 37, 'string', repeated],
+    ['tagline', 39, 'string'],
+    ['vendorName', 41, 'string'],
+  ]),
+  AvailableModelTooltip: fields([
+    ['primaryText', 1, 'string'],
+    ['secondaryText', 2, 'string'],
+    ['markdownContent', 7, 'string'],
+  ]),
+  ModelParameterDefinition: fields([
+    ['id', 1, 'string'],
+    ['name', 2, 'string'],
+    ['markdownTooltip', 3, 'string'],
+    ['parameterType', 4, 'ModelParameterType'],
+  ]),
+  ModelParameterType: fields([
+    ['booleanParameter', 1, 'BooleanParameterDefinition'],
+    ['enumParameter', 2, 'EnumParameterDefinition'],
+  ]),
+  BooleanParameterDefinition: fields([['values', 1, 'BooleanParameterValue', repeated]]),
+  BooleanParameterValue: fields([
+    ['value', 1, 'string'],
+    ['displayName', 2, 'string'],
+    ['blockedByAdminAllowlist', 6, 'bool'],
+  ]),
+  EnumParameterDefinition: fields([['values', 1, 'EnumParameterValue', repeated]]),
+  EnumParameterValue: fields([
+    ['value', 1, 'string'],
+    ['displayName', 2, 'string'],
+    ['blockedByAdminAllowlist', 4, 'bool'],
+    ['markdownTooltip', 5, 'string'],
+  ]),
+  ModelVariantConfig: fields([
+    ['parameterValues', 1, 'RequestedModelParameterValue', repeated],
+    ['displayName', 2, 'string'],
+    ['isMaxMode', 3, 'bool'],
+    ['isDefaultMaxConfig', 4, 'bool'],
+    ['isDefaultNonMaxConfig', 5, 'bool'],
+    ['displayNameOutsidePicker', 8, 'string'],
+    ['variantStringRepresentation', 9, 'string'],
+    ['legacySlug', 11, 'string'],
+  ]),
+  CursorPlanUsage: fields([
+    ['totalSpend', 1, 'int'],
+    ['includedSpend', 2, 'int'],
+    ['bonusSpend', 3, 'int'],
+    ['remaining', 4, 'int'],
+    ['limit', 5, 'int'],
+    ['bonusTooltip', 7, 'string'],
+    ['autoSpend', 8, 'int'],
+    ['apiSpend', 9, 'int'],
+    ['autoLimit', 10, 'int'],
+    ['apiLimit', 11, 'int'],
+    ['autoPercentUsed', 12, 'double'],
+    ['apiPercentUsed', 13, 'double'],
+    ['totalPercentUsed', 14, 'double'],
+  ]),
+  CursorSpendLimitUsage: fields([
+    ['totalSpend', 1, 'int'],
+    ['pooledLimit', 2, 'int'],
+    ['pooledUsed', 3, 'int'],
+    ['pooledRemaining', 4, 'int'],
+    ['individualLimit', 5, 'int'],
+    ['individualUsed', 6, 'int'],
+    ['individualRemaining', 7, 'int'],
+    ['limitType', 8, 'string'],
+    ['overallLimit', 9, 'int'],
+    ['overallUsed', 10, 'int'],
+    ['overallRemaining', 11, 'int'],
+  ]),
+  CursorCurrentPeriodUsage: fields([
+    ['billingCycleStart', 1, 'int'],
+    ['billingCycleEnd', 2, 'int'],
+    ['planUsage', 3, 'CursorPlanUsage'],
+    ['spendLimitUsage', 4, 'CursorSpendLimitUsage'],
+    ['displayThreshold', 5, 'int'],
+    ['enabled', 6, 'bool'],
+    ['displayMessage', 7, 'string'],
+    ['autoModelSelectedDisplayMessage', 11, 'string'],
+    ['namedModelSelectedDisplayMessage', 12, 'string'],
+    ['autoBucketModels', 13, 'string', repeated],
+  ]),
+  CursorPlanInfo: fields([
+    ['planName', 1, 'string'],
+    ['includedAmountCents', 2, 'int'],
+    ['price', 3, 'string'],
+    ['billingCycleEnd', 4, 'int'],
+    ['planOwner', 5, 'int'],
+  ]),
+  CursorPlanInfoResponse: fields([['planInfo', 1, 'CursorPlanInfo']]),
+  ShellArgs: fields([
+    ['command', 1, 'string'],
+    ['workingDirectory', 2, 'string'],
+    ['timeout', 3, 'int'],
+    ['toolCallId', 4, 'string'],
+  ]),
+  WriteArgs: fields([
+    ['path', 1, 'string'],
+    ['fileText', 2, 'string'],
+    ['toolCallId', 3, 'string'],
+    ['fileBytes', 5, 'bytes'],
+  ]),
+  DeleteArgs: fields([
+    ['path', 1, 'string'],
+    ['toolCallId', 2, 'string'],
+  ]),
+  GrepArgs: fields([
+    ['pattern', 1, 'string'],
+    ['path', 2, 'string'],
+    ['glob', 3, 'string'],
+    ['outputMode', 4, 'string'],
+    ['headLimit', 10, 'int'],
+    ['multiline', 11, 'bool'],
+    ['toolCallId', 14, 'string'],
+  ]),
+  ReadArgs: fields([
+    ['path', 1, 'string'],
+    ['toolCallId', 2, 'string'],
+    ['offset', 4, 'int'],
+    ['limit', 5, 'uint'],
+  ]),
+  LsArgs: fields([
+    ['path', 1, 'string'],
+    ['toolCallId', 3, 'string'],
+  ]),
+  DiagnosticsArgs: fields([
+    ['path', 1, 'string'],
+    ['toolCallId', 2, 'string'],
+  ]),
+  RequestContextArgs: fields([]),
+  McpArgs: fields([
+    ['name', 1, 'string'],
+    ['args', 2, map('string', 'bytes')],
+    ['toolCallId', 3, 'string'],
+    ['providerIdentifier', 4, 'string'],
+    ['toolName', 5, 'string'],
+  ]),
+  BackgroundShellSpawnArgs: fields([
+    ['command', 1, 'string'],
+    ['workingDirectory', 2, 'string'],
+    ['toolCallId', 3, 'string'],
+  ]),
+  FetchArgs: fields([
+    ['url', 1, 'string'],
+    ['toolCallId', 2, 'string'],
+  ]),
+  WriteShellStdinArgs: fields([
+    ['shellId', 1, 'uint'],
+    ['chars', 2, 'string'],
+  ]),
+  ExecServerMessage: fields([
+    ['id', 1, 'uint'],
+    ['shellArgs', 2, 'ShellArgs'],
+    ['writeArgs', 3, 'WriteArgs'],
+    ['deleteArgs', 4, 'DeleteArgs'],
+    ['grepArgs', 5, 'GrepArgs'],
+    ['readArgs', 7, 'ReadArgs'],
+    ['lsArgs', 8, 'LsArgs'],
+    ['diagnosticsArgs', 9, 'DiagnosticsArgs'],
+    ['requestContextArgs', 10, 'RequestContextArgs'],
+    ['mcpArgs', 11, 'McpArgs'],
+    ['shellStreamArgs', 14, 'ShellArgs'],
+    ['execId', 15, 'string'],
+    ['backgroundShellSpawnArgs', 16, 'BackgroundShellSpawnArgs'],
+    ['listMcpResourcesExecArgs', 17, 'raw'],
+    ['readMcpResourceExecArgs', 18, 'raw'],
+    ['fetchArgs', 20, 'FetchArgs'],
+    ['recordScreenArgs', 21, 'raw'],
+    ['computerUseArgs', 22, 'raw'],
+    ['writeShellStdinArgs', 23, 'WriteShellStdinArgs'],
+  ]),
+  RequestContext: fields([
+    ['tools', 7, 'McpToolDefinition', repeated],
+    ['mcpInstructions', 14, 'McpInstructions', repeated],
+    ['cloudRule', 16, 'string'],
+    ['fileContents', 20, map('string', 'string')],
+  ]),
+  RequestContextSuccess: fields([['requestContext', 1, 'RequestContext']]),
+  RequestContextResult: fields([['success', 1, 'RequestContextSuccess']]),
+  McpTextContent: fields([['text', 1, 'string']]),
+  McpImageContent: fields([
+    ['data', 1, 'bytes'],
+    ['mimeType', 2, 'string'],
+  ]),
+  McpToolResultContentItem: fields([
+    ['text', 1, 'McpTextContent'],
+    ['image', 2, 'McpImageContent'],
+  ]),
+  McpSuccess: fields([
+    ['content', 1, 'McpToolResultContentItem', repeated],
+    ['isError', 2, 'bool'],
+  ]),
+  McpError: fields([['error', 1, 'string']]),
+  McpResult: fields([
+    ['success', 1, 'McpSuccess'],
+    ['error', 2, 'McpError'],
+  ]),
+  ReadSuccess: fields([
+    ['path', 1, 'string'],
+    ['content', 2, 'string'],
+    ['totalLines', 3, 'int'],
+    ['fileSize', 4, 'int'],
+    ['truncated', 6, 'bool'],
+    ['rangeApplied', 8, 'bool'],
+  ]),
+  ReadRejected: fields([
+    ['path', 1, 'string'],
+    ['reason', 2, 'string'],
+  ]),
+  ReadResult: fields([
+    ['success', 1, 'ReadSuccess'],
+    ['rejected', 3, 'ReadRejected'],
+    ['fileNotFound', 4, 'ReadFileNotFound'],
+  ]),
+  ReadFileNotFound: fields([['path', 1, 'string']]),
+  WriteSuccess: fields([
+    ['path', 1, 'string'],
+    ['linesCreated', 2, 'int'],
+    ['fileSize', 3, 'int'],
+  ]),
+  WriteRejected: fields([
+    ['path', 1, 'string'],
+    ['reason', 2, 'string'],
+  ]),
+  WriteError: fields([
+    ['path', 1, 'string'],
+    ['error', 2, 'string'],
+  ]),
+  WriteResult: fields([
+    ['success', 1, 'WriteSuccess'],
+    ['error', 5, 'WriteError'],
+    ['rejected', 6, 'WriteRejected'],
+  ]),
+  DeleteRejected: fields([
+    ['path', 1, 'string'],
+    ['reason', 2, 'string'],
+  ]),
+  DeleteResult: fields([['rejected', 6, 'DeleteRejected']]),
+  FetchSuccess: fields([
+    ['url', 1, 'string'],
+    ['content', 2, 'string'],
+    ['statusCode', 3, 'int'],
+    ['contentType', 4, 'string'],
+  ]),
+  FetchError: fields([
+    ['url', 1, 'string'],
+    ['error', 2, 'string'],
+  ]),
+  FetchResult: fields([
+    ['success', 1, 'FetchSuccess'],
+    ['error', 2, 'FetchError'],
+  ]),
+  ShellSuccess: fields([
+    ['command', 1, 'string'],
+    ['workingDirectory', 2, 'string'],
+    ['exitCode', 3, 'int'],
+    ['signal', 4, 'string'],
+    ['stdout', 5, 'string'],
+    ['stderr', 6, 'string'],
+  ]),
+  ShellRejected: fields([
+    ['command', 1, 'string'],
+    ['workingDirectory', 2, 'string'],
+    ['reason', 3, 'string'],
+    ['isReadonly', 4, 'bool'],
+  ]),
+  ShellResult: fields([
+    ['success', 1, 'ShellSuccess'],
+    ['rejected', 4, 'ShellRejected'],
+  ]),
+  ShellStreamStdout: fields([['data', 1, 'string']]),
+  ShellStreamExit: fields([['code', 1, 'uint']]),
+  ShellStreamStart: fields([]),
+  ShellStream: fields([
+    ['stdout', 1, 'ShellStreamStdout'],
+    ['exit', 3, 'ShellStreamExit'],
+    ['start', 4, 'ShellStreamStart'],
+  ]),
+  LsDirectoryTreeNodeFile: fields([['name', 1, 'string']]),
+  LsDirectoryTreeNode: fields([
+    ['absPath', 1, 'string'],
+    ['childrenDirs', 2, 'LsDirectoryTreeNode', repeated],
+    ['childrenFiles', 3, 'LsDirectoryTreeNodeFile', repeated],
+    ['childrenWereProcessed', 4, 'bool'],
+    ['fullSubtreeExtensionCounts', 5, map('string', 'int')],
+    ['numFiles', 6, 'int'],
+  ]),
+  LsSuccess: fields([['directoryTreeRoot', 1, 'LsDirectoryTreeNode']]),
+  LsRejected: fields([
+    ['path', 1, 'string'],
+    ['reason', 2, 'string'],
+  ]),
+  LsResult: fields([
+    ['success', 1, 'LsSuccess'],
+    ['rejected', 3, 'LsRejected'],
+  ]),
+  GrepFileCount: fields([
+    ['file', 1, 'string'],
+    ['count', 2, 'int'],
+  ]),
+  GrepCountResult: fields([
+    ['counts', 1, 'GrepFileCount', repeated],
+    ['totalFiles', 2, 'int'],
+    ['totalMatches', 3, 'int'],
+    ['clientTruncated', 4, 'bool'],
+    ['ripgrepTruncated', 5, 'bool'],
+  ]),
+  GrepFilesResult: fields([
+    ['files', 1, 'string', repeated],
+    ['totalFiles', 2, 'int'],
+    ['clientTruncated', 3, 'bool'],
+    ['ripgrepTruncated', 4, 'bool'],
+  ]),
+  GrepContentMatch: fields([
+    ['lineNumber', 1, 'int'],
+    ['content', 2, 'string'],
+    ['contentTruncated', 3, 'bool'],
+    ['isContextLine', 4, 'bool'],
+  ]),
+  GrepFileMatch: fields([
+    ['file', 1, 'string'],
+    ['matches', 2, 'GrepContentMatch', repeated],
+  ]),
+  GrepContentResult: fields([
+    ['matches', 1, 'GrepFileMatch', repeated],
+    ['totalLines', 2, 'int'],
+    ['totalMatchedLines', 3, 'int'],
+    ['clientTruncated', 4, 'bool'],
+    ['ripgrepTruncated', 5, 'bool'],
+  ]),
+  GrepUnionResult: fields([
+    ['count', 1, 'GrepCountResult'],
+    ['files', 2, 'GrepFilesResult'],
+    ['content', 3, 'GrepContentResult'],
+  ]),
+  GrepSuccess: fields([
+    ['pattern', 1, 'string'],
+    ['path', 2, 'string'],
+    ['outputMode', 3, 'string'],
+    ['workspaceResults', 4, map('string', 'GrepUnionResult')],
+  ]),
+  GrepError: fields([['error', 1, 'string']]),
+  GrepResult: fields([
+    ['success', 1, 'GrepSuccess'],
+    ['error', 2, 'GrepError'],
+  ]),
+  DiagnosticsResult: fields([]),
+  BackgroundShellSpawnResult: fields([['rejected', 3, 'ShellRejected']]),
+  WriteShellStdinError: fields([['error', 1, 'string']]),
+  WriteShellStdinResult: fields([['error', 2, 'WriteShellStdinError']]),
+  ExecClientMessage: fields([
+    ['id', 1, 'uint'],
+    ['shellResult', 2, 'ShellResult'],
+    ['writeResult', 3, 'WriteResult'],
+    ['deleteResult', 4, 'DeleteResult'],
+    ['grepResult', 5, 'GrepResult'],
+    ['readResult', 7, 'ReadResult'],
+    ['lsResult', 8, 'LsResult'],
+    ['diagnosticsResult', 9, 'DiagnosticsResult'],
+    ['requestContextResult', 10, 'RequestContextResult'],
+    ['mcpResult', 11, 'McpResult'],
+    ['shellStream', 14, 'ShellStream'],
+    ['execId', 15, 'string'],
+    ['backgroundShellSpawnResult', 16, 'BackgroundShellSpawnResult'],
+    ['fetchResult', 20, 'FetchResult'],
+    ['writeShellStdinResult', 23, 'WriteShellStdinResult'],
+  ]),
+  ExecClientStreamClose: fields([['id', 1, 'uint']]),
+  ExecClientThrow: fields([
+    ['id', 1, 'uint'],
+    ['error', 2, 'string'],
+    ['stackTrace', 3, 'string'],
+  ]),
+  ExecClientHeartbeat: fields([['id', 1, 'uint']]),
+  ExecClientControlMessage: fields([
+    ['streamClose', 1, 'ExecClientStreamClose'],
+    ['throw', 2, 'ExecClientThrow'],
+    ['heartbeat', 3, 'ExecClientHeartbeat'],
+  ]),
+  GetBlobArgs: fields([['blobId', 1, 'bytes']]),
+  SetBlobArgs: fields([
+    ['blobId', 1, 'bytes'],
+    ['blobData', 2, 'bytes'],
+  ]),
+  GetBlobResult: fields([['blobData', 1, 'bytes']]),
+  SetBlobResult: fields([]),
+  KvServerMessage: fields([
+    ['id', 1, 'uint'],
+    ['getBlobArgs', 2, 'GetBlobArgs'],
+    ['setBlobArgs', 3, 'SetBlobArgs'],
+  ]),
+  KvClientMessage: fields([
+    ['id', 1, 'uint'],
+    ['getBlobResult', 2, 'GetBlobResult'],
+    ['setBlobResult', 3, 'SetBlobResult'],
+  ]),
+  JsonValue: fields([
+    ['nullValue', 1, 'int'],
+    ['numberValue', 2, 'double'],
+    ['stringValue', 3, 'string', { presence: true }],
+    ['boolValue', 4, 'bool'],
+    ['structValue', 5, 'JsonStruct'],
+    ['listValue', 6, 'JsonList'],
+  ]),
+  JsonStruct: fields([['fields', 1, map('string', 'JsonValue')]]),
+  JsonList: fields([['values', 1, 'JsonValue', repeated]]),
+};
+
+const codec = createProtobufCodec(SCHEMAS, { label: 'Cursor protobuf' });
+const { encodeField, ProtoReader } = codec;
+
+export const { encodeMessage, decodeMessage } = codec;
+
+export function rewriteConversationState(checkpoint, rootPromptMessagesJson, turns = []) {
+  const preserved = [];
+  if (checkpoint?.length) {
+    const reader = new ProtoReader(checkpoint);
+    while (!reader.done) {
+      const start = reader.offset;
+      const tag = reader.varint();
+      const no = Number(tag >> 3n);
+      reader.skip(Number(tag & 7n));
+      // 1/8 carry the transcript this call replaces, and 5 (tokenDetails) is
+      // the server's token accounting FOR that replaced transcript. Cursor
+      // reports no prompt tokens, so its checkpoint occupancy is the only
+      // context reading we get — replaying a stale one makes a compacted
+      // conversation still measure as its pre-compaction size and re-triggers
+      // compaction on the very next turn.
+      if (no !== 1 && no !== 5 && no !== 8) preserved.push(checkpoint.subarray(start, reader.offset));
+    }
+  }
+  const replacement = [
+    ...rootPromptMessagesJson.map((value) => encodeField(1, 'bytes', value)),
+    ...turns.map((value) => encodeField(8, 'bytes', value)),
+  ];
+  return concatBytes([...preserved, ...replacement]);
+}
+
+function jsonToProtoValue(value) {
+  if (value === null) return { nullValue: 0 };
+  if (Array.isArray(value)) return { listValue: { values: value.map(jsonToProtoValue) } };
+  if (typeof value === 'object') {
+    return {
+      structValue: {
+        fields: Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, jsonToProtoValue(entry)])),
+      },
+    };
+  }
+  if (typeof value === 'boolean') return { boolValue: value };
+  if (typeof value === 'number') return { numberValue: value };
+  return { stringValue: String(value) };
+}
+
+function protoValueToJson(value) {
+  if (Object.hasOwn(value, 'nullValue')) return null;
+  if (Object.hasOwn(value, 'numberValue')) return value.numberValue;
+  if (Object.hasOwn(value, 'stringValue')) return value.stringValue;
+  if (Object.hasOwn(value, 'boolValue')) return value.boolValue;
+  if (value.structValue) {
+    return Object.fromEntries(
+      Object.entries(value.structValue.fields || {}).map(([key, entry]) => [key, protoValueToJson(entry)])
+    );
+  }
+  if (value.listValue) return (value.listValue.values || []).map(protoValueToJson);
+  return null;
+}
+
+export function encodeJsonValue(value) {
+  return encodeMessage('JsonValue', jsonToProtoValue(value));
+}
+
+export function decodeJsonValue(bytes) {
+  return protoValueToJson(decodeMessage('JsonValue', bytes));
+}

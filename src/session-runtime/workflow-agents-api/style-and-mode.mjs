@@ -1,0 +1,74 @@
+import { findOutputStyle } from '../output-styles.mjs';
+import { ORCHESTRATION_MODES, configuredOrchestrationMode } from '../../runtime/shared/orchestration.mjs';
+import { configWithOutputStyle } from '../config-lifecycle/config-writers.mjs';
+
+// Output style + orchestration mode: global configuration for future
+// turns/sessions, never a reason to replace an addressed session.
+export function createStyleAndModeApi(deps) {
+  const {
+    getConfig,
+    getSession,
+    adoptConfig,
+    saveConfigAndAdopt,
+    displayConfig,
+    getOutputStyleStatusCached,
+    seedOutputStyleStatusCache,
+    scheduleOutputStyleSave,
+    invalidateContextStatusCache,
+  } = deps;
+
+  async function setOutputStyle(value) {
+    const before = getOutputStyleStatusCached({ fresh: true });
+    const selected = findOutputStyle(value, before.styles);
+    if (!selected) {
+      const names = before.styles.map((style) => style.label || style.id).join(', ') || 'Default';
+      throw new Error(`output style must be one of ${names}`);
+    }
+    // Adopt in-memory immediately so same-tick readers see the new style;
+    // persist off the key-handler tick via the flushOutputStyleSave debounce.
+    adoptConfig(configWithOutputStyle(getConfig(), selected.id));
+    scheduleOutputStyleSave(selected.id);
+    const freshStatus = { configured: selected.id, current: selected, styles: before.styles };
+    seedOutputStyleStatusCache(freshStatus);
+    // An empty session is rebuilt at its next turn start; a conversation is
+    // told then and folds the style in at its next cold point.
+    const appliedToCurrentSession = deps.settingsReachCurrentSession?.() ?? !getSession()?.id;
+    invalidateContextStatusCache();
+    return { ...freshStatus, appliedToCurrentSession };
+  }
+
+  // `{ scope: 'session' }` (the composer's selector in a session), like
+  // setWorkflow: a session with a conversation switches alone
+  // (switchSessionOrchestrationMode; deferred to its next turn while one
+  // runs) and the configured mode — the default for new sessions — stays.
+  // Otherwise the choice becomes the configured mode and an empty session
+  // picks it up in place.
+  async function setOrchestrationMode(mode, options = {}) {
+    if (!ORCHESTRATION_MODES.includes(mode)) {
+      throw new Error(`orchestration mode must be one of ${ORCHESTRATION_MODES.join(', ')}`);
+    }
+    if (options?.scope === 'session') {
+      const switched = await deps.switchSessionOrchestrationMode?.(mode);
+      if (switched) {
+        invalidateContextStatusCache();
+        return switched;
+      }
+    }
+    saveConfigAndAdopt({ ...getConfig(), orchestrationMode: mode });
+    // An empty session takes it at its next turn start (reconcileTurnSettings).
+    invalidateContextStatusCache();
+    return { mode, appliedToCurrentSession: deps.settingsReachCurrentSession?.() !== false };
+  }
+
+  return {
+    getOutputStyle: () => getOutputStyleStatusCached(),
+    listOutputStyles: () => getOutputStyleStatusCached(),
+    setOutputStyle,
+    getOrchestrationMode: () => configuredOrchestrationMode(displayConfig()),
+    // The default new sessions inherit. The runtime facade's own
+    // getOrchestrationMode answers for the ACTIVE session when one exists, so a
+    // New Task composer reads this one: it never depends on which session is open.
+    getConfiguredOrchestrationMode: () => configuredOrchestrationMode(displayConfig()),
+    setOrchestrationMode,
+  };
+}

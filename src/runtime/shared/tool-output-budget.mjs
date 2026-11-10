@@ -1,0 +1,2 @@
+export const TOOL_OUTPUT_PAGE_BYTES = 8 * 1024;
+export const TOOL_OUTPUT_TAIL_BYTES = 12 * 1024;

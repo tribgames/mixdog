@@ -1,0 +1,268 @@
+/**
+ * Media generation jobs.
+ *
+ * Image lanes answer in one request, video lanes submit + poll for minutes, so
+ * both run as background jobs with a polled snapshot instead of a blocking
+ * call. The desktop reads snapshots over the normal capability bridge; nothing
+ * here streams, which keeps a long video job independent of window lifetime.
+ */
+import { randomUUID } from 'node:crypto';
+import { MAX_GENERATED_MEDIA_BYTES } from './download.mjs';
+import { mediaError, mediaLaneAccountProvider, resolveMediaRequest } from './lanes.mjs';
+import { withProviderAccount } from '../shared/provider-auth-binding.mjs';
+import { saveMediaAsset } from './store.mjs';
+import { setMediaDefault } from './defaults.mjs';
+import { recordMediaUsage } from './media-usage.mjs';
+
+const JOBS = new Map();
+// Finished jobs stay readable for a while so a slow poller still sees the
+// terminal state, then drop out to bound memory.
+const TERMINAL_TTL_MS = 10 * 60_000;
+const MAX_PROMPT_CHARS = 8_000;
+// Video lanes hold an upstream slot for minutes each. Without a ceiling a
+// caller can start unbounded concurrent generations, each pinning provider
+// quota and a poll loop for its whole budget.
+const MAX_ACTIVE_JOBS = Math.max(1, Number(process.env.MIXDOG_MEDIA_MAX_ACTIVE_JOBS) || 4);
+
+function snapshot(job) {
+  return {
+    id: job.id,
+    status: job.status,
+    kind: job.kind,
+    lane: job.lane,
+    model: job.model,
+    prompt: job.prompt,
+    options: job.options,
+    boardId: job.boardId,
+    progress: job.progress,
+    assetId: job.assetId,
+    error: job.error,
+    errorCode: job.errorCode,
+    startedAt: job.startedAt,
+    endedAt: job.endedAt,
+  };
+}
+
+function sweep() {
+  const now = Date.now();
+  for (const [id, job] of JOBS) {
+    if (job.endedAt && now - job.endedAt > TERMINAL_TTL_MS) JOBS.delete(id);
+  }
+}
+
+async function runAdapter({ lane, kind, model, requestModel, prompt, options, references, signal, onProgress }) {
+  if (lane.id === 'grok-oauth' || lane.id === 'xai') {
+    const adapter = await import('./adapters/xai-media.mjs');
+    return kind === 'video'
+      ? await adapter.generateVideo({ lane: lane.id, model, prompt, options, references, signal, onProgress })
+      : await adapter.generateImage({ lane: lane.id, model, prompt, options, references, signal });
+  }
+  if (lane.id === 'openai-oauth') {
+    const adapter = await import('./adapters/codex-image.mjs');
+    return await adapter.generateImage({ model: requestModel || model, prompt, options, references, signal });
+  }
+  if (lane.id === 'openrouter' || lane.id === 'nano-gpt') {
+    const adapter = await import('./adapters/image-api.mjs');
+    return await adapter.generateImage({ lane: lane.id, model, prompt, options, references, signal });
+  }
+  if (lane.id === 'antigravity-oauth') {
+    const adapter = await import('./adapters/antigravity-image.mjs');
+    return await adapter.generateImage({ model, prompt, options, references, signal });
+  }
+  if (lane.id === 'gemini') {
+    if (kind === 'video') {
+      const adapter = await import('./adapters/gemini-video.mjs');
+      return await adapter.generateVideo({ model, prompt, options, references, signal, onProgress });
+    }
+    const adapter = await import('./adapters/gemini-image.mjs');
+    return await adapter.generateImage({ model, prompt, options, references, signal });
+  }
+  throw mediaError(`lane "${lane.id}" has no adapter`, 'MEDIA_LANE_UNKNOWN');
+}
+
+/**
+ * Validate + start one generation. Returns the initial snapshot immediately;
+ * the caller polls getMediaJob for progress and the finished asset id.
+ * `account` runs the whole job (catalog check, credentials, adapter) as that
+ * connected account of the lane's provider, whatever the chat is using; an
+ * account that cannot serve the call fails it, never another account.
+ */
+export async function startMediaJob(input = {}) {
+  const account = String(input?.account || '').trim();
+  const provider = account ? mediaLaneAccountProvider(input.lane) : '';
+  return provider ? withProviderAccount(provider, account, () => beginMediaJob(input)) : beginMediaJob(input);
+}
+
+async function beginMediaJob({
+  lane: laneId,
+  kind,
+  model,
+  prompt,
+  options = {},
+  references = [],
+  sessionId = '',
+  sourceType = '',
+  boardId = '',
+} = {}) {
+  const text = String(prompt || '').trim();
+  if (!text) throw mediaError('prompt is required', 'MEDIA_PROMPT_REQUIRED');
+  if (text.length > MAX_PROMPT_CHARS) throw mediaError('prompt is too long', 'MEDIA_PROMPT_TOO_LONG');
+  const resolved = await resolveMediaRequest({ lane: laneId, kind, model });
+  // Reference images: the MODEL publishes its own cap (Veo takes one start
+  // frame, Grok ref2v takes seven), so the bound follows the resolved model.
+  const modelEntry = resolved.spec.models.find((entry) => entry.id === resolved.model);
+  const maxRefs =
+    Number(modelEntry?.controls?.maxReferences ?? resolved.spec.controls?.maxReferences ?? 0) ||
+    (resolved.kind === 'video' ? 7 : 5);
+  const refs = (Array.isArray(references) ? references : [])
+    .filter((ref) => typeof ref?.base64 === 'string' && ref.base64.length > 0)
+    .slice(0, maxRefs)
+    .map((ref) => ({ base64: ref.base64, mime: String(ref.mime || 'image/png') }));
+  sweep();
+  let active = 0;
+  for (const entry of JOBS.values()) if (entry.status === 'running') active += 1;
+  if (active >= MAX_ACTIVE_JOBS) {
+    throw mediaError(
+      `too many media generations are already running (${active}/${MAX_ACTIVE_JOBS})`,
+      'MEDIA_TOO_MANY_JOBS',
+      429
+    );
+  }
+
+  // Every started generation — Studio or tool — becomes the remembered default
+  // for its kind, so a later tool call that omits lane/model follows the user.
+  // Remembering is a convenience: a full disk never blocks the generation.
+  try {
+    setMediaDefault({ kind: resolved.kind, lane: resolved.lane.id, model: resolved.model });
+  } catch {}
+
+  const controller = new AbortController();
+  const job = {
+    id: randomUUID(),
+    status: 'running',
+    kind: resolved.kind,
+    lane: resolved.lane.id,
+    model: resolved.model,
+    prompt: text,
+    options: { ...options },
+    // The Studio board the result joins when it lands ('' = none).
+    boardId: typeof boardId === 'string' ? boardId.slice(0, 64) : '',
+    progress: 0,
+    assetId: null,
+    error: null,
+    errorCode: null,
+    startedAt: Date.now(),
+    endedAt: null,
+    controller,
+  };
+  JOBS.set(job.id, job);
+  void runJob(job, resolved, {
+    requestModel: modelEntry?.requestModel,
+    options,
+    references: refs,
+    sessionId,
+    sourceType,
+  });
+  return snapshot(job);
+}
+
+/** Drive one started job to a terminal state; never rejects. */
+async function runJob(job, resolved, { requestModel, options, references, sessionId, sourceType }) {
+  const { controller } = job;
+  // One ledger row per generation. The ChatGPT lane bills the orchestrator
+  // model that ran the hosted tool, not the "auto" image route.
+  const record = (usage) =>
+    recordMediaUsage({
+      lane: job.lane,
+      model: job.model,
+      pricingModel: job.lane === 'openai-oauth' ? requestModel : undefined,
+      usage,
+      sessionId,
+      sourceType,
+    });
+  try {
+    const result = await runAdapter({
+      lane: resolved.lane,
+      kind: resolved.kind,
+      model: resolved.model,
+      requestModel,
+      prompt: job.prompt,
+      options,
+      references,
+      signal: controller.signal,
+      onProgress: (value) => {
+        const raw = Number(value);
+        if (!Number.isFinite(raw)) return;
+        // Lanes report either a 0-1 fraction or a percentage, and a poll can
+        // come back stale — normalize and never let the rail walk backwards.
+        const next = Math.round(Math.max(0, Math.min(100, raw > 1 ? raw : raw * 100)));
+        if (next > job.progress) job.progress = next;
+      },
+    });
+    // Billed once the provider returned a result, whatever happens to the bytes next.
+    await record(result?.usage);
+    if (!Buffer.isBuffer(result?.bytes) || !result.bytes.length || result.bytes.length > MAX_GENERATED_MEDIA_BYTES) {
+      throw mediaError('generated media exceeds the media size limit', 'MEDIA_RESULT_TOO_LARGE', 502);
+    }
+    const asset = saveMediaAsset({
+      kind: resolved.kind,
+      lane: resolved.lane.id,
+      model: resolved.model,
+      prompt: job.prompt,
+      options: job.options,
+      mime: result.mime,
+      bytes: result.bytes,
+      meta: {
+        ...(job.boardId ? { boardId: job.boardId } : {}),
+        ...(result.revisedPrompt ? { revisedPrompt: result.revisedPrompt } : {}),
+        ...(result.durationSeconds ? { durationSeconds: result.durationSeconds } : {}),
+      },
+    });
+    job.assetId = asset.id;
+    job.progress = 100;
+    job.status = 'done';
+  } catch (err) {
+    const canceled = controller.signal.aborted || err?.code === 'MEDIA_CANCELED' || err?.name === 'AbortError';
+    // A failure is recorded only when the provider reported usage for it.
+    if (err?.usage) await record(err.usage);
+    job.status = canceled ? 'canceled' : 'failed';
+    job.error = canceled ? 'canceled' : String(err?.message || err).slice(0, 500);
+    job.errorCode = err?.code || null;
+    // The job snapshot is the ONLY record of a failure, and it is swept
+    // once its TTL passes. Print the reason so a run that died upstream
+    // stays diagnosable after its tile is gone.
+    if (!canceled) {
+      try {
+        console.error(
+          `[media] job failed lane=${job.lane} model=${job.model} ` +
+            `kind=${job.kind} code=${job.errorCode || 'none'}: ${job.error}`
+        );
+      } catch {
+        /* logging must never mask the job failure */
+      }
+    }
+  } finally {
+    job.endedAt = Date.now();
+  }
+}
+
+export function getMediaJob(id) {
+  const job = JOBS.get(String(id || ''));
+  return job ? snapshot(job) : null;
+}
+
+export function listMediaJobs() {
+  sweep();
+  return [...JOBS.values()].sort((a, b) => b.startedAt - a.startedAt).map(snapshot);
+}
+
+export function cancelMediaJob(id) {
+  const job = JOBS.get(String(id || ''));
+  if (!job) return { id, canceled: false };
+  if (job.status === 'running') {
+    try {
+      job.controller.abort();
+    } catch {}
+  }
+  return { id: job.id, canceled: job.status === 'running' };
+}

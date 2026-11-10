@@ -1,0 +1,101 @@
+/**
+ * promote-job.mjs — hand the still-running foreground child to the shell-jobs
+ * registry: the bounded promotion attempt, the lease release that follows a
+ * successful one, and the kill fallback that follows a failed one.
+ */
+import { promoteForegroundShellJob } from '../../builtin/shell-jobs.mjs';
+import { treeKillForceSettle } from '../shell-run-state.mjs';
+
+export async function promoteWithRetry(
+  { run, command, cwd, clientHostPid, ownerSessionId },
+  { remainingBackgroundTimeoutMs, stdoutPath, stderrPath }
+) {
+  let promotionFailure = '';
+  const tryPromote = async () => {
+    try {
+      const promoted = await promoteForegroundShellJob({
+        command,
+        cwd,
+        pid: run.child.pid,
+        jobId: run.foregroundRecordId,
+        timeoutMs: remainingBackgroundTimeoutMs,
+        // Carry the command's own start moment into the job: promotion time
+        // and a standby's process-creation time are both wrong.
+        startedAtMs: run.commandStartedAtMs,
+        mergeStderr: false,
+        stdoutPath,
+        stderrPath,
+        // Stamp the promoted job with the dispatching terminal's claude.exe
+        // pid so the statusline scopes it to the owning session.
+        clientHostPid,
+        // …and with the dispatching SESSION, so a pooled host (desktop) can
+        // show the job on its own pane only.
+        ownerSessionId,
+        // …and with the owner incarnation the command was spawned in.
+        ownerEpoch: run.foregroundRecordInput?.ownerEpoch ?? null,
+      });
+      if (!promoted) promotionFailure = promotionFailure || 'promotion unavailable';
+      return promoted;
+    } catch (err) {
+      promotionFailure = err?.message || String(err);
+      return null;
+    }
+  };
+  let job = await tryPromote();
+  // One bounded retry: a promotion that failed on a transient registry/IPC
+  // race heals within a beat, while a capability gap fails identically and
+  // falls through to the kill path with its reason attached below.
+  if (!job && !run.settled && run.child.exitCode == null && run.child.signalCode == null) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    job = await tryPromote();
+  }
+  return { job, promotionFailure };
+}
+
+/**
+ * Adoption failed AFTER the foreground timers/size-watchdog were already
+ * torn down. Do NOT resolve as backgrounded — that would leave the child
+ * running unlimited with no task_id and no watcher. Release the claim and
+ * fall back to the old kill path so the command never outlives a failed
+ * promotion. (The abort handler is still attached, so an in-flight cancel
+ * is honored by the kill path too.)
+ */
+export function killAfterFailedPromotion(run, reason, promotionFailure) {
+  run.autoBackgrounded = false;
+  // The command finished while it was being promoted (the spawn server
+  // releases a foreground task's record at its exit, so the promotion found
+  // none): report that completion. Killing the exited root would have no
+  // pre-kill snapshot and hold the workspace as unconfirmed for good.
+  if (run.child.exitCode != null || run.child.signalCode != null) {
+    if (run.promotionClose) void run.settle(...run.promotionClose);
+    return;
+  }
+  if (reason === 'timeout') {
+    run.timedOut = true;
+    treeKillForceSettle(run, 'timeout');
+    return;
+  }
+  // Keep the stable cause tag first (trace classifiers match on it)
+  // and attach the captured reason so the next occurrence is
+  // diagnosable from the transcript alone.
+  treeKillForceSettle(
+    run,
+    promotionFailure ? `background-promotion-failed (${promotionFailure.slice(0, 120)})` : 'background-promotion-failed'
+  );
+}
+
+/**
+ * The promoted job leaves foreground admission: its lease is RELEASED. A
+ * long-lived server must never
+ * hold a foreground slot for its whole life; background jobs are not counted
+ * against any cap (session/runtime close stops them via shutdownShellJobs).
+ */
+export async function handOverLease(run) {
+  const lease = run.resourceLease;
+  run.resourceLease = null;
+  await lease?.release();
+  const released = run.workspaceAdmission?.();
+  run.workspaceAdmission = null;
+  // Fails only when workspace admission stopped (reported there), which keeps the folder held.
+  await Promise.resolve(released).catch(() => {});
+}

@@ -1,0 +1,241 @@
+import '../../../../../../scripts/lib/isolated-test-env.mjs';
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { resolveSessionContextMeta } from './context-meta.mjs';
+import {
+  contextSeedForRouteUpdate,
+  prepareSessionProjection,
+  _refreshSessionRuleVariantsForModel,
+  refreshSessionProviderCacheOpts,
+} from './session-lifecycle.mjs';
+import { _buildSharedRules } from './rules-cache.mjs';
+import { contextMessagesSignature, toolSchemaSignature } from '../context-utils.mjs';
+import { createContextStatus } from '../../runtime-core/context-status.mjs';
+import { modelToolSchemaAllowlist } from '../../runtime-core/tool-profile.mjs';
+
+test('a cold Cursor route uses 200k instead of inheriting another model window', () => {
+  const seed = contextSeedForRouteUpdate(
+    {
+      selectedContextWindow: 272_000,
+      contextWindow: 272_000,
+      rawContextWindow: 272_000,
+      compactBoundaryTokens: 272_000,
+    },
+    true
+  );
+  assert.deepEqual(seed, {});
+  const meta = resolveSessionContextMeta({ name: 'cursor-oauth' }, 'gemini-3.7-flash', seed);
+  assert.equal(meta.contextWindow, 200_000);
+  assert.equal(meta.rawContextWindow, 200_000);
+});
+
+test('a cold Cursor route does not use another provider exact-id window', () => {
+  const meta = resolveSessionContextMeta({ name: 'cursor-oauth' }, 'gpt-5.4', {});
+  assert.equal(meta.contextWindow, 200_000);
+  assert.equal(meta.rawContextWindow, 200_000);
+});
+
+test('Cursor backend windows remain authoritative below and above vendor limits', () => {
+  for (const name of ['cursor-oauth', 'cursor-api']) {
+    for (const contextWindow of [200_000, 2_000_000]) {
+      const meta = resolveSessionContextMeta(
+        {
+          name,
+          getCachedModelInfo: () => ({ contextWindow }),
+        },
+        'gpt-5.4',
+        {},
+        { wholeWindow: true }
+      );
+      assert.equal(meta.contextWindow, contextWindow, name);
+      assert.equal(meta.rawContextWindow, contextWindow, name);
+    }
+  }
+});
+
+test('a session without a selection starts from the default window of its range', () => {
+  const provider = { name: 'anthropic-oauth', getCachedModelInfo: () => ({ contextWindow: 1_000_000 }) };
+  const window = (seed, options) => resolveSessionContextMeta(provider, 'claude-opus-5-5', seed, options).contextWindow;
+  assert.equal(window({}), 500_000);
+  assert.equal(window({ selectedContextWindow: 1_000_000 }), 1_000_000);
+  assert.equal(window({ selectedContextWindow: 300_000 }), 300_000);
+  // A recorded percentage without its window is still the user's choice.
+  assert.equal(window({ contextPercent: 100 }), 1_000_000);
+  // The summary route budgets against everything its model takes in.
+  assert.equal(window({}, { wholeWindow: true }), 1_000_000);
+  const small = { name: 'openai-oauth', getCachedModelInfo: () => ({ contextWindow: 272_000 }) };
+  assert.equal(resolveSessionContextMeta(small, 'gpt-5.6-sol', {}).contextWindow, 272_000);
+});
+
+test('an explicitly selected context window survives a route update', () => {
+  assert.deepEqual(
+    contextSeedForRouteUpdate(
+      {
+        selectedContextWindow: 300_000,
+        contextWindow: 300_000,
+      },
+      true,
+      true
+    ),
+    {
+      selectedContextWindow: 300_000,
+    }
+  );
+});
+
+test('resolved fallback context survives route-update recomputation without double scaling', () => {
+  const provider = {
+    name: 'anthropic',
+    getCachedModelInfo: () => ({ contextWindow: 200000, effectiveContextWindowPercent: 80 }),
+  };
+  for (const [selection, expectedRaw] of [
+    [{ contextTokens: 48000 }, 48000],
+    [{ contextPercent: 40 }, 200000],
+  ]) {
+    const selectedContextWindow = resolveSessionContextMeta(provider, 'fallback-test', selection).rawContextWindow;
+    const seed = contextSeedForRouteUpdate({ ...selection, selectedContextWindow }, true, true);
+    const result = resolveSessionContextMeta(provider, 'fallback-test', seed);
+    assert.equal(result.rawContextWindow, expectedRaw);
+    assert.equal(result.contextWindow, expectedRaw * 0.8);
+  }
+});
+
+test('a cold projection preserves the provider-aligned active tool surface', () => {
+  const messages = [{ role: 'user', content: 'continue the existing task' }];
+  const tools = [
+    { name: 'read', description: 'Read files', inputSchema: { type: 'object' } },
+    { name: 'recall', description: 'Recall memory', inputSchema: { type: 'object' } },
+  ];
+  const baselineTokens = 123_456;
+  const session = {
+    id: `cold-context-projection-${Date.now()}`,
+    provider: 'openai-oauth',
+    model: 'gpt-5.6-sol',
+    cwd: process.cwd(),
+    preset: 'full',
+    toolSpec: 'full',
+    messages,
+    tools,
+    contextWindow: 272_000,
+    rawContextWindow: 272_000,
+    compactBoundaryTokens: 272_000,
+    compaction: {
+      auto: true,
+      boundaryTokens: 272_000,
+      contextWindow: 272_000,
+      rawContextWindow: 272_000,
+    },
+    contextPressureBaselineTokens: baselineTokens,
+    contextPressureBaselineOutputTokens: 0,
+    contextPressureBaselineMessageCount: messages.length,
+    contextPressureBaselinePrefixSignature: contextMessagesSignature(messages),
+    contextPressureBaselineProvider: 'openai-oauth',
+    contextPressureBaselineModel: 'gpt-5.6-sol',
+    contextPressureBaselineToolSignature: toolSchemaSignature(tools),
+    contextPressureBaselineBoundary: 'complete',
+    contextPressureBaselineUpdatedAt: Date.now(),
+    lastContextTokensStaleAfterCompact: false,
+  };
+
+  const projection = prepareSessionProjection(session, 'full');
+  const status = createContextStatus({
+    getSession: () => projection,
+    getRoute: () => ({
+      provider: projection.provider,
+      model: projection.model,
+      contextWindow: projection.contextWindow,
+    }),
+    getCurrentCwd: () => projection.cwd,
+    getMode: () => 'full',
+  }).contextStatus();
+
+  assert.equal(toolSchemaSignature(projection.tools), session.contextPressureBaselineToolSignature);
+  assert.equal(status.usedTokens, baselineTokens);
+});
+
+test('an empty-session route change re-renders the edit-dialect rule variants', () => {
+  const gptRules = _buildSharedRules({ omitTools: ['edit'] });
+  const claudeRules = _buildSharedRules({ omitTools: ['apply_patch'] });
+  assert.notEqual(gptRules, claudeRules);
+  const session = {
+    model: 'claude-fable-5',
+    messages: [
+      { role: 'system', content: gptRules },
+      { role: 'system', content: 'profile block' },
+      { role: 'system', content: 'core block', cacheTier: 'tier3' },
+    ],
+  };
+  // GPT-created session switched to Claude: BP1 flips to the edit variant.
+  assert.equal(_refreshSessionRuleVariantsForModel(session, 'gpt-5.6-sol'), true);
+  assert.equal(session.messages[0].content, claudeRules);
+  assert.match(session.messages[0].content, /`edit`/);
+  assert.doesNotMatch(session.messages[0].content, /apply_patch/);
+  // Untouched blocks keep their identity and content.
+  assert.equal(session.messages[1].content, 'profile block');
+  assert.equal(session.messages[2].cacheTier, 'tier3');
+  // Same edit dialect on both sides is a no-op.
+  assert.equal(_refreshSessionRuleVariantsForModel(session, 'claude-opus-5'), false);
+  // A layout without the expected BP1 content is left untouched.
+  assert.equal(
+    _refreshSessionRuleVariantsForModel(
+      {
+        model: 'claude-fable-5',
+        messages: [{ role: 'system', content: 'custom prompt' }],
+      },
+      'gpt-5.6-sol'
+    ),
+    false
+  );
+});
+
+test('model changes preserve headless rule capabilities across edit dialects', () => {
+  const allowTools = modelToolSchemaAllowlist('headless');
+  const session = {
+    model: 'claude-fable-5',
+    schemaAllowedTools: allowTools,
+    messages: [
+      {
+        role: 'system',
+        content: _buildSharedRules({ omitTools: ['edit'], allowTools }),
+      },
+    ],
+  };
+  assert.equal(_refreshSessionRuleVariantsForModel(session, 'gpt-5.6-sol'), true);
+  assert.match(session.messages[0].content, /`edit`/);
+  assert.doesNotMatch(session.messages[0].content, /apply_patch|\bSkills?\b|\bGoals?\b|`goal`|goal-management/);
+});
+
+test('refreshSessionProviderCacheOpts refreshes builder policies only (resume path)', () => {
+  const config = (ms) => ({ autoClear: { providerIdleMs: { 'anthropic-oauth': ms } } });
+  const session = {
+    id: 's1',
+    provider: 'anthropic-oauth',
+    agent: null,
+    providerCacheOpts: { cacheStrategy: { messages: '5m' } },
+  };
+  assert.equal(refreshSessionProviderCacheOpts(session, config(3_600_000)), true);
+  assert.equal(session.providerCacheOpts.cacheStrategy.messages, '1h');
+  const override = {
+    ...session,
+    providerCacheOpts: { cacheStrategy: { messages: '5m' } },
+    providerCacheOptsOverride: true,
+  };
+  assert.equal(refreshSessionProviderCacheOpts(override, config(3_600_000)), false);
+  assert.equal(override.providerCacheOpts.cacheStrategy.messages, '5m');
+});
+
+test('resumeSession refreshes a stale stored Lead cache policy', async () => {
+  const { setLiveSession } = await import('../store.mjs');
+  const { resumeSession } = await import('./session-lifecycle.mjs');
+  const session = {
+    id: 'resume-ttl-test',
+    provider: 'anthropic-oauth',
+    agent: null,
+    owner: 'user',
+    generation: 0,
+    providerCacheOpts: { cacheStrategy: { messages: 'stale' } },
+  };
+  setLiveSession(session);
+  const resumed = await resumeSession(session.id, null);
+  assert.ok(['5m', '1h'].includes(resumed.providerCacheOpts.cacheStrategy.messages));
+});

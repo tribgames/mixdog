@@ -1,0 +1,262 @@
+// Miscellaneous tool helpers: eager-dispatch check,
+// message-array change detect, tool-kind classification, skills, hook overrides,
+// native tool-search payload parsing, bash-session routing, and approval.
+import { isMcpTool } from '../../mcp/client.mjs';
+import { unattendedApprovalPort } from '../human-gate/gate.mjs';
+import { isGrantedRun, runAskOutcome } from '../human-gate/run-policy.mjs';
+import { isBuiltinTool } from '../../tools/builtin.mjs';
+import { isInternalTool } from '../../internal-tools.mjs';
+import { loadSkillToolDependencies } from '../../runtime-core/skill-tool-loading.mjs';
+import {
+  collectSkillsCached,
+  loadSkillResource,
+  buildSkillToolEnvelope,
+  filterSkillsExcludingDisabled,
+  skillLoadRefusal,
+} from '../../context/collect.mjs';
+
+// Eager-dispatch: tools with readOnlyHint:true in their declaration are safe
+// to execute during SSE parsing so tool work overlaps with the rest of the
+// stream. MCP follows that annotation; writes, bash, and skills stay serial
+// after send() returns.
+// Memoized: the read-only name Set is built once per distinct `tools` array
+// (keyed by identity via a module-level WeakMap) so repeated per-call lookups
+// are O(1) instead of O(N) tools.find scans.
+const _eagerNameSetByTools = new WeakMap();
+export function isEagerDispatchable(name, tools) {
+  if (!Array.isArray(tools)) return false;
+  let set = _eagerNameSetByTools.get(tools);
+  if (set === undefined) {
+    set = new Set();
+    for (const t of tools) {
+      if (t?.annotations?.readOnlyHint === true && typeof t.name === 'string') {
+        set.add(t.name);
+        // `tool_search` is the legacy provider/runtime call name for the
+        // active `load_tool` schema; both must share eager semantics.
+        if (t.name === 'load_tool') set.add('tool_search');
+        else if (t.name === 'tool_search') set.add('load_tool');
+      }
+    }
+    _eagerNameSetByTools.set(tools, set);
+  }
+  return set.has(name);
+}
+
+// Full dispatch policy: EVERY valid tool call in an assistant turn is queued
+// immediately. Mutations rely on their own conflict scope (apply_patch uses
+// per-path locks); the eager dispatcher adds only the apply_patch -> shell
+// execution barrier required for same-turn validation.
+// isEagerDispatchable above remains the READ-ONLY classifier used for dedup
+// eligibility, steering, and post-mutation result invalidation.
+export function isParallelDispatchable(name) {
+  return typeof name === 'string' && name.length > 0;
+}
+
+const SINGLE_CALL_PER_TURN_TOOL_NAMES = new Set(['computer']);
+
+export function isSingleCallPerTurnTool(name) {
+  return SINGLE_CALL_PER_TURN_TOOL_NAMES.has(name);
+}
+
+// Read-only is necessary but not sufficient for result deduplication. Loader
+// calls mutate the active session tool surface and must execute on every
+// explicit invocation so repeats can truthfully report `alreadyActive`.
+export function isToolCallDedupEligible(name, tools) {
+  return name !== 'load_tool' && name !== 'tool_search' && isEagerDispatchable(name, tools);
+}
+export function messagesArrayChanged(before, after) {
+  if (!Array.isArray(before) || !Array.isArray(after)) return before !== after;
+  if (before.length !== after.length) return true;
+  for (let i = 0; i < before.length; i += 1) {
+    if (before[i] !== after[i]) return true;
+  }
+  return false;
+}
+
+const SKILL_TOOL_NAMES = new Set(['Skill', 'skills_list', 'skill_view']);
+const SPECIAL_TOOL_NAMES = new Set(['apply_patch', 'code_graph']);
+
+export function getToolKind(name, scopeId = null) {
+  if (SKILL_TOOL_NAMES.has(name)) return 'skill';
+  if (SPECIAL_TOOL_NAMES.has(name)) return 'builtin';
+  if (isMcpTool(name)) return 'mcp';
+  if (isInternalTool(name, scopeId)) return 'internal';
+  if (isBuiltinTool(name)) return 'builtin';
+  return 'builtin';
+}
+export function buildSkillsListResponse(cwd) {
+  const skills = filterSkillsExcludingDisabled(collectSkillsCached(cwd), null, cwd);
+  const entries = skills.map((s) => ({ name: s.name, description: s.description || '' }));
+  return JSON.stringify({ skills: entries });
+}
+export function viewSkill(cwd, name, session = null) {
+  const skillName = String(name || '').trim();
+  if (!skillName) return 'Error: skill name is required';
+  const refusal = skillLoadRefusal(skillName, cwd);
+  if (refusal) return refusal;
+  const res = loadSkillResource(skillName, cwd);
+  if (!res) return `Error: skill "${skillName}" not found`;
+  // Return the general tool envelope: the model-visible tool_result is the
+  // short stub (`Loaded skill: <name>`) and the full SKILL.md body is
+  // delivered ONCE as a separate injected role:'user' message (newMessages).
+  return loadSkillToolDependencies(buildSkillToolEnvelope(skillName, res.content, res.dir, res, session), session);
+}
+
+/** Normalize PostToolUse hook override values (legacy MCP text envelopes only). */
+export function normalizeHookUpdatedToolOutput(value) {
+  if (typeof value === 'string') return value;
+  if (value == null) return '';
+  if (typeof value === 'object' && Array.isArray(value.content)) {
+    const hasNonText = value.content.some((c) => c && typeof c === 'object' && c.type && c.type !== 'text');
+    if (hasNonText) return value;
+    return value.content.map((c) => (c?.type === 'text' ? c.text || '' : JSON.stringify(c))).join('\n');
+  }
+  return value;
+}
+
+export function resolveToolResultAfterHook(originalResult, hookResult) {
+  if (!hookResult || typeof hookResult !== 'object' || hookResult.updatedToolOutput === undefined) {
+    return originalResult;
+  }
+  const updated = normalizeHookUpdatedToolOutput(hookResult.updatedToolOutput);
+  return updated === undefined ? originalResult : updated;
+}
+
+export function parseNativeToolSearchPayload(toolName, result) {
+  if (!['load_tool', 'tool_search', 'Skill', 'skill_view'].includes(toolName) || typeof result !== 'string')
+    return null;
+  try {
+    const parsed = JSON.parse(result);
+    const native = parsed?.nativeToolSearch;
+    if (!native || typeof native !== 'object') return null;
+    const rawToolReferences = Array.isArray(native.toolReferences) ? native.toolReferences : [];
+    const toolReferences = rawToolReferences
+      .filter((name) => typeof name === 'string')
+      .map((name) => name.trim())
+      .filter(Boolean);
+    const rawOpenaiTools = Array.isArray(native.openaiTools) ? native.openaiTools : [];
+    const openaiTools = rawOpenaiTools.filter(
+      (tool) =>
+        tool &&
+        typeof tool === 'object' &&
+        !Array.isArray(tool) &&
+        typeof tool.name === 'string' &&
+        tool.name.trim() &&
+        (tool.type === undefined || typeof tool.type === 'string')
+    );
+    const provider = typeof native.provider === 'string' ? native.provider.trim().toLowerCase() : '';
+    if (!toolReferences.length && !openaiTools.length && !provider) return null;
+    const baseSummary =
+      typeof native.summary === 'string' && native.summary
+        ? native.summary
+        : `Loaded deferred tools: ${
+            toolReferences.join(', ') ||
+            openaiTools
+              .map((tool) => tool.name)
+              .filter(Boolean)
+              .join(', ')
+          }`;
+    const selectedTools = parsed?.selected?.tools;
+    const missing = Array.isArray(selectedTools?.missing)
+      ? selectedTools.missing.map((name) => String(name || '').trim()).filter(Boolean)
+      : [];
+    const blockedLabel = (entry) => {
+      if (!entry || typeof entry !== 'object') return String(entry || '').trim();
+      const name = String(entry.name || '').trim();
+      if (!name) return '';
+      const reason = String(entry.reason || '').trim();
+      return reason ? `${name} (${reason})` : name;
+    };
+    const blocked = Array.isArray(selectedTools?.blocked)
+      ? selectedTools.blocked.map(blockedLabel).filter(Boolean)
+      : [];
+    const extraLines = [];
+    if (missing.length) extraLines.push(`missing: ${missing.join(', ')}`);
+    if (blocked.length) extraLines.push(`blocked: ${blocked.join(', ')}`);
+    const summary = extraLines.length ? `${baseSummary}\n${extraLines.join('; ')}` : baseSummary;
+    return {
+      provider,
+      toolReferences,
+      openaiTools,
+      summary,
+    };
+  } catch {
+    return null;
+  }
+}
+export function formatMissingToolApprovalUiDenial(toolName, askReason) {
+  const reason = String(askReason || 'approval requested by hook').trim();
+  const name = String(toolName || 'tool');
+  return `Error: tool "${name}" denied by hook: approval required but no approval UI is available${reason ? ` (${reason})` : ''}`;
+}
+
+/**
+ * Resolve PreToolUse `{ action: 'ask' }` against an optional approval callback.
+ * Returns `{ denial }` when the tool must not run; otherwise `{ approval }`.
+ */
+export async function resolvePreToolAskApproval({
+  toolName,
+  args,
+  cwd,
+  sessionId,
+  toolCallId,
+  askReason,
+  toolApprovalHook,
+  request = null,
+}) {
+  const name = String(toolName || 'tool');
+  const reason = String(askReason || 'approval requested by hook').trim();
+  // A schedule or webhook run never asks: saving it was the user's grant
+  // (human-gate/run-policy.mjs). A room member is held for its owner when no
+  // approval UI is attached (session-runtime/held-requests.mjs).
+  const unattended = unattendedApprovalPort();
+  const run = unattended?.runOf?.(sessionId) || null;
+  if (isGrantedRun(run)) return runAskOutcome({ name, request });
+  const held = run && typeof toolApprovalHook !== 'function';
+  const ask = held ? unattended.hold : toolApprovalHook;
+  if (typeof ask !== 'function') {
+    return { denial: formatMissingToolApprovalUiDenial(name, reason) };
+  }
+  let approval;
+  try {
+    approval = await ask({
+      ...(request || {}),
+      name,
+      args,
+      cwd,
+      sessionId,
+      toolCallId: toolCallId || null,
+      reason,
+    });
+  } catch (error) {
+    const detail = error?.message || String(error || 'approval failed');
+    return { denial: `Error: tool "${name}" denied by hook: ${detail}` };
+  }
+  if (!approvalGranted(approval)) {
+    // A person (or the hold for one) said no: never a policy hook to work around.
+    const detail = String(approvalReason(approval, reason || 'not approved')).replace(/[.\s]+$/, '');
+    return {
+      denial: `Error: tool "${name}" was not approved: ${detail}. Do not retry it or reach the same result another way; report it.`,
+      approval,
+    };
+  }
+  return { approval };
+}
+
+export function approvalGranted(value) {
+  if (value === true) return true;
+  if (!value || typeof value !== 'object') return false;
+  if (value.approved === true || value.allow === true || value.allowed === true) return true;
+  const decision = String(value.decision || value.action || value.result || '')
+    .trim()
+    .toLowerCase();
+  return decision === 'approve' || decision === 'approved' || decision === 'allow' || decision === 'yes';
+}
+
+export function approvalReason(value, fallback = '') {
+  if (value && typeof value === 'object') {
+    const reason = String(value.reason || value.message || '').trim();
+    if (reason) return reason;
+  }
+  return fallback;
+}

@@ -1,0 +1,589 @@
+import { statSync } from 'node:fs';
+import * as fsPromises from 'node:fs/promises';
+import { isAbsolute, sep } from 'node:path';
+import { runtimeAsyncLocalStorage } from '../../../../shared/root-async-context.mjs';
+import { canonicalCachePath, deleteReadRangeIndexForPath } from './read-range-index.mjs';
+import { resolveAgainstCwd } from './path-utils.mjs';
+import { fileVersion, sameFileVersion } from './file-version.mjs';
+import { canCacheReadFile } from './read-cache-policy.mjs';
+
+const RESULT_CACHE = new Map(); // key → { ts, value, paths, scopes, readSnapshotMeta, contentPrefixHash, bytes }
+const RESULT_CACHE_INFLIGHT = new Map(); // key → { promise, controller, subscribers, settled }
+const RESULT_CACHE_COMPUTE = runtimeAsyncLocalStorage();
+const READ_CACHE_PUBLICATION = runtimeAsyncLocalStorage();
+// Only active reads retain a slot. Invalidating an inactive path creates
+// no history, and the final reader releases its path in a finally block.
+const ACTIVE_READ_CACHE_PATHS = new Map();
+const RESULT_CACHE_TTL_MS = 30_000;
+const RESULT_CACHE_MAX_ENTRIES = 200;
+// A byte budget from the bytes env var, else the megabytes one, else the
+// default.
+function envByteBudget(bytesVar, mbVar, fallbackBytes) {
+  const rawBytes = Number(process.env[bytesVar]);
+  if (Number.isFinite(rawBytes) && rawBytes > 0) return Math.trunc(rawBytes);
+  const rawMb = Number(process.env[mbVar]);
+  if (Number.isFinite(rawMb) && rawMb > 0) return Math.trunc(rawMb * 1024 * 1024);
+  return fallbackBytes;
+}
+const RESULT_CACHE_MAX_BYTES = envByteBudget(
+  'MIXDOG_RESULT_CACHE_MAX_BYTES',
+  'MIXDOG_RESULT_CACHE_MAX_MB',
+  32 * 1024 * 1024
+);
+let RESULT_CACHE_BYTES = 0;
+function estimateResultBytes(value) {
+  if (value == null) return 0;
+  if (typeof value === 'string') return Buffer.byteLength(value, 'utf-8');
+  if (Buffer.isBuffer(value)) return value.length;
+  try {
+    return Buffer.byteLength(JSON.stringify(value) ?? '', 'utf-8');
+  } catch {
+    return 0;
+  }
+}
+function resultCacheDelete(key) {
+  const entry = RESULT_CACHE.get(key);
+  if (entry && typeof entry.bytes === 'number') {
+    RESULT_CACHE_BYTES = Math.max(0, RESULT_CACHE_BYTES - entry.bytes);
+  }
+  RESULT_CACHE.delete(key);
+}
+const STAT_CACHE = new Map(); // fullPath → { ts, stat }
+const STAT_CACHE_TTL_MS = 5_000;
+const STAT_CACHE_MAX_ENTRIES = 2_000;
+const RAW_CONTENT_CACHE = new Map(); // fullPath → { ts, version, rawBuf }
+const RAW_CONTENT_INFLIGHT = new Map(); // path + observed version → { path, promise }
+const RAW_CONTENT_CACHE_TTL_MS = 30_000;
+// 64: a parallel read batch fanning out over a component directory easily
+// tops 16 files; at 16 the batch thrashed its own cache before re-reads hit.
+// The 64MB byte cap below still bounds memory.
+const RAW_CONTENT_CACHE_MAX_ENTRIES = 64;
+const READ_ONLY_STAT_INFLIGHT = new Map(); // kind + canonical path → { path, promise }
+const RAW_CONTENT_CACHE_MAX_BYTES = envByteBudget(
+  'MIXDOG_RAW_CONTENT_CACHE_MAX_BYTES',
+  'MIXDOG_RAW_CONTENT_CACHE_MAX_MB',
+  64 * 1024 * 1024
+);
+let RAW_CONTENT_CACHE_BYTES = 0;
+
+function normalizeCacheMetaPaths(values) {
+  if (!Array.isArray(values)) return [];
+  return Array.from(new Set(values.filter(Boolean).map((v) => canonicalCachePath(v))));
+}
+
+function cachePathsOverlap(a, b) {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  return a.startsWith(b.endsWith(sep) ? b : `${b}${sep}`) || b.startsWith(a.endsWith(sep) ? a : `${a}${sep}`);
+}
+
+export async function runReadCachePublication(fullPaths, read) {
+  const paths = normalizeCacheMetaPaths(Array.isArray(fullPaths) ? fullPaths : [fullPaths]);
+  const leases = paths.map((path) => {
+    let slot = ACTIVE_READ_CACHE_PATHS.get(path);
+    if (!slot) {
+      slot = { generation: 0, references: 0 };
+      ACTIVE_READ_CACHE_PATHS.set(path, slot);
+    }
+    slot.references++;
+    return { path, slot, generation: slot.generation, released: false };
+  });
+  try {
+    return await READ_CACHE_PUBLICATION.run(leases, read);
+  } finally {
+    for (const lease of leases) {
+      lease.released = true;
+      if (--lease.slot.references === 0) ACTIVE_READ_CACHE_PATHS.delete(lease.path);
+    }
+  }
+}
+
+export function canPublishReadCache(targets = null) {
+  const leases = READ_CACHE_PUBLICATION.getStore();
+  if (!leases) return true;
+  const paths = normalizeCacheMetaPaths(Array.isArray(targets) ? targets : [targets]);
+  return leases.every((lease) => {
+    if (paths.length && !paths.some((path) => cachePathsOverlap(path, lease.path))) return true;
+    return !lease.released && lease.generation === lease.slot.generation;
+  });
+}
+
+const withTrailingSep = (path) => (path.endsWith(sep) ? path : `${path}${sep}`);
+
+// `visit` gets every prefix of `path` that ends at a separator, shortest
+// first; a true return stops the walk and is returned.
+function someSepPrefix(path, visit) {
+  for (let at = path.indexOf(sep); at >= 0; at = path.indexOf(sep, at + 1)) {
+    if (visit(path.slice(0, at + 1))) return true;
+  }
+  return false;
+}
+
+/** `cachePathsOverlap(path, affected)` against every affected path at once:
+ *  the affected paths are indexed by their separator-terminated prefixes, so
+ *  one check costs the path's own length, not the affected list's. */
+function cachePathMatcher(affectedPaths) {
+  const exact = new Set(affectedPaths);
+  // An entry path under an affected path starts with one of these.
+  const covering = new Set(affectedPaths.map(withTrailingSep));
+  // An entry path containing an affected path is one of these.
+  const contained = new Set();
+  for (const affected of affectedPaths) someSepPrefix(affected, (prefix) => void contained.add(prefix));
+  return (path) =>
+    Boolean(path) &&
+    (exact.has(path) || contained.has(withTrailingSep(path)) || someSepPrefix(path, (prefix) => covering.has(prefix)));
+}
+
+function cacheEntryOverlapsPaths(entry, matches) {
+  const entryPaths = Array.isArray(entry?.paths) ? entry.paths : [];
+  const entryScopes = Array.isArray(entry?.scopes) ? entry.scopes : [];
+  return entryPaths.some(matches) || entryScopes.some(matches);
+}
+
+export function cacheGetEntry(key) {
+  const entry = RESULT_CACHE.get(key);
+  if (!entry) {
+    return null;
+  }
+  if (Date.now() - entry.ts > RESULT_CACHE_TTL_MS) {
+    resultCacheDelete(key);
+    return null;
+  }
+  return entry;
+}
+
+export function cacheGet(key) {
+  return cacheGetEntry(key)?.value ?? null;
+}
+
+export function cacheSet(key, value, meta = {}) {
+  // Invalidation affects future reuse, not the active reader's snapshot.
+  // A detached/aborted computation must never repopulate a newer cache.
+  const computation = RESULT_CACHE_COMPUTE.getStore();
+  if (computation?.invalidated || computation?.controller?.signal?.aborted) return;
+  const publicationPaths = [
+    ...(Array.isArray(meta.paths) ? meta.paths : []),
+    ...(Array.isArray(meta.scopes) ? meta.scopes : []),
+  ];
+  if (!canPublishReadCache(publicationPaths)) return;
+  // Replace-in-place: clear old entry's byte accounting before write.
+  if (RESULT_CACHE.has(key)) resultCacheDelete(key);
+  const bytes = estimateResultBytes(value);
+  // An entry at/over the whole byte budget would evict every other entry
+  // and then be evicted itself on the next set — never store it.
+  if (bytes >= RESULT_CACHE_MAX_BYTES) return;
+  RESULT_CACHE.set(key, {
+    ts: Date.now(),
+    value,
+    paths: normalizeCacheMetaPaths(meta.paths),
+    scopes: normalizeCacheMetaPaths(meta.scopes),
+    readSnapshotMeta: meta.readSnapshotMeta || null,
+    contentPrefixHash: meta.contentPrefixHash || '',
+    bytes,
+  });
+  RESULT_CACHE_BYTES += bytes;
+  // Evict oldest (insertion-order) entries until under both the entry
+  // count cap and the byte budget. Mirrors RAW_CONTENT_CACHE shape.
+  while (RESULT_CACHE.size > RESULT_CACHE_MAX_ENTRIES || RESULT_CACHE_BYTES > RESULT_CACHE_MAX_BYTES) {
+    const oldest = RESULT_CACHE.keys().next().value;
+    if (!oldest || oldest === key) break;
+    resultCacheDelete(oldest);
+  }
+}
+
+function inFlightAbortError() {
+  const error = new Error('operation aborted');
+  error.name = 'AbortError';
+  error.code = 'ABORT_ERR';
+  return error;
+}
+
+async function subscribeResultCacheInFlight(entry, signal) {
+  const subscriber = {};
+  entry.subscribers.add(subscriber);
+  const release = () => {
+    if (!entry.subscribers.delete(subscriber)) return;
+    if (!entry.settled && entry.subscribers.size === 0) {
+      // Abort listeners run in the abort caller's context, not where
+      // they were registered. Keep their cleanup/cache writes guarded.
+      RESULT_CACHE_COMPUTE.run(entry, () => entry.controller.abort());
+    }
+  };
+  if (!signal) {
+    try {
+      return await entry.promise;
+    } finally {
+      release();
+    }
+  }
+  if (signal.aborted) {
+    release();
+    throw inFlightAbortError();
+  }
+  return await new Promise((resolve, reject) => {
+    let done = false;
+    const finish = (fn, value) => {
+      if (done) return;
+      done = true;
+      signal.removeEventListener('abort', onAbort);
+      release();
+      fn(value);
+    };
+    const onAbort = () => finish(reject, inFlightAbortError());
+    signal.addEventListener('abort', onAbort, { once: true });
+    entry.promise.then(
+      (value) => finish(resolve, value),
+      (error) => finish(reject, error)
+    );
+  });
+}
+
+export async function runResultCacheInFlight(key, compute, options = {}) {
+  const subscriberSignal = options?.signal || options?.abortSignal || null;
+  subscriberSignal?.throwIfAborted();
+  const cached = cacheGet(key);
+  if (cached !== null) return cached;
+  let entry = RESULT_CACHE_INFLIGHT.get(key);
+  if (entry?.controller?.signal?.aborted) {
+    if (RESULT_CACHE_INFLIGHT.get(key) === entry) RESULT_CACHE_INFLIGHT.delete(key);
+    entry = null;
+  }
+  if (!entry) {
+    const controller = new AbortController();
+    entry = {
+      promise: null,
+      controller,
+      subscribers: new Set(),
+      settled: false,
+      invalidated: false,
+      scopes: normalizeCacheMetaPaths(options?.scopes),
+    };
+    const promise = Promise.resolve()
+      .then(() => RESULT_CACHE_COMPUTE.run(entry, () => compute({ signal: controller.signal })))
+      .finally(() => {
+        entry.settled = true;
+        if (RESULT_CACHE_INFLIGHT.get(key) === entry) {
+          RESULT_CACHE_INFLIGHT.delete(key);
+        }
+      });
+    entry.promise = promise;
+    promise.catch(() => {});
+    RESULT_CACHE_INFLIGHT.set(key, entry);
+  } else if (Array.isArray(options?.scopes)) {
+    entry.scopes = normalizeCacheMetaPaths([...(entry.scopes || []), ...options.scopes]);
+  }
+  return subscribeResultCacheInFlight(entry, subscriberSignal);
+}
+
+// Invalidation detaches only affected in-flight entries. New readers never
+// join a pre-mutation operation, while its existing subscribers still finish.
+// Lookups need no scan of the project's historical mutations on every read.
+async function runPathInFlight(inFlight, key, path, start) {
+  const existing = inFlight.get(key);
+  if (existing) return await existing.promise;
+  const promise = Promise.resolve()
+    .then(start)
+    .finally(() => {
+      if (inFlight.get(key)?.promise === promise) {
+        inFlight.delete(key);
+      }
+    });
+  inFlight.set(key, { path, promise });
+  return await promise;
+}
+
+export async function runRawContentInFlight(fullPath, loader = fsPromises.readFile, stat = undefined) {
+  const path = canonicalCachePath(fullPath);
+  const version = fileVersion(stat);
+  // Buffered reads provide their observed version: a later read must not
+  // join older bytes merely because a watcher has not fired yet. Preserve
+  // the unversioned helper contract for callers that supply no stat.
+  if (stat !== undefined && (!version || !canCacheReadFile(version))) return await loader(fullPath);
+  const key = version ? JSON.stringify([path, version]) : path;
+  return await runPathInFlight(RAW_CONTENT_INFLIGHT, key, path, () => loader(fullPath));
+}
+
+export async function runReadOnlyStatInFlight(fullPath, loader = fsPromises.stat, kind = 'stat') {
+  const canonicalPath = canonicalCachePath(fullPath);
+  return await runPathInFlight(READ_ONLY_STAT_INFLIGHT, `${kind}|${canonicalPath}`, canonicalPath, () =>
+    loader(fullPath)
+  );
+}
+
+function rawContentCacheDelete(key) {
+  const entry = RAW_CONTENT_CACHE.get(key);
+  if (entry?.rawBuf) RAW_CONTENT_CACHE_BYTES = Math.max(0, RAW_CONTENT_CACHE_BYTES - entry.rawBuf.length);
+  RAW_CONTENT_CACHE.delete(key);
+}
+
+export function rawContentCacheGet(fullPath, stat, now = Date.now()) {
+  if (!fullPath || !stat) return null;
+  const key = canonicalCachePath(fullPath);
+  if (!canCacheReadFile(stat)) {
+    rawContentCacheDelete(key);
+    return null;
+  }
+  const entry = RAW_CONTENT_CACHE.get(key);
+  if (!entry) return null;
+  if (now - entry.ts > RAW_CONTENT_CACHE_TTL_MS) {
+    rawContentCacheDelete(key);
+    return null;
+  }
+  if (!sameFileVersion(entry.version, stat)) {
+    rawContentCacheDelete(key);
+    return null;
+  }
+  RAW_CONTENT_CACHE.delete(key);
+  RAW_CONTENT_CACHE.set(key, entry);
+  return entry.rawBuf;
+}
+
+export function rawContentCacheSet(fullPath, stat, rawBuf, now = Date.now()) {
+  if (!canPublishReadCache(fullPath)) return;
+  if (!fullPath || !Buffer.isBuffer(rawBuf)) return;
+  const version = fileVersion(stat);
+  if (
+    !version ||
+    !canCacheReadFile(version) ||
+    rawBuf.length !== version.size ||
+    rawBuf.length > RAW_CONTENT_CACHE_MAX_BYTES
+  )
+    return;
+  const key = canonicalCachePath(fullPath);
+  rawContentCacheDelete(key);
+  RAW_CONTENT_CACHE.set(key, {
+    ts: now,
+    version,
+    rawBuf,
+  });
+  RAW_CONTENT_CACHE_BYTES += rawBuf.length;
+  while (
+    RAW_CONTENT_CACHE.size > RAW_CONTENT_CACHE_MAX_ENTRIES ||
+    RAW_CONTENT_CACHE_BYTES > RAW_CONTENT_CACHE_MAX_BYTES
+  ) {
+    const oldest = RAW_CONTENT_CACHE.keys().next().value;
+    if (!oldest) break;
+    rawContentCacheDelete(oldest);
+  }
+}
+
+function statCacheGet(fullPath, now = Date.now()) {
+  const entry = STAT_CACHE.get(fullPath);
+  if (!entry) return null;
+  if (now - entry.ts > STAT_CACHE_TTL_MS) {
+    STAT_CACHE.delete(fullPath);
+    return null;
+  }
+  return entry.stat;
+}
+
+export function statCacheSet(fullPath, stat, now = Date.now()) {
+  if (STAT_CACHE.size >= STAT_CACHE_MAX_ENTRIES) {
+    const oldest = STAT_CACHE.keys().next().value;
+    if (oldest) STAT_CACHE.delete(oldest);
+  }
+  STAT_CACHE.set(fullPath, { ts: now, stat });
+}
+
+export function getCachedReadOnlyStat(fullPath, loader = statSync, now = Date.now()) {
+  const cached = statCacheGet(fullPath, now);
+  if (cached) return cached;
+  const stat = loader(fullPath);
+  statCacheSet(fullPath, stat, now);
+  return stat;
+}
+
+// Hard per-stat deadline (0 = disabled, legacy behaviour). A hung stat
+// (dead mount / unresponsive network path) must not pin a worker forever;
+// on expiry the entry resolves to null (stat-failed) so the stat phase is
+// bounded instead of running to the 600s agent watchdog.
+function statDeadlineMs(opts) {
+  return Number(opts.deadlineMs) > 0 ? Number(opts.deadlineMs) : 0;
+}
+
+// `statPromise` bounded by `deadlineMs`; null on expiry. ref timer (not
+// unref): the deadline MUST fire even when the hung stat is the only pending
+// work — that is exactly the case we bound. clearTimeout on the normal path
+// keeps a fast stat from holding the loop for the full deadline window.
+function withStatDeadline(statPromise, deadlineMs) {
+  if (!(deadlineMs > 0)) return statPromise;
+  return new Promise((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        resolve(null);
+      }
+    }, deadlineMs);
+    statPromise.then((v) => {
+      if (!settled) {
+        settled = true;
+        clearTimeout(timer);
+        resolve(v);
+      }
+    });
+  });
+}
+
+// Deduplicated, deadline-bounded `statImpl` over `paths` with `concurrency`
+// workers; every path reaches `visitor(entry, index)`, a null-stat entry when
+// the stat failed or timed out.
+async function visitBoundedStats(paths, workDir, concurrency, deadlineMs, statImpl, visitor) {
+  const items = Array.isArray(paths) ? paths : [];
+  const inflight = new Map();
+  let next = 0;
+
+  async function resolveStat(full) {
+    let pending = inflight.get(full);
+    if (!pending) {
+      pending = withStatDeadline(
+        statImpl(full).catch(() => null),
+        deadlineMs
+      );
+      inflight.set(full, pending);
+    }
+    return pending;
+  }
+
+  async function worker() {
+    while (true) {
+      const index = next++;
+      if (index >= items.length) return;
+      const p = items[index];
+      const full = isAbsolute(p) ? p : resolveAgainstCwd(p, workDir);
+      let entry;
+      try {
+        const stat = await resolveStat(full);
+        if (!stat) throw new Error('stat failed');
+        entry = { path: p, full, stat, size: stat.size, mtime: stat.mtimeMs, mtimeMs: stat.mtimeMs };
+      } catch {
+        entry = { path: p, full, stat: null, size: 0, mtime: 0, mtimeMs: 0 };
+      }
+      visitor(entry, index);
+    }
+  }
+  const workerCount = Math.min(Math.max(1, concurrency), Math.max(1, items.length));
+  await Promise.all(Array.from({ length: workerCount }, worker));
+}
+
+export async function visitPathsForMtime(paths, workDir, concurrency = Infinity, opts = {}, visitor = () => {}) {
+  const now = Date.now();
+  // Injectable stat impl for testing hung-FS behaviour deterministically.
+  const statImpl = typeof opts._statImpl === 'function' ? opts._statImpl : fsPromises.stat;
+  const cachingStat = (full) =>
+    statImpl(full).then((stat) => {
+      statCacheSet(full, stat, now);
+      return stat;
+    });
+  await visitBoundedStats(paths, workDir, concurrency, statDeadlineMs(opts), cachingStat, visitor);
+}
+
+export async function statPathsForMtime(paths, workDir, concurrency = Infinity, opts = {}) {
+  const items = Array.isArray(paths) ? paths : [];
+  const out = new Array(items.length);
+  await visitPathsForMtime(items, workDir, concurrency, opts, (entry, index) => {
+    out[index] = entry;
+  });
+  return out;
+}
+
+// lstat variant — does NOT follow symlinks. Use for directory-listing
+// surfaces where a symlink to a 200 GB file should report as a symlink,
+// not as the target's size/mtime.
+export async function lstatPathsForMtime(paths, workDir, concurrency = Infinity, opts = {}) {
+  const items = Array.isArray(paths) ? paths : [];
+  const out = new Array(items.length);
+  // Injectable lstat impl for testing hung-FS behaviour deterministically.
+  const lstatImpl = typeof opts._lstatImpl === 'function' ? opts._lstatImpl : fsPromises.lstat;
+  await visitBoundedStats(items, workDir, concurrency, statDeadlineMs(opts), lstatImpl, (entry, index) => {
+    out[index] = entry;
+  });
+  return out;
+}
+
+// Extra invalidation listeners: sibling modules with derived caches receive
+// the normalized affected paths, or null for a full clear, so unrelated
+// project inventories survive writes in another temporary/project root.
+const EXTRA_INVALIDATION_LISTENERS = new Set();
+export function registerCacheInvalidationListener(fn) {
+  if (typeof fn === 'function') EXTRA_INVALIDATION_LISTENERS.add(fn);
+  return () => EXTRA_INVALIDATION_LISTENERS.delete(fn);
+}
+function runExtraInvalidationListeners(affectedPaths = null, source = {}) {
+  for (const fn of EXTRA_INVALIDATION_LISTENERS) {
+    try {
+      fn(affectedPaths, source);
+    } catch {
+      /* best-effort: one listener must not block others */
+    }
+  }
+}
+
+function cacheInvalidateAll() {
+  for (const slot of ACTIVE_READ_CACHE_PATHS.values()) slot.generation++;
+  for (const entry of RESULT_CACHE_INFLIGHT.values()) {
+    entry.invalidated = true;
+  }
+  RESULT_CACHE.clear();
+  RESULT_CACHE_INFLIGHT.clear();
+  RESULT_CACHE_BYTES = 0;
+  STAT_CACHE.clear();
+  RAW_CONTENT_CACHE.clear();
+  RAW_CONTENT_CACHE_BYTES = 0;
+  RAW_CONTENT_INFLIGHT.clear();
+  READ_ONLY_STAT_INFLIGHT.clear();
+  runExtraInvalidationListeners();
+}
+
+function cacheInvalidatePaths(paths, source) {
+  const affectedPaths = normalizeCacheMetaPaths(Array.isArray(paths) ? paths : [paths]);
+  if (affectedPaths.length === 0) {
+    cacheInvalidateAll();
+    return;
+  }
+  const matches = cachePathMatcher(affectedPaths);
+  for (const [path, slot] of ACTIVE_READ_CACHE_PATHS) {
+    if (matches(path)) slot.generation++;
+  }
+  for (const inFlight of [RAW_CONTENT_INFLIGHT, READ_ONLY_STAT_INFLIGHT]) {
+    for (const [key, entry] of inFlight) {
+      if (matches(entry.path)) inFlight.delete(key);
+    }
+  }
+  for (const [key, entry] of RESULT_CACHE_INFLIGHT) {
+    const scopes = Array.isArray(entry.scopes) ? entry.scopes : [];
+    if (scopes.length === 0 || scopes.some(matches)) {
+      entry.invalidated = true;
+      RESULT_CACHE_INFLIGHT.delete(key);
+    }
+  }
+  for (const [key, entry] of RESULT_CACHE) {
+    if (cacheEntryOverlapsPaths(entry, matches)) {
+      resultCacheDelete(key);
+    }
+  }
+  for (const key of [...STAT_CACHE.keys()]) {
+    if (matches(canonicalCachePath(key))) {
+      STAT_CACHE.delete(key);
+    }
+  }
+  for (const key of [...RAW_CONTENT_CACHE.keys()]) {
+    if (matches(key)) {
+      rawContentCacheDelete(key);
+    }
+  }
+  for (const affected of affectedPaths) {
+    deleteReadRangeIndexForPath(affected);
+  }
+  runExtraInvalidationListeners(affectedPaths, source);
+}
+
+/** `source.canonical`: the paths come from the native search watcher, not a
+ *  tool write. */
+export function invalidateBuiltinResultCache(paths = null, source = {}) {
+  if (Array.isArray(paths) ? paths.length > 0 : Boolean(paths)) {
+    cacheInvalidatePaths(paths, source);
+    return;
+  }
+  cacheInvalidateAll();
+}

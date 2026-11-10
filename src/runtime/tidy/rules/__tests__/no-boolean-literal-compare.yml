@@ -1,0 +1,24 @@
+id: no-boolean-literal-compare
+valid:
+  - |
+    if (x === y) {}
+    if x == y: pass
+  - |
+    z = x && true;
+    w = x and True
+  - |
+    flag = true;
+    flag = True
+  - |
+    if (x === truthy) {}
+    if x is True: pass
+invalid:
+  - |
+    if (x === true) {}
+    if x == True: pass
+  - |
+    a = flag == false;
+    b = flag != False
+  - |
+    a = true !== ok();
+    b = False == ok()

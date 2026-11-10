@@ -1,0 +1,110 @@
+/**
+ * session-close.mjs — what teardown does to the session itself: the
+ * SessionEnd hook, closing the owned surface session, the canonical-session
+ * tombstone barrier and the turn abort.
+ */
+import { SessionClosedError } from '../../../runtime/agent/orchestrator/session/manager/session-errors.mjs';
+import { armTurnTimeout } from '../../../runtime/agent/orchestrator/session/manager/turn-reap.mjs';
+import { isScratchSession } from '../shared.mjs';
+
+// SessionEnd reason mapped to standard values ('clear'/'exit' where
+// applicable, else 'other').
+function sessionEndReason(reason) {
+  const rl = String(reason || '').toLowerCase();
+  if (/clear/.test(rl)) return 'clear';
+  if (/exit|quit|cli-exit|shutdown|sigint|sigterm/.test(rl)) return 'exit';
+  return 'other';
+}
+
+// SessionEnd: bridge teardown to the standard hook bus. Short await guard so
+// a slow hook cannot wedge teardown; best-effort.
+export async function dispatchSessionEnd(deps, reason) {
+  const { getSession, hooks, hookCommonPayload, withTeardownDeadline } = deps;
+  try {
+    const session = getSession();
+    if (!session?.id) return;
+    await withTeardownDeadline(
+      Promise.resolve(
+        hooks.dispatch('SessionEnd', hookCommonPayload({ session_id: session.id, reason: sessionEndReason(reason) }))
+      ).catch(() => {}),
+      300,
+      undefined
+    );
+  } catch {
+    /* best-effort: SessionEnd hook must never wedge teardown */
+  }
+}
+
+// Runtime stop/exit (TUI Ctrl-C, process exit) must not tombstone a session
+// you were mid-conversation in: it would vanish from the Resume list the
+// instant you quit and be hard-deleted by the 24h tombstone sweep. Only
+// tombstone truly-empty scratch sessions.
+export function closeOwnSession(deps, closeSurfaceSession, reason) {
+  const {
+    getSession,
+    setSession,
+    statusRoutes,
+    invalidateContextStatusCache,
+    clearRuntimeNotifications,
+    notificationListeners,
+  } = deps;
+  // The close's answer: a boolean, or the promise of one when the closer
+  // retries a refused barrier rename on timers (callers await it).
+  let ok = false;
+  const session = getSession();
+  if (session?.id) {
+    statusRoutes?.clearGatewaySessionRoute?.(session.id);
+    ok = closeSurfaceSession(session, reason, { tombstone: isScratchSession(session) });
+    setSession(null);
+  }
+  invalidateContextStatusCache();
+  if (typeof clearRuntimeNotifications === 'function') clearRuntimeNotifications();
+  else notificationListeners?.clear?.();
+  return ok;
+}
+
+/** Fence a canonical runtime without deleting its conversation.
+ *  Explicit deletion may request a tombstone; blank scratch follows ordinary policy. */
+export async function closeCanonicalSession(deps, reason = 'canonical-session-close', options = {}) {
+  const { getSession, setSession, mgr, invalidateContextStatusCache, beginCanonicalClose, finishCanonicalClose } = deps;
+  // Already terminal: closing is idempotent and keeps the address.
+  if (deps.isCanonicallyClosed?.() === true) return true;
+  const session = getSession?.();
+  if (!session?.id) return false;
+  // Fence execution admission BEFORE the manager close: that close cancels the
+  // session's shells synchronously, and their completions must not be able to
+  // enqueue model work or create a conversation.
+  const fence = beginCanonicalClose?.(session.id);
+  let closed = false;
+  try {
+    closed =
+      (await mgr.closeSession(session.id, reason, { tombstone: options.tombstone ?? isScratchSession(session) })) ===
+      true;
+  } finally {
+    // Terminal after a durable close; admission restored when it failed.
+    finishCanonicalClose?.(fence, closed);
+  }
+  if (!closed) return false;
+  // The close may have waited on another thread's commit: only the session
+  // it closed is dropped.
+  if (getSession?.()?.id === session.id) setSession?.(null);
+  invalidateContextStatusCache?.();
+  return true;
+}
+
+/** `options.timeout` is the progress watchdog's explicit "this abort is a
+ *  timeout": the reap is armed before either abort runs, while the turn is
+ *  still un-aborted (the outer abort cascades into the manager's controller). */
+export function abortRuntime(deps, reason = 'cli-abort', { timeout = false } = {}) {
+  const { getSession, getReservedSessionId, abortActiveTurns, mgr } = deps;
+  const session = getSession();
+  const sessionId = session?.id || getReservedSessionId?.() || 'pending';
+  const abortError = new SessionClosedError(sessionId, `runtime abort (reason=${reason})`, reason);
+  if (timeout && session?.id) armTurnTimeout(session.id);
+  let outerAborted = false;
+  try {
+    outerAborted = abortActiveTurns?.(abortError) === true;
+  } catch {}
+  const managerAborted = session?.id ? mgr.abortSessionTurn(session.id, reason) : false;
+  return outerAborted || managerAborted;
+}

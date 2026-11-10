@@ -1,0 +1,108 @@
+import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import test from 'node:test';
+import { createGoalRuntime } from '../../runtime/agent/orchestrator/runtime-core/goal-runtime.mjs';
+import { createSessionApiA } from './session-api.mjs';
+import { abortGoalTurn, preserveGoalStateAfterTurn } from './goal-turn-state.mjs';
+
+test('a steering abort preserves requested Goal time while a later explicit stop still pauses it', async (t) => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-goal-steering-'));
+  let clock = 2_000_000_000_000;
+  const runtime = createGoalRuntime({ dataDir, now: () => clock });
+  const sessionId = 'sess_goal_steering';
+  const flags = { leadTurnEpoch: 1 };
+  t.after(() => {
+    flags.disposed = true;
+    runtime.close();
+    rmSync(dataDir, { recursive: true, force: true });
+  });
+  const pending = [{ mode: 'prompt', content: 'Continue with this correction' }];
+  const reasons = [];
+  const api = createSessionApiA({
+    flags,
+    pending,
+    getState: () => ({ busy: true }),
+    denyAllToolApprovals() {},
+    runtime: {
+      abort: (reason) => {
+        reasons.push(reason);
+        return true;
+      },
+    },
+  });
+  const settle = () =>
+    runtime.settleTurn(sessionId, {
+      status: 'cancelled',
+      preserveGoalState: preserveGoalStateAfterTurn({
+        cancelled: true,
+        interruptedForSteering: flags.goalSteeringAbortEpoch === flags.leadTurnEpoch,
+      }),
+    });
+  await runtime.control(sessionId, {
+    action: 'create',
+    objective: 'Keep working for the requested duration',
+    duration: '30m',
+  });
+  await runtime.startTurn(sessionId);
+  clock += 10_000;
+  assert.equal(api.abort().aborted, true);
+  const handedOff = await settle();
+  assert.equal(handedOff.status, 'active');
+  assert.equal(handedOff.timeLimitMs, 1_800_000);
+  assert.equal(handedOff.remainingMs, 1_790_000);
+  assert.equal(runtime.continuation(sessionId).run, true);
+
+  pending.length = 0;
+  flags.leadTurnEpoch += 1;
+  await runtime.startTurn(sessionId);
+  clock += 5_000;
+  assert.equal(api.abort().aborted, true);
+  const stopped = await settle();
+  assert.equal(stopped.status, 'paused');
+  assert.equal(stopped.timeUsedMs, 15_000);
+  clock += 10_000;
+  assert.equal(runtime.snapshot(sessionId).timeUsedMs, stopped.timeUsedMs);
+  assert.equal(runtime.continuation(sessionId).run, false);
+  assert.deepEqual(reasons, ['interrupt', 'user-cancel']);
+});
+
+test('a named abort reason reaches the runtime unless a steering prompt is pending', () => {
+  const reasons = [];
+  const runtime = { abort: (reason) => reasons.push(reason) };
+  abortGoalTurn(runtime, { leadTurnEpoch: 1 }, false, 'agent-watchdog');
+  abortGoalTurn(runtime, { leadTurnEpoch: 1 }, true, 'agent-watchdog');
+  assert.deepEqual(reasons, ['agent-watchdog', 'interrupt']);
+});
+
+test('the explicit timeout option reaches the runtime abort, and a pending steering prompt outranks it', () => {
+  const calls = [];
+  const runtime = { abort: (...args) => calls.push(args) };
+  abortGoalTurn(runtime, { leadTurnEpoch: 1 }, false, 'agent-watchdog', { timeout: true });
+  abortGoalTurn(runtime, { leadTurnEpoch: 1 }, true, 'agent-watchdog', { timeout: true });
+  abortGoalTurn(runtime, { leadTurnEpoch: 1 }, false, 'user-cancel');
+  assert.deepEqual(calls, [['agent-watchdog', { timeout: true }], ['interrupt'], ['user-cancel']]);
+});
+
+test('rejected or failed abort requests cannot authorize a steering handoff', () => {
+  for (const shouldThrow of [false, true]) {
+    const flags = { leadTurnEpoch: 2, goalSteeringAbortEpoch: 1 };
+    const error = new Error('abort unavailable');
+    const abort = () => {
+      if (shouldThrow) throw error;
+      return false;
+    };
+    const invoke = () => abortGoalTurn({ abort }, flags, true);
+    if (shouldThrow) assert.throws(invoke, (actual) => actual === error);
+    else assert.equal(invoke(), false);
+    assert.equal(flags.goalSteeringAbortEpoch, 1);
+    assert.equal(
+      preserveGoalStateAfterTurn({
+        cancelled: true,
+        interruptedForSteering: flags.goalSteeringAbortEpoch === flags.leadTurnEpoch,
+      }),
+      false
+    );
+  }
+});

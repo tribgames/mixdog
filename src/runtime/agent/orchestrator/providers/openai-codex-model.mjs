@@ -1,0 +1,143 @@
+/**
+ * OpenAI Codex OAuth model-catalog transforms.
+ *
+ * Pure catalog helpers — API-shape
+ * normalization, family classification, version comparison, and the
+ * per-family "latest" pass. No module state; openai-oauth.mjs re-exports
+ * _displayCodexModel for existing importers.
+ */
+import { accessProgramOnly, catalogAccessPrograms } from '../../../shared/llm/openai-daybreak.mjs';
+
+// OAuth catalog returns dated ids (gpt-5.4-mini-2026-03-17). Strip the trailing
+// -YYYY-MM-DD to get the version alias (gpt-5.4-mini). Unknown shapes pass
+// through unchanged.
+export function _displayCodexModel(id) {
+  if (!id || typeof id !== 'string') return id;
+  return id.replace(/-\d{4}-\d{2}-\d{2}$/, '');
+}
+
+function _positiveCodexContextWindow(value) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
+}
+
+function _codexContextWindowFromApi(m) {
+  return _positiveCodexContextWindow(m?.context_window) || _positiveCodexContextWindow(m?.max_context_window) || null;
+}
+
+const VALIDATED_CODEX_1M_MODELS = new Set(['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna']);
+
+export function _codexMaxContextWindow(id, reportedMaxContextWindow) {
+  const reported = _positiveCodexContextWindow(reportedMaxContextWindow);
+  return VALIDATED_CODEX_1M_MODELS.has(String(id || '').toLowerCase()) ? Math.max(reported || 0, 1_000_000) : reported;
+}
+
+function _codexFamily(id) {
+  const s = String(id || '').toLowerCase();
+  if (s.includes('nano')) return 'gpt-nano';
+  if (s.includes('mini')) return 'gpt-mini';
+  if (s.includes('codex')) return 'gpt-codex';
+  if (s.startsWith('gpt-5.5')) return 'gpt-5.5';
+  if (s.startsWith('gpt-5.4')) return 'gpt-5.4';
+  if (s.startsWith('gpt-5.2')) return 'gpt-5.2';
+  if (s.startsWith('gpt-5')) return 'gpt-5';
+  return 'gpt';
+}
+
+export function _normalizeCodexModel(m) {
+  const id = m?.slug || m?.id;
+  const family = _codexFamily(id);
+  const serviceTiers = Array.isArray(m?.service_tiers)
+    ? m.service_tiers
+        .map((t) => ({
+          id: String(t?.id || '').trim(),
+          name: String(t?.name || '').trim(),
+          description: String(t?.description || '').trim(),
+        }))
+        .filter((t) => t.id)
+    : [];
+  const additionalSpeedTiers = Array.isArray(m?.additional_speed_tiers)
+    ? m.additional_speed_tiers.map((t) => String(t || '').trim()).filter(Boolean)
+    : [];
+  const reasoningLevels = (m?.supported_reasoning_levels || []).map((r) => r.effort);
+  // Explicit access programs this caller may select (Daybreak Blue); absent
+  // when the catalog does not say, which is not the same as an empty list.
+  const accessPrograms = catalogAccessPrograms(m?.available_access_programs);
+  // Catalog ids are version aliases without separate display dating.
+  return {
+    id,
+    name: m?.display_name || id,
+    display: m?.display_name || id,
+    family,
+    provider: 'openai-oauth',
+    contextWindow: _codexContextWindowFromApi(m),
+    maxContextWindow: _codexMaxContextWindow(id, m?.max_context_window),
+    outputTokens: m?.max_output_tokens || m?.output_tokens || 32768,
+    autoCompactTokenLimit: m?.auto_compact_token_limit || null,
+    effectiveContextWindowPercent: m?.effective_context_window_percent || null,
+    tier: 'version',
+    latest: false,
+    // Catalog picker order (lowest first) and visibility; the default model
+    // follows them the way the reference client does.
+    priority: Number.isFinite(m?.priority) ? m.priority : null,
+    visibility: m?.visibility || null,
+    description: m?.description || '',
+    reasoningLevels,
+    // The route's own levels as effort options, so external catalog options
+    // (the public API SKU) never replace them during enrichment.
+    reasoningOptions: reasoningLevels.length ? [{ type: 'effort', values: reasoningLevels }] : [],
+    defaultEffort: m?.default_reasoning_level || null,
+    supportVerbosity: m?.support_verbosity === true,
+    defaultVerbosity: m?.default_verbosity || null,
+    supportsReasoningSummaries: m?.supports_reasoning_summaries === true,
+    // Absent on an older catalog: the caller then falls back to its own list.
+    ...(typeof m?.supports_reasoning_effort_updates === 'boolean'
+      ? { supportsReasoningEffortUpdates: m.supports_reasoning_effort_updates }
+      : {}),
+    ...(typeof m?.supports_image_generation === 'boolean'
+      ? { supportsImageGeneration: m.supports_image_generation }
+      : {}),
+    ...(Array.isArray(m?.supported_tools) ? { supportedTools: toolTypeNames(m.supported_tools) } : {}),
+    serviceTiers,
+    defaultServiceTier: m?.default_service_tier || null,
+    additionalSpeedTiers,
+    ...(accessPrograms ? { accessPrograms } : {}),
+    // The catalog's own replacement for a model being retired.
+    ...(m?.upgrade?.model
+      ? { upgrade: { model: String(m.upgrade.model), retirementAt: m.upgrade.retirement_at || null } }
+      : {}),
+    // Out of the pickers: the catalog hides it, or it is a standalone
+    // access-program variant that a route toggle on a regular model replaces.
+    // Saved routes on it keep resolving.
+    ...(m?.visibility === 'hide' || accessProgramOnly({ accessPrograms }) ? { hidden: true } : {}),
+  };
+}
+
+// The catalog lists tools either as bare type strings or as { type } records.
+const toolTypeNames = (tools) => tools.map((tool) => (typeof tool === 'string' ? tool : tool?.type)).filter(Boolean);
+
+// Compare two model ids by the X.Y version embedded in `gpt-X.Y`. Mirrors
+// anthropic-oauth's _compareVersion; these ids have no trailing date so
+// the version lives in the dotted number, not a -YYYY-MM-DD suffix.
+export function _compareVersion(a, b) {
+  const na = (String(a).match(/gpt-(\d+)\.(\d+)/) || []).slice(1).map(Number);
+  const nb = (String(b).match(/gpt-(\d+)\.(\d+)/) || []).slice(1).map(Number);
+  for (let i = 0; i < Math.max(na.length, nb.length); i++) {
+    if ((na[i] || 0) !== (nb[i] || 0)) return (na[i] || 0) - (nb[i] || 0);
+  }
+  return String(a).localeCompare(String(b));
+}
+
+// Mark the highest-version model per family as `latest: true`. VERSION-based
+// (ids carry no `created`), mirroring anthropic-oauth's per-family pass.
+export function _markLatestCodex(models) {
+  const byFamily = new Map();
+  for (const m of models) {
+    if (!m?.id) continue;
+    const cur = byFamily.get(m.family);
+    if (!cur || _compareVersion(m.id, cur.id) > 0) {
+      byFamily.set(m.family, m);
+    }
+  }
+  for (const m of byFamily.values()) m.latest = true;
+}

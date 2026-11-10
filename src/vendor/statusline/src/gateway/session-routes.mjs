@@ -1,0 +1,267 @@
+import { join } from 'path';
+import { resolvePluginData } from '../../../../runtime/shared/plugin-paths.mjs';
+import { readJsonStateSync, updateJsonAtomic } from '../../../../runtime/shared/atomic-file.mjs';
+import { CLAUDE_CURRENT_MODE } from './claude-current.mjs';
+
+const STORE_FILE = 'gateway-session-routes.json';
+const UUIDISH_SESSION_RE = /^[0-9a-z][0-9a-z._-]{7,}$/i;
+// Route entries were written forever and never pruned — a two-week desktop
+// installation reached a 1.1MB store that readStore() parsed synchronously on
+// every route lookup. Bound the store by age and count; a route older than the
+// TTL belongs to a session whose provider pin is long since irrelevant.
+const ROUTE_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+const MAX_SESSION_ROUTES = 300;
+const MAX_HOST_ROUTES = 100;
+
+function pruneRouteMap(map, now, cap) {
+  const entries = Object.entries(map || {})
+    .filter(([, route]) => {
+      const at = Number(route?.updatedAt) || 0;
+      return at > 0 && (now - at) <= ROUTE_TTL_MS;
+    })
+    .sort((a, b) => (Number(b[1]?.updatedAt) || 0) - (Number(a[1]?.updatedAt) || 0))
+    .slice(0, cap);
+  return Object.fromEntries(entries);
+}
+
+function cleanString(value) {
+  const s = typeof value === 'string' ? value.trim() : '';
+  return s || null;
+}
+
+function cleanBool(value) {
+  if (value === true) return true;
+  if (value === false) return false;
+  if (typeof value === 'string') {
+    const s = value.trim().toLowerCase();
+    if (['1', 'true', 'yes', 'on', 'fast', 'priority'].includes(s)) return true;
+    if (['0', 'false', 'no', 'off', 'none'].includes(s)) return false;
+  }
+  return null;
+}
+
+function hasOwn(obj, key) {
+  return !!obj && Object.prototype.hasOwnProperty.call(obj, key);
+}
+
+export function normalizeGatewaySessionId(value) {
+  const s = cleanString(value);
+  if (!s || !UUIDISH_SESSION_RE.test(s)) return null;
+  return s;
+}
+
+export function normalizeClientHostPid(value) {
+  const n = Number(value);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+function hostRouteKey(sessionId, clientHostPid) {
+  const sid = normalizeGatewaySessionId(sessionId);
+  const pid = normalizeClientHostPid(clientHostPid);
+  return sid && pid ? `${sid}#${pid}` : null;
+}
+
+export function gatewaySessionRoutesPath() {
+  return join(resolvePluginData(), STORE_FILE);
+}
+
+function readStore() {
+  try {
+    // A damaged store (NUL, truncated) is kept aside as *.corrupt-<ts> and its
+    // last good copy restored, so a session never loses its route pin to it.
+    const parsed = readJsonStateSync(gatewaySessionRoutesPath(), { fallback: {} });
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+export function normalizeGatewayRouteSection(route = {}) {
+  const mode = cleanString(route.mode) || CLAUDE_CURRENT_MODE;
+  const provider = cleanString(route.defaultProvider ?? route.provider);
+  const model = cleanString(route.defaultModel ?? route.model);
+  if (!provider || !model) return null;
+  const out = {
+    mode,
+    defaultProvider: provider,
+    defaultModel: model,
+  };
+  for (const key of ['presetId', 'presetName', 'effort', 'displayEffort', 'modelDisplay']) {
+    const value = cleanString(route[key]);
+    if (value) out[key] = value;
+  }
+  if (hasOwn(route, 'fast')) {
+    const fast = cleanBool(route.fast);
+    if (fast !== null) out.fast = fast;
+  }
+  if (hasOwn(route, 'thinkingBudgetTokens')) {
+    const n = Number(route.thinkingBudgetTokens);
+    if (Number.isFinite(n) && n > 0) out.thinkingBudgetTokens = Math.floor(n);
+  }
+  return out;
+}
+
+function routeWithMeta(route, sessionId, clientHostPid = null) {
+  const normalized = normalizeGatewayRouteSection(route || {});
+  if (!normalized) return null;
+  const pid = normalizeClientHostPid(clientHostPid ?? route?.clientHostPid);
+  return {
+    ...normalized,
+    sessionId,
+    ...(pid ? { clientHostPid: pid } : {}),
+    updatedAt: route?.updatedAt || null,
+  };
+}
+
+export function readGatewaySessionRoute(sessionId, options = {}) {
+  const sid = normalizeGatewaySessionId(sessionId);
+  if (!sid) return null;
+  const store = readStore();
+  const pid = normalizeClientHostPid(options?.clientHostPid);
+  const hosts = store?.sessionHosts && typeof store.sessionHosts === 'object' ? store.sessionHosts : {};
+  if (pid) {
+    const hostRoute = hosts[hostRouteKey(sid, pid)];
+    const scoped = routeWithMeta(hostRoute, sid, pid);
+    if (scoped) return scoped;
+    if (options?.fallbackLegacy === true) {
+      const legacy = store?.sessions && typeof store.sessions === 'object' ? store.sessions[sid] : null;
+      return routeWithMeta(legacy, sid);
+    }
+    return null;
+  }
+  const route = store?.sessions && typeof store.sessions === 'object' ? store.sessions[sid] : null;
+  return routeWithMeta(route, sid);
+}
+
+export function readLatestGatewayHostRoute(clientHostPid, options = {}) {
+  const pid = normalizeClientHostPid(clientHostPid);
+  if (!pid) return null;
+  const excludeSid = normalizeGatewaySessionId(options?.excludeSessionId);
+  const store = readStore();
+  const hosts = store?.sessionHosts && typeof store.sessionHosts === 'object' ? store.sessionHosts : {};
+  let best = null;
+  let bestAt = -1;
+  for (const route of Object.values(hosts)) {
+    if (!route || typeof route !== 'object') continue;
+    if (normalizeClientHostPid(route.clientHostPid) !== pid) continue;
+    const sid = normalizeGatewaySessionId(route.sessionId);
+    if (!sid || (excludeSid && sid === excludeSid)) continue;
+    const normalized = routeWithMeta(route, sid, pid);
+    if (!normalized) continue;
+    const at = Number(route.updatedAt) || 0;
+    if (at >= bestAt) {
+      best = normalized;
+      bestAt = at;
+    }
+  }
+  return best;
+}
+
+// This process's route changes, in call order. Every session open writes one,
+// so each is a durable read-modify-write (lock, backup, fsync); run on the
+// event loop, a burst of opens blocked it for each. Changes queue instead and
+// one durable update off the loop lands every change queued until it reads
+// the store; the next starts after it. Order holds: a clear queued after a
+// write is applied after it.
+let queuedChanges = [];
+let draining = null;
+
+function applyChanges(curRaw, changes) {
+  const cur = curRaw && typeof curRaw === 'object' ? curRaw : {};
+  const sessions = cur.sessions && typeof cur.sessions === 'object' ? { ...cur.sessions } : {};
+  const sessionHosts = cur.sessionHosts && typeof cur.sessionHosts === 'object' ? { ...cur.sessionHosts } : {};
+  const updatedAt = Date.now();
+  let wrote = false;
+  let changed = false;
+  for (const change of changes) {
+    if (change.entries) {
+      for (const { sid, route, pid } of change.entries) {
+        if (pid) {
+          sessionHosts[hostRouteKey(sid, pid)] = { ...route, sessionId: sid, clientHostPid: pid, updatedAt };
+        } else {
+          sessions[sid] = { ...route, sessionId: sid, updatedAt };
+        }
+      }
+      wrote = true;
+    } else if (change.pid) {
+      const key = hostRouteKey(change.sid, change.pid);
+      if (!key || !hasOwn(sessionHosts, key)) continue;
+      delete sessionHosts[key];
+      changed = true;
+    } else {
+      if (!hasOwn(sessions, change.sid)) continue;
+      delete sessions[change.sid];
+      changed = true;
+    }
+  }
+  if (wrote) {
+    return {
+      version: 2,
+      updatedAt,
+      sessions: pruneRouteMap(sessions, updatedAt, MAX_SESSION_ROUTES),
+      sessionHosts: pruneRouteMap(sessionHosts, updatedAt, MAX_HOST_ROUTES),
+    };
+  }
+  return changed ? { version: 2, updatedAt, sessions, sessionHosts } : undefined;
+}
+
+async function drainChanges() {
+  while (queuedChanges.length > 0) {
+    // One store per update: a change made while another data dir was current
+    // goes to that dir's store.
+    const path = queuedChanges[0].path;
+    let taken = false;
+    try {
+      await updateJsonAtomic(
+        path,
+        (current) => {
+          taken = true;
+          const batch = [];
+          while (queuedChanges.length > 0 && queuedChanges[0].path === path) batch.push(queuedChanges.shift());
+          return applyChanges(current, batch);
+        },
+        { compact: true, backup: true }
+      );
+    } catch {
+      // A route pin is best effort, as when this write was synchronous: the
+      // changes this update held are dropped, never retried out of order.
+      if (!taken) while (queuedChanges.length > 0 && queuedChanges[0].path === path) queuedChanges.shift();
+    }
+  }
+  draining = null;
+}
+
+function queueChange(change) {
+  queuedChanges.push({ ...change, path: gatewaySessionRoutesPath() });
+  if (!draining) draining = drainChanges();
+}
+
+/** Resolves once every route change queued so far is on disk (or failed). */
+export function gatewaySessionRoutesSettled() {
+  return draining ?? Promise.resolve();
+}
+
+export function writeGatewaySessionRoutes(entries = []) {
+  const normalizedEntries = [];
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    const sid = normalizeGatewaySessionId(entry?.sessionId);
+    const route = normalizeGatewayRouteSection(entry?.route || {});
+    if (!sid || !route) continue;
+    const pid = normalizeClientHostPid(entry?.options?.clientHostPid ?? entry?.route?.clientHostPid);
+    normalizedEntries.push({ sid, route, pid });
+  }
+  if (normalizedEntries.length === 0) return false;
+  queueChange({ entries: normalizedEntries });
+  return true;
+}
+
+export function writeGatewaySessionRoute(sessionId, route, options = {}) {
+  return writeGatewaySessionRoutes([{ sessionId, route, options }]);
+}
+
+export function clearGatewaySessionRoute(sessionId, options = {}) {
+  const sid = normalizeGatewaySessionId(sessionId);
+  if (!sid) return false;
+  queueChange({ sid, pid: normalizeClientHostPid(options?.clientHostPid) });
+  return true;
+}

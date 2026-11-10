@@ -1,0 +1,58 @@
+// Shared Compact constants. compact.mjs re-exports this small public surface.
+import {
+  DEFAULT_COMPACTION_BUFFER_TOKENS,
+  DEFAULT_COMPACTION_BUFFER_RATIO,
+  MAX_COMPACTION_BUFFER_RATIO,
+  normalizeCompactionBufferRatio,
+  compactionBufferTokensForBoundary,
+} from '../context-utils.mjs';
+
+export {
+  DEFAULT_COMPACTION_BUFFER_TOKENS,
+  DEFAULT_COMPACTION_BUFFER_RATIO,
+  MAX_COMPACTION_BUFFER_RATIO,
+  normalizeCompactionBufferRatio,
+  compactionBufferTokensForBoundary,
+};
+
+import { SUMMARY_PREFIX_ANCHOR } from './summary-anchor.mjs';
+
+export { SUMMARY_PREFIX_ANCHOR };
+export const SUMMARY_PREFIX = `${SUMMARY_PREFIX_ANCHOR} Build on the work already done and avoid duplicating it. The summary covers the session; retained requests and execution records follow it. Actual tool outcomes take precedence over plans or older claims in the summary.`;
+export const SUMMARY_OUTPUT_TOKENS = 4_096;
+// Longest a handoff summary call may run: the default, the config fallback,
+// and the ceiling of the transcript-scaled timeout all read this one value.
+export const HANDOFF_TIMEOUT_MAX_MS = 300_000;
+// Default total post-compact context target, including request/tool overhead.
+// Execution history has its own smaller cap inside this overall budget.
+// Consumers:
+//   - compact target budget (loop/compact-policy.mjs resolveCompactTargetRatio)
+//   - fresh-context handoff injection cap
+// Keep them in lockstep; do not fork per-consumer ratios without a decision.
+export const CONTEXT_SHARE_RATIO = 0.25;
+export const DEFAULT_EFFECTIVE_CONTEXT_WINDOW_PERCENT = 90;
+export const COMPACT_TARGET_MIN_TOKENS = 4_000;
+export const COMPACT_SAFETY_PERCENT = 1.0;
+// Floor for the handoff cap so small-context models still get a usable slice.
+export const HANDOFF_TOKEN_CAP_FLOOR_TOKENS = 2_048;
+// Minimum room the generated summary needs after the mandatory (system +
+// preserved tail) cost is accounted for. When the configured target budget is
+// smaller than the mandatory cost (e.g. the preserved recent turn carries a
+// large tool result), the compaction MUST still proceed: the old head is the
+// part being summarized away, so dropping it already shrinks the transcript.
+// Refusing with "exceeds budget" here is what surfaced as auto-clear / overflow
+// compact failures. Floor the working budget to mandatory + this room instead.
+export const COMPACT_SUMMARY_MIN_ROOM_TOKENS = 4_000;
+
+export function compactDebugEnabled() {
+  return String(process.env.MIXDOG_COMPACT_DEBUG || '').trim() === '1';
+}
+
+export function compactDebugLog(scope, details = {}) {
+  if (!compactDebugEnabled()) return;
+  try {
+    process.stderr.write(`[compact] ${scope} ${JSON.stringify(details)}\n`);
+  } catch {
+    /* best-effort diagnostics only */
+  }
+}
