@@ -1,0 +1,110 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-claude-floors.mjs --tree <tree> --base b6f10295a2f698afc85332467192de28500bd146",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 234605,
+      "path": "golden.json",
+      "sha256": "16fc2eee20b5951137a1596730f3ecb58f2ba1a6e6acf2118430e4162fd38a8f"
+    }
+  ],
+  "nodeTree": {
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
+    "changedModules": [
+      {
+        "baseBlob": "4977d24a4907f5963b978109da3f6f20b911cde4",
+        "path": "src/runtime/shared/llm/anthropic-thinking-contract.mjs",
+        "sha256": "232604b3549a3a529c99ecb58050a6a4b5781cde78e398cfdcf6d614ec14924c"
+      },
+      {
+        "baseBlob": "0bb1396c8211eff88eeee9b885afec745f44f129",
+        "path": "src/runtime/agent/orchestrator/providers/anthropic-message-threads.mjs",
+        "sha256": "825207ba6e233ba4c046adc8d54895b08bd2b82bef425f4a5672748faf4deee1"
+      },
+      {
+        "baseBlob": null,
+        "path": "src/runtime/agent/orchestrator/providers/anthropic-capability-fallback.mjs",
+        "sha256": "e83ba7fe6d6b9977dc52cad008148204b04da7a6398244fc23f49582f57cd350"
+      },
+      {
+        "baseBlob": null,
+        "path": "src/runtime/agent/orchestrator/providers/lib/replay-before-output.mjs",
+        "sha256": "d503148de877f5d2e5e5a6faaad04b36af80085d142c9966350738d70d82197e"
+      },
+      {
+        "baseBlob": "823aaaee381275d62bf56a95903eeb55e79ad3b9",
+        "path": "src/runtime/agent/orchestrator/providers/effort-configuration.mjs",
+        "sha256": "8b6532dac3f74b2a0063630b74fc48ad2f3bb9e225b764ceb1960b79a44fd12b"
+      },
+      {
+        "baseBlob": "3767ed286a839695be94f25a79bcc0da5ee543a1",
+        "path": "src/runtime/agent/orchestrator/providers/lib/anthropic-request-utils.mjs",
+        "sha256": "2057d1b6ab4431eb99bbe5c4fd760deeab0903be4a7ee60230718d6525885311"
+      },
+      {
+        "baseBlob": "6175326f28c30cbe564a1221dac14fcbf4dd6433",
+        "path": "src/runtime/agent/orchestrator/providers/anthropic-api-request.mjs",
+        "sha256": "4b80e21262c349c1c70bade1a6d87a32d822cb5d01dc9444d08d057383768c5e"
+      },
+      {
+        "baseBlob": "1e65027f44f1158e2c46dab17ed0977b686eb350",
+        "path": "src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs",
+        "sha256": "415898e05fbc2dca2675bbe18e6c30bab74a985110eb57ee34556b4921726f37"
+      },
+      {
+        "baseBlob": "7b5db019f52ae152852b28f1b2ce13857c896bdf",
+        "path": "src/runtime/agent/orchestrator/providers/anthropic.mjs",
+        "sha256": "814c5316a3c0c2a6aa7f6e89ec3de5360599f7c41077312c11a59928a94f922b"
+      },
+      {
+        "baseBlob": "8f3c947e82966c388d975f2aaa2cf171742b88f2",
+        "path": "src/runtime/agent/orchestrator/providers/lib/anthropic-models.mjs",
+        "sha256": "64d90c8c90e52ccc99488d5f37dee8b46121d6640946b10e24188c22e4dd5a9f"
+      },
+      {
+        "baseBlob": "b3b04e20f8ad790022822539711d67f285f4cd2e",
+        "path": "src/runtime/agent/orchestrator/session/manager/context-meta.mjs",
+        "sha256": "6967971e490d8953fa510989769b1c6f8f7f76ac1d94950b2d6d22071090283e"
+      },
+      {
+        "baseBlob": "35586981225d42cdd3508a360a23188bcd6f747a",
+        "path": "src/runtime/agent/orchestrator/runtime-core/effort.mjs",
+        "sha256": "0b8d872608436b82a5a172fd127bc694134087cef0d9e8f806c8dc0263370cda"
+      },
+      {
+        "baseBlob": "44d37461c4337ff7e9186fc5f98b56fadc4a6dfa",
+        "path": "src/runtime/shared/model-display.mjs",
+        "sha256": "1c7e34435eb2ffdf2c96a37caba62154815791ef6cbf0995db2f53e4ddf4c4f7"
+      },
+      {
+        "baseBlob": "283e7828f5a40f90bd26b5c4dfc0ffa8149b6c23",
+        "path": "src/vendor/statusline/bin/statusline-route.mjs",
+        "sha256": "a05a287e514de4764d058f88602e2a506685a1056ad3775f6a68b56d5534f3d8"
+      },
+      {
+        "baseBlob": "873b1a1de6db3e03a34ec9887ef3c44ab8476771",
+        "path": "src/vendor/statusline/src/gateway/claude-current.mjs",
+        "sha256": "4e1149d9380d33be1a02d547eda6241f2f359fc1a11538d210b4896827fc9213"
+      }
+    ]
+  },
+  "product": {
+    "appsSha256": "68a4f061d0469fc4d6e2b52541760904a5c9a53664ee108fbd4e153f19ca20bb",
+    "commit": null,
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "files": 43484,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 1,
+      "exact": false,
+      "filesDifferingFromCommit": 34430
+    },
+    "srcSha256": "75cf960aa1d75bb4a92e1a7dd8a7e0f303ada689f5744892270f479a5d2c63fb",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-claude-floors.mjs",
+  "set": "claude-floors",
+  "totalBytes": 234605
+}

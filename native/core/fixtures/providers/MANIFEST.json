@@ -10,7 +10,7 @@
     "oracles/openai-transport-switch-golden.json (WP-AI-OPENAI)",
     "oracles/openai-ws-delta-golden.json (WP-AI-OPENAI)"
   ],
-  "fileCount": 84,
+  "fileCount": 85,
   "files": [
     {
       "bytes": 243065,
@@ -18,9 +18,9 @@
       "sha256": "bfdb4917c223aaa52c349cc9254508bfd589684725f30814491351650ede7c87"
     },
     {
-      "bytes": 309490,
+      "bytes": 313012,
       "path": "anthropic-effort/cases.json",
-      "sha256": "d1d052f5bbb7cd697e731e9c8306cb9e1751342f3a6de6160600e766403f6b7a"
+      "sha256": "19d80deb5d5c3570031c8a77eab831418a83af2a8de76dc59992723d565d02b0"
     },
     {
       "bytes": 35409,
@@ -28,9 +28,9 @@
       "sha256": "6d2870fd106e5dc8aa0c92922309e921087bf0212eeab3af760f35597b6df3a3"
     },
     {
-      "bytes": 55483,
+      "bytes": 97707,
       "path": "anthropic-shared-prefix/cases.json",
-      "sha256": "fc3d3affb28583fabbed031639f421a9cce39b6e4854dbdb6c12954b901d6106"
+      "sha256": "9b205a1a5f36711d5b2811a80b69088fea9b4affcf891431587e2c2cb6f1500a"
     },
     {
       "bytes": 3500,
@@ -338,6 +338,11 @@
       "sha256": "fbfd34f29db1ae5d57a3f2d0fd097ed7414bb9ed0b4ed7d25bb7ecce3d2fe706"
     },
     {
+      "bytes": 32338,
+      "path": "oracles/model-meta.json",
+      "sha256": "9f4f64358c91309ccdf69ab85147359a12a012aad1b5872d23b98f6356b4df5d"
+    },
+    {
       "bytes": 264455,
       "path": "oracles/native-request-bytes.head.json",
       "sha256": "72398a2d04bb93ea1a4c848cf3dde476ebaa874dfe28f70f3badc371807110e2"
@@ -434,17 +439,17 @@
     }
   ],
   "product": {
-    "appsSha256": "76fce0d110cb5122882854fe249d47c63431d8ff9439b7b2924969e3ec7b44f5",
+    "appsSha256": "68a4f061d0469fc4d6e2b52541760904a5c9a53664ee108fbd4e153f19ca20bb",
     "commit": null,
-    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
-    "files": 43481,
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "files": 43484,
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 1,
       "exact": false,
-      "filesDifferingFromCommit": 34407
+      "filesDifferingFromCommit": 34430
     },
-    "srcSha256": "cd19ae47524b0f6a486c3c407d67ec40c3373ff082b78574133e107a1ce76de0",
+    "srcSha256": "75cf960aa1d75bb4a92e1a7dd8a7e0f303ada689f5744892270f479a5d2c63fb",
     "tree": "product tree loaded by the recorder",
     "treeKind": "git-checkout",
     "version": "1.4.5"
@@ -469,5 +474,5 @@
     "openai-responses-http-sse/truncated-no-completed"
   ],
   "set": "providers",
-  "totalBytes": 2487889
+  "totalBytes": 2565973
 }

@@ -42,6 +42,8 @@ use mixdog_rt::CpuBulk;
 use mixdog_rt::LaneToken;
 use tokio_util::sync::CancellationToken;
 
+use crate::claude_floors;
+use crate::claude_floors::Feature;
 use crate::transport::http::BodyStream;
 use crate::transport::http::HttpResponse;
 use crate::transport::http::HttpSend;
@@ -248,6 +250,24 @@ impl AnthropicAdapter {
         serde_json::to_vec(&parsed).ok()
     }
 
+    /// The request encoded again after `rejected` refused a version-floor feature of it
+    /// (`anthropicCapabilityReplay`): the feature is switched off for the model on this route, once per
+    /// feature and attempt. `None` for any other refusal. Nothing has streamed yet.
+    fn after_floor_rejection(
+        &self,
+        request: &ModelRequest,
+        rejected: &ErrorResponse,
+        replayed: &mut Vec<Feature>,
+    ) -> Option<Result<WireRequest, ProviderError>> {
+        let feature = claude_floors::rejection(rejected.status, &String::from_utf8_lossy(&rejected.body))?;
+        if replayed.contains(&feature) {
+            return None;
+        }
+        replayed.push(feature);
+        claude_floors::mark_unsupported(feature, self.codec.flavor().provider_name(), &request.model);
+        Some(self.codec.encode(request))
+    }
+
     async fn failure(&self, response: HttpResponse) -> ProviderError {
         match response.read_all().await {
             Ok(rejected) => self.codec.classify(&rejected),
@@ -383,6 +403,7 @@ impl ProviderAdapter for AnthropicAdapter {
         let mut secret = self.credentials.current().await?;
         let mut refreshed = false;
         let mut speed_dropped = false;
+        let mut floor_replays = Vec::new();
         loop {
             let response = self.post(&wire, &secret).await?;
             if (200..300).contains(&response.status) {
@@ -397,6 +418,10 @@ impl ProviderAdapter for AnthropicAdapter {
             {
                 wire.body = standard;
                 speed_dropped = true;
+                continue;
+            }
+            if let Some(rebuilt) = self.after_floor_rejection(&request, &rejected, &mut floor_replays) {
+                wire = rebuilt?;
                 continue;
             }
             let mut err = self.codec.classify(&rejected);
