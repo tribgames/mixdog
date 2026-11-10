@@ -64,7 +64,42 @@ async fn flushes_asked_for_while_one_runs_wait_off_the_lane_and_share_the_next_f
     assert!(!writer.turn.lock().unwrap().running);
 }
 
-/// A running flush whose task is cancelled gives the turn up: the flush that waited on it takes the turn and writes.
+/// A running flush cancelled while the lane still has its job keeps the turn until that job ends: the job still writes its
+/// chunk, and a flush that took the turn at the cancellation would write a later chunk before it.
+#[tokio::test]
+async fn a_cancelled_flush_keeps_the_turn_until_its_lane_job_ends() {
+    let tokens = mixdog_rt::testing::tokens();
+    let data = tempfile::tempdir().unwrap();
+    let config = TraceConfig::from_env(data.path(), &|_| None, false);
+    let io = ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io };
+    let writer = Arc::new(FailureWriter::new(&config, io, Arc::new(At(1))));
+
+    // The first flush as its cancellation finds it: the turn taken, its job on the lane.
+    let running = Running { writer: &writer, served: Vec::new(), finished: false };
+    let job = {
+        let mut turn = writer.turn.lock().unwrap();
+        turn.running = true;
+        turn.job_live = true;
+        JobEnd(Arc::clone(&writer.turn))
+    };
+    drop(running);
+
+    writer.trace.tool_failure(&row("second"), 2);
+    let next = Arc::clone(&writer);
+    let mut next: Flush = Box::pin(async move { next.flush().await });
+    assert!(next.as_mut().poll(&mut Context::from_waker(Waker::noop())).is_pending(), "a flush took the turn while the cancelled one's job lived");
+    assert_eq!(writer.submitted.load(Ordering::Acquire), 0);
+
+    drop(job);
+    tokio::time::timeout(Duration::from_secs(30), next).await.expect("the waiting flush did not take the turn within 30 s of the job's end");
+    assert_eq!(writer.submitted.load(Ordering::Acquire), 1);
+    assert!(mixdog_testkit::read_string(data.path().join("history").join("tool-failures.jsonl")).contains("\"second\""));
+    let turn = writer.turn.lock().unwrap();
+    assert!(!turn.running && !turn.job_live && !turn.orphaned);
+}
+
+/// A running flush whose task is cancelled with no job on the lane gives the turn up at once: the flush that waited on it
+/// takes the turn and writes.
 #[tokio::test]
 async fn a_flush_waiting_on_a_cancelled_one_takes_the_turn() {
     let tokens = mixdog_rt::testing::tokens();
