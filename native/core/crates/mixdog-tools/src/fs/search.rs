@@ -121,25 +121,20 @@ fn compile_globs(patterns: &[String]) -> Result<(GlobSet, GlobSet, bool), ToolEr
     Ok((build(inc)?, build(exc)?, any_include))
 }
 
-async fn mtime_millis(ctx: &ToolContext, path: &AbsPath) -> u128 {
-    match ctx.files.stat(ctx.io.interactive, path.clone()).await {
-        Ok(s) => s
-            .modified
-            .and_then(|m| m.duration_since(UNIX_EPOCH).ok())
-            .map(|d| d.as_millis())
-            .unwrap_or(0),
-        Err(_) => 0,
-    }
+/// The mtime in ms (0 when the file service has none); `None` when the stat failed.
+async fn mtime_millis(ctx: &ToolContext, path: &AbsPath) -> Option<u128> {
+    let stat = ctx.files.stat(ctx.io.interactive, path.clone()).await.ok()?;
+    Some(stat.modified.and_then(|m| m.duration_since(UNIX_EPOCH).ok()).map_or(0, |d| d.as_millis()))
 }
 
-/// Files under `root` matching any pattern, with their mtime (ms; 0 unknown).
-/// `complete` is false when the walk hit the deadline.
+/// Files under `root` matching any pattern, in walk order, with their mtime (ms; `None` when the
+/// stat failed). `complete` is false when the walk hit the deadline.
 pub(crate) async fn glob_files(
     ctx: &ToolContext,
     root: &AbsPath,
     patterns: &[String],
     include_noise: bool,
-) -> Result<(Vec<(AbsPath, u128)>, bool), ToolError> {
+) -> Result<(Vec<(AbsPath, Option<u128>)>, bool), ToolError> {
     let (inc, exc, any_include) = compile_globs(patterns)?;
     let root_path = root.as_path().to_path_buf();
     let rel = |p: &Path| p.strip_prefix(&root_path).map(fwd).unwrap_or_else(|_| fwd(p));
@@ -227,7 +222,12 @@ impl Tool for GlobTool {
                 let s = fwd(p.as_path());
                 if cfg!(windows) { s.to_lowercase() } else { s }
             };
-            files.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| key(&a.0).cmp(&key(&b.0))));
+            // Newest first; a file whose stat failed cannot be ordered by time and keeps its walk
+            // order after the rest (Node's mtime top-K, `serve_search/mtime.rs`).
+            let (mut statted, unstatted): (Vec<_>, Vec<_>) = files.into_iter().partition(|f| f.1.is_some());
+            statted.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| key(&a.0).cmp(&key(&b.0))));
+            statted.extend(unstatted);
+            files = statted;
         }
         let total = files.len();
         let windowed = files.get(offset..).unwrap_or(&[]);

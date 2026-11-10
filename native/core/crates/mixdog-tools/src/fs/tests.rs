@@ -1550,6 +1550,66 @@ sequence_tests! {
     no_session => "no-session",
 }
 
+/// The local file service, except that stating a file with one of `names` fails.
+struct StatFails(Arc<dyn FileService>, &'static [&'static str]);
+
+#[async_trait::async_trait]
+impl FileService for StatFails {
+    async fn stat(&self, lane: mixdog_rt::InteractiveIo, path: AbsPath) -> Result<mixdog_core_api::domain::fs::FileStat, mixdog_core_api::domain::fs::FsError> {
+        if self.1.iter().any(|name| path.as_path().ends_with(name)) {
+            return Err(mixdog_core_api::domain::fs::FsError::new(mixdog_core_api::domain::fs::FsErrorKind::PermissionDenied, Some(path)));
+        }
+        self.0.stat(lane, path).await
+    }
+    async fn read(&self, lane: mixdog_rt::InteractiveIo, path: AbsPath, range: mixdog_core_api::domain::fs::ReadRange) -> Result<mixdog_core_api::domain::fs::FileBytes, mixdog_core_api::domain::fs::FsError> {
+        self.0.read(lane, path, range).await
+    }
+    async fn list_dir(&self, lane: mixdog_rt::InteractiveIo, path: AbsPath) -> Result<Vec<mixdog_core_api::domain::fs::DirEntry>, mixdog_core_api::domain::fs::FsError> {
+        self.0.list_dir(lane, path).await
+    }
+    async fn write(&self, lane: mixdog_rt::DurabilityIo, request: WriteRequest) -> Result<mixdog_core_api::domain::fs::FileStat, mixdog_core_api::domain::fs::FsError> {
+        self.0.write(lane, request).await
+    }
+    async fn write_batch(&self, lane: mixdog_rt::DurabilityIo, requests: Vec<WriteRequest>) -> Result<Vec<mixdog_core_api::domain::fs::FileStat>, mixdog_core_api::domain::fs::FsError> {
+        self.0.write_batch(lane, requests).await
+    }
+    async fn create_dir(&self, lane: mixdog_rt::DurabilityIo, path: AbsPath, recursive: bool) -> Result<(), mixdog_core_api::domain::fs::FsError> {
+        self.0.create_dir(lane, path, recursive).await
+    }
+    async fn rename(&self, lane: mixdog_rt::DurabilityIo, from: AbsPath, to: AbsPath, overwrite: bool) -> Result<(), mixdog_core_api::domain::fs::FsError> {
+        self.0.rename(lane, from, to, overwrite).await
+    }
+    async fn copy(&self, lane: mixdog_rt::DurabilityIo, from: AbsPath, to: AbsPath, overwrite: bool) -> Result<(), mixdog_core_api::domain::fs::FsError> {
+        self.0.copy(lane, from, to, overwrite).await
+    }
+    async fn remove(&self, lane: mixdog_rt::DurabilityIo, path: AbsPath, recursive: bool) -> Result<(), mixdog_core_api::domain::fs::FsError> {
+        self.0.remove(lane, path, recursive).await
+    }
+    fn walk(&self, lane: mixdog_rt::MaintenanceIo, request: mixdog_core_api::domain::fs::WalkRequest) -> Box<dyn mixdog_core_api::domain::common::EventSource<Result<mixdog_core_api::domain::fs::DirEntry, mixdog_core_api::domain::fs::FsError>>> {
+        self.0.walk(lane, request)
+    }
+    fn search_text(&self, lane: mixdog_rt::MaintenanceIo, request: mixdog_core_api::domain::fs::SearchRequest) -> Box<dyn mixdog_core_api::domain::common::EventSource<Result<mixdog_core_api::domain::fs::SearchMatch, mixdog_core_api::domain::fs::FsError>>> {
+        self.0.search_text(lane, request)
+    }
+}
+
+/// Newest-first `glob`: files whose stat failed cannot be ordered by time, so they follow every
+/// stated file (one dated at the epoch included) in walk order, as Node's mtime top-K keeps them
+/// (`search-glob-tool.mjs` `_createGlobMtimeTopK`, `serve_search/mtime.rs`).
+#[tokio::test]
+async fn glob_puts_files_whose_stat_failed_last_in_walk_order() {
+    let (_dir, root) = small_dir();
+    for name in ["a.txt", "C.txt", "b.txt", "d.txt"] {
+        std::fs::write(root.as_path().join(name), "x\n").unwrap();
+    }
+    std::fs::OpenOptions::new().write(true).open(root.as_path().join("b.txt")).unwrap().set_modified(std::time::UNIX_EPOCH).unwrap();
+    let ctx = context_seeded(&root, Arc::new(StatFails(local_ctx_files(), &["a.txt", "C.txt"])), Vec::new()).await;
+    let (is_error, text) = text_of(GlobTool::new().call(&ctx, serde_json::json!({ "pattern": "*.txt" })).await);
+    assert!(!is_error, "{text}");
+    // The walk visits names in byte order: `C.txt` before `a.txt`.
+    assert_eq!(text.lines().collect::<Vec<_>>(), ["d.txt", "b.txt", "C.txt", "a.txt"]);
+}
+
 /// A recorded sequence without a test, or a test without a recorded sequence, fails here.
 #[test]
 fn every_recorded_sequence_has_its_session_memory_test() {
