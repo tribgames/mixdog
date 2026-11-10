@@ -40,7 +40,7 @@ test-support = ["dep:mixdog-spawn", "dep:tempfile", "mixdog-rt/test-support", "m
 
 [dev-dependencies]
 bytes = { workspace = true }
-mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core", "core-test"] }
+mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core", "core-test", "lease-clock"] }
 regex = { workspace = true }
 tempfile = { workspace = true }
 mixdog-core-api = { workspace = true, features = ["mock"] }

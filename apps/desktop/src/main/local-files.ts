@@ -2,14 +2,11 @@ import { readFile, stat } from 'node:fs/promises';
 import { basename, isAbsolute, resolve } from 'node:path';
 
 import { localFileMimeTypeForPath } from '../shared/local-files';
+import { pathText } from '../shared/remote-arguments';
 
 /** Shape-validated absolute path for trusted local-file operations. */
 export function absoluteLocalPath(value: unknown): string {
-  if (typeof value !== 'string') throw new TypeError('path must be a string.');
-  const text = value.trim();
-  if (!text || text.length > 16_384 || text.includes('\0')) {
-    throw new TypeError('path is invalid.');
-  }
+  const text = pathText(value);
   if (!isAbsolute(text)) throw new TypeError('path must be absolute.');
   return resolve(text);
 }

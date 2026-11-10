@@ -295,6 +295,9 @@ pub trait ScopedFeed: Feed {
     /// unwritten frames. Afterwards `attach` answers `connectionClosed` (the subscription raced
     /// the close of its scope) and registers nothing, and `publish` reaches no lane. Idempotent.
     fn close(&self);
+
+    /// How many subscriptions are attached now.
+    fn subscribers(&self) -> usize;
 }
 
 /// Creates scoped feeds. Implemented by WP-FEED, injected into domain services by the

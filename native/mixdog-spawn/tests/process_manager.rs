@@ -17,6 +17,7 @@ use mixdog_core_api::domain::process::ProcessEvent;
 use mixdog_core_api::domain::process::ProcessManager;
 use mixdog_core_api::domain::process::ProcessQueue;
 use mixdog_core_api::domain::process::PtySize;
+use mixdog_core_api::domain::process::SpawnRequest;
 use mixdog_spawn::ProcessConfig;
 use mixdog_spawn::tasks::TaskOutcome;
 use mixdog_spawn::tasks::TaskStatus;
@@ -286,22 +287,14 @@ fn flood_command(path: &str) -> CommandSpec {
     shell(&format!("type \"{path}\""), &format!("cat '{path}'"))
 }
 
-async fn pushed_when_stable(m: &mixdog_spawn::LocalProcessManager, h: &mixdog_protocol::ProcessHandle) -> u64 {
-    // The shell takes a moment to start printing.
-    while m.output_pushed(h).unwrap() == 0 {
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-    let mut last = m.output_pushed(h).unwrap();
-    loop {
-        tokio::time::sleep(Duration::from_millis(400)).await;
-        let now = m.output_pushed(h).unwrap();
-        if now == last {
-            return now;
-        }
-        last = now;
-    }
+/// The bytes pushed once the process's reader is parked at its feed's gate: held back by the stalled consumer or the paused feed. The wait is on
+/// the reader's own signal, so a loaded machine cannot end it early; the deadline fails a reader that never parks.
+async fn pushed_when_blocked(m: &mixdog_spawn::LocalProcessManager, h: &mixdog_protocol::ProcessHandle) -> u64 {
+    tokio::time::timeout(Duration::from_secs(60), m.output_blocked(h))
+        .await
+        .expect("the reader never parked at its feed's gate within 60 s")
+        .unwrap()
 }
-
 /// DS-PROC-4: a 10 MB flood to a client that does not read stalls the PTY reader at the ring
 /// bound, a second client's keystrokes still pass, another process is not slowed, and reading
 /// again lets the flood finish.
@@ -318,7 +311,7 @@ async fn flood_to_a_stalled_client_stops_at_the_ring_bound() {
     m.spawn(pty_request(&h, cmd, PtySize { cols: 120, rows: 40 })).await.unwrap();
     // The client that never reads: subscribed, never polled.
     let mut client = m.subscribe(&h, None).unwrap();
-    let stalled_at = pushed_when_stable(&m, &h).await;
+    let stalled_at = pushed_when_blocked(&m, &h).await;
     assert!(
         stalled_at as usize <= RING && stalled_at as usize + 192 * 1024 >= RING,
         "reader stalled at {stalled_at}, ring bound {RING}"
@@ -379,7 +372,7 @@ async fn explicit_pause_stops_the_reader_and_resume_releases_it() {
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     m.set_output_paused(&h, true).unwrap();
-    let stalled = pushed_when_stable(&m, &h).await;
+    let stalled = pushed_when_blocked(&m, &h).await;
     assert!(stalled < 4 * 1024 * 1024, "paused reader consumed the whole flood: {stalled}");
     assert!(m.info(&h).unwrap().exit.is_none());
     m.set_output_paused(&h, false).unwrap();
@@ -510,7 +503,7 @@ async fn kill_releases_a_reader_held_by_a_stalled_client() {
     let cmd = flood_command(&path);
     m.spawn(pty_request(&h, cmd, PtySize { cols: 100, rows: 30 })).await.unwrap();
     let _client = m.subscribe(&h, None).unwrap();
-    pushed_when_stable(&m, &h).await;
+    pushed_when_blocked(&m, &h).await;
     m.kill(&h).unwrap();
     wait_exit(&m, &h).await;
     assert_eq!(m.info(&h).unwrap().exit.unwrap().killed, Some(KillReason::Requested));
@@ -566,4 +559,96 @@ async fn one_processes_exit_never_waits_for_anothers_output() {
     assert!(t.elapsed() < Duration::from_secs(4), "quick processes waited {:?}", t.elapsed());
     assert!(m.info(&slow).unwrap().exit.is_none(), "the slow process is still running");
     m.kill(&slow).unwrap();
+}
+
+/// A hung-up process's later kill reaches that process only (Node's dispose kills the captured entry's own pty, terminal-manager.ts:543):
+/// once it has exited and a new process runs under the same handle, the kill finds its own process ended and the new one untouched.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_hung_up_process_is_killed_as_itself_never_through_its_handle() {
+    let m = manager();
+    let h = handle("hung-up");
+    m.spawn(pty_request(&h, long_sleep(), PtySize { cols: 80, rows: 24 })).await.unwrap();
+    let hung = m.hang_up(&h).unwrap();
+    m.kill(&h).unwrap();
+    let _ = collect(&m, &h).await;
+    m.spawn(pty_request(&h, long_sleep(), PtySize { cols: 80, rows: 24 })).await.unwrap();
+    assert_eq!(hung.kill(), Err(ProcessError::AlreadyExited), "the kill reached the old process, which had ended");
+    assert_eq!(m.info(&h).unwrap().exit, None, "the process now under the handle was not killed");
+    m.kill(&h).unwrap();
+    let _ = collect(&m, &h).await;
+}
+
+/// While a write larger than the queue is in progress (the process reads nothing, so it stays in progress), the process's write side is
+/// its own: another write is not queued between its pieces (Node's one `pty.write` per string, terminal-manager.ts:419), neither the
+/// immediate one nor a waiting one, which goes after it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_write_in_pieces_is_never_interleaved_with_another_write() {
+    let m = manager_with(ProcessConfig { input_queue_bytes: 16, ..ProcessConfig::default() });
+    let h = handle("one-writer");
+    m.spawn(SpawnRequest { stdin_piped: true, ..request(&h, long_sleep()) }).await.unwrap();
+    // More than the pipe and the queue hold together: the write is still in progress after its first poll.
+    let mut first = Box::pin(m.write_input_wait(&h, "é".repeat(256 * 1024).into_bytes()));
+    assert!(poll_once(&mut first).await.is_pending(), "the large write is in progress");
+    assert_eq!(m.write_input(&h, b"x".to_vec()), Err(ProcessError::Overloaded { queue: ProcessQueue::Input }), "no write lands between its pieces");
+    let mut second = Box::pin(m.write_input_wait(&h, b"x".to_vec()));
+    assert!(poll_once(&mut second).await.is_pending(), "a waiting write goes after the whole of it");
+    m.kill(&h).unwrap();
+    assert_eq!(tokio::time::timeout(WAIT, first).await.expect("the first write ends with the process"), Err(ProcessError::StdinClosed));
+    let _ = collect(&m, &h).await;
+}
+
+/// A write whose caller is dropped after it began is still written whole (Node's `pty.write` takes the string at once,
+/// terminal-manager.ts:419): the next write, which waits behind it, finds all of it written first.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_write_whose_caller_is_dropped_midway_is_written_whole() {
+    let m = manager_with(ProcessConfig { input_queue_bytes: 16, ..ProcessConfig::default() });
+    let h = handle("dropped-writer");
+    m.spawn(SpawnRequest { stdin_piped: true, ..request(&h, CommandSpec::Argv { program: "sort".into(), args: vec![] }) }).await.unwrap();
+    // Longer than the queue many times over, within `sort`'s line limit (4096 on Windows).
+    let long = "x".repeat(4000);
+    let mut first = Box::pin(m.write_input_wait(&h, format!("{long}\n").into_bytes()));
+    let _ = poll_once(&mut first).await;
+    drop(first);
+    tokio::time::timeout(WAIT, m.write_input_wait(&h, b"END\n".to_vec())).await.expect("the second write within the deadline").unwrap();
+    m.close_stdin(&h).unwrap();
+    let (output, _) = collect(&m, &h).await;
+    let lines: Vec<String> = String::from_utf8(output).unwrap().lines().map(|line| line.trim_end().to_owned()).collect();
+    assert_eq!(lines, ["END".to_owned(), long], "both writes, whole");
+}
+
+/// A write waiting for room ends when the input is refused (a disposed terminal), and lets go of the write side: a later write is
+/// refused as closed, not queued behind it.
+#[tokio::test(flavor = "multi_thread")]
+async fn refusing_the_input_ends_a_waiting_write() {
+    let m = manager_with(ProcessConfig { input_queue_bytes: 16, ..ProcessConfig::default() });
+    let h = handle("refused-writer");
+    m.spawn(SpawnRequest { stdin_piped: true, ..request(&h, long_sleep()) }).await.unwrap();
+    let mut first = Box::pin(m.write_input_wait(&h, "é".repeat(256 * 1024).into_bytes()));
+    assert!(poll_once(&mut first).await.is_pending(), "the large write waits for room");
+    m.refuse_input(&h);
+    assert_eq!(tokio::time::timeout(WAIT, first).await.expect("the write ends when the input is refused"), Err(ProcessError::StdinClosed));
+    assert_eq!(m.write_input(&h, b"x".to_vec()), Err(ProcessError::StdinClosed), "the write side is free and refuses");
+    m.kill(&h).unwrap();
+    let _ = collect(&m, &h).await;
+}
+
+async fn poll_once<F: std::future::Future + Unpin>(future: &mut F) -> std::task::Poll<F::Output> {
+    std::future::poll_fn(|cx| std::task::Poll::Ready(std::pin::Pin::new(&mut *future).poll(cx))).await
+}
+
+/// Input larger than the whole input queue is written in pieces, in order, instead of being refused for its size (Node's `pty.write`
+/// takes any length): `sort` reads 64 lines through a queue of 16 bytes and prints them all.
+#[tokio::test(flavor = "multi_thread")]
+async fn input_larger_than_the_queue_is_written_in_pieces() {
+    let m = manager_with(ProcessConfig { input_queue_bytes: 16, ..ProcessConfig::default() });
+    let h = handle("big-input");
+    m.spawn(SpawnRequest { stdin_piped: true, ..request(&h, CommandSpec::Argv { program: "sort".into(), args: vec![] }) }).await.unwrap();
+    let lines: Vec<String> = (0..64).map(|n| format!("line {n:02}")).collect();
+    let text = lines.iter().map(|line| format!("{line}\n")).collect::<String>();
+    assert!(text.len() > 16 * 4);
+    tokio::time::timeout(WAIT, m.write_input_wait(&h, text.into_bytes())).await.expect("the input was written within the deadline").unwrap();
+    m.close_stdin(&h).unwrap();
+    let (output, _) = collect(&m, &h).await;
+    let got: Vec<String> = String::from_utf8_lossy(&output).lines().map(str::to_owned).collect();
+    assert_eq!(got, lines);
 }
