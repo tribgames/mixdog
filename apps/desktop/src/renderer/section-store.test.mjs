@@ -6,10 +6,10 @@ import { createSectionStore, sectionsSourceFromFoldStore } from './section-store
 const entry = (section, key, revision, value) => ({ section, key, revision, value });
 
 /** A whole-store replace as the relay sends it: begin, chunks of two, commit. */
-function replaceWith(source, entries) {
+function replaceWith(source, entries, epoch) {
   source.push({ kind: 'replace', stage: 'begin' });
   for (let at = 0; at < entries.length; at += 2) source.push({ kind: 'replace', stage: 'chunk', entries: entries.slice(at, at + 2) });
-  source.push({ kind: 'replace', stage: 'commit' });
+  source.push({ kind: 'replace', stage: 'commit', epoch });
 }
 
 function bridge(initial) {
@@ -141,4 +141,69 @@ test('a replace is swapped in only at its commit, in one notification, with the 
   assert.equal(store.get('notice', 'a'), undefined);
   assert.deepEqual(store.list('usage').map((e) => e.key), ['day']);
   assert.equal(store.get('agentPool').revision, 1);
+});
+
+test('a tell (reviewDiff) is heard when it happens, never from a snapshot or a first attach', async () => {
+  const source = bridge({ status: 'ready', epoch: 'core-1', entries: [entry('reviewDiff', null, 5, {}), entry('usage', 'day', 1, 'u')] });
+  const store = createSectionStore(source);
+  const heard = [];
+  store.subscribe('reviewDiff', () => heard.push('reviewDiff'));
+  store.subscribe('usage', () => heard.push('usage'));
+  await store.ready();
+  assert.deepEqual(heard, ['usage'], 'a snapshot that holds the last tell does not make a late listener act on it');
+  source.push({ kind: 'sections', changes: [{ section: 'reviewDiff', key: null, entry: entry('reviewDiff', null, 6, {}) }] });
+  assert.deepEqual(heard, ['usage', 'reviewDiff'], 'a tell pushed live is heard');
+});
+
+test('a whole store of the same core tells what was told while the link was down, once, and nothing else', async () => {
+  const source = bridge({ status: 'ready', epoch: 'core-1', entries: [entry('reviewDiff', null, 5, {}), entry('usage', 'day', 1, 'u')] });
+  const store = createSectionStore(source);
+  const heard = [];
+  store.subscribe('reviewDiff', () => heard.push('reviewDiff'));
+  await store.ready();
+  replaceWith(source, [entry('reviewDiff', null, 5, {})], 'core-1');
+  assert.deepEqual(heard, [], 'the tell the store already holds tells nobody');
+  replaceWith(source, [entry('reviewDiff', null, 6, {})], 'core-1');
+  assert.deepEqual(heard, ['reviewDiff'], 'a newer tell was made while the link was down');
+  replaceWith(source, [], 'core-1');
+  assert.deepEqual(heard, ['reviewDiff'], 'a core that holds no tell tells nobody (it never drops one: a clear is a tell too)');
+  replaceWith(source, [entry('reviewDiff', null, 1, {})], 'core-1');
+  assert.deepEqual(heard, ['reviewDiff', 'reviewDiff'], 'a tell the store does not hold');
+});
+
+test('a store that held no tell is told the first one made while its link was down', async () => {
+  const source = bridge({ status: 'ready', epoch: 'core-1', entries: [entry('usage', 'day', 1, 'u')] });
+  const store = createSectionStore(source);
+  const heard = [];
+  store.subscribe('reviewDiff', () => heard.push('reviewDiff'));
+  await store.ready();
+  replaceWith(source, [entry('reviewDiff', null, 1, {})], 'core-1');
+  assert.deepEqual(heard, ['reviewDiff']);
+});
+
+test('a whole store of a restarted core tells its tell whatever its revision, and one without a tell tells nobody', async () => {
+  const source = bridge({ status: 'ready', epoch: 'core-1', entries: [entry('reviewDiff', null, 1, {})] });
+  const store = createSectionStore(source);
+  const heard = [];
+  store.subscribe('reviewDiff', () => heard.push('reviewDiff'));
+  await store.ready();
+  replaceWith(source, [entry('reviewDiff', null, 1, {})], 'core-2');
+  assert.deepEqual(heard, ['reviewDiff'], 'an equal revision of another core is another tell');
+  replaceWith(source, [entry('reviewDiff', null, 1, {})], 'core-2');
+  assert.deepEqual(heard, ['reviewDiff'], 'the same core again');
+  replaceWith(source, [], 'core-3');
+  assert.deepEqual(heard, ['reviewDiff'], 'a restarted core that has told nothing');
+  replaceWith(source, [entry('reviewDiff', null, 1, {})], 'core-4');
+  assert.deepEqual(heard, ['reviewDiff', 'reviewDiff']);
+});
+
+test('a store whose first whole store arrives before any snapshot knew no core: that is a first attach, not a reconnect', async () => {
+  const source = lateSnapshot();
+  const store = createSectionStore(source);
+  const heard = [];
+  store.subscribe('reviewDiff', () => heard.push('reviewDiff'));
+  replaceWith(source, [entry('reviewDiff', null, 2, {})], 'core-1');
+  source.answer({ status: 'ready', entries: [] });
+  await store.ready();
+  assert.deepEqual(heard, []);
 });

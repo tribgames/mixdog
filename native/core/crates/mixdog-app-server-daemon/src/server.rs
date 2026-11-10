@@ -289,12 +289,12 @@ mod tests {
     mod sample;
 
     /// The core, composed over the router the server will use as its host channel.
-    async fn core(dir: &std::path::Path) -> (Arc<ComposedCore>, Arc<Outgoing>) {
+    async fn core(dir: &std::path::Path, data: &std::path::Path) -> (Arc<ComposedCore>, Arc<Outgoing>) {
         let outgoing = Outgoing::new();
         let core = compose(
             &mixdog_rt::testing::tokens(),
             ComposeConfig {
-                data_dir: crate::compose_test_support::data_dir().to_path_buf(),
+                data_dir: data.to_path_buf(),
                 user_data_dir: dir.join("userdata"),
                 js_runtime: crate::js_runtime::fixture(dir),
                 ort_library: mixdog_services::effort_judge::model::OrtRuntime::NoBinding,
@@ -321,76 +321,77 @@ mod tests {
         }
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-
+    #[test]
     #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
-    async fn a_client_initializes_and_starts_a_thread_over_the_pair() {
-        let _one = crate::compose_test_support::exclusive().await;
-        let dir = tempfile::tempdir().unwrap();
-        crate::compose_test_support::seed_default_model(crate::compose_test_support::data_dir());
-        let (core, outgoing) = core(dir.path()).await;
-        let (connector, shutdown) = serve_in_process(core, outgoing).unwrap();
-        let mut halves = connector.open(&Target { id: "in-process".into() }).await.unwrap();
-        let initialize = serde_json::json!({"jsonrpc":"2.0","id":0,"method":"initialize","params":{
-            "clientInfo":{"name":"test","version":env!("CARGO_PKG_VERSION"),"kind":"cli"},"capabilities":{}}});
-        halves.writer.send(initialize.to_string()).await.unwrap();
-        let initialized = reply(&mut halves, 0).await;
-        assert!(initialized.get("result").is_some(), "{initialized}");
-        let start = serde_json::json!({"jsonrpc":"2.0","id":1,"method":"thread/start","params":{"opId":"op-1","kind":"task"}});
-        halves.writer.send(start.to_string()).await.unwrap();
-        let started = reply(&mut halves, 1).await;
-        assert!(started.get("result").is_some(), "{started}");
-        shutdown.run().await;
+    fn a_client_initializes_and_starts_a_thread_over_the_pair() {
+        crate::compose_test_support::in_child(module_path!(), "a_client_initializes_and_starts_a_thread_over_the_pair", { let mut runtime = tokio::runtime::Builder::new_multi_thread(); runtime.worker_threads(2); runtime }, |dir| async move {
+            let data = crate::compose_test_support::data_in(&dir);
+            crate::compose_test_support::seed_default_model(&data);
+            let (core, outgoing) = core(&dir, &data).await;
+            let (connector, shutdown) = serve_in_process(core, outgoing).unwrap();
+            let mut halves = connector.open(&Target { id: "in-process".into() }).await.unwrap();
+            let initialize = serde_json::json!({"jsonrpc":"2.0","id":0,"method":"initialize","params":{
+                "clientInfo":{"name":"test","version":env!("CARGO_PKG_VERSION"),"kind":"cli"},"capabilities":{}}});
+            halves.writer.send(initialize.to_string()).await.unwrap();
+            let initialized = reply(&mut halves, 0).await;
+            assert!(initialized.get("result").is_some(), "{initialized}");
+            let start = serde_json::json!({"jsonrpc":"2.0","id":1,"method":"thread/start","params":{"opId":"op-1","kind":"task"}});
+            halves.writer.send(start.to_string()).await.unwrap();
+            let started = reply(&mut halves, 1).await;
+            assert!(started.get("result").is_some(), "{started}");
+            shutdown.run().await;
+        });
     }
 
     /// `compose` refuses to start while a domain method of the table is unclaimed, but the `thread` and `turn` namespaces are not claimed by
     /// domains: the server, the session directory and the session actor answer them, and nothing at startup checks that every row of the
     /// table reaches one of those handlers. Each row is sent over the wire to a loaded thread; a row no handler takes comes back as
     /// `methodNotFound`, as `capabilityUnavailable` "unclaimed", or as the session layer's `invalidParams` on `method` (its fallthrough arms).
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[test]
     #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
-    async fn every_thread_and_turn_method_of_the_table_reaches_a_handler() {
-        let _one = crate::compose_test_support::exclusive().await;
-        let dir = tempfile::tempdir().unwrap();
-        crate::compose_test_support::seed_default_model(crate::compose_test_support::data_dir());
-        let (core, outgoing) = core(dir.path()).await;
-        let (connector, shutdown) = serve_in_process(core, outgoing).unwrap();
-        let mut halves = connector.open(&Target { id: "in-process".into() }).await.unwrap();
-        let initialize = serde_json::json!({"jsonrpc":"2.0","id":0,"method":"initialize","params":{
-            "clientInfo":{"name":"test","version":env!("CARGO_PKG_VERSION"),"kind":"cli"},"capabilities":{}}});
-        halves.writer.send(initialize.to_string()).await.unwrap();
-        assert!(reply(&mut halves, 0).await.get("result").is_some());
-        let start = serde_json::json!({"jsonrpc":"2.0","id":1,"method":"thread/start","params":{"opId":"op-1","kind":"task"}});
-        halves.writer.send(start.to_string()).await.unwrap();
-        let started = reply(&mut halves, 1).await;
-        let thread = started["result"]["thread"]["id"].as_str().unwrap_or_else(|| panic!("{started}")).to_owned();
+    fn every_thread_and_turn_method_of_the_table_reaches_a_handler() {
+        crate::compose_test_support::in_child(module_path!(), "every_thread_and_turn_method_of_the_table_reaches_a_handler", { let mut runtime = tokio::runtime::Builder::new_multi_thread(); runtime.worker_threads(2); runtime }, |dir| async move {
+            let data = crate::compose_test_support::data_in(&dir);
+            crate::compose_test_support::seed_default_model(&data);
+            let (core, outgoing) = core(&dir, &data).await;
+            let (connector, shutdown) = serve_in_process(core, outgoing).unwrap();
+            let mut halves = connector.open(&Target { id: "in-process".into() }).await.unwrap();
+            let initialize = serde_json::json!({"jsonrpc":"2.0","id":0,"method":"initialize","params":{
+                "clientInfo":{"name":"test","version":env!("CARGO_PKG_VERSION"),"kind":"cli"},"capabilities":{}}});
+            halves.writer.send(initialize.to_string()).await.unwrap();
+            assert!(reply(&mut halves, 0).await.get("result").is_some());
+            let start = serde_json::json!({"jsonrpc":"2.0","id":1,"method":"thread/start","params":{"opId":"op-1","kind":"task"}});
+            halves.writer.send(start.to_string()).await.unwrap();
+            let started = reply(&mut halves, 1).await;
+            let thread = started["result"]["thread"]["id"].as_str().unwrap_or_else(|| panic!("{started}")).to_owned();
 
-        // The thread's own delete goes last, so every other row meets a live thread.
-        let methods = || mixdog_app_protocol::CLIENT_METHODS.iter().filter(|spec| matches!(spec.method.split('/').next(), Some("thread" | "turn")) && spec.method != "thread/start");
-        let ordered = methods().filter(|spec| spec.method != "thread/delete").chain(methods().filter(|spec| spec.method == "thread/delete"));
-        let samples = sample::Samples::new();
-        let mut unserved = Vec::new();
-        for (id, spec) in (2u64..).zip(ordered) {
-            // The schema's minimal valid params, so the server's decode passes and the request reaches the handler; the thread and op id are this
-            // test's. `threadId` is optional on some rows, and a request that names none is not addressed to a loaded thread.
-            let mut params = samples.params(spec.method);
-            params["threadId"] = serde_json::json!(thread);
-            if params.get("opId").is_some() {
-                params["opId"] = serde_json::json!(format!("op-{id}"));
+            // The thread's own delete goes last, so every other row meets a live thread.
+            let methods = || mixdog_app_protocol::CLIENT_METHODS.iter().filter(|spec| matches!(spec.method.split('/').next(), Some("thread" | "turn")) && spec.method != "thread/start");
+            let ordered = methods().filter(|spec| spec.method != "thread/delete").chain(methods().filter(|spec| spec.method == "thread/delete"));
+            let samples = sample::Samples::new();
+            let mut unserved = Vec::new();
+            for (id, spec) in (2u64..).zip(ordered) {
+                // The schema's minimal valid params, so the server's decode passes and the request reaches the handler; the thread and op id are this
+                // test's. `threadId` is optional on some rows, and a request that names none is not addressed to a loaded thread.
+                let mut params = samples.params(spec.method);
+                params["threadId"] = serde_json::json!(thread);
+                if params.get("opId").is_some() {
+                    params["opId"] = serde_json::json!(format!("op-{id}"));
+                }
+                let request = serde_json::json!({"jsonrpc":"2.0","id":id,"method":spec.method,"params":params});
+                halves.writer.send(request.to_string()).await.unwrap();
+                let answer = reply(&mut halves, id).await;
+                let data = &answer["error"]["data"];
+                let refused = answer["error"]["code"] == -32601
+                    || (data["reason"] == "capabilityUnavailable" && data["detail"] == "unclaimed")
+                    || (data["reason"] == "invalidParams" && data["path"] == "method");
+                if refused {
+                    unserved.push(format!("{}: {answer}", spec.method));
+                }
             }
-            let request = serde_json::json!({"jsonrpc":"2.0","id":id,"method":spec.method,"params":params});
-            halves.writer.send(request.to_string()).await.unwrap();
-            let answer = reply(&mut halves, id).await;
-            let data = &answer["error"]["data"];
-            let refused = answer["error"]["code"] == -32601
-                || (data["reason"] == "capabilityUnavailable" && data["detail"] == "unclaimed")
-                || (data["reason"] == "invalidParams" && data["path"] == "method");
-            if refused {
-                unserved.push(format!("{}: {answer}", spec.method));
-            }
-        }
-        shutdown.run().await;
-        assert!(unserved.is_empty(), "table methods no handler serves: {unserved:#?}");
+            shutdown.run().await;
+            assert!(unserved.is_empty(), "table methods no handler serves: {unserved:#?}");
+        });
     }
 
     struct Source(mpsc::Receiver<JsonRpcMessage>);
@@ -494,35 +495,34 @@ mod tests {
 
     /// The wedged stop step blocks on a future nobody resolves and its budget is zero, so it is over
     /// budget the moment it starts; `run_with` still returns.
-    #[tokio::test]
+    #[test]
     #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
-    async fn a_wedged_stop_step_does_not_hold_the_headless_shutdown() {
-        let _one = crate::compose_test_support::exclusive().await;
-        let dir = tempfile::tempdir().unwrap();
-        let (core, outgoing) = core(dir.path()).await;
-        core.on_stop("wedged", std::future::pending());
-        let (_connector, shutdown) = serve_in_process(core, outgoing).unwrap();
-        let budgets = ReleaseBudgets { close_data_handles: std::time::Duration::ZERO, ..ReleaseBudgets::default() };
-        shutdown.run_with(budgets).await;
+    fn a_wedged_stop_step_does_not_hold_the_headless_shutdown() {
+        crate::compose_test_support::in_child(module_path!(), "a_wedged_stop_step_does_not_hold_the_headless_shutdown", tokio::runtime::Builder::new_current_thread(), |dir| async move {
+            let (core, outgoing) = core(&dir, &crate::compose_test_support::data_in(&dir)).await;
+            core.on_stop("wedged", std::future::pending());
+            let (_connector, shutdown) = serve_in_process(core, outgoing).unwrap();
+            let budgets = ReleaseBudgets { close_data_handles: std::time::Duration::ZERO, ..ReleaseBudgets::default() };
+            shutdown.run_with(budgets).await;
+        });
     }
 
-    #[tokio::test]
-
+    #[test]
     #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
-    async fn shutdown_stops_the_core_in_registration_order_and_refuses_new_clients() {
-        let _one = crate::compose_test_support::exclusive().await;
-        let dir = tempfile::tempdir().unwrap();
-        let (core, outgoing) = core(dir.path()).await;
-        let order = Arc::new(Mutex::new(Vec::new()));
-        for name in ["trace", "usage", "sessions"] {
-            let order = order.clone();
-            core.on_stop(name, async move { order.lock().unwrap().push(name) });
-        }
-        let (connector, shutdown) = serve_in_process(core, outgoing).unwrap();
-        shutdown.run().await;
-        assert_eq!(*order.lock().unwrap(), ["trace", "usage", "sessions"]);
-        shutdown.run().await;
-        assert_eq!(order.lock().unwrap().len(), 3, "a second stop runs nothing again");
-        assert!(connector.open(&Target { id: "in-process".into() }).await.is_err());
+    fn shutdown_stops_the_core_in_registration_order_and_refuses_new_clients() {
+        crate::compose_test_support::in_child(module_path!(), "shutdown_stops_the_core_in_registration_order_and_refuses_new_clients", tokio::runtime::Builder::new_current_thread(), |dir| async move {
+            let (core, outgoing) = core(&dir, &crate::compose_test_support::data_in(&dir)).await;
+            let order = Arc::new(Mutex::new(Vec::new()));
+            for name in ["trace", "usage", "sessions"] {
+                let order = order.clone();
+                core.on_stop(name, async move { order.lock().unwrap().push(name) });
+            }
+            let (connector, shutdown) = serve_in_process(core, outgoing).unwrap();
+            shutdown.run().await;
+            assert_eq!(*order.lock().unwrap(), ["trace", "usage", "sessions"]);
+            shutdown.run().await;
+            assert_eq!(order.lock().unwrap().len(), 3, "a second stop runs nothing again");
+            assert!(connector.open(&Target { id: "in-process".into() }).await.is_err());
+        });
     }
 }
