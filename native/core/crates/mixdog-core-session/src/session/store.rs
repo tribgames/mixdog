@@ -185,12 +185,14 @@ impl Projector {
         Some(Box::pin(async move { projector.flush().await }))
     }
 
-    /// Waits until every barrier acked so far has been through the index writer, or the projector is gone; a projection that
-    /// failed stays dirty for reconcile, which these callers do not wait on.
+    /// Waits until every barrier acked so far has been through the index writer, or the projector is gone, or
+    /// [`FENCE_BOUND`](super::thread_list::FENCE_BOUND) has passed (D-reads-5): past it the caller reads what the index holds, and
+    /// the read says so once. A projection that failed stays dirty for reconcile, which these callers do not wait on.
     async fn flush(&self) {
+        let bound = super::thread_list::FENCE_BOUND;
         let (done, wait) = tokio::sync::oneshot::channel();
-        if self.queue.send(Projecting::Flush(done)).is_ok() {
-            let _ = wait.await;
+        if self.queue.send(Projecting::Flush(done)).is_ok() && tokio::time::timeout(bound, wait).await.is_err() {
+            tracing::warn!("a store read: the index has not taken the writes acknowledged before it within {bound:?}; reading what it holds");
         }
     }
 }
@@ -1173,6 +1175,25 @@ mod projector_tests {
         projector.send(empty_projection("sess_lost"));
         projector.settle().expect("a queued projection is pending").await;
         assert!(projector.settle().is_none(), "a dead projector is waited on");
+    }
+
+    /// What every store read that follows the projector waits (the window, prompt rows, history, op and fence lookups, the
+    /// history row, the compaction entry, the purge: each calls `flush`): behind a projection that never ends it still waits one
+    /// tick before [`FENCE_BOUND`](super::super::thread_list::FENCE_BOUND), and at the bound it goes on to read what the index holds.
+    #[tokio::test(start_paused = true)]
+    async fn a_store_read_behind_a_stuck_projection_reads_the_index_at_the_bound() {
+        let bound = super::super::thread_list::FENCE_BOUND;
+        let _clock = crate::session::testing::HeldClock::hold();
+        let projector = Projector::spawn_with(|_| std::future::pending::<()>());
+        projector.send(empty_projection("sess_stuck"));
+        let read = projector.flush();
+        tokio::pin!(read);
+        let mut polled = || read.as_mut().poll(&mut std::task::Context::from_waker(std::task::Waker::noop()));
+        assert!(polled().is_pending(), "the read did not wait for the queued projection");
+        tokio::time::advance(bound - std::time::Duration::from_millis(1)).await;
+        assert!(polled().is_pending(), "the read stopped waiting before the bound");
+        tokio::time::advance(std::time::Duration::from_millis(1)).await;
+        assert!(polled().is_ready(), "the read still waits at the bound");
     }
 
     /// The index reads a store job makes on the read lane run on the job's own thread: a job never waits for a lane slot behind

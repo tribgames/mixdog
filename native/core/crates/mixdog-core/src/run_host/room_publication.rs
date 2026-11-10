@@ -71,7 +71,6 @@ mod tests {
     use mixdog_core_rooms::rooms::store::StateRoomStore;
     use mixdog_core_session::session::StoreThreads;
     use mixdog_core_session::session::thread_list::LIST;
-    use mixdog_core_session::session::thread_list::ListFence;
     use mixdog_core_session::session::thread_list::ListOverlay;
     use mixdog_core_session::session::thread_list::RowOverlay;
     use mixdog_core_session::session::thread_state::SessionThreads;
@@ -147,14 +146,15 @@ mod tests {
         fn cancel_owed_to(&self, _: &str, _: &[String]) {}
     }
 
-    /// The production fence of the list (the store's projector), with a gate in front of it where a test arms one: the next list
-    /// read stops there, says it arrived, and goes on to the projector's fence when the test opens it.
+    /// The listing's task workspace lookup (the first step of every catalog publication and listing; the index-driven edges look
+    /// it up through `Agents` itself), with a gate in front of it where a test arms one: the next lookup stops there, says it
+    /// arrived, and answers when the test opens it.
     struct Gate {
         armed: std::sync::Mutex<Option<(tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>)>>,
-        projector: Arc<StoreThreads>,
+        agents: Arc<Agents>,
     }
     impl Gate {
-        /// The opener and the arrival signal of the next read.
+        /// The opener and the arrival signal of the next lookup.
         fn arm(&self) -> (tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>) {
             let (open, held) = tokio::sync::oneshot::channel();
             let (reached, arrived) = tokio::sync::oneshot::channel();
@@ -162,17 +162,15 @@ mod tests {
             (open, arrived)
         }
     }
-    impl ListFence for Gate {
-        fn pending(&self) -> Option<futures::future::BoxFuture<'static, ()>> {
-            let Some((reached, held)) = self.armed.lock().unwrap().take() else { return self.projector.pending() };
-            let projector = self.projector.clone();
-            Some(Box::pin(async move {
+    #[async_trait]
+    impl TaskWorkspace for Gate {
+        async fn path(&self) -> Result<String, String> {
+            let armed = self.armed.lock().unwrap().take();
+            if let Some((reached, held)) = armed {
                 let _ = reached.send(());
                 let _ = held.await;
-                if let Some(wait) = projector.pending() {
-                    wait.await;
-                }
-            }))
+            }
+            self.agents.path().await
         }
     }
 
@@ -222,7 +220,7 @@ mod tests {
     }
 
     /// Node with its catalog loaded publishes it inside `createAgentRoom` before answering (`session-host.ts:353-354`,
-    /// `agent-rooms.ts:289`). Held at the list's fence, the production publish keeps the creation unanswered; opened, the creation
+    /// `agent-rooms.ts:289`). Held at its first step, the production publish keeps the creation unanswered; opened, the creation
     /// answers, and by then the feed has been sent the room's row and a `thread/list` lists it.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn with_the_catalog_loaded_a_room_create_answers_after_its_publish() {
@@ -255,18 +253,16 @@ mod tests {
     }
 
     /// Before any listing (Node's `sessionCatalogLoaded` false) the publish is started and not awaited (`session-host.ts:355`,
-    /// `void this.catalog.publishCatalogs()`): the creation answers while the publish is still held at the list's fence. A
-    /// creation that waited for it would answer only once the list's own bound let the publish go, so it must answer before that
-    /// bound.
+    /// `void this.catalog.publishCatalogs()`): the creation answers while the publish, a whole listing, is held at its first step for
+    /// good, and that listing is the one the gate stopped.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn with_the_catalog_not_loaded_a_room_create_answers_without_waiting_for_its_publish() {
         let world = composed().await;
-        let (_open, _arrived) = world.gate.arm();
-        let created = tokio::time::timeout(mixdog_core_session::session::thread_list::FENCE_BOUND, world.create().await)
-            .await
-            .expect("room/create waited for its publish, held at the list's fence")
-            .expect("task");
+        let (_open, arrived) = world.gate.arm();
+        let created = tokio::time::timeout(DEADLINE, world.create().await).await.expect("room/create waited for its publish, held at its first step").expect("task");
         created.expect("room/create");
+        tokio::time::timeout(DEADLINE, arrived).await.expect("the room create never started its publish").expect("gate");
+        assert!(!world.list.catalog_loaded(), "the held listing has not answered");
     }
 
     async fn composed() -> Composed {
@@ -296,9 +292,9 @@ mod tests {
         drop(app.drain_text());
         let sections = Arc::new(SectionFeedState::new(feed));
         let room_rows = Arc::new(RoomListRows::new(rooms.clone(), Arc::new(Idle), agents.clone()));
-        let list = Arc::new(ThreadListService::new(Arc::new(index.clone()), Arc::new(Quiet), room_rows, agents.clone()));
-        let gate = Arc::new(Gate { armed: std::sync::Mutex::new(None), projector: store });
-        list.fence(gate.clone());
+        let gate = Arc::new(Gate { armed: std::sync::Mutex::new(None), agents: agents.clone() });
+        let list = Arc::new(ThreadListService::new(Arc::new(index.clone()), Arc::new(Quiet), room_rows, gate.clone()));
+        list.fence(store);
         let sessions = Arc::new(DirectorySessions::new(directory.clone(), Arc::new(SessionThreads::new(directory.clone()))));
         let publication = wire(list.clone(), sections, agents.clone(), &index, directory, sessions).expect("wired");
         let op_dir = tempfile::tempdir().expect("op dir");
