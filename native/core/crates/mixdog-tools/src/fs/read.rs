@@ -39,6 +39,8 @@ use super::search::glob_files;
 
 const READ_SPEC: &str = include_str!("specs/read.json");
 const MAX_FILE_BYTES: u64 = 10 * 1024 * 1024;
+/// A notebook text output longer than this (UTF-16 units) is named by a `jq` hint instead (`IPYNB_OUTPUT_MAX_CHARS`).
+const IPYNB_OUTPUT_MAX_CHARS: usize = 10_000;
 const IPYNB_RANGE_REFUSAL: &str = "Error: range args (offset/limit/line) are not supported for .ipynb extraction — cells are not line-addressable; rename to .json or call read on a converted file for line-level access";
 /// Node's inline-view cap, the refusal when there is no resizer (`MAX_IMAGE_BYTES`).
 const IMAGE_MAX_BYTES: usize = 3_750_000;
@@ -1235,10 +1237,9 @@ impl ReadTool {
             }
             _ => {}
         }
-        // A notebook goes to Node's extractor ahead of every cache (`readMediaFile`), and every public
-        // read reaches it with a window, which the extractor refuses (`extractIpynbText`).
+        // A notebook goes to Node's extractor ahead of every cache (`readMediaFile`).
         if is_notebook(&stat, raw) {
-            return Ok(Body { error: true, ..Body::text(IPYNB_RANGE_REFUSAL) });
+            return self.notebook(ctx, e, &abs, stat.len, matches!(mode, Mode::Child { .. })).await;
         }
         let key_path = fwd(abs.as_path());
         let version = FileVersion::of(&stat);
@@ -1506,6 +1507,126 @@ impl ReadTool {
         }
     }
 
+    /// `extractIpynbText`: a read with a window is refused (cells are not line-addressable); one without renders the
+    /// cells, markdown as written and code fenced with its text outputs, the text capped at the read's output budget.
+    /// An image output is embedded after its cell when it can be resized, and stays a placeholder otherwise or in a
+    /// batch (`text_only`). Every `Error:` answer is a failed call.
+    async fn notebook(&self, ctx: &ToolContext, e: &Entry, abs: &AbsPath, size: u64, text_only: bool) -> Result<Body, ToolError> {
+        let failed = |text: String| Ok(Body { error: true, ..Body::text(text) });
+        if e.ranged {
+            return failed(IPYNB_RANGE_REFUSAL.to_owned());
+        }
+        if size > MAX_FILE_BYTES {
+            return failed(format!("Error: notebook too large (size: {size}B, cap: {MAX_FILE_BYTES}B) — use a cell range to narrow"));
+        }
+        let text = match ctx.files.read(ctx.io.interactive, abs.clone(), ReadRange::default()).await {
+            Ok(read) => String::from_utf8_lossy(&read.bytes).into_owned(),
+            Err(err) => return Err(fs_failure(&err, &display_path(abs.as_path(), &ctx.cwd))),
+        };
+        if let Some(message) = mixdog_js::v8_json_parse_error(&text) {
+            return failed(format!("Error: ipynb parse failed — {message}"));
+        }
+        let notebook: JsonValue = serde_json::from_str(&text).unwrap_or(JsonValue::Null);
+        let full_path = abs.as_path().to_string_lossy().into_owned();
+        let property_of_null = |key: &str| format!("Error: ipynb parse failed — Cannot read properties of null (reading '{key}')");
+        if notebook.is_null() {
+            return failed(property_of_null("cells"));
+        }
+        let cells = notebook.get("cells").and_then(JsonValue::as_array).cloned().unwrap_or_default();
+        // Blocks in notebook order: runs of rendered cells as one text, each embedded image after its cell.
+        let mut blocks: Vec<ToolPart> = Vec::new();
+        let mut texts: Vec<String> = Vec::new();
+        let mut text_len = 0usize;
+        let flush = |texts: &mut Vec<String>, blocks: &mut Vec<ToolPart>| {
+            if !texts.is_empty() {
+                blocks.push(ToolPart::Text(texts.join("\n\n")));
+                texts.clear();
+            }
+        };
+        for (index, cell) in cells.iter().enumerate() {
+            if cell.is_null() {
+                return failed(property_of_null("cell_type"));
+            }
+            match cell.get("cell_type").and_then(JsonValue::as_str) {
+                Some("markdown") => {
+                    let source = notebook_text(cell.get("source")).unwrap_or_default();
+                    text_len += mixdog_js::utf16_len(&source);
+                    texts.push(source);
+                }
+                Some("code") => {
+                    let mut block = notebook_text(cell.get("source")).unwrap_or_default();
+                    let mut images: Vec<(&'static str, String)> = Vec::new();
+                    for out in cell.get("outputs").and_then(JsonValue::as_array).map(Vec::as_slice).unwrap_or_default() {
+                        if out.is_null() {
+                            return failed(property_of_null("data"));
+                        }
+                        let data = out.get("data").filter(|d| js_truthy(d));
+                        let field = |key: &str| data.and_then(|d| d.get(key)).filter(|v| js_truthy(v));
+                        if let Some(raw) = field("text/plain").or_else(|| out.get("text").filter(|v| js_truthy(v))) {
+                            let text = notebook_text(Some(raw)).unwrap_or_default();
+                            let length = mixdog_js::utf16_len(&text);
+                            if raw.is_string() || raw.is_array() {
+                                if length > IPYNB_OUTPUT_MAX_CHARS {
+                                    block.push_str(&format!(
+                                        "\n# Output: [large output omitted — {length} chars; inspect with: cat \"{full_path}\" | jq '.cells[{index}].outputs']"
+                                    ));
+                                    continue;
+                                }
+                            }
+                            block.push_str(&format!("\n# Output:\n{text}"));
+                        } else if let Some((mime, raw)) = field("image/png").map(|v| ("image/png", v)).or_else(|| field("image/jpeg").map(|v| ("image/jpeg", v))) {
+                            images.push((mime, notebook_text(Some(raw)).unwrap_or_default()));
+                            block.push_str(&format!("\n# Output: [image output — cell {index}]"));
+                        }
+                    }
+                    let fenced = format!("```python\n{block}\n```");
+                    text_len += mixdog_js::utf16_len(&fenced);
+                    texts.push(fenced);
+                    if !text_only && !images.is_empty() {
+                        flush(&mut texts, &mut blocks);
+                        for (mime, b64) in images {
+                            blocks.extend(self.notebook_image(ctx, &format!("{full_path} [cell {index}]"), &b64, mime).await);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        flush(&mut texts, &mut blocks);
+        if text_len > READ_MAX_OUTPUT_BYTES {
+            blocks = cap_notebook_text(blocks, READ_MAX_OUTPUT_BYTES);
+        }
+        if blocks.is_empty() {
+            return Ok(Body::text("(empty notebook)"));
+        }
+        if !blocks.iter().any(|b| matches!(b, ToolPart::Image { .. })) {
+            let joined = blocks.iter().map(|b| if let ToolPart::Text(t) = b { t.as_str() } else { "" }).collect::<Vec<_>>().join("\n\n");
+            return Ok(Body::text(if joined.is_empty() { "(empty notebook)".to_owned() } else { joined }));
+        }
+        Ok(Body { parts: blocks, rich: true, ..Body::default() })
+    }
+
+    /// `imageBlocksFromBuffer` for a notebook image: its resize note and the resized image, or nothing when it
+    /// cannot be resized (the cell keeps its placeholder).
+    async fn notebook_image(&self, ctx: &ToolContext, source: &str, b64: &str, mime: &'static str) -> Vec<ToolPart> {
+        let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(b64.trim()) else { return Vec::new() };
+        let Some(images) = &self.images else { return Vec::new() };
+        if bytes.is_empty() {
+            return Vec::new();
+        }
+        let format = mime.split('/').nth(1).unwrap_or("png");
+        match guarded(ctx, "read", images.resize(&ctx.thread_id, &bytes, format)).await {
+            Ok(Ok(Some(image))) => match base64::engine::general_purpose::STANDARD.decode(&image.data_base64) {
+                Ok(data) => vec![
+                    ToolPart::Text(image_metadata(&image, source)),
+                    ToolPart::Image { mime: image.mime, data: ImageData::Bytes(data) },
+                ],
+                Err(_) => Vec::new(),
+            },
+            _ => Vec::new(),
+        }
+    }
+
     /// `readImageAsContent`: the resized image behind its metadata line; without a resizer, the
     /// original under the inline-view cap.
     async fn image_body(&self, ctx: &ToolContext, display: &str, bytes: Vec<u8>, mime: &'static str) -> Result<Body, ToolError> {
@@ -1766,6 +1887,70 @@ fn image_metadata(image: &ResizedImage, source: &str) -> String {
     }
     format!("[Image: {}]", parts.join(", "))
 }
+/// `joinedNotebookText(value) || ''` as a template inserts it: an array joined with nothing (each element as
+/// `String` gives it, null as empty), anything else as `String(value)`; a falsy result is none.
+fn notebook_text(value: Option<&JsonValue>) -> Option<String> {
+    let value = value.filter(|v| js_truthy(v))?;
+    let text = match value {
+        JsonValue::Array(items) => items
+            .iter()
+            .map(|item| match item {
+                JsonValue::Null => String::new(),
+                JsonValue::String(s) => s.clone(),
+                other => mixdog_js::value_to_string(other),
+            })
+            .collect(),
+        JsonValue::String(s) => s.clone(),
+        other => mixdog_js::value_to_string(other),
+    };
+    (!text.is_empty()).then_some(text)
+}
+
+/// JavaScript truthiness of a parsed JSON value.
+fn js_truthy(value: &JsonValue) -> bool {
+    match value {
+        JsonValue::Null => false,
+        JsonValue::Bool(flag) => *flag,
+        JsonValue::Number(n) => n.as_f64().is_some_and(|n| n != 0.0 && !n.is_nan()),
+        JsonValue::String(s) => !s.is_empty(),
+        _ => true,
+    }
+}
+
+/// `capNotebookText`: text blocks kept until `max` UTF-16 units, the one that crosses it cut, then the cut marked;
+/// image blocks pass uncounted.
+fn cap_notebook_text(blocks: Vec<ToolPart>, max: usize) -> Vec<ToolPart> {
+    let mut running = 0usize;
+    let mut truncated = false;
+    let mut capped = Vec::new();
+    for block in blocks {
+        let ToolPart::Text(text) = &block else {
+            capped.push(block);
+            continue;
+        };
+        if running >= max {
+            truncated = true;
+            continue;
+        }
+        let length = mixdog_js::utf16_len(text);
+        if running + length > max {
+            capped.push(ToolPart::Text(mixdog_js::slice_utf16(text, max - running)));
+            running = max;
+            truncated = true;
+        } else {
+            running += length;
+            capped.push(block);
+        }
+    }
+    if truncated {
+        capped.push(ToolPart::Text(format!(
+            "\n\n{}",
+            cap_marker(&format_cap_size(max), "notebook cells cut", None, "grep the notebook for the cell text you need")
+        )));
+    }
+    capped
+}
+
 /// A regular file named `.ipynb` (any case, as Node lowercases `extname`).
 fn is_notebook(stat: &mixdog_core_api::domain::fs::FileStat, raw: &str) -> bool {
     stat.kind == EntryKind::File && Path::new(raw.trim()).extension().is_some_and(|x| x.eq_ignore_ascii_case("ipynb"))

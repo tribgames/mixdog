@@ -4,7 +4,7 @@
     "what each scenario process left running at its exit (Node's resident search server) is ended with its job and not recorded",
     "the answers of a scenario's warmup calls (they start the search server; the replay runs them too and ignores them)"
   ],
-  "fileCount": 12,
+  "fileCount": 13,
   "files": [
     {
       "bytes": 1704,
@@ -65,6 +65,11 @@
       "bytes": 9251,
       "path": "read-modes.json",
       "sha256": "a1c9ffae807ab9945dd4a6035884b33b3cb27081b671319c42968957b632cfd1"
+    },
+    {
+      "bytes": 21219,
+      "path": "read-shapes.json",
+      "sha256": "98917147ae1d97f85bac27117b67e669ef1aa72647393b660717eed5d022acae"
     }
   ],
   "graphBinary": {
@@ -104,9 +109,10 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-tools-fs-search.mjs",
-  "recorderSha256": "f91b394baa484e999ca45c8357ff4c6031ee97522019384ae14473f192ad9e0a",
+  "recorderSha256": "fdbfb8fffd4d62b2369aa7f2a389461552a8e9ac34a70c4de1bc2395369783c0",
   "scenarios": [
     "read-modes",
+    "read-shapes",
     "not-found-hints",
     "code-graph-refs-casing",
     "code-graph-hit-cap-fraction",
@@ -120,5 +126,5 @@
     "list-glob-path"
   ],
   "set": "tools-fs-search",
-  "totalBytes": 121423
+  "totalBytes": 142642
 }
