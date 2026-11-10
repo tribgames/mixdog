@@ -1,6 +1,6 @@
 {
   "calls": 62,
-  "cases": 512,
+  "cases": 539,
   "command": "node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-phone-scm.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": {
     "clock": "Date.now, new Date() and the run-limit timeouts are virtual; every other timer of the code under test is real and is printed, by delay, at the end of a recording",
@@ -17,20 +17,20 @@
       "sha256": "fb478bbea7ada0ce291005c19d307544036883efb7084e908d28ec534378f563"
     },
     {
-      "bytes": 22953,
+      "bytes": 24633,
       "path": "gh-script.json",
-      "sha256": "6063137a2f60cf6c118df3d1132b4e4910218ba814c964f2433a0d8f65e09b01"
+      "sha256": "8b63c7e51d857b2c89d826722e34efdb5c7c34485b33f69dd19a5ade73364257"
     },
     {
-      "bytes": 2228040,
+      "bytes": 2379571,
       "path": "golden.json",
-      "sha256": "08501f45044795a89b8d3e458a75c12b17b3197714774380501e18ff55ad279e"
+      "sha256": "cae6a2a7e24f81bda7bddaacfca0c2a228eced72be37c2ec83a704a1aa764e71"
     }
   ],
   "notes": {
     "githubStatusRefresh": "githubCliStatus took no arguments over the relay (remote-methods.ts:562); the core ignores `refresh` on a relay connection and honours it for the desktop's own calls.",
     "loginOptions": "githubCliLoginOpenBrowser's second argument (optionalGithubLoginOptions) has no core param: the page checks it and leaves it out (scm-operation-route.ts), so no core request carries it.",
-    "loneSurrogate": "A JSON string holding an escaped lone surrogate (\"\\ud800\") is a string to Node: its string checks take it and the call acts on it (golden.json limits[lone-surrogate-gitLog-query]). The core decodes a request into Rust strings, which cannot hold one, so it refuses such a request before any check runs. This is a limit of the whole core, not of the source-control calls; the case is not replayed.",
+    "loneSurrogate": "An open difference, not parity. A JSON string holding an escaped lone surrogate (\"\\ud800\") is a string to Node: its string checks take it and the call acts on it (golden.json limits[lone-surrogate-gitLog-query]; Node's spawn writes it on git's command line as U+FFFD, bytes EF BF BD). The core reads every inbound frame into Rust strings (mixdog-app-protocol rpc.rs decode_inbound_text), which cannot hold one: the frame is invalid and the connection is closed with 1007, for every method, before any check runs. The case is not replayed.",
     "posixCwd": "The directory rule is the platform's path.isAbsolute (git-contract.mjs:3), and so is the core's (mixdog-scm input.rs is_absolute): on POSIX only a leading \"/\" is absolute, so a backslash-rooted, a drive (C:\\x) or a UNC spelling is refused there where Windows (this recording) takes it. The trim is JavaScript's on both platforms.",
     "reviewWithoutFiles": "The core request of the phone's gitReviewDiff and gitReviewDiffs is one method (review/diff/get, scope repo, patch true): one with neither `path` nor `files` cannot say which call it stands for, and is checked as gitReviewDiff. A request that names either is checked as its own call; the page always names one."
   },
@@ -52,6 +52,28 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-phone-scm.mjs",
+  "recorderFiles": [
+    {
+      "path": "benchmarks/rust-core/recorders/record-phone-scm.mjs",
+      "sha256": "a55facc3f67ff384c7e86b9d3a6cfd96d6d1259de62d63ec6cfd63369dea2e8e"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "d4d0064b5b40d5fcb833a69fb3d68a69b1c1317606b5fe341c3445d5d0bbefd4"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/phone-scm-world.mjs",
+      "sha256": "220daaf1e01bd187785fe0b6a1306e695056d868569eb3cb98b460ca208b81a0"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/scripted-tool.rs",
+      "sha256": "2bdfabde20c9e4c454644001334c7e68da79d91d6b37aec0739e85d5859c0fe6"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/spawn-log.cjs",
+      "sha256": "91bfe06247e38e2e2d3b351b4ce26fcedce1d0c736c35456053e143a93d807c6"
+    }
+  ],
   "set": "phone-scm",
   "syntheticInput": {
     "file": "gh-script.json",
@@ -519,6 +541,55 @@
       },
       {
         "argv": [
+          "pr",
+          "diff",
+          "1"
+        ],
+        "imitates": {
+          "command": "gh pr diff <n> (no such pull request)",
+          "shape": "exit 1; GraphQL \"Could not resolve to a PullRequest ...\" on stderr"
+        },
+        "tool": "gh",
+        "when": null
+      },
+      {
+        "argv": [
+          "api",
+          "repos/octo/demo/pulls/1/merge",
+          "--hostname",
+          "github.com",
+          "--method",
+          "PUT",
+          "--input",
+          "-"
+        ],
+        "imitates": {
+          "command": "gh api repos/<owner>/<repo>/pulls/<n>/merge --method PUT --input - (REST: merge a pull request)",
+          "shape": "exit 0; the merge result object {sha, merged, message} on stdout"
+        },
+        "tool": "gh",
+        "when": null
+      },
+      {
+        "argv": [
+          "api",
+          "repos/octo/demo/pulls/1/reviews",
+          "--hostname",
+          "github.com",
+          "--method",
+          "POST",
+          "--input",
+          "-"
+        ],
+        "imitates": {
+          "command": "gh api repos/<owner>/<repo>/pulls/<n>/reviews --method POST --input - (REST: create a review)",
+          "shape": "exit 0; the review object {id, state, body, commit_id} on stdout"
+        },
+        "tool": "gh",
+        "when": null
+      },
+      {
+        "argv": [
           "**"
         ],
         "imitates": {
@@ -683,5 +754,5 @@
       }
     ]
   },
-  "totalBytes": 2251841
+  "totalBytes": 2405052
 }
