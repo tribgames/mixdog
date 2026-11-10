@@ -663,7 +663,7 @@ pub struct Facts {
 }
 
 /// `isAgentOwner(session)`.
-fn agent_owner(session: &Header) -> bool {
+pub(super) fn agent_owner(session: &Header) -> bool {
     mixdog_js::js_trim(&js_string(session.get("owner"))).to_lowercase() == "agent"
 }
 

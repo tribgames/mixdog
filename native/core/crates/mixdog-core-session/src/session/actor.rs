@@ -2588,6 +2588,7 @@ impl SessionActor {
             if completed {
                 effects.push(Effect::ItemAck(self.ingest_when_durable()));
             }
+            effects.extend(self.memory_when_durable().map(Effect::ItemAck));
             self.accept_record(record, Class::Control, Display::None, Vec::new(), effects);
             if completed {
                 // `ask-turn-settle.mjs:132-139`: the completed turn stamps the record's activity,
@@ -2848,6 +2849,35 @@ impl SessionActor {
             }
         });
         tx
+    }
+
+    /// Today's transcript JSONL (`transcript-writer.mjs`), which the memory watcher tails while the
+    /// session lives: once a turn's end is durable, whatever way it ended, the conversation goes to
+    /// memory, so memory does not wait for the unload. An agent's conversation stays outside memory
+    /// (`memoryEligible: !isAgentOwner(session)`), as does a session with memory off.
+    fn memory_when_durable(&self) -> Option<oneshot::Sender<Result<(), RunError>>> {
+        let header = &self.projected.header;
+        if super::thread_switches::agent_owner(header) || super::session_options::memory_off(header) {
+            return None;
+        }
+        let (tx, rx) = oneshot::channel();
+        let context = ModelContext {
+            store: self.deps.store.clone(),
+            lanes: self.deps.lanes,
+            thread: self.id.clone(),
+            input: mixdog_core_api::ids::ItemId::from(String::new()),
+        };
+        let memory = self.deps.live_memory.clone();
+        let cwd = self.cwd();
+        tokio::spawn(async move {
+            if !matches!(rx.await, Ok(Ok(()))) {
+                return;
+            }
+            if let Ok(rows) = context.read().await {
+                memory.ingest(&context.thread, &cwd, rows.into_iter().map(|(_, body)| body).collect()).await;
+            }
+        });
+        Some(tx)
     }
 
     /// `prioritizeQueued` (`session-flow/queue.mjs`): the queued prompt goes to the front of the queue at
