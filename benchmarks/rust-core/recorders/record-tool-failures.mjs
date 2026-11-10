@@ -77,6 +77,7 @@ if (process.argv[2] === '--child') {
     throw new Error(`${raw} parses`);
   };
   const results = [];
+  const heldFlushTimers = [];
   for (const [index, scenario] of scenarios(WORKSPACE).entries()) {
     if (process.env.RECORDER_ONLY && !process.env.RECORDER_ONLY.split(',').map(Number).includes(index)) {
       results.push(null);
@@ -126,6 +127,17 @@ if (process.argv[2] === '--child') {
         await connectMcpServers({ fx: { command: process.execPath, args: ['fx-mcp.mjs'], cwd: WORKSPACE } }, { scopeId });
       }
       if (scenario.hook) session.beforeToolHook = async () => scenario.hook;
+      // The failure log's flush timer (agent-trace-io.mjs:405, `setTimeout(_flushToolFailures, delayMs)`) is held: asked for, never
+      // started. Every other timer runs. This scenario runs alone in its process, so no earlier row's timer is pending.
+      if (scenario.holdFlushTimer) {
+        const realSetTimeout = globalThis.setTimeout;
+        globalThis.setTimeout = function (callback, ms, ...rest) {
+          if (callback?.name !== '_flushToolFailures') return realSetTimeout.call(this, callback, ms, ...rest);
+          heldFlushTimers.push(ms);
+          const handle = { unref: () => handle, ref: () => handle, hasRef: () => false };
+          return handle;
+        };
+      }
       // The tool has started when it has made its file: a directory event, watched from before the turn starts so it cannot be missed.
       const toolStarted = scenario.abortWhenFile
         ? new Promise((resolve) => {
@@ -156,13 +168,23 @@ if (process.argv[2] === '--child') {
       const lastAssistant = messages.map((m) => m.role).lastIndexOf('assistant');
       return messages.slice(lastAssistant + 1).filter((m) => m.role === 'tool').map((m) => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content)));
     });
-    results.push({ name: scenario.name, session: sessionId, outcome, sends: sends.length, toolMessages });
+    results.push({ name: scenario.name, session: sessionId, outcome, sends: sends.length, toolMessages, ...(scenario.holdFlushTimer ? { holdFlushTimer: true } : {}) });
   }
-  writeFileSync(join(process.env.MIXDOG_DATA_DIR, 'results.json'), JSON.stringify(results));
   // The memory database the session machinery started is stopped by the product's own stop, not left for the parent to find. The
   // stop first awaits a start still under way (its initdb included) for at most `timeoutMs` (supervisor.mjs:793-810): a first start
   // in a fresh profile runs initdb, which its 6 s default does not cover, and an initdb left running would outlive this process.
   await stopOwnedPgForShutdown({ timeoutMs: 120_000 });
+  // The stop: what the failures file holds now, then an ordinary exit (`process.exit`, as every ordinary end of Node's daemon,
+  // daemon.mjs:412), whose `exit` hook writes what is still queued. The parent reads the file after the exit.
+  const failures = join(process.env.MIXDOG_DATA_DIR, 'history', 'tool-failures.jsonl');
+  const fileAtStop = existsSync(failures) ? readFileSync(failures, 'utf8') : '';
+  for (const result of results) {
+    if (result?.holdFlushTimer) {
+      delete result.holdFlushTimer;
+      result.atStop = { heldFlushTimers, fileAtStop };
+    }
+  }
+  writeFileSync(join(process.env.MIXDOG_DATA_DIR, 'results.json'), JSON.stringify(results));
   process.exit(0);
 }
 
@@ -277,7 +299,8 @@ try {
         laidOver: 'a headless scenario: skipSkills true and workflow { id: headless, delegatesAgents: false }',
       },
       leftAtExit: 'what each scenario\'s Node process left running in its job when it exited (lib/job-run.mjs), Node\'s own helpers set aside (lib/tool-failure-rows.mjs NODE_HELPERS: mixdog-spawn-*, mixdog-patch-* and their console hosts); each as its image name, its parent and its command line (lib/tool-failure-rows.mjs leftAtExit)',
-      scenarios: all.map((s) => ({ name: s.name, replies: s.replies.length, hook: s.hook ?? null, approval: s.approval ?? null, full: s.full === true, abortWhenFile: s.abortWhenFile ?? null })),
+      scenarios: all.map((s) => ({ name: s.name, replies: s.replies.length, hook: s.hook ?? null, approval: s.approval ?? null, full: s.full === true, abortWhenFile: s.abortWhenFile ?? null, holdFlushTimer: s.holdFlushTimer === true })),
+      heldFlushTimer: 'a holdFlushTimer scenario: globalThis.setTimeout holds a timer whose callback is agent-trace-io.mjs _flushToolFailures (never started; every other timer runs); results[i].atStop records the delays asked for and the failures file just before process.exit',
       hookDecisions: all.filter((s) => s.hook).map((s) => ({ scenario: s.name, ...s.hook })),
       approvalAnswers: all.filter((s) => s.approval).map((s) => ({ scenario: s.name, ...s.approval })),
       mcpServer: { file: 'fx-mcp.mjs', sha256: createHash('sha256').update(FILES['fx-mcp.mjs']).digest('hex'), tools: ['fail', 'boom', 'ok', 'big'] },
