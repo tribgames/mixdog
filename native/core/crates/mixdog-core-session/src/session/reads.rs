@@ -146,6 +146,7 @@ impl DirInner {
     async fn model_messages_list(&self, id: &ThreadId, p: ThreadModelMessagesListParams) -> Result<Reply, CoreError> {
         let context = super::run::ModelContext {
             store: self.deps.store.clone(),
+            sensitive: self.deps.sensitive.clone(),
             lanes: self.deps.lanes,
             thread: id.clone(),
             input: ItemId::from(String::new()),

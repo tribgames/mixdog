@@ -343,6 +343,10 @@ pub enum RunEvent {
     /// `loop/tool-phase.mjs:46` before `onToolCall`): what runs, so a bridged `call_tool` is recorded as its target. The host writes
     /// the `batch` trace row from it (`mixdog_trace::batch_record`) with a fresh batch id, and tags the batch's tool rows with it.
     ToolBatch(ToolBatch),
+    /// The execution view of the same batch's calls, right after its audit and before any of them is committed or runs
+    /// (`rememberSensitiveValues(sessionId, executionCalls)`, `loop/tool-phase.mjs:49`): the host marks the values a
+    /// sensitive fill carries, so the stored copies of the transcript hold a marker for them from the assistant turn on.
+    ExecutionCalls(Vec<ToolCall>),
     /// A cut stream that ended after complete tool calls goes on as a tool-call turn (`recoverPartialToolCalls`,
     /// `session/send-with-recovery.mjs:767`): Node's `partial_tool_recovery` trace row.
     PartialToolRecovery(PartialToolRecovery),
