@@ -892,12 +892,17 @@ impl Shared {
         let Some(handle) = self.core.threads().get(&thread) else {
             return;
         };
+        // As for a request: no origin is no transport to judge the answer by, so it decides nothing.
+        let Some(origin) = (self.origin_of)(conn.id) else {
+            return;
+        };
         let client = &session.client;
         let decision = Decision {
             request,
             connection: conn.id,
             device: client.title.clone().unwrap_or_else(|| client.name.clone()),
             connection_kind: client.kind,
+            origin,
             result,
         };
         if let Err(error) = handle.decide(decision) {

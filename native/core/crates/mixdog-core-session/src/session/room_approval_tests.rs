@@ -166,7 +166,7 @@ async fn a_room_reads_and_answers_the_members_approval() {
     let answer = |approval: String| {
         let (directory, thread) = (&directory, &handle.id);
         async move {
-            directory.answer_member_approval(thread, &approval, ConnectionId(1), "desktop".into(), ConnectionKind::Desktop, json!({ "approved": true })).await
+            directory.answer_member_approval(thread, &approval, ConnectionId(1), "desktop".into(), ConnectionKind::Desktop, mixdog_protocol::Origin::Local, json!({ "approved": true })).await
         }
     };
     assert!(!answer("999".into()).await.expect("refused"), "not the approval the member shows");

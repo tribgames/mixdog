@@ -36,10 +36,6 @@ impl Devices for RegistryDevices {
         };
         DeviceInfo { device: found.device, kind }
     }
-
-    fn knows(&self, connection: ConnectionId) -> bool {
-        self.0.describe(connection.0).is_some()
-    }
 }
 
 #[cfg(test)]
@@ -61,10 +57,8 @@ mod tests {
         assert_eq!(info(3).kind, ConnectionKind::RemoteDesktop);
         assert_eq!(info(9).device, UNKNOWN_DEVICE);
         // Unpairing detaches the peer: its late decision is stamped unknown, not as the old device.
-        assert!(devices.knows(ConnectionId(2)));
         registry.detach_peer("peer-a");
         assert_eq!(info(2).device, UNKNOWN_DEVICE);
-        assert!(!devices.knows(ConnectionId(2)), "an unpaired peer's connection is not a local one");
         registry.disconnect(1);
         assert_eq!(info(1).device, UNKNOWN_DEVICE);
     }

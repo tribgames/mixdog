@@ -26,7 +26,7 @@ use serde_json::Value;
 use serde_json::json;
 
 use mixdog_core_api::domain::approval::ApprovalRequest;
-use mixdog_protocol::ConnectionKind;
+use mixdog_protocol::Origin;
 
 use super::SessionDirectory;
 use super::room_approval::tool_approval;
@@ -125,10 +125,10 @@ fn bare_allow(result: &Value) -> bool {
 /// Node's remote `resolveToolApprovalForSession` (remote-session-methods.ts:168-183): a bare Allow (`approved` with no `response`) from a
 /// device over the relay, for the approval the thread shows now where only a click on its card may allow it (push-notifier.ts
 /// `approvalPointerOnly`), is not taken. Checked where every answer is decided (the actor's `Ctl::Decide`), whichever route it came
-/// by; this PC's own windows answer unchecked, as Node's IPC path. A connection the registry no longer knows (`known` false: a
-/// phone unpaired before its answer was decided, described with a local kind) is not one of this PC's windows.
-pub(super) fn refuses_remote_allow(kind: ConnectionKind, known: bool, shown: Option<&ApprovalRequest>, request: &ServerRequestId, result: &Value) -> bool {
-    (!known || matches!(kind, ConnectionKind::Phone | ConnectionKind::RemoteDesktop))
+/// by. Remote is the transport the answer was admitted by (`Decision.origin`): the relay. This PC's connections and an SSH tunnel's
+/// (a TUI on this PC reached over SSH, which Node served through its local path) answer unchecked, as Node's IPC path does.
+pub(super) fn refuses_remote_allow(origin: Origin, shown: Option<&ApprovalRequest>, request: &ServerRequestId, result: &Value) -> bool {
+    origin == Origin::Relay
         && bare_allow(result)
         && shown.is_some_and(|shown| shown.id.0.to_string() == request.0 && record(Some(&tool_approval(shown))).is_some_and(pointer_only))
 }
@@ -161,7 +161,14 @@ impl SessionDirectory {
         // Answered once the session took it: a decision another connection got in first is `settled`, as Node's `accepted` false
         // (remote-session-methods.ts:207-214).
         let accepted = handle
-            .decide_arbitrated(Decision { request: ServerRequestId(id.to_owned()), connection, device: device.device, connection_kind: device.kind, result: decision })
+            .decide_arbitrated(Decision {
+                request: ServerRequestId(id.to_owned()),
+                connection,
+                device: device.device,
+                connection_kind: device.kind,
+                origin: req.ctx.origin,
+                result: decision,
+            })
             .await?;
         reply(if accepted { ApprovalNotificationOutcome::Answered } else { ApprovalNotificationOutcome::Settled })
     }
@@ -189,6 +196,7 @@ impl SessionDirectory {
                         connection,
                         device: device.device,
                         connection_kind: device.kind,
+                        origin: req.ctx.origin,
                         result: params.result,
                     })
                     .await?

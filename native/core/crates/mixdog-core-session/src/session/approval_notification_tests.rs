@@ -125,6 +125,7 @@ struct Waiting {
     thread: String,
     id: String,
     resolved: Arc<Mutex<Option<ApprovalResolution>>>,
+    registry: Arc<Registry>,
 }
 
 async fn waiting_on(input: &Value) -> Waiting {
@@ -140,41 +141,58 @@ async fn waiting_on(input: &Value) -> Waiting {
             RunOutcome::Completed(Default::default())
         })
     }));
+    let registry = Arc::new(Registry::default());
     let mut deps = rig.deps_parts(rig.store.clone());
-    deps.devices = Arc::new(RelayedPhones);
+    deps.devices = registry.clone();
     let directory = SessionDirectory::new(Arc::new(deps));
     let handle = start_thread(&directory).await;
     let thread = handle.id.as_str().to_owned();
     turn(&handle, "go", "op-1").await;
     let shown = eventually_on!(&[&handle.cell.stepped], || directory.member_approval(&handle.id)).await;
     let id = shown["id"].as_str().unwrap().to_owned();
-    Waiting { _rig: rig, directory, handle, thread, id, resolved }
+    Waiting { _rig: rig, directory, handle, thread, id, resolved, registry }
 }
 
-/// The rig's devices (`desktop-<id>`), where phones a and b (connections 7 and 8) reach the core over the relay, as the registry
-/// describes a paired phone; connection 1 is this PC's window.
-struct RelayedPhones;
+/// The device registry as `RegistryDevices` reads it: this PC's window (1) and phones a and b paired over the relay (7, 8), named
+/// `desktop-<id>` as the rig names them, and the phone `DISCONNECTING` (10) until it is forgotten. Any other connection (one never
+/// registered, or no longer) is described with the registry's fallback, a local kind.
+#[derive(Default)]
+struct Registry {
+    forgotten: Mutex<Vec<ConnectionId>>,
+}
 
-impl mixdog_core_base::approvals::Devices for RelayedPhones {
-    fn describe(&self, connection: ConnectionId) -> mixdog_core_base::approvals::DeviceInfo {
-        if connection == UNPAIRED {
-            // `RegistryDevices::describe` of a connection the registry does not know.
-            return mixdog_core_base::approvals::DeviceInfo {
-                device: mixdog_core_base::approvals::devices::UNKNOWN_DEVICE.into(),
-                kind: mixdog_protocol::ConnectionKind::Cli,
-            };
-        }
-        let kind = if [7, 8].contains(&connection.0) { mixdog_protocol::ConnectionKind::Phone } else { mixdog_protocol::ConnectionKind::Desktop };
-        mixdog_core_base::approvals::DeviceInfo { device: format!("desktop-{connection}"), kind }
+impl Registry {
+    /// The connection closed: the registry no longer describes it.
+    fn forget(&self, connection: ConnectionId) {
+        self.forgotten.lock().unwrap().push(connection);
     }
+}
 
-    fn knows(&self, connection: ConnectionId) -> bool {
-        connection != UNPAIRED
+impl mixdog_core_base::approvals::Devices for Registry {
+    fn describe(&self, connection: ConnectionId) -> mixdog_core_base::approvals::DeviceInfo {
+        use mixdog_protocol::ConnectionKind;
+        let kind = match connection.0 {
+            _ if self.forgotten.lock().unwrap().contains(&connection) => None,
+            1 => Some(ConnectionKind::Desktop),
+            7 | 8 | 10 => Some(ConnectionKind::Phone),
+            _ => None,
+        };
+        match kind {
+            Some(kind) => mixdog_core_base::approvals::DeviceInfo { device: format!("desktop-{connection}"), kind },
+            None => mixdog_core_base::approvals::DeviceInfo {
+                device: mixdog_core_base::approvals::devices::UNKNOWN_DEVICE.into(),
+                kind: ConnectionKind::Cli,
+            },
+        }
     }
 }
 
 /// A phone whose pairing ended before its answer was decided: the registry no longer knows its connection.
 const UNPAIRED: ConnectionId = ConnectionId(9);
+/// A paired phone whose connection closes after its answer was admitted and before the session decided it.
+const DISCONNECTING: ConnectionId = ConnectionId(10);
+/// A client on this PC the registry does not know (the TUI's connection).
+const LOCAL_UNREGISTERED: ConnectionId = ConnectionId(11);
 
 impl Waiting {
     /// The PC answering `{approved: true}` as a client's server-request response does (`on_response` → `RunControl::decide`).
@@ -186,6 +204,7 @@ impl Waiting {
                 connection: connection_of("desktop"),
                 device: String::new(),
                 connection_kind: mixdog_protocol::ConnectionKind::Desktop,
+                origin: Origin::Local,
                 result: json!({ "approved": true }),
             },
         )
@@ -258,6 +277,7 @@ async fn a_rooms_answer_that_meets_another_is_arbitrated_as_nodes() {
         connection_of(step["by"].as_str().unwrap()),
         "room".into(),
         mixdog_protocol::ConnectionKind::Desktop,
+        Origin::Relay,
         json!({ "approved": step["action"] == "allow" }),
     ));
     let first = futures::poll!(answer.as_mut());
@@ -328,6 +348,7 @@ async fn a_phones_bare_allow_answering_the_request_itself_is_refused_where_nodes
                 connection: PHONE,
                 device: "desktop-7".into(),
                 connection_kind: mixdog_protocol::ConnectionKind::Phone,
+                origin: Origin::Relay,
                 result: steps[0]["card"].clone(),
             },
         )
@@ -344,17 +365,24 @@ async fn a_phones_bare_allow_answering_the_request_itself_is_refused_where_nodes
     assert_eq!(replayed, ["outbound-payment", "outbound-delete", "office-rollback", "connector", "shell, a bare allow"], "the cases replayed");
 }
 
-/// The recorded payment case with the bare Allow sent by a phone unpaired before the session decided it: the registry describes
-/// that connection with a local kind, and the Allow is refused all the same, so the card's recorded Allow after it is the one taken.
-#[tokio::test(flavor = "current_thread")]
-async fn an_unpaired_phones_bare_allow_is_refused_as_a_paired_ones() {
+/// A recorded `approval-cards` case and the session waiting on its request.
+async fn card_case(name: &str) -> (Value, Waiting) {
     let golden: Value = serde_json::from_str(include_str!("../../../../../../apps/mobile/fixtures/phone-pushes/golden.json")).expect("golden.json");
     let requests = golden["scenarios"]["approval-answers"]["cases"].as_array().expect("cases");
-    let case = golden["scenarios"]["approval-cards"]["cases"].as_array().expect("cases").iter().find(|case| case["name"] == "outbound-payment").expect("the payment case");
-    let steps = case["answers"].as_array().unwrap();
-    assert_eq!((&steps[0]["card"], &steps[0]["outcome"]), (&json!({ "approved": true }), &json!({ "value": false })), "Node refused the bare Allow");
+    let case = golden["scenarios"]["approval-cards"]["cases"].as_array().expect("cases").iter().find(|case| case["name"] == name).expect("the case").clone();
     let input = &requests.iter().find(|request| request["name"] == case["request"]).expect("the recorded request")["input"];
     let waiting = waiting_on(input).await;
+    (case, waiting)
+}
+
+/// The recorded payment case with the bare Allow answering the server request from a relay connection whose phone was unpaired before
+/// the session decided it (the registry no longer describes it, so a lookup there finds a local kind): refused as Node refused the
+/// paired phone's, so the card's recorded Allow after it is the one taken.
+#[tokio::test(flavor = "current_thread")]
+async fn an_unpaired_phones_bare_allow_is_refused_as_a_paired_ones() {
+    let (case, waiting) = card_case("outbound-payment").await;
+    let steps = case["answers"].as_array().unwrap();
+    assert_eq!((&steps[0]["card"], &steps[0]["outcome"]), (&json!({ "approved": true }), &json!({ "value": false })), "Node refused the bare Allow");
     let Waiting { directory, handle, thread, id, .. } = &waiting;
     mixdog_core_api::thread::RunControl::decide(
         &**handle,
@@ -362,7 +390,8 @@ async fn an_unpaired_phones_bare_allow_is_refused_as_a_paired_ones() {
             request: mixdog_core_api::ids::ServerRequestId(id.clone()),
             connection: UNPAIRED,
             device: mixdog_core_base::approvals::devices::UNKNOWN_DEVICE.into(),
-            connection_kind: mixdog_protocol::ConnectionKind::Cli,
+            connection_kind: mixdog_protocol::ConnectionKind::Phone,
+            origin: Origin::Relay,
             result: steps[0]["card"].clone(),
         },
     )
@@ -370,6 +399,53 @@ async fn an_unpaired_phones_bare_allow_is_refused_as_a_paired_ones() {
     let next = &steps[1];
     assert_eq!(card_from(directory, PHONE, thread, id, &next["card"]).await, next["outcome"], "the card's answer after the refused Allow");
     assert_eq!(waiting.took("outbound-payment").await, json!([next["decided"][0]]), "the decision the session took");
+}
+
+/// The recorded payment case with the phone's bare Allow (`thread/approval/answer`) admitted while the phone is paired and connected,
+/// and its connection closing before the session decides it: refused, as Node refused it, and the approval still waits for the card's
+/// recorded Allow.
+#[tokio::test(flavor = "current_thread")]
+async fn a_bare_allow_whose_phone_disconnects_before_it_is_decided_is_refused() {
+    let (case, waiting) = card_case("outbound-payment").await;
+    let steps = case["answers"].as_array().unwrap();
+    let Waiting { directory, handle, thread, id, registry, .. } = &waiting;
+    let mut answer = Box::pin(card_through(directory, DISCONNECTING, Origin::Relay, thread, id, &steps[0]["card"]));
+    // One poll admits the answer and hands it to the session; the test's one thread gives the actor no turn before the phone is gone.
+    let first = futures::poll!(answer.as_mut());
+    assert!(first.is_pending(), "the answer waits for the session's decision");
+    registry.forget(DISCONNECTING);
+    assert_eq!(answer.await, steps[0]["outcome"], "what the card was given");
+    assert!(directory.member_approval(&handle.id).is_some(), "the approval still waits");
+    let next = &steps[1];
+    assert_eq!(card_from(directory, PHONE, thread, id, &next["card"]).await, next["outcome"], "the card's answer after the refused Allow");
+    assert_eq!(waiting.took("outbound-payment").await, json!([next["decided"][0]]), "the decision the session took");
+}
+
+/// The TUI's approve shortcut (`approval-shortcut.mjs`: `{approved: true, reason: 'approved by user'}` for any approval) answering the
+/// payment's server request from this PC's connection, which the registry does not know: taken, as Node's local path took this PC's
+/// bare Allow (the recorded `payment, the desktop`).
+#[tokio::test(flavor = "current_thread")]
+async fn a_local_clients_bare_allow_is_taken_as_nodes_local_path_takes_it() {
+    let (case, waiting) = card_case("payment, the desktop").await;
+    let recorded = &case["answers"][0];
+    let Waiting { directory, handle, .. } = &waiting;
+    let shortcut = json!({ "approved": true, "reason": "approved by user" });
+    mixdog_core_api::thread::RunControl::decide(
+        &**handle,
+        mixdog_core_api::thread::Decision {
+            request: mixdog_core_api::ids::ServerRequestId(waiting.id.clone()),
+            connection: LOCAL_UNREGISTERED,
+            device: "mixdog-tui".into(),
+            connection_kind: mixdog_protocol::ConnectionKind::Tui,
+            origin: Origin::Local,
+            result: shortcut.clone(),
+        },
+    )
+    .expect("the response is handed to the session");
+    let took = waiting.took("tui").await;
+    assert_eq!(took[0]["approved"], recorded["decided"][0]["approved"], "the session took the Allow");
+    assert_eq!(took[0]["reason"], shortcut["reason"], "with the shortcut's own decision");
+    assert_eq!(directory.member_approval(&handle.id).is_some(), recorded["pending"] == json!(true), "the approval no longer waits");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
