@@ -361,6 +361,16 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// A native push row's `createdAt`. A debug build (never a release one) reads `MIXDOG_FIXED_NOW_MS` as a pinned instant, as
+/// `mixdog_workspace::editorcfg::now_ms` does, so a replay gives the stored row the virtual clock the Node recording ran on.
+fn registered_at_ms() -> u64 {
+    #[cfg(debug_assertions)]
+    if let Some(pinned) = std::env::var("MIXDOG_FIXED_NOW_MS").ok().and_then(|raw| raw.parse::<u64>().ok()) {
+        return pinned;
+    }
+    now_ms()
+}
+
 fn now_ms() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
 }
@@ -1183,7 +1193,7 @@ impl RemoteRuntime {
                     public_key: value.get("publicKey").unwrap_or(&Value::Null),
                     sandbox: value.get("sandbox"),
                 };
-                lock(&store).register(lane, &input, now_ms())
+                lock(&store).register(lane, &input, registered_at_ms())
             })
             .await;
         let row = result?;

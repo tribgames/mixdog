@@ -14,6 +14,11 @@ import {
 
 type Client = ProtocolClient<SessionFold>;
 
+/** The sections the page's store carries. Not `notice`: Node showed a phone a desktop notice only as it was raised, never one standing
+ *  when it connected, so the phone's notices come from the notifications adapter (remote-protocol-notifications.ts) as raises the
+ *  connected client hears, through `subscribeDesktopNotices`, not from held entries. */
+const NAMES = SECTION_NAMES.filter((name) => name !== 'notice');
+
 const statusOf = (client: Client): DesktopProtocolStatus => {
   const state = client.status.state;
   return state === 'ready' ? 'ready' : state === 'closed' ? 'closed' : 'reconnecting';
@@ -47,7 +52,7 @@ export function createPhoneSections(boot: { start(): Promise<{ client: Client }>
   // A tell is not state: a phone whose leg was down is not told what was pushed meanwhile (the relay does not replay it), so the
   // state it hands out holds none; its page reads again on its own reconnect.
   const entriesOf = (client: Client): DesktopSectionEntry[] =>
-    SECTION_NAMES.filter((name) => !EVENT_SECTIONS.includes(name)).flatMap((name) => [...client.store.sections(name)]);
+    NAMES.filter((name) => !EVENT_SECTIONS.includes(name)).flatMap((name) => [...client.store.sections(name)]);
   // The last state of each sign-in flow's feed, and the flows whose feed was lost.
   const flows = new Map<string, unknown>();
   const lostFlows = new Set<string>();
@@ -75,7 +80,7 @@ export function createPhoneSections(boot: { start(): Promise<{ client: Client }>
     },
     subscribe: (listener) =>
       upWith((client) => {
-        const source = sectionsSourceFromFoldStore(client.store, SECTION_NAMES, () => statusOf(client));
+        const source = sectionsSourceFromFoldStore(client.store, NAMES, () => statusOf(client));
         const offs = [
           source.subscribe(listener),
           client.on((event) => {
