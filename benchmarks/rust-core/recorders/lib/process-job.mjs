@@ -199,7 +199,14 @@ export async function withJob(what, use, { answerMs = GUARD_DEADLINE_MS } = {}) 
           })
           .catch(reject);
       };
-      child.once('error', (error) => reject(new Error(`${label}: the gate did not start: ${error.message}`)));
+      // A run that fails before its command started: nothing is left for the deadline to end.
+      const fail = (error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(error);
+      };
+      child.once('error', (error) => fail(new Error(`${label}: the gate did not start: ${error.message}`)));
       // `ms` counts from this call, the guard's assignment included. Until the gate is told to go it runs nothing and is in no
       // job yet, so a deadline that passes first ends the gate itself.
       let assigned = false;
@@ -219,7 +226,7 @@ export async function withJob(what, use, { answerMs = GUARD_DEADLINE_MS } = {}) 
         },
         (error) => {
           child.kill();
-          reject(error);
+          fail(error);
         },
       );
     });
