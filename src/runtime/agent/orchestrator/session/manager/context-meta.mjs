@@ -33,7 +33,7 @@ function guessContextWindow(model, provider = null) {
   )
     return 8192;
   // Current hosted families by name pattern.
-  if (/^claude-(opus|sonnet|fable)/.test(m)) return 1000000;
+  if (/^claude-(opus|sonnet|fable|mythos)/.test(m)) return 1000000;
   if (m.startsWith('claude-')) return 200000;
   if (m.startsWith('gemini-3') || m.startsWith('gemini-2')) return 1000000;
   if (/^gpt-[56]/.test(m)) return 272000;

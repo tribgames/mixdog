@@ -18,9 +18,8 @@ process.env.MIXDOG_DISABLE_LIVE_CLI_VERSIONS = '1';
 process.env.MIXDOG_QUIET_PROVIDER_LOG = '1';
 const { AnthropicOAuthProvider } = await import('./anthropic-oauth.mjs');
 const { AnthropicProvider } = await import('./anthropic.mjs');
-const { MESSAGE_THREADS_BETA, THREAD_CONTINUE_MAX_AGE_MS, planAnthropicThread, _threadTest } = await import(
-  './anthropic-message-threads.mjs'
-);
+const { MESSAGE_THREADS_BETA, THREAD_CONTINUE_MAX_AGE_MS, planAnthropicThread, threadsSupportModel, _threadTest } =
+  await import('./anthropic-message-threads.mjs');
 const { countAnthropicCacheControls } = await import('./lib/anthropic-request-utils.mjs');
 
 test.after(async () => {
@@ -231,7 +230,86 @@ function breakpoints(body, createBody) {
   );
 }
 
+test('threads follow each family from its first documented version on; later versions inherit', () => {
+  // The documented id list the support check was before the family floors:
+  // each id, its dated form and its alias keep their "yes".
+  const listed = [
+    'claude-fable-5-1',
+    'claude-mythos-5-1',
+    'claude-fable-5',
+    'claude-mythos-5',
+    'claude-mythos-preview',
+    'claude-opus-5-5',
+    'claude-opus-5',
+    'claude-sonnet-5-5',
+    'claude-sonnet-5',
+    'claude-haiku-5-5',
+    'claude-haiku-4-5-20251001',
+    'claude-opus-4-8',
+    'claude-opus-4-7',
+    'claude-opus-4-6',
+    'claude-sonnet-4-6',
+    'claude-opus-4-5-20251101',
+    'claude-sonnet-4-5-20250929',
+  ];
+  for (const id of listed) {
+    const alias = id.replace(/-\d{8}$/, '');
+    for (const spelling of [id, alias, `${alias}-20261101`, alias.replace(/-(\d+)-(\d+)$/, '-$1.$2')]) {
+      assert.equal(threadsSupportModel(spelling), true, spelling);
+    }
+  }
+  for (const id of [
+    'claude-opus-4-1',
+    'claude-opus-4-1-20250805',
+    'claude-opus-4-20250514',
+    'claude-sonnet-4',
+    'claude-3-7-sonnet-20250219',
+    'claude-opus-4-5@20251101',
+    'anthropic.claude-opus-4-5-20251101-v1:0',
+    'claude-opus-5-5-fast',
+    'claude-fable-latest',
+    'claude-nova-9',
+    '',
+  ]) {
+    assert.equal(threadsSupportModel(id), false, id);
+  }
+  for (const id of ['claude-fable-5-2', 'claude-mythos-5-2', 'claude-opus-6', 'claude-sonnet-5-6', 'claude-haiku-6-1']) {
+    assert.equal(threadsSupportModel(id), true, id);
+  }
+});
+
 for (const kind of ['anthropic', 'anthropic-oauth']) {
+  test(`${kind}: a thread refusal naming nothing of the request switches the model off`, async () => {
+    const h = harness(kind);
+    // A model no other test sends: the switch-off lasts for the process.
+    const model = 'claude-opus-4-6';
+    h.script.push(() => errorReply(400, 'thread_unsupported_request'));
+    const r = await h.send([SYSTEM, user('one')], {}, model);
+    assert.equal(r.content, 'reply-2', 'the same turn is replayed once without thread');
+    assert.deepEqual(h.requests[0].body.thread, { type: 'create' });
+    assert.equal('thread' in h.requests[1].body, false);
+    await h.send([SYSTEM, user('other')], { sessionId: 'session-2' }, model);
+    assert.equal(h.requests.length, 3, 'no failed attempt first');
+    assert.equal('thread' in h.requests[2].body, false, 'another conversation of the model is unthreaded');
+    await h.send([SYSTEM, user('third')], { sessionId: 'session-3' });
+    assert.deepEqual(h.requests[3].body.thread, { type: 'create' }, 'other models still thread');
+  });
+
+  test(`${kind}: once the account threaded, an uncoded thread refusal switches only that model off`, async () => {
+    const h = harness(kind);
+    const model = 'claude-sonnet-4-5';
+    await h.send([SYSTEM, user('one')]);
+    h.script.push(() => errorReply(400, null, { message: 'thread: Extra inputs are not permitted' }));
+    await h.send([SYSTEM, user('two')], { sessionId: 'session-2' }, model);
+    assert.deepEqual(h.requests[1].body.thread, { type: 'create' });
+    assert.equal('thread' in h.requests[2].body, false);
+    await h.send([SYSTEM, user('three')], { sessionId: 'session-3' }, model);
+    assert.equal(h.requests.length, 4, 'no failed attempt first');
+    assert.equal('thread' in h.requests[3].body, false);
+    await h.send([SYSTEM, user('four')], { sessionId: 'session-4' });
+    assert.deepEqual(h.requests[4].body.thread, { type: 'create' }, 'the account keeps threading other models');
+  });
+
   test(`${kind}: first turn creates, the next continues with only the new messages`, async () => {
     const h = harness(kind);
     await twoTurns(h);

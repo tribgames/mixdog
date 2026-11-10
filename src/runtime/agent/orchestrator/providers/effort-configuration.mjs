@@ -1,5 +1,6 @@
-import { isVisibleStreamProgress } from '../../../shared/stream-progress.mjs';
 import { anthropicEffortLevelsFor, normalizeAnthropicEffortInput } from './anthropic-effort.mjs';
+import { claudeFamilyVersion, claudeVersionAtLeast } from './anthropic-thinking-contract.mjs';
+import { sendWithReplayBeforeOutput } from './lib/replay-before-output.mjs';
 import { CUSTOM_EFFORT_LEVELS, customEffortLevels, isCustomProviderName } from './custom-reasoning.mjs';
 import { codexModelSupportsEffortUpdates } from './openai-oauth-catalog.mjs';
 
@@ -29,17 +30,12 @@ const ANTHROPIC_REPLAYING_PROVIDERS = new Set(['anthropic-oauth']);
 const OPENAI_MIN_MAJOR = 6;
 const unsupportedModels = new Set();
 
-function versionAtLeast([major, minor], [minMajor, minMinor]) {
-  return major > minMajor || (major === minMajor && minor >= minMinor);
-}
-
 function anthropicVersionSupported(provider, id) {
-  const m = id.match(/^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?$/);
-  if (!m) return false;
-  const version = [Number(m[2]), Number(m[3] || 0)];
-  const floor = ANTHROPIC_MIN_VERSION[m[1]];
-  if (floor) return versionAtLeast(version, floor);
-  return ANTHROPIC_REPLAYING_PROVIDERS.has(provider) && version[0] >= ANTHROPIC_FIRST_MAJOR;
+  const parsed = claudeFamilyVersion(id);
+  if (!parsed) return false;
+  const floor = ANTHROPIC_MIN_VERSION[parsed.family];
+  if (floor) return claudeVersionAtLeast(parsed.version, floor);
+  return ANTHROPIC_REPLAYING_PROVIDERS.has(provider) && parsed.version[0] >= ANTHROPIC_FIRST_MAJOR;
 }
 
 // Any `gpt-<major>` id, whatever follows the major (tier names, minors,
@@ -80,37 +76,19 @@ export function isEffortConfigurationRejection(status, text) {
  * or an explicit opt-out; a late error is not evidence of missing support.
  */
 export async function withEffortConfigurationFallback(provider, model, opts, send) {
-  let streamed = false;
-  const track =
-    (callback, isProgress = false) =>
-    (...args) => {
-      if (!isProgress || isVisibleStreamProgress(args[0])) streamed = true;
-      return callback(...args);
-    };
-  const tracked = { ...opts };
-  if (typeof opts?.onStreamDelta === 'function') tracked.onStreamDelta = track(opts.onStreamDelta, true);
-  if (typeof opts?.onTextDelta === 'function') tracked.onTextDelta = track(opts.onTextDelta);
-  if (typeof opts?.onToolCall === 'function') tracked.onToolCall = track(opts.onToolCall);
-  try {
-    return await send(tracked);
-  } catch (error) {
-    const status = error?.status ?? error?.httpStatus;
-    const emitted =
-      streamed || error?.liveTextEmitted === true || error?.emittedToolCall === true || error?.unsafeToRetry === true;
+  return sendWithReplayBeforeOutput(opts, send, (error, tracked) => {
     if (
       opts?._effortConfigurationRetry ||
       opts?.effortConfigurationEnabled === false ||
-      opts?.signal?.aborted ||
-      emitted ||
-      !isEffortConfigurationRejection(status, error?.message)
+      !isEffortConfigurationRejection(error?.status ?? error?.httpStatus, error?.message)
     )
-      throw error;
+      return null;
     markEffortConfigurationUnsupported(provider, model);
     process.stderr.write(
       `[${provider}] ${model} rejected the mid-conversation effort update; retrying once without it\n`
     );
-    return send({ ...tracked, effortConfigurationEnabled: false, _effortConfigurationRetry: true });
-  }
+    return { ...tracked, effortConfigurationEnabled: false, _effortConfigurationRetry: true };
+  });
 }
 const OPENAI_PROVIDERS = new Set(['openai', 'openai-oauth']);
 const ANTHROPIC_PROVIDERS = new Set(['anthropic', 'anthropic-oauth']);

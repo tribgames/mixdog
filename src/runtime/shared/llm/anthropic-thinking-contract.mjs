@@ -54,24 +54,61 @@ export function isAnthropicAdaptiveOnlyByGeneration(model) {
   return claudeGenerationAtLeast(model, CLAUDE_GENERATION_FLOOR.manualThinkingRejected);
 }
 
+/** A Claude id as the capability tables read it: trimmed, lowercased, dots
+ *  folded to dashes and a release date (-20251001, -2025-10-01) dropped. */
+export function claudeModelKey(model) {
+  return normalizeClaudeModelId(String(model || '').trim()).replace(/-(?:\d{8}|\d{4}-\d{2}-\d{2})$/, '');
+}
+
+/** Family and [major, minor] of a first-party Claude id (claude-opus-4-8,
+ *  claude-fable-5.1-20260901); null for every other shape (version-first
+ *  legacy ids, route prefixes, @/-v1:0/-fast/-latest variants, previews). */
+export function claudeFamilyVersion(model) {
+  const m = claudeModelKey(model).match(/^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?$/);
+  return m ? { family: m[1], version: [Number(m[2]), Number(m[3] || 0)] } : null;
+}
+
+export function claudeVersionAtLeast([major, minor], [minMajor, minMinor]) {
+  return major > minMajor || (major === minMajor && minor >= minMinor);
+}
+
+/**
+ * A capability given per family from a first version on (`floors`:
+ * family → [major, minor]), so every later version of the family inherits it.
+ * A family without a floor stays off. `exceptions` fixes the answer of an id
+ * (as claudeModelKey gives it) that the floors cannot express.
+ */
+export function claudeCapabilityByFloor(model, { floors, exceptions = {} }) {
+  const key = claudeModelKey(model);
+  if (Object.hasOwn(exceptions, key)) return exceptions[key];
+  const parsed = claudeFamilyVersion(key);
+  const floor = parsed && Object.hasOwn(floors, parsed.family) ? floors[parsed.family] : null;
+  return Boolean(floor) && claudeVersionAtLeast(parsed.version, floor);
+}
+
 // Models that write their user-facing notes between tool calls (tool
-// preambles) as progress-update thinking blocks instead of text blocks.
-// Kept as an id list: no catalog field carries it, the display value rides a
-// beta-gated parameter that other models reject (a wrong "yes" is a 400), and
-// a wrong "no" only leaves preambles as text — so unknown ids stay off.
+// preambles) as progress-update thinking blocks instead of text blocks
+// (thinking docs, "Progress updates between tool calls": Fable 5 on, Mythos
+// 5.1 on, Opus 5.5 on, Sonnet 5.5 on). No catalog field carries it, and the
+// display value rides a beta-gated parameter, so a model that rejects it is
+// switched off at runtime (anthropic-capability-fallback.mjs).
+export const ANTHROPIC_PROGRESS_UPDATES = Object.freeze({
+  floors: Object.freeze({ opus: [5, 5], sonnet: [5, 5], fable: [5, 0], mythos: [5, 1] }),
+});
+
 export function emitsAnthropicProgressUpdates(model) {
-  const id = normalizeClaudeModelId(model);
-  return /^claude-(?:opus-5-5|sonnet-5-5|fable-5-1|mythos-5-1|fable-5)(?:-\d{8})?$/.test(id);
+  return claudeCapabilityByFloor(model, ANTHROPIC_PROGRESS_UPDATES);
 }
 
 // Models that accept turn-scoped mid-conversation system messages
 // ({role:'system', clear_at:'next_user_message'}, beta
-// mid-conversation-system-clear-at-2026-08-21). An id list for the same
-// reason as above: a wrong "yes" is a 400 on every request, a wrong "no" only
-// keeps the legacy tail-reminder layout — so unknown ids stay off.
+// mid-conversation-system-clear-at-2026-08-21). claude-sonnet-5 and
+// claude-mythos-preview stay off (they were never on the turn-scoped list);
+// a model that rejects the message is switched off at runtime.
+export const ANTHROPIC_TURN_SCOPED_SYSTEM = Object.freeze({
+  floors: Object.freeze({ opus: [4, 8], sonnet: [5, 5], haiku: [5, 5], fable: [5, 0], mythos: [5, 0] }),
+});
+
 export function supportsAnthropicTurnScopedSystemMessages(model) {
-  const id = normalizeClaudeModelId(model);
-  return /^claude-(?:fable-5-1|mythos-5-1|fable-5|mythos-5|opus-5-5|opus-5|opus-4-8|sonnet-5-5|haiku-5-5)(?:-\d{8})?$/.test(
-    id
-  );
+  return claudeCapabilityByFloor(model, ANTHROPIC_TURN_SCOPED_SYSTEM);
 }

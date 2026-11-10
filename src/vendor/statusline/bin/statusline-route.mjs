@@ -303,7 +303,7 @@ function displayForModel(provider, model, info) {
   const display = cleanString(info?.display) || cleanString(info?.displayName) || cleanString(info?.name);
   if (display) return display;
   if (provider === 'anthropic-oauth') {
-    const m = String(model || '').match(/^claude-(opus|sonnet|haiku|fable)-(\d+)(?:-(\d+))?/i);
+    const m = String(model || '').match(/^claude-(opus|sonnet|haiku|fable|mythos)-(\d+)(?:-(\d+))?/i);
     if (m) return `${m[1][0].toUpperCase()}${m[1].slice(1).toLowerCase()} ${m[2]}${m[3] ? `.${m[3]}` : ''}`;
   }
   const raw = cleanString(model);

@@ -32,6 +32,7 @@ const EFFORT_OPTIONS_BY_PROVIDER = {
 const EFFORT_BY_FAMILY = {
   opus: ['low', 'medium', 'high', 'xhigh', 'max'],
   fable: ['low', 'medium', 'high', 'xhigh', 'max'],
+  mythos: ['low', 'medium', 'high', 'xhigh', 'max'],
   sonnet: ['low', 'medium', 'high'],
   haiku: [],
   'gpt-5.5': ['none', 'low', 'medium', 'high', 'xhigh'],

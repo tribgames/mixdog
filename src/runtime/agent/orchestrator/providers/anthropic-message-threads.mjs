@@ -37,6 +37,8 @@ import {
   resolveAnthropicCacheTtls,
 } from './lib/anthropic-request-utils.mjs';
 import { splitTailReminder } from './lib/tail-reminder-split.mjs';
+import { claudeCapabilityByFloor } from './anthropic-thinking-contract.mjs';
+import { anthropicCapabilityEnabled, markAnthropicCapabilityUnsupported } from './anthropic-capability-fallback.mjs';
 
 export const MESSAGE_THREADS_BETA = 'message-threads-2026-08-12';
 
@@ -52,27 +54,14 @@ const THREAD_MAX_BREAKPOINTS = 4;
 // confirms storage. The turn itself is not held for it.
 export const THREAD_MESSAGE_STOP_WAIT_MS = 5_000;
 
-// Models the feature documents as supported (dated variants of a listed alias
-// and the dated ids themselves match).
-const SUPPORTED_MODELS = [
-  'claude-fable-5-1',
-  'claude-mythos-5-1',
-  'claude-fable-5',
-  'claude-mythos-5',
-  'claude-mythos-preview',
-  'claude-opus-5-5',
-  'claude-opus-5',
-  'claude-sonnet-5-5',
-  'claude-sonnet-5',
-  'claude-haiku-5-5',
-  'claude-haiku-4-5-20251001',
-  'claude-opus-4-8',
-  'claude-opus-4-7',
-  'claude-opus-4-6',
-  'claude-sonnet-4-6',
-  'claude-opus-4-5-20251101',
-  'claude-sonnet-4-5-20250929',
-];
+// The models the feature documents as supported, as family floors (dated ids
+// and their aliases alike). claude-mythos-preview carries no version, so it is
+// named. A model that refuses threads is switched off at runtime
+// (classifyRejection).
+export const ANTHROPIC_MESSAGE_THREADS = Object.freeze({
+  floors: Object.freeze({ opus: [4, 5], sonnet: [4, 5], haiku: [4, 5], fable: [5, 0], mythos: [5, 0] }),
+  exceptions: Object.freeze({ 'claude-mythos-preview': true }),
+});
 
 const NORMAL_STOPS = new Set(['end_turn', 'tool_use', 'stop_sequence', 'pause_turn', 'max_tokens']);
 const REPLAY_CODES = new Set([
@@ -106,14 +95,7 @@ function sha(text) {
 }
 
 export function threadsSupportModel(model) {
-  const id = String(model || '').trim();
-  if (!id) return false;
-  return SUPPORTED_MODELS.some(
-    (listed) =>
-      listed === id ||
-      (id.startsWith(`${listed}-`) && /^\d{8}$/.test(id.slice(listed.length + 1))) ||
-      (listed.startsWith(`${id}-`) && /^\d{8}$/.test(listed.slice(id.length + 1)))
-  );
+  return claudeCapabilityByFloor(model, ANTHROPIC_MESSAGE_THREADS);
 }
 
 /** Threads are on unless the provider config, the send or the environment turns them off. */
@@ -154,7 +136,9 @@ function eligible({ provider, config, opts, body, requestMessages }) {
   // One-shot forks (side questions, compaction summaries) never continue.
   if (opts?.transportScope || opts?.sharedCachePrefixCount || opts?.requestKind === 'compaction') return false;
   if (!opts?.sessionId) return false;
-  if (!threadsSupportModel(body?.model)) return false;
+  if (!threadsSupportModel(body?.model) || !anthropicCapabilityEnabled('messageThreads', provider, body.model)) {
+    return false;
+  }
   if (body.compaction != null) return false;
   if (carriesLegacyTailReminder(provider, config, body.model, requestMessages)) return false;
   return contextManagementThreadable(body);
@@ -476,6 +460,7 @@ export function planAnthropicThread({
         disableConversation: () => {
           if (owned()) generation.get(provider).disabledAccount = account;
         },
+        disableModel: () => markAnthropicCapabilityUnsupported('messageThreads', provider, body.model, 'message thread'),
       });
     },
   };
@@ -499,13 +484,17 @@ export function anthropicThreadErrorDetails(errorBody) {
   return { code: typeof details.error_code === 'string' ? details.error_code : '', unsupported, message };
 }
 
-function classifyRejection(plan, { status, errorBody, accountState, directive, disableConversation }) {
+function classifyRejection(plan, { status, errorBody, accountState, directive, disableConversation, disableModel }) {
   if (plan.mode === 'none') return null;
   const { code, unsupported, message } = anthropicThreadErrorDetails(errorBody);
   if (code === 'thread_unsupported_request') {
     if (unsupported.some((value) => ACCOUNT_UNSUPPORTED.has(value))) {
       accountState.disabled = true;
       logOnce(accountState, `threads unavailable for this account (${unsupported.join(',')}); sending unthreaded`);
+    } else if (!unsupported.length || unsupported.includes('model')) {
+      // Nothing of the request named (or the model itself): the model does
+      // not take threads, so no later request of it is threaded either.
+      disableModel();
     } else {
       disableConversation();
     }
@@ -524,12 +513,15 @@ function classifyRejection(plan, { status, errorBody, accountState, directive, d
   if (code.startsWith('thread_')) return { force: 'none' };
   // An uncoded refusal that names the thread parameter or the beta itself (a
   // route that does not take threads). The first one for an account turns
-  // threads off for it in this process. Any other error is not about threads.
+  // threads off for it in this process; once the account has threaded, it is
+  // this model that does not take them. Any other error is not about threads.
   const s = Number(status) || 0;
   if ((s === 400 || s === 403 || s === 422) && EXPLICIT_THREAD_REJECTION.test(message)) {
     if (!accountState.confirmed) {
       accountState.disabled = true;
       logOnce(accountState, `threads rejected for this account (HTTP ${s}); sending unthreaded from now on`);
+    } else {
+      disableModel();
     }
     return { force: 'none' };
   }

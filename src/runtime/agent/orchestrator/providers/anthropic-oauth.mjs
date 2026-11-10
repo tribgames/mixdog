@@ -81,6 +81,7 @@ import {
   withAnthropicTurnReminders,
 } from './lib/anthropic-request-utils.mjs';
 import { splitTailReminder } from './lib/tail-reminder-split.mjs';
+import { anthropicCapabilityEnabled, anthropicCapabilityReplay } from './anthropic-capability-fallback.mjs';
 import {
   EFFORT_CONFIGURATION_BETA,
   isEffortConfigurationRejection,
@@ -283,7 +284,7 @@ function buildRequestBody(requestMessages, model, tools, sendOpts) {
     maxTokens,
     clampThinkingBudgetTokens,
     logTag: 'anthropic-oauth',
-    progressUpdates: true,
+    progressUpdates: anthropicCapabilityEnabled('progressUpdates', 'anthropic-oauth', model),
   });
 
   if (body.tools) {
@@ -892,6 +893,12 @@ export class AnthropicOAuthProvider {
         _effortConfigurationRetry: true,
       });
     }
+
+    // A model that rejects a version-floor feature (progress updates,
+    // turn-scoped system messages): off for it in this process, the turn
+    // replayed once without it.
+    const capabilityOpts = anthropicCapabilityReplay('anthropic-oauth', useModel, opts, response.status, scrubbedText);
+    if (capabilityOpts) return this.send(messages, useModel, tools, capabilityOpts);
 
     // Anthropic can gate a newly launched model on a newer Claude
     // Code client identity. Learn only the exact minimum-version
