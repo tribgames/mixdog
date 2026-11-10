@@ -1,0 +1,57 @@
+{
+  "command": "(cd <tree>/apps/desktop && node --import tsx benchmarks/rust-core/recorders/record-screen-control-lease.mjs --tree <tree>)",
+  "common": "benchmarks/rust-core/recorders/lib/common.mjs",
+  "commonSha256": "d4d0064b5b40d5fcb833a69fb3d68a69b1c1317606b5fe341c3445d5d0bbefd4",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 67456,
+      "path": "scenarios.json",
+      "sha256": "c4d9fb2903f61aba609a064e18090c8f81c0438a56bd8f206dec1a1fb466fc4e"
+    }
+  ],
+  "inputs": {
+    "scenarios": [
+      "the install request goes to the installer with the phone’s key; installed or updated rebuilds the adapter, nothing else does",
+      "a request that changes nothing keeps the live adapter: installed and current for that key before it",
+      "a request that ends after an adapter built before the install rebuilds it",
+      "one prompt per request and none after a refusal: a decline latches for every session until restart",
+      "one session holds the helper: only its runs, grants, input and helper events; the hold passes on deactivation or when it ends",
+      "the four challenges the helper still keeps (issued at 0, 2, 4 and 6 s) stay answerable; the fifth evicts the oldest",
+      "a handover at the same epoch still revokes: the successor’s input waits for its own grant for a new challenge",
+      "an old challenge of the previous holder is dead after the handover",
+      "a check that reads installed while the adapter reports not installed rebuilds it",
+      "a check never rebuilds an installed adapter",
+      "ensureRunning starts a stopped service through the installer; callers together share one attempt; a connected helper needs none",
+      "dispose: the adapter goes, and a request that ends later rebuilds nothing",
+      "a lease reads the current adapter’s connection, desktop, session and lock state, also after a rebuild",
+      "a grant the helper refuses opens no input; the next challenge’s grant does",
+      "a lease taken after the helper was disposed is inert"
+    ],
+    "tree": "exact export of b6f10295a2f698afc85332467192de28500bd146"
+  },
+  "lib": "benchmarks/rust-core/recorders/record-screen-control-lib.mjs",
+  "libSha256": "df30cfea6d1ec4218b1670d673285f8eb2738556726665ab0df78d21a56c46b1",
+  "node": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-screen-control-lease.mjs",
+  "recorderSha256": "e4ec7cb25f132ab0d2f400a0d2fc324ecec2ffedad7273e5dcd41ab662e5ddce",
+  "set": "screen-control/lease",
+  "totalBytes": 67456
+}

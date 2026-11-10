@@ -7,13 +7,12 @@
 // of requests, state reads, service starts, exits of the launched elevation and virtual-clock advances against a fake
 // port that only records what it is asked: `runKeyOp` is the elevation the PC's user would approve, and here it is a
 // list entry the script ends. Nothing is launched, nothing is installed, no UAC prompt appears. The golden holds the
-// script and the whole trace Node gave. Rust's installer must replay each script to the same trace, and `declined`
-// must come out the same when the PC-side approval hook refuses before anything is launched.
+// script and the whole trace Node gave. Rust's installer must replay each script to the same trace.
 //
 //   (cd <tree>/apps/desktop && node --import tsx <repo>/benchmarks/rust-core/recorders/record-screen-control-install.mjs --tree <tree>)
-import { VirtualTime, checkpoint, importTs, openTree, writeSub } from './record-screen-control-lib.mjs';
+import { VirtualTime, checkpoint, importTs, openTree, record } from './record-screen-control-lib.mjs';
 
-const { tree, identity } = openTree();
+const { tree, identity, only } = openTree();
 const { createSecureDesktopInstaller } = await importTs(tree, 'apps/desktop/src/main/secure-desktop/install-request.ts');
 const client = await importTs(tree, 'apps/desktop/src/main/secure-desktop/client.ts');
 
@@ -156,6 +155,93 @@ const SCENARIOS = [
     steps: [request('first'), request('joined'), settle, { op: 'exit', n: 0, code: 0 }, done('first'), done('joined')],
   },
   {
+    name: 'a request nobody waits for still runs to its end and frees the next request',
+    world: { states: ['not-installed', 'not-installed', 'installed'], elevations: ['defer', 0] },
+    steps: [
+      { op: 'requestUnawaited', key: KEY },
+      settle,
+      { op: 'query', what: 'pending' },
+      { op: 'exit', n: 0, code: 0 },
+      settle,
+      { op: 'query', what: 'pending' },
+      ...run('next', OTHER),
+    ],
+  },
+  {
+    name: 'a PC-access key op while a phone request’s elevation is outstanding answers in-progress and launches nothing',
+    world: { states: ['not-installed'], elevations: ['defer', 0] },
+    steps: [
+      request('phone'),
+      settle,
+      { op: 'keyOp', as: 'pc-enroll', verb: 'enroll', keys: [OTHER] },
+      done('pc-enroll'),
+      { op: 'query', what: 'pending' },
+      { op: 'exit', n: 0, code: 0 },
+      done('phone'),
+      { op: 'keyOp', as: 'pc-enroll-after', verb: 'enroll', keys: [OTHER] },
+      done('pc-enroll-after'),
+    ],
+  },
+  {
+    name: 'a phone request while a PC-access key op runs launches nothing: in-progress, or installed on its own installed check',
+    world: { statesByKey: { [THIRD]: 'installed' }, states: ['not-installed'], elevations: ['defer'] },
+    steps: [
+      { op: 'keyOp', as: 'pc-install', verb: 'install', keys: [OTHER] },
+      settle,
+      ...run('phone', KEY),
+      ...run('enrolled-phone', THIRD),
+      { op: 'keyOp', as: 'second-op', verb: 'revoke', keys: [OTHER] },
+      done('second-op'),
+      { op: 'query', what: 'pending' },
+      { op: 'exit', n: 0, code: 0 },
+      done('pc-install'),
+      { op: 'query', what: 'pending' },
+    ],
+  },
+  {
+    name: 'every exit code of a key op has its outcome, from the code alone',
+    world: {
+      states: ['outdated', 'installed'],
+      elevations: [0, 0, 0, EXITS.declined, EXITS.busy, EXITS.otherUser, EXITS.untrusted, EXITS.revocation, 20, 21, 22, 10, 11, 12, 13, 14, 15, 9, { throw: 'spawn failed' }],
+    },
+    steps: [
+      { op: 'keyOp', as: 'install-outdated', verb: 'install', keys: [KEY] },
+      done('install-outdated'),
+      { op: 'keyOp', as: 'enroll-0', verb: 'enroll', keys: [KEY, OTHER] },
+      done('enroll-0'),
+      { op: 'keyOp', as: 'revoke-0', verb: 'revoke', keys: [OTHER] },
+      done('revoke-0'),
+      ...['declined', 'busy', 'other-user', 'untrusted', 'revocation', 'delegation-disabled', 'delegation-denied', 'service-unreachable', 'bad-credentials', 'not-admin', 'logon-type-denied', 'account-locked', 'account-disabled', 'policy-blocked', 'other', 'spawn-error'].flatMap((as) => [
+        { op: 'keyOp', as, verb: 'enroll', keys: [KEY] },
+        done(as),
+      ]),
+    ],
+  },
+  {
+    name: 'a key op with an invalid key fails without launching; an install checks the image first',
+    world: { states: ['not-installed'], image: { ok: false, detail: 'the helper image was refused' }, elevations: [] },
+    steps: [
+      { op: 'keyOp', as: 'bad-key', verb: 'enroll', keys: ['not-a-key'] },
+      done('bad-key'),
+      { op: 'keyOp', as: 'bad-revoke', verb: 'enroll', keys: [KEY], options: { revoke: ['not-a-key'] } },
+      done('bad-revoke'),
+      { op: 'keyOp', as: 'refused-image', verb: 'install', keys: [] },
+      done('refused-image'),
+    ],
+  },
+  {
+    name: 'a key op reaches the port with its revokes, its credential or the delegated path',
+    world: { states: ['installed'], elevations: [0, 0, 0] },
+    steps: [
+      { op: 'keyOp', as: 'with-revokes', verb: 'enroll', keys: [KEY], options: { revoke: [OTHER, THIRD] } },
+      done('with-revokes'),
+      { op: 'keyOp', as: 'with-credential', verb: 'enroll', keys: [KEY], options: { credential: { user: 'pc-user', password: 'pc-password' } } },
+      done('with-credential'),
+      { op: 'keyOp', as: 'delegated', verb: 'revoke', keys: [OTHER], options: { delegated: true } },
+      done('delegated'),
+    ],
+  },
+  {
     name: 'ensureRunning starts the registered service only when installed',
     world: { states: ['not-installed', 'installed'], starts: [{ installed: true, running: true }] },
     steps: [{ op: 'ensure', as: 'missing' }, done('missing'), { op: 'ensure', as: 'installed' }, done('installed')],
@@ -193,7 +279,7 @@ async function play(scenario) {
       return next ?? { installed: false, running: false };
     },
     runKeyOp(op) {
-      log.push({ ev: 'port', call: 'runKeyOp', verb: op.verb, keys: op.keys, revoke: op.revoke });
+      log.push({ ev: 'port', call: 'runKeyOp', verb: op.verb, keys: op.keys, revoke: op.revoke, credential: clone(op.credential), delegated: op.delegated ?? null });
       const next = world.elevations[elevations];
       elevations += 1;
       if (next === 'defer') return new Promise((resolve) => children.push(resolve));
@@ -225,11 +311,19 @@ async function play(scenario) {
         case 'request':
           start(step.as, installer.request(step.key === null ? undefined : step.key));
           break;
+        case 'requestUnawaited':
+          // The caller goes away (its session ended): nothing waits for the answer.
+          void installer.request(step.key);
+          break;
         case 'state':
           start(step.as, installer.state(step.key));
           break;
         case 'ensure':
           start(step.as, installer.ensureRunning());
+          break;
+        case 'keyOp':
+          // PC access's install/enroll/revoke: the same installer, the same one-at-a-time latch.
+          start(step.as, installer[step.verb](step.verb === 'revoke' ? step.keys[0] : step.keys, step.options));
           break;
         case 'exit':
           children[step.n](step.code);
@@ -259,8 +353,14 @@ async function play(scenario) {
   return { ...scenario, trace: log, final: { elapsedMs: time.elapsed(), checks, elevations } };
 }
 
-const scenarios = [];
-for (const scenario of SCENARIOS) scenarios.push(await play(scenario));
-writeSub('install', { 'scenarios.json': { keys: { KEY, OTHER, THIRD }, exits: EXITS, scenarios } }, identity);
-console.log(`install: ${scenarios.length} scenarios, ${scenarios.reduce((n, s) => n + s.trace.length, 0)} trace events`);
-process.exit(0);
+await record({
+  sub: 'install',
+  recorderUrl: import.meta.url,
+  identity,
+  only,
+  entries: SCENARIOS,
+  play,
+  files: (scenarios) => ({ 'scenarios.json': { keys: { KEY, OTHER, THIRD }, exits: EXITS, scenarios } }),
+  committed: (read) => read('scenarios.json').scenarios,
+});
+process.exit(process.exitCode ?? 0);

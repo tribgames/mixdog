@@ -10,9 +10,9 @@
 // heard it, every call's outcome, and the final state. Rust's lease must replay each script to the same trace.
 //
 //   (cd <tree>/apps/desktop && node --import tsx <repo>/benchmarks/rust-core/recorders/record-screen-control-lease.mjs --tree <tree>)
-import { checkpoint, importTs, openTree, writeSub } from './record-screen-control-lib.mjs';
+import { checkpoint, importTs, openTree, record } from './record-screen-control-lib.mjs';
 
-const { tree, identity } = openTree();
+const { tree, identity, only } = openTree();
 const { createSecureDesktopHelper, DECLINED_ON_PC } = await importTs(tree, 'apps/desktop/src/main/remote-screen/secure-desktop-helper.ts');
 
 const KEY = 'key-a';
@@ -239,6 +239,39 @@ const SCENARIOS = [
     ],
   },
   {
+    name: 'a lease reads the current adapter’s connection, desktop, session and lock state, also after a rebuild',
+    world: { installed: false, state: 'not-installed' },
+    steps: [
+      lease('A'),
+      { op: 'view', lease: 'A' },
+      { op: 'adapterView', view: { connected: true, desktop: 'Winlogon', session: 2, locked: true } },
+      { op: 'view', lease: 'A' },
+      { op: 'adapterView', view: { connected: true, desktop: 'Default', session: 1, locked: false } },
+      { op: 'view', lease: 'A' },
+      { op: 'installerState', value: 'installed' },
+      ...call('installState', 'check', 'A'),
+      { op: 'view', lease: 'A' },
+    ],
+  },
+  {
+    name: 'a grant the helper refuses opens no input; the next challenge’s grant does',
+    world: { installed: true, state: 'installed' },
+    steps: [
+      lease('A'),
+      listen('A', { declare: 1 }),
+      ...active('on', 'A', true),
+      challenge('c1'),
+      { op: 'adapterGrantFails', message: 'not connected' },
+      ...grant('refused', 'A', 'c1', 1),
+      ...input('input-after-refusal', 'A'),
+      ...grant('used-up', 'A', 'c1', 1),
+      challenge('c2'),
+      { op: 'adapterGrantFails', message: null },
+      ...grant('accepted', 'A', 'c2', 1),
+      ...input('input-after-grant', 'A'),
+    ],
+  },
+  {
     name: 'a lease taken after the helper was disposed is inert',
     world: { installed: true, state: 'installed' },
     steps: [{ op: 'disposeHelper' }, lease('A'), ...active('on', 'A', true), { op: 'query', lease: 'A', what: 'ownedElsewhere' }],
@@ -256,7 +289,7 @@ async function play(scenario) {
   const installer = { current: scenario.world.state, result: null, deferRequest: false, deferEnsure: false, requests: [], ensures: [] };
   const fakeAdapter = (index, isInstalled) => {
     const listeners = { change: new Set(), frame: new Set(), challenge: new Set(), issue: new Set() };
-    const link = { connected: false, latest: null };
+    const link = { connected: false, latest: null, desktop: null, session: null, locked: null, grantFails: null };
     const note = (...args) => {
       log.push({ ev: 'adapter', adapter: index, call: args });
     };
@@ -271,12 +304,15 @@ async function play(scenario) {
       adapter: {
         installed: () => isInstalled,
         connected: () => link.connected,
-        desktop: () => null,
-        session: () => null,
-        locked: () => null,
+        desktop: () => link.desktop,
+        session: () => link.session,
+        locked: () => link.locked,
         setActive: async (value) => note('active', value),
         sendInput: async (command) => note('input', command.op),
-        sendGrant: async (grantValue) => note('grant', grantValue.epoch),
+        sendGrant: async (grantValue) => {
+          note('grant', grantValue.epoch);
+          if (link.grantFails) throw new Error(link.grantFails);
+        },
         setVideoRun: (epoch) => note('run', epoch),
         latestFrame: () => link.latest,
         onFrame: add(listeners.frame),
@@ -405,6 +441,19 @@ async function play(scenario) {
       case 'adapterConnected':
         current().link.connected = step.value;
         break;
+      case 'adapterView':
+        Object.assign(current().link, step.view);
+        break;
+      case 'adapterGrantFails':
+        current().link.grantFails = step.message;
+        break;
+      case 'view':
+        log.push({
+          ev: 'view',
+          lease: step.lease,
+          view: { installed: held.installed(), connected: held.connected(), desktop: held.desktop(), session: held.session(), locked: held.locked() },
+        });
+        break;
       case 'installerState':
         installer.current = step.value;
         break;
@@ -444,8 +493,14 @@ async function play(scenario) {
   };
 }
 
-const scenarios = [];
-for (const scenario of SCENARIOS) scenarios.push(await play(scenario));
-writeSub('lease', { 'scenarios.json': { declinedOnPc: DECLINED_ON_PC, scenarios } }, identity);
-console.log(`lease: ${scenarios.length} scenarios, ${scenarios.reduce((n, s) => n + s.trace.length, 0)} trace events`);
-process.exit(0);
+await record({
+  sub: 'lease',
+  recorderUrl: import.meta.url,
+  identity,
+  only,
+  entries: SCENARIOS,
+  play,
+  files: (scenarios) => ({ 'scenarios.json': { declinedOnPc: DECLINED_ON_PC, scenarios } }),
+  committed: (read) => read('scenarios.json').scenarios,
+});
+process.exit(process.exitCode ?? 0);

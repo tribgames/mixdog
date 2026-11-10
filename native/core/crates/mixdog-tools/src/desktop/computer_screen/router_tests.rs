@@ -1,7 +1,9 @@
 //! Replay of Node's `ScreenInputRouter` (recorded by `record-screen-control-router.mjs` from the export of
 //! b6f10295a): every scenario's script is run against Rust's router with two fake backends, and the whole trace
 //! — every backend send start and end, every `allowed` evaluation with its answer, every hook, every dropped
-//! report, every call's completion in order — and the final state must equal the recording.
+//! report, every call's completion in order — and the final state must equal the recording. The router runs
+//! on the product's runtime; the fakes answer as Node's do, through a promise (one turn later, `next_turn`),
+//! and the recorder's `then` logs a call's end one turn after it settled.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -27,12 +29,15 @@ use super::router::SendError;
 use super::router::SwitchHooks;
 use super::testing::Gate;
 use super::testing::Log;
-use super::testing::Sim;
+use super::testing::Replay;
 use super::testing::log_new;
 use super::testing::log_push;
 use super::testing::log_take;
+use super::testing::manifest_names;
+use super::testing::next_turn;
 
 const RECORDING: &str = include_str!("../../../../../fixtures/screen-control/router/scenarios.json");
+const MANIFEST: &str = include_str!("../../../../../fixtures/screen-control/router/MANIFEST.json");
 
 fn button_name(button: PointerButton) -> &'static str {
     match button {
@@ -126,10 +131,12 @@ impl ScreenBackend for FakeBackend {
         };
         if refused {
             log_push(&self.log, json!({"ev": "send", "backend": self.name, "phase": "fail", "command": shown}));
+            next_turn().await;
             return Err(SendError);
         }
         fake(&self.state).sent.push(shown.clone());
         log_push(&self.log, json!({"ev": "send", "backend": self.name, "phase": "ok", "command": shown}));
+        next_turn().await;
         Ok(())
     }
 
@@ -218,14 +225,20 @@ fn hook_for(call: &str, name: &'static str, kind: Option<&str>, router: &Arc<Scr
             );
             match kind.as_str() {
                 "never" => std::future::pending().await,
-                "throws" => Err(SendError),
-                _ => Ok(()),
+                "throws" => {
+                    next_turn().await;
+                    Err(SendError)
+                }
+                _ => {
+                    next_turn().await;
+                    Ok(())
+                }
             }
         })
     }))
 }
 
-fn play(scenario: &Value) -> (Vec<Value>, Value) {
+async fn play(replay: Replay, scenario: Value) -> (Vec<Value>, Value) {
     let name = scenario["name"].as_str().expect("a scenario name");
     let log = log_new();
     let new_fake = |identity: &Value| Arc::new(Mutex::new(Fake { sent: Vec::new(), reachable: true, gate: None, identity: identity_from(identity), fail_text: false }));
@@ -236,14 +249,13 @@ fn play(scenario: &Value) -> (Vec<Value>, Value) {
         Arc::new(FakeBackend { name: "secure", state: world.secure.clone(), log: log.clone() }),
         move |backend, count| log_push(&dropped_log, json!({"ev": "dropped", "backend": backend_name(backend), "count": count})),
     ));
-    let sim = Sim::new();
     let finished: Arc<Mutex<HashMap<String, bool>>> = Arc::new(Mutex::new(HashMap::new()));
     let start = |call: &str, future: BoxFuture<Value>| {
         finished.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).insert(call.to_string(), false);
         let call = call.to_string();
         let log = log.clone();
         let finished = finished.clone();
-        sim.spawn(Box::pin(async move {
+        replay.spawn(Box::pin(async move {
             let value = future.await;
             log_push(&log, json!({"ev": "done", "call": call, "value": value}));
             finished.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).insert(call, true);
@@ -302,16 +314,16 @@ fn play(scenario: &Value) -> (Vec<Value>, Value) {
             "identity" => fake(world.of(step["backend"].as_str().expect("a backend"))).identity = identity_from(&step["value"]),
             "reachable" => fake(world.of(step["backend"].as_str().expect("a backend"))).reachable = step["value"].as_bool().expect("a flag"),
             "failText" => fake(world.of(step["backend"].as_str().expect("a backend"))).fail_text = step["value"].as_bool().expect("a flag"),
-            "settle" => sim.settle(),
+            "settle" => replay.settle().await,
             "await" => {
-                sim.settle();
+                replay.settle().await;
                 let awaited = step["call"].as_str().expect("a call");
                 assert!(finished.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).get(awaited).copied().unwrap_or(false), "{name}: {awaited} did not finish");
             }
             other => panic!("unknown step {other}"),
         }
     }
-    sim.settle();
+    replay.settle().await;
     let sent = |shared: &Shared| Value::Array(fake(shared).sent.clone());
     let final_state = json!({
         "active": router.active_backend().map_or(Value::Null, |backend| json!(backend_name(backend))),
@@ -325,10 +337,10 @@ fn play(scenario: &Value) -> (Vec<Value>, Value) {
 fn every_recorded_router_scenario_replays_to_nodes_whole_trace() {
     let recording: Value = serde_json::from_str(RECORDING).expect("the recording parses");
     let scenarios = recording["scenarios"].as_array().expect("scenarios");
-    assert!(scenarios.len() >= 30, "the recording holds {} scenarios", scenarios.len());
+    manifest_names(MANIFEST, scenarios);
     for scenario in scenarios {
         let name = scenario["name"].as_str().expect("a scenario name");
-        let (trace, final_state) = play(scenario);
+        let (trace, final_state) = Replay::run(|replay| play(replay, scenario.clone()));
         assert_eq!(Value::Array(trace), scenario["trace"], "{name}: the trace");
         assert_eq!(final_state, scenario["final"], "{name}: the final state");
     }

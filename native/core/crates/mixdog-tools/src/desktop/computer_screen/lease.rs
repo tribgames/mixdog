@@ -112,7 +112,7 @@ pub(super) type Unsub = Box<dyn FnOnce() + Send>;
 type Listener<T> = Arc<dyn Fn(&T) + Send + Sync>;
 
 /// The helper client behind the lease, with the surface a screen session needs.
-pub(super) trait HelperAdapter: Send + Sync {
+pub(super) trait HelperAdapter<F>: Send + Sync {
     fn installed(&self) -> bool;
     fn connected(&self) -> bool;
     /// The desktop the helper currently captures and injects on.
@@ -129,8 +129,8 @@ pub(super) trait HelperAdapter: Send + Sync {
     fn send_grant(&self, grant: Grant) -> BoxFuture<Result<(), HelperError>>;
     /// The video run (epoch) the phone is shown now.
     fn set_video_run(&self, epoch: u64);
-    fn latest_frame(&self) -> Option<HelperFrame>;
-    fn on_frame(&self, listener: Listener<HelperFrame>) -> Unsub;
+    fn latest_frame(&self) -> Option<F>;
+    fn on_frame(&self, listener: Listener<F>) -> Unsub;
     fn on_desktop_changed(&self, listener: Listener<()>) -> Unsub;
     fn on_grant_challenge(&self, listener: Listener<Challenge>) -> Unsub;
     /// The helper's advisory `error` codes, as they arrive.
@@ -164,9 +164,9 @@ impl InstallPort for SecureDesktopInstaller {
     }
 }
 
-pub(super) struct HelperDeps {
+pub(super) struct HelperDeps<F> {
     /// A fresh client and its adapter.
-    pub adapter: Box<dyn Fn() -> Arc<dyn HelperAdapter> + Send + Sync>,
+    pub adapter: Box<dyn Fn() -> Arc<dyn HelperAdapter<F>> + Send + Sync>,
     pub installer: Arc<dyn InstallPort>,
 }
 
@@ -215,16 +215,16 @@ impl<T> ListenerSet<T> {
 }
 
 /// One session's hold on (or wait for) the helper.
-struct LeaseData {
+struct LeaseData<F> {
     id: u64,
     hold: Arc<ListenerSet<()>>,
     change: Arc<ListenerSet<()>>,
-    frame: Arc<ListenerSet<HelperFrame>>,
+    frame: Arc<ListenerSet<F>>,
     challenge: Arc<ListenerSet<Challenge>>,
     issue: Arc<ListenerSet<String>>,
 }
 
-impl LeaseData {
+impl<F> LeaseData<F> {
     fn clear(&self) {
         self.hold.clear();
         self.change.clear();
@@ -243,8 +243,8 @@ struct Declared {
     by: u64,
 }
 
-struct State {
-    leases: Vec<Arc<LeaseData>>,
+struct State<F> {
+    leases: Vec<Arc<LeaseData<F>>>,
     /// The session the helper serves; `None` when none activated it.
     holder: Option<u64>,
     /// Sessions that want the helper while another holds it, in asking order.
@@ -261,7 +261,7 @@ struct State {
     issued: Vec<String>,
     /// A grant for that declaration was relayed: its input may pass.
     granted: bool,
-    current: Arc<dyn HelperAdapter>,
+    current: Arc<dyn HelperAdapter<F>>,
     detach: Vec<Unsub>,
     /// A phone request was declined on the PC: no prompt until restart.
     declined: bool,
@@ -269,7 +269,7 @@ struct State {
     starting: Option<Shared<BoxFuture<HelperStatus>>>,
 }
 
-impl State {
+impl<F> State<F> {
     /// Nothing granted so far counts any more (a hold or run ended).
     fn forget_grants(&mut self) {
         self.issued.clear();
@@ -277,25 +277,25 @@ impl State {
     }
 }
 
-struct Core {
-    deps: HelperDeps,
-    state: Mutex<State>,
+struct Core<F> {
+    deps: HelperDeps<F>,
+    state: Mutex<State<F>>,
 }
 
-impl Core {
-    fn state(&self) -> MutexGuard<'_, State> {
+impl<F: Clone + Send + Sync + 'static> Core<F> {
+    fn state(&self) -> MutexGuard<'_, State<F>> {
         self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    fn current(&self) -> Arc<dyn HelperAdapter> {
+    fn current(&self) -> Arc<dyn HelperAdapter<F>> {
         self.state().current.clone()
     }
 
-    fn lease_data(&self, id: u64) -> Option<Arc<LeaseData>> {
+    fn lease_data(&self, id: u64) -> Option<Arc<LeaseData<F>>> {
         self.state().leases.iter().find(|lease| lease.id == id).cloned()
     }
 
-    fn notify(lease: &LeaseData) {
+    fn notify(lease: &LeaseData<F>) {
         lease.change.call(&());
     }
 
@@ -308,7 +308,7 @@ impl Core {
 
     /// Makes `adapter` the current one and listens to it. The listeners hold the helper weakly: the adapter
     /// is the helper's, not the other way round.
-    fn attach(self: &Arc<Self>, adapter: Arc<dyn HelperAdapter>) {
+    fn attach(self: &Arc<Self>, adapter: Arc<dyn HelperAdapter<F>>) {
         let weak = Arc::downgrade(self);
         let changed = {
             let weak = weak.clone();
@@ -320,7 +320,7 @@ impl Core {
         };
         let framed = {
             let weak = weak.clone();
-            adapter.on_frame(Arc::new(move |frame: &HelperFrame| {
+            adapter.on_frame(Arc::new(move |frame: &F| {
                 let Some(core) = Weak::upgrade(&weak) else {
                     return;
                 };
@@ -421,7 +421,7 @@ impl Core {
     /// `lease` holds the helper from now on, in this order: on a handover the helper is deactivated (it
     /// releases what it held and revokes the previous holder's grant and challenges), the new holder starts a
     /// fresh run (declared), then the helper is activated for it.
-    fn take(&self, lease: &LeaseData, handover: bool) -> BoxFuture<()> {
+    fn take(&self, lease: &LeaseData<F>, handover: bool) -> BoxFuture<()> {
         {
             let mut state = self.state();
             state.holder = Some(lease.id);
@@ -436,7 +436,7 @@ impl Core {
         self.current().set_active(true)
     }
 
-    fn set_active(&self, lease: &Arc<LeaseData>, active: bool) -> BoxFuture<()> {
+    fn set_active(&self, lease: &Arc<LeaseData<F>>, active: bool) -> BoxFuture<()> {
         let ready: BoxFuture<()> = Box::pin(async {});
         {
             let state = self.state();
@@ -594,12 +594,12 @@ impl Core {
 }
 
 /// One screen session's view of the shared helper.
-pub(super) struct SecureDesktopLease {
-    core: Arc<Core>,
-    data: Arc<LeaseData>,
+pub(super) struct SecureDesktopLease<F> {
+    core: Arc<Core<F>>,
+    data: Arc<LeaseData<F>>,
 }
 
-impl SecureDesktopLease {
+impl<F: Clone + Send + Sync + 'static> SecureDesktopLease<F> {
     fn holds(&self) -> bool {
         self.core.state().holder == Some(self.data.id)
     }
@@ -672,11 +672,11 @@ impl SecureDesktopLease {
         }
     }
 
-    pub(super) fn latest_frame(&self) -> Option<HelperFrame> {
+    pub(super) fn latest_frame(&self) -> Option<F> {
         if self.holds() { self.core.current().latest_frame() } else { None }
     }
 
-    pub(super) fn on_frame(&self, listener: Listener<HelperFrame>) -> Unsub {
+    pub(super) fn on_frame(&self, listener: Listener<F>) -> Unsub {
         self.data.frame.add(listener)
     }
 
@@ -722,12 +722,12 @@ impl SecureDesktopLease {
     }
 }
 
-pub(super) struct SecureDesktopHelper {
-    core: Arc<Core>,
+pub(super) struct SecureDesktopHelper<F> {
+    core: Arc<Core<F>>,
 }
 
-impl SecureDesktopHelper {
-    pub(super) fn new(deps: HelperDeps) -> Self {
+impl<F: Clone + Send + Sync + 'static> SecureDesktopHelper<F> {
+    pub(super) fn new(deps: HelperDeps<F>) -> Self {
         let first = (deps.adapter)();
         let core = Arc::new(Core {
             state: Mutex::new(State {
@@ -754,7 +754,7 @@ impl SecureDesktopHelper {
     }
 
     /// A new session's lease; one taken after `dispose` is inert.
-    pub(super) fn lease(&self) -> SecureDesktopLease {
+    pub(super) fn lease(&self) -> SecureDesktopLease<F> {
         let mut state = self.core.state();
         state.next_lease += 1;
         let data = Arc::new(LeaseData {

@@ -1,0 +1,55 @@
+{
+  "command": "(cd <tree>/apps/desktop && node --import tsx benchmarks/rust-core/recorders/record-screen-control-switch.mjs --tree <tree>)",
+  "common": "benchmarks/rust-core/recorders/lib/common.mjs",
+  "commonSha256": "d4d0064b5b40d5fcb833a69fb3d68a69b1c1317606b5fe341c3445d5d0bbefd4",
+  "fileCount": 3,
+  "files": [
+    {
+      "bytes": 31781,
+      "path": "decisions.json",
+      "sha256": "606116622c0416f8d7df711e54a9c1672bbf584262c9cb5d9dddd60d80dda42a"
+    },
+    {
+      "bytes": 8284,
+      "path": "misc.json",
+      "sha256": "17ee306ef9eb285df86d8de4e219b2e13549929804e4cda002376a76eae3f570"
+    },
+    {
+      "bytes": 116130,
+      "path": "statuses.json",
+      "sha256": "f827d5fd22bf867e43743ce6357db457c584fd21fc797ef16f573cfe8a76babf"
+    }
+  ],
+  "inputs": {
+    "scenarios": [
+      "decisions",
+      "statuses",
+      "misc"
+    ],
+    "tree": "exact export of b6f10295a2f698afc85332467192de28500bd146"
+  },
+  "lib": "benchmarks/rust-core/recorders/record-screen-control-lib.mjs",
+  "libSha256": "df30cfea6d1ec4218b1670d673285f8eb2738556726665ab0df78d21a56c46b1",
+  "node": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-screen-control-switch.mjs",
+  "recorderSha256": "e50d6b993f4cd04ce66130b47f2b0c90fdc2ebf6d984085497a2b7175fe83bdf",
+  "set": "screen-control/switch",
+  "totalBytes": 156195
+}

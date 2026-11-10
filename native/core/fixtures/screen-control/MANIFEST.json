@@ -1,21 +1,41 @@
 {
-  "command": "(cd <tree>/apps/desktop && node --import tsx benchmarks/rust-core/recorders/record-screen-control-<switch|router|lease|install>.mjs --tree <tree>)",
-  "fileCount": 6,
+  "command": "index of the sub-directories: each one has its own MANIFEST.json naming its recorder",
+  "fileCount": 10,
   "files": [
     {
-      "bytes": 52614,
-      "path": "install/scenarios.json",
-      "sha256": "e31319739f8068d18c4f713374a2747d052a772caa9b73d37e17be10336f7b6c"
+      "bytes": 3710,
+      "path": "install/MANIFEST.json",
+      "sha256": "28831727b3ffabde1211e257af5db649201c5c4df703867e122728d61407be6f"
     },
     {
-      "bytes": 59723,
+      "bytes": 96861,
+      "path": "install/scenarios.json",
+      "sha256": "798deb3c868e04c6a6485360bd70fdb4990d052a7b0d85fe139b770be6937874"
+    },
+    {
+      "bytes": 3156,
+      "path": "lease/MANIFEST.json",
+      "sha256": "e972e52b411e834c5827774713ebb9f0b74d74e09331a5366e38a2ef3eb41ea1"
+    },
+    {
+      "bytes": 67456,
       "path": "lease/scenarios.json",
-      "sha256": "35d7e6ea7d294de7c790d64edc9c5334613e078cb4ebae4645901f65ea3879bf"
+      "sha256": "c4d9fb2903f61aba609a064e18090c8f81c0438a56bd8f206dec1a1fb466fc4e"
+    },
+    {
+      "bytes": 4217,
+      "path": "router/MANIFEST.json",
+      "sha256": "29f014144163d6285bb1a597cab864bb822f452d99adb63e19007cdadc5465c7"
     },
     {
       "bytes": 143546,
       "path": "router/scenarios.json",
       "sha256": "97bdea2a97b10048ca44d383a3d476a1efc6f7a1d3ce232f3309180775c5fba9"
+    },
+    {
+      "bytes": 1988,
+      "path": "switch/MANIFEST.json",
+      "sha256": "115d7c5ae356423a2dd5ce1e8d15b7a23851ad3d2073975168d8b849e2dd92db"
     },
     {
       "bytes": 31781,
@@ -51,12 +71,6 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-screen-control-lib.mjs",
-  "recorders": [
-    "benchmarks/rust-core/recorders/record-screen-control-switch.mjs",
-    "benchmarks/rust-core/recorders/record-screen-control-router.mjs",
-    "benchmarks/rust-core/recorders/record-screen-control-lease.mjs",
-    "benchmarks/rust-core/recorders/record-screen-control-install.mjs"
-  ],
   "set": "screen-control",
-  "totalBytes": 412078
+  "totalBytes": 477129
 }

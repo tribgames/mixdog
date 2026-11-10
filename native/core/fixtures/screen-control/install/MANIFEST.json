@@ -1,0 +1,66 @@
+{
+  "command": "(cd <tree>/apps/desktop && node --import tsx benchmarks/rust-core/recorders/record-screen-control-install.mjs --tree <tree>)",
+  "common": "benchmarks/rust-core/recorders/lib/common.mjs",
+  "commonSha256": "d4d0064b5b40d5fcb833a69fb3d68a69b1c1317606b5fe341c3445d5d0bbefd4",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 96861,
+      "path": "scenarios.json",
+      "sha256": "798deb3c868e04c6a6485360bd70fdb4990d052a7b0d85fe139b770be6937874"
+    }
+  ],
+  "inputs": {
+    "scenarios": [
+      "the phone key reaches check and the elevated install",
+      "a missing or invalid phone key fails without a prompt",
+      "a phone asking after the helper binary changed gets an approved update that enrolls its key",
+      "a second phone does not join or take over another phone’s running request",
+      "a request installs a missing helper with one prompt",
+      "a request updates an outdated helper and reports it as an update",
+      "a current, unavailable, or other-user helper never prompts",
+      "a declined prompt reports declined and is not retried",
+      "an elevation still running at the report deadline latches: repeated requests launch once",
+      "a latched request answers installed on its own installed check, but the latch holds until the child settles",
+      "an enrolled phone’s installed check never releases another phone’s latch: B pending, A installed, C requests → one launch",
+      "a phone whose key a current install lacks is enrolled, never reinstalled, and no image is checked",
+      "a build the elevated install would refuse fails with the reason before any prompt",
+      "every exit code of the elevated install has its outcome",
+      "an outdated helper replaced by an exit 0 is an update, an installed one an install",
+      "a request after the elevation settled launches again",
+      "the same phone joins its own running request",
+      "a request nobody waits for still runs to its end and frees the next request",
+      "a PC-access key op while a phone request’s elevation is outstanding answers in-progress and launches nothing",
+      "a phone request while a PC-access key op runs launches nothing: in-progress, or installed on its own installed check",
+      "every exit code of a key op has its outcome, from the code alone",
+      "a key op with an invalid key fails without launching; an install checks the image first",
+      "a key op reaches the port with its revokes, its credential or the delegated path",
+      "ensureRunning starts the registered service only when installed"
+    ],
+    "tree": "exact export of b6f10295a2f698afc85332467192de28500bd146"
+  },
+  "lib": "benchmarks/rust-core/recorders/record-screen-control-lib.mjs",
+  "libSha256": "df30cfea6d1ec4218b1670d673285f8eb2738556726665ab0df78d21a56c46b1",
+  "node": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-screen-control-install.mjs",
+  "recorderSha256": "affae256460422c053925b75e25b09270e56a30dd6d5f7e4fa49a7666f1664f8",
+  "set": "screen-control/install",
+  "totalBytes": 96861
+}

@@ -1,12 +1,19 @@
-//! What the replays of the screen-control recordings run on: a deterministic executor, gates a fake backend
-//! waits on, and a virtual clock. Nothing here waits on a thread, a real timer or the wall clock.
+//! What the replays of the screen-control recordings run on: the product's own runtime (tokio, on the test's
+//! thread), a tracker that tells when every task of the replay has run as far as it can, gates a fake waits
+//! on, and a virtual clock that moves only when the script advances it. Nothing here waits on a thread, a real
+//! timer or the wall clock.
+//!
+//! A recorded Node fake answers through a promise: even an answer it already has reaches the caller one
+//! microtask later, behind whatever was queued before. [`next_turn`] gives a Rust fake the same: its answer
+//! is delivered after one turn of the runtime's queue, behind the tasks that were ready before it.
 
-use std::collections::VecDeque;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::task::Context;
 use std::task::Poll;
@@ -32,63 +39,164 @@ pub(super) fn log_take(log: &Log) -> Vec<Value> {
     log.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone()
 }
 
-struct Ready {
-    queue: Mutex<VecDeque<Arc<Task>>>,
+/// Holds a recording's entries to its sub-directory's manifest: exactly the names the manifest lists as the
+/// recorder's inputs, in its order, so a scenario dropped from either side fails.
+pub(super) fn manifest_names(manifest: &str, entries: &[Value]) {
+    let manifest: Value = serde_json::from_str(manifest).expect("the manifest parses");
+    let listed = manifest["inputs"]["scenarios"].as_array().expect("the manifest lists its inputs");
+    let names: Vec<&Value> = entries.iter().map(|entry| &entry["name"]).collect();
+    assert_eq!(names, listed.iter().collect::<Vec<_>>(), "the recording's entries against its manifest's inputs");
 }
 
-struct Task {
-    future: Mutex<Option<BoxFuture<()>>>,
-    queued: AtomicBool,
-    ready: Arc<Ready>,
+fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-impl Wake for Task {
+/// Polls a settle may take before it is a livelock: tasks that keep waking each other never settle.
+const SETTLE_POLLS: u64 = 100_000;
+
+/// How many of the replay's tasks are woken and not yet polled, and the driver waiting for none to be.
+#[derive(Default)]
+struct Tracker {
+    scheduled: AtomicUsize,
+    polls: AtomicU64,
+    /// The poll count past which the waiting settle fails.
+    limit: AtomicU64,
+    driver: Mutex<Option<Waker>>,
+}
+
+impl Tracker {
+    fn wake_driver(&self) {
+        if let Some(driver) = lock(&self.driver).take() {
+            driver.wake();
+        }
+    }
+}
+
+/// A task's waker: counts the task as scheduled once, then wakes it on the runtime.
+struct Flag {
+    scheduled: AtomicBool,
+    tracker: Arc<Tracker>,
+    task: Mutex<Option<Waker>>,
+}
+
+impl Wake for Flag {
     fn wake(self: Arc<Self>) {
         self.wake_by_ref();
     }
 
     fn wake_by_ref(self: &Arc<Self>) {
-        if !self.queued.swap(true, Ordering::SeqCst) {
-            self.ready.queue.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).push_back(self.clone());
+        if !self.scheduled.swap(true, Ordering::SeqCst) {
+            self.tracker.scheduled.fetch_add(1, Ordering::SeqCst);
+        }
+        if let Some(task) = lock(&self.task).as_ref() {
+            task.wake_by_ref();
         }
     }
 }
 
-/// Runs the tasks it is given one at a time, in the order they became ready, and only when told to
-/// (`settle`): the order Node's microtask queue gives between two macrotasks.
+struct Tracked {
+    inner: BoxFuture<()>,
+    flag: Arc<Flag>,
+}
+
+impl Future for Tracked {
+    type Output = ();
+
+    fn poll(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<()> {
+        let flag = self.flag.clone();
+        let tracker = flag.tracker.clone();
+        *lock(&flag.task) = Some(context.waker().clone());
+        if flag.scheduled.swap(false, Ordering::SeqCst) {
+            tracker.scheduled.fetch_sub(1, Ordering::SeqCst);
+        }
+        let polls = tracker.polls.fetch_add(1, Ordering::SeqCst) + 1;
+        let waker = Waker::from(flag);
+        let result = self.inner.as_mut().poll(&mut Context::from_waker(&waker));
+        if tracker.scheduled.load(Ordering::SeqCst) == 0 || polls > tracker.limit.load(Ordering::SeqCst) {
+            tracker.wake_driver();
+        }
+        result
+    }
+}
+
+impl Drop for Tracked {
+    fn drop(&mut self) {
+        if self.flag.scheduled.swap(false, Ordering::SeqCst) {
+            self.flag.tracker.scheduled.fetch_sub(1, Ordering::SeqCst);
+            self.flag.tracker.wake_driver();
+        }
+    }
+}
+
+/// Completes once no task of the replay is woken and unpolled: every task has run as far as it can, and what
+/// is left waits on a gate, a timer or the script. Fails after [`SETTLE_POLLS`] polls without getting there.
+struct Settle {
+    tracker: Arc<Tracker>,
+}
+
+impl Future for Settle {
+    type Output = ();
+
+    fn poll(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<()> {
+        if self.tracker.scheduled.load(Ordering::SeqCst) == 0 {
+            return Poll::Ready(());
+        }
+        assert!(
+            self.tracker.polls.load(Ordering::SeqCst) <= self.tracker.limit.load(Ordering::SeqCst),
+            "the replay did not settle within {SETTLE_POLLS} polls: its tasks keep waking each other"
+        );
+        *lock(&self.tracker.driver) = Some(context.waker().clone());
+        Poll::Pending
+    }
+}
+
+/// One replay: its tasks run on a current-thread tokio runtime, the runtime the product's futures run on,
+/// driven by the script on the same thread.
 #[derive(Clone)]
-pub(super) struct Sim {
-    ready: Arc<Ready>,
+pub(super) struct Replay {
+    tracker: Arc<Tracker>,
 }
 
-impl Sim {
-    pub(super) fn new() -> Self {
-        Self { ready: Arc::new(Ready { queue: Mutex::new(VecDeque::new()) }) }
+impl Replay {
+    /// Runs the script `body` to its end on a fresh runtime.
+    pub(super) fn run<F: Future>(body: impl FnOnce(Replay) -> F) -> F::Output {
+        let runtime = tokio::runtime::Builder::new_current_thread().build().expect("a current-thread runtime");
+        let replay = Replay { tracker: Arc::new(Tracker::default()) };
+        runtime.block_on(body(replay))
     }
 
+    /// Runs `future` as a task of the replay.
     pub(super) fn spawn(&self, future: BoxFuture<()>) {
-        let task = Arc::new(Task { future: Mutex::new(Some(future)), queued: AtomicBool::new(true), ready: self.ready.clone() });
-        self.ready.queue.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).push_back(task);
+        let flag = Arc::new(Flag { scheduled: AtomicBool::new(true), tracker: self.tracker.clone(), task: Mutex::new(None) });
+        self.tracker.scheduled.fetch_add(1, Ordering::SeqCst);
+        drop(tokio::spawn(Tracked { inner: future, flag }));
     }
 
-    /// Runs every task that can run until none can: what is left waits on a gate, a timer or a channel.
-    pub(super) fn settle(&self) {
-        loop {
-            let next = self.ready.queue.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).pop_front();
-            let Some(task) = next else {
-                return;
-            };
-            task.queued.store(false, Ordering::SeqCst);
-            let waker = Waker::from(task.clone());
-            let mut context = Context::from_waker(&waker);
-            let mut slot = task.future.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-            if let Some(future) = slot.as_mut()
-                && Pin::new(future).poll(&mut context).is_ready()
-            {
-                *slot = None;
+    /// Lets every task run until none can: the recorder's checkpoint (all microtasks drained).
+    pub(super) async fn settle(&self) {
+        let polls = self.tracker.polls.load(Ordering::SeqCst);
+        self.tracker.limit.store(polls + SETTLE_POLLS, Ordering::SeqCst);
+        Settle { tracker: self.tracker.clone() }.await;
+    }
+}
+
+/// Pending once, then ready: an answer delivered one turn later, behind what was ready before it (a Node
+/// promise's reaction, which runs as a microtask even when the promise is already settled).
+pub(super) fn next_turn() -> impl Future<Output = ()> + Send {
+    struct Turn(bool);
+    impl Future for Turn {
+        type Output = ();
+        fn poll(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<()> {
+            if self.0 {
+                return Poll::Ready(());
             }
+            self.0 = true;
+            context.waker().wake_by_ref();
+            Poll::Pending
         }
     }
+    Turn(false)
 }
 
 /// A closed door a fake backend's send waits at until the script opens it. A hung gate never opens.
@@ -186,13 +294,13 @@ struct Clock {
 /// at a time with the tasks they wake drained between timers. A timer whose future was dropped never runs.
 #[derive(Clone)]
 pub(super) struct VirtualTimers {
-    sim: Sim,
+    replay: Replay,
     clock: Arc<Mutex<Clock>>,
 }
 
 impl VirtualTimers {
-    pub(super) fn new(sim: Sim) -> Self {
-        Self { sim, clock: Arc::new(Mutex::new(Clock::default())) }
+    pub(super) fn new(replay: Replay) -> Self {
+        Self { replay, clock: Arc::new(Mutex::new(Clock::default())) }
     }
 
     fn clock(&self) -> std::sync::MutexGuard<'_, Clock> {
@@ -206,7 +314,7 @@ impl VirtualTimers {
 
     /// Moves the clock forward by `ms`, running each timer that falls due, in order, one at a time; returns
     /// how many ran.
-    pub(super) fn advance(&self, ms: u64) -> usize {
+    pub(super) async fn advance(&self, ms: u64) -> usize {
         let until = self.clock().now + ms;
         let mut ran = 0;
         loop {
@@ -234,7 +342,7 @@ impl VirtualTimers {
             if let Some(waker) = waker {
                 waker.wake();
             }
-            self.sim.settle();
+            self.replay.settle().await;
             ran += 1;
         }
         self.clock().now = until;
@@ -255,6 +363,6 @@ impl Timers for VirtualTimers {
     }
 
     fn spawn(&self, task: BoxFuture<()>) {
-        self.sim.spawn(task);
+        self.replay.spawn(task);
     }
 }
