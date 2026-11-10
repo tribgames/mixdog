@@ -221,7 +221,7 @@ fn ds_dup_1_no_duplicate_rows() {
 fn terminal_ensure_is_keyed_by_its_tab_only_when_it_names_one() {
     use mixdog_app_protocol::common::SerializationScope;
     let scope = |params: Value| {
-        let request = JsonRpcRequest { id: RequestId::Integer(1), method: "terminal/ensure".into(), params: Some(params), trace: None };
+        let request = JsonRpcRequest { id: RequestId::Integer(1), method: "terminal/ensure".into(), params: Some(params), trace: None, lone_surrogates: Vec::new() };
         ClientRequest::from_jsonrpc(request).unwrap().serialization_scope()
     };
     assert_eq!(scope(json!({ "opId": "o1", "options": {} })), None);
@@ -435,6 +435,7 @@ fn envelope_failure_codes() {
         method: "no/such".into(),
         params: None,
         trace: None,
+        lone_surrogates: Vec::new(),
     };
     let error = ClientRequest::from_jsonrpc(request)
         .unwrap_err()
@@ -450,6 +451,31 @@ fn envelope_failure_codes() {
     assert_eq!(CloseCode::FrameTooBig.code(), 1009);
     let bad = decode_inbound_text("{not json", 1 << 20);
     assert_eq!(bad, InboundText::Invalid);
+    assert_eq!(bad.close_code().map(CloseCode::code), Some(1007));
+}
+
+/// A request holding unpaired surrogate escapes (a high one, a low one, a reversed pair, in a key, in a nested
+/// value, in the method name) is a request, read with U+FFFD in each place; a pair stays the character it encodes.
+/// A frame that is not JSON stays refused (1007). Node accepts such a frame (`JSON.parse`); the recording is
+/// `native/core/fixtures/inbound-lone-surrogate`.
+#[test]
+fn unpaired_surrogate_escapes_are_read_as_replacement_characters() {
+    let frame = r#"{"id":1,"method":"x\ud83d","params":{"a":"\ud800 \udc00 \ude00\ud83d \ud83d\ude00","\udbff":{"n":["\ude00"]}}}"#;
+    let InboundText::Message(JsonRpcMessage::Request(request)) = decode_inbound_text(frame, 1 << 20) else { panic!("not a request") };
+    assert_eq!(request.method, "x\u{fffd}");
+    assert_eq!(
+        request.params,
+        Some(json!({"a": "\u{fffd} \u{fffd} \u{fffd}\u{fffd} \u{1f600}", "\u{fffd}": {"n": ["\u{fffd}"]}}))
+    );
+    // Where it happened, for the services that refuse a lone unit as Node does (a file save's content):
+    // the strings that held one, not the ones that hold a real U+FFFD.
+    let mut named = request.lone_surrogates.clone();
+    named.sort();
+    assert_eq!(named, ["/a", "/\u{fffd}/n/0"]);
+    let frame = r#"{"id":2,"method":"m","params":{"content":"a\ufffdb","relPath":"n\ude00.txt"}}"#;
+    let InboundText::Message(JsonRpcMessage::Request(request)) = decode_inbound_text(frame, 1 << 20) else { panic!("not a request") };
+    assert_eq!(request.lone_surrogates, ["/relPath"]);
+    let bad = decode_inbound_text(r#"{"id":1,"method":"\ud800"#, 1 << 20);
     assert_eq!(bad.close_code().map(CloseCode::code), Some(1007));
 }
 

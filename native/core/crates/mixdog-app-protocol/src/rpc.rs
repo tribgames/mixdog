@@ -70,6 +70,11 @@ pub struct JsonRpcRequest {
     pub params: Option<JsonValue>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trace: Option<W3cTraceContext>,
+    /// Not on the wire: the JSON pointers into `params` of the strings that held an unpaired
+    /// surrogate escape, read as U+FFFD ([`decode_inbound_text`]). A service that must refuse
+    /// what Node refuses for a lone code unit reads them (decisions.md "frame-lone-surrogate").
+    #[serde(skip)]
+    pub lone_surrogates: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -138,12 +143,26 @@ impl InboundText {
     }
 }
 
-/// Decodes one inbound WebSocket text frame under the frame bound.
+/// Decodes one inbound WebSocket text frame under the frame bound. A string escape of an unpaired
+/// UTF-16 surrogate (`"\ud800"`, what JSON.stringify writes for text cut inside an emoji) is read as
+/// U+FFFD: Node's `JSON.parse` accepts it, and a Rust string cannot hold the lone unit
+/// (decisions.md "frame-lone-surrogate"). A request names where in its params that happened.
 pub fn decode_inbound_text(frame: &str, max_inbound_frame_bytes: usize) -> InboundText {
     if frame.len() > max_inbound_frame_bytes {
         return InboundText::TooLarge;
     }
-    match serde_json::from_str::<JsonRpcMessage>(frame) {
+    let read = mixdog_js::json_well_formed_str(frame);
+    let replaced = matches!(read, std::borrow::Cow::Owned(_));
+    match serde_json::from_str::<JsonRpcMessage>(&read) {
+        Ok(JsonRpcMessage::Request(mut request)) => {
+            if replaced {
+                request.lone_surrogates = mixdog_js::json_lone_surrogate_pointers(frame)
+                    .into_iter()
+                    .filter_map(|pointer| pointer.strip_prefix("/params").filter(|rest| rest.is_empty() || rest.starts_with('/')).map(str::to_owned))
+                    .collect();
+            }
+            InboundText::Message(JsonRpcMessage::Request(request))
+        }
         Ok(message) => InboundText::Message(message),
         Err(_) => InboundText::Invalid,
     }
