@@ -3,7 +3,8 @@
 // fixture-set manifest writer. Node built-ins only.
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -174,6 +175,39 @@ export function exactProductIdentity(tree, commit) {
     throw new Error(`tree ${tree} is not exactly ${commit}: ${filesDifferingFromCommit} file(s) differ, ${commitFilesMissingFromTree} missing`);
   }
   return { ...identity, exact: true };
+}
+
+/**
+ * `exactProductIdentity` for an exported tree that must be exactly `base` with Node fixes applied (AGENT-RULES: a clear Node bug is fixed
+ * on both sides; the recording is made from b6f10295a plus the fix). Each patch is a repository file (`git diff` format against `base`):
+ * the expected tree is `base` with every patch applied in a scratch index (`git apply --cached`, so a patch that does not apply cleanly to
+ * `base` fails here), committed as a fixed-identity, fixed-date commit of `base`, and the tree is compared with that commit whole. The
+ * identity names the base, each patch by path and sha256, and that commit.
+ */
+export function exactPatchedIdentity(tree, base, patches) {
+  if (!/^[0-9a-f]{40}$/.test(base)) throw new Error(`base must be a full id, got ${base}`);
+  const scratch = mkdtempSync(join(tmpdir(), 'patched-index-'));
+  try {
+    const stamp = '2000-01-01T00:00:00Z';
+    const env = {
+      ...process.env,
+      GIT_INDEX_FILE: join(scratch, 'index'),
+      GIT_AUTHOR_NAME: 'node-patch',
+      GIT_AUTHOR_EMAIL: 'node-patch@invalid',
+      GIT_AUTHOR_DATE: stamp,
+      GIT_COMMITTER_NAME: 'node-patch',
+      GIT_COMMITTER_EMAIL: 'node-patch@invalid',
+      GIT_COMMITTER_DATE: stamp,
+    };
+    const git = (...a) => execFileSync('git', a, { cwd: REPO_ROOT, env, encoding: 'utf8', timeout: GIT_TIMEOUT_MS }).trim();
+    git('read-tree', base);
+    const named = patches.map((path) => ({ path, sha256: sha256(readFileSync(join(REPO_ROOT, path))) }));
+    for (const patch of named) git('apply', '--cached', join(REPO_ROOT, patch.path));
+    const commit = git('commit-tree', git('write-tree'), '-p', base, '-m', `${base} with ${named.map((patch) => `${patch.path} ${patch.sha256}`).join(', ')}`);
+    return { ...exactProductIdentity(tree, commit), base, patches: named };
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
 }
 
 /** Nearest-rank percentile of an ascending numeric array. */

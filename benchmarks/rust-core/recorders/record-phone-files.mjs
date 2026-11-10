@@ -10,10 +10,13 @@
 //        benchmarks/rust-core/recorders/record-phone-files.mjs --tree <git archive of b6f10295a with node_modules> [--only main|relay]
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { commitStage, exactProductIdentity, importFrom, parseArgs, REPO_ROOT, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
+import { commitStage, exactPatchedIdentity, importFrom, parseArgs, REPO_ROOT, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 import { FIXED_NOW_MS, filesRelayScript, filesScript, filesWorld, play, treeOf, windowAnswers } from './lib/phone-files-script.mjs';
 
 const REF = 'b6f10295a2f698afc85332467192de28500bd146';
+// The Node fixes this recording is made with (AGENT-RULES: a clear Node bug is fixed on both sides): the relay's methods take an optional
+// argument the page left out (`null` after the relay's JSON) as omitted.
+const NODE_PATCHES = ['benchmarks/rust-core/recorders/node-patches/node-fix-relay-optional-args.patch'];
 const FIXTURES = join(REPO_ROOT, 'apps', 'mobile', 'fixtures', 'phone-files');
 const args = parseArgs();
 const REPLAY = args.get('replay') ?? null;
@@ -150,8 +153,8 @@ writeJson(join(out, 'golden.json'), {
 writeSetManifest(out, {
   set: 'phone-files',
   recorder: 'benchmarks/rust-core/recorders/record-phone-files.mjs',
-  command: `node benchmarks/rust-core/recorders/record-phone-files.mjs --tree <git archive of ${REF} (src, apps) with node_modules>`,
-  identity: exactProductIdentity(tree, REF),
+  command: `node benchmarks/rust-core/recorders/record-phone-files.mjs --tree <git archive of ${REF} (src, apps) with ${NODE_PATCHES.join(', ')} applied, with node_modules>`,
+  identity: exactPatchedIdentity(tree, REF, NODE_PATCHES),
   extra: { steps: scenarios.main.steps.length + scenarios.relay.steps.length },
 });
 commitStage(out, FIXTURES);

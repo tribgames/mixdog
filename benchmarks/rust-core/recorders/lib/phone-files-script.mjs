@@ -249,6 +249,8 @@ export function filesScript(world = filesWorld()) {
       call('readProjectFile', [P, 'src/util/deep.txt', null]),
       call('replaceWorkspaceText', [P, { query: 'pin' }, 'needle']),
       call('replaceWorkspaceText', [P, { query: 'zzz-nothing' }, 'x']),
+      // The file list the app left out, as the page sends it (`relPaths ?? null`).
+      call('replaceWorkspaceText', [P, { query: 'zzz-nothing' }, 'x', null]),
       call('replaceWorkspaceText', [P, { query: 'needle' }, 5]),
       call('replaceWorkspaceText', [P, { query: 'needle' }, 'x', 'not-a-list']),
       call('searchProjectFiles', [P, 'a', 20, false, false]),
