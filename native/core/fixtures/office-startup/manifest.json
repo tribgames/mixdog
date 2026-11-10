@@ -1,6 +1,8 @@
 {
-  "exact": true,
-  "productCommit": "b6f10295a",
+  "product": {
+    "exact": true,
+    "commit": "b6f10295a2f698afc85332467192de28500bd146"
+  },
   "node": "v22.20.0",
   "scenario": "retention-boundaries",
   "inputs": [
@@ -76,8 +78,8 @@
   "notes": "Compare every entry recursively within office-transactions, including the prepared non-journal, and every explicitly named artifact (presence and bytes). Core stores elsewhere are outside the sweep subject: Node bootstrap never had them. Exclude nothing within this boundary.",
   "files": [
     {
-      "path": "benchmarks/rust-core/recorders/record-office-startup.mjs",
-      "sha256": "f26ccf0e50e50d3fbf39855398ff739aeff267bd391f055580ad69f3e41cbfbe"
+      "path": "../../../../benchmarks/rust-core/recorders/record-office-startup.mjs",
+      "sha256": "309d8c86db2b99dd6e773d3f1d444567e573c3570890ba93b90a21c6d1aa984b"
     }
   ]
 }

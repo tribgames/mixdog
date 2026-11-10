@@ -98,11 +98,11 @@ const recorder = fileURLToPath(import.meta.url);
 await mkdir(output, { recursive: true });
 await writeFile(join(output, 'recording.json'), `${JSON.stringify({ inputs, now, tree: result }, null, 2)}\n`);
 await writeFile(join(output, 'manifest.json'), `${JSON.stringify({
-  exact: true, productCommit: 'b6f10295a', node: process.version,
+  product: { exact: true, commit: 'b6f10295a2f698afc85332467192de28500bd146' }, node: process.version,
   scenario: 'retention-boundaries', inputs, now,
   boundary: { directory: 'office-transactions', artifacts, nonJournal: 'office-transactions/not-a-journal.txt' },
   notes: 'Compare every entry recursively within office-transactions, including the prepared non-journal, and every explicitly named artifact (presence and bytes). Core stores elsewhere are outside the sweep subject: Node bootstrap never had them. Exclude nothing within this boundary.',
-  files: [{ path: 'benchmarks/rust-core/recorders/record-office-startup.mjs', sha256: createHash('sha256').update(await readFile(recorder)).digest('hex') }],
+  files: [{ path: '../../../../benchmarks/rust-core/recorders/record-office-startup.mjs', sha256: createHash('sha256').update(await readFile(recorder)).digest('hex') }],
 }, null, 2)}\n`);
 console.log(JSON.stringify({ root, output, journalEntries: result.journals.length, artifacts: result.artifacts.length }));
 process.chdir(source);
