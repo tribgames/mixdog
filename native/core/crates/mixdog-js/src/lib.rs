@@ -11,6 +11,7 @@ mod json_error;
 mod json_parse;
 mod locale_compare;
 pub mod math;
+pub mod nodepath;
 mod number;
 mod regex;
 mod regex_error;
