@@ -26,57 +26,104 @@ const recorder = 'benchmarks/rust-core/recorders/record-agent-dispatch-watchdog.
 const T0 = 1_000_000;
 const policy = { firstTransportMs: 0, firstSemanticMs: 0, idleStaleMs: 60000 };
 
+const inactive = { firstTransportMs: 0, firstSemanticMs: 0, idleStaleMs: 0 };
+
 mock.timers.enable({ apis: ['setInterval', 'Date'], now: T0 });
-const sweepTimes = [];
+// Every `setInterval(…, 1000)` made while a dog is being armed belongs to it: the sweep time is recorded (relative to the
+// scenario's start) as the callback begins, and the abort moment as the callback ends with the run's signal aborted.
 let origin = T0;
+let arming = null;
+const dogs = new Map();
 const mockedSetInterval = globalThis.setInterval;
-globalThis.setInterval = (callback, ms, ...rest) =>
-  mockedSetInterval(
-    ms === 1000
-      ? (...a) => {
-          sweepTimes.push(Date.now() - origin);
-          return callback(...a);
-        }
-      : callback,
+globalThis.setInterval = (callback, ms, ...rest) => {
+  if (ms !== 1000 || arming === null) return mockedSetInterval(callback, ms, ...rest);
+  const tag = arming;
+  dogs.get(tag).intervals += 1;
+  return mockedSetInterval(
+    (...a) => {
+      const record = dogs.get(tag);
+      const at = Date.now() - origin;
+      record.sweeps.push(at);
+      const result = callback(...a);
+      if (record.abortedAt === null && record.handle.signal?.aborted) record.abortedAt = at;
+      return result;
+    },
     ms,
     ...rest
   );
+};
 
-/** Arms the watchdog for a run that last made progress at arming, then runs `ticks` (ms) of mocked time. */
-function record(name, ticks) {
-  const sessionId = `sess_dispatch_watchdog_${name}`;
-  sweepTimes.length = 0;
+/**
+ * One scenario on one mocked timeline (ms from its start): `arms` are `startDispatchWatchdog` calls (a run whose progress
+ * stamp is its arming), `progress` re-stamps a run's progress, `stops` are the instants the timeline is run to. Events
+ * happen after the timers due at their instant. Per dog: the intervals it made, its sweep times, the sweep that aborted
+ * its run and with what message.
+ */
+function record(name, { arms, progress = [], stops }) {
   origin = Date.now();
-  updateSessionStage(sessionId, 'streaming');
-  const dog = startDispatchWatchdog({ agent: 'worker', sessionId, policy });
-  let elapsed = 0;
-  let abortedAt = null;
-  for (const ms of ticks) {
-    mock.timers.tick(ms);
-    elapsed += ms;
-    if (abortedAt === null && dog.signal.aborted) abortedAt = elapsed;
+  dogs.clear();
+  const events = [
+    ...arms.map((arm) => ({ ...arm, kind: 'arm' })),
+    ...progress.map((p) => ({ ...p, kind: 'progress' })),
+  ].sort((a, b) => a.at - b.at);
+  const times = [...new Set([...stops, ...events.map((e) => e.at)])].sort((a, b) => a - b);
+  let now = 0;
+  for (const at of times) {
+    mock.timers.tick(at - now);
+    now = at;
+    for (const event of events.filter((e) => e.at === at)) {
+      const sessionId = `sess_dispatch_watchdog_${name}_${event.dog}`;
+      if (event.kind === 'arm') {
+        updateSessionStage(sessionId, 'streaming');
+        dogs.set(event.dog, { armedAt: at, armed: null, intervals: 0, sweeps: [], abortedAt: null, message: null, handle: null });
+        arming = event.dog;
+        const handle = startDispatchWatchdog({ agent: 'worker', sessionId, policy: event.policy ?? policy });
+        arming = null;
+        dogs.get(event.dog).handle = handle;
+        dogs.get(event.dog).armed = handle.signal !== null;
+      } else {
+        updateSessionStage(sessionId, 'streaming');
+      }
+    }
   }
-  dog.stop();
-  const reason = dog.signal.reason;
-  return {
-    name,
-    ticks,
-    sweeps: [...sweepTimes],
-    abortedAt,
-    message: dog.signal.aborted ? String(reason?.message ?? reason) : null,
-  };
+  const out = {};
+  for (const [dog, record] of dogs) {
+    record.handle.stop();
+    const reason = record.handle.signal?.reason;
+    out[dog] = {
+      armedAt: record.armedAt,
+      armed: record.armed,
+      intervals: record.intervals,
+      sweeps: record.sweeps,
+      abortedAt: record.abortedAt,
+      message: record.abortedAt === null ? null : String(reason?.message ?? reason),
+    };
+  }
+  return { name, arms, progress, stops: times, dogs: out };
 }
 
+const every = (step, until) => Array.from({ length: until / step }, (_, i) => (i + 1) * step);
 const scenarios = [
   // A silent run: swept once a second from arming, stopped at the first sweep past its idle budget.
-  record('silent', Array.from({ length: 62 }, () => 1000)),
+  record('silent', { arms: [{ dog: 'A', at: 0 }], stops: every(1000, 62000) }),
   // The first part of the period passes before anything else happens: the first sweep is still one period after arming.
-  record('late', [400, 600, 1000, 1000]),
+  record('late', { arms: [{ dog: 'A', at: 0 }], stops: [400, 1000, 2000, 3000] }),
+  // A dispatch started while another runs has its own interval, made as it arms: not the first one's phase.
+  record('second', { arms: [{ dog: 'A', at: 0 }, { dog: 'B', at: 400 }], stops: [400, 1000, 1400, 2000, 2400, 3000] }),
+  // A sweep that found nothing arms nothing: the same interval goes on, and what is judged is the snapshot's last progress,
+  // not the time since arming.
+  record('progress', { arms: [{ dog: 'A', at: 0 }], progress: [{ dog: 'A', at: 30500 }], stops: every(1000, 92000) }),
+  // A policy with no deadline makes no signal and no interval.
+  record('inactive', { arms: [{ dog: 'A', at: 0, policy: inactive }], stops: [1000, 5000] }),
 ];
 mock.timers.reset();
 
 writeJson(join(stage, 'golden.json'), { t0: T0, policy, scenarios });
 writeSetManifest(stage, { set: 'agent-dispatch-watchdog', recorder, command: `node ${recorder} --tree <exact export of ${NODE_COMMIT}>`, identity });
 commitStage(stage, finalDir);
-console.log(scenarios.map((s) => `${s.name}: sweeps ${s.sweeps.length} (first ${s.sweeps[0]}), aborted at ${s.abortedAt}`).join('\n'));
+console.log(
+  scenarios
+    .flatMap((s) => Object.entries(s.dogs).map(([dog, d]) => `${s.name}/${dog}: armed ${d.armed} at ${d.armedAt}, intervals ${d.intervals}, sweeps ${d.sweeps.length} (first ${d.sweeps[0]}), aborted at ${d.abortedAt}`))
+    .join('\n')
+);
 process.exit(0);

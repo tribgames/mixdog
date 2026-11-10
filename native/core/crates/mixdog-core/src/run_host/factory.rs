@@ -1489,17 +1489,8 @@ mod tests {
                 })
                 .collect()
         };
-        // Woken by each step of the thread's actor, which acknowledges each row after the store holds
-        // it; registered before the check so a step in between is not missed. No clock judges it.
-        loop {
-            let stepped = handle.stepped().notified();
-            tokio::pin!(stepped);
-            stepped.as_mut().enable();
-            if roles().len() >= 4 {
-                break;
-            }
-            stepped.await;
-        }
+        // Woken by each step of the thread's actor, which acknowledges each row after the store holds it.
+        eventually_on!(&[handle.stepped()], || (roles().len() >= 4).then_some(())).await;
         let rows = roles();
         assert_eq!(rows.iter().map(|(role, _)| role.as_str()).collect::<Vec<_>>(), ["user", "assistant", "tool", "assistant"]);
         assert_eq!(rows[1].1["content"], "looking");
@@ -1538,16 +1529,11 @@ mod tests {
         let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
         let handle = directory.handle(&id).expect("loaded");
         handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
-        loop {
-            let stepped = handle.stepped().notified();
-            tokio::pin!(stepped);
-            stepped.as_mut().enable();
+        eventually_on!(&[handle.stepped()], || {
             let answered = rig.store.records(&id).into_iter().any(|(_, record)| matches!(record, Record::Item(item) if matches!(&item.body, Slot::Inline(body) if body["role"] == "assistant")));
-            if answered {
-                break;
-            }
-            stepped.await;
-        }
+            answered.then_some(())
+        })
+        .await;
         let seen = lock(&settle.seen).clone();
         assert_eq!(seen.len(), 1);
         assert_eq!(seen[0]["featureDeniedTools"], json!(["web_search"]));
@@ -1596,18 +1582,8 @@ mod tests {
                 // so both answers are right; the first turn, on an idle thread, can only start.
                 let kind = started["kind"].as_str().expect("turn/start names its answer");
                 assert!(kind == "queued" && want > 1 || kind == "started", "turn {op}: {started}");
-                // Woken by each step of the thread's actor, which is where a run's end is acknowledged
-                // after its record is stored; registered before the check so a step in between is not
-                // missed. The wait is not judged by the clock.
-                loop {
-                    let stepped = handle.stepped().notified();
-                    tokio::pin!(stepped);
-                    stepped.as_mut().enable();
-                    if ended() >= want {
-                        break;
-                    }
-                    stepped.await;
-                }
+                // Woken by each step of the thread's actor, which is where a run's end is acknowledged after its record is stored.
+                eventually_on!(&[handle.stepped()], || (ended() >= want).then_some(())).await;
             }
         };
         turn(json!({ "prompt": "fix it" }), "op-1", 1).await;
@@ -1800,15 +1776,7 @@ mod tests {
         let patch = json!({ "threadId": id, "set": { "provider": route["provider"], "model": route["model"] }, "unset": [] });
         handle.request(CoreRequest { method: Method("thread/header/patch"), params: patch, op: None, ctx: CallContext::internal("test") }).await.expect("route");
         handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
-        let entry = loop {
-            let queued = woke.notified();
-            tokio::pin!(queued);
-            queued.as_mut().enable();
-            if let Some(entry) = rig.quota.entry(id.as_str()) {
-                break entry;
-            }
-            queued.await;
-        };
+        let entry = eventually_on!(&[&*woke], || rig.quota.entry(id.as_str())).await;
         assert_eq!(entry.to_value()["resetAt"].as_f64(), Some(reset as f64), "the resume waits for the reset the provider named");
 
         let completion = rig
@@ -1985,16 +1953,8 @@ mod tests {
         let heard = || -> Vec<Value> {
             rig.feeds.frames(id.as_str()).into_iter().filter(|(_, method, _)| method == "thread/tokenUsage/updated").map(|(_, _, params)| params["usage"].clone()).collect()
         };
-        // Woken by each step of the thread's actor; registered before the check so a step in between is not missed.
-        loop {
-            let stepped = handle.stepped().notified();
-            tokio::pin!(stepped);
-            stepped.as_mut().enable();
-            if heard().contains(&delta) {
-                break;
-            }
-            stepped.await;
-        }
+        // Woken by each step of the thread's actor.
+        eventually_on!(&[handle.stepped()], || heard().contains(&delta).then_some(())).await;
         assert_eq!(heard().iter().filter(|usage| **usage == delta).count(), 1);
     }
 

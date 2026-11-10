@@ -154,6 +154,11 @@ mod tests {
     /// panicked) is the failure, not a wait; a sweep that never comes fails at the wait's deadline.
     async fn advance_until(by: Duration, want: u64, sweeps: &Sweeps, dogs: &[(&Watchdog, &Cancel)]) {
         tokio::time::advance(by).await;
+        reached(by, want, sweeps, dogs).await;
+    }
+
+    /// Waits until `want` sweeps have run in all, after the clock was advanced by `by`; see `advance_until`.
+    async fn reached(by: Duration, want: u64, sweeps: &Sweeps, dogs: &[(&Watchdog, &Cancel)]) {
         let wakes: [&tokio::sync::Notify; 1] = [&sweeps.woke];
         eventually_on_awaiting(&format!("{want} sweeps to have run after advancing {by:?} (the clock moves only by this advance)"), &wakes, || {
             if let Some((dog, _)) = dogs.iter().find(|(dog, signal)| dog.0.is_finished() && !signal.is_aborted()) {
@@ -181,14 +186,28 @@ mod tests {
         (watchdog, signal, sweeps)
     }
 
-    /// Node's `startDispatchWatchdog` (`agent-dispatch/watchdog.mjs`, `b6f10295a`) makes its `setInterval(…, 1000)` as it arms, and
-    /// Node's timers and clock mocked gave these sweep times and this abort moment (`record-agent-dispatch-watchdog.mjs`): the
-    /// replay arms the run and advances by the recording's ticks, nothing runs between the arming and the first advance (so the
-    /// sweep task's first poll comes only when the clock has already moved), and the sweeps must come when Node's did, the run be
-    /// aborted when and with what Node's was.
+    /// One run in the replay below: armed at its recorded instant, its progress stamp what the recording's `updateSessionStage` calls made it.
+    struct Replayed {
+        name: String,
+        armed_at: i64,
+        watchdog: Option<Watchdog>,
+        signal: Cancel,
+        sweeps: Arc<Sweeps>,
+        last_progress: Arc<AtomicI64>,
+    }
+
+    /// Node's `startDispatchWatchdog` (`agent-dispatch/watchdog.mjs`, `b6f10295a`; its only caller is a dispatch, `agent-dispatch.mjs:148`,
+    /// so a session restored at boot has none) makes its own `setInterval(…, 1000)` as it arms, and judges each sweep by the
+    /// session's progress snapshot (`:22-23`). Node's timers and clock mocked gave these sweep times (relative to the timeline's
+    /// start), abort moments and sentences, for a silent run, a run whose first poll comes late, a dispatch armed while another
+    /// runs, a run that progressed after a sweep found nothing, and a policy with no deadline (`record-agent-dispatch-watchdog.mjs`).
+    /// The replay arms each run at its recorded instant, moves the clock only by the explicit advance to each recorded stop (nothing
+    /// runs between an arming and the next advance, so a sweep task's first poll comes after the clock has moved), and every run's
+    /// sweeps must come when Node's did, and its abort when and with what Node's was.
     #[tokio::test(start_paused = true)]
-    async fn the_sweeps_come_when_nodes_come_counted_from_arming() {
+    async fn the_sweeps_come_when_nodes_come_counted_from_each_arming() {
         let _held = HeldClock::hold();
+        mixdog_rt::testing::tokens();
         let recording: Value = serde_json::from_str(include_str!("../../../../fixtures/agent-dispatch-watchdog/golden.json")).unwrap();
         assert_eq!(recording["t0"].as_i64(), Some(T0));
         assert_eq!(recording["policy"]["idleStaleMs"].as_i64(), Some(POLICY.idle_stale_ms));
@@ -196,23 +215,58 @@ mod tests {
         assert!(!scenarios.is_empty());
         for scenario in scenarios {
             let name = scenario["name"].as_str().unwrap();
-            let node_sweeps: Vec<i64> = scenario["sweeps"].as_array().unwrap().iter().map(|at| at.as_i64().unwrap()).collect();
-            let aborted_at = scenario["abortedAt"].as_i64();
-            let (watchdog, signal, sweeps) = start(true, |_| Some(streaming(T0)));
-            let dogs = [(dog(&watchdog), &signal)];
-            let mut elapsed = 0;
-            for tick in scenario["ticks"].as_array().unwrap() {
-                let tick = tick.as_i64().unwrap();
-                elapsed += tick;
-                // The sweeps Node ran by now, up to the one that aborted the run, after which this task has ended.
-                let due = node_sweeps.iter().filter(|at| **at <= elapsed && aborted_at.is_none_or(|aborted| **at <= aborted)).count() as u64;
-                advance_until(Duration::from_millis(tick as u64), due, &sweeps, &dogs).await;
-                assert_eq!(sweeps.seen(), due, "{name}: the sweeps by {elapsed} ms");
-                assert_eq!(signal.is_aborted(), aborted_at.is_some_and(|aborted| aborted <= elapsed), "{name}: aborted by {elapsed} ms");
+            let clock = Arc::new(Virtual(tokio::time::Instant::now()));
+            let node = |dog: &str| scenario["dogs"][dog].clone();
+            let ints = |value: &Value| -> Vec<i64> { value.as_array().unwrap().iter().map(|at| at.as_i64().unwrap()).collect() };
+            let mut running: Vec<Replayed> = Vec::new();
+            let mut now = 0;
+            for stop in ints(&scenario["stops"]) {
+                if stop > now {
+                    tokio::time::advance(Duration::from_millis((stop - now) as u64)).await;
+                    now = stop;
+                }
+                // Every armed run has run the sweeps Node's did by now, up to the one that aborted its run (after which its task has ended).
+                let pairs: Vec<(&Watchdog, &Cancel)> = running.iter().filter_map(|run| run.watchdog.as_ref().map(|dog| (dog, &run.signal))).collect();
+                for run in &running {
+                    let recorded = node(&run.name);
+                    let aborted_at = recorded["abortedAt"].as_i64();
+                    let due = ints(&recorded["sweeps"]).iter().filter(|at| **at <= stop && aborted_at.is_none_or(|aborted| **at <= aborted)).count() as u64;
+                    if run.watchdog.is_some() {
+                        reached(Duration::from_millis(stop as u64), due, &run.sweeps, &pairs).await;
+                    }
+                    assert_eq!(run.sweeps.seen(), due, "{name}/{}: the sweeps by {stop} ms", run.name);
+                    assert_eq!(run.signal.is_aborted(), aborted_at.is_some_and(|aborted| aborted <= stop), "{name}/{}: aborted by {stop} ms", run.name);
+                }
+                // Then what happens at this instant: armings and progress, after the timers due at it.
+                for arm in scenario["arms"].as_array().unwrap().iter().filter(|arm| arm["at"].as_i64() == Some(stop)) {
+                    let (signal, sweeps, last_progress) = (Cancel::new(), Arc::new(Sweeps::default()), Arc::new(AtomicI64::new(T0 + stop)));
+                    let policy = match arm.get("policy") {
+                        Some(policy) => WatchdogPolicy {
+                            first_transport_ms: policy["firstTransportMs"].as_i64().unwrap(),
+                            first_semantic_ms: policy["firstSemanticMs"].as_i64().unwrap(),
+                            idle_stale_ms: policy["idleStaleMs"].as_i64().unwrap(),
+                        },
+                        None => POLICY,
+                    };
+                    let progress = last_progress.clone();
+                    let watchdog = Watchdog::arm(true, policy, signal.clone(), clock.clone(), counted(&sweeps, move |_| Some(streaming(progress.load(Ordering::SeqCst)))), || {});
+                    let dog = arm["dog"].as_str().unwrap().to_owned();
+                    assert_eq!(watchdog.is_some(), node(&dog)["armed"].as_bool().unwrap(), "{name}/{dog}: whether the run is armed");
+                    running.push(Replayed { name: dog, armed_at: stop, watchdog, signal, sweeps, last_progress });
+                }
+                for stamp in scenario["progress"].as_array().unwrap().iter().filter(|stamp| stamp["at"].as_i64() == Some(stop)) {
+                    let dog = stamp["dog"].as_str().unwrap();
+                    running.iter().find(|run| run.name == dog).expect("a progress stamp is for an armed run").last_progress.store(T0 + stop, Ordering::SeqCst);
+                }
             }
-            assert_eq!(sweeps.times(), node_sweeps[..sweeps.seen() as usize], "{name}: when the sweeps ran, after arming");
-            if aborted_at.is_some() {
-                assert_eq!(signal.reason(), scenario["message"].as_str().unwrap(), "{name}: the abort sentence");
+            for run in &running {
+                let recorded = node(&run.name);
+                assert_eq!(run.armed_at, recorded["armedAt"].as_i64().unwrap());
+                let sweeps = ints(&recorded["sweeps"]);
+                assert_eq!(run.sweeps.times(), sweeps[..run.sweeps.seen() as usize], "{name}/{}: when the sweeps ran", run.name);
+                if recorded["abortedAt"].as_i64().is_some() {
+                    assert_eq!(run.signal.reason(), recorded["message"].as_str().unwrap(), "{name}/{}: the abort sentence", run.name);
+                }
             }
         }
     }
