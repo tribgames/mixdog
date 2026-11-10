@@ -1624,12 +1624,29 @@ async fn a_scan_of_the_filesystem_root_skips_the_kernel_trees() {
     let listed = |entries: Vec<mixdog_core_api::domain::fs::DirEntry>| {
         entries.into_iter().map(|e| super::common::display_under(e.path.as_path(), root.as_path())).collect::<Vec<_>>()
     };
-    let (entries, complete) = super::search::walk_entries_pruned(&ctx, &root, false, |_| true, super::search::root_scan_prunes(&root, true)).await.unwrap();
-    assert!(complete);
-    assert_eq!(listed(entries), ["home/u/a.txt", "procfs.txt"]);
+    let walked = super::search::walk_entries_pruned(&ctx, &root, false, |_| true, super::search::root_scan_prunes(&root, true), None).await.unwrap();
+    assert!(walked.complete);
+    assert_eq!(listed(walked.entries), ["home/u/a.txt", "procfs.txt"]);
     let proc_root = AbsPath::new(root.as_path().join("proc")).unwrap();
-    let (entries, _) = super::search::walk_entries_pruned(&ctx, &proc_root, false, |_| true, super::search::root_scan_prunes(&proc_root, true)).await.unwrap();
-    assert_eq!(entries.len(), 1);
+    let walked = super::search::walk_entries_pruned(&ctx, &proc_root, false, |_| true, super::search::root_scan_prunes(&proc_root, true), None).await.unwrap();
+    assert_eq!(walked.entries.len(), 1);
+}
+
+/// Past 50 000 files a bounded glob still ranks and counts every match (Node's windowed pass
+/// reports its total over the whole scope) and find still scores every file (Node's native
+/// inventory has no entry cap); an unbounded glob keeps 50 000 and says the list is incomplete.
+#[tokio::test]
+async fn glob_and_find_see_files_past_fifty_thousand_entries() {
+    let root = AbsPath::new(std::env::temp_dir().join("mixdog-fs-cap").join("ws")).unwrap();
+    let mut seeds: Vec<(String, Vec<u8>)> = (0..50_000).map(|i| (format!("f/{i:05}.txt"), Vec::new())).collect();
+    seeds.push(("zz/last-one.txt".to_owned(), Vec::new()));
+    let ctx = context_seeded(&root, Arc::new(MockFileService::default()), seeds).await;
+    let (_, glob) = text_of(GlobTool::new().call(&ctx, serde_json::json!({ "pattern": "**/*.txt" })).await);
+    assert!(glob.ends_with("[entries 1-100 of 50001; offset:100 for more]"), "{}", &glob[glob.len().saturating_sub(200)..]);
+    let (_, find) = text_of(FindTool::new().call(&ctx, serde_json::json!({ "query": "last-one" })).await);
+    assert_eq!(find, "zz/last-one.txt");
+    let walked = super::search::walk_entries_pruned(&ctx, &root, false, |_| true, Vec::new(), Some(super::search::GLOB_ACCUM_CAP)).await.unwrap();
+    assert!(walked.capped && walked.entries.len() == 50_000);
 }
 
 /// A recorded sequence without a test, or a test without a recorded sequence, fails here.
