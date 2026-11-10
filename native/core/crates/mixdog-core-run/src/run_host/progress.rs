@@ -536,6 +536,7 @@ mod tests {
                 has_first_semantic: false,
                 awaiting_user: false,
                 last_semantic_kind: None,
+                current_tool: None,
             }),
             Some(RuntimeFacts {
                 last_progress_at: 1000,
@@ -564,6 +565,7 @@ mod tests {
                 has_first_semantic: false,
                 awaiting_user: false,
                 last_semantic_kind: None,
+                current_tool: None,
             }),
             Some(RuntimeFacts {
                 last_progress_at: 1100,
@@ -592,6 +594,7 @@ mod tests {
                 has_first_semantic: false,
                 awaiting_user: false,
                 last_semantic_kind: None,
+                current_tool: None,
             }),
             Some(RuntimeFacts {
                 last_progress_at: 1100,
@@ -620,6 +623,7 @@ mod tests {
                 has_first_semantic: false,
                 awaiting_user: false,
                 last_semantic_kind: None,
+                current_tool: None,
             }),
             Some(RuntimeFacts {
                 last_progress_at: 1100,
@@ -648,6 +652,7 @@ mod tests {
                 has_first_semantic: false,
                 awaiting_user: false,
                 last_semantic_kind: None,
+                current_tool: None,
             }),
             Some(RuntimeFacts {
                 last_progress_at: 1100,
@@ -676,6 +681,7 @@ mod tests {
                 has_first_semantic: true,
                 awaiting_user: false,
                 last_semantic_kind: Some(SemanticKind::Reasoning),
+                current_tool: None,
             }),
             Some(RuntimeFacts {
                 last_progress_at: 1500,
@@ -704,6 +710,7 @@ mod tests {
                 has_first_semantic: true,
                 awaiting_user: false,
                 last_semantic_kind: Some(SemanticKind::Reasoning),
+                current_tool: None,
             }),
             Some(RuntimeFacts {
                 last_progress_at: 1500,
@@ -732,6 +739,7 @@ mod tests {
                 has_first_semantic: true,
                 awaiting_user: false,
                 last_semantic_kind: Some(SemanticKind::Text),
+                current_tool: None,
             }),
             Some(RuntimeFacts {
                 last_progress_at: 1600,
@@ -760,6 +768,7 @@ mod tests {
                 has_first_semantic: true,
                 awaiting_user: false,
                 last_semantic_kind: None,
+                current_tool: None,
             }),
             Some(RuntimeFacts {
                 last_progress_at: 1650,
@@ -788,6 +797,7 @@ mod tests {
                 has_first_semantic: true,
                 awaiting_user: false,
                 last_semantic_kind: Some(SemanticKind::Tool),
+                current_tool: Some("read".to_owned()),
             }),
             Some(RuntimeFacts {
                 last_progress_at: 1700,
@@ -816,6 +826,7 @@ mod tests {
                 has_first_semantic: true,
                 awaiting_user: true,
                 last_semantic_kind: Some(SemanticKind::Tool),
+                current_tool: Some("read".to_owned()),
             }),
             Some(RuntimeFacts {
                 last_progress_at: 1800,
@@ -844,6 +855,7 @@ mod tests {
                 has_first_semantic: true,
                 awaiting_user: false,
                 last_semantic_kind: Some(SemanticKind::Tool),
+                current_tool: Some("read".to_owned()),
             }),
             Some(RuntimeFacts {
                 last_progress_at: 1900,
@@ -872,6 +884,7 @@ mod tests {
                 has_first_semantic: true,
                 awaiting_user: false,
                 last_semantic_kind: Some(SemanticKind::Tool),
+                current_tool: Some("read".to_owned()),
             }),
             Some(RuntimeFacts {
                 last_progress_at: 2000,
@@ -900,6 +913,7 @@ mod tests {
                 has_first_semantic: true,
                 awaiting_user: false,
                 last_semantic_kind: Some(SemanticKind::Tool),
+                current_tool: Some("read".to_owned()),
             }),
             Some(RuntimeFacts {
                 last_progress_at: 2000,
@@ -928,6 +942,7 @@ mod tests {
                 has_first_semantic: true,
                 awaiting_user: false,
                 last_semantic_kind: Some(SemanticKind::Tool),
+                current_tool: Some("read".to_owned()),
             }),
             Some(RuntimeFacts {
                 last_progress_at: 2200,
@@ -956,6 +971,7 @@ mod tests {
                 has_first_semantic: true,
                 awaiting_user: false,
                 last_semantic_kind: Some(SemanticKind::Tool),
+                current_tool: Some("read".to_owned()),
             }),
             Some(RuntimeFacts {
                 last_progress_at: 2200,
@@ -984,6 +1000,7 @@ mod tests {
                 has_first_semantic: false,
                 awaiting_user: false,
                 last_semantic_kind: None,
+                current_tool: None,
             }),
             Some(RuntimeFacts {
                 last_progress_at: 3100,
