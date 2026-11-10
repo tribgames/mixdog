@@ -1,12 +1,12 @@
 {
-  "cases": 586,
+  "cases": 9192,
   "command": "node benchmarks/rust-core/recorders/record-result-classification.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
   "fileCount": 1,
   "files": [
     {
-      "bytes": 58220,
+      "bytes": 964821,
       "path": "golden.json",
-      "sha256": "96d7f901e0b458870fd72ede1880698ea7182d9a7a8d59346392345342a4203a"
+      "sha256": "1fa0c650736faa228e37378d32e2375bc1b61e3b6fb0b0ed10ce2a72c100ef41"
     }
   ],
   "product": {
@@ -28,5 +28,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-result-classification.mjs",
   "set": "result-classification",
-  "totalBytes": 58220
+  "totalBytes": 964821
 }

@@ -508,7 +508,7 @@ impl AnthropicDecoder {
                 let arguments = if json.is_empty() {
                     Value::Object(Map::new())
                 } else {
-                    match serde_json::from_str::<Value>(json) {
+                    match mixdog_js::json_parse(json) {
                         Ok(value) if value.is_object() => value,
                         Ok(_) => Value::Object(Map::new()),
                         Err(error) => json!({

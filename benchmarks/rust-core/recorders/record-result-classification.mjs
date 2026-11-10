@@ -66,6 +66,24 @@ const TEXTS = [
 const TOOLS = ['', 'read', 'READ', 'grep', 'find', 'glob', 'list', 'code_graph', 'edit', 'shell', 'agent', 'Skill', 'mcp__fx__fail'];
 const cases = [];
 for (const tool of TOOLS) for (const text of TEXTS) cases.push({ tool, text, kind: classifyResultKind(text, false, tool) });
+// A generated grid over each regex's alternatives (Node's answers are recorded, not decided here): every navigation-miss and permission
+// phrase in four letter cases (one with the non-ASCII letters that never fold onto ASCII ones in a non-`u` regex), each with the
+// characters that touch a word boundary or not before and after it; and the error prefix with its separators, openings and lead-ins.
+const NEIGHBOURS = ['', ' ', 'a', '0', '_', '-', 'é'];
+const PHRASES = ['enoent', 'enotdir', 'path does not exist', 'directory does not exist', 'no such file', 'no such path', 'not found at this path', 'file not found', 'symbol "x" not found in ', 'symbol "x\ny" not found in ', 'eacces', 'eperm', 'access is denied', 'permission denied', 'operation not permitted'];
+const caseVariants = (p) => [p, p.toUpperCase(), p[0].toUpperCase() + p.slice(1), p.replace('s', 'ſ').replace('i', 'İ')];
+const grid = [];
+for (const phrase of PHRASES) for (const variant of caseVariants(phrase)) for (const before of NEIGHBOURS) for (const after of NEIGHBOURS) for (const tool of ['read', 'edit']) {
+  const text = `Failure ${before}${variant}${after} tail`;
+  grid.push({ tool, text, kind: classifyResultKind(text, false, tool) });
+}
+for (const phrase of ['enoent', 'no such file', 'eacces']) for (const text of [`${phrase}`, `x ${phrase}`, `${phrase} eperm`, `${phrase} no such file`]) for (const tool of ['read', 'grep', 'find', 'glob', 'list', 'code_graph']) grid.push({ tool, text, kind: classifyResultKind(text, false, tool) });
+for (const word of ['Error', 'error', 'ERROR', 'eRRor', 'Errors', 'Erro', 'Éerror']) for (const sep of ['', ' ', '\t', '\u00a0', '\ufeff', '\u0085', '\n']) for (const open of [':', '[code', '[code 3]', '[codex', '[code_', '[code-', '[CODE 3]', '[Code', '[error']) for (const lead of ['', ' ', '\n', '\ufeff', '\u0085', 'x']) {
+  const text = `${lead}${word}${sep}${open} rejected`;
+  grid.push({ tool: 'agent', text, kind: classifyResultKind(text, false, 'agent') });
+}
+for (const text of ['[error', '[ERROR]', '[Error x', '[erro', '[errors]', ' [error', '\u0085[error', '\ufeff[error']) grid.push({ tool: 'agent', text, kind: classifyResultKind(text, false, 'agent') });
+cases.push(...grid);
 // A result that is not text is 'normal'; the host's tool outputs are always text, so only that one is recorded.
 cases.push({ tool: 'read', text: null, kind: classifyResultKind(null, false, 'read') });
 
