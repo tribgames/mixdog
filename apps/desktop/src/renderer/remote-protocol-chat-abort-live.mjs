@@ -247,7 +247,9 @@ export async function runAbortLive({ only } = {}) {
       // As Node's recording reads the row: once the phone holds the one the turn's close stamped.
       const stampedAfter = c.ready === 'completed' || !c.stop ? since0 : stopAt;
       const rowOf = () => told.findLast((event) => event.device === viewer && event.kind === 'row' && event.sessionId === id)?.row;
-      await until(() => (rowOf()?.updatedAt ?? 0) >= stampedAfter, `the thread row of ${c.name} stamped by its close to be published`);
+      // and, as there, once the row no longer marks the turn (unless a requeued turn runs on) and the close's context sync reached the state.
+      await until(() => (rowOf()?.updatedAt ?? 0) >= stampedAfter && (c.requeued || (!rowOf().working && !rowOf().leadWorking)), `the thread row of ${c.name} stamped by its close to be published`);
+      await until(() => !(Number(state()?.contextWindow) > 0) || Number(state()?.displayContextWindow) > 0, `the context sync of ${c.name}'s close to reach the phone`);
       // What the turn left, whole, read at the same moment on both surfaces the phone reads: the thread's items and its list row.
       const read = await deadline.race(submitter.client.call('thread/read', { threadId: id, window: { lastItems: 200 } }), `thread/read after ${c.name}`);
       const row = (await deadline.race(submitter.list(), `listSessions after ${c.name}`)).find((r) => r.id === id) ?? null;

@@ -27,19 +27,31 @@ pub fn user_facts(body: &mut Value, blobs: &dyn Blobs) -> RowFacts {
 pub struct AttachmentStore(pub PathBuf);
 
 impl AttachmentStore {
-    /// `saveBuffer(bytes)` (`attachments/store.mjs:189`): keeps `bytes` at their content address and answers the reference. An
-    /// existing blob of that address is left as it is.
+    /// `saveBuffer(bytes)` (`attachments/store.mjs:135-185`): keeps `bytes` at their content address and answers the reference.
+    /// Empty bytes and bytes over `MAX_ATTACHMENT_BLOB_BYTES` are refused with Node's sentences (`store.mjs:137,139`), so intake
+    /// refuses what restore could never read. An existing blob is reused only when it is these bytes (`store.mjs:146-160`); a
+    /// truncated or foreign one is replaced. The blob is published whole and durable (`writeFileAtomicSync`, `store.mjs:168`).
     #[allow(clippy::disallowed_methods, reason = "runs inside an interactive-io lane job (lane proof argument)")]
     pub fn write_blob(&self, _lane: &InLane<InteractiveIo>, bytes: &[u8]) -> Result<String, BlobError> {
         use sha2::Digest;
+        if bytes.is_empty() {
+            return Err(BlobError::Invalid("prompt attachment is empty".into()));
+        }
+        if bytes.len() as u64 > MAX_ATTACHMENT_BLOB_BYTES {
+            return Err(BlobError::Invalid("prompt attachment exceeds the 64 MiB input limit".into()));
+        }
         let reference = format!("{:x}", sha2::Sha256::digest(bytes));
         let path = self.0.join("prompt-attachments/sha256").join(&reference[..2]).join(&reference);
-        if path.is_file() {
+        let stored_matches = || std::fs::read(&path).is_ok_and(|current| current.len() == bytes.len() && format!("{:x}", sha2::Sha256::digest(&current)) == reference);
+        if stored_matches() {
             return Ok(reference);
         }
-        let dir = path.parent().expect("a blob path has a directory");
-        std::fs::create_dir_all(dir).map_err(|e| BlobError::Transient(e.to_string()))?;
-        std::fs::write(&path, bytes).map_err(|e| BlobError::Transient(e.to_string()))?;
+        // A concurrent writer may have published the same content first (`store.mjs:170`).
+        if let Err(error) = mixdog_store::fsio::publish_file_with(&path, bytes, mixdog_store::fsio::Access::OwnerOnly)
+            && !stored_matches()
+        {
+            return Err(BlobError::Transient(error.to_string()));
+        }
         Ok(reference)
     }
 
@@ -127,6 +139,34 @@ mod tests {
         fn text_within(&self, _hex: &str, _max: u64) -> Result<Option<String>, ReadError> {
             Err(ReadError::Missing)
         }
+    }
+
+    /// `write_blob` run on an interactive-io lane, as intake runs it.
+    async fn write(store: &AttachmentStore, bytes: Vec<u8>) -> Result<String, BlobError> {
+        let store = store.clone();
+        let tokens = mixdog_rt::testing::tokens();
+        mixdog_core_base::support::on_lane(tokens.interactive_io, &tokio_util::sync::CancellationToken::new(), move |lane| store.write_blob(lane, &bytes)).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_pasted_text_is_refused_at_intake_as_node_refuses_it_and_a_cut_blob_is_replaced() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = AttachmentStore(dir.path().to_path_buf());
+        // store.mjs:137,139: refused when the prompt is taken in, never stored for restore to reject.
+        assert_eq!(write(&store, Vec::new()).await, Err(BlobError::Invalid("prompt attachment is empty".into())));
+        let over = vec![b'a'; MAX_ATTACHMENT_BLOB_BYTES as usize + 1];
+        assert_eq!(write(&store, over).await, Err(BlobError::Invalid("prompt attachment exceeds the 64 MiB input limit".into())));
+        assert!(!dir.path().join("prompt-attachments").exists(), "nothing is stored for a refusal");
+        // A blob a crash cut short sits at the content address: the next write of the same text replaces it (store.mjs:146-160).
+        let text = b"pasted text".to_vec();
+        let reference = format!("{:x}", <sha2::Sha256 as sha2::Digest>::digest(&text));
+        let path = dir.path().join("prompt-attachments/sha256").join(&reference[..2]).join(&reference);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, b"pasted").unwrap();
+        assert_eq!(write(&store, text.clone()).await, Ok(reference.clone()));
+        assert_eq!(std::fs::read(&path).unwrap(), text);
+        // Published whole: no tmp is left beside it.
+        assert_eq!(std::fs::read_dir(path.parent().unwrap()).unwrap().count(), 1);
     }
 
     #[test]

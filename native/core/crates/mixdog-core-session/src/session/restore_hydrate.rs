@@ -72,7 +72,12 @@ pub(super) fn materialize_texts(store: &AttachmentStore, lane: &InLane<Interacti
             continue;
         }
         let Some(text) = raw.get("text").and_then(Value::as_str).map(str::to_owned) else { continue };
-        let reference = store.write_blob(lane, text.as_bytes()).map_err(|error| CoreError::DomainError { domain: "thread".into(), code: None, message: Some(format!("{error:?}").into()), detail: None })?;
+        // A refusal (`Invalid`) is answered with Node's own sentence, as `saveBuffer`'s throw reaches the caller.
+        let message = |error: BlobError| match error {
+            BlobError::Invalid(sentence) => sentence,
+            other => format!("{other:?}"),
+        };
+        let reference = store.write_blob(lane, text.as_bytes()).map_err(|error| CoreError::DomainError { domain: "thread".into(), code: None, message: Some(message(error).into()), detail: None })?;
         let chars = chars_of(raw.get("chars"), &text);
         raw.as_object_mut().expect("an object entry").shift_remove("text");
         raw["attachmentRef"] = Value::String(reference);

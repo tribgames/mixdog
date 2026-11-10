@@ -65,6 +65,8 @@ const freshEnvironment = (baseURL) => {
 };
 const route = { provider: 'custom-harness', model: 'harness-model' };
 const plain = (value) => JSON.parse(JSON.stringify(value));
+/** A state's content regardless of key order (the phone's decoder writes keys in its own order). */
+const contentKey = (value) => JSON.stringify(value, (_k, v) => (v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, v[k]])) : v));
 for (const key of Object.keys(process.env)) if (/^MIXDOG_/i.test(key)) delete process.env[key];
 Object.assign(process.env, daemonEnv(envPaths));
 // The daemon is forked with this process's flags; it runs as a plain script.
@@ -75,6 +77,8 @@ const { createSessionProtocolClient } = await import(pathToFileURL(join(exportDi
 const { createDesktopRuntime } = await import(pathToFileURL(join(exportDir, 'src/standalone/daemon-desktop-runtime.mjs')).href);
 const { createPushNotifier } = await load('main/push-notifier.ts');
 const { sessionRemoteMethods } = await load('main/remote-session-methods.ts');
+const { createRelaySessionStateFanout } = await load('main/remote-relay-session-state.ts');
+const { createSnapshotDeltaDecoder } = await load('main/state-delta.ts');
 
 /** One case in its own world: a fresh environment, Node's daemon and SessionHost started for it and ended after it. */
 async function recordCase(c, provider) {
@@ -139,7 +143,10 @@ async function recordCase(c, provider) {
     // roster the host published (`subscribeSessions`, what the phone's catalog is sent), and each reply to the phone's own calls. A state or
     // row equal to the one before it is no change and not kept.
     const told = [];
+    // What the phone received, as delivered: the replies, the state frames its fanout leg decoded, the roster rows.
+    const phoneTold = [];
     const lastState = new Map();
+    const lastPhoneState = new Map();
     const lastRow = new Map();
     let published = [];
     host.subscribeSessions((rows) => {
@@ -150,21 +157,57 @@ async function recordCase(c, provider) {
         if (JSON.stringify(row) === JSON.stringify(lastRow.get(id) ?? null)) continue;
         lastRow.set(id, row);
         told.push({ sessionId: id, kind: 'row', row });
+        phoneTold.push({ sessionId: id, kind: 'row', row });
       }
       wake();
     });
     host.subscribeSessionStates((update) => {
       const snapshot = plain(update.snapshot ?? null);
-      const key = JSON.stringify(snapshot);
+      const key = contentKey(snapshot);
       if (lastState.get(update.sessionId) === key) return;
       lastState.set(update.sessionId, key);
       told.push({ sessionId: update.sessionId, kind: 'state', frameSource: update.frameSource ?? null, snapshot });
+      wake();
     });
     // The approvals a notification's Allow may answer: Node's push notifier, fed the host's session states as remote-relay-session-wiring.ts:148,203-204
     // feeds it, handed to the phone's table as remote-relay.ts:468-472 hands it. It is created disabled: it sends no push (nothing here could
     // receive one); the shown approvals it keeps do not depend on that (push-notifier.ts onSessionState sets them first).
     const notifier = createPushNotifier({ store: {}, isEnabled: () => false, readFinalAnswer: async () => null, isClientForeground: () => false });
     host.subscribeSessionStates((update) => notifier.onSessionState(update));
+    // What the phone receives: the host's session states through Node's own fanout (remote-relay-session-state.ts
+    // `createRelaySessionStateFanout`, fed as remote-relay-session-wiring.ts:203-207 feeds it), to one attached phone leg whose state is a
+    // relay client's (remote-relay-clients.ts:284-310) with the wire a current phone negotiates in its hello (remote-relay-client-lifecycle.ts:
+    // 123-125 paging and prepend, remote-shim-socket.ts:424 promptHistoryPatch) in the plain envelope, decoded as the phone decodes it
+    // (remote-shim-dispatch.ts:228-254, `createSnapshotDeltaDecoder`). The leg shows no session until the phone learns one from a reply;
+    // then the session is made visible and the newest state re-sent, as the phone's view sync does (remote-view-sync.ts:152, a baseline of
+    // the newest state). A frame's send settles on the next turn of the event loop, as a socket write does; the mailbox drains then.
+    const phoneLeg = {
+      channel: {}, syncing: false, visibleSessionIds: new Set(), requestedReads: new Set(), sessionStateEncoders: new Map(),
+      compactWire: false, transcriptPaging: true, transcriptPrepend: true, promptHistoryPatch: true,
+      sessionHandles: new Map(), openedAt: Date.now(), firstTranscriptReported: false,
+    };
+    const decoders = new Map();
+    const fanout = createRelaySessionStateFanout({
+      clients: new Map([['phone', phoneLeg]]),
+      sendEncryptedFrame: (_clientId, payload) => {
+        const { sessionId, wire } = payload.payload;
+        if (!decoders.has(sessionId)) decoders.set(sessionId, createSnapshotDeltaDecoder());
+        const decoded = decoders.get(sessionId).decode(wire);
+        if (!decoded.ok) throw new Error(`the phone could not decode a state frame of ${sessionId}`);
+        const snapshot = plain(decoded.snapshot ?? null);
+        phoneTold.push({ sessionId, kind: 'state', snapshot });
+        lastPhoneState.set(sessionId, contentKey(snapshot));
+        if (decoded.snapshot === null) decoders.delete(sessionId);
+        wake();
+        return new Promise((resolve) => setImmediate(resolve));
+      },
+    });
+    host.subscribeSessionStates((update) => fanout.publish(update));
+    const showOnPhone = (sessionId) => {
+      if (!sessionId || phoneLeg.visibleSessionIds.has(sessionId)) return;
+      phoneLeg.visibleSessionIds.add(sessionId);
+      fanout.refresh(sessionId);
+    };
     const approvalNotifications = {
       approvalAllowDecision: (sessionId, approvalId) => notifier.approvalAllowDecision(sessionId, approvalId),
       approvalPointerOnly: (sessionId, approvalId) => notifier.approvalPointerOnly(sessionId, approvalId),
@@ -189,10 +232,16 @@ async function recordCase(c, provider) {
             try {
               reply = plain((await table[method](args)) ?? null);
             } catch (error) {
-              told.push({ sessionId, kind: 'reply', method, device, error: String(error?.message ?? error) });
+              const failed = { sessionId, kind: 'reply', method, device, error: String(error?.message ?? error) };
+              told.push(failed);
+              phoneTold.push(failed);
               throw error;
             }
-            told.push({ sessionId: sessionId ?? reply?.sessionId, kind: 'reply', method, device, reply });
+            const answered = { sessionId: sessionId ?? reply?.sessionId, kind: 'reply', method, device, reply };
+            told.push(answered);
+            phoneTold.push(answered);
+            // The phone opens the thread its reply names (the new task's), which makes it visible to its leg.
+            showOnPhone(answered.sessionId);
             return reply;
           },
         }));
@@ -249,15 +298,27 @@ async function recordCase(c, provider) {
     // `listSessions` answers from those rows. The row is read once the host holds the one the turn's close stamped (`updatedAt` not before the
     // Stop; for a turn that ended on its own, not before the prompt): an earlier publication of the same thread is a row the Stop has not reached.
     const stampedAfter = c.ready === 'completed' || !c.stop ? since0 : stopAt;
-    await until(() => (published.find((r) => r.id === id)?.updatedAt ?? 0) >= stampedAfter, `the thread row of ${c.name} stamped by its close to be published`);
+    // The recording ends where Node settles, not at the first sign of the close: the row the daemon's summary sends once the turn's
+    // close reached it (no `working` flag: session-host-catalog.ts:228-240, a summary still marking the turn is an earlier one) unless
+    // a requeued turn runs on; the turn's close's context sync (turn.mjs:350,366 `syncContextStats` → context-state.mjs:116-134 sets
+    // `displayContextWindow` from the window the route resolved); and the phone's fanout drained to the host's newest state.
+    const rowSettled = () => {
+      const r = published.find((x) => x.id === id);
+      return (r?.updatedAt ?? 0) >= stampedAfter && (c.requeued || (!r.working && !r.leadWorking));
+    };
+    await until(rowSettled, `the thread row of ${c.name} stamped by its close to be published`);
+    const contextSynced = () => !(Number(sessionState(id)?.contextWindow) > 0) || Number(sessionState(id)?.displayContextWindow) > 0;
+    await until(contextSynced, `the context sync of ${c.name}'s close to reach the host`);
+    await until(() => lastPhoneState.get(id) === lastState.get(id), `the phone's leg of ${c.name} to receive the host's newest state`);
     const row = plain((await deadline.race(host.listSessions(), `listSessions after ${c.name}`)).find((r) => r.id === id) ?? null);
     const items = plain((await deadline.race(host.readSessionTranscript(id), `readSessionTranscript after ${c.name}`)).items);
     // What the composer of the device that sent the prompt is told: the session state's `promptRestore`.
     const promptRestore = plain(sessionState(id)?.promptRestore ?? null);
     // A requeued turn runs on; the thread is deleted once recorded so the daemon has no turn left when it is shut down.
     if (c.requeued) await deadline.race(host.deleteSession(id), `deleteSession of ${c.name}`);
-    const stream = told.filter((event) => event.sessionId === id).map(({ sessionId: _id, ...event }) => event);
-    const recorded = { name: c.name, id, stop: c.stop ?? null, ...(c.again ? { again: c.again } : {}), node: { reply, ...(second ? { second } : {}), ...(c.notify ? { answers } : {}), items, row, promptRestore, stream } };
+    const ofThread = (events) => events.filter((event) => event.sessionId === id).map(({ sessionId: _id, ...event }) => event);
+    // `stream`: what the phone received, in order; `hostStream`: every state the host published (and the rows and replies), for reference.
+    const recorded = { name: c.name, id, stop: c.stop ?? null, ...(c.again ? { again: c.again } : {}), node: { reply, ...(second ? { second } : {}), ...(c.notify ? { answers } : {}), items, row, promptRestore, stream: ofThread(phoneTold), hostStream: ofThread(told) } };
     await end();
     return recorded;
   } catch (error) {

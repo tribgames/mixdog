@@ -6,6 +6,11 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import type { Obj } from '../src/obj.ts';
 import { mergeToolRows, rowOf } from '../src/rows.ts';
+// The Stop comparison's renaming and the installed Node recordings of the phone's Stop cases (apps/desktop).
+import { canonical, runOwnPaths } from '../../../apps/desktop/src/renderer/remote-protocol-chat-abort-compare.mjs';
+import { verifiedRecordings } from '../../../apps/desktop/src/renderer/remote-protocol-chat-abort-fixture.mjs';
+
+const { recordings } = verifiedRecordings() as { recordings: { cases: { name: string; node: { items: unknown[] } }[] }[] };
 
 const golden = JSON.parse(readFileSync(new URL('rows-golden.json', import.meta.url), 'utf8')) as { cases: { name: string; items: Obj[]; rows: Obj[] }[] };
 const project = (items: Obj[]): Obj[] => mergeToolRows(items.map(rowOf).filter((row): row is Obj => row !== null));
@@ -37,11 +42,25 @@ test('a live card completes at its result\'s time (aggregate-result.mjs complete
   assert.deepEqual([restored?.startedAt, restored?.completedAt], [1000, 1000]);
 });
 
-test('a live card the Stop ended is finalized as cancelled (aggregate-result.mjs:80-91); one that finished is not', () => {
-  const call = (status: string): Obj => ({ type: 'toolCall', id: 'q', name: 'ask_user', input: { questions: [] }, output: 'Error: closed', run: { live: true, callId: 'c1', isError: true }, meta: { status, at: 1 } });
-  // Node's recorded card (remote-protocol-chat-abort running-approval-pending): a failed call, its detail behind the cancelled marker.
+test('a live card the Stop ended is Node\'s recorded card, whole (aggregate-result.mjs:80-91); one that finished is not cancelled', () => {
+  // Node's card of the call the Stop ended (`running-approval-pending` in the installed Node recordings of the phone's Stop cases),
+  // against the row of the item the core holds for it. Values that differ between Node's own recordings (its ids and times) are
+  // compared by consistent renaming at the paths where they differ, as the Stop comparison does; everything else exactly.
+  const nodeRows = recordings.map((r) => (r.cases.find((c) => c.name === 'running-approval-pending')!.node.items as Obj[]).find((row) => row.kind === 'tool')!);
+  const runOwn = runOwnPaths(nodeRows.map((row) => ({ row })));
+  const node = nodeRows[0]!;
+  const member = (node.toolMembers as Obj[])[0]!;
+  const call = (status: string): Obj => ({
+    type: 'toolCall',
+    id: node.id,
+    name: member.name,
+    input: member.args,
+    output: member.rawResult,
+    run: { live: true, callId: member.id, isError: true, completedAt: member.completedAt },
+    meta: { status, at: member.startedAt },
+  });
   const [stopped] = project([call('interrupted')]);
-  assert.deepEqual([stopped?.result, stopped?.text, stopped?.isError, stopped?.errorCount], ['[status: cancelled]\n1 Failed', '[status: cancelled]\n1 Failed', true, 1]);
+  assert.deepEqual(canonical({ row: JSON.parse(JSON.stringify(stopped)) }, runOwn), canonical({ row: node }, runOwn));
   const [failed] = project([call('failed')]);
   assert.deepEqual([failed?.result, failed?.text, failed?.isError], ['1 Failed', '1 Failed', true]);
 });

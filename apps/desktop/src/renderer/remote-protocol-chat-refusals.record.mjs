@@ -3,18 +3,19 @@
 // an unregistered Project, the home of an unknown agent, a secret for a request the core never minted. Each case keeps the request the
 // phone's adapter sends (the route it takes) and the core's whole reply or error body, as the core sent it.
 //
-// Usage: node remote-protocol-chat-refusals.record.mjs <mixdogd.exe> <real-turn-harness dir>
+// Usage: node remote-protocol-chat-refusals.record.mjs <mixdogd.exe> <real-turn-harness dir> <out file>
+// The out file is installed as the fixture by remote-protocol-chat-fixtures.mjs (`refusals`).
 // Every wait has a deadline that names what it waits for (the harness deadline), and nothing waits for time.
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, statSync, watch, existsSync, writeFileSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import WebSocket from 'ws';
 import { uuidv7 } from '../../../../packages/protocol-client/src/client.ts';
 import { routeService } from '../main/protocol/service-route.ts';
 
-const [bin, harness] = process.argv.slice(2);
-const here = dirname(fileURLToPath(import.meta.url));
+const [bin, harness, outFile] = process.argv.slice(2);
+if (!outFile) throw new Error('usage: <mixdogd.exe> <real-turn-harness dir> <out file>');
 const lib = (name) => join(harness, 'lib', name);
 const PINNED = ['env.mjs', 'scenarios.mjs', 'stage.mjs', 'fake-provider.mjs', 'proc.mjs', 'deadline.mjs', 'pg-version.json'];
 const sha256 = (file) => createHash('sha256').update(readFileSync(file)).digest('hex');
@@ -132,14 +133,20 @@ try {
     },
     thread: threadId, project, unregistered, cases,
   };
-  writeFileSync(join(here, 'remote-protocol-chat-refusals.recorded.json'), JSON.stringify(out, null, 2));
+  writeFileSync(outFile, JSON.stringify(out, null, 2));
   console.log(`recorded ${cases.length} cases`);
   for (const c of cases) console.log(c.name, JSON.stringify(c.request.method), JSON.stringify(c.reply).slice(0, 300));
 } finally {
   deadline.clear();
   socket.close();
   core.kill();
-  await core.exited;
-  killStrayPostgres(paths.dataDir);
+  // The exit is waited for under a deadline of its own; a core that does not end is reported with its pid.
+  const ended = createDeadline(60_000, () => `the core (pid ${core.pid}) did not exit after its kill: ${core.tail()}`);
+  try {
+    await ended.race(core.exited, `the core (pid ${core.pid}) to exit`);
+  } finally {
+    ended.clear();
+    killStrayPostgres(paths.dataDir);
+  }
 }
 process.exit(0);

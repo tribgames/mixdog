@@ -1,0 +1,49 @@
+{
+  "count": 10,
+  "commit": "b6f10295a2f698afc85332467192de28500bd146",
+  "recordings": [
+    {
+      "file": "01.json",
+      "sha256": "34979cc9339e398796e69b7ffe6011481be1c238d79b7b195c1868c4851a410b"
+    },
+    {
+      "file": "02.json",
+      "sha256": "b47aed5f7ca32b451b69251ffdc8ab809366ff28c69e115187a30f2621a2de9a"
+    },
+    {
+      "file": "03.json",
+      "sha256": "f239db1d8884cf4477e36cd40d50341b171578dff07fe509156e771efe9c2575"
+    },
+    {
+      "file": "04.json",
+      "sha256": "4cda973004c5d73784406640b8322d5fd86f9e015c63b4aedf1154730205a464"
+    },
+    {
+      "file": "05.json",
+      "sha256": "cab5d00038e33be8d9383fe4477c33b83ef5f6b1e0db78c4c712bda8ece6abac"
+    },
+    {
+      "file": "06.json",
+      "sha256": "28ce49ee308ac8d40cc5fbf2c8ca6b98e26ea3ff17c6c95f4416ff47e993ed3f"
+    },
+    {
+      "file": "07.json",
+      "sha256": "30a6b266b6d4a57c34b0cc42fba5d1225446db7f9bb645f3380dfc6dfdb0d9a0"
+    },
+    {
+      "file": "08.json",
+      "sha256": "286b6f757d133cab6c5c6beba4b127fd57c94db268382d907e18eaab9792d9b4"
+    },
+    {
+      "file": "09.json",
+      "sha256": "ebd06fd5707147329b0fe0967b594c65877e95d81726b334dd71894d257c3738"
+    },
+    {
+      "file": "10.json",
+      "sha256": "eb853b20615c7cc25547ff8e029bad3ff686c0798a6eff0f390a700acc42e7c0"
+    }
+  ],
+  "recorder": {
+    "remote-protocol-chat-roster.record.mjs": "fa8e3ee85e4935f4d03ebe26aaa479951f60f81634fd4cca0ddd7db0ad215be4"
+  }
+}

@@ -13,6 +13,7 @@ import { routeService } from '../main/protocol/service-route.ts';
 import { scopeClient } from '../../../mobile/src/phone-send-scope.ts';
 import { createChatApi } from './remote-protocol-chat.ts';
 import { createChatHostApi } from './remote-chat-host.ts';
+import { verifiedFixture } from './remote-protocol-chat-fixtures.mjs';
 
 const read = (path) => JSON.parse(readFileSync(new URL(path, import.meta.url), 'utf8'));
 const recorded = read('../../../../native/core/fixtures/phone-chat/host.json');
@@ -253,7 +254,7 @@ for (const c of recorded.cases.filter((x) => x.group === 'home')) {
 // ── a prompt Node's intake refuses answers false ──────────────────────────────────────────────────────────────────────────────
 // roster.recorded.json `refusals`: Node's real host (session-host.ts) asked, on a real session, to submit a blank prompt (submission.mjs:14-15).
 // The phone's answer is the same and nothing is sent: the core takes a blank prompt and starts an empty turn.
-const nodeRefusals = read('./remote-protocol-chat-roster.recorded.json').refusals;
+const nodeRefusals = verifiedFixture('roster').recordings[0].refusals;
 for (const [name, node] of Object.entries(nodeRefusals)) {
   test(`${name}: Node's refusal, and nothing reaches the core`, async () => {
     const call = name.slice(0, name.indexOf(' '));
@@ -271,7 +272,7 @@ test('a failure of a real send still throws', async () => {
 
 // ── the chat recording's cases this adapter answers (remote-protocol-chat.test.mjs lists them as owned here) ─────────────────────
 // `refusals.recorded.json` holds what a running mixdogd answered to the phone's own requests for them (remote-protocol-chat-refusals.record.mjs).
-const core = read('./remote-protocol-chat-refusals.recorded.json');
+const core = verifiedFixture('refusals').recordings[0];
 const coreReply = (name) => {
   const { reply } = core.cases.find((x) => x.name === name);
   return reply.error

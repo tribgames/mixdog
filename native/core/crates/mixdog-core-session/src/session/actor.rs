@@ -2466,10 +2466,10 @@ impl SessionActor {
         if let Some(reclaim) = &reclaimed {
             self.apply_reclaim(reclaim);
         }
-        // The display fields the turn waited to publish (`on_context_section`): a cancelled turn drops them.
-        if let Some(held) = self.held_display.take()
-            && !matches!(outcome, RunOutcome::Interrupted)
-        {
+        // The display fields the turn waited to publish (`on_context_section`), a stopped turn's too: Node's phone shows them set
+        // once a stopped turn closed (every Stop case of the phone's Stop recordings ends on `displayContextWindow` =
+        // `autoCompactTokenLimit` = `compactBoundaryTokens` = the window; `completeTurn`'s `syncContextStats`, turn.mjs:530,835).
+        if let Some(held) = self.held_display.take() {
             self.accept_view(Change::Section(Section::Context(held)), Vec::new());
         }
         // `setActiveTurnCount(-1)`: the parked warmups re-check.
@@ -3239,8 +3239,8 @@ impl SessionActor {
     }
 
     /// A context section a producer published. While a turn runs, the display fields (`displayContextWindow`,
-    /// `autoCompactTokenLimit`, `compactBoundaryTokens`) wait for the turn's end: Node's `syncContextDisplayFields` runs with the
-    /// context measurement a turn that was not cancelled makes, so a cancelled turn leaves them at their initial 0.
+    /// `autoCompactTokenLimit`, `compactBoundaryTokens`) wait for the turn's end, as Node's `syncContextDisplayFields` runs when
+    /// the turn settles (turn.mjs:530), a stopped one included.
     fn on_context_section(&mut self, mut context: ThreadContext) {
         if self.run.is_some() {
             let held = self.held_display.get_or_insert_with(Default::default);

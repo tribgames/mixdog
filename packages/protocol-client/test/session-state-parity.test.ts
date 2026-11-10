@@ -170,9 +170,19 @@ test('fold parity: recorded session-state frames reproduce DesktopSessionState f
 
     const got = sessionStateOf(client, 'lead') as O;
     // Fields the engine starts with (initial-state.mjs) that a recorded snapshot omits while they hold their initial value.
+    // `streamingPartial` is not among them: the first draft has none (initial-state.mjs); a frame holds it once a partial line was shown.
+    // The route state's and the host's always-present fields read null (or empty) while they hold nothing (context-state.mjs:75,92,95,97,
+    // initial-state.mjs:37, session-host-publication.ts:281-288, session-host.ts:485-495).
     const expected: O = {
       streamingTail: null,
-      streamingPartial: null,
+      promptRestore: null,
+      workspace: null,
+      goal: null,
+      quotaResume: null,
+      todo: null,
+      remoteEnabled: false,
+      shellJobs: { count: 0, elapsedLabel: '', jobs: [], finished: [] },
+      hostShellJobs: { count: 0, elapsedLabel: '', jobs: [], finished: [] },
       toolApproval: null,
       toolApprovalsWaiting: 0,
       promptHistoryList: [],
@@ -187,7 +197,8 @@ test('fold parity: recorded session-state frames reproduce DesktopSessionState f
       themeEpoch: 0,
       ...d,
     };
-    delete expected.remoteSessionId;
+    // The host's remote session id is the host's (session-host-publication.ts:286), not a thread feed field: the fold holds none.
+    expected.remoteSessionId = null;
     // `structureRevision` counts the fold's own row changes; a recorded frame states none.
     assert.equal(Number.isInteger(got.structureRevision), true, `step ${frame.step}: structureRevision`);
     delete got.structureRevision;

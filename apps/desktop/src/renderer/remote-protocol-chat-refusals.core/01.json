@@ -1,8 +1,8 @@
 {
   "manifest": {
     "binary": "D:\\mixdog-build\\pool\\w5-target\\debug\\mixdogd.exe",
-    "binarySha256": "c94ee265c2d9f194011d4457d11c75753b09320856c06832fd99b73ca349761d",
-    "binaryBuilt": "2026-11-09T23:47:11.456Z",
+    "binarySha256": "2a34c7a46b2af54bad883d3450eb1fbecceac7a27758700ef8706ca68716f6ba",
+    "binaryBuilt": "2026-11-10T16:00:08.059Z",
     "harness": {
       "lib/env.mjs": "358840d97f5df0ec1649b0c66d55be23ea31e1498cc9f5274505cb0767ead715",
       "lib/scenarios.mjs": "e8c34cc876cf300d803a533f3ae5aa0e08553fff2f20ba3db7e6a5906e5c37d8",
@@ -14,7 +14,7 @@
     },
     "source": "running mixdogd serve, isolated env (real-turn harness env.mjs / stage.mjs / fake-provider.mjs, pinned above), driven over the WebSocket JSON-RPC protocol"
   },
-  "thread": "01a1c2b9-0bda-7723-aeae-13c0519d3937",
+  "thread": "sess_47324_1794326665042_1794326665042_38e4da6e4da34832b6d5b17e114fd7ce",
   "project": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-refusals\\ws\\a",
   "unregistered": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-refusals\\ws\\never-registered",
   "cases": [
@@ -22,23 +22,25 @@
       "name": "abortSession-idle",
       "call": "abortSession",
       "args": [
-        "01a1c2b9-0bda-7723-aeae-13c0519d3937",
+        "sess_47324_1794326665042_1794326665042_38e4da6e4da34832b6d5b17e114fd7ce",
         {}
       ],
       "request": {
         "method": "turn/interrupt",
         "params": {
-          "threadId": "01a1c2b9-0bda-7723-aeae-13c0519d3937"
+          "threadId": "sess_47324_1794326665042_1794326665042_38e4da6e4da34832b6d5b17e114fd7ce"
         }
       },
       "reply": {
-        "error": {
-          "code": -32600,
-          "data": {
-            "reason": "turnNotActive",
-            "threadId": "01a1c2b9-0bda-7723-aeae-13c0519d3937"
-          },
-          "message": "turnNotActive"
+        "result": {
+          "cancelRequested": false,
+          "aborted": false,
+          "restoreText": "",
+          "pastedImages": null,
+          "pastedTexts": null,
+          "discardPastedImages": null,
+          "discardPastedTexts": null,
+          "restoredSubmissionIds": []
         }
       }
     },
@@ -46,7 +48,7 @@
       "name": "submitToSession-empty",
       "call": "submitToSession",
       "args": [
-        "01a1c2b9-0bda-7723-aeae-13c0519d3937",
+        "sess_47324_1794326665042_1794326665042_38e4da6e4da34832b6d5b17e114fd7ce",
         "",
         {
           "id": "refusals-empty"
@@ -55,7 +57,7 @@
       "request": {
         "method": "turn/start",
         "params": {
-          "threadId": "01a1c2b9-0bda-7723-aeae-13c0519d3937",
+          "threadId": "sess_47324_1794326665042_1794326665042_38e4da6e4da34832b6d5b17e114fd7ce",
           "input": {
             "prompt": "",
             "options": {
@@ -65,9 +67,15 @@
         }
       },
       "reply": {
-        "result": {
-          "kind": "started",
-          "turnId": "01a1c2b9-12c2-724d-8e01-e39210d9ebea"
+        "error": {
+          "code": -32600,
+          "data": {
+            "reason": "domainError",
+            "domain": "session",
+            "code": "SUBMIT_REFUSED",
+            "message": "The message is empty."
+          },
+          "message": "domainError"
         }
       }
     },
@@ -75,7 +83,7 @@
       "name": "submitToSession-blank",
       "call": "submitToSession",
       "args": [
-        "01a1c2b9-0bda-7723-aeae-13c0519d3937",
+        "sess_47324_1794326665042_1794326665042_38e4da6e4da34832b6d5b17e114fd7ce",
         "   ",
         {
           "id": "refusals-blank"
@@ -84,7 +92,7 @@
       "request": {
         "method": "turn/start",
         "params": {
-          "threadId": "01a1c2b9-0bda-7723-aeae-13c0519d3937",
+          "threadId": "sess_47324_1794326665042_1794326665042_38e4da6e4da34832b6d5b17e114fd7ce",
           "input": {
             "prompt": "   ",
             "options": {
@@ -94,9 +102,15 @@
         }
       },
       "reply": {
-        "result": {
-          "kind": "queued",
-          "queuedId": "01a1c2b9-12cf-7252-b9dc-925ef386ff8a"
+        "error": {
+          "code": -32600,
+          "data": {
+            "reason": "domainError",
+            "domain": "session",
+            "code": "SUBMIT_REFUSED",
+            "message": "The message is empty."
+          },
+          "message": "domainError"
         }
       }
     },
@@ -124,30 +138,15 @@
         }
       },
       "reply": {
-        "result": {
-          "thread": {
-            "id": "01a1c2b9-12d9-7493-bdff-988a8f1224ad",
-            "preview": "",
-            "title": "",
-            "updatedAt": 1794268271450,
-            "messageCount": 0,
-            "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-refusals\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
-            "classification": "task",
-            "projectPath": null,
-            "activityAt": 1794268271321,
-            "compactCount": 0,
-            "createdAt": 1794268271321
+        "error": {
+          "code": -32600,
+          "data": {
+            "reason": "domainError",
+            "domain": "session",
+            "code": "SUBMIT_REFUSED",
+            "message": "The message is empty."
           },
-          "turn": {
-            "kind": "started",
-            "turnId": "01a1c2b9-138c-7476-97e5-97a8e0b2fe63"
-          },
-          "subscription": {
-            "id": "c1-3",
-            "mode": "snapshot",
-            "epoch": "0e114b3f774f4ca08fc1529c1f8ca1ae",
-            "startSeq": 8
-          }
+          "message": "domainError"
         }
       }
     },

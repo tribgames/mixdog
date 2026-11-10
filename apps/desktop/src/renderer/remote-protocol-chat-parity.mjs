@@ -19,15 +19,14 @@ export function createParity({ live, node, project }) {
   const nodeTaskWorkspaces = new Set(node.states.flatMap((state) => state.roster).filter((row) => row.classification === 'task').map((row) => row.cwd));
   assert.equal(nodeTaskWorkspaces.size, 1, 'Node keeps every task in one task workspace');
   const folders = { [node.projects.a]: live.projects.a, [node.projects.b]: live.projects.b, [[...nodeTaskWorkspaces][0]]: live.manifest.taskWorkspace };
-  const byTitle = (rows) => new Map(rows.map((row) => [row.title, row]));
-
+  // Rows are paired by position, never through a field that can repeat (two threads may share a title): Node's i-th row is the phone's i-th.
   const times = new Map();
   const firstAt = new Map();
   node.manifest.actions.forEach((name, at) => {
-    const liveRows = byTitle(project(live.steps[at].listed.data));
-    for (const row of node.states[at + 1].roster) {
+    const liveRows = project(live.steps[at].listed.data);
+    for (const [index, row] of node.states[at + 1].roster.entries()) {
       for (const field of TIME_FIELDS) {
-        const got = liveRows.get(row.title)?.[field];
+        const got = liveRows[index]?.[field];
         if (typeof got === 'number' && !times.has(row[field])) {
           times.set(row[field], got);
           firstAt.set(row[field], { title: row.title, field, got });
@@ -49,23 +48,29 @@ export function createParity({ live, node, project }) {
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   const kindOf = (want, got) => (got === undefined ? 'missing' : want === undefined ? 'extra' : 'value');
 
+  /** A roster's content with its times kept by type only: a publication between two actions carries times no settled roster maps. */
+  const timeless = (row) => Object.fromEntries(Object.entries(row).sort(([a], [b]) => (a < b ? -1 : 1)).map(([key, value]) => [key, TIME_FIELDS.includes(key) ? typeof value : value]));
+
   return {
+    /** Node's roster `rows` (ids and folders mapped to the live run's) as content, its times by type. */
+    nodeContent: (rows) => JSON.stringify(rows.map((row) => timeless(Object.fromEntries(Object.entries(row).map(([key, value]) => [key, TIME_FIELDS.includes(key) ? value : mapped(key, value)]))))),
+    /** The phone's roster `rows` as content, its times by type. */
+    phoneContent: (rows) => JSON.stringify(rows.map(timeless)),
     /** The Node times whose live time breaks Node's order of times. */
     timeOrderBreaks: () => unordered.map(({ title, field }) => `${title}.${field}`),
-    /** Every difference between Node's roster and the phone's rows (each row's every field, and the rows' order), as `<title>.<field>` paths. */
+    /** Every difference between Node's roster and the phone's rows, row by row in order (each row's every field, its id included),
+     *  as `<index>:<title>.<field>` paths; a row one side lacks is `<index>:<title>.row`. */
     classify(nodeRoster, phoneRows) {
-      const got = byTitle(phoneRows);
-      const want = byTitle(nodeRoster.map(expectedRow));
+      const want = nodeRoster.map(expectedRow);
       const differences = [];
-      for (const title of new Set([...want.keys(), ...got.keys()])) {
-        const a = want.get(title);
-        const b = got.get(title);
-        if (!a || !b) { differences.push(`${title}.row`); continue; }
+      for (let index = 0; index < Math.max(want.length, phoneRows.length); index++) {
+        const a = want[index];
+        const b = phoneRows[index];
+        if (!a || !b) { differences.push(`${index}:${(a ?? b).title}.row`); continue; }
         for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) {
-          if (!same(a[key], b[key])) differences.push(`${title}.${key}: ${JSON.stringify(a[key])} != ${JSON.stringify(b[key])}`);
+          if (!same(a[key], b[key])) differences.push(`${index}:${a.title}.${key}: ${JSON.stringify(a[key])} != ${JSON.stringify(b[key])}`);
         }
       }
-      if (!same(nodeRoster.map((row) => row.title), phoneRows.map((row) => row.title))) differences.push('order');
       return differences;
     },
   };

@@ -11,10 +11,13 @@ import { routeService } from '../main/protocol/service-route.ts';
 import { coreErrorForWindow } from '../main/protocol/core-error.ts';
 import { normalizedProviderModels } from '../main/desktop-support.ts';
 import { remoteToolOutput } from '../main/remote-transcript.ts';
+import { ABORT_CASES as CASES } from './remote-protocol-chat-abort-cases.mjs';
+import { verifiedRecordings } from './remote-protocol-chat-abort-fixture.mjs';
+import { verifiedFixture } from './remote-protocol-chat-fixtures.mjs';
 
 const recorded = JSON.parse(readFileSync(new URL('./remote-protocol-chat.recorded.json', import.meta.url), 'utf8'));
 // What a running mixdogd answered to the phone's own requests for the refusal cases (remote-protocol-chat-refusals.record.mjs).
-const refusals = JSON.parse(readFileSync(new URL('./remote-protocol-chat-refusals.recorded.json', import.meta.url), 'utf8'));
+const refusals = verifiedFixture('refusals').recordings[0];
 const coreReply = (name) => {
   const { reply } = refusals.cases.find((x) => x.name === name);
   return reply.error
@@ -159,7 +162,11 @@ function adapterFor(script) {
     },
     snapshot: () => ({ entries: script.entries ?? [] }),
     noteUserInput() {},
-    respond: (id, answer) => sent.push({ respond: id, answer }),
+    // An answered request is no longer pending (the core resolved it).
+    respond: (id, answer) => {
+      sent.push({ respond: id, answer });
+      if (Array.isArray(script.pending)) script.pending = script.pending.filter((p) => p.id !== id);
+    },
     pendingServerRequests: () => script.pending ?? [],
   };
   const lane = createCapabilityLane({ protocol });
@@ -233,6 +240,24 @@ test('the recording is an exact Node b6f10295a manifest', () => {
   assert.equal(recorded.manifest.commit, 'b6f10295a2f698afc85332467192de28500bd146');
   assert.match(recorded.manifest.tree, /^[0-9a-f]{40}$/);
 });
+
+// A1: a notification's Allow / Deny, replayed through the production adapter against Node's answers (the `notify-` cases of the
+// installed Stop recordings, Node's real push notifier over a real daemon). The thread shows the approval Node's host showed when the
+// phone answered; the core's pending request is that approval's.
+const abortRecording = verifiedRecordings().recordings[0];
+for (const c of CASES.filter((x) => x.notify)) {
+  test(`${c.name}: a notification's answers are Node's`, async () => {
+    const { node } = abortRecording.cases.find((x) => x.name === c.name);
+    const firstAnswer = node.hostStream.findIndex((e) => e.kind === 'reply' && e.method === 'answerApprovalNotification');
+    const shown = node.hostStream.slice(0, firstAnswer).findLast((e) => e.kind === 'state').snapshot.toolApproval;
+    const method = shown.kind === 'question' ? 'item/tool/requestUserInput' : 'item/tool/requestApproval';
+    const script = { state: { toolApproval: shown }, pending: [{ id: String(shown.id), method, params: { threadId: S, order: 1 } }] };
+    const { api } = adapterFor(script);
+    const answers = [];
+    for (const step of c.notify) answers.push(await api.answerApprovalNotification(S, step.id === 'shown' ? String(shown.id) : step.id, step.action));
+    assert.deepEqual(answers, node.answers);
+  });
+}
 
 for (const c of recorded.cases) {
   test(`${c.name}: the phone receives what Node returned`, async () => {

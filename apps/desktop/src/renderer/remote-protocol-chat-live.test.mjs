@@ -3,17 +3,19 @@
 // only); `remote-protocol-chat-roster.recorded.json` is the roster Node's phone published for the same actions (the exact b6f10295a export).
 // What must be equal is what the phone publishes: remote-protocol-chat-parity.mjs compares whole rows, field by field, in Node's order.
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { createRosterFeed } from './remote-protocol-chat.ts';
 import { summariesOfThreadRows } from '../main/protocol/thread-rows.ts';
+import { verifiedFixture } from './remote-protocol-chat-fixtures.mjs';
 import { assertParity, createParity } from './remote-protocol-chat-parity.mjs';
 
-const read = (name) => JSON.parse(readFileSync(new URL(name, import.meta.url), 'utf8'));
-const live = read('./remote-protocol-chat-live.recorded.json');
-const node = read('./remote-protocol-chat-roster.recorded.json');
+// The fixtures verified against their manifests (remote-protocol-chat-fixtures.mjs): the core's live recording, Node's N roster recordings.
+const live = verifiedFixture('live').recordings[0];
 const plain = (value) => JSON.parse(JSON.stringify(value));
-const parity = createParity({ live, node, project: (rows) => summariesOfThreadRows(plain(rows)) });
+const project = (rows) => summariesOfThreadRows(plain(rows));
+const nodeRuns = verifiedFixture('roster').recordings.map((recording) => ({ recording, parity: createParity({ live, node: recording, project }) }));
+const node = nodeRuns[0].recording;
+const parity = nodeRuns[0].parity;
 
 /** The phone's feed over a scripted client; `edge` is delivered as the core's notification, `published` is what the phone's catalog is told. */
 function feedOver(listing) {
@@ -59,10 +61,29 @@ live.steps.forEach((step, at) => {
     const before = at === 0 ? [] : live.steps[at - 1].listed.data;
     const r = feedOver(before);
     await r.attach();
+    // The attach publishes the roster before the action (the previous step's); the action's own publications follow it.
+    r.published.splice(0);
     for (const edge of step.edges) r.edge(edge);
-    // Node published once at the end of an action (its roster publication per store change coalesces to the action's result); the phone
-    // feed publishes per edge, so the result of the action is the last roster published.
-    assertParity(t, parity.classify(node.steps.find((s) => s.name === `action:${step.name}`).roster, r.published.at(-1)));
+    // The whole sequence the phone's catalog was told (the review's B2), under the Stop rule for coalesced messages over Node's N
+    // recordings: the roster is published when summaries reach the host or feed (Node: session-host-catalog.ts:228-240, the free
+    // point the fixture's manifest declares), so how many publications an action gives is free; each must be a roster some Node
+    // recording's phone got in that action, two distinct rosters only in an order some Node recording shows, and the last Node's last.
+    const name = `action:${step.name}`;
+    const sequences = nodeRuns.map(({ recording, parity: p }) => recording.steps.find((s) => s.name === name).published.map(p.nodeContent));
+    const got = r.published.map(parity.phoneContent);
+    const problems = [];
+    if (sequences.every((s) => !s.length)) {
+      if (got.length) problems.push(`Node's phone got no roster in this action; the core's got ${got.length}`);
+    } else {
+      const shown = new Set(sequences.flat());
+      got.forEach((content, index) => { if (!shown.has(content)) problems.push(`publication ${index + 1} of ${got.length} is a roster Node never published: ${content}`); });
+      const orders = new Set(sequences.flatMap((s) => s.flatMap((a, i) => s.slice(i + 1).filter((b) => b !== a).map((b) => `${a}\u0000${b}`))));
+      got.forEach((a, i) => got.slice(i + 1).forEach((b, j) => {
+        if (a !== b && shown.has(a) && shown.has(b) && !orders.has(`${a}\u0000${b}`)) problems.push(`publications ${i + 1} and ${i + j + 2}: an order Node never showed`);
+      }));
+      problems.push(...parity.classify(node.steps.find((s) => s.name === name).roster, r.published.at(-1) ?? []).map((d) => `the last publication: ${d}`));
+    }
+    assertParity(t, problems);
   });
 });
 
