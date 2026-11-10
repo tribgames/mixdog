@@ -132,6 +132,22 @@ const SCENARIOS = [
       { tool: 'code_graph', input: { mode: 'references', symbols: ['Shape'], limit: 3 } },
     ],
   },
+  // REFERENCE_HIT_CAP (code-graph/search.mjs _cheapReferenceSearch): `Math.max(1, Number(env) || 200)` mentions per
+  // scan, read at each scan; `env` is the scenario process's environment.
+  ...[['2.5', 'fraction'], [' 0x2 ', 'hex'], ['-3', 'negative'], ['0', 'zero'], ['many', 'nan']].map(([cap, label]) => ({
+    name: `code-graph-hit-cap-${label}`,
+    env: { REFERENCE_HIT_CAP: cap },
+    files: {
+      'package.json': '{}\n',
+      'src/many.ts': `export function target(n: number): number {\n  return n;\n}\n\n${Array.from({ length: 6 }, (_, i) => `export const v${i} = target(${i});`).join('\n')}\n`,
+      'src/use.ts': `import { target } from './many';\n\nexport const u = target(9);\n`,
+    },
+    warmup: [{ tool: 'code_graph', input: { mode: 'find_symbol', symbols: ['warmupNone'] } }],
+    calls: [
+      { tool: 'code_graph', input: { mode: 'references', symbols: ['target'] } },
+      { tool: 'code_graph', input: { mode: 'callers', symbols: ['target'], file: 'src/use.ts' } },
+    ],
+  })),
   // gaps-tools item 8: a `.ipynb` read goes to Node's notebook extractor (read-single-media.mjs), never the raw JSON. Every
   // public read reaches it with a window (offset/limit), so the extractor refuses it (read-special-files.mjs extractIpynbText).
   {
@@ -339,6 +355,7 @@ async function recordScenario(scenario) {
     env[name] = join(sandbox, name.toLowerCase());
     mkdirSync(env[name], { recursive: true });
   }
+  Object.assign(env, scenario.env ?? {});
   const report = join(sandbox, 'job.json');
   const child = spawnInJob(process.execPath, [SELF, '--child'], { env, cwd: REPO_ROOT, stdio: ['ignore', 'pipe', 'pipe'], report });
   let output = '';

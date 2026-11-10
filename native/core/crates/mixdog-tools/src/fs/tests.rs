@@ -268,6 +268,31 @@ async fn replay_fs_search(scenario: &str) {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
+/// A scenario recorded under its own environment (`env` in the fixture) replays in a child test process that carries
+/// it, so no other test of this process sees the variables. `test` is the calling test's path in the crate.
+async fn replay_fs_search_in_env(test: &str, scenario: &str) {
+    const CHILD: &str = "MIXDOG_TOOLS_REPLAY_ENV_CHILD";
+    if std::env::var_os(CHILD).is_some() {
+        replay_fs_search(scenario).await;
+        return;
+    }
+    let fixture: JsonValue = serde_json::from_str(
+        &std::fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../fixtures/tools-fs-search/{scenario}.json")),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+    child.args([test, "--exact", "--test-threads", "1", "--nocapture"]).env(CHILD, "1");
+    for (key, value) in fixture["env"].as_object().unwrap() {
+        child.env(key, value.as_str().unwrap());
+    }
+    let out = child.output().unwrap();
+    let log = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    assert!(out.status.success() && log.contains("1 passed"), "{log}");
+}
+
 /// gaps-tools item 12: a glob-shaped `list` path is Node's name search, newest first with size and date columns.
 #[tokio::test]
 async fn list_answers_a_glob_shaped_path_as_node_does() {
@@ -293,6 +318,32 @@ async fn read_answers_a_notebook_as_node_does() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn code_graph_answers_casing_misses_and_capped_references_as_node_does() {
     replay_fs_search("code-graph-refs-casing").await;
+}
+
+/// `REFERENCE_HIT_CAP` read as Node reads it: a fraction, a hex literal, a negative, 0 and a non-number.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn code_graph_reference_hit_cap_fraction_as_node_does() {
+    replay_fs_search_in_env("fs::tests::code_graph_reference_hit_cap_fraction_as_node_does", "code-graph-hit-cap-fraction").await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn code_graph_reference_hit_cap_hex_as_node_does() {
+    replay_fs_search_in_env("fs::tests::code_graph_reference_hit_cap_hex_as_node_does", "code-graph-hit-cap-hex").await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn code_graph_reference_hit_cap_negative_as_node_does() {
+    replay_fs_search_in_env("fs::tests::code_graph_reference_hit_cap_negative_as_node_does", "code-graph-hit-cap-negative").await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn code_graph_reference_hit_cap_zero_as_node_does() {
+    replay_fs_search_in_env("fs::tests::code_graph_reference_hit_cap_zero_as_node_does", "code-graph-hit-cap-zero").await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn code_graph_reference_hit_cap_nan_as_node_does() {
+    replay_fs_search_in_env("fs::tests::code_graph_reference_hit_cap_nan_as_node_does", "code-graph-hit-cap-nan").await;
 }
 
 /// The public read's `mode`, in both argument forms.
