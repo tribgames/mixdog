@@ -210,7 +210,7 @@ fn is_uuid_v7(value: &str) -> bool {
 /// The thread a request of the stored session `header` names: a Codex session sends its stored wire identity
 /// (`codexWireSessionId`, `ensureCodexWireSessionId`), which is not the thread's id, as the id of every request of the
 /// session, compaction summaries included; any other route names the thread itself. A Codex header with no valid stored
-/// identity falls back to the thread id (Node mints and stores one; minting here would give each request its own).
+/// identity falls back to the thread id only for requests built outside a turn; `assemble` mints and stores one first.
 pub(crate) fn request_identity(thread: &ThreadId, header: &Header, turn: Option<mixdog_core_api::ids::TurnId>) -> RequestThread {
     let stored = text(header, "codexWireSessionId").to_lowercase();
     let wire = (text(header, "provider") == "openai-oauth" && is_uuid_v7(&stored)).then(|| ThreadId::from(stored.as_str()));
@@ -425,6 +425,28 @@ impl RunParts for HostRunParts {
         let (thread, header) = (input.thread, input.header);
         let provider_id = text(header, "provider");
         let directory = s.directory.upgrade().ok_or_else(|| refuse("the session directory is closed"))?;
+        // `ensureCodexWireSessionId` (`ask-turn-open.mjs:85`): a Codex session with no valid stored wire identity (a fork
+        // or a cold heir does not carry the source's, `cold-heir.mjs:70`) mints one and stores it before its first request.
+        let ensured;
+        let header = if provider_id == "openai-oauth" && !is_uuid_v7(&text(header, "codexWireSessionId").to_lowercase()) {
+            directory
+                .update_header(
+                    thread,
+                    Box::new(|stored| {
+                        let mut set = serde_json::Map::new();
+                        if !is_uuid_v7(&text(stored, "codexWireSessionId").to_lowercase()) {
+                            set.insert("codexWireSessionId".into(), json!(uuid::Uuid::now_v7().to_string()));
+                        }
+                        mixdog_store::schema::record::HeaderChange { set, unset: Vec::new() }
+                    }),
+                )
+                .await
+                .map_err(|error| refuse(error.to_string()))?;
+            ensured = directory.handle(thread).map(|handle| handle.live_header().header());
+            ensured.as_deref().unwrap_or(header)
+        } else {
+            header
+        };
         let RequestParts { provider, cwd, tool_set, settings, options } = self
             .request_parts(RequestSource {
                 thread,
