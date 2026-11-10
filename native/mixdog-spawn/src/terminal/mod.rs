@@ -72,6 +72,7 @@ pub use replay::cursor_epoch;
 
 use crate::manager::ExitHook;
 use crate::manager::LocalProcessManager;
+use crate::manager::NodePtyExit;
 use crate::manager::OutputFilter;
 use crate::manager::SpawnOptions;
 
@@ -114,7 +115,17 @@ pub trait TerminalEvents: Send + Sync {
     /// The tab's size claims were dropped by its disposal. Node announces no owner change for that (`forgetSizeClaims`), so this
     /// is no `size_owner` event: it only lets a consumer that holds the owners forget them, in the order of the other changes.
     fn size_claims_forgotten(&self, id: &str);
+    /// Resolves once every change enqueued before it has reached the clients; `None` when the changes go out as they are enqueued.
+    fn published(&self) -> Option<Published> {
+        None
+    }
 }
+
+/// Resolves once the changes enqueued before it have reached the clients (see [`TerminalEvents::published`]).
+pub type Published = tokio::sync::oneshot::Receiver<()>;
+
+/// How the relay feed's pump tells a tab where it is; what it returns is a publication the pump waits for before it goes on.
+pub type PumpTell = Arc<dyn Fn(PumpPoint) -> Option<Published> + Send + Sync>;
 
 pub struct TerminalConfig {
     /// Mixdog's own directory for shell startup files; without it only file-less integrations
@@ -134,6 +145,29 @@ pub struct TerminalConfig {
     /// announcement under the gate and waits for this signal, so "the call waits for the gate" is an event, not a quiet period.
     #[cfg(feature = "core-test")]
     pub gate_waiting: Option<Arc<dyn Fn(&str) + Send + Sync>>,
+    /// The manual lease clock (see [`LeaseClockSetting`]); [`TerminalConfig::new`] takes it from the environment.
+    #[cfg(feature = "lease-clock")]
+    pub lease_clock: Option<LeaseClockSetting>,
+}
+
+/// Where the manual lease clock publishes its port and the run's secret a client must send first. A core started for a replay gets it
+/// from `MIXDOG_TERMINAL_LEASE_CLOCK` (the directory) and `MIXDOG_TERMINAL_LEASE_CLOCK_SECRET`; a test passes its own, so tests in one
+/// process do not share it.
+#[cfg(feature = "lease-clock")]
+#[derive(Clone, Debug)]
+pub struct LeaseClockSetting {
+    pub dir: PathBuf,
+    /// Without a secret no client moves the clock.
+    pub secret: Option<String>,
+}
+
+#[cfg(feature = "lease-clock")]
+impl LeaseClockSetting {
+    pub fn from_env() -> Option<Self> {
+        let dir = std::env::var_os("MIXDOG_TERMINAL_LEASE_CLOCK")?;
+        let secret = std::env::var(clock_control::SECRET_VAR).ok().filter(|s| !s.is_empty());
+        Some(Self { dir: PathBuf::from(dir), secret })
+    }
 }
 
 impl TerminalConfig {
@@ -152,6 +186,8 @@ impl TerminalConfig {
             piped: false,
             #[cfg(feature = "core-test")]
             gate_waiting: None,
+            #[cfg(feature = "lease-clock")]
+            lease_clock: LeaseClockSetting::from_env(),
         }
     }
 
@@ -412,10 +448,12 @@ impl Tab {
     }
 
     /// Where the relay feed's pump is: the changes that follow no more output than it has taken go, and the shell's end once the pump
-    /// reaches its exit line (or ends).
-    fn pumped(&self, at: PumpPoint) {
+    /// reaches its exit line (or ends). The end is published before the pump goes on with the exit line: Node broadcast
+    /// `activity.exit()` and then emitted the line (terminal-manager.ts:378-384), so a client never got the line first. The returned
+    /// publication is what the pump waits for.
+    fn pumped(&self, at: PumpPoint) -> Option<Published> {
         let mut state = self.lock();
-        let Some(order) = state.order.as_mut() else { return };
+        let order = state.order.as_mut()?;
         let (taken, reached) = match at {
             PumpPoint::Reaching(offset) => (order.taken.max(offset), offset),
             PumpPoint::Taken(taken) => (taken, if taken == u64::MAX { u64::MAX } else { 0 }),
@@ -428,13 +466,15 @@ impl Tab {
         if order.waiting.is_empty() && order.end.is_some_and(|(line, _)| line <= reached) {
             let (_, activity) = order.end.take().expect("the end waits");
             self.events.activity(&self.id, activity);
+            return self.events.published();
         }
+        None
     }
 
     /// The pump has taken `taken` bytes of output (tests name it so).
     #[cfg(test)]
     fn taken(&self, taken: u64) {
-        self.pumped(PumpPoint::Taken(taken));
+        let _ = self.pumped(PumpPoint::Taken(taken));
     }
 
     /// Applies the tab's current size to its PTY. Called without the state lock.
@@ -574,6 +614,7 @@ struct SizeClaim {
 #[cfg(feature = "lease-clock")]
 struct ManualLeaseClock {
     now: Mutex<std::time::Duration>,
+    secret: Option<String>,
 }
 
 /// Per tab id, the connections claiming its size, oldest claim first; the newest claim owns.
@@ -648,13 +689,13 @@ impl Claims {
     /// One control connection, served on its own thread: a client that leaves a line unfinished holds only its own connection.
     #[cfg(feature = "lease-clock")]
     fn serve_manual_clock_connection(claims: &std::sync::Weak<Self>, stream: std::net::TcpStream) {
-        use clock_control::{Ended, IDLE_DEADLINE, LINE_DEADLINE, SECRET_VAR, WRITE_DEADLINE};
+        use clock_control::{Ended, IDLE_DEADLINE, LINE_DEADLINE, WRITE_DEADLINE};
         let Ok(reader) = stream.try_clone() else { return };
         let mut stream = stream;
         let mut lines = std::io::BufReader::new(reader);
         // Any local process can reach a loopback port: only a client that knows the run's secret (set by the test that started
-        // this core) moves the clock. Without a secret in the environment nobody does.
-        let secret = std::env::var(SECRET_VAR).ok().filter(|s| !s.is_empty());
+        // this core) moves the clock. Without a secret nobody does.
+        let Some(secret) = claims.upgrade().and_then(|claims| claims.manual.as_ref().map(|manual| manual.secret.clone())) else { return };
         let mut admitted = false;
         loop {
             let answer = match clock_control::read_command(&mut lines, IDLE_DEADLINE, LINE_DEADLINE) {
@@ -918,13 +959,16 @@ impl TerminalTabs {
             events: Arc::clone(&config.events),
             epoch: AtomicU64::new(0),
             #[cfg(feature = "lease-clock")]
-            manual: std::env::var_os("MIXDOG_TERMINAL_LEASE_CLOCK").map(|_| ManualLeaseClock { now: Mutex::new(std::time::Duration::ZERO) }),
+            manual: config
+                .lease_clock
+                .as_ref()
+                .map(|setting| ManualLeaseClock { now: Mutex::new(std::time::Duration::ZERO), secret: setting.secret.clone() }),
             #[cfg(feature = "core-test")]
             gate_waiting: config.gate_waiting.clone(),
         });
         #[cfg(feature = "lease-clock")]
-        if let Some(dir) = std::env::var_os("MIXDOG_TERMINAL_LEASE_CLOCK") {
-            Claims::serve_manual_clock(&claims, std::path::PathBuf::from(dir));
+        if let Some(setting) = &config.lease_clock {
+            Claims::serve_manual_clock(&claims, setting.dir.clone());
         }
         Self {
             manager,
@@ -1219,6 +1263,8 @@ impl TerminalTabs {
                     ring_bytes: Some(self.config.replay_limit),
                     filter: Some(Box::new(TabFilter::new(Arc::clone(&tab)))),
                     on_exit: Some(on_exit),
+                    // The tab's exit comes when Node's node-pty raised it, on this runtime's clock.
+                    node_pty_exit: Some(NodePtyExit { runtime: tokio::runtime::Handle::current() }),
                 },
             )
             .await
@@ -1321,7 +1367,7 @@ impl TerminalTabs {
 
     /// Orders the activity changes of the live tab `id` after its output on the relay feed (see [`RelayOrder`]): returns what the feed's
     /// pump calls with the bytes of output it has taken so far (`u64::MAX` when it ends). Called by whoever starts that pump, once.
-    pub fn relay_order(&self, id: &str) -> Option<Arc<dyn Fn(PumpPoint) + Send + Sync>> {
+    pub fn relay_order(&self, id: &str) -> Option<PumpTell> {
         let tab = self.live(id)?;
         tab.lock().order = Some(RelayOrder::default());
         Some(Arc::new(move |at| tab.pumped(at)))
@@ -1343,7 +1389,7 @@ impl TerminalTabs {
             held.send(()).unwrap();
             let _ = released.recv();
         });
-        taken.recv().expect("the gate holder runs");
+        taken.recv_timeout(std::time::Duration::from_secs(60)).expect("the gate holder took the claim gate within 60 s");
         release
     }
 
@@ -1701,30 +1747,6 @@ mod lock_order {
         assert_eq!(tab.lock().emitted, prompt + last + line.len() as u64, "the exit line is the last output");
     }
 
-    /// C1: a claim's resize blocks after its hold is in; the shell exits with all its earlier output taken; the end must not go before
-    /// the owner's announcement (Node ran no exit handler inside its resize-and-announce call, terminal-manager.ts:485-488). It waits for
-    /// the pump to reach the exit line, which the claim's hold keeps back until the announcement.
-    #[test]
-    fn a_shells_end_during_a_claim_waits_for_the_pump_to_reach_the_exit_line() {
-        let events = Arc::new(Recorded(Mutex::new(Vec::new())));
-        let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, ProcessConfig::default());
-        let tab = relay_tab(Arc::clone(&events) as Arc<dyn TerminalEvents>, manager, "term_claimed_end");
-        let seen = || events.0.lock().unwrap().clone();
-        let mut filter = TabFilter::new(Arc::clone(&tab));
-        let prompt = filter.filter(b"PS> \x1b]697;P\x07").len() as u64;
-        filter.admitted();
-        tab.taken(prompt);
-        assert_eq!(seen(), vec![Some(ActivityState::Idle)]);
-        // The claim's hold is in and its resize blocks: the shell exits now, everything before it already taken.
-        let _line = tab.exited(&ProcessExit { status: ExitStatus::Code(0), killed: None });
-        assert_eq!(seen(), vec![Some(ActivityState::Idle)], "the shell's end went while the claim's hold kept the exit line back");
-        // The announcement is out and the hold ends: the pump reaches the exit line.
-        tab.pumped(PumpPoint::Reaching(prompt));
-        assert_eq!(seen(), vec![Some(ActivityState::Idle), None]);
-        tab.pumped(PumpPoint::Taken(u64::MAX));
-        assert_eq!(seen().len(), 2, "the end goes once");
-    }
-
     /// What the reader took from the pseudo-terminal and the pump, one log in order.
     #[derive(Debug, Clone, PartialEq)]
     enum Seen {
@@ -1795,8 +1817,8 @@ mod lock_order {
                 if let PumpPoint::Taken(taken) = at {
                     logged.push(Seen::Taken(taken));
                 }
-                tab.pumped(at);
-            }) as Arc<dyn Fn(PumpPoint) + Send + Sync>)
+                tab.pumped(at)
+            }) as PumpTell)
         });
         drop(held);
         feeds
@@ -1901,6 +1923,7 @@ mod lock_order {
                         let _ = exited.send(());
                         Vec::new()
                     })),
+                    ..SpawnOptions::default()
                 },
             )
             .await

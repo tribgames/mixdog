@@ -207,6 +207,11 @@ impl Feed {
         self.changed.notify_waiters();
     }
 
+    /// Notified on every change of the feed (output, the exit).
+    pub(crate) fn changed(&self) -> &Notify {
+        &self.changed
+    }
+
     /// Output bytes pushed so far.
     pub(crate) fn pushed(&self) -> u64 {
         self.lock().pushed
