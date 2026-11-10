@@ -13,12 +13,12 @@
 //   node benchmarks/rust-core/recorders/record-call-tool.mjs --tree <exact export of b6f10295a with node_modules>
 //
 // Output: native/core/fixtures/call-tool/golden.json (+ MANIFEST.json). The `script` of each scenario is the recorder's input.
-import { spawn, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { endSandbox } from './sandbox-janitor.mjs';
 
 const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
 const recorder = 'benchmarks/rust-core/recorders/record-call-tool.mjs';
@@ -32,49 +32,70 @@ process.env.MIXDOG_AGENT_TRACE_DISABLE = '';
 process.env.MIXDOG_AGENT_TRACE_LOCAL_DISABLE = '';
 process.env.MIXDOG_AGENT_TRACE_PATH = join(sandbox, 'agent-trace.jsonl');
 process.env.MIXDOG_RUNTIME_ROOT = join(sandbox, 'no-service');
-mkdirSync(process.env.MIXDOG_DATA_DIR, { recursive: true });
+mkdirSync(join(process.env.MIXDOG_DATA_DIR, 'history'), { recursive: true });
 
-// The Node daemon the scenarios start leaves a Postgres (and its cmd.exe launcher) running under the sandbox profile, and nothing else ends
-// it. Every process it started is found by the profile path in its command line (the path is unique to this run: mkdtemp), ended with its
-// tree, and the profile removed, on every way out of this process: a normal end, a throw, an unhandled rejection (all reach 'exit') and an
-// interrupt or termination (turned into an exit). Only a kill of this process itself (SIGKILL) skips it; the next run's profile is a new folder,
-// so the leftover is the folder named `rec-call-tool-*` with the processes whose command line holds it.
-// A detached janitor outlives this process: it ends what is left once this process is gone, whichever way it went (see sandbox-janitor.mjs).
-spawn(process.execPath, [fileURLToPath(new URL('./sandbox-janitor.mjs', import.meta.url)), String(process.pid), sandbox], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+// What this recording leaves behind is ended by ownership, never through a pid found in a listing:
+//   (a) the Node product's own stop: the daemon's PostgreSQL stop (`createDaemonPgStop`, standalone/daemon-pg-stop.mjs, which runs
+//       `shutdownOwnedPg`), awaited under a deadline, below in `finishSandbox`;
+//   (b) a cluster still running for the profile: `pg_ctl stop -m fast -D <the profile's data directory>` (sandbox-janitor.mjs `endSandbox`);
+//   (c) what this recorder spawned, through the ChildProcess it holds: the janitor, below.
+// A process that still names the profile after that is not killed: the run fails naming it and the profile stays for inspection.
+// The janitor is a detached process holding the other end of a pipe: the pipe reaches end-of-file when this process dies by any means,
+// which makes it run (b) and the removal for a recording that could run nothing. `keep` on the pipe says the profile must stay.
+const janitor = spawn(process.execPath, [fileURLToPath(new URL('./sandbox-janitor.mjs', import.meta.url))], {
+  env: { ...process.env, REC_SANDBOX: sandbox },
+  detached: true,
+  stdio: ['pipe', 'ignore', 'inherit'],
+  windowsHide: true,
+});
+janitor.unref();
+janitor.stdin.unref();
+janitor.stdin.on('error', () => {});
 
-function cleanSandbox() {
-  const list = spawnSync(
-    'powershell.exe',
-    ['-NoProfile', '-Command', "Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine.Contains($env:REC_SANDBOX) -and -not $_.CommandLine.Contains('sandbox-janitor') } | ForEach-Object { $_.ProcessId }"],
-    { env: { ...process.env, REC_SANDBOX: sandbox }, encoding: 'utf8', timeout: 30_000 }
-  );
-  if (list.status !== 0) {
-    console.error(`cannot list the processes of ${sandbox}: status ${list.status} ${list.error ?? list.stderr}`);
-    process.exitCode = 1;
-  }
-  for (const pid of (list.stdout ?? '').split(/\s+/).filter(Boolean)) {
-    // 128: the process already ended with its parent's tree.
-    const ended = spawnSync('taskkill', ['/T', '/F', '/PID', pid], { stdio: 'ignore', timeout: 15_000 });
-    if (ended.status !== 0 && ended.status !== 128) {
-      console.error(`cannot end pid ${pid} of ${sandbox}: status ${ended.status} ${ended.error ?? ''}`);
-      process.exitCode = 1;
+const withDeadline = (promise, label, ms) => {
+  let timer;
+  const expired = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label}: not done after ${ms} ms`)), ms);
+  });
+  return Promise.race([promise, expired]).finally(() => clearTimeout(timer));
+};
+let productStop = null;
+let sandboxEnded = false;
+async function finishSandbox() {
+  if (sandboxEnded) return;
+  sandboxEnded = true;
+  const failures = [];
+  if (productStop) {
+    try {
+      await withDeadline(productStop(), "the Node product's PostgreSQL stop", 60_000);
+    } catch (error) {
+      failures.push(error.message);
     }
   }
-  try {
-    rmSync(sandbox, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
-  } catch (error) {
-    console.error(`cannot remove ${sandbox}: ${error.message}`);
+  failures.push(...endSandbox(sandbox));
+  for (const failure of failures) console.error(failure);
+  if (failures.length) {
     process.exitCode = 1;
+    janitor.stdin.write('keep');
   }
+  janitor.stdin.end();
 }
-// Registered now for a failure while loading, and again once the tree's modules are loaded (below): the tree's own exit hooks write a
-// trace and a usage file under the profile, and run in the order they were registered, so the last registration removes what they wrote.
-process.on('exit', cleanSandbox);
-for (const signal of ['SIGINT', 'SIGTERM', 'SIGBREAK']) process.on(signal, () => process.exit(130));
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGBREAK']) {
+  process.on(signal, () => {
+    void finishSandbox().finally(() => process.exit(130));
+  });
+}
+// The rest of the recorder runs inside this block (not indented, to keep the recording's text as it was): a failure anywhere in it
+// ends the sandbox the same way a normal end does.
+try {
 const { FIXTURES_ROOT, commitStage, exactProductIdentity, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
 const tree = resolveTree(parseArgs());
 const identity = exactProductIdentity(tree, NODE_COMMIT);
 const imp = (rel) => import(pathToFileURL(join(tree, rel)).href);
+{
+  const { createDaemonPgStop } = await imp('src/standalone/daemon-pg-stop.mjs');
+  productStop = () => createDaemonPgStop({ log: (message) => console.log(`[product stop] ${message}`), stopTimeoutMs: 20_000 }).finish();
+}
 const S = 'src/runtime/agent/orchestrator/';
 
 // ---- the event loop the scenarios run on ----------------------------------------------------------------------------------------
@@ -558,7 +579,6 @@ function stripTiming(message) {
 
 // The first approval of a process builds the human gate's store (human-gate/store.mjs:186 `humanGateStore`, a dynamic import): once, before any scenario.
 await humanGateStore();
-process.on('exit', cleanSandbox);
 
 const scenarios = [];
 for (const scenario of SCENARIOS) {
@@ -597,4 +617,11 @@ writeJson(join(stage, 'golden.json'), {
 writeSetManifest(stage, { set: 'call-tool', recorder, command: `node ${recorder} --tree <exact export of ${NODE_COMMIT}>`, identity, extra: { scenarios: scenarios.length } });
 commitStage(stage, finalDir);
 console.log(`scenarios=${scenarios.length}`);
-process.exit(0);
+} catch (error) {
+  console.error(error);
+  process.exitCode = 1;
+} finally {
+  await finishSandbox();
+}
+// Open handles of the product's modules (its pools, timers) would keep the process alive.
+process.exit(process.exitCode ?? 0);
